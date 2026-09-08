@@ -1,0 +1,1 @@
+# Okwankyer_fo_Pa.
