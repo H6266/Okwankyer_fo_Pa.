@@ -4,6 +4,7 @@ from flask import Flask, request, Response, send_from_directory
 app = Flask(__name__)
 
 PORT = int(os.environ.get("PORT", "5000"))
+TRANSFER_NUMBER = os.environ.get("TRANSFER_NUMBER", "+233000000000")  # set this to your real agent/line number
 
 def get_public_base_url():
     public_base = os.environ.get("BASE_URL") or os.environ.get("PUBLIC_BASE_URL")
@@ -66,9 +67,12 @@ def main_menu():
     lang = request.args.get("lang", "en")
     base_url = get_public_base_url()
 
+    # Pick the welcome audio based on selected language
+    welcome_file = "welcome-en-fixed.mp3" if lang == "en" else "welcome-twi.mp3"
+
     response_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Play>{base_url}/audio/welcome-en-fixed.mp3</Play>
+    <Play>{base_url}/audio/{welcome_file}</Play>
     <Redirect>{base_url}/transfer-menu?lang={lang}</Redirect>
 </Response>
 """
@@ -80,6 +84,7 @@ def transfer_menu():
     response_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Play>{base_url}/audio/intro.mp3</Play>
+    <Dial phoneNumbers="{TRANSFER_NUMBER}"/>
 </Response>
 """
     return Response(response_xml, mimetype="application/xml")
