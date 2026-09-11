@@ -9,7 +9,7 @@ def get_public_base_url():
     public_base = os.environ.get("BASE_URL") or os.environ.get("PUBLIC_BASE_URL")
     if public_base:
         return public_base.rstrip("/")
-    return request.url_root.rstrip("/")
+    return request.host_url.rstrip("/")
 
 @app.route("/")
 def home():
@@ -31,7 +31,7 @@ def health():
 def audio_file(filename):
     return send_from_directory("audio", filename)
 
-@app.route("/voice-menu", methods=["POST"])
+@app.route("/voice-menu", methods=["GET", "POST"])
 def voice_menu():
     base_url = get_public_base_url()
     audio_url = f"{base_url}/audio/intro.mp3"
@@ -48,9 +48,9 @@ def voice_menu():
 """
     return Response(response_xml, mimetype="application/xml")
 
-@app.route("/language-selection", methods=["POST"])
+@app.route("/language-selection", methods=["GET", "POST"])
 def language_selection():
-    dtmf_digits = request.form.get("dtmfDigits", "")
+    dtmf_digits = request.form.get("dtmfDigits", "") or request.args.get("dtmfDigits", "")
     lang = "en" if dtmf_digits == "1" else "twi" if dtmf_digits == "2" else "en"
     base_url = get_public_base_url()
 
@@ -61,7 +61,7 @@ def language_selection():
 """
     return Response(response_xml, mimetype="application/xml")
 
-@app.route("/main-menu", methods=["POST"])
+@app.route("/main-menu", methods=["GET", "POST"])
 def main_menu():
     lang = request.args.get("lang", "en")
     base_url = get_public_base_url()
@@ -74,7 +74,7 @@ def main_menu():
 """
     return Response(response_xml, mimetype="application/xml")
 
-@app.route("/transfer-menu", methods=["POST"])
+@app.route("/transfer-menu", methods=["GET", "POST"])
 def transfer_menu():
     base_url = get_public_base_url()
     response_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -84,7 +84,7 @@ def transfer_menu():
 """
     return Response(response_xml, mimetype="application/xml")
 
-@app.route("/play-audio", methods=["POST"])
+@app.route("/play-audio", methods=["GET", "POST"])
 def play_audio():
     base_url = get_public_base_url()
     audio_url = f"{base_url}/audio/intro.mp3"
