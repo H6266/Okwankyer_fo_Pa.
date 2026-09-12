@@ -1,5 +1,5 @@
 import os
-from flask import Flask, request, Response, send_from_directory
+from flask import Flask, has_request_context, request, Response, send_from_directory
 import africastalking
 
 app = Flask(__name__)
@@ -9,24 +9,24 @@ app = Flask(__name__)
 # env var) — never hardcoded here.
 #
 # IMPORTANT: the SDK decides sandbox-vs-production purely by checking
-# `username == "sandbox"`. Since you now have a LIVE voice number
-# (+233308048098), AT_USERNAME must be set to your real AT app username
-# (found in your dashboard) — NOT "sandbox" — or every request gets
-# routed to sandbox.africastalking.com, which has no idea your live
-# number exists.
-# The user's Africa's Talking username is set here as the default value.
-USERNAME = os.environ.get("AT_USERNAME", "Hannes")
+# `username == "sandbox"`. For a live voice number, AT_USERNAME must be
+# your real AT app username from the dashboard, not a local name and not
+# the word "sandbox". If this is wrong, the SDK routes API requests to the
+# wrong environment and the call flow never reaches the voice IVR.
+USERNAME = os.environ.get("AT_USERNAME")
 API_KEY = os.environ.get("AT_API_KEY")
 
 if not USERNAME:
-    print("⚠️  AT_USERNAME is not set — set it to your real app username, not 'sandbox'.")
+    print("⚠️  AT_USERNAME is not set. Set the real Africa's Talking username from your dashboard.")
 
-if API_KEY:
+if not API_KEY:
+    print("⚠️  AT_API_KEY is not set — outbound voice calls will not work until it is configured.")
+
+if USERNAME and API_KEY:
     africastalking.initialize(USERNAME, API_KEY)
     voice_client = africastalking.Voice
 else:
     voice_client = None
-    print("⚠️  AT_API_KEY is not set — outbound calls will not work until it is.")
 
 # The AT Voice number you were issued. Also set as an env var so you don't
 # have to edit code if it ever changes.
@@ -45,13 +45,18 @@ DEMO_TRANSACTION = {
 
 
 def get_public_base_url():
-    """Prefer an explicit BASE_URL env var (set this once you deploy to
-    Render) and fall back to whatever host the request came in on
-    (useful for local/ngrok testing)."""
+    """Prefer an explicit public URL from configuration, otherwise use the
+    current request host when available, and fall back to localhost for local
+    testing. This avoids crashing outside a request context and avoids
+    generating broken callback URLs."""
     public_base = os.environ.get("BASE_URL") or os.environ.get("PUBLIC_BASE_URL")
     if public_base:
         return public_base.rstrip("/")
-    return request.host_url.rstrip("/").replace("http://", "https://")
+
+    if has_request_context():
+        return request.url_root.rstrip("/")
+
+    return os.environ.get("APP_URL") or "http://localhost:55120"
 
 
 # ── Health / status routes ───────────────────────────────────────────
@@ -78,6 +83,7 @@ def ussd_trigger():
     immediately, since USSD isn't accessible) and separately place an
     outbound voice call back to them."""
     phone_number = request.form.get("phoneNumber")
+    base_url = get_public_base_url()
 
     ussd_response = (
         "END Ɔkwankyerɛfo Pa refrɛ wo sesei ara...\n"
@@ -90,12 +96,16 @@ def ussd_trigger():
             # (camelCase), not call_from / call_to. Using the wrong names
             # raises a TypeError that gets caught below and silently
             # printed — it will look like a network failure but isn't.
-            voice_client.call(callFrom=VOICE_NUMBER, callTo=[phone_number])
+            voice_client.call(
+                callFrom=VOICE_NUMBER,
+                callTo=[phone_number],
+                callbackUrl=f"{base_url}/voice-menu",
+            )
             print(f"📡 Voice trigger activated for line: {phone_number}")
         except Exception as e:
             print(f"❌ Failed to initiate callback call: {e}")
     else:
-        print("⚠️  Skipped outbound call — voice_client or phoneNumber missing.")
+        print("⚠️  Skipped outbound call — AT credentials or phoneNumber missing.")
 
     return Response(ussd_response, mimetype="text/plain")
 
@@ -109,11 +119,10 @@ def voice_menu():
 
     response_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Play>{audio_url}</Play>
-    <GetDigits timeout="10" finishOnKey="#" callbackUrl="{base_url}/language-selection">
-        <Say voice="man">For English, press 1. Twi firi mu, mia mmienu.</Say>
+    <Play url="{audio_url}"/>
+    <GetDigits timeout="2" finishOnKey="#" numDigits="1" callbackUrl="{base_url}/language-selection">
+        <Say voice="man">Press 1 for English. Press 2 for Twi.</Say>
     </GetDigits>
-    <Say voice="man">No input received. Goodbye.</Say>
 </Response>
 """
     return Response(response_xml, mimetype="application/xml")
@@ -158,10 +167,10 @@ def transfer_menu():
 
     response_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <GetDigits timeout="10" finishOnKey="#" callbackUrl="{base_url}/momo-confirmation?lang={lang}">
+    <GetDigits timeout="3" finishOnKey="#" callbackUrl="{base_url}/momo-confirmation?lang={lang}">
         <Say voice="man">{prompt}</Say>
     </GetDigits>
-    <Say voice="man">No input received. Goodbye.</Say>
+    <Say voice="man">No response. Goodbye.</Say>
 </Response>
 """
     return Response(response_xml, mimetype="application/xml")
