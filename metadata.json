@@ -1,0 +1,8 @@
+{
+  "name": "Ɔkwankyerɛfo Pa",
+  "description": "A Voice Accessibility Layer for Ghana's Digital Services (MoMo Pilot) by Team Anidasoɔ",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
