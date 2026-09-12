@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: okwankyer-fo-pa
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: AT_USERNAME
+        sync: false
+      - key: AT_API_KEY
+        sync: false
+      - key: AT_VOICE_NUMBER
+        value: "+233308048098"
+      - key: BASE_URL
+        sync: false
