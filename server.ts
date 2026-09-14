@@ -9,6 +9,7 @@ const PORT = 3000;
 // Parse standard form bodies and large payloads for audio uploads
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(express.json({ limit: "50mb" }));
+app.use(express.static(path.join(process.cwd(), "public")));
 
 // ── Config ────────────────────────────────────────────────────────────
 const USERNAME = process.env.AT_USERNAME;
@@ -310,6 +311,47 @@ app.post("/api/upload-audio", (req: Request, res: Response) => {
     console.error("Upload error:", err);
     res.status(500).json({ error: err.message || "Failed to save file" });
   }
+});
+
+// ── API: Health Status ───────────────────────────────────────────────
+app.get("/health", (_req: Request, res: Response) => {
+  res.json({
+    status: "ok",
+    service: "Ɔkwankyerɛfo Pa",
+    team: "Anidasoɔ (Hope)",
+    abstract: "A Voice Accessibility Layer for Ghana's Digital Services (MoMo Pilot)",
+    voiceNumber: VOICE_NUMBER,
+    atConfigured: Boolean(voiceClient),
+  });
+});
+
+// ── API: KYC & Recipient Directory ───────────────────────────────────
+app.get("/api/kyc/lookup", (req: Request, res: Response) => {
+  const phone = (req.query.phone as string) || "";
+  const result = lookupRecipient(phone);
+  res.json(result);
+});
+
+app.get("/api/kyc/list", (_req: Request, res: Response) => {
+  const subscribers = Object.values(REGISTERED_SUBSCRIBERS);
+  res.json({ subscribers, count: subscribers.length });
+});
+
+app.post("/api/kyc/subscriber", (req: Request, res: Response) => {
+  const { phone, name, network } = req.body;
+  if (!phone || !name || !network) {
+    return res.status(400).json({ error: "phone, name, and network are required." });
+  }
+  const cleanPhone = phone.replace(/[^0-9]/g, "");
+  if (cleanPhone.length !== 10) {
+    return res.status(400).json({ error: "Phone number must be 10 digits." });
+  }
+  REGISTERED_SUBSCRIBERS[cleanPhone] = {
+    phoneNumber: cleanPhone,
+    name: name.trim(),
+    network: network as "MTN" | "Telecel" | "AT" | "G-Money",
+  };
+  res.json({ success: true, record: REGISTERED_SUBSCRIBERS[cleanPhone] });
 });
 
 // ── Helper: VoiceXML Generator ────────────────────────────────────────
@@ -779,6 +821,13 @@ app.all("/", (req: Request, res: Response) => {
 
   const acceptsHtml = req.headers.accept && req.headers.accept.includes("text/html");
   const wantsJson = req.query.format === "json" || req.xhr;
+
+  if (acceptsHtml && !wantsJson) {
+    const indexPath = path.join(process.cwd(), "public", "index.html");
+    if (fs.existsSync(indexPath)) {
+      return res.sendFile(indexPath);
+    }
+  }
 
   if (acceptsHtml && !wantsJson) {
     const baseUrl = getPublicBaseUrl(req);

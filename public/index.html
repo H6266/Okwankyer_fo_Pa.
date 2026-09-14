@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ɔkwankyerɛfo Pa</title>
+  <meta name="description" content="A Voice Accessibility Layer for Ghana's Digital Services (MoMo Pilot) by Team Anidasoɔ">
+  <meta property="og:title" content="Ɔkwankyerɛfo Pa">
+  <meta property="og:description" content="A Voice Accessibility Layer for Ghana's Digital Services (MoMo Pilot) by Team Anidasoɔ">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Top Header Navigation -->
+    <header class="top-nav" id="topNav">
+      <div class="brand-group">
+        <div class="logo-mark" id="logoMark">
+          <span class="logo-icon">🔊</span>
+        </div>
+        <div class="brand-text">
+          <div class="brand-headline">
+            <h1 class="brand-title" id="appTitle">Ɔkwankyerɛfo Pa</h1>
+            <span class="brand-badge-trans">"The Good Guide"</span>
+            <span class="brand-pill team-pill" id="teamBadge">Team Anidasoɔ (Hope)</span>
+          </div>
+          <p class="brand-tagline" id="appTagline">Voice Accessibility Layer for Ghana's Digital Services &bull; Mobile Money Pilot</p>
+        </div>
+      </div>
+
+      <div class="header-status-group" id="headerStatusGroup">
+        <div class="gateway-indicator" id="gatewayIndicator">
+          <span class="pulse-dot"></span>
+          <span class="gateway-label">AT Voice Gateway Active</span>
+          <span class="gateway-number" id="headerVoiceNumber">+233 30 804 8098</span>
+        </div>
+        <button class="btn btn-sm btn-outline" id="btnQuickDial" onclick="window.app.quickTriggerCall()">
+          <span>📞</span> Dial Test Phone
+        </button>
+      </div>
+    </header>
+
+    <!-- Architecture & Project Overview Banner -->
+    <section class="overview-banner" id="overviewBanner">
+      <div class="overview-content">
+        <div class="overview-text">
+          <div class="overview-badge">Mission &amp; Architecture Overview</div>
+          <h2 class="overview-title">Empowering Every Ghanaian with Voice-First Digital Services</h2>
+          <p class="overview-desc">
+            <strong>Ɔkwankyerɛfo Pa</strong> acts as an independent voice accessibility layer sitting between Ghanaian citizens (especially visually impaired, non-literate, and elderly users) and digital services like Mobile Money. Instead of replacing existing telcos (MTN, Telecel, AT), it introduces <strong>Bilingual Voice Guidance (Akan Twi &amp; English)</strong>, a <strong>Universal Navigation Grammar</strong>, <strong>Smart KYC Name Verification</strong>, and a strict <strong>Zero-PIN Voice Security Gate</strong>.
+          </p>
+        </div>
+        <div class="overview-metrics-grid">
+          <div class="metric-card" id="metricCardCoverage">
+            <div class="metric-num" id="statCoverage">94%</div>
+            <div class="metric-label">Voice Prompt Coverage</div>
+            <div class="metric-sub" id="statCoverageSub">Native Audio + TTS Fallback</div>
+          </div>
+          <div class="metric-card" id="metricCardDialects">
+            <div class="metric-num" id="statDialects">3</div>
+            <div class="metric-label">Ghanaian Dialects</div>
+            <div class="metric-sub">Asante Twi, Akuapem, EN-GH</div>
+          </div>
+          <div class="metric-card" id="metricCardSecurity">
+            <div class="metric-num metric-secure" id="statSecurity">Zero-PIN</div>
+            <div class="metric-label">Security Protocol</div>
+            <div class="metric-sub">No PIN over voice calls</div>
+          </div>
+          <div class="metric-card" id="metricCardDataset">
+            <div class="metric-num" id="statDatasetSamples">18</div>
+            <div class="metric-label">Dataset Phrases</div>
+            <div class="metric-sub">Ready for batch ingest</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Navigation Tabs -->
+    <nav class="tab-bar" id="mainTabBar" role="tablist">
+      <button class="tab-btn active" id="tabBtnSimulator" role="tab" aria-selected="true" onclick="window.app.switchTab('simulator')">
+        <span class="tab-icon">📱</span> Interactive Call Simulator
+      </button>
+      <button class="tab-btn" id="tabBtnStudio" role="tab" aria-selected="false" onclick="window.app.switchTab('studio')">
+        <span class="tab-icon">🎙️</span> Voice Dataset &amp; Audio Studio
+      </button>
+      <button class="tab-btn" id="tabBtnKyc" role="tab" aria-selected="false" onclick="window.app.switchTab('kyc')">
+        <span class="tab-icon">👥</span> Smart KYC &amp; Recipient Resolver
+      </button>
+      <button class="tab-btn" id="tabBtnNavGrammar" role="tab" aria-selected="false" onclick="window.app.switchTab('grammar')">
+        <span class="tab-icon">🛡️</span> Universal Grammar &amp; Security
+      </button>
+      <button class="tab-btn" id="tabBtnApi" role="tab" aria-selected="false" onclick="window.app.switchTab('api')">
+        <span class="tab-icon">⚡</span> Africa's Talking API &amp; Webhooks
+      </button>
+    </nav>
+
+    <!-- TAB 1: Interactive Call Simulator -->
+    <section class="tab-panel active" id="panelSimulator" role="tabpanel">
+      <div class="simulator-layout">
+        <!-- Phone Handset Frame -->
+        <div class="phone-frame" id="phoneFrame">
+          <div class="phone-speaker-ear"></div>
+          <div class="phone-screen" id="phoneScreen">
+            <div class="phone-status-bar">
+              <span class="phone-carrier" id="phoneCarrier">MTN MoMo 4G</span>
+              <span class="phone-time" id="phoneClock">12:00</span>
+              <span class="phone-icons">📶 🔋 98%</span>
+            </div>
+
+            <!-- Call State Banner -->
+            <div class="call-header-display">
+              <div class="call-avatar" id="callAvatar">🔊</div>
+              <div class="call-caller-name" id="callCallerName">Ɔkwankyerɛfo Pa</div>
+              <div class="call-caller-sub" id="callCallerSub">+233 30 804 8098 &bull; Voice Layer</div>
+              <div class="call-timer" id="callTimer">00:00</div>
+              <div class="call-badge-chip" id="callStatusBadge">Call Idle</div>
+            </div>
+
+            <!-- Sound Wave Canvas Visualizer -->
+            <div class="waveform-container" id="waveformContainer">
+              <canvas id="waveformCanvas" width="280" height="40"></canvas>
+              <div class="audio-source-indicator" id="audioSourceIndicator">Source: Hybrid Native Audio</div>
+            </div>
+
+            <!-- Current Spoken Prompt Box -->
+            <div class="prompt-box" id="promptBox">
+              <div class="prompt-step-tag" id="currentStepTag">Step 1: Welcome &amp; Language</div>
+              <div class="prompt-text-twi" id="currentPromptTwi">"For English, press 1. Twi firi mu, mia 2."</div>
+              <div class="prompt-text-en" id="currentPromptEn">"For English, press 1. For Akan Twi, press 2."</div>
+            </div>
+
+            <!-- In-Phone Audio Player Component -->
+            <div class="phone-audio-player" id="phoneAudioPlayerContainer">
+              <audio id="phoneAudioElement" preload="auto"></audio>
+              <div class="audio-controls-row">
+                <button class="btn-audio-action" id="btnReplayAudio" title="Replay Spoken Audio" onclick="window.app.replayCurrentAudio()">
+                  <span>🔄 Replay (9)</span>
+                </button>
+                <button class="btn-audio-action" id="btnToggleAudioMute" title="Toggle Sound Tones" onclick="window.app.toggleDtmfSound()">
+                  <span id="muteLabel">🔊 DTMF Sound On</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Step Specific Interactive Action Panel inside Screen -->
+            <div class="step-controls-viewport" id="stepControlsViewport">
+              <!-- Dynamically populated by JS according to step -->
+            </div>
+          </div>
+
+          <!-- Realistic Physical DTMF Keypad with Dual Tones -->
+          <div class="phone-keypad-container" id="phoneKeypadContainer">
+            <div class="keypad-title-bar">
+              <span>Universal Voice Keypad</span>
+              <span class="keypad-hint">Keyboard 0-9, *, # active</span>
+            </div>
+            <div class="keypad-grid" id="keypadGrid">
+              <button class="key-btn" id="key1" onclick="window.app.pressKey('1')">
+                <span class="key-digit">1</span>
+                <span class="key-sub">EN / Confirm</span>
+              </button>
+              <button class="key-btn" id="key2" onclick="window.app.pressKey('2')">
+                <span class="key-digit">2</span>
+                <span class="key-sub">Twi / Balance</span>
+              </button>
+              <button class="key-btn" id="key3" onclick="window.app.pressKey('3')">
+                <span class="key-digit">3</span>
+                <span class="key-sub">AT Network</span>
+              </button>
+              <button class="key-btn" id="key4" onclick="window.app.pressKey('4')">
+                <span class="key-digit">4</span>
+                <span class="key-sub">GHI</span>
+              </button>
+              <button class="key-btn" id="key5" onclick="window.app.pressKey('5')">
+                <span class="key-digit">5</span>
+                <span class="key-sub">JKL</span>
+              </button>
+              <button class="key-btn" id="key6" onclick="window.app.pressKey('6')">
+                <span class="key-digit">6</span>
+                <span class="key-sub">MNO</span>
+              </button>
+              <button class="key-btn" id="key7" onclick="window.app.pressKey('7')">
+                <span class="key-digit">7</span>
+                <span class="key-sub">PQRS</span>
+              </button>
+              <button class="key-btn key-nav" id="key8" onclick="window.app.pressKey('8')">
+                <span class="key-digit">8</span>
+                <span class="key-sub nav-highlight">&larr; Back (8)</span>
+              </button>
+              <button class="key-btn key-nav" id="key9" onclick="window.app.pressKey('9')">
+                <span class="key-digit">9</span>
+                <span class="key-sub nav-highlight">&#8635; Repeat (9)</span>
+              </button>
+              <button class="key-btn" id="keyStar" onclick="window.app.pressKey('*')">
+                <span class="key-digit">*</span>
+                <span class="key-sub">Pesewas (.)</span>
+              </button>
+              <button class="key-btn key-cancel" id="key0" onclick="window.app.pressKey('0')">
+                <span class="key-digit">0</span>
+                <span class="key-sub cancel-highlight">&#10005; Cancel (0)</span>
+              </button>
+              <button class="key-btn key-submit" id="keyHash" onclick="window.app.pressKey('#')">
+                <span class="key-digit">#</span>
+                <span class="key-sub submit-highlight">&#10003; Submit (#)</span>
+              </button>
+            </div>
+
+            <!-- Call Action Controls -->
+            <div class="call-bar-actions">
+              <button class="btn btn-call-start" id="btnStartSimCall" onclick="window.app.startCall()">
+                <span>📞</span> Start Call Simulation
+              </button>
+              <button class="btn btn-call-end" id="btnEndSimCall" onclick="window.app.endCall()">
+                <span>🔴</span> Hang Up / Reset
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Side: Flow Debugger & VoiceXML Inspector -->
+        <div class="sim-sidebar">
+          <!-- Flow Roadmap Card -->
+          <div class="panel-card" id="flowRoadmapCard">
+            <div class="panel-header">
+              <h3 class="panel-title"><span>🧭</span> Accessibility Call Pipeline</h3>
+              <span class="badge" id="flowStepBadge">Step 1 of 8</span>
+            </div>
+            <div class="flow-stepper" id="flowStepper">
+              <div class="flow-step current" id="stepIndicatorWelcome">
+                <div class="step-num">1</div>
+                <div class="step-info">
+                  <div class="step-title">Welcome &amp; Language Choice</div>
+                  <div class="step-desc">English (1) or Twi (2) selection</div>
+                </div>
+              </div>
+              <div class="flow-step" id="stepIndicatorService">
+                <div class="step-num">2</div>
+                <div class="step-info">
+                  <div class="step-title">Service Selection</div>
+                  <div class="step-desc">Telecom / MoMo (1) vs Banking (2)</div>
+                </div>
+              </div>
+              <div class="flow-step" id="stepIndicatorProvider">
+                <div class="step-num">3</div>
+                <div class="step-info">
+                  <div class="step-title">Network Provider</div>
+                  <div class="step-desc">MTN (1), Telecel (2), or AT (3)</div>
+                </div>
+              </div>
+              <div class="flow-step" id="stepIndicatorAction">
+                <div class="step-num">4</div>
+                <div class="step-info">
+                  <div class="step-title">Action Menu</div>
+                  <div class="step-desc">Send Money (1) or Balance (2)</div>
+                </div>
+              </div>
+              <div class="flow-step" id="stepIndicatorRecipient">
+                <div class="step-num">5</div>
+                <div class="step-info">
+                  <div class="step-title">Recipient &amp; KYC Resolver</div>
+                  <div class="step-desc">10-digit number &bull; KYC Name Lookup</div>
+                </div>
+              </div>
+              <div class="flow-step" id="stepIndicatorAmount">
+                <div class="step-num">6</div>
+                <div class="step-info">
+                  <div class="step-title">Amount Input</div>
+                  <div class="step-desc">Cedis &bull; Star (*) for pesewas &bull; Finish #</div>
+                </div>
+              </div>
+              <div class="flow-step" id="stepIndicatorConfirm">
+                <div class="step-num">7</div>
+                <div class="step-info">
+                  <div class="step-title">Safe Confirmation Innovation</div>
+                  <div class="step-desc">Full human name &amp; amount read-back</div>
+                </div>
+              </div>
+              <div class="flow-step" id="stepIndicatorDone">
+                <div class="step-num">8</div>
+                <div class="step-info">
+                  <div class="step-title">Zero-PIN Security Handoff</div>
+                  <div class="step-desc">Private screen prompt notification</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Live VoiceXML Response Inspector -->
+          <div class="panel-card" id="xmlInspectorCard">
+            <div class="panel-header">
+              <h3 class="panel-title"><span>📄</span> Africa's Talking VoiceXML Response</h3>
+              <button class="btn btn-sm btn-ghost" id="btnCopyXml" onclick="window.app.copyCurrentXml()">Copy XML</button>
+            </div>
+            <p class="panel-desc">Exact XML generated by the backend server for the Africa's Talking telephony engine at this step:</p>
+            <div class="code-container">
+              <pre><code id="liveXmlCode">&lt;!-- Call not started. Click 'Start Call Simulation' to stream VoiceXML --&gt;</code></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: Voice Dataset & Audio Studio -->
+    <section class="tab-panel" id="panelStudio" role="tabpanel">
+      <!-- Dataset Header & Integration Readiness -->
+      <div class="dataset-intro-box">
+        <div class="intro-main">
+          <div class="badge badge-accent">Voice Dataset Integration Hub</div>
+          <h2 class="dataset-title">Dataset Management &amp; Ingestion Architecture</h2>
+          <p class="dataset-p">
+            This module is specifically engineered to <strong>ease the integration of large voice datasets</strong> into Ɔkwankyerɛfo Pa. You can preview existing IVR phrases, inspect audio coverage across Ghanaian dialects (Asante Twi, Akuapem Twi, Fante, Ga, Ewe), record new phrases directly from your microphone, upload batch WAV/MP3 files, and trigger automated dataset ingestion through our REST API.
+          </p>
+        </div>
+        <div class="dataset-quick-actions">
+          <button class="btn btn-primary" id="btnOpenRecordModal" onclick="window.app.openRecordModal()">
+            <span>🎙️</span> Record Voice Phrase
+          </button>
+          <button class="btn btn-secondary" id="btnOpenUploadModal" onclick="window.app.openUploadModal()">
+            <span>📤</span> Upload Audio Files
+          </button>
+        </div>
+      </div>
+
+      <!-- Dataset Statistics Matrix -->
+      <div class="dataset-stats-grid">
+        <div class="stat-card" id="cardTotalPhrases">
+          <div class="stat-icon">📑</div>
+          <div class="stat-body">
+            <div class="stat-val" id="dsTotalPhrases">18</div>
+            <div class="stat-name">Total Core Phrases</div>
+            <div class="stat-footnote">Full coverage of MoMo IVR tree</div>
+          </div>
+        </div>
+        <div class="stat-card" id="cardNativeAudio">
+          <div class="stat-icon">🎙️</div>
+          <div class="stat-body">
+            <div class="stat-val" id="dsNativeAudioCount">6</div>
+            <div class="stat-name">Recorded Native Clips</div>
+            <div class="stat-footnote" id="dsNativeAudioSub">Studio MP3/WAV files</div>
+          </div>
+        </div>
+        <div class="stat-card" id="cardFallbackTts">
+          <div class="stat-icon">🤖</div>
+          <div class="stat-body">
+            <div class="stat-val" id="dsTtsFallbackCount">12</div>
+            <div class="stat-name">Dynamic TTS Fallbacks</div>
+            <div class="stat-footnote">Fallback when clip missing</div>
+          </div>
+        </div>
+        <div class="stat-card" id="cardStorageSize">
+          <div class="stat-icon">💾</div>
+          <div class="stat-body">
+            <div class="stat-val" id="dsStorageSize">342 KB</div>
+            <div class="stat-name">Audio Repository Size</div>
+            <div class="stat-footnote">HTTP 206 streaming enabled</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- In-Browser Voice Recording Studio (Embedded) -->
+      <div class="panel-card record-card" id="embeddedRecorderCard">
+        <div class="panel-header">
+          <h3 class="panel-title"><span>🎙️</span> In-Browser Voice Recorder for Dataset Contributors</h3>
+          <span class="badge" id="recordingStatusBadge">Mic Ready</span>
+        </div>
+        <p class="panel-desc">Record a native voice prompt for any phrase in the system. The recording is saved to the server's <code>/audio</code> store and immediately bound to Africa's Talking IVR and the simulator.</p>
+
+        <div class="recorder-grid">
+          <div class="form-group">
+            <label class="form-label" for="selectRecordPhrase">Select IVR Phrase to Record</label>
+            <select class="form-select" id="selectRecordPhrase" onchange="window.app.onPhraseSelectionChange()">
+              <!-- Populated by JS -->
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="selectRecordDialect">Target Dialect / Language</label>
+            <select class="form-select" id="selectRecordDialect">
+              <option value="asante_twi">Asante Twi (Kumasi standard)</option>
+              <option value="akuapem_twi">Akuapem Twi</option>
+              <option value="fante">Fante</option>
+              <option value="gh_english">Ghanaian English (Natural)</option>
+              <option value="ga">Ga</option>
+              <option value="ewe">Ewe</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="prompt-script-card" id="promptScriptCard">
+          <div class="script-label">Spoken Script Reference:</div>
+          <div class="script-content" id="selectedPhraseScript">Select a phrase above to view spoken text</div>
+        </div>
+
+        <!-- Live Audio Meter & Visualizer during recording -->
+        <div class="mic-visualizer-box" id="micVisualizerBox">
+          <canvas id="micWaveformCanvas" width="600" height="60"></canvas>
+          <div class="record-time" id="recordDuration">00:00</div>
+        </div>
+
+        <!-- Recorder Controls -->
+        <div class="recorder-actions">
+          <button class="btn btn-record" id="btnStartRecord" onclick="window.app.startRecording()">
+            <span>🔴</span> Start Recording
+          </button>
+          <button class="btn btn-record-stop" id="btnStopRecord" disabled onclick="window.app.stopRecording()">
+            <span>⏹</span> Stop Recording
+          </button>
+          <audio id="recordedAudioPreview" controls style="display:none;"></audio>
+          <button class="btn btn-primary" id="btnUploadRecorded" disabled onclick="window.app.uploadRecordedAudio()">
+            <span>☁️</span> Save to Voice Dataset
+          </button>
+        </div>
+      </div>
+
+      <!-- Phrase Bank & Audio Asset Catalog -->
+      <div class="panel-card" id="phraseCatalogCard">
+        <div class="panel-header">
+          <div class="header-left">
+            <h3 class="panel-title"><span>🎧</span> Complete Voice Phrase Catalog &amp; Audio Mapping</h3>
+            <span class="badge" id="phraseFilterCount">18 Prompts</span>
+          </div>
+          <div class="filter-group">
+            <input type="text" class="input-search" id="inputFilterPhrases" placeholder="Filter phrases..." oninput="window.app.filterPhraseCatalog()">
+            <select class="form-select select-sm" id="selectCategoryFilter" onchange="window.app.filterPhraseCatalog()">
+              <option value="all">All Categories</option>
+              <option value="welcome">Welcome &amp; Intro</option>
+              <option value="service">Service &amp; Provider</option>
+              <option value="transfer">Recipient &amp; Amount</option>
+              <option value="confirm">Safe Confirmation</option>
+              <option value="auth">Authorization &amp; PIN</option>
+              <option value="nav">Universal Navigation</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Phrase Table -->
+        <div class="table-responsive">
+          <table class="data-table" id="tablePhrases">
+            <thead>
+              <tr>
+                <th>Phrase ID / Stage</th>
+                <th>Category</th>
+                <th>Language / Dialect</th>
+                <th>Spoken Prompt Script</th>
+                <th>Audio Status</th>
+                <th>Listen &amp; Actions</th>
+              </tr>
+            </thead>
+            <tbody id="phraseTableBody">
+              <!-- Populated by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Batch Dataset Ingestion API & Developer Integration Guide -->
+      <div class="panel-card" id="batchApiGuideCard">
+        <div class="panel-header">
+          <h3 class="panel-title"><span>🚀</span> Automated Large Dataset Ingestion (REST API)</h3>
+          <span class="badge badge-accent">Batch Pipeline Ready</span>
+        </div>
+        <p class="panel-desc">
+          When integrating with a large voice dataset (e.g. Common Voice, Hugging Face, or bulk studio WAV files), use these script templates to programmatically ingest thousands of audio files with automatic metadata tagging.
+        </p>
+
+        <div class="code-tab-bar">
+          <button class="code-tab-btn active" id="codeTabPython" onclick="window.app.switchCodeTab('python')">Python (Batch Ingest)</button>
+          <button class="code-tab-btn" id="codeTabCurl" onclick="window.app.switchCodeTab('curl')">cURL (Single Sample)</button>
+          <button class="code-tab-btn" id="codeTabNode" onclick="window.app.switchCodeTab('node')">Node.js (Streaming)</button>
+        </div>
+
+        <div class="code-tab-content active" id="codeContentPython">
+          <pre><code>import requests
+import base64
+import os
+
+API_ENDPOINT = "https://your-applet-url.run.app/api/upload-audio"
+
+def ingest_voice_sample(filepath, target_filename, dialect="asante_twi", phrase_id="confirm_twi"):
+    with open(filepath, "rb") as audio_file:
+        encoded_audio = base64.b64encode(audio_file.read()).decode("utf-8")
+
+    payload = {
+        "filename": target_filename,
+        "base64Data": f"data:audio/mp3;base64,{encoded_audio}",
+        "phraseId": phrase_id,
+        "dialect": dialect,
+        "quality": "studio_master"
+    }
+
+    res = requests.post(API_ENDPOINT, json=payload)
+    print(f"Ingested {target_filename}: {res.status_code} - {res.json()}")
+
+# Example batch ingest directory:
+# for root, _, files in os.walk("./ghana_voice_dataset"):
+#     for f in files:
+#         if f.endswith(".mp3") or f.endswith(".wav"):
+#             ingest_voice_sample(os.path.join(root, f), f)</code></pre>
+        </div>
+
+        <div class="code-tab-content" id="codeContentCurl">
+          <pre><code># Upload an audio prompt file via cURL
+curl -X POST "https://your-applet-url.run.app/api/upload-audio" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filename": "confirm_twi.mp3",
+    "phraseId": "confirm_twi",
+    "dialect": "asante_twi",
+    "base64Data": "data:audio/mp3;base64,...base64_data_here..."
+  }'</code></pre>
+        </div>
+
+        <div class="code-tab-content" id="codeContentNode">
+          <pre><code>import fs from 'fs';
+import axios from 'axios';
+
+async function uploadAudio(filePath, filename, phraseId) {
+  const fileBuffer = fs.readFileSync(filePath);
+  const base64 = fileBuffer.toString('base64');
+
+  const res = await axios.post('https://your-applet-url.run.app/api/upload-audio', {
+    filename,
+    phraseId,
+    base64Data: `data:audio/mp3;base64,${base64}`,
+  });
+
+  console.log('Voice file indexed:', res.data);
+}</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: Smart KYC & Recipient Resolver -->
+    <section class="tab-panel" id="panelKyc" role="tabpanel">
+      <div class="grid-layout-2">
+        <!-- Live Lookup Card -->
+        <div class="panel-card" id="kycLookupCard">
+          <div class="panel-header">
+            <h3 class="panel-title"><span>🔍</span> Live Telco KYC &amp; Recipient Resolver</h3>
+            <span class="badge">Ghanaian Mobile Networks</span>
+          </div>
+          <p class="panel-desc">
+            Test any Ghanaian phone number. The engine validates length, normalizes country code (+233 &rarr; 0), detects telecom network prefix, and retrieves verified KYC names to prevent sending money to the wrong recipient.
+          </p>
+
+          <div class="form-group" style="margin-top:16px;">
+            <label class="form-label" for="inputKycTestPhone">Enter Phone Number to Test</label>
+            <div class="input-with-btn">
+              <input type="text" class="form-input" id="inputKycTestPhone" value="0241234567" placeholder="e.g. 0241234567 or +233543546010">
+              <button class="btn btn-primary" id="btnRunKycLookup" onclick="window.app.testKycLookup()">Lookup KYC</button>
+            </div>
+            <div class="quick-tags">
+              <span>Quick Test:</span>
+              <button class="tag-btn" onclick="window.app.fillKycPhone('0241234567')">0241234567 (Kofi Annan - MTN)</button>
+              <button class="tag-btn" onclick="window.app.fillKycPhone('0543546010')">0543546010 (Hannes Aboagye - MTN)</button>
+              <button class="tag-btn" onclick="window.app.fillKycPhone('0201234567')">0201234567 (Ama Serwaa - Telecel)</button>
+              <button class="tag-btn" onclick="window.app.fillKycPhone('0271234567')">0271234567 (Yaw Osei - AT)</button>
+            </div>
+          </div>
+
+          <!-- Result Display Box -->
+          <div class="kyc-result-box" id="kycResultBox" style="display:none;">
+            <div class="result-row">
+              <span class="result-label">Verified KYC Full Name:</span>
+              <span class="result-value highlight-name" id="kycResultName">-</span>
+            </div>
+            <div class="result-row">
+              <span class="result-label">Normalized Phone Number:</span>
+              <span class="result-value font-mono" id="kycResultPhone">-</span>
+            </div>
+            <div class="result-row">
+              <span class="result-label">Telecommunications Network:</span>
+              <span class="result-value" id="kycResultNetwork">-</span>
+            </div>
+            <div class="result-row">
+              <span class="result-label">Voice Safe Read-back Script:</span>
+              <span class="result-value script-quote" id="kycResultSpeech">-</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Add Custom Subscriber Card -->
+        <div class="panel-card" id="kycRegisterCard">
+          <div class="panel-header">
+            <h3 class="panel-title"><span>➕</span> Register Custom Test Subscriber</h3>
+            <span class="badge badge-accent">In-Memory Directory</span>
+          </div>
+          <p class="panel-desc">Register your own name and phone number to test voice confirmation read-back during calls:</p>
+
+          <form id="formAddSubscriber" onsubmit="window.app.submitNewSubscriber(event)">
+            <div class="form-group">
+              <label class="form-label" for="inputNewPhone">10-Digit Phone Number</label>
+              <input type="text" class="form-input" id="inputNewPhone" required placeholder="e.g. 0551234567" maxlength="10">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="inputNewName">Verified Full Name</label>
+              <input type="text" class="form-input" id="inputNewName" required placeholder="e.g. Abena Mansa">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="selectNewNetwork">Telecom Network</label>
+              <select class="form-select" id="selectNewNetwork">
+                <option value="MTN">MTN MoMo (024, 054, 055, 059, 053)</option>
+                <option value="Telecel">Telecel Cash (020, 050)</option>
+                <option value="AT">AT Money (027, 057, 026, 056)</option>
+              </select>
+            </div>
+            <button type="submit" class="btn btn-primary" id="btnAddSubscriberSubmit">Save Test Subscriber</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Subscribers Directory Table -->
+      <div class="panel-card" id="kycDirectoryCard" style="margin-top:20px;">
+        <div class="panel-header">
+          <h3 class="panel-title"><span>📋</span> Registered Verified Subscribers Directory</h3>
+          <span class="badge" id="subscriberCountBadge">6 Verified Records</span>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table" id="tableSubscribers">
+            <thead>
+              <tr>
+                <th>Phone Number</th>
+                <th>Verified Full Name</th>
+                <th>Network</th>
+                <th>Voice Confirmation Preview</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="subscriberTableBody">
+              <!-- Populated by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: Universal Grammar & Security -->
+    <section class="tab-panel" id="panelGrammar" role="tabpanel">
+      <div class="grid-layout-2">
+        <!-- Grammar Specification -->
+        <div class="panel-card" id="navGrammarSpecCard">
+          <div class="panel-header">
+            <h3 class="panel-title"><span>📐</span> Universal Navigation Grammar</h3>
+            <span class="badge badge-accent">Consistent Across All Menus</span>
+          </div>
+          <p class="panel-desc">
+            A key usability innovation of Ɔkwankyerɛfo Pa: standardizing key meanings across every screen so non-literate callers never feel trapped.
+          </p>
+
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Key</th>
+                <th>Standard Action</th>
+                <th>Twi Prompt Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><kbd class="key-tag">#</kbd></td>
+                <td><strong>Submit / Enter</strong></td>
+                <td>Finishes entering phone number or amount.</td>
+              </tr>
+              <tr>
+                <td><kbd class="key-tag key-tag-cancel">0</kbd></td>
+                <td><strong>Cancel / Exit</strong></td>
+                <td>Aborts transaction immediately, speaks reassurance, and terminates call safely.</td>
+              </tr>
+              <tr>
+                <td><kbd class="key-tag key-tag-nav">8</kbd></td>
+                <td><strong>Back / Return</strong></td>
+                <td>Returns caller to previous menu stage without losing progress.</td>
+              </tr>
+              <tr>
+                <td><kbd class="key-tag key-tag-nav">9</kbd></td>
+                <td><strong>Repeat Prompt</strong></td>
+                <td>Replays current spoken instructions in chosen language.</td>
+              </tr>
+              <tr>
+                <td><kbd class="key-tag">*</kbd></td>
+                <td><strong>Pesewa Decimal</strong></td>
+                <td>Acts as decimal point for Pesewas (e.g., 50*10 = GH₵50.10).</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Zero-PIN Security Protocol -->
+        <div class="panel-card" id="zeroPinSecurityCard">
+          <div class="panel-header">
+            <h3 class="panel-title"><span>🛡️</span> The Zero-PIN Voice Security Gate</h3>
+            <span class="badge metric-secure">Security Pillar</span>
+          </div>
+          <p class="panel-desc">
+            Standard MoMo users in Ghana are vulnerable to voice fraud and eavesdropping. Ɔkwankyerɛfo Pa enforces a strict <strong>Zero-PIN Voice Rule</strong>:
+          </p>
+
+          <div class="security-steps-box">
+            <div class="sec-step">
+              <div class="sec-step-icon">🚫</div>
+              <div class="sec-step-body">
+                <strong>No PIN Ever Keyed over Phone Line</strong>
+                <p>The system never asks the caller to enter their 4-digit PIN over DTMF or speak it into the phone. DTMF tones can be intercepted and recorded.</p>
+              </div>
+            </div>
+            <div class="sec-step">
+              <div class="sec-step-icon">🗣️</div>
+              <div class="sec-step-body">
+                <strong>Safe Read-Back Before Any Action</strong>
+                <p>The system reads back the verified real name of the recipient (not just numbers) and the exact amount in the caller's chosen language.</p>
+              </div>
+            </div>
+            <div class="sec-step">
+              <div class="sec-step-icon">📲</div>
+              <div class="sec-step-body">
+                <strong>Secure Out-of-Band Telco Screen Prompt</strong>
+                <p>Upon voice confirmation (Key 1), the call gracefully ends and instructs the user: <em>"Check your screen now to enter your MoMo PIN."</em> PIN entry remains private on the user's encrypted SIM/USSD channel.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 5: Africa's Talking API & Webhooks -->
+    <section class="tab-panel" id="panelApi" role="tabpanel">
+      <div class="grid-layout-2">
+        <!-- Gateway Configuration -->
+        <div class="panel-card" id="gatewayConfigCard">
+          <div class="panel-header">
+            <h3 class="panel-title"><span>⚙️</span> Telephony Gateway Configuration</h3>
+            <span class="badge">Africa's Talking</span>
+          </div>
+          <div class="config-grid">
+            <div class="config-item">
+              <div class="config-label">Voice Inbound Number</div>
+              <div class="config-val font-mono" id="cfgVoiceNumber">+233 30 804 8098</div>
+            </div>
+            <div class="config-item">
+              <div class="config-label">AT Username</div>
+              <div class="config-val font-mono" id="cfgUsername">sandbox / configured</div>
+            </div>
+            <div class="config-item">
+              <div class="config-label">Base URL</div>
+              <div class="config-val font-mono" id="cfgBaseUrl">-</div>
+            </div>
+            <div class="config-item">
+              <div class="config-label">Callback Webhook (VoiceXML)</div>
+              <div class="config-val font-mono" id="cfgCallbackUrl">/voice-menu</div>
+            </div>
+          </div>
+
+          <!-- Outbound Call Trigger -->
+          <div class="outbound-box" style="margin-top:20px;">
+            <h4 class="outbound-title">Trigger Live Phone Call via Africa's Talking</h4>
+            <p class="panel-desc">Place an outbound call from <strong>+233308048098</strong> to any mobile phone:</p>
+            <div class="input-with-btn">
+              <input type="text" class="form-input" id="inputOutboundPhone" placeholder="+233543546010">
+              <button class="btn btn-primary" id="btnTriggerOutbound" onclick="window.app.triggerRealCall()">Dial Phone</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Webhook Route Catalog -->
+        <div class="panel-card" id="webhookCatalogCard">
+          <div class="panel-header">
+            <h3 class="panel-title"><span>⚡</span> Telephony Webhook Routes</h3>
+            <span class="badge">VoiceXML Protocol</span>
+          </div>
+          <div class="endpoint-list">
+            <div class="endpoint-item">
+              <span class="method-badge get">ALL</span>
+              <code class="endpoint-path">/voice-menu</code>
+              <span class="endpoint-desc">Initial call connection, plays intro &amp; prompts language</span>
+            </div>
+            <div class="endpoint-item">
+              <span class="method-badge get">ALL</span>
+              <code class="endpoint-path">/language-selection</code>
+              <span class="endpoint-desc">Captures DTMF (1=EN, 2=Twi), redirects to service menu</span>
+            </div>
+            <div class="endpoint-item">
+              <span class="method-badge get">ALL</span>
+              <code class="endpoint-path">/service-select</code>
+              <span class="endpoint-desc">Prompts for Mobile Money / Telecom vs Banking</span>
+            </div>
+            <div class="endpoint-item">
+              <span class="method-badge get">ALL</span>
+              <code class="endpoint-path">/provider-select</code>
+              <span class="endpoint-desc">Prompts for MTN (1), Telecel (2), or AT (3)</span>
+            </div>
+            <div class="endpoint-item">
+              <span class="method-badge get">ALL</span>
+              <code class="endpoint-path">/enter-recipient</code>
+              <span class="endpoint-desc">Collects 10-digit number finished with #</span>
+            </div>
+            <div class="endpoint-item">
+              <span class="method-badge get">ALL</span>
+              <code class="endpoint-path">/enter-amount</code>
+              <span class="endpoint-desc">Collects Cedis amount with * for Pesewas, finished with #</span>
+            </div>
+            <div class="endpoint-item">
+              <span class="method-badge get">ALL</span>
+              <code class="endpoint-path">/safe-confirmation</code>
+              <span class="endpoint-desc">Reads back verified recipient name and amount</span>
+            </div>
+            <div class="endpoint-item">
+              <span class="method-badge get">ALL</span>
+              <code class="endpoint-path">/safe-outcome</code>
+              <span class="endpoint-desc">Final confirmation (1) or cancellation (0) handler</span>
+            </div>
+            <div class="endpoint-item">
+              <span class="method-badge post">POST</span>
+              <code class="endpoint-path">/ussd-trigger</code>
+              <span class="endpoint-desc">USSD dial callback gateway trigger</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="app-footer" id="appFooter">
+      <div class="footer-left">
+        <strong>Ɔkwankyerɛfo Pa</strong> &bull; Developed with pride for Ghana's Digital Financial Inclusion by <strong>Team Anidasoɔ</strong>.
+      </div>
+      <div class="footer-right">
+        <span>Dual-Engine Audio &bull; HTTP 206 Streaming &bull; Africa's Talking Ready</span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Upload Modal Dialog -->
+  <dialog class="custom-modal" id="modalUpload">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 class="modal-title"><span>📤</span> Upload Voice Audio to Dataset</h3>
+        <button class="btn-close" onclick="window.app.closeUploadModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label" for="modalSelectPhrase">Target Phrase Mapping</label>
+          <select class="form-select" id="modalSelectPhrase">
+            <!-- Populated by JS -->
+          </select>
+        </div>
+
+        <div class="dropzone" id="audioDropzone" onclick="document.getElementById('fileAudioInput').click()">
+          <input type="file" id="fileAudioInput" accept="audio/mp3,audio/wav,audio/mpeg" style="display:none;" onchange="window.app.handleFileSelect(event)">
+          <div class="drop-icon">🎵</div>
+          <div class="drop-text">Drag &amp; drop your <strong>.mp3</strong> or <strong>.wav</strong> voice file here</div>
+          <div class="drop-sub">or click to browse from your computer</div>
+          <div class="file-chosen-name" id="fileChosenName"></div>
+        </div>
+
+        <div class="form-group" style="margin-top:14px;">
+          <label class="form-label" for="modalSelectDialect">Dialect</label>
+          <select class="form-select" id="modalSelectDialect">
+            <option value="asante_twi">Asante Twi</option>
+            <option value="akuapem_twi">Akuapem Twi</option>
+            <option value="fante">Fante</option>
+            <option value="gh_english">Ghanaian English</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="window.app.closeUploadModal()">Cancel</button>
+        <button class="btn btn-primary" id="btnSubmitUpload" onclick="window.app.submitAudioUpload()">Upload Audio</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Load Application Logic -->
+  <script src="/app.js"></script>
+</body>
+</html>
