@@ -1,0 +1,128 @@
+{
+  "folder": "English_audio_prot",
+  "title": "English Prototype Audio Suite",
+  "description": "12 voice prompts for Ghana Digital Services IVR MoMo Pilot",
+  "recordedAt": "2026-09-18",
+  "prompts": [
+    {
+      "number": "01",
+      "filename": "01_service_select.mp3",
+      "alias": "service_select.mp3",
+      "url": "/audio/English_audio_prot/01_service_select.mp3",
+      "aliasUrl": "/audio/English_audio_prot/service_select.mp3",
+      "spokenText": "For telecom or mobile money services, press 1. For banking services, press 2. To hear this again, press 9. To exit, press 0.",
+      "description": "Main telecom vs banking menu prompt",
+      "sizeBytes": 98304
+    },
+    {
+      "number": "02",
+      "filename": "02_network_select.mp3",
+      "alias": "network_select.mp3",
+      "url": "/audio/English_audio_prot/02_network_select.mp3",
+      "aliasUrl": "/audio/English_audio_prot/network_select.mp3",
+      "spokenText": "Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again. Press 0 to exit.",
+      "description": "Network provider selection (MTN, Telecel, AT)",
+      "sizeBytes": 116160
+    },
+    {
+      "number": "03",
+      "filename": "03_network_select_alt.mp3",
+      "alias": "network_select_alt.mp3",
+      "url": "/audio/English_audio_prot/03_network_select_alt.mp3",
+      "aliasUrl": "/audio/English_audio_prot/network_select_alt.mp3",
+      "spokenText": "Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again or 0 to exit.",
+      "description": "Network provider selection alternate variation",
+      "sizeBytes": 111744
+    },
+    {
+      "number": "04",
+      "filename": "04_mtn_services_menu.mp3",
+      "alias": "mtn_services.mp3",
+      "url": "/audio/English_audio_prot/04_mtn_services_menu.mp3",
+      "aliasUrl": "/audio/English_audio_prot/mtn_services.mp3",
+      "spokenText": "MTN services. To send money to another MoMo user, press 1. To pay bills, press 2. To buy airtime or bundle, press 3. To allow cash out, press 4. To check your account, press 5. Press 8 to go back or 0 to exit.",
+      "description": "MTN services sub-menu",
+      "sizeBytes": 173760
+    },
+    {
+      "number": "05",
+      "filename": "05_enter_recipient_phone.mp3",
+      "alias": "enter_recipient.mp3",
+      "url": "/audio/English_audio_prot/05_enter_recipient_phone.mp3",
+      "aliasUrl": "/audio/English_audio_prot/enter_recipient.mp3",
+      "spokenText": "Enter the 10-digit number you want to send money to, followed by hash. Press 0 to exit.",
+      "description": "Prompt for recipient telephone digits",
+      "sizeBytes": 59520
+    },
+    {
+      "number": "06",
+      "filename": "06_demo_recipient_digits.mp3",
+      "alias": "demo_recipient_digits.mp3",
+      "url": "/audio/English_audio_prot/06_demo_recipient_digits.mp3",
+      "aliasUrl": "/audio/English_audio_prot/demo_recipient_digits.mp3",
+      "spokenText": "0, 2, 4, 1, 2, 3, 4, 5, 6, 7, hash.",
+      "description": "Spoken DTMF input read-back sample",
+      "sizeBytes": 80064
+    },
+    {
+      "number": "07",
+      "filename": "07_confirm_recipient_name.mp3",
+      "alias": "confirm_recipient_name.mp3",
+      "url": "/audio/English_audio_prot/07_confirm_recipient_name.mp3",
+      "aliasUrl": "/audio/English_audio_prot/confirm_recipient_name.mp3",
+      "spokenText": "You are about to send money to Kwame Nyameba, whose phone number ends with 4 5 6 7. To confirm and send the money, press 1. To cancel, press 2. To exit completely, press 0.",
+      "description": "Recipient name verification KYC gate",
+      "sizeBytes": 128448
+    },
+    {
+      "number": "08",
+      "filename": "08_enter_amount_cedis.mp3",
+      "alias": "enter_amount.mp3",
+      "url": "/audio/English_audio_prot/08_enter_amount_cedis.mp3",
+      "aliasUrl": "/audio/English_audio_prot/enter_amount.mp3",
+      "spokenText": "Enter the cedi amount you want to send to Kwame Nyameba, followed by hash. Use star for pesewas.",
+      "description": "Amount input prompt with star decimal note",
+      "sizeBytes": 63360
+    },
+    {
+      "number": "09",
+      "filename": "09_confirm_transfer_summary.mp3",
+      "alias": "confirm_transfer.mp3",
+      "url": "/audio/English_audio_prot/09_confirm_transfer_summary.mp3",
+      "aliasUrl": "/audio/English_audio_prot/confirm_transfer.mp3",
+      "spokenText": "You are about to send 500 Ghana Cedis to Kwame Nyameba. To confirm and send, press 1. To cancel, press 2.",
+      "description": "Final transfer authorization challenge",
+      "sizeBytes": 81984
+    },
+    {
+      "number": "10",
+      "filename": "10_pin_prompt_screen_handoff.mp3",
+      "alias": "pin_prompt_screen_handoff.mp3",
+      "url": "/audio/English_audio_prot/10_pin_prompt_screen_handoff.mp3",
+      "aliasUrl": "/audio/English_audio_prot/pin_prompt_screen_handoff.mp3",
+      "spokenText": "Confirmed. Now, please check your phone screen and enter your MoMo PIN accurately. Thank you for using Okwankyerɛfo Pa. Goodbye.",
+      "description": "Zero-PIN security handset handoff prompt",
+      "sizeBytes": 83520
+    },
+    {
+      "number": "11",
+      "filename": "11_transaction_receipt_summary.mp3",
+      "alias": "transaction_receipt.mp3",
+      "url": "/audio/English_audio_prot/11_transaction_receipt_summary.mp3",
+      "aliasUrl": "/audio/English_audio_prot/transaction_receipt.mp3",
+      "spokenText": "Congratulations! You have successfully sent 500 Ghana Cedis to Kwame Nyameba. Your transaction was completed on 17th September 2026 at 5:00 PM. Your reference number is OKP 847291. Your transaction details have also been sent to you. Would you like to do anything else?",
+      "description": "Transaction receipt summary and reference code",
+      "sizeBytes": 221760
+    },
+    {
+      "number": "12",
+      "filename": "12_welcome_language_intro.mp3",
+      "alias": "welcome_language_intro.mp3",
+      "url": "/audio/English_audio_prot/12_welcome_language_intro.mp3",
+      "aliasUrl": "/audio/English_audio_prot/welcome_language_intro.mp3",
+      "spokenText": "Welcome to Okwankyerɛfo Pa, an easy financial transaction service. For English, press 1. For Twi, press 2.",
+      "description": "Initial IVR welcome greeting and language selection",
+      "sizeBytes": 80064
+    }
+  ]
+}

@@ -82,6 +82,10 @@
     },
     phrases: [],
     subscribers: [],
+    prototypeData: null,
+    activePrototypeAudio: null,
+    activePrototypeIdx: null,
+    voiceMode: 'bilingual', // 'bilingual' | 'prototype'
     recorder: {
       mediaRecorder: null,
       audioChunks: [],
@@ -97,6 +101,7 @@
       this.bindKeyboard();
       this.loadStatus();
       this.loadPhrases();
+      this.loadPrototypeAudio();
       this.loadSubscribers();
       this.initWaveformCanvas();
 
@@ -316,6 +321,155 @@
       audio.play().catch(e => console.log('Playback error:', e));
     },
 
+    // ── English Prototype Audio Suite (/audio/English_audio_prot/) ────────
+    setVoiceMode(mode) {
+      this.voiceMode = mode;
+      const btnDefault = document.getElementById('btnVoiceModeDefault');
+      const btnProt = document.getElementById('btnVoiceModePrototype');
+      if (btnDefault && btnProt) {
+        btnDefault.classList.toggle('active', mode === 'bilingual');
+        btnProt.classList.toggle('active', mode === 'prototype');
+      }
+      const indicator = document.getElementById('audioSourceIndicator');
+      if (indicator) {
+        indicator.innerText = mode === 'prototype' 
+          ? 'Source: English Prototype Audio (/audio/English_audio_prot/)'
+          : 'Source: Bilingual Akan Twi & English Core';
+      }
+      // Re-trigger current step audio with new engine
+      if (this.callState.active && this.callState.step !== 'idle') {
+        this.goToStep(this.callState.step);
+      }
+    },
+
+    async loadPrototypeAudio() {
+      try {
+        const res = await fetch('/api/prototype-audio');
+        const data = await res.json();
+        this.prototypeData = data;
+        this.renderPrototypeGrid(data);
+      } catch (err) {
+        console.error('Failed to load prototype audio:', err);
+      }
+    },
+
+    renderPrototypeGrid(data) {
+      const container = document.getElementById('prototypePromptsGrid');
+      if (!container) return;
+
+      const manifestPrompts = (data.manifest && data.manifest.prompts) || [];
+      const files = data.files || [];
+
+      if (!files.length && !manifestPrompts.length) {
+        container.innerHTML = `<div style="padding:20px; text-align:center; color:var(--ink-muted); grid-column:1/-1;">No prototype audio found in /audio/English_audio_prot/</div>`;
+        return;
+      }
+
+      const items = manifestPrompts.map(p => {
+        const matchingFile = files.find(f => f.name === p.filename);
+        return {
+          ...p,
+          sizeFormatted: matchingFile ? matchingFile.sizeFormatted : '96.0 KB',
+          url: matchingFile ? matchingFile.url : `/audio/English_audio_prot/${p.filename}`
+        };
+      });
+
+      container.innerHTML = items.map((item, idx) => `
+        <div class="prompt-item-card" id="protCard_${idx}">
+          <div>
+            <div class="prompt-top-row">
+              <span class="prompt-seq-tag">TRACK ${item.number || (idx + 1)}</span>
+              <span class="prompt-filesize">${item.sizeFormatted}</span>
+            </div>
+            <div class="prompt-card-title">${item.title}</div>
+            <div class="prompt-card-script">"${item.spokenText}"</div>
+          </div>
+          <div class="prompt-card-actions">
+            <button class="btn-play-prompt" id="btnPlayProt_${idx}" onclick="window.app.togglePrototypePlay('${item.url}', ${idx})">
+              <span>▶ Play</span>
+            </button>
+            <button class="btn-copy-url" title="Copy streaming URL" onclick="window.app.copyUrl('${item.url}')">
+              <span>🔗 Copy URL</span>
+            </button>
+            <button class="btn-copy-url" title="Replace file" onclick="window.app.openUploadModal('prot_${item.number}')">
+              <span>Replace</span>
+            </button>
+          </div>
+        </div>
+      `).join('');
+    },
+
+    togglePrototypePlay(url, idx) {
+      if (this.activePrototypeAudio && this.activePrototypeIdx === idx) {
+        this.activePrototypeAudio.pause();
+        this.activePrototypeAudio = null;
+        this.activePrototypeIdx = null;
+        this.updatePrototypePlayButtons();
+        return;
+      }
+
+      if (this.activePrototypeAudio) {
+        this.activePrototypeAudio.pause();
+      }
+
+      const audio = new Audio(url);
+      this.activePrototypeAudio = audio;
+      this.activePrototypeIdx = idx;
+      this.updatePrototypePlayButtons();
+
+      audio.play().catch(e => console.log('Playback error:', e));
+      audio.onended = () => {
+        this.activePrototypeAudio = null;
+        this.activePrototypeIdx = null;
+        this.updatePrototypePlayButtons();
+      };
+    },
+
+    updatePrototypePlayButtons() {
+      const cards = document.querySelectorAll('.prompt-item-card');
+      cards.forEach((card, idx) => {
+        const isCurrent = this.activePrototypeIdx === idx;
+        card.classList.toggle('is-playing', isCurrent);
+        const btn = document.getElementById(`btnPlayProt_${idx}`);
+        if (btn) {
+          btn.innerHTML = isCurrent ? `<span>⏹ Stop</span>` : `<span>▶ Play</span>`;
+        }
+      });
+    },
+
+    playAllPrototypeSequence() {
+      if (!this.prototypeData || !this.prototypeData.manifest || !this.prototypeData.manifest.prompts) return;
+      const prompts = this.prototypeData.manifest.prompts;
+      let cur = 0;
+      const playNext = () => {
+        if (cur >= prompts.length) {
+          this.activePrototypeIdx = null;
+          this.updatePrototypePlayButtons();
+          return;
+        }
+        const p = prompts[cur];
+        const url = `/audio/English_audio_prot/${p.filename}`;
+        this.togglePrototypePlay(url, cur);
+        if (this.activePrototypeAudio) {
+          this.activePrototypeAudio.onended = () => {
+            cur++;
+            this.updatePrototypePlayButtons();
+            playNext();
+          };
+        }
+      };
+      playNext();
+    },
+
+    copyUrl(url) {
+      const fullUrl = window.location.origin + url;
+      navigator.clipboard.writeText(fullUrl).then(() => {
+        alert(`Copied URL:\n${fullUrl}`);
+      }).catch(() => {
+        alert(fullUrl);
+      });
+    },
+
     // ── KYC Subscribers ─────────────────────────────────────────────────
     async loadSubscribers() {
       try {
@@ -475,7 +629,10 @@
         promptTwi.innerText = '"For English, press 1. Twi firi mu, mia 2."';
         promptEn.innerText = '"Welcome to Ɔkwankyerɛfo Pa. For English press 1, for Akan Twi press 2."';
 
-        this.playPhoneAudio('/audio/intro.mp3', 'English press 1, Twi press 2');
+        const audioFile = this.voiceMode === 'prototype' 
+          ? '/audio/English_audio_prot/12_welcome_language_intro.mp3' 
+          : '/audio/intro.mp3';
+        this.playPhoneAudio(audioFile, 'English press 1, Twi press 2');
         this.fetchVoiceXml('/voice-menu');
 
         viewport.innerHTML = `
@@ -495,7 +652,10 @@
         promptTwi.innerText = '"Sɛ worepɛ Mobile Money anaa Telecom a, mia baako (1). Sikakorabea Banking, mia mmienu (2). Mia hwee (0) sɛ worepɛ agyae."';
         promptEn.innerText = '"For Telecom and Mobile Money, press 1. For Banking services, press 2. Press 0 to cancel."';
 
-        this.playPhoneAudio(null, isTwi ? 'Mobile money mia baako. Banking mia mmienu.' : 'For Mobile Money press 1. For Banking press 2.');
+        const audioFile = this.voiceMode === 'prototype'
+          ? '/audio/English_audio_prot/01_service_select.mp3'
+          : null;
+        this.playPhoneAudio(audioFile, isTwi ? 'Mobile money mia baako. Banking mia mmienu.' : 'For Mobile Money press 1. For Banking press 2.');
         this.fetchVoiceXml(`/service-select?lang=${this.callState.lang}`);
 
         viewport.innerHTML = `
@@ -515,7 +675,10 @@
         promptTwi.innerText = '"Paw wo network. MTN, mia baako (1). Telecel, mia mmienu (2). Africa\'s Talking AT, mia mmiɛnsa (3). Mia akron (9) ma replay, hwee (0) ma agyae."';
         promptEn.innerText = '"Select your network provider: For MTN press 1. For Telecel press 2. For AT press 3. Press 9 to repeat, 0 to cancel."';
 
-        this.playPhoneAudio(null, isTwi ? 'Paw wo network: MTN baako, Telecel mmienu, AT mmiɛnsa.' : 'Select network: MTN 1, Telecel 2, AT 3.');
+        const audioFile = this.voiceMode === 'prototype'
+          ? '/audio/English_audio_prot/02_network_select.mp3'
+          : null;
+        this.playPhoneAudio(audioFile, isTwi ? 'Paw wo network: MTN baako, Telecel mmienu, AT mmiɛnsa.' : 'Select network: MTN 1, Telecel 2, AT 3.');
         this.fetchVoiceXml(`/provider-select?lang=${this.callState.lang}&service=${this.callState.service}`);
 
         viewport.innerHTML = `
@@ -539,7 +702,10 @@
         promptTwi.innerText = `"${this.callState.provider} dwumadie. Sɛ woremane sika a, mia baako (1). Sɛ woregye wo balance a, mia mmienu (2). Mia 8 ma akyi, 0 ma agyae."`;
         promptEn.innerText = `"${this.callState.provider} menu. To send money, press 1. To check balance, press 2. Press 8 to go back, 0 to cancel."`;
 
-        this.playPhoneAudio(null, isTwi ? 'Sɛ woremane sika a mia baako. Balance mia mmienu.' : 'To send money press 1. To check balance press 2.');
+        const audioFile = this.voiceMode === 'prototype'
+          ? '/audio/English_audio_prot/04_mtn_services_menu.mp3'
+          : null;
+        this.playPhoneAudio(audioFile, isTwi ? 'Sɛ woremane sika a mia baako. Balance mia mmienu.' : 'To send money press 1. To check balance press 2.');
         this.fetchVoiceXml(`/action-select?lang=${this.callState.lang}&provider=${this.callState.provider}`);
 
         viewport.innerHTML = `
@@ -559,7 +725,10 @@
         promptTwi.innerText = '"Fa nɔma du (10) a woremane kɔma no nwura mu, na wie no hash (#). Mia hwee (0) sɛ worepɛ agyae."';
         promptEn.innerText = '"Please enter the 10-digit recipient phone number, followed by hash (#). Press 0 to cancel."';
 
-        this.playPhoneAudio(null, isTwi ? 'Fa nɔma du no nwura mu na wie hash.' : 'Enter 10-digit number followed by hash.');
+        const audioFile = this.voiceMode === 'prototype'
+          ? '/audio/English_audio_prot/05_enter_recipient_phone.mp3'
+          : null;
+        this.playPhoneAudio(audioFile, isTwi ? 'Fa nɔma du no nwura mu na wie hash.' : 'Enter 10-digit number followed by hash.');
         this.fetchVoiceXml(`/enter-recipient?lang=${this.callState.lang}&provider=${this.callState.provider}`);
 
         viewport.innerHTML = `
@@ -576,7 +745,10 @@
         promptTwi.innerText = `"Fa cedi dodow a woremane kɔma ${this.callState.name} no nwura mu, na wie no hash (#). Fa nsoroma (*) di dwuma ma pesewa."`;
         promptEn.innerText = `"Enter the amount in Ghana Cedis to send to ${this.callState.name}, followed by hash (#). Use star for pesewas."`;
 
-        this.playPhoneAudio(null, isTwi ? `Fa cedi dodow a woremane kɔma ${this.callState.name} nwura mu.` : `Enter amount for ${this.callState.name}.`);
+        const audioFile = this.voiceMode === 'prototype'
+          ? '/audio/English_audio_prot/08_enter_amount_cedis.mp3'
+          : null;
+        this.playPhoneAudio(audioFile, isTwi ? `Fa cedi dodow a woremane kɔma ${this.callState.name} nwura mu.` : `Enter amount for ${this.callState.name}.`);
         this.fetchVoiceXml(`/enter-amount?lang=${this.callState.lang}&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(this.callState.name)}`);
 
         viewport.innerHTML = `
@@ -594,8 +766,9 @@
         promptTwi.innerText = `"Woremane sika cedi ${this.callState.amount} kɔma ${this.callState.name}, a ne fon nɔma wie ${last4}. Sɛ wopene so a, mia baako (1). Sɛ worepɛ sesa no a, mia mmienu (2). Mia hwee (0) ma agyae."`;
         promptEn.innerText = `"You are sending ${this.callState.amount} Ghana Cedis to ${this.callState.name}, ending in ${last4}. Press 1 to confirm, 2 to re-enter, or 0 to cancel."`;
 
-        // If default demo amount, play native audio!
-        if (this.callState.amount === '50') {
+        if (this.voiceMode === 'prototype') {
+          this.playPhoneAudio('/audio/English_audio_prot/09_confirm_transfer_summary.mp3', promptEn.innerText);
+        } else if (this.callState.amount === '50') {
           const file = isTwi ? '/audio/confirm_twi.mp3' : '/audio/confirm_en.mp3';
           this.playPhoneAudio(file, promptEn.innerText);
         } else {
@@ -625,7 +798,9 @@
         promptTwi.innerText = `"Yɛapene cedi ${this.callState.amount} a woremane kɔma ${this.callState.name} no so. Sesei, hwɛ wo screen na fa wo MoMo PIN nwura mu pɛpɛɛpɛ."`;
         promptEn.innerText = `"Transaction of ${this.callState.amount} Ghana Cedis to ${this.callState.name} authorized. Please check your screen now to enter your Mobile Money PIN securely."`;
 
-        const successAudio = isTwi ? '/audio/success_twi.mp3' : '/audio/success_en.mp3';
+        const successAudio = this.voiceMode === 'prototype'
+          ? '/audio/English_audio_prot/10_pin_prompt_screen_handoff.mp3'
+          : isTwi ? '/audio/success_twi.mp3' : '/audio/success_en.mp3';
         this.playPhoneAudio(successAudio, promptEn.innerText);
 
         this.fetchVoiceXml(`/safe-outcome?lang=${this.callState.lang}&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(this.callState.name)}&amount=${this.callState.amount}&dtmfDigits=1`);
@@ -1095,6 +1270,8 @@
       const phrase = this.phrases.find(p => p.id === phraseId);
       const filename = phrase ? phrase.filename : this.uploadFile.name;
       const dialect = document.getElementById('modalSelectDialect').value;
+      const folderEl = document.getElementById('modalSelectFolder');
+      const folder = folderEl ? folderEl.value : 'English_audio_prot';
 
       const reader = new FileReader();
       reader.readAsDataURL(this.uploadFile);
@@ -1107,6 +1284,7 @@
               filename,
               phraseId,
               dialect,
+              folder,
               base64Data: reader.result
             })
           });
@@ -1115,6 +1293,7 @@
             alert(`Voice file ${filename} indexed successfully into the dataset!`);
             this.closeUploadModal();
             this.loadPhrases();
+            this.loadPrototypeAudio();
           } else {
             alert(`Upload error: ${data.error}`);
           }

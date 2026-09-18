@@ -95,6 +95,22 @@
 
     <!-- TAB 1: Interactive Call Simulator -->
     <section class="tab-panel active" id="panelSimulator" role="tabpanel">
+      <!-- Voice Engine Source Switcher -->
+      <div class="voice-mode-selector-bar" id="voiceModeBar">
+        <div class="voice-mode-label">
+          <span>🎧 Voice Audio Track:</span>
+          <span style="font-weight:normal; font-size:11.5px; color:var(--ink-muted);">Select active speech engine for call prompts</span>
+        </div>
+        <div class="voice-mode-toggles">
+          <button class="voice-mode-btn active" id="btnVoiceModeDefault" onclick="window.app.setVoiceMode('bilingual')">
+            🇬🇭 Bilingual Core (Twi/EN)
+          </button>
+          <button class="voice-mode-btn" id="btnVoiceModePrototype" onclick="window.app.setVoiceMode('prototype')">
+            🇬🇧 English Prototype (12 Prompts)
+          </button>
+        </div>
+      </div>
+
       <div class="simulator-layout">
         <!-- Phone Handset Frame -->
         <div class="phone-frame" id="phoneFrame">
@@ -352,6 +368,34 @@
             <div class="stat-val" id="dsStorageSize">342 KB</div>
             <div class="stat-name">Audio Repository Size</div>
             <div class="stat-footnote">HTTP 206 streaming enabled</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- English Prototype Audio Suite (/audio/English_audio_prot/) -->
+      <div class="prototype-audio-card" id="cardPrototypeAudio">
+        <div class="prototype-header-row">
+          <div class="prototype-header-info">
+            <h3><span>🇬🇧</span> English Prototype Audio Suite</h3>
+            <p style="font-size:12.5px; color:var(--ink-secondary); margin:4px 0 0 0;">
+              12 dedicated English voice prompts in <code>/audio/English_audio_prot/</code>. Built for Ghana's Digital Financial IVR flow with HTTP 206 streaming and instant simulated playback.
+            </p>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <span class="prototype-folder-badge">📁 audio/English_audio_prot/</span>
+            <button class="btn btn-sm btn-secondary" onclick="window.app.playAllPrototypeSequence()">
+              <span>▶ Play Sequence (01-12)</span>
+            </button>
+            <button class="btn btn-sm btn-outline" onclick="window.app.openUploadModal('prot_01')">
+              <span>📤 Upload / Replace</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="prototype-grid" id="prototypePromptsGrid">
+          <!-- Populated dynamically via /api/prototype-audio -->
+          <div style="padding:20px; text-align:center; color:var(--ink-muted); grid-column:1/-1;">
+            Loading prototype audio clips...
           </div>
         </div>
       </div>
@@ -839,6 +883,14 @@ async function uploadAudio(filePath, filename, phraseId) {
           <label class="form-label" for="modalSelectPhrase">Target Phrase Mapping</label>
           <select class="form-select" id="modalSelectPhrase">
             <!-- Populated by JS -->
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-top:10px; margin-bottom:14px;">
+          <label class="form-label" for="modalSelectFolder">Destination Storage Folder</label>
+          <select class="form-select" id="modalSelectFolder">
+            <option value="English_audio_prot" selected>English Prototype Audio (/audio/English_audio_prot/)</option>
+            <option value="root">Root Audio Directory (/audio/)</option>
           </select>
         </div>
 

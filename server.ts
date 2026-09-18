@@ -187,6 +187,115 @@ export const PHRASE_BANK: PhraseItem[] = [
     spokenText: "Transaction cancelled. No money has been deducted from your account.",
     description: "Spoken when user cancels (2). Confirms that transaction was aborted and no funds were deducted.",
   },
+  // ── English Prototype Audio Suite (/audio/English_audio_prot/) ────────
+  {
+    id: "prot_01",
+    filename: "English_audio_prot/01_service_select.mp3",
+    category: "welcome",
+    language: "en",
+    title: "1. Service Selection (Telecom vs Bank)",
+    spokenText: "For telecom or mobile money services, press 1. For banking services, press 2. To hear this again, press 9. To exit, press 0.",
+    description: "Main service selection branch prompt.",
+  },
+  {
+    id: "prot_02",
+    filename: "English_audio_prot/02_network_select.mp3",
+    category: "welcome",
+    language: "en",
+    title: "2. Network Provider Selection",
+    spokenText: "Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again. Press 0 to exit.",
+    description: "Telco selection prompt (MTN, Telecel, AT).",
+  },
+  {
+    id: "prot_03",
+    filename: "English_audio_prot/03_network_select_alt.mp3",
+    category: "welcome",
+    language: "en",
+    title: "3. Network Provider (Variation 2)",
+    spokenText: "Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again or 0 to exit.",
+    description: "Alternate network selection variation with concise tail.",
+  },
+  {
+    id: "prot_04",
+    filename: "English_audio_prot/04_mtn_services_menu.mp3",
+    category: "welcome",
+    language: "en",
+    title: "4. MTN MoMo Services Menu",
+    spokenText: "MTN services. To send money to another MoMo user, press 1. To pay bills, press 2. To buy airtime or bundle, press 3. To allow cash out, press 4. To check your account, press 5. Press 8 to go back or 0 to exit.",
+    description: "Full MTN services sub-menu with 6 navigational choices.",
+  },
+  {
+    id: "prot_05",
+    filename: "English_audio_prot/05_enter_recipient_phone.mp3",
+    category: "confirm",
+    language: "en",
+    title: "5. Recipient Phone Number Entry",
+    spokenText: "Enter the 10-digit number you want to send money to, followed by hash. Press 0 to exit.",
+    description: "Spoken instruction for entering beneficiary's 10-digit telephone number.",
+  },
+  {
+    id: "prot_06",
+    filename: "English_audio_prot/06_demo_recipient_digits.mp3",
+    category: "confirm",
+    language: "en",
+    title: "6. Dialled Recipient Digits Sample",
+    spokenText: "0, 2, 4, 1, 2, 3, 4, 5, 6, 7, hash.",
+    description: "Read-back sample of user's dialled beneficiary telephone digits.",
+  },
+  {
+    id: "prot_07",
+    filename: "English_audio_prot/07_confirm_recipient_name.mp3",
+    category: "confirm",
+    language: "en",
+    title: "7. KYC Recipient Verification",
+    spokenText: "You are about to send money to Kwame Nyameba, whose phone number ends with 4 5 6 7. To confirm and send the money, press 1. To cancel, press 2. To exit completely, press 0.",
+    description: "Voice gate confirming recipient name and last 4 digits.",
+  },
+  {
+    id: "prot_08",
+    filename: "English_audio_prot/08_enter_amount_cedis.mp3",
+    category: "confirm",
+    language: "en",
+    title: "8. Transfer Amount Prompt",
+    spokenText: "Enter the cedi amount you want to send to Kwame Nyameba, followed by hash. Use star for pesewas.",
+    description: "Amount collection prompt with universal star decimal notation.",
+  },
+  {
+    id: "prot_09",
+    filename: "English_audio_prot/09_confirm_transfer_summary.mp3",
+    category: "confirm",
+    language: "en",
+    title: "9. Transfer Confirmation Read-back",
+    spokenText: "You are about to send 500 Ghana Cedis to Kwame Nyameba. To confirm and send, press 1. To cancel, press 2.",
+    description: "High-contrast read-back before financial authorization.",
+  },
+  {
+    id: "prot_10",
+    filename: "English_audio_prot/10_pin_prompt_screen_handoff.mp3",
+    category: "auth",
+    language: "en",
+    title: "10. Zero-PIN Handset Handoff",
+    spokenText: "Confirmed. Now, please check your phone screen and enter your MoMo PIN accurately. Thank you for using Okwankyerɛfo Pa. Goodbye.",
+    description: "Crucial security prompt routing PIN entry away from telephone voice channel.",
+  },
+  {
+    id: "prot_11",
+    filename: "English_audio_prot/11_transaction_receipt_summary.mp3",
+    category: "auth",
+    language: "en",
+    title: "11. Transaction Receipt & Ref Number",
+    spokenText: "Congratulations! You have successfully sent 500 Ghana Cedis to Kwame Nyameba. Your transaction was completed on 17th September 2026 at 5:00 PM. Your reference number is OKP 847291. Your transaction details have also been sent to you. Would you like to do anything else?",
+    description: "Spoken post-transaction receipt with timestamp and reference code.",
+  },
+  {
+    id: "prot_12",
+    filename: "English_audio_prot/12_welcome_language_intro.mp3",
+    category: "welcome",
+    language: "en",
+    title: "12. Service Welcome & Language Selector",
+    spokenText: "Welcome to Okwankyerɛfo Pa, an easy financial transaction service. For English, press 1. For Twi, press 2.",
+    description: "Comprehensive English service greeting and dialect menu.",
+  },
 ];
 
 function audioExists(filename: string): boolean {
@@ -210,8 +319,12 @@ function getPublicBaseUrl(req?: Request): string {
 }
 
 // ── Streaming Audio Handler with HTTP 206 Byte Ranges ─────────────────
-app.all("/audio/:filename", (req: Request, res: Response) => {
-  const filePath = path.join(process.cwd(), "audio", req.params.filename);
+// Supports root /audio/:filename as well as nested subfolders e.g. /audio/English_audio_prot/:file
+app.all("/audio/*", (req: Request, res: Response) => {
+  const rawSubpath = decodeURIComponent((req.params as any)[0] || "");
+  // Guard against directory traversal
+  const cleanSubpath = path.normalize(rawSubpath).replace(/^(\.\.[\/\\])+/, "");
+  const filePath = path.join(process.cwd(), "audio", cleanSubpath);
 
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
@@ -221,12 +334,22 @@ app.all("/audio/:filename", (req: Request, res: Response) => {
     return res.sendStatus(200);
   }
 
-  if (!fs.existsSync(filePath)) {
+  if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
     return res.status(404).send("Audio file not found");
   }
 
   const stat = fs.statSync(filePath);
   const fileSize = stat.size;
+  const ext = path.extname(filePath).toLowerCase();
+  const mimeType =
+    ext === ".wav"
+      ? "audio/wav"
+      : ext === ".ogg"
+      ? "audio/ogg"
+      : ext === ".m4a" || ext === ".aac"
+      ? "audio/mp4"
+      : "audio/mpeg";
+
   const range = req.headers.range;
 
   if (range) {
@@ -240,13 +363,13 @@ app.all("/audio/:filename", (req: Request, res: Response) => {
       "Content-Range": `bytes ${start}-${end}/${fileSize}`,
       "Accept-Ranges": "bytes",
       "Content-Length": chunkSize,
-      "Content-Type": "audio/mpeg",
+      "Content-Type": mimeType,
     });
     fileStream.pipe(res);
   } else {
     res.writeHead(200, {
       "Content-Length": fileSize,
-      "Content-Type": "audio/mpeg",
+      "Content-Type": mimeType,
       "Accept-Ranges": "bytes",
       "Cache-Control": "public, max-age=86400",
     });
@@ -276,36 +399,83 @@ app.get("/api/phrase-bank", (_req: Request, res: Response) => {
   res.json({ phrases, count: phrases.length });
 });
 
-// ── API: Audio File Upload ───────────────────────────────────────────
+// ── API: English Prototype Audio Catalog ──────────────────────────────
+app.get("/api/prototype-audio", (_req: Request, res: Response) => {
+  const targetDir = path.join(process.cwd(), "audio", "English_audio_prot");
+  const manifestPath = path.join(targetDir, "manifest.json");
+  let manifest: any = null;
+  if (fs.existsSync(manifestPath)) {
+    try {
+      manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+    } catch {}
+  }
+
+  let files: Array<{ name: string; size: number; sizeFormatted: string; url: string; ext: string }> = [];
+  if (fs.existsSync(targetDir)) {
+    const dirFiles = fs.readdirSync(targetDir);
+    files = dirFiles
+      .filter((f) => f.endsWith(".mp3") || f.endsWith(".wav") || f.endsWith(".m4a") || f.endsWith(".aac"))
+      .sort()
+      .map((f) => {
+        const stat = fs.statSync(path.join(targetDir, f));
+        return {
+          name: f,
+          size: stat.size,
+          sizeFormatted: `${(stat.size / 1024).toFixed(1)} KB`,
+          url: `/audio/English_audio_prot/${encodeURIComponent(f)}`,
+          ext: path.extname(f).toLowerCase(),
+        };
+      });
+  }
+
+  res.json({
+    folder: "English_audio_prot",
+    aliasFolder: "English prototype audio",
+    manifest,
+    files,
+    count: files.length,
+  });
+});
+
+// ── API: Audio File Upload (with target folder selection) ───────────────
 app.post("/api/upload-audio", (req: Request, res: Response) => {
-  const { filename, base64Data } = req.body;
+  const { filename, base64Data, folder } = req.body;
 
   if (!filename || !base64Data) {
     return res.status(400).json({ error: "Missing filename or base64Data" });
   }
 
   const cleanFilename = path.basename(filename).replace(/[^a-zA-Z0-9._-]/g, "");
-  if (!cleanFilename.endsWith(".mp3") && !cleanFilename.endsWith(".wav")) {
-    return res.status(400).json({ error: "File must be an .mp3 or .wav format" });
+  const ext = path.extname(cleanFilename).toLowerCase();
+  if (![".mp3", ".wav", ".m4a", ".aac", ".ogg"].includes(ext)) {
+    return res.status(400).json({ error: "File must be an audio format (.mp3, .wav, .m4a, .aac, .ogg)" });
   }
 
   try {
-    const audioDir = path.join(process.cwd(), "audio");
-    if (!fs.existsSync(audioDir)) {
-      fs.mkdirSync(audioDir, { recursive: true });
+    let targetDir = path.join(process.cwd(), "audio");
+    let relativeUrlPrefix = "/audio";
+
+    if (folder === "English_audio_prot" || folder === "English prototype audio") {
+      targetDir = path.join(process.cwd(), "audio", "English_audio_prot");
+      relativeUrlPrefix = "/audio/English_audio_prot";
+    }
+
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
     }
 
     const data = base64Data.replace(/^data:audio\/[a-z0-9]+;base64,/, "");
     const buffer = Buffer.from(data, "base64");
-    const targetPath = path.join(audioDir, cleanFilename);
+    const targetPath = path.join(targetDir, cleanFilename);
     fs.writeFileSync(targetPath, buffer);
 
-    console.log(`🎙️ New audio file uploaded: ${cleanFilename} (${buffer.length} bytes)`);
+    console.log(`🎙️ New audio file uploaded to ${targetDir}: ${cleanFilename} (${buffer.length} bytes)`);
     res.json({
       success: true,
       message: `File ${cleanFilename} uploaded successfully`,
       sizeBytes: buffer.length,
-      url: `/audio/${cleanFilename}`,
+      url: `${relativeUrlPrefix}/${cleanFilename}`,
+      folder: folder || "root",
     });
   } catch (err: any) {
     console.error("Upload error:", err);
