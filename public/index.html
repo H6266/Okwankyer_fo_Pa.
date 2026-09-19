@@ -407,19 +407,19 @@
         </div>
       </div>
 
-      <!-- English Prototype Audio Suite (/audio/English_audio_prot/) -->
+      <!-- English Audio Suite (/audio/English/) -->
       <div class="prototype-audio-card" id="cardPrototypeAudio">
         <div class="prototype-header-row">
           <div class="prototype-header-info">
-            <h3><span>🇬🇧</span> English Prototype Audio Suite</h3>
+            <h3><span>🇬🇧</span> English Voice Audio Suite</h3>
             <p style="font-size:12.5px; color:var(--ink-secondary); margin:4px 0 0 0;">
-              12 dedicated English voice prompts in <code>/audio/English_audio_prot/</code>. Built for Ghana's Digital Financial IVR flow with HTTP 206 streaming and instant simulated playback.
+              Dedicated English voice prompts in <code>/audio/English/</code> (with shared welcome prompt in <code>/audio/</code>). Built for Ghana's Digital Financial IVR flow with HTTP 206 streaming and instant simulated playback.
             </p>
           </div>
           <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-            <span class="prototype-folder-badge">📁 audio/English_audio_prot/</span>
+            <span class="prototype-folder-badge">📁 audio/English/</span>
             <button class="btn btn-sm btn-secondary" onclick="window.app.playAllPrototypeSequence()">
-              <span>▶ Play Sequence (01-12)</span>
+              <span>▶ Play Sequence</span>
             </button>
             <button class="btn btn-sm btn-outline" onclick="window.app.openUploadModal('prot_01')">
               <span>📤 Upload / Replace</span>
@@ -430,7 +430,35 @@
         <div class="prototype-grid" id="prototypePromptsGrid">
           <!-- Populated dynamically via /api/prototype-audio -->
           <div style="padding:20px; text-align:center; color:var(--ink-muted); grid-column:1/-1;">
-            Loading prototype audio clips...
+            Loading English audio clips...
+          </div>
+        </div>
+      </div>
+
+      <!-- Twi Prompt Recordings Suite (/audio/Twi/) -->
+      <div class="prototype-audio-card" id="cardTwiAudio" style="margin-top:20px;">
+        <div class="prototype-header-row">
+          <div class="prototype-header-info">
+            <h3><span>🇬🇭</span> Twi Prompt Recordings Suite</h3>
+            <p style="font-size:12.5px; color:var(--ink-secondary); margin:4px 0 0 0;">
+              Authentic Twi (Akan) audio prompts in <code>/audio/Twi/</code> (with shared welcome prompt in <code>/audio/</code>). Active when users select Twi (Press 2) in the simulator.
+            </p>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <span class="prototype-folder-badge" style="background:#e8f5e9; color:#2e7d32; border-color:#c8e6c9;">📁 audio/Twi/</span>
+            <button class="btn btn-sm btn-secondary" onclick="window.app.playAllTwiSequence()">
+              <span>▶ Play Twi Sequence</span>
+            </button>
+            <button class="btn btn-sm btn-outline" onclick="window.app.openUploadModal('twi_01')">
+              <span>📤 Upload / Replace</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="prototype-grid" id="twiPromptsGrid">
+          <!-- Populated dynamically via /api/twi-audio -->
+          <div style="padding:20px; text-align:center; color:var(--ink-muted); grid-column:1/-1;">
+            Loading Twi recording audio clips...
           </div>
         </div>
       </div>
@@ -924,7 +952,8 @@ async function uploadAudio(filePath, filename, phraseId) {
         <div class="form-group" style="margin-top:10px; margin-bottom:14px;">
           <label class="form-label" for="modalSelectFolder">Destination Storage Folder</label>
           <select class="form-select" id="modalSelectFolder">
-            <option value="English_audio_prot" selected>English Prototype Audio (/audio/English_audio_prot/)</option>
+            <option value="English" selected>English Audio (/audio/English/)</option>
+            <option value="Twi">Twi Audio (/audio/Twi/)</option>
             <option value="root">Root Audio Directory (/audio/)</option>
           </select>
         </div>

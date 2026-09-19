@@ -193,123 +193,124 @@ export const PHRASE_BANK: PhraseItem[] = [
     spokenText: "Transaction cancelled. No money has been deducted from your account.",
     description: "Spoken when user cancels (2). Confirms that transaction was aborted and no funds were deducted.",
   },
-  // ── English Prototype Audio Suite (/audio/English_audio_prot/) ────────
+  // ── English Audio Suite (/audio/English/ & /audio/Welcome_prompt_01.mp3) ──
   {
     id: "prot_01",
-    filename: "English_audio_prot/01_service_select.mp3",
+    filename: "Welcome_prompt_01.mp3",
     category: "welcome",
     language: "en",
-    title: "1. Service Selection (Telecom vs Bank)",
+    title: "1. Service Welcome & Language Selector",
+    spokenText: "Welcome to Okwankyerɛfo Pa, an easy financial transaction service. For English, press 1. For Twi, press 2.",
+    description: "Introductory greeting and language selection prompt.",
+  },
+  {
+    id: "prot_02",
+    filename: "English/Audio_prompt_02.mp3",
+    category: "welcome",
+    language: "en",
+    title: "2. Service Selection (Telecom vs Bank)",
     spokenText: "For telecom or mobile money services, press 1. For banking services, press 2. To hear this again, press 9. To exit, press 0.",
     description: "Main service selection branch prompt.",
   },
   {
-    id: "prot_02",
-    filename: "English_audio_prot/02_network_select.mp3",
+    id: "prot_03",
+    filename: "English/Audio_prompt_03.mp3",
     category: "welcome",
     language: "en",
-    title: "2. Network Provider Selection",
+    title: "3. Network Provider Selection",
     spokenText: "Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again. Press 0 to exit.",
     description: "Telco selection prompt (MTN, Telecel, AT).",
   },
   {
-    id: "prot_03",
-    filename: "English_audio_prot/03_network_select_alt.mp3",
+    id: "prot_04",
+    filename: "English/Audio_prompt_04.mp3",
     category: "welcome",
     language: "en",
-    title: "3. Network Provider (Variation 2)",
+    title: "4. Network Provider (Variation 2)",
     spokenText: "Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again or 0 to exit.",
     description: "Alternate network selection variation with concise tail.",
   },
   {
-    id: "prot_04",
-    filename: "English_audio_prot/04_mtn_services_menu.mp3",
+    id: "prot_05",
+    filename: "English/Audio_prompt_05.mp3",
     category: "welcome",
     language: "en",
-    title: "4. MTN MoMo Services Menu",
+    title: "5. MTN MoMo Services Menu",
     spokenText: "MTN services. To send money to another MoMo user, press 1. To pay bills, press 2. To buy airtime or bundle, press 3. To allow cash out, press 4. To check your account, press 5. Press 8 to go back or 0 to exit.",
     description: "Full MTN services sub-menu with 6 navigational choices.",
   },
   {
-    id: "prot_05",
-    filename: "English_audio_prot/05_enter_recipient_phone.mp3",
+    id: "prot_06",
+    filename: "English/Audio_prompt_06.mp3",
     category: "confirm",
     language: "en",
-    title: "5. Recipient Phone Number Entry",
+    title: "6. Recipient Phone Number Entry",
     spokenText: "Enter the 10-digit number you want to send money to, followed by hash. Press 0 to exit.",
     description: "Spoken instruction for entering beneficiary's 10-digit telephone number.",
   },
   {
-    id: "prot_06",
-    filename: "English_audio_prot/06_demo_recipient_digits.mp3",
+    id: "prot_07",
+    filename: "English/Audio_prompt_07.mp3",
     category: "confirm",
     language: "en",
-    title: "6. Dialled Recipient Digits Sample",
+    title: "7. Dialled Recipient Digits Sample",
     spokenText: "0, 2, 4, 1, 2, 3, 4, 5, 6, 7, hash.",
     description: "Read-back sample of user's dialled beneficiary telephone digits.",
   },
   {
-    id: "prot_07",
-    filename: "English_audio_prot/07_confirm_recipient_name.mp3",
+    id: "prot_08",
+    filename: "English/Audio_prompt_08.mp3",
     category: "confirm",
     language: "en",
-    title: "7. KYC Recipient Verification",
-    spokenText: "You are about to send money to Kwame Nyameba, whose phone number ends with 4 5 6 7. To confirm and send the money, press 1. To cancel, press 2. To exit completely, press 0.",
-    description: "Voice gate confirming recipient name and last 4 digits.",
+    title: "8. KYC Recipient Verification",
+    spokenText: "You are about to send money to Kwame Nyameba, whose phone number is 0241234567. To confirm and send the money, press 1. To cancel, press 2. To exit completely, press 0.",
+    description: "Voice gate confirming recipient name and telephone number.",
   },
   {
-    id: "prot_08",
-    filename: "English_audio_prot/08_enter_amount_cedis.mp3",
+    id: "prot_09",
+    filename: "English/Audio_prompt_09.mp3",
     category: "confirm",
     language: "en",
-    title: "8. Transfer Amount Prompt",
+    title: "9. Transfer Amount Prompt",
     spokenText: "Enter the cedi amount you want to send to Kwame Nyameba, followed by hash. Use star for pesewas.",
     description: "Amount collection prompt with universal star decimal notation.",
   },
   {
-    id: "prot_09",
-    filename: "English_audio_prot/09_confirm_transfer_summary.mp3",
+    id: "prot_10",
+    filename: "English/Audio_prompt_10.mp3",
     category: "confirm",
     language: "en",
-    title: "9. Transfer Confirmation Read-back",
+    title: "10. Transfer Confirmation Read-back",
     spokenText: "You are about to send 500 Ghana Cedis to Kwame Nyameba. To confirm and send, press 1. To cancel, press 2.",
     description: "High-contrast read-back before financial authorization.",
   },
   {
-    id: "prot_10",
-    filename: "English_audio_prot/10_pin_prompt_screen_handoff.mp3",
+    id: "prot_11",
+    filename: "English/Audio_prompt_11.mp3",
     category: "auth",
     language: "en",
-    title: "10. Zero-PIN Handset Handoff",
-    spokenText: "Confirmed. Now, please check your phone screen and enter your MoMo PIN accurately. Thank you for using Okwankyerɛfo Pa. Goodbye.",
+    title: "11. Zero-PIN Handset Handoff",
+    spokenText: "Confirmed. Now, please check your phone screen and enter your MoMo PIN quickly. Thank you for using Okwankyerɛfo Pa. Goodbye.",
     description: "Crucial security prompt routing PIN entry away from telephone voice channel.",
   },
   {
-    id: "prot_11",
-    filename: "English_audio_prot/11_transaction_receipt_summary.mp3",
+    id: "prot_12",
+    filename: "English/Audio_prompt_12.mp3",
     category: "auth",
     language: "en",
-    title: "11. Transaction Receipt & Ref Number",
+    title: "12. Transaction Receipt & Ref Number",
     spokenText: "Congratulations! You have successfully sent 500 Ghana Cedis to Kwame Nyameba. Your transaction was completed on 17th September 2026 at 5:00 PM. Your reference number is OKP 847291. Your transaction details have also been sent to you. Would you like to do anything else?",
     description: "Spoken post-transaction receipt with timestamp and reference code.",
-  },
-  {
-    id: "prot_12",
-    filename: "English_audio_prot/12_welcome_language_intro.mp3",
-    category: "welcome",
-    language: "en",
-    title: "12. Service Welcome & Language Selector",
-    spokenText: "Welcome to Okwankyerɛfo Pa, an easy financial transaction service. For English, press 1. For Twi, press 2.",
-    description: "Comprehensive English service greeting and dialect menu.",
   },
 ];
 
 function audioExists(filename: string): boolean {
   const p = path.join(process.cwd(), "audio", filename);
   if (fs.existsSync(p)) return true;
-  const pProt = path.join(process.cwd(), "audio", "English_audio_prot", filename);
-  if (fs.existsSync(pProt)) return true;
-  if (filename === "confirm_en.mp3" || filename === "success_en.mp3") return true;
+  const pEng = path.join(process.cwd(), "audio", "English", filename);
+  if (fs.existsSync(pEng)) return true;
+  const pTwi = path.join(process.cwd(), "audio", "Twi", filename);
+  if (fs.existsSync(pTwi)) return true;
   return false;
 }
 
@@ -332,24 +333,71 @@ function getPublicBaseUrl(req?: Request): string {
 }
 
 // ── Streaming Audio Handler with HTTP 206 Byte Ranges ─────────────────
-// Supports root /audio/:filename as well as nested subfolders e.g. /audio/English_audio_prot/:file
+// Supports root /audio/:filename as well as nested subfolders e.g. /audio/English_audio_prot/:file and /audio/twi_recording/:file
 app.all("/audio/*", (req: Request, res: Response) => {
   const rawSubpath = decodeURIComponent((req.params as any)[0] || "");
   // Guard against directory traversal
   const cleanSubpath = path.normalize(rawSubpath).replace(/^(\.\.[\/\\])+/, "");
   let filePath = path.join(process.cwd(), "audio", cleanSubpath);
 
-  // If not directly in /audio, check /audio/English_audio_prot/
+  // If not directly in /audio, check subfolders and backward-compatible mappings
   if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-    const altProt = path.join(process.cwd(), "audio", "English_audio_prot", cleanSubpath);
-    if (fs.existsSync(altProt) && !fs.statSync(altProt).isDirectory()) {
-      filePath = altProt;
+    const inEng = path.join(process.cwd(), "audio", "English", cleanSubpath);
+    const inTwi = path.join(process.cwd(), "audio", "Twi", cleanSubpath);
+    const baseName = path.basename(cleanSubpath);
+
+    const legacyEngMap: Record<string, string> = {
+      "12_welcome_language_intro.mp3": "Welcome_prompt_01.mp3",
+      "01_service_select.mp3": "English/Audio_prompt_02.mp3",
+      "02_network_select.mp3": "English/Audio_prompt_03.mp3",
+      "03_network_select_alt.mp3": "English/Audio_prompt_04.mp3",
+      "04_mtn_services_menu.mp3": "English/Audio_prompt_05.mp3",
+      "05_enter_recipient_phone.mp3": "English/Audio_prompt_06.mp3",
+      "06_demo_recipient_digits.mp3": "English/Audio_prompt_07.mp3",
+      "07_confirm_recipient_name.mp3": "English/Audio_prompt_08.mp3",
+      "08_enter_amount_cedis.mp3": "English/Audio_prompt_09.mp3",
+      "09_confirm_transfer_summary.mp3": "English/Audio_prompt_10.mp3",
+      "10_pin_prompt_screen_handoff.mp3": "English/Audio_prompt_11.mp3",
+      "11_transaction_receipt_summary.mp3": "English/Audio_prompt_12.mp3",
+      "confirm_transfer.mp3": "English/Audio_prompt_10.mp3",
+      "pin_prompt_screen_handoff.mp3": "English/Audio_prompt_11.mp3",
+    };
+
+    const legacyTwiMap: Record<string, string> = {
+      "01_service_select.mp3": "Twi/Audio_prompt_twi_02.mp3",
+      "02_network_select.mp3": "Twi/Audio_prompt_twi_03.mp3",
+      "04_mtn_services_menu.mp3": "Twi/Audio_prompt_twi_04.mp3",
+      "05_enter_recipient_phone.mp3": "Twi/Audio_prompt_twi_05.mp3",
+      "07_confirm_recipient_name.mp3": "Twi/Audio_prompt_twi_07.mp3",
+      "08_enter_amount_cedis.mp3": "Twi/Audio_prompt_twi_08.mp3",
+      "09_confirm_transfer_summary.mp3": "Twi/Audio_prompt_twi_09.mp3",
+      "10_pin_prompt_screen_handoff.mp3": "Twi/Audio_prompt_twi_10.mp3",
+      "11_transaction_receipt_summary.mp3": "Twi/Audio_prompt_twi_11.mp3",
+      "cancel_twi.mp3": "Twi/Audio_prompt_twi_10.mp3",
+    };
+
+    if (fs.existsSync(inEng) && !fs.statSync(inEng).isDirectory()) {
+      filePath = inEng;
+    } else if (fs.existsSync(inTwi) && !fs.statSync(inTwi).isDirectory()) {
+      filePath = inTwi;
+    } else if (cleanSubpath.startsWith("English_audio_prot/") && legacyEngMap[baseName]) {
+      filePath = path.join(process.cwd(), "audio", legacyEngMap[baseName]);
+    } else if ((cleanSubpath.startsWith("twi_recording/") || cleanSubpath.startsWith("twi recording/")) && legacyTwiMap[baseName]) {
+      filePath = path.join(process.cwd(), "audio", legacyTwiMap[baseName]);
+    } else if (legacyEngMap[baseName]) {
+      filePath = path.join(process.cwd(), "audio", legacyEngMap[baseName]);
     } else if (cleanSubpath === "confirm_en.mp3") {
-      filePath = path.join(process.cwd(), "audio", "English_audio_prot", "09_confirm_transfer_summary.mp3");
+      filePath = path.join(process.cwd(), "audio", "English", "Audio_prompt_10.mp3");
+    } else if (cleanSubpath === "confirm_twi.mp3") {
+      filePath = path.join(process.cwd(), "audio", "Twi", "Audio_prompt_twi_09.mp3");
     } else if (cleanSubpath === "success_en.mp3") {
-      filePath = path.join(process.cwd(), "audio", "English_audio_prot", "10_pin_prompt_screen_handoff.mp3");
+      filePath = path.join(process.cwd(), "audio", "English", "Audio_prompt_11.mp3");
+    } else if (cleanSubpath === "success_twi.mp3") {
+      filePath = path.join(process.cwd(), "audio", "Twi", "Audio_prompt_twi_10.mp3");
     } else if (cleanSubpath === "cancel_en.mp3") {
-      filePath = path.join(process.cwd(), "audio", "English_audio_prot", "10_pin_prompt_screen_handoff.mp3");
+      filePath = path.join(process.cwd(), "audio", "English", "Audio_prompt_11.mp3");
+    } else if (cleanSubpath === "cancel_twi.mp3") {
+      filePath = path.join(process.cwd(), "audio", "Twi", "Audio_prompt_twi_10.mp3");
     }
   }
 
@@ -426,21 +474,31 @@ app.get("/api/phrase-bank", (_req: Request, res: Response) => {
   res.json({ phrases, count: phrases.length });
 });
 
-// ── API: English Prototype Audio Catalog ──────────────────────────────
+// ── API: English Audio Catalog ─────────────────────────────────────────
 app.get("/api/prototype-audio", (_req: Request, res: Response) => {
-  const targetDir = path.join(process.cwd(), "audio", "English_audio_prot");
-  const manifestPath = path.join(targetDir, "manifest.json");
-  let manifest: any = null;
-  if (fs.existsSync(manifestPath)) {
-    try {
-      manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
-    } catch {}
+  let targetDir = path.join(process.cwd(), "audio", "English");
+  if (!fs.existsSync(targetDir)) {
+    targetDir = path.join(process.cwd(), "audio", "English_audio_prot");
   }
 
   let files: Array<{ name: string; size: number; sizeFormatted: string; url: string; ext: string }> = [];
+  
+  // Include shared Welcome prompt 01
+  const welcomePath = path.join(process.cwd(), "audio", "Welcome_prompt_01.mp3");
+  if (fs.existsSync(welcomePath)) {
+    const stat = fs.statSync(welcomePath);
+    files.push({
+      name: "Welcome_prompt_01.mp3",
+      size: stat.size,
+      sizeFormatted: `${(stat.size / 1024).toFixed(1)} KB`,
+      url: `/audio/Welcome_prompt_01.mp3`,
+      ext: ".mp3",
+    });
+  }
+
   if (fs.existsSync(targetDir)) {
     const dirFiles = fs.readdirSync(targetDir);
-    files = dirFiles
+    const subFiles = dirFiles
       .filter((f) => f.endsWith(".mp3") || f.endsWith(".wav") || f.endsWith(".m4a") || f.endsWith(".aac"))
       .sort()
       .map((f) => {
@@ -449,16 +507,167 @@ app.get("/api/prototype-audio", (_req: Request, res: Response) => {
           name: f,
           size: stat.size,
           sizeFormatted: `${(stat.size / 1024).toFixed(1)} KB`,
-          url: `/audio/English_audio_prot/${encodeURIComponent(f)}`,
+          url: `/audio/English/${encodeURIComponent(f)}`,
           ext: path.extname(f).toLowerCase(),
         };
       });
+    files.push(...subFiles);
   }
 
+  const manifest = {
+    folder: "audio/English",
+    prompts: PHRASE_BANK.filter((p) => p.id.startsWith("prot_")).map((p) => ({
+      number: p.id.replace("prot_", ""),
+      filename: path.basename(p.filename),
+      url: p.filename.startsWith("Welcome") ? `/audio/${p.filename}` : `/audio/${p.filename}`,
+      spokenText: p.spokenText,
+      description: p.description,
+    })),
+  };
+
   res.json({
-    folder: "English_audio_prot",
-    aliasFolder: "English prototype audio",
+    folder: "English",
+    aliasFolder: "English_audio_prot",
     manifest,
+    files,
+    count: files.length,
+  });
+});
+
+// ── API: Twi Prompt Audio Catalog ────────────────────────────────────
+app.get("/api/twi-audio", (_req: Request, res: Response) => {
+  let targetDir = path.join(process.cwd(), "audio", "Twi");
+  if (!fs.existsSync(targetDir)) {
+    targetDir = path.join(process.cwd(), "audio", "twi_recording");
+  }
+
+  let files: Array<{ name: string; size: number; sizeFormatted: string; url: string; ext: string }> = [];
+
+  // Include shared Welcome prompt 01
+  const welcomePath = path.join(process.cwd(), "audio", "Welcome_prompt_01.mp3");
+  if (fs.existsSync(welcomePath)) {
+    const stat = fs.statSync(welcomePath);
+    files.push({
+      name: "Welcome_prompt_01.mp3",
+      size: stat.size,
+      sizeFormatted: `${(stat.size / 1024).toFixed(1)} KB`,
+      url: `/audio/Welcome_prompt_01.mp3`,
+      ext: ".mp3",
+    });
+  }
+
+  if (fs.existsSync(targetDir)) {
+    const dirFiles = fs.readdirSync(targetDir);
+    const subFiles = dirFiles
+      .filter((f) => f.endsWith(".mp3") || f.endsWith(".wav") || f.endsWith(".m4a") || f.endsWith(".aac"))
+      .sort()
+      .map((f) => {
+        const stat = fs.statSync(path.join(targetDir, f));
+        return {
+          name: f,
+          size: stat.size,
+          sizeFormatted: `${(stat.size / 1024).toFixed(1)} KB`,
+          url: `/audio/Twi/${encodeURIComponent(f)}`,
+          ext: path.extname(f).toLowerCase(),
+        };
+      });
+    files.push(...subFiles);
+  }
+
+  const twiManifest = {
+    folder: "audio/Twi",
+    prompts: [
+      {
+        number: "01",
+        filename: "Welcome_prompt_01.mp3",
+        url: "/audio/Welcome_prompt_01.mp3",
+        spokenText: "Welcome to Okwankyerɛfo Pa, an easy financial transaction service. For English, press 1. For Twi, press 2.",
+        description: "1. Service Welcome & Language Selector",
+      },
+      {
+        number: "02",
+        filename: "Audio_prompt_twi_02.mp3",
+        url: "/audio/Twi/Audio_prompt_twi_02.mp3",
+        spokenText: "Telecom anaa Mobile Money dwumadie no, mia baako. Banking dwumadie no, mia mmienu. Sɛ wopɛ sɛ wote bio a, mia akron. Sɛ wopɛ sɛ wogyae a, mia hwee.",
+        description: "2. Service Selection (Telecom vs Banking)",
+      },
+      {
+        number: "03",
+        filename: "Audio_prompt_twi_03.mp3",
+        url: "/audio/Twi/Audio_prompt_twi_03.mp3",
+        spokenText: "Yi wo nkitahodi dwumakuo no. Sɛ ɛyɛ MTN a, mia baako. Sɛ ɛyɛ Telecel a, mia mmienu. Sɛ ɛyɛ AT a, mia mmiɛnsa.",
+        description: "3. Network Provider Selection",
+      },
+      {
+        number: "04",
+        filename: "Audio_prompt_twi_04.mp3",
+        url: "/audio/Twi/Audio_prompt_twi_04.mp3",
+        spokenText: "MTN dwumadie. Sɛ wopɛ sɛ womena sika ma obi a ɔde MoMo a, mia baako. Sɛ wopɛ sɛ wotua ka a, mia mmienu.",
+        description: "4. MTN MoMo Services Menu",
+      },
+      {
+        number: "05",
+        filename: "Audio_prompt_twi_05.mp3",
+        url: "/audio/Twi/Audio_prompt_twi_05.mp3",
+        spokenText: "Bɔ nɔma du a wopɛ sɛ womena sika no ma no, na wie a bɔ hash. Sɛ wopɛ sɛ wogyae a, mia hwee.",
+        description: "5. Recipient Phone Number Entry",
+      },
+      {
+        number: "06",
+        filename: "Audio_prompt_twi_06.mp3",
+        url: "/audio/Twi/Audio_prompt_twi_06.mp3",
+        spokenText: "Nɔma a wobɔeɛ no pɛpɛɛpɛ.",
+        description: "6. Dialled Recipient Digits Confirmation",
+      },
+      {
+        number: "07",
+        filename: "Audio_prompt_twi_07.mp3",
+        url: "/audio/Twi/Audio_prompt_twi_07.mp3",
+        spokenText: "Worebɛmena sika ama Kwame Nyameba. Sɛ wopene so a, mia baako. Sɛ wopɛ sɛ wotwa mu a, mia mmienu.",
+        description: "7. KYC Recipient Verification",
+      },
+      {
+        number: "08",
+        filename: "Audio_prompt_twi_08.mp3",
+        url: "/audio/Twi/Audio_prompt_twi_08.mp3",
+        spokenText: "Bɔ Ghana sidi dodoɔ a wopɛ sɛ womena ma Kwame Nyameba na wie a bɔ hash.",
+        description: "8. Transfer Amount Prompt",
+      },
+      {
+        number: "09",
+        filename: "Audio_prompt_twi_09.mp3",
+        url: "/audio/Twi/Audio_prompt_twi_09.mp3",
+        spokenText: "Worebɛmena Ghana sidi ahanum ama Kwame Nyameba. Sɛ wopene so na womena a, mia baako. Sɛ wotwa mu a, mia mmienu.",
+        description: "9. Transfer Confirmation Read-back",
+      },
+      {
+        number: "10",
+        filename: "Audio_prompt_twi_10.mp3",
+        url: "/audio/Twi/Audio_prompt_twi_10.mp3",
+        spokenText: "Woapene so. Afei, yɛsrɛ wo hwɛ wo fon no anim na bɔ wo MoMo PIN pɔtee. Yɛda wo ase sɛ wode Ɔkwankyerɛfo Pa dii dwuma.",
+        description: "10. Zero-PIN Handset Handoff",
+      },
+      {
+        number: "11",
+        filename: "Audio_prompt_twi_11.mp3",
+        url: "/audio/Twi/Audio_prompt_twi_11.mp3",
+        spokenText: "Mo! Woatumi amena Ghana sidi ahanum ama Kwame Nyameba pɛpɛɛpɛ. Reference nɔma no yɛ OKP 847291.",
+        description: "11. Transaction Receipt & Ref Number",
+      },
+      {
+        number: "12",
+        filename: "Audio_prompt_twi_12.mp3",
+        url: "/audio/Twi/Audio_prompt_twi_12.mp3",
+        spokenText: "Yɛda wo ase. Nante yie.",
+        description: "12. Thank You & Closing",
+      },
+    ],
+  };
+
+  res.json({
+    folder: "Twi",
+    aliasFolder: "twi_recording",
+    manifest: twiManifest,
     files,
     count: files.length,
   });
@@ -482,9 +691,12 @@ app.post("/api/upload-audio", (req: Request, res: Response) => {
     let targetDir = path.join(process.cwd(), "audio");
     let relativeUrlPrefix = "/audio";
 
-    if (folder === "English_audio_prot" || folder === "English prototype audio") {
-      targetDir = path.join(process.cwd(), "audio", "English_audio_prot");
-      relativeUrlPrefix = "/audio/English_audio_prot";
+    if (folder === "English" || folder === "English_audio_prot" || folder === "English prototype audio") {
+      targetDir = path.join(process.cwd(), "audio", "English");
+      relativeUrlPrefix = "/audio/English";
+    } else if (folder === "Twi" || folder === "twi_recording" || folder === "twi recording") {
+      targetDir = path.join(process.cwd(), "audio", "Twi");
+      relativeUrlPrefix = "/audio/Twi";
     }
 
     if (!fs.existsSync(targetDir)) {
@@ -802,7 +1014,7 @@ function handleVoiceMenu(req: Request, res: Response) {
   const caller = req.body?.callerNumber || req.query?.callerNumber || "caller";
   console.log(`📞 Inbound voice call connected from ${caller}!`);
 
-  const introAudioUrl = `${baseUrl}/audio/English_audio_prot/12_welcome_language_intro.mp3`;
+  const introAudioUrl = `${baseUrl}/audio/Welcome_prompt_01.mp3`;
 
   // English/Bilingual intro menu: DTMF primary, fallback to speech recording
   const speechFallbackUrl = `${baseUrl}/speech-fallback?step=language-selection&amp;retryUrl=%2Fvoice-menu`;
@@ -829,17 +1041,18 @@ app.all("/service-select", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as string;
   const baseUrl = getPublicBaseUrl(req);
 
-  if (lang === "en") {
-    const audioUrl = `${baseUrl}/audio/English_audio_prot/01_service_select.mp3`;
-    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=service-select&amp;retryUrl=%2Fservice-select%3Flang%3Den`;
+  if (lang === "en" || lang === "twi") {
+    const audioUrl = lang === "twi"
+      ? `${baseUrl}/audio/Twi/Audio_prompt_twi_02.mp3`
+      : `${baseUrl}/audio/English/Audio_prompt_02.mp3`;
+    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=service-select&amp;retryUrl=%2Fservice-select%3Flang%3D${lang}`;
     const xml = `    <Play url="${audioUrl}"/>
-    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?lang=en">
+    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?lang=${lang}">
     </GetDigits>
 ${buildSpeechFallbackXml({ promptAudioUrl: audioUrl, speechCallbackUrl: speechFallbackUrl })}`;
     return xmlResponse(res, xml);
   }
 
-  // TODO: Pending Phase 2 (Twi recordings)
   const prompt = "Sɛ worepɛ Mobile Money anaa Telecom a, mia baako (1). Sɛ worepɛ Sikakorabea Banking a, mia mmienu (2). Mia hwee (0) sɛ worepɛ agyae.";
   const xml = `    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?lang=${lang}">
         <Say voice="man">${prompt}</Say>
@@ -879,17 +1092,18 @@ app.all("/provider-select", (req: Request, res: Response) => {
   const service = (req.query?.service || req.body?.service || "momo") as string;
   const baseUrl = getPublicBaseUrl(req);
 
-  if (lang === "en") {
-    const audioUrl = `${baseUrl}/audio/English_audio_prot/02_network_select.mp3`;
-    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=provider-select&amp;service=${service}&amp;retryUrl=%2Fprovider-select%3Flang%3Den%26service%3D${service}`;
+  if (lang === "en" || lang === "twi") {
+    const audioUrl = lang === "twi"
+      ? `${baseUrl}/audio/Twi/Audio_prompt_twi_03.mp3`
+      : `${baseUrl}/audio/English/Audio_prompt_03.mp3`;
+    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=provider-select&amp;service=${service}&amp;retryUrl=%2Fprovider-select%3Flang%3D${lang}%26service%3D${service}`;
     const xml = `    <Play url="${audioUrl}"/>
-    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?lang=en&amp;service=${service}">
+    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?lang=${lang}&amp;service=${service}">
     </GetDigits>
 ${buildSpeechFallbackXml({ promptAudioUrl: audioUrl, speechCallbackUrl: speechFallbackUrl })}`;
     return xmlResponse(res, xml);
   }
 
-  // TODO: Pending Phase 2 (Twi recordings)
   const prompt = "Paw wo network. MTN, mia baako (1). Telecel, mia mmienu (2). Africa's Talking AT, mia mmiɛnsa (3). Mia akron (9) sɛ worepɛ ate bio, anaa hwee (0) sɛ worepɛ agyae.";
   const xml = `    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?lang=${lang}&amp;service=${service}">
         <Say voice="man">${prompt}</Say>
@@ -922,17 +1136,18 @@ app.all("/action-select", (req: Request, res: Response) => {
   const provider = (req.query?.provider || req.body?.provider || "MTN") as string;
   const baseUrl = getPublicBaseUrl(req);
 
-  if (lang === "en") {
-    const audioUrl = `${baseUrl}/audio/English_audio_prot/04_mtn_services_menu.mp3`;
-    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=action-select&amp;provider=${provider}&amp;retryUrl=%2Faction-select%3Flang%3Den%26provider%3D${provider}`;
+  if (lang === "en" || lang === "twi") {
+    const audioUrl = lang === "twi"
+      ? `${baseUrl}/audio/Twi/Audio_prompt_twi_04.mp3`
+      : `${baseUrl}/audio/English/Audio_prompt_05.mp3`;
+    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=action-select&amp;provider=${provider}&amp;retryUrl=%2Faction-select%3Flang%3D${lang}%26provider%3D${provider}`;
     const xml = `    <Play url="${audioUrl}"/>
-    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?lang=en&amp;provider=${provider}">
+    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?lang=${lang}&amp;provider=${provider}">
     </GetDigits>
 ${buildSpeechFallbackXml({ promptAudioUrl: audioUrl, speechCallbackUrl: speechFallbackUrl })}`;
     return xmlResponse(res, xml);
   }
 
-  // TODO: Pending Phase 2 (Twi recordings)
   const prompt =
     lang === "twi"
       ? `${provider} dwumadie. Sɛ woremane sika a, mia baako (1). Sɛ woregye wo balance a, mia mmienu (2). Mia hwee (0) sɛ worepɛ agyae.`
@@ -978,17 +1193,20 @@ app.all("/enter-recipient", (req: Request, res: Response) => {
   const err = req.query?.err as string;
   const baseUrl = getPublicBaseUrl(req);
 
-  if (lang === "en") {
-    const audioUrl = `${baseUrl}/audio/English_audio_prot/05_enter_recipient_phone.mp3`;
-    // TODO: Audio Asset to record later: Dedicated invalid-recipient retry prompt audio (single recorded file)
-    const errSay = err === "invalid" ? `    <Say voice="man">That number wasn't recognized.</Say>\n` : "";
+  if (lang === "en" || lang === "twi") {
+    const audioUrl = lang === "twi"
+      ? `${baseUrl}/audio/Twi/Audio_prompt_twi_05.mp3`
+      : `${baseUrl}/audio/English/Audio_prompt_06.mp3`;
+    const errSay = err === "invalid"
+      ? (lang === "twi" ? `    <Say voice="man">Nɔma no nyɛ pɛpɛɛpɛ.</Say>\n` : `    <Say voice="man">That number wasn't recognized.</Say>\n`)
+      : "";
     const retryQuery = err ? `%26err%3D${encodeURIComponent(err)}` : "";
-    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=enter-recipient&amp;provider=${provider}&amp;retryUrl=%2Fenter-recipient%3Flang%3Den%26provider%3D${provider}${retryQuery}`;
+    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=enter-recipient&amp;provider=${provider}&amp;retryUrl=%2Fenter-recipient%3Flang%3D${lang}%26provider%3D${provider}${retryQuery}`;
     const xml = `${errSay}    <Play url="${audioUrl}"/>
-    <GetDigits timeout="12" finishOnKey="#" numDigits="15" callbackUrl="${baseUrl}/verify-recipient?lang=en&amp;provider=${provider}">
+    <GetDigits timeout="12" finishOnKey="#" numDigits="15" callbackUrl="${baseUrl}/verify-recipient?lang=${lang}&amp;provider=${provider}">
     </GetDigits>
 ${buildSpeechFallbackXml({
-  errorPrefixText: err === "invalid" ? "That number wasn't recognized." : undefined,
+  errorPrefixText: err === "invalid" ? (lang === "twi" ? "Nɔma no nyɛ pɛpɛɛpɛ." : "That number wasn't recognized.") : undefined,
   promptAudioUrl: audioUrl,
   speechCallbackUrl: speechFallbackUrl,
 })}`;
@@ -1003,14 +1221,12 @@ ${buildSpeechFallbackXml({
         : "That phone number appears incomplete or invalid. ";
   }
 
-  // TODO: Pending Phase 2 (Twi recordings)
   const prompt =
     prefixPrompt +
     (lang === "twi"
       ? "Fa nɔma du (10) a woremane kɔma no nwura mu, na wie no hash (#). Mia hwee (0) sɛ worepɛ agyae."
       : "Please enter the 10-digit recipient phone number, followed by hash. Press 0 to cancel.");
 
-  // Twi branch (DTMF only, speech pending Phase 2)
   const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="15" callbackUrl="${baseUrl}/verify-recipient?lang=${lang}&amp;provider=${provider}">
         <Say voice="man">${prompt}</Say>
     </GetDigits>
@@ -1054,17 +1270,20 @@ app.all("/enter-amount", (req: Request, res: Response) => {
   const err = req.query?.err as string;
   const baseUrl = getPublicBaseUrl(req);
 
-  if (lang === "en") {
-    const audioUrl = `${baseUrl}/audio/English_audio_prot/08_enter_amount_cedis.mp3`;
-    // TODO: Audio Asset to record later: Dedicated invalid-amount retry prompt audio (single recorded file)
-    const errSay = err === "invalid" ? `    <Say voice="man">That amount wasn't recognized.</Say>\n` : "";
+  if (lang === "en" || lang === "twi") {
+    const audioUrl = lang === "twi"
+      ? `${baseUrl}/audio/Twi/Audio_prompt_twi_08.mp3`
+      : `${baseUrl}/audio/English/Audio_prompt_09.mp3`;
+    const errSay = err === "invalid"
+      ? (lang === "twi" ? `    <Say voice="man">Sika dodow no nyɛ pɛpɛɛpɛ.</Say>\n` : `    <Say voice="man">That amount wasn't recognized.</Say>\n`)
+      : "";
     const retryQuery = err ? `%26err%3D${encodeURIComponent(err)}` : "";
-    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=enter-amount&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;retryUrl=%2Fenter-amount%3Flang%3Den%26provider%3D${provider}%26phone%3D${phone}%26name%3D${encodeURIComponent(name)}${retryQuery}`;
+    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=enter-amount&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;retryUrl=%2Fenter-amount%3Flang%3D${lang}%26provider%3D${provider}%26phone%3D${phone}%26name%3D${encodeURIComponent(name)}${retryQuery}`;
     const xml = `${errSay}    <Play url="${audioUrl}"/>
-    <GetDigits timeout="10" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/verify-amount?lang=en&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}">
+    <GetDigits timeout="10" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/verify-amount?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}">
     </GetDigits>
 ${buildSpeechFallbackXml({
-  errorPrefixText: err === "invalid" ? "That amount wasn't recognized." : undefined,
+  errorPrefixText: err === "invalid" ? (lang === "twi" ? "Sika dodow no nyɛ pɛpɛɛpɛ." : "That amount wasn't recognized.") : undefined,
   promptAudioUrl: audioUrl,
   speechCallbackUrl: speechFallbackUrl,
 })}`;
@@ -1079,14 +1298,12 @@ ${buildSpeechFallbackXml({
         : "Invalid amount entered. ";
   }
 
-  // TODO: Pending Phase 2 (Twi recordings)
   const prompt =
     prefixPrompt +
     (lang === "twi"
       ? `Fa cedi dodow a woremane kɔma ${name} no nwura mu, na wie no hash (#). Fa nsoroma (*) di dwuma ma pesewa. Mia hwee (0) sɛ worepɛ agyae.`
       : `Enter the amount in Ghana Cedis to send to ${name}, followed by hash. Use star for pesewas. Press 0 to cancel.`);
 
-  // Twi branch (DTMF only, speech pending Phase 2)
   const xml = `    <GetDigits timeout="10" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/verify-amount?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}">
         <Say voice="man">${prompt}</Say>
     </GetDigits>
@@ -1137,9 +1354,11 @@ app.all("/safe-confirmation", (req: Request, res: Response) => {
 
   const callbackUrl = `${baseUrl}/safe-outcome?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}`;
 
-  if (lang === "en") {
-    const audioUrl = `${baseUrl}/audio/English_audio_prot/09_confirm_transfer_summary.mp3`;
-    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=safe-confirmation&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}&amp;retryUrl=%2Fsafe-confirmation%3Flang%3Den%26provider%3D${provider}%26phone%3D${phone}%26name%3D${encodeURIComponent(name)}%26amount%3D${amount}`;
+  if (lang === "en" || lang === "twi") {
+    const audioUrl = lang === "twi"
+      ? `${baseUrl}/audio/Twi/Audio_prompt_twi_09.mp3`
+      : `${baseUrl}/audio/English/Audio_prompt_10.mp3`;
+    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=safe-confirmation&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}&amp;retryUrl=%2Fsafe-confirmation%3Flang%3D${lang}%26provider%3D${provider}%26phone%3D${phone}%26name%3D${encodeURIComponent(name)}%26amount%3D${amount}`;
     const xml = `    <Play url="${audioUrl}"/>
     <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
     </GetDigits>
@@ -1147,7 +1366,6 @@ ${buildSpeechFallbackXml({ promptAudioUrl: audioUrl, speechCallbackUrl: speechFa
     return xmlResponse(res, xml);
   }
 
-  // TODO: Pending Phase 2 (Twi recordings)
   const last4 = phone.slice(-4);
   const prompt = `Woremane sika cedi ${amount} kɔma ${name}, a ne fon nɔma wie ${last4}. Sɛ wopene so a, mia baako (1). Sɛ worepɛ sesa no a, mia mmienu (2). Sɛ worepɛ agyae koraa a, mia hwee (0).`;
 
@@ -1173,22 +1391,18 @@ app.all("/safe-outcome", (req: Request, res: Response) => {
   console.log(`🎯 Safe confirmation choice: ${dtmf}`);
 
   if (dtmf === "2") {
-    // User wants to re-enter
     console.log("🔄 User chose to re-enter details");
     return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?lang=${lang}&amp;provider=${provider}</Redirect>`);
   }
 
   if (dtmf === "0") {
-    // TODO: Pending Phase 2 (Twi recordings)
-    const cancelMsg =
-      lang === "twi"
-        ? "Yɛatwa mu. Sika no mfiri wo account mu. Akwaaba."
-        : "Transaction cancelled. No money has been deducted from your account. Goodbye.";
-    return xmlResponse(res, `    <Say voice="man">${cancelMsg}</Say>\n    <Reject/>`);
+    const cancelAudio = lang === "twi"
+      ? `${baseUrl}/audio/Twi/Audio_prompt_twi_10.mp3`
+      : `${baseUrl}/audio/English/Audio_prompt_11.mp3`;
+    return xmlResponse(res, `    <Play url="${cancelAudio}"/>\n    <Reject/>`);
   }
 
   // Confirmed (Key 1): Strong Security Posture Handoff
-  // Converged execution: Keypad input calls the unified Service Orchestrator
   const amtNum = parseFloat(amount) || 50;
   transactionOrchestrator.executeSendMoney({
     source: "KEYPAD",
@@ -1198,16 +1412,11 @@ app.all("/safe-outcome", (req: Request, res: Response) => {
     amount: amtNum,
   }).catch((err) => console.error("[Keypad] Converged transaction execution error:", err));
 
-  if (lang === "en") {
-    const audioUrl = `${baseUrl}/audio/English_audio_prot/10_pin_prompt_screen_handoff.mp3`;
-    const xml = `    <Play url="${audioUrl}"/>\n    <Reject/>`;
-    return xmlResponse(res, xml);
-  }
-
-  // TODO: Pending Phase 2 (Twi recordings)
-  const successMsg = `Yɛapene cedi ${amount} a woremane kɔma ${name} no so. Sesei, hwɛ wo screen na fa wo MoMo PIN nwura mu pɛpɛɛpɛ.`;
-  const xml = `    <Say voice="man">${successMsg}</Say>\n    <Reject/>`;
-  xmlResponse(res, xml);
+  const audioUrl = lang === "twi"
+    ? `${baseUrl}/audio/Twi/Audio_prompt_twi_10.mp3`
+    : `${baseUrl}/audio/English/Audio_prompt_11.mp3`;
+  const xml = `    <Play url="${audioUrl}"/>\n    <Reject/>`;
+  return xmlResponse(res, xml);
 });
 
 // ── Mock Transaction Backend (Section 11: POST /transactions/send) ─────

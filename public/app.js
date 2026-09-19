@@ -88,6 +88,9 @@
     prototypeData: null,
     activePrototypeAudio: null,
     activePrototypeIdx: null,
+    twiData: null,
+    activeTwiAudio: null,
+    activeTwiIdx: null,
     voiceMode: 'prototype', // 'prototype' (12 uploaded studio prompts for English) | 'bilingual'
     recorder: {
       mediaRecorder: null,
@@ -105,6 +108,7 @@
       this.loadStatus();
       this.loadPhrases();
       this.loadPrototypeAudio();
+      this.loadTwiAudio();
       this.loadSubscribers();
       this.initWaveformCanvas();
 
@@ -482,6 +486,125 @@
       });
     },
 
+    async loadTwiAudio() {
+      try {
+        const res = await fetch('/api/twi-audio');
+        const data = await res.json();
+        this.twiData = data;
+        this.renderTwiGrid(data);
+      } catch (err) {
+        console.error('Failed to load Twi audio:', err);
+      }
+    },
+
+    renderTwiGrid(data) {
+      const container = document.getElementById('twiPromptsGrid');
+      if (!container) return;
+
+      const manifestPrompts = (data.manifest && data.manifest.prompts) || [];
+      const files = data.files || [];
+
+      if (!files.length && !manifestPrompts.length) {
+        container.innerHTML = `<div style="padding:20px; text-align:center; color:var(--ink-muted); grid-column:1/-1;">No Twi audio found in /audio/twi_recording/</div>`;
+        return;
+      }
+
+      const items = manifestPrompts.map(p => {
+        const matchingFile = files.find(f => f.name === p.filename);
+        return {
+          ...p,
+          sizeFormatted: matchingFile ? matchingFile.sizeFormatted : '110.0 KB',
+          url: matchingFile ? matchingFile.url : `/audio/twi_recording/${p.filename}`
+        };
+      });
+
+      container.innerHTML = items.map((item, idx) => `
+        <div class="prompt-item-card" id="twiCard_${idx}" style="border-left: 3px solid #2e7d32;">
+          <div>
+            <div class="prompt-top-row">
+              <span class="prompt-seq-tag" style="background:#e8f5e9; color:#2e7d32;">TWI ${item.number || (idx + 1)}</span>
+              <span class="prompt-filesize">${item.sizeFormatted}</span>
+            </div>
+            <div class="prompt-card-title">${item.description || item.filename}</div>
+            <div class="prompt-card-script">"${item.spokenText}"</div>
+          </div>
+          <div class="prompt-card-actions">
+            <button class="btn-play-prompt" id="btnPlayTwi_${idx}" onclick="window.app.toggleTwiPlay('${item.url}', ${idx})">
+              <span>▶ Play</span>
+            </button>
+            <button class="btn-copy-url" title="Copy streaming URL" onclick="window.app.copyUrl('${item.url}')">
+              <span>🔗 Copy URL</span>
+            </button>
+            <button class="btn-copy-url" title="Replace file" onclick="window.app.openUploadModal('twi_${item.number}')">
+              <span>Replace</span>
+            </button>
+          </div>
+        </div>
+      `).join('');
+    },
+
+    toggleTwiPlay(url, idx) {
+      if (this.activeTwiAudio && this.activeTwiIdx === idx) {
+        this.activeTwiAudio.pause();
+        this.activeTwiAudio = null;
+        this.activeTwiIdx = null;
+        this.updateTwiPlayButtons();
+        return;
+      }
+
+      if (this.activeTwiAudio) {
+        this.activeTwiAudio.pause();
+      }
+
+      const audio = new Audio(url);
+      this.activeTwiAudio = audio;
+      this.activeTwiIdx = idx;
+      this.updateTwiPlayButtons();
+
+      audio.play().catch(e => console.log('Playback error:', e));
+      audio.onended = () => {
+        this.activeTwiAudio = null;
+        this.activeTwiIdx = null;
+        this.updateTwiPlayButtons();
+      };
+    },
+
+    updateTwiPlayButtons() {
+      const cards = document.querySelectorAll('#twiPromptsGrid .prompt-item-card');
+      cards.forEach((card, idx) => {
+        const isCurrent = this.activeTwiIdx === idx;
+        card.classList.toggle('is-playing', isCurrent);
+        const btn = document.getElementById(`btnPlayTwi_${idx}`);
+        if (btn) {
+          btn.innerHTML = isCurrent ? `<span>⏹ Stop</span>` : `<span>▶ Play</span>`;
+        }
+      });
+    },
+
+    playAllTwiSequence() {
+      if (!this.twiData || !this.twiData.manifest || !this.twiData.manifest.prompts) return;
+      const prompts = this.twiData.manifest.prompts;
+      let cur = 0;
+      const playNext = () => {
+        if (cur >= prompts.length) {
+          this.activeTwiIdx = null;
+          this.updateTwiPlayButtons();
+          return;
+        }
+        const p = prompts[cur];
+        const url = `/audio/twi_recording/${p.filename}`;
+        this.toggleTwiPlay(url, cur);
+        if (this.activeTwiAudio) {
+          this.activeTwiAudio.onended = () => {
+            cur++;
+            this.updateTwiPlayButtons();
+            playNext();
+          };
+        }
+      };
+      playNext();
+    },
+
     // ── KYC Subscribers ─────────────────────────────────────────────────
     async loadSubscribers() {
       try {
@@ -589,7 +712,7 @@
     // ── Call Simulator Pipeline ─────────────────────────────────────────
     startCall() {
       // 1. Prime/play audio element immediately and synchronously within the user interaction event
-      const welcomeAudio = '/audio/English_audio_prot/12_welcome_language_intro.mp3';
+      const welcomeAudio = '/audio/Welcome_prompt_01.mp3';
       this.playPhoneAudio(welcomeAudio, 'Welcome to Okwankyerɛfo Pa. For English, press 1. For Twi, press 2.');
 
       this.callState.active = true;
@@ -650,7 +773,7 @@
         promptTwi.innerText = '"For English, press 1. Twi firi mu, mia 2."';
         promptEn.innerText = '"Welcome to Ɔkwankyerɛfo Pa, an easy financial transaction service. For English, press 1. For Twi, press 2."';
 
-        const audioFile = '/audio/English_audio_prot/12_welcome_language_intro.mp3';
+        const audioFile = '/audio/Welcome_prompt_01.mp3';
         const audioEl = document.getElementById('phoneAudioElement');
         if (!audioEl || audioEl.paused || audioEl.ended || this.currentAudioUrl !== audioFile) {
           this.playPhoneAudio(audioFile, 'Welcome to Okwankyerɛfo Pa. For English, press 1. For Twi, press 2.');
@@ -708,7 +831,6 @@
                 💬 "Buy 20 cedis airtime."
               </button>
             </div>
-
             <div style="margin-top:6px; border-top:1px dashed var(--border); padding-top:6px; display:flex; justify-content:space-between; align-items:center;">
               <span style="font-size:11.5px; color:var(--ink-muted);">Prefer classic keypad?</span>
               <button class="btn btn-sm btn-ghost" style="font-size:11.5px; color:var(--green-800); font-weight:700;" onclick="window.app.pressKey('1')">
@@ -722,10 +844,10 @@
         promptTwi.innerText = '"Sɛ worepɛ Mobile Money anaa Telecom a, mia baako (1). Sikakorabea Banking, mia mmienu (2). Mia hwee (0) sɛ worepɛ agyae."';
         promptEn.innerText = '"For telecom or mobile money services, press 1. For banking services, press 2. To hear this again, press 9. To exit, press 0."';
 
-        const audioFile = !isTwi
-          ? '/audio/English_audio_prot/01_service_select.mp3'
-          : null;
-        this.playPhoneAudio(audioFile, isTwi ? 'Mobile money mia baako. Banking mia mmienu.' : 'For telecom or mobile money services, press 1. For banking services, press 2.');
+        const audioFile = isTwi
+          ? '/audio/Twi/Audio_prompt_twi_02.mp3'
+          : '/audio/English/Audio_prompt_02.mp3';
+        this.playPhoneAudio(audioFile, isTwi ? promptTwi.innerText : promptEn.innerText);
         this.fetchVoiceXml(`/service-select?lang=${this.callState.lang}`);
 
         viewport.innerHTML = `
@@ -745,10 +867,10 @@
         promptTwi.innerText = '"Paw wo network. MTN, mia baako (1). Telecel, mia mmienu (2). Africa\'s Talking AT, mia mmiɛnsa (3). Mia akron (9) ma replay, hwee (0) ma agyae."';
         promptEn.innerText = '"Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again. Press 0 to exit."';
 
-        const audioFile = !isTwi
-          ? '/audio/English_audio_prot/02_network_select.mp3'
-          : null;
-        this.playPhoneAudio(audioFile, isTwi ? 'Paw wo network: MTN baako, Telecel mmienu, AT mmiɛnsa.' : 'Select your network: For MTN press 1. For Telecel press 2. For AirtelTigo press 3.');
+        const audioFile = isTwi
+          ? '/audio/Twi/Audio_prompt_twi_03.mp3'
+          : '/audio/English/Audio_prompt_03.mp3';
+        this.playPhoneAudio(audioFile, isTwi ? promptTwi.innerText : promptEn.innerText);
         this.fetchVoiceXml(`/provider-select?lang=${this.callState.lang}&service=${this.callState.service}`);
 
         viewport.innerHTML = `
@@ -772,10 +894,10 @@
         promptTwi.innerText = `"${this.callState.provider} dwumadie. Sɛ woremane sika a, mia baako (1). Sɛ woregye wo balance a, mia mmienu (2). Mia 8 ma akyi, 0 ma agyae."`;
         promptEn.innerText = '"MTN services. To send money to another MoMo user, press 1. To pay bills, press 2. To buy airtime or bundle, press 3. To allow cash out, press 4. To check your account, press 5. Press 8 to go back or 0 to exit."';
 
-        const audioFile = !isTwi
-          ? '/audio/English_audio_prot/04_mtn_services_menu.mp3'
-          : null;
-        this.playPhoneAudio(audioFile, isTwi ? 'Sɛ woremane sika a mia baako. Balance mia mmienu.' : 'To send money to another MoMo user press 1.');
+        const audioFile = isTwi
+          ? '/audio/Twi/Audio_prompt_twi_04.mp3'
+          : '/audio/English/Audio_prompt_05.mp3';
+        this.playPhoneAudio(audioFile, isTwi ? promptTwi.innerText : promptEn.innerText);
         this.fetchVoiceXml(`/action-select?lang=${this.callState.lang}&provider=${this.callState.provider}`);
 
         viewport.innerHTML = `
@@ -795,10 +917,10 @@
         promptTwi.innerText = '"Fa nɔma du (10) a woremane kɔma no nwura mu, na wie no hash (#). Mia hwee (0) sɛ worepɛ agyae."';
         promptEn.innerText = '"Enter the 10-digit number you want to send money to, followed by hash. Press 0 to exit."';
 
-        const audioFile = !isTwi
-          ? '/audio/English_audio_prot/05_enter_recipient_phone.mp3'
-          : null;
-        this.playPhoneAudio(audioFile, isTwi ? 'Fa nɔma du no nwura mu na wie hash.' : 'Enter the 10-digit number you want to send money to, followed by hash.');
+        const audioFile = isTwi
+          ? '/audio/Twi/Audio_prompt_twi_05.mp3'
+          : '/audio/English/Audio_prompt_06.mp3';
+        this.playPhoneAudio(audioFile, isTwi ? promptTwi.innerText : promptEn.innerText);
         this.fetchVoiceXml(`/enter-recipient?lang=${this.callState.lang}&provider=${this.callState.provider}`);
 
         viewport.innerHTML = `
@@ -815,10 +937,10 @@
         promptTwi.innerText = `"Fa cedi dodow a woremane kɔma ${this.callState.name} no nwura mu, na wie no hash (#). Fa nsoroma (*) di dwuma ma pesewa."`;
         promptEn.innerText = `"Enter the cedi amount you want to send to ${this.callState.name}, followed by hash. Use star for pesewas."`;
 
-        const audioFile = !isTwi
-          ? '/audio/English_audio_prot/08_enter_amount_cedis.mp3'
-          : null;
-        this.playPhoneAudio(audioFile, isTwi ? `Fa cedi dodow a woremane kɔma ${this.callState.name} nwura mu.` : `Enter the cedi amount you want to send to ${this.callState.name}, followed by hash.`);
+        const audioFile = isTwi
+          ? '/audio/Twi/Audio_prompt_twi_08.mp3'
+          : '/audio/English/Audio_prompt_09.mp3';
+        this.playPhoneAudio(audioFile, isTwi ? promptTwi.innerText : promptEn.innerText);
         this.fetchVoiceXml(`/enter-amount?lang=${this.callState.lang}&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(this.callState.name)}`);
 
         viewport.innerHTML = `
@@ -836,13 +958,10 @@
         promptTwi.innerText = `"Woremane sika cedi ${this.callState.amount} kɔma ${this.callState.name}, a ne fon nɔma wie ${last4}. Sɛ wopene so a, mia baako (1). Sɛ worepɛ sesa no a, mia mmienu (2). Mia hwee (0) ma agyae."`;
         promptEn.innerText = `"You are about to send ${this.callState.amount} Ghana Cedis to ${this.callState.name}. To confirm and send, press 1. To cancel, press 2."`;
 
-        if (!isTwi) {
-          this.playPhoneAudio('/audio/English_audio_prot/09_confirm_transfer_summary.mp3', promptEn.innerText);
-        } else if (this.callState.amount === '50') {
-          this.playPhoneAudio('/audio/confirm_twi.mp3', promptTwi.innerText);
-        } else {
-          this.playPhoneAudio(null, promptTwi.innerText);
-        }
+        const audioFile = isTwi
+          ? '/audio/Twi/Audio_prompt_twi_09.mp3'
+          : '/audio/English/Audio_prompt_10.mp3';
+        this.playPhoneAudio(audioFile, isTwi ? promptTwi.innerText : promptEn.innerText);
 
         this.fetchVoiceXml(`/safe-confirmation?lang=${this.callState.lang}&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(this.callState.name)}&amount=${this.callState.amount}`);
 
@@ -867,10 +986,10 @@
         promptTwi.innerText = `"Yɛapene cedi ${this.callState.amount} a woremane kɔma ${this.callState.name} no so. Sesei, hwɛ wo screen na fa wo MoMo PIN nwura mu pɛpɛɛpɛ."`;
         promptEn.innerText = '"Confirmed. Now, please check your phone screen and enter your MoMo PIN accurately. Thank you for using Okwankyerɛfo Pa. Goodbye."';
 
-        const successAudio = !isTwi
-          ? '/audio/English_audio_prot/10_pin_prompt_screen_handoff.mp3'
-          : '/audio/success_twi.mp3';
-        this.playPhoneAudio(successAudio, promptEn.innerText);
+        const successAudio = isTwi
+          ? '/audio/Twi/Audio_prompt_twi_10.mp3'
+          : '/audio/English/Audio_prompt_11.mp3';
+        this.playPhoneAudio(successAudio, isTwi ? promptTwi.innerText : promptEn.innerText);
 
         this.fetchVoiceXml(`/safe-outcome?lang=${this.callState.lang}&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(this.callState.name)}&amount=${this.callState.amount}&dtmfDigits=1`);
 
@@ -890,8 +1009,10 @@
         promptTwi.innerText = '"Yɛatwa mu. Sika no mfiri wo account mu. Akwaaba."';
         promptEn.innerText = '"Transaction cancelled. No money has been deducted from your account. Goodbye."';
 
-        const cancelAudio = isTwi ? '/audio/cancel_twi.mp3' : '/audio/English_audio_prot/10_pin_prompt_screen_handoff.mp3';
-        this.playPhoneAudio(cancelAudio, promptEn.innerText);
+        const cancelAudio = isTwi
+          ? '/audio/Twi/Audio_prompt_twi_10.mp3'
+          : '/audio/English/Audio_prompt_11.mp3';
+        this.playPhoneAudio(cancelAudio, isTwi ? promptTwi.innerText : promptEn.innerText);
 
         viewport.innerHTML = `
           <button class="btn btn-sm btn-secondary" style="width:100%;" onclick="window.app.startCall()">
@@ -979,7 +1100,7 @@
       // Step-specific routing
       if (this.callState.step === 'welcome') {
         this.callState.lang = key === '2' ? 'twi' : 'en';
-        this.goToStep('conversational-entry');
+        this.goToStep('service');
       } else if (this.callState.step === 'conversational-entry' || this.callState.step === 'conversational-turn') {
         if (this.callState.step === 'conversational-entry' && key === '1') {
           this.goToStep('service');
@@ -1131,18 +1252,16 @@
         if (playPromise !== undefined) {
           playPromise.then(() => {
             const fileName = audioUrl.split('/').pop();
-            if (sourceInd) sourceInd.innerText = `🎙️ Pre-recorded Voice: ${fileName}`;
+            const langLabel = this.callState.lang === 'twi' ? 'Twi Recording' : 'English Prototype';
+            if (sourceInd) sourceInd.innerText = `🎙️ Pre-recorded Voice: ${fileName} (${langLabel})`;
             if (playLabel) playLabel.innerText = '⏸️ Pause Voice';
             this.startWaveformAnimation();
           }).catch((err) => {
             console.log('Autoplay deferred or blocked:', err);
             const fileName = audioUrl.split('/').pop();
-            if (sourceInd) sourceInd.innerText = `🎙️ Pre-recorded Clip: ${fileName} (Ready)`;
+            if (sourceInd) sourceInd.innerText = `🎙️ Pre-recorded Clip: ${fileName} (Ready — Click Play)`;
             if (playLabel) playLabel.innerText = '▶️ Play Voice';
-            // Do NOT call speakFallback for English prompts. Keep human voice authentic.
-            if (this.callState.lang === 'twi' && !audioUrl.includes('English_audio_prot')) {
-              this.speakFallback(fallbackTtsText);
-            }
+            // Never fallback to robotic speech when an authentic pre-recorded file exists
           });
         }
 
