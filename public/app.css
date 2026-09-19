@@ -1475,3 +1475,205 @@ code, pre { font-family: var(--font-mono); }
   box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
 
+/* ── Conversational Accessibility Layer UI ── */
+.conv-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.conv-input-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+}
+
+.conv-text-input {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 13px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: #000;
+  color: #fff;
+  outline: none;
+}
+
+.conv-text-input:focus {
+  border-color: var(--emerald-accent);
+}
+
+.btn-mic {
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-strong);
+  color: var(--ink);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.btn-mic:hover {
+  background: var(--border);
+}
+
+.btn-mic.recording {
+  background: var(--danger-accent);
+  color: #fff;
+  animation: pulse-recording 1.2s infinite;
+}
+
+@keyframes pulse-recording {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.06); opacity: 0.85; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.btn-conv-send {
+  background: var(--emerald-accent);
+  color: #fff;
+  border: none;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn-conv-send:hover {
+  opacity: 0.9;
+}
+
+.demo-chips-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.demo-chip {
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  color: var(--ink);
+  font-size: 11.5px;
+  padding: 5px 9px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.demo-chip:hover {
+  border-color: var(--emerald-accent);
+  background: var(--emerald-subtle);
+  color: var(--emerald-accent);
+}
+
+.demo-chip.highlight {
+  border-color: var(--emerald-accent);
+  background: var(--emerald-subtle);
+  color: var(--emerald-accent);
+  font-weight: 600;
+}
+
+/* ── Handset Secure PIN Dialog ── */
+.secure-pin-card {
+  background: #111a14;
+  border: 1px solid var(--emerald-accent);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  text-align: center;
+  color: #fff;
+  margin: 6px 0;
+}
+
+.pin-display-dots {
+  font-size: 26px;
+  letter-spacing: 12px;
+  color: var(--emerald-accent);
+  margin: 10px 0;
+  font-weight: bold;
+  height: 34px;
+}
+
+.pin-keypad-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  max-width: 220px;
+  margin: 0 auto;
+}
+
+.pin-key-btn {
+  background: #1c2720;
+  border: 1px solid #2a3d31;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  padding: 10px 0;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+
+.pin-key-btn:hover {
+  background: #2a3d31;
+}
+
+.pin-key-btn:active {
+  transform: scale(0.95);
+  background: var(--emerald-accent);
+}
+
+.pin-key-btn.action-clear {
+  color: var(--danger-accent);
+  font-size: 12px;
+}
+
+.pin-key-btn.action-ok {
+  background: var(--emerald-accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+/* ── Transaction Receipt Card ── */
+.receipt-card {
+  background: #0f1c14;
+  border: 1px solid var(--emerald-accent);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  text-align: left;
+  color: #fff;
+  margin: 6px 0;
+}
+
+.receipt-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--emerald-accent);
+  font-weight: 700;
+  font-size: 13.5px;
+  margin-bottom: 8px;
+}
+
+.receipt-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  margin-bottom: 4px;
+  color: #cbd5e1;
+}
+
+.receipt-row strong {
+  color: #fff;
+}
+
+

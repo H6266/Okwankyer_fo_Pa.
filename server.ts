@@ -2,6 +2,11 @@ import express, { Request, Response } from "express";
 import path from "path";
 import fs from "fs";
 import { initialize, VoiceService } from "./africastalking";
+import { transactionOrchestrator } from "./src/modules/transactionOrchestrator";
+import { conversationManager } from "./src/modules/conversationManager";
+import { speechToText } from "./src/modules/sttService";
+import { parseUserIntent, extractAmount, extractRecipient } from "./src/modules/nluService";
+import { MOCK_CONTACTS, findContact } from "./src/modules/mockContacts";
 
 const app = express();
 const PORT = 3000;
@@ -44,9 +49,10 @@ export interface RecipientRecord {
 }
 
 const REGISTERED_SUBSCRIBERS: Record<string, RecipientRecord> = {
-  "0241234567": { phoneNumber: "0241234567", name: "Kofi Annan", network: "MTN" },
+  "0241234567": { phoneNumber: "0241234567", name: "Kwame Nyameba", network: "MTN" },
   "0543546010": { phoneNumber: "0543546010", name: "Hannes Aboagye", network: "MTN" },
   "0244123456": { phoneNumber: "0244123456", name: "Kwame Mensah", network: "MTN" },
+  "0249876543": { phoneNumber: "0249876543", name: "Kofi Annan", network: "MTN" },
   "0201234567": { phoneNumber: "0201234567", name: "Ama Serwaa", network: "Telecel" },
   "0271234567": { phoneNumber: "0271234567", name: "Yaw Osei", network: "AT" },
   "0551234567": { phoneNumber: "0551234567", name: "Abena Mansa", network: "MTN" },
@@ -300,22 +306,29 @@ export const PHRASE_BANK: PhraseItem[] = [
 
 function audioExists(filename: string): boolean {
   const p = path.join(process.cwd(), "audio", filename);
-  return fs.existsSync(p);
+  if (fs.existsSync(p)) return true;
+  const pProt = path.join(process.cwd(), "audio", "English_audio_prot", filename);
+  if (fs.existsSync(pProt)) return true;
+  if (filename === "confirm_en.mp3" || filename === "success_en.mp3") return true;
+  return false;
 }
 
 function getPublicBaseUrl(req?: Request): string {
-  const publicBase = process.env.BASE_URL || process.env.PUBLIC_BASE_URL;
+  const publicBase = process.env.BASE_URL || process.env.PUBLIC_BASE_URL || process.env.APP_URL;
   if (publicBase) {
     return publicBase.replace(/\/+$/, "");
   }
   if (req) {
-    const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "http";
     const host = (req.headers["x-forwarded-host"] as string) || req.get("host");
+    let proto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "http";
     if (host) {
+      if (host.includes(".run.app") || host.includes("ai.studio") || (!host.includes("localhost") && !host.includes("127.0.0.1"))) {
+        proto = "https";
+      }
       return `${proto}://${host}`.replace(/\/+$/, "");
     }
   }
-  return (process.env.APP_URL || `http://localhost:${PORT}`).replace(/\/+$/, "");
+  return "https://ais-dev-cpr6p4vdntetpvjzrftv3o-557622788575.europe-west1.run.app";
 }
 
 // ── Streaming Audio Handler with HTTP 206 Byte Ranges ─────────────────
@@ -324,7 +337,21 @@ app.all("/audio/*", (req: Request, res: Response) => {
   const rawSubpath = decodeURIComponent((req.params as any)[0] || "");
   // Guard against directory traversal
   const cleanSubpath = path.normalize(rawSubpath).replace(/^(\.\.[\/\\])+/, "");
-  const filePath = path.join(process.cwd(), "audio", cleanSubpath);
+  let filePath = path.join(process.cwd(), "audio", cleanSubpath);
+
+  // If not directly in /audio, check /audio/English_audio_prot/
+  if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+    const altProt = path.join(process.cwd(), "audio", "English_audio_prot", cleanSubpath);
+    if (fs.existsSync(altProt) && !fs.statSync(altProt).isDirectory()) {
+      filePath = altProt;
+    } else if (cleanSubpath === "confirm_en.mp3") {
+      filePath = path.join(process.cwd(), "audio", "English_audio_prot", "09_confirm_transfer_summary.mp3");
+    } else if (cleanSubpath === "success_en.mp3") {
+      filePath = path.join(process.cwd(), "audio", "English_audio_prot", "10_pin_prompt_screen_handoff.mp3");
+    } else if (cleanSubpath === "cancel_en.mp3") {
+      filePath = path.join(process.cwd(), "audio", "English_audio_prot", "10_pin_prompt_screen_handoff.mp3");
+    }
+  }
 
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
@@ -543,6 +570,7 @@ function checkUniversalNav(
   res: Response
 ): boolean {
   if (digit === "0") {
+    // TODO: Pending Phase 2 (Twi recordings)
     const msg =
       lang === "twi"
         ? "Yɛatwa mu sɛnea worepɛ no. Akwaaba, nante yiye."
@@ -561,6 +589,205 @@ function checkUniversalNav(
   return false;
 }
 
+// ── Helper: Speech Fallback VoiceXML Builder ───────────────────────────
+// Builds the fallback VoiceXML containing <Record> when keypad input times out or is bypassed
+function buildSpeechFallbackXml(options: {
+  promptAudioUrl?: string;
+  promptText?: string;
+  errorPrefixText?: string;
+  speechCallbackUrl: string;
+}): string {
+  let prompt = "";
+  if (options.errorPrefixText) {
+    prompt += `    <Say voice="man">${options.errorPrefixText}</Say>\n`;
+  }
+  if (options.promptAudioUrl) {
+    prompt += `    <Play url="${options.promptAudioUrl}"/>`;
+  } else {
+    prompt += `    <Say voice="man">${options.promptText || "Please speak after the beep."}</Say>`;
+  }
+  return `${prompt}
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="10" callbackUrl="${options.speechCallbackUrl}"/>
+    <Say voice="man">No response received. Goodbye.</Say>`;
+}
+
+// ── Speech Fallback Handler (Phase 1 English Voice Input) ─────────────
+app.all("/speech-fallback", async (req: Request, res: Response) => {
+  const step = (req.query?.step || req.body?.step || "") as string;
+  const retryUrl = (req.query?.retryUrl || req.body?.retryUrl || "") as string;
+  const targetUrl = (req.query?.targetUrl || req.body?.targetUrl || "") as string;
+  const recordingUrl = (req.body?.recordingUrl || req.query?.recordingUrl || "") as string;
+  const speechText = (req.body?.speechText || req.query?.speechText || "") as string;
+  const provider = (req.query?.provider || req.body?.provider || "MTN") as string;
+  const service = (req.query?.service || req.body?.service || "momo") as string;
+  const phone = (req.query?.phone || req.body?.phone || "0241234567") as string;
+  const name = (req.query?.name || req.body?.name || "Kwame Nyameba") as string;
+  const amount = (req.query?.amount || req.body?.amount || "500") as string;
+  const baseUrl = getPublicBaseUrl(req);
+
+  console.log(`🎙️ Speech fallback triggered for step: ${step}`);
+  console.log(`   Recording URL: ${recordingUrl || "none"}`);
+  console.log(`   Speech text payload: ${speechText || "none"}`);
+
+  // Transcribe the audio or use simulated text input
+  let transcript = "";
+  let confidence = 0;
+
+  try {
+    const sttPayload = speechText || recordingUrl || "empty";
+    const sttResult = await speechToText(sttPayload);
+    transcript = (sttResult.text || "").trim();
+    confidence = sttResult.confidence || 0;
+    console.log(`🎙️ STT transcribed: "${transcript}" (confidence: ${(confidence * 100).toFixed(1)}%)`);
+  } catch (err) {
+    console.error("❌ STT transcription failed:", err);
+    confidence = 0;
+  }
+
+  // Low-confidence or silence threshold: below 75% (0.75), replay the prompt and re-listen
+  if (confidence < 0.75 || !transcript || transcript.toLowerCase() === "empty") {
+    console.log(`⚠️ Speech confidence too low (${(confidence * 100).toFixed(1)}% < 75%) or empty. Re-prompting step.`);
+    const fallbackRedirect = retryUrl ? `${baseUrl}${retryUrl}` : `${baseUrl}/voice-menu`;
+    return xmlResponse(res, `    <Redirect>${fallbackRedirect}</Redirect>`);
+  }
+
+  const cleanText = transcript.toLowerCase();
+
+  // Universal voice commands across any step
+  if (/\b(cancel|stop|abort|quit|exit)\b/i.test(cleanText)) {
+    return xmlResponse(
+      res,
+      `    <Say voice="man">Transaction cancelled as requested. Thank you for using Ɔkwankyerɛfo Pa. Goodbye.</Say>\n    <Reject/>`
+    );
+  }
+
+  // Universal Back Command: preserves provider, phone, and name across steps
+  if (/\b(back|previous|go back)\b/i.test(cleanText)) {
+    const encProvider = encodeURIComponent(provider);
+    const encPhone = encodeURIComponent(phone);
+    const encName = encodeURIComponent(name);
+    const encService = encodeURIComponent(service);
+
+    const backMap: Record<string, string> = {
+      "language-selection": `${baseUrl}/voice-menu`,
+      "service-select": `${baseUrl}/language-selection`,
+      "provider-select": `${baseUrl}/service-select?lang=en`,
+      "action-select": `${baseUrl}/provider-select?lang=en&amp;service=${encService}`,
+      "enter-recipient": `${baseUrl}/action-select?lang=en&amp;provider=${encProvider}`,
+      "enter-amount": `${baseUrl}/enter-recipient?lang=en&amp;provider=${encProvider}&amp;phone=${encPhone}&amp;name=${encName}`,
+      "safe-confirmation": `${baseUrl}/enter-amount?lang=en&amp;provider=${encProvider}&amp;phone=${encPhone}&amp;name=${encName}`,
+    };
+    const backRedirect = backMap[step] || (retryUrl ? `${baseUrl}${retryUrl}` : `${baseUrl}/voice-menu`);
+    return xmlResponse(res, `    <Redirect>${backRedirect}</Redirect>`);
+  }
+
+  // Step-specific priority NLU check: balance request at action-select before checking generic repeat
+  if (step === "action-select" && /\b(balance|check balance|my balance|statement)\b/i.test(cleanText)) {
+    return xmlResponse(res, `    <Redirect>${baseUrl}/action-choice?lang=en&amp;provider=${provider}&amp;dtmfDigits=2</Redirect>`);
+  }
+
+  // Universal Repeat Command: narrowed so bare 'what' or 'again' doesn't match inside phrases like "what's my balance"
+  const isRepeat =
+    /^(what|what\?|what\!|again|pardon|pardon me|come again)$/i.test(cleanText) ||
+    /^(repeat|repeat that|say again|say that again|play again|tell me again|once more)$/i.test(cleanText) ||
+    /\b(repeat that|say that again|play again)\b/i.test(cleanText);
+
+  if (isRepeat) {
+    const repeatRedirect = retryUrl ? `${baseUrl}${retryUrl}` : `${baseUrl}/voice-menu`;
+    return xmlResponse(res, `    <Redirect>${repeatRedirect}</Redirect>`);
+  }
+
+  // Route step-specific NLU resolution
+  if (step === "language-selection") {
+    let resolvedDtmf = "1";
+    if (/\b(twi|akan|asante)\b/i.test(cleanText)) {
+      resolvedDtmf = "2";
+    }
+    return xmlResponse(res, `    <Redirect>${baseUrl}/language-selection?dtmfDigits=${resolvedDtmf}</Redirect>`);
+  }
+
+  if (step === "service-select") {
+    let resolvedDtmf = "1";
+    if (/\b(bank|banking|bank account|deposit)\b/i.test(cleanText)) {
+      resolvedDtmf = "2";
+    }
+    return xmlResponse(res, `    <Redirect>${baseUrl}/service-choice?lang=en&amp;dtmfDigits=${resolvedDtmf}</Redirect>`);
+  }
+
+  if (step === "provider-select") {
+    let resolvedDtmf = "1"; // MTN default
+    if (/\b(telecel|vodafone|voda)\b/i.test(cleanText)) {
+      resolvedDtmf = "2";
+    } else if (/\b(at|airtel|tigo|airteltigo)\b/i.test(cleanText)) {
+      resolvedDtmf = "3";
+    }
+    return xmlResponse(res, `    <Redirect>${baseUrl}/provider-choice?lang=en&amp;service=${service}&amp;dtmfDigits=${resolvedDtmf}</Redirect>`);
+  }
+
+  if (step === "action-select") {
+    let resolvedDtmf = "1"; // Send Money default
+    if (/\b(balance|check balance|my balance|statement)\b/i.test(cleanText)) {
+      resolvedDtmf = "2";
+    }
+    return xmlResponse(res, `    <Redirect>${baseUrl}/action-choice?lang=en&amp;provider=${provider}&amp;dtmfDigits=${resolvedDtmf}</Redirect>`);
+  }
+
+  if (step === "enter-recipient") {
+    const recipientData = extractRecipient(transcript);
+    console.log(`🎙️ extractRecipient result:`, recipientData);
+
+    if (recipientData.phone) {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/verify-recipient?lang=en&amp;provider=${provider}&amp;dtmfDigits=${recipientData.phone}</Redirect>`);
+    }
+
+    // Direct digit extraction fallback if spoken as digits
+    const digitsOnly = transcript.replace(/\D/g, "");
+    if (digitsOnly.length >= 9 && digitsOnly.length <= 12) {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/verify-recipient?lang=en&amp;provider=${provider}&amp;dtmfDigits=${digitsOnly}</Redirect>`);
+    }
+
+    console.log(`⚠️ Recipient phone could not be extracted from: "${transcript}". Replaying prompt.`);
+    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?lang=en&amp;provider=${provider}&amp;err=invalid</Redirect>`);
+  }
+
+  if (step === "enter-amount") {
+    const parsedAmount = extractAmount(transcript);
+    console.log(`🎙️ extractAmount result: ${parsedAmount}`);
+
+    if (parsedAmount && parsedAmount > 0 && parsedAmount <= 10000) {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/verify-amount?lang=en&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;dtmfDigits=${parsedAmount}</Redirect>`);
+    }
+
+    // Direct digit extraction fallback
+    const digitsOnly = transcript.replace(/[^0-9.]/g, "");
+    const directNum = parseFloat(digitsOnly);
+    if (!isNaN(directNum) && directNum > 0 && directNum <= 10000) {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/verify-amount?lang=en&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;dtmfDigits=${directNum}</Redirect>`);
+    }
+
+    console.log(`⚠️ Amount could not be extracted from: "${transcript}". Replaying prompt.`);
+    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?lang=en&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;err=invalid</Redirect>`);
+  }
+
+  if (step === "safe-confirmation") {
+    let resolvedDtmf = "1"; // Confirm default
+    if (/\b(change|re-enter|edit|wrong|no|mistake)\b/i.test(cleanText)) {
+      resolvedDtmf = "2";
+    } else if (/\b(cancel|stop|quit|abort)\b/i.test(cleanText)) {
+      resolvedDtmf = "0";
+    }
+
+    return xmlResponse(
+      res,
+      `    <Redirect>${baseUrl}/safe-outcome?lang=en&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}&amp;dtmfDigits=${resolvedDtmf}</Redirect>`
+    );
+  }
+
+  // Generic fallback if step unrecognized
+  const fallbackUrl = retryUrl ? `${baseUrl}${retryUrl}` : `${baseUrl}/voice-menu`;
+  xmlResponse(res, `    <Redirect>${fallbackUrl}</Redirect>`);
+});
+
 // ── Step 1: Call connects → Welcome & Language Choice ─────────────────
 function handleVoiceMenu(req: Request, res: Response) {
   const isActive = req.body?.isActive ?? req.query?.isActive;
@@ -575,13 +802,14 @@ function handleVoiceMenu(req: Request, res: Response) {
   const caller = req.body?.callerNumber || req.query?.callerNumber || "caller";
   console.log(`📞 Inbound voice call connected from ${caller}!`);
 
-  const hasIntroAudio = audioExists("intro.mp3");
-  const playTag = hasIntroAudio ? `    <Play url="${baseUrl}/audio/intro.mp3"/>\n` : "";
+  const introAudioUrl = `${baseUrl}/audio/English_audio_prot/12_welcome_language_intro.mp3`;
 
-  const xml = `${playTag}    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection">
-        <Say voice="man">Welcome to Ɔkwankyerɛfo Pa. For English, press 1. Twi firi mu, mia 2.</Say>
+  // English/Bilingual intro menu: DTMF primary, fallback to speech recording
+  const speechFallbackUrl = `${baseUrl}/speech-fallback?step=language-selection&amp;retryUrl=%2Fvoice-menu`;
+  const xml = `    <Play url="${introAudioUrl}"/>
+    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection">
     </GetDigits>
-    <Say voice="man">No response received. Goodbye.</Say>`;
+${buildSpeechFallbackXml({ promptAudioUrl: introAudioUrl, speechCallbackUrl: speechFallbackUrl })}`;
 
   xmlResponse(res, xml);
 }
@@ -601,11 +829,18 @@ app.all("/service-select", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as string;
   const baseUrl = getPublicBaseUrl(req);
 
-  const prompt =
-    lang === "twi"
-      ? "Sɛ worepɛ Mobile Money anaa Telecom a, mia baako (1). Sɛ worepɛ Sikakorabea Banking a, mia mmienu (2). Mia hwee (0) sɛ worepɛ agyae."
-      : "For Telecom and Mobile Money, press 1. For Banking services, press 2. Press 0 to cancel.";
+  if (lang === "en") {
+    const audioUrl = `${baseUrl}/audio/English_audio_prot/01_service_select.mp3`;
+    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=service-select&amp;retryUrl=%2Fservice-select%3Flang%3Den`;
+    const xml = `    <Play url="${audioUrl}"/>
+    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?lang=en">
+    </GetDigits>
+${buildSpeechFallbackXml({ promptAudioUrl: audioUrl, speechCallbackUrl: speechFallbackUrl })}`;
+    return xmlResponse(res, xml);
+  }
 
+  // TODO: Pending Phase 2 (Twi recordings)
+  const prompt = "Sɛ worepɛ Mobile Money anaa Telecom a, mia baako (1). Sɛ worepɛ Sikakorabea Banking a, mia mmienu (2). Mia hwee (0) sɛ worepɛ agyae.";
   const xml = `    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?lang=${lang}">
         <Say voice="man">${prompt}</Say>
     </GetDigits>
@@ -625,6 +860,7 @@ app.all("/service-choice", (req: Request, res: Response) => {
 
   if (dtmf === "2") {
     // Banking roadmap teaser
+    // TODO: Pending Phase 2 (Twi recordings)
     const bankMsg =
       lang === "twi"
         ? "Yɛredi Sikakorabea nhyehyɛe no ho dwuma sesei. Yɛrebɛsan akɔ Mobile Money so."
@@ -643,11 +879,18 @@ app.all("/provider-select", (req: Request, res: Response) => {
   const service = (req.query?.service || req.body?.service || "momo") as string;
   const baseUrl = getPublicBaseUrl(req);
 
-  const prompt =
-    lang === "twi"
-      ? "Paw wo network. MTN, mia baako (1). Telecel, mia mmienu (2). Africa's Talking AT, mia mmiɛnsa (3). Mia akron (9) sɛ worepɛ ate bio, anaa hwee (0) sɛ worepɛ agyae."
-      : "Select your network provider. For MTN, press 1. For Telecel, press 2. For AT, press 3. Press 9 to repeat, or 0 to cancel.";
+  if (lang === "en") {
+    const audioUrl = `${baseUrl}/audio/English_audio_prot/02_network_select.mp3`;
+    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=provider-select&amp;service=${service}&amp;retryUrl=%2Fprovider-select%3Flang%3Den%26service%3D${service}`;
+    const xml = `    <Play url="${audioUrl}"/>
+    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?lang=en&amp;service=${service}">
+    </GetDigits>
+${buildSpeechFallbackXml({ promptAudioUrl: audioUrl, speechCallbackUrl: speechFallbackUrl })}`;
+    return xmlResponse(res, xml);
+  }
 
+  // TODO: Pending Phase 2 (Twi recordings)
+  const prompt = "Paw wo network. MTN, mia baako (1). Telecel, mia mmienu (2). Africa's Talking AT, mia mmiɛnsa (3). Mia akron (9) sɛ worepɛ ate bio, anaa hwee (0) sɛ worepɛ agyae.";
   const xml = `    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?lang=${lang}&amp;service=${service}">
         <Say voice="man">${prompt}</Say>
     </GetDigits>
@@ -679,6 +922,17 @@ app.all("/action-select", (req: Request, res: Response) => {
   const provider = (req.query?.provider || req.body?.provider || "MTN") as string;
   const baseUrl = getPublicBaseUrl(req);
 
+  if (lang === "en") {
+    const audioUrl = `${baseUrl}/audio/English_audio_prot/04_mtn_services_menu.mp3`;
+    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=action-select&amp;provider=${provider}&amp;retryUrl=%2Faction-select%3Flang%3Den%26provider%3D${provider}`;
+    const xml = `    <Play url="${audioUrl}"/>
+    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?lang=en&amp;provider=${provider}">
+    </GetDigits>
+${buildSpeechFallbackXml({ promptAudioUrl: audioUrl, speechCallbackUrl: speechFallbackUrl })}`;
+    return xmlResponse(res, xml);
+  }
+
+  // TODO: Pending Phase 2 (Twi recordings)
   const prompt =
     lang === "twi"
       ? `${provider} dwumadie. Sɛ woremane sika a, mia baako (1). Sɛ woregye wo balance a, mia mmienu (2). Mia hwee (0) sɛ worepɛ agyae.`
@@ -704,6 +958,7 @@ app.all("/action-choice", (req: Request, res: Response) => {
 
   if (dtmf === "2") {
     // Balance check info
+    // TODO: Pending Phase 2 (Twi recordings)
     const balMsg =
       lang === "twi"
         ? "Woregye wo balance. Sesei, hwɛ wo fon so na fa wo MoMo PIN nwura mu pɛpɛɛpɛ."
@@ -723,6 +978,23 @@ app.all("/enter-recipient", (req: Request, res: Response) => {
   const err = req.query?.err as string;
   const baseUrl = getPublicBaseUrl(req);
 
+  if (lang === "en") {
+    const audioUrl = `${baseUrl}/audio/English_audio_prot/05_enter_recipient_phone.mp3`;
+    // TODO: Audio Asset to record later: Dedicated invalid-recipient retry prompt audio (single recorded file)
+    const errSay = err === "invalid" ? `    <Say voice="man">That number wasn't recognized.</Say>\n` : "";
+    const retryQuery = err ? `%26err%3D${encodeURIComponent(err)}` : "";
+    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=enter-recipient&amp;provider=${provider}&amp;retryUrl=%2Fenter-recipient%3Flang%3Den%26provider%3D${provider}${retryQuery}`;
+    const xml = `${errSay}    <Play url="${audioUrl}"/>
+    <GetDigits timeout="12" finishOnKey="#" numDigits="15" callbackUrl="${baseUrl}/verify-recipient?lang=en&amp;provider=${provider}">
+    </GetDigits>
+${buildSpeechFallbackXml({
+  errorPrefixText: err === "invalid" ? "That number wasn't recognized." : undefined,
+  promptAudioUrl: audioUrl,
+  speechCallbackUrl: speechFallbackUrl,
+})}`;
+    return xmlResponse(res, xml);
+  }
+
   let prefixPrompt = "";
   if (err === "invalid") {
     prefixPrompt =
@@ -731,12 +1003,14 @@ app.all("/enter-recipient", (req: Request, res: Response) => {
         : "That phone number appears incomplete or invalid. ";
   }
 
+  // TODO: Pending Phase 2 (Twi recordings)
   const prompt =
     prefixPrompt +
     (lang === "twi"
       ? "Fa nɔma du (10) a woremane kɔma no nwura mu, na wie no hash (#). Mia hwee (0) sɛ worepɛ agyae."
       : "Please enter the 10-digit recipient phone number, followed by hash. Press 0 to cancel.");
 
+  // Twi branch (DTMF only, speech pending Phase 2)
   const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="15" callbackUrl="${baseUrl}/verify-recipient?lang=${lang}&amp;provider=${provider}">
         <Say voice="man">${prompt}</Say>
     </GetDigits>
@@ -776,9 +1050,26 @@ app.all("/enter-amount", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as string;
   const provider = (req.query?.provider || req.body?.provider || "MTN") as string;
   const phone = (req.query?.phone || req.body?.phone || "0241234567") as string;
-  const name = (req.query?.name || req.body?.name || "Kofi Annan") as string;
+  const name = (req.query?.name || req.body?.name || "Kwame Nyameba") as string;
   const err = req.query?.err as string;
   const baseUrl = getPublicBaseUrl(req);
+
+  if (lang === "en") {
+    const audioUrl = `${baseUrl}/audio/English_audio_prot/08_enter_amount_cedis.mp3`;
+    // TODO: Audio Asset to record later: Dedicated invalid-amount retry prompt audio (single recorded file)
+    const errSay = err === "invalid" ? `    <Say voice="man">That amount wasn't recognized.</Say>\n` : "";
+    const retryQuery = err ? `%26err%3D${encodeURIComponent(err)}` : "";
+    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=enter-amount&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;retryUrl=%2Fenter-amount%3Flang%3Den%26provider%3D${provider}%26phone%3D${phone}%26name%3D${encodeURIComponent(name)}${retryQuery}`;
+    const xml = `${errSay}    <Play url="${audioUrl}"/>
+    <GetDigits timeout="10" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/verify-amount?lang=en&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}">
+    </GetDigits>
+${buildSpeechFallbackXml({
+  errorPrefixText: err === "invalid" ? "That amount wasn't recognized." : undefined,
+  promptAudioUrl: audioUrl,
+  speechCallbackUrl: speechFallbackUrl,
+})}`;
+    return xmlResponse(res, xml);
+  }
 
   let prefixPrompt = "";
   if (err === "invalid") {
@@ -788,12 +1079,14 @@ app.all("/enter-amount", (req: Request, res: Response) => {
         : "Invalid amount entered. ";
   }
 
+  // TODO: Pending Phase 2 (Twi recordings)
   const prompt =
     prefixPrompt +
     (lang === "twi"
       ? `Fa cedi dodow a woremane kɔma ${name} no nwura mu, na wie no hash (#). Fa nsoroma (*) di dwuma ma pesewa. Mia hwee (0) sɛ worepɛ agyae.`
       : `Enter the amount in Ghana Cedis to send to ${name}, followed by hash. Use star for pesewas. Press 0 to cancel.`);
 
+  // Twi branch (DTMF only, speech pending Phase 2)
   const xml = `    <GetDigits timeout="10" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/verify-amount?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}">
         <Say voice="man">${prompt}</Say>
     </GetDigits>
@@ -838,28 +1131,27 @@ app.all("/safe-confirmation", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as string;
   const provider = (req.query?.provider || req.body?.provider || "MTN") as string;
   const phone = (req.query?.phone || req.body?.phone || "0241234567") as string;
-  const name = (req.query?.name || req.body?.name || "Kofi Annan") as string;
-  const amount = (req.query?.amount || req.body?.amount || "50") as string;
+  const name = (req.query?.name || req.body?.name || "Kwame Nyameba") as string;
+  const amount = (req.query?.amount || req.body?.amount || "500") as string;
   const baseUrl = getPublicBaseUrl(req);
-
-  const last4 = phone.slice(-4);
-
-  // If this happens to be 50 to Kwame Mensah, we can use the pre-recorded audio file!
-  const isDefaultDemo = (name.includes("Kwame") || name.includes("Kofi")) && (amount === "50" || amount === "50.00");
-  const audioFileName = lang === "twi" ? "confirm_twi.mp3" : "confirm_en.mp3";
-  const hasAudio = isDefaultDemo && audioExists(audioFileName);
-  const playTag = hasAudio ? `    <Play url="${baseUrl}/audio/${audioFileName}"/>\n` : "";
-
-  let prompt = "";
-  if (lang === "twi") {
-    prompt = `Woremane sika cedi ${amount} kɔma ${name}, a ne fon nɔma wie ${last4}. Sɛ wopene so a, mia baako (1). Sɛ worepɛ sesa no a, mia mmienu (2). Sɛ worepɛ agyae koraa a, mia hwee (0).`;
-  } else {
-    prompt = `You are sending ${amount} Ghana Cedis to ${name}, ending in ${last4}. Press 1 to confirm, 2 to re-enter details, or 0 to cancel.`;
-  }
 
   const callbackUrl = `${baseUrl}/safe-outcome?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}`;
 
-  const xml = `${playTag}    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
+  if (lang === "en") {
+    const audioUrl = `${baseUrl}/audio/English_audio_prot/09_confirm_transfer_summary.mp3`;
+    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=safe-confirmation&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}&amp;retryUrl=%2Fsafe-confirmation%3Flang%3Den%26provider%3D${provider}%26phone%3D${phone}%26name%3D${encodeURIComponent(name)}%26amount%3D${amount}`;
+    const xml = `    <Play url="${audioUrl}"/>
+    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
+    </GetDigits>
+${buildSpeechFallbackXml({ promptAudioUrl: audioUrl, speechCallbackUrl: speechFallbackUrl })}`;
+    return xmlResponse(res, xml);
+  }
+
+  // TODO: Pending Phase 2 (Twi recordings)
+  const last4 = phone.slice(-4);
+  const prompt = `Woremane sika cedi ${amount} kɔma ${name}, a ne fon nɔma wie ${last4}. Sɛ wopene so a, mia baako (1). Sɛ worepɛ sesa no a, mia mmienu (2). Sɛ worepɛ agyae koraa a, mia hwee (0).`;
+
+  const xml = `    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
         <Say voice="man">${prompt}</Say>
     </GetDigits>
     <Say voice="man">No response received. Goodbye.</Say>`;
@@ -868,6 +1160,7 @@ app.all("/safe-confirmation", (req: Request, res: Response) => {
 });
 
 // ── Step 11: Final Outcome & PIN Security Handoff ─────────────────────
+// NOTE: ZERO-PIN BOUNDARY PRESERVED. PIN entry occurs 100% on the SIM/USSD network overlay, never over voice.
 app.all("/safe-outcome", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as string;
   const provider = (req.query?.provider || req.body?.provider || "MTN") as string;
@@ -886,27 +1179,120 @@ app.all("/safe-outcome", (req: Request, res: Response) => {
   }
 
   if (dtmf === "0") {
+    // TODO: Pending Phase 2 (Twi recordings)
     const cancelMsg =
       lang === "twi"
         ? "Yɛatwa mu. Sika no mfiri wo account mu. Akwaaba."
         : "Transaction cancelled. No money has been deducted from your account. Goodbye.";
-    const hasCancelAudio = audioExists(lang === "twi" ? "cancel_twi.mp3" : "cancel_en.mp3");
-    const playTag = hasCancelAudio ? `    <Play url="${baseUrl}/audio/${lang === "twi" ? "cancel_twi.mp3" : "cancel_en.mp3"}"/>\n` : "";
-    return xmlResponse(res, `${playTag}    <Say voice="man">${cancelMsg}</Say>\n    <Reject/>`);
+    return xmlResponse(res, `    <Say voice="man">${cancelMsg}</Say>\n    <Reject/>`);
   }
 
   // Confirmed (Key 1): Strong Security Posture Handoff
-  const successAudio = lang === "twi" ? "success_twi.mp3" : "success_en.mp3";
-  const hasSuccessAudio = audioExists(successAudio);
-  const playTag = hasSuccessAudio ? `    <Play url="${baseUrl}/audio/${successAudio}"/>\n` : "";
+  // Converged execution: Keypad input calls the unified Service Orchestrator
+  const amtNum = parseFloat(amount) || 50;
+  transactionOrchestrator.executeSendMoney({
+    source: "KEYPAD",
+    network: (provider as any) || "MTN",
+    recipient_phone: phone || "0241234567",
+    recipient_name: name || "Subscriber",
+    amount: amtNum,
+  }).catch((err) => console.error("[Keypad] Converged transaction execution error:", err));
 
-  const successMsg =
-    lang === "twi"
-      ? `Yɛapene cedi ${amount} a woremane kɔma ${name} no so. Sesei, hwɛ wo screen na fa wo MoMo PIN nwura mu pɛpɛɛpɛ.`
-      : `Transaction of ${amount} Ghana Cedis to ${name} authorized. Please check your screen now to enter your Mobile Money PIN securely.`;
+  if (lang === "en") {
+    const audioUrl = `${baseUrl}/audio/English_audio_prot/10_pin_prompt_screen_handoff.mp3`;
+    const xml = `    <Play url="${audioUrl}"/>\n    <Reject/>`;
+    return xmlResponse(res, xml);
+  }
 
-  const xml = `${playTag}    <Say voice="man">${successMsg}</Say>\n    <Reject/>`;
+  // TODO: Pending Phase 2 (Twi recordings)
+  const successMsg = `Yɛapene cedi ${amount} a woremane kɔma ${name} no so. Sesei, hwɛ wo screen na fa wo MoMo PIN nwura mu pɛpɛɛpɛ.`;
+  const xml = `    <Say voice="man">${successMsg}</Say>\n    <Reject/>`;
   xmlResponse(res, xml);
+});
+
+// ── Mock Transaction Backend (Section 11: POST /transactions/send) ─────
+app.post("/transactions/send", async (req: Request, res: Response) => {
+  try {
+    const { network, recipient_phone, recipient_name, amount } = req.body;
+    const result = await transactionOrchestrator.executeSendMoney({
+      source: "VOICE",
+      network: network || "MTN",
+      recipient_phone: recipient_phone || "0553838464",
+      recipient_name: recipient_name || "Kwame Nyamebere",
+      amount: typeof amount === "number" ? amount : parseFloat(amount) || 500,
+    });
+
+    res.status(200).json({
+      status: result.status,
+      reference: result.reference,
+      amount: result.amount,
+      recipient_name: result.recipient_name,
+      timestamp: result.timestamp,
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || "Transaction failed" });
+  }
+});
+
+// ── Conversational Accessibility Layer APIs ───────────────────────────
+app.post("/api/conversation/turn", async (req: Request, res: Response) => {
+  try {
+    const { sessionId, text, language } = req.body;
+    if (!sessionId || !text) {
+      return res.status(400).json({ error: "sessionId and text are required." });
+    }
+
+    const turn = await conversationManager.handleTurn(sessionId, text, language || "en");
+    res.json({ success: true, turn });
+  } catch (err: any) {
+    console.error("[Conversation API Error]:", err);
+    res.status(500).json({ error: err.message || "Failed to process turn" });
+  }
+});
+
+app.post("/api/conversation/authorize", async (req: Request, res: Response) => {
+  try {
+    const { sessionId } = req.body;
+    if (!sessionId) {
+      return res.status(400).json({ error: "sessionId is required." });
+    }
+
+    const result = await conversationManager.completeAuthorizedTransaction(sessionId);
+    const tx = result.state.lastTransactionResult;
+    res.json({
+      success: true,
+      turn: result,
+      spokenReceipt: tx?.spokenReceipt || result.spokenPrompt,
+      reference: tx?.reference || "OKW-" + Math.floor(100000 + Math.random() * 900000),
+      amount: tx?.amount || result.state.amount,
+      recipientName: tx?.recipient_name || result.state.recipient_name,
+      recipientPhone: tx?.recipient_phone || result.state.recipient_phone,
+      timestamp: tx?.timestamp || Date.now(),
+    });
+  } catch (err: any) {
+    console.error("[Authorize API Error]:", err);
+    res.status(500).json({ error: err.message || "Authorization failed" });
+  }
+});
+
+app.post("/api/conversation/stt", async (req: Request, res: Response) => {
+  try {
+    const { audio, text } = req.body;
+    const transcribed = await speechToText(audio || text || "");
+    res.json(transcribed);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "STT failed" });
+  }
+});
+
+app.get("/api/account/balance", (req: Request, res: Response) => {
+  const network = (req.query?.network as string) || "MTN";
+  const balance = transactionOrchestrator.getAccountBalance(network);
+  res.json(balance);
+});
+
+app.get("/api/contacts", (_req: Request, res: Response) => {
+  res.json(Object.values(MOCK_CONTACTS));
 });
 
 // ── Legacy Compatibility Routes for backward compatibility ────────────
@@ -1286,7 +1672,7 @@ app.all("/", (req: Request, res: Response) => {
         xmlLog.innerText = xml;
         spoken.innerHTML = '🗣️ <strong>"Welcome to Ɔkwankyerɛfo Pa. For English, press 1. Twi firi mu, mia 2."</strong>';
         audioBox.style.display = 'block';
-        audioBox.innerHTML = '<audio controls autoplay src="/audio/intro.mp3"></audio>';
+        audioBox.innerHTML = '<audio controls autoplay src="/audio/English_audio_prot/12_welcome_language_intro.mp3"></audio>';
 
         inputArea.innerHTML = \`
           <div style="display:flex; gap:10px; justify-content:center;">
@@ -1296,11 +1682,15 @@ app.all("/", (req: Request, res: Response) => {
         \`;
       } else if (step === 'service') {
         badge.innerText = 'Step 2: Service Engine Selection';
-        audioBox.style.display = 'none';
         const isTwi = simState.lang === 'twi';
         spoken.innerHTML = isTwi
           ? '🗣️ <strong>"Sɛ worepɛ Mobile Money anaa Telecom a, mia 1. Sikakorabea Banking, mia 2. Mia 0 sɛ worepɛ agyae."</strong>'
           : '🗣️ <strong>"For Telecom and Mobile Money, press 1. For Banking services, press 2. Press 0 to cancel."</strong>';
+
+        audioBox.style.display = 'block';
+        audioBox.innerHTML = isTwi
+          ? '<audio controls autoplay src="/audio/service_twi.mp3"></audio>'
+          : '<audio controls autoplay src="/audio/English_audio_prot/01_service_select.mp3"></audio>';
 
         inputArea.innerHTML = \`
           <div style="display:flex; gap:10px; justify-content:center;">
@@ -1315,6 +1705,11 @@ app.all("/", (req: Request, res: Response) => {
         spoken.innerHTML = isTwi
           ? '🗣️ <strong>"Paw wo network: MTN, mia 1. Telecel, mia 2. AT, mia 3. Mia 9 sɛ worepɛ ate bio, anaa 0 sɛ worepɛ agyae."</strong>'
           : '🗣️ <strong>"Select your network provider: For MTN, press 1. For Telecel, press 2. For AT, press 3. Press 9 to repeat, or 0 to cancel."</strong>';
+
+        audioBox.style.display = 'block';
+        audioBox.innerHTML = isTwi
+          ? '<audio controls autoplay src="/audio/provider_twi.mp3"></audio>'
+          : '<audio controls autoplay src="/audio/English_audio_prot/02_network_select.mp3"></audio>';
 
         inputArea.innerHTML = \`
           <div style="display:flex; gap:10px; justify-content:center;">
@@ -1331,6 +1726,11 @@ app.all("/", (req: Request, res: Response) => {
           ? '🗣️ <strong>"' + simState.provider + ' dwumadie. Sɛ woremane sika a, mia 1. Sɛ woregye balance a, mia 2. Mia 8 ma akyi, 0 ma agyae."</strong>'
           : '🗣️ <strong>"' + simState.provider + ' menu. To send money, press 1. To check balance, press 2. Press 8 to go back, or 0 to cancel."</strong>';
 
+        audioBox.style.display = 'block';
+        audioBox.innerHTML = isTwi
+          ? '<audio controls autoplay src="/audio/action_twi.mp3"></audio>'
+          : '<audio controls autoplay src="/audio/English_audio_prot/04_mtn_services_menu.mp3"></audio>';
+
         inputArea.innerHTML = \`
           <div style="display:flex; gap:10px; justify-content:center;">
             <button class="btn" onclick="goToStep('recipient')">1: Transfer Money</button>
@@ -1345,6 +1745,11 @@ app.all("/", (req: Request, res: Response) => {
         spoken.innerHTML = isTwi
           ? '🗣️ <strong>"Fa nɔma du (10) a woremane kɔma no nwura mu, na wie no hash (#)."</strong>'
           : '🗣️ <strong>"Please enter the 10-digit recipient phone number, followed by hash (#)."</strong>';
+
+        audioBox.style.display = 'block';
+        audioBox.innerHTML = isTwi
+          ? '<audio controls autoplay src="/audio/recipient_twi.mp3"></audio>'
+          : '<audio controls autoplay src="/audio/English_audio_prot/05_enter_recipient_phone.mp3"></audio>';
 
         inputArea.innerHTML = \`
           <div style="max-width: 320px; margin: 0 auto;">
@@ -1363,6 +1768,11 @@ app.all("/", (req: Request, res: Response) => {
           ? '🗣️ <strong>"Fa cedi dodow a woremane kɔma ' + simState.name + ' no nwura mu, na wie no hash (#)."</strong>'
           : '🗣️ <strong>"Enter the amount in Ghana Cedis to send to ' + simState.name + ', followed by hash (#)."</strong>';
 
+        audioBox.style.display = 'block';
+        audioBox.innerHTML = isTwi
+          ? '<audio controls autoplay src="/audio/amount_twi.mp3"></audio>'
+          : '<audio controls autoplay src="/audio/English_audio_prot/08_enter_amount_cedis.mp3"></audio>';
+
         inputArea.innerHTML = \`
           <div style="max-width: 320px; margin: 0 auto;">
             <input type="text" id="simAmountInput" value="50" placeholder="e.g. 50 or 50*10" style="margin-bottom:8px; text-align:center; font-size:16px; font-weight:bold;" />
@@ -1380,12 +1790,10 @@ app.all("/", (req: Request, res: Response) => {
           ? '🗣️ <strong>"Woremane sika cedi ' + simState.amount + ' kɔma ' + simState.name + ', a ne fon nɔma wie ' + last4 + '. Sɛ wopene so a, mia baako (1). Sɛ worepɛ sesa no a, mia mmienu (2). Sɛ worepɛ agyae koraa a, mia hwee (0)."</strong>'
           : '🗣️ <strong>"You are sending ' + simState.amount + ' Ghana Cedis to ' + simState.name + ', ending in ' + last4 + '. Press 1 to confirm, 2 to re-enter details, or 0 to cancel."</strong>';
 
-        if (simState.amount === '50') {
-          audioBox.style.display = 'block';
-          audioBox.innerHTML = '<audio controls autoplay src="/audio/' + (isTwi ? 'confirm_twi.mp3' : 'confirm_en.mp3') + '"></audio>';
-        } else {
-          audioBox.style.display = 'none';
-        }
+        audioBox.style.display = 'block';
+        audioBox.innerHTML = isTwi
+          ? '<audio controls autoplay src="/audio/confirm_twi.mp3"></audio>'
+          : '<audio controls autoplay src="/audio/English_audio_prot/09_confirm_transfer_summary.mp3"></audio>';
 
         inputArea.innerHTML = \`
           <div style="display:flex; gap:10px; justify-content:center;">
@@ -1402,7 +1810,9 @@ app.all("/", (req: Request, res: Response) => {
           : '✅ <strong>"Transaction of ' + simState.amount + ' Ghana Cedis to ' + simState.name + ' authorized. Please check your screen now to enter your Mobile Money PIN securely."</strong>';
 
         audioBox.style.display = 'block';
-        audioBox.innerHTML = '<audio controls autoplay src="/audio/' + (isTwi ? 'success_twi.mp3' : 'success_en.mp3') + '"></audio>';
+        audioBox.innerHTML = isTwi
+          ? '<audio controls autoplay src="/audio/success_twi.mp3"></audio>'
+          : '<audio controls autoplay src="/audio/English_audio_prot/10_pin_prompt_screen_handoff.mp3"></audio>';
 
         inputArea.innerHTML = \`
           <div style="text-align:center;">

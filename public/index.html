@@ -146,8 +146,11 @@
 
             <!-- In-Phone Audio Player Component -->
             <div class="phone-audio-player" id="phoneAudioPlayerContainer">
-              <audio id="phoneAudioElement" preload="auto"></audio>
+              <audio id="phoneAudioElement" preload="auto" playsinline></audio>
               <div class="audio-controls-row">
+                <button class="btn-audio-action" id="btnPlayVoicePrompt" title="Play Pre-Recorded Audio Prompt" onclick="window.app.forcePlayAudio()">
+                  <span id="playPromptLabel">▶️ Play Voice</span>
+                </button>
                 <button class="btn-audio-action" id="btnReplayAudio" title="Replay Spoken Audio" onclick="window.app.replayCurrentAudio()">
                   <span>🔄 Replay (9)</span>
                 </button>
@@ -296,6 +299,38 @@
                   <div class="step-title">Zero-PIN Security Handoff</div>
                   <div class="step-desc">Private screen prompt notification</div>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- AI Conversational State & Security Monitor Card -->
+          <div class="panel-card" id="convStateCard" style="border: 1px solid var(--emerald-accent); background: var(--surface);">
+            <div class="panel-header" style="border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px;">
+              <h3 class="panel-title" style="color: var(--emerald-accent);"><span>🤖</span> AI Conversational Layer</h3>
+              <span class="badge" id="convConfidenceBadge" style="background: var(--emerald-subtle); color: var(--emerald-accent); font-weight: bold;">Ready</span>
+            </div>
+            <div style="padding: 10px 0; font-size: 13px;">
+              <div style="display:flex; justify-content:space-between; margin-bottom: 6px;">
+                <span style="color: var(--ink-muted);">Active Intent:</span>
+                <span id="convIntentBadge" style="font-weight: 700; color: var(--ink);">OPEN_CONVERSATION</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; margin-bottom: 6px;">
+                <span style="color: var(--ink-muted);">State Machine:</span>
+                <span id="convStatusBadge" style="font-weight: 600; color: var(--sky-accent);">COLLECTING_INFORMATION</span>
+              </div>
+              <div style="background: var(--surface-sunken); border-radius: 8px; padding: 8px 10px; margin-top: 8px;">
+                <div style="font-size: 11.5px; font-weight: 700; text-transform: uppercase; color: var(--ink-muted); margin-bottom: 4px;">
+                  Extracted Slots (Converged Transaction State)
+                </div>
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 12px;">
+                  <div><span style="color:var(--ink-muted);">Network:</span> <strong id="slotNetwork">--</strong></div>
+                  <div><span style="color:var(--ink-muted);">Amount:</span> <strong id="slotAmount">--</strong></div>
+                  <div style="grid-column: 1 / -1;"><span style="color:var(--ink-muted);">Recipient:</span> <strong id="slotRecipient">--</strong></div>
+                </div>
+              </div>
+              <div style="margin-top: 8px; display:flex; align-items:center; gap: 6px; font-size: 11.5px; color: var(--emerald-accent);">
+                <span>🔒</span>
+                <span><strong>Zero-PIN Security Boundary:</strong> Handset simulated prompt. PIN never reaches AI.</span>
               </div>
             </div>
           </div>
