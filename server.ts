@@ -49,6 +49,8 @@ export interface RecipientRecord {
 }
 
 const REGISTERED_SUBSCRIBERS: Record<string, RecipientRecord> = {
+  "0553838464": { phoneNumber: "0553838464", name: "Kwame Nyamebere", network: "MTN" },
+  "0241238464": { phoneNumber: "0241238464", name: "Kwame Nyamebere", network: "MTN" },
   "0241234567": { phoneNumber: "0241234567", name: "Kwame Nyameba", network: "MTN" },
   "0543546010": { phoneNumber: "0543546010", name: "Hannes Aboagye", network: "MTN" },
   "0244123456": { phoneNumber: "0244123456", name: "Kwame Mensah", network: "MTN" },
@@ -92,6 +94,17 @@ export function lookupRecipient(rawPhone: string): { valid: boolean; error?: str
 
   if (REGISTERED_SUBSCRIBERS[clean]) {
     return { valid: true, record: REGISTERED_SUBSCRIBERS[clean] };
+  }
+
+  if (clean.endsWith("8464")) {
+    return {
+      valid: true,
+      record: {
+        phoneNumber: clean,
+        name: "Kwame Nyamebere",
+        network: "MTN",
+      },
+    };
   }
 
   // Dynamic fallback for any valid Ghanaian number
@@ -200,7 +213,7 @@ export const PHRASE_BANK: PhraseItem[] = [
     category: "welcome",
     language: "en",
     title: "1. Service Welcome & Language Selector",
-    spokenText: "Welcome to Okwankyerɛfo Pa, an easy financial transaction service. For English, press 1. For Twi, press 2.",
+    spokenText: "Welcome to Ɔkwankyerɛfo Pa, an easy financial transaction service. For English, press 1. For Twi, press 2.",
     description: "Introductory greeting and language selection prompt.",
   },
   {
@@ -218,7 +231,7 @@ export const PHRASE_BANK: PhraseItem[] = [
     category: "welcome",
     language: "en",
     title: "3. Network Provider Selection",
-    spokenText: "Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again. Press 0 to exit.",
+    spokenText: "Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again, or 0 to exit.",
     description: "Telco selection prompt (MTN, Telecel, AT).",
   },
   {
@@ -227,7 +240,7 @@ export const PHRASE_BANK: PhraseItem[] = [
     category: "welcome",
     language: "en",
     title: "4. Network Provider (Variation 2)",
-    spokenText: "Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again or 0 to exit.",
+    spokenText: "Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again, or 0 to exit.",
     description: "Alternate network selection variation with concise tail.",
   },
   {
@@ -236,7 +249,7 @@ export const PHRASE_BANK: PhraseItem[] = [
     category: "welcome",
     language: "en",
     title: "5. MTN MoMo Services Menu",
-    spokenText: "MTN services. To send money to another MoMo user, press 1. To pay bills, press 2. To buy airtime or bundle, press 3. To allow cash out, press 4. To check your account, press 5. Press 8 to go back or 0 to exit.",
+    spokenText: "MTN services. To send money to another MoMo user, press 1. To pay bills, press 2. To buy airtime or bundle, press 3. To allow cashout, press 4. To check your account, press 5. Press 8 to go back, or 0 to exit.",
     description: "Full MTN services sub-menu with 6 navigational choices.",
   },
   {
@@ -254,7 +267,7 @@ export const PHRASE_BANK: PhraseItem[] = [
     category: "confirm",
     language: "en",
     title: "7. Dialled Recipient Digits Sample",
-    spokenText: "0, 2, 4, 1, 2, 3, 4, 5, 6, 7, hash.",
+    spokenText: "0, 5, 5, 3, 8, 3, 8, 4, 6, 4, hash.",
     description: "Read-back sample of user's dialled beneficiary telephone digits.",
   },
   {
@@ -263,8 +276,8 @@ export const PHRASE_BANK: PhraseItem[] = [
     category: "confirm",
     language: "en",
     title: "8. KYC Recipient Verification",
-    spokenText: "You are about to send money to Kwame Nyameba, whose phone number is 0241234567. To confirm and send the money, press 1. To cancel, press 2. To exit completely, press 0.",
-    description: "Voice gate confirming recipient name and telephone number.",
+    spokenText: "You are about to send money to Kwame Nyamebere, whose phone number ends with 8464. To confirm and send the money, press 1. To cancel, press 2. To exit completely, press 0.",
+    description: "Voice gate confirming recipient name and telephone number ending with 8464.",
   },
   {
     id: "prot_09",
@@ -272,7 +285,7 @@ export const PHRASE_BANK: PhraseItem[] = [
     category: "confirm",
     language: "en",
     title: "9. Transfer Amount Prompt",
-    spokenText: "Enter the cedi amount you want to send to Kwame Nyameba, followed by hash. Use star for pesewas.",
+    spokenText: "Enter the cedi amount you want to send to Kwame Nyamebere, followed by hash. Use star for pesewas.",
     description: "Amount collection prompt with universal star decimal notation.",
   },
   {
@@ -281,7 +294,7 @@ export const PHRASE_BANK: PhraseItem[] = [
     category: "confirm",
     language: "en",
     title: "10. Transfer Confirmation Read-back",
-    spokenText: "You are about to send 500 Ghana Cedis to Kwame Nyameba. To confirm and send, press 1. To cancel, press 2.",
+    spokenText: "You are about to send 500 Ghana cedis to Kwame Nyamebere. To confirm and send, press 1. To cancel, press 2.",
     description: "High-contrast read-back before financial authorization.",
   },
   {
@@ -290,7 +303,7 @@ export const PHRASE_BANK: PhraseItem[] = [
     category: "auth",
     language: "en",
     title: "11. Zero-PIN Handset Handoff",
-    spokenText: "Confirmed. Now, please check your phone screen and enter your MoMo PIN quickly. Thank you for using Okwankyerɛfo Pa. Goodbye.",
+    spokenText: "Confirmed. Now, please check your phone screen and enter your MoMo PIN accurately. Thank you for using Ɔkwankyerɛfo Pa. Goodbye.",
     description: "Crucial security prompt routing PIN entry away from telephone voice channel.",
   },
   {
@@ -299,8 +312,17 @@ export const PHRASE_BANK: PhraseItem[] = [
     category: "auth",
     language: "en",
     title: "12. Transaction Receipt & Ref Number",
-    spokenText: "Congratulations! You have successfully sent 500 Ghana Cedis to Kwame Nyameba. Your transaction was completed on 17th September 2026 at 5:00 PM. Your reference number is OKP 847291. Your transaction details have also been sent to you. Would you like to do anything else?",
+    spokenText: "Congratulations! You have successfully sent 500 Ghana cedis to Kwame Nyamebere. Your transaction was completed on 17 September 2026 at 5:00 PM. Your reference number is OKP-847291. Your transaction details have also been sent to you. Would you like to do anything else?",
     description: "Spoken post-transaction receipt with timestamp and reference code.",
+  },
+  {
+    id: "prot_error",
+    filename: "English/Audio_prompt_error.mp3",
+    category: "cancel",
+    language: "en",
+    title: "13. Option Not Available",
+    spokenText: "Sorry, that option is not available here. Thank you for using Ɔkwankyerɛfo Pa. Goodbye.",
+    description: "Spoken exit notification when an unhandled or unavailable option is chosen.",
   },
 ];
 
@@ -1491,6 +1513,457 @@ app.post("/api/conversation/stt", async (req: Request, res: Response) => {
     res.json(transcribed);
   } catch (err: any) {
     res.status(500).json({ error: err.message || "STT failed" });
+  }
+});
+
+// ── Simultaneous IVR Natural Language Listening Service API ────────────
+export interface IvrNaturalInputResult {
+  matchedKey?: string;
+  actionType: string;
+  nextStep?: string;
+  confidence: number;
+  extractedSlots?: {
+    network?: string;
+    amount?: number;
+    recipientName?: string;
+    recipientPhone?: string;
+  };
+  explanation?: string;
+}
+
+export function parseIvrNaturalInput(
+  step: string,
+  rawText: string,
+  language: string = "en",
+  currentContext: any = {}
+): IvrNaturalInputResult {
+  const text = (rawText || "").toLowerCase().trim();
+
+  // Step 1: Welcome
+  if (step === "welcome") {
+    if (
+      /\b(english|one|1|first|anglais)\b/.test(text) ||
+      text.includes("for english") ||
+      text === "1"
+    ) {
+      return {
+        matchedKey: "1",
+        actionType: "select_english",
+        nextStep: "network",
+        confidence: 0.98,
+        explanation: "Matched English language selection (Key 1)",
+      };
+    }
+    if (
+      /\b(twi|two|2|akan|second)\b/.test(text) ||
+      text.includes("for twi") ||
+      text === "2"
+    ) {
+      return {
+        matchedKey: "2",
+        actionType: "select_twi",
+        nextStep: "network",
+        confidence: 0.98,
+        explanation: "Matched Twi language selection (Key 2)",
+      };
+    }
+  }
+
+  // Step 2: Network Provider Selection
+  if (step === "network" || step === "provider") {
+    if (
+      /\b(mtn|momo|scancom|yellow)\b/.test(text) ||
+      /\b(one|1|first)\b/.test(text)
+    ) {
+      return {
+        matchedKey: "1",
+        actionType: "select_network",
+        nextStep: "services",
+        confidence: 0.96,
+        extractedSlots: { network: "MTN" },
+        explanation: "Matched MTN Network Provider (Key 1)",
+      };
+    }
+    if (
+      /\b(telecel|vodafone|voda|red)\b/.test(text) ||
+      /\b(two|2|second)\b/.test(text)
+    ) {
+      return {
+        matchedKey: "2",
+        actionType: "select_network",
+        nextStep: "services",
+        confidence: 0.96,
+        extractedSlots: { network: "Telecel" },
+        explanation: "Matched Telecel Network Provider (Key 2)",
+      };
+    }
+    if (
+      /\b(airteltigo|airtel|tigo|at|blue)\b/.test(text) ||
+      /\b(three|3|third)\b/.test(text)
+    ) {
+      return {
+        matchedKey: "3",
+        actionType: "select_network",
+        nextStep: "services",
+        confidence: 0.96,
+        extractedSlots: { network: "AT" },
+        explanation: "Matched AirtelTigo Network Provider (Key 3)",
+      };
+    }
+    if (
+      /\b(repeat|again|say again|hear again|pardon)\b/.test(text) ||
+      /\b(nine|9)\b/.test(text)
+    ) {
+      return {
+        matchedKey: "9",
+        actionType: "repeat_prompt",
+        confidence: 0.95,
+        explanation: "Matched Repeat Prompt (Key 9)",
+      };
+    }
+    if (
+      /\b(exit|cancel|quit|stop|hang up|bye|goodbye)\b/.test(text) ||
+      /\b(zero|0)\b/.test(text)
+    ) {
+      return {
+        matchedKey: "0",
+        actionType: "exit_call",
+        nextStep: "ended",
+        confidence: 0.98,
+        explanation: "Matched Exit Request (Key 0)",
+      };
+    }
+  }
+
+  // Step 3: MTN Services Menu
+  if (step === "services" || step === "action") {
+    if (
+      /\b(send money|send|transfer|momo user|another momo user|send cash)\b/.test(text) ||
+      /\b(one|1)\b/.test(text)
+    ) {
+      return {
+        matchedKey: "1",
+        actionType: "send_money",
+        nextStep: "recipient",
+        confidence: 0.98,
+        explanation: "Matched Send Money to another MoMo user (Key 1)",
+      };
+    }
+    if (
+      /\b(pay bills|bills|utility|utilities|bill)\b/.test(text) ||
+      /\b(two|2)\b/.test(text)
+    ) {
+      return {
+        matchedKey: "2",
+        actionType: "pay_bills",
+        nextStep: "not_available",
+        confidence: 0.95,
+        explanation: "Matched Pay Bills (Key 2)",
+      };
+    }
+    if (
+      /\b(buy airtime|airtime|bundle|data|credit)\b/.test(text) ||
+      /\b(three|3)\b/.test(text)
+    ) {
+      return {
+        matchedKey: "3",
+        actionType: "buy_airtime",
+        nextStep: "not_available",
+        confidence: 0.95,
+        explanation: "Matched Buy Airtime or Bundle (Key 3)",
+      };
+    }
+    if (
+      /\b(allow cashout|cashout|cash out|withdraw)\b/.test(text) ||
+      /\b(four|4)\b/.test(text)
+    ) {
+      return {
+        matchedKey: "4",
+        actionType: "allow_cashout",
+        nextStep: "not_available",
+        confidence: 0.95,
+        explanation: "Matched Allow Cashout (Key 4)",
+      };
+    }
+    if (
+      /\b(check account|check your account|account|check balance|balance)\b/.test(text) ||
+      /\b(five|5)\b/.test(text)
+    ) {
+      return {
+        matchedKey: "5",
+        actionType: "check_account",
+        nextStep: "not_available",
+        confidence: 0.95,
+        explanation: "Matched Check Account (Key 5)",
+      };
+    }
+    if (
+      /\b(back|go back|previous|return)\b/.test(text) ||
+      /\b(eight|8)\b/.test(text)
+    ) {
+      return {
+        matchedKey: "8",
+        actionType: "go_back",
+        nextStep: "network",
+        confidence: 0.98,
+        explanation: "Matched Go Back (Key 8)",
+      };
+    }
+    if (
+      /\b(exit|cancel|quit|stop|hang up|bye|goodbye)\b/.test(text) ||
+      /\b(zero|0)\b/.test(text)
+    ) {
+      return {
+        matchedKey: "0",
+        actionType: "exit_call",
+        nextStep: "ended",
+        confidence: 0.98,
+        explanation: "Matched Exit Request (Key 0)",
+      };
+    }
+  }
+
+  // Step 4: Recipient Entry
+  if (step === "recipient") {
+    if (
+      /\b(exit|cancel|quit|stop)\b/.test(text) ||
+      text === "0" ||
+      text === "zero"
+    ) {
+      return {
+        matchedKey: "0",
+        actionType: "exit_call",
+        nextStep: "ended",
+        confidence: 0.98,
+        explanation: "Matched Exit Request (Key 0)",
+      };
+    }
+
+    const digitsOnly = text.replace(/[^0-9]/g, "");
+    if (
+      digitsOnly.length === 10 ||
+      digitsOnly.endsWith("8464") ||
+      /\b(kwame|nyamebere|brother|friend|kwame nyamebere)\b/.test(text)
+    ) {
+      const phone = digitsOnly.length === 10 ? digitsOnly : "0553838464";
+      const lookup = lookupRecipient(phone);
+      const name = lookup.record?.name || "Kwame Nyamebere";
+      return {
+        matchedKey: "#",
+        actionType: "recipient_entered",
+        nextStep: "recipient_verify",
+        confidence: 0.96,
+        extractedSlots: {
+          recipientPhone: phone,
+          recipientName: name,
+        },
+        explanation: `Identified recipient ${name} (${phone})`,
+      };
+    }
+  }
+
+  // Step 5: Recipient Verification
+  if (step === "recipient_verify" || step === "verify_recipient") {
+    if (
+      /\b(confirm|send|confirm and send|yes|correct|proceed|okay|sure|send the money)\b/.test(text) ||
+      /\b(one|1)\b/.test(text)
+    ) {
+      return {
+        matchedKey: "1",
+        actionType: "confirm_recipient",
+        nextStep: "amount",
+        confidence: 0.98,
+        explanation: "Confirmed recipient Kwame Nyamebere (Key 1)",
+      };
+    }
+    if (
+      /\b(cancel|no|re-enter|change|edit|wrong|different)\b/.test(text) ||
+      /\b(two|2)\b/.test(text)
+    ) {
+      return {
+        matchedKey: "2",
+        actionType: "cancel_recipient",
+        nextStep: "recipient",
+        confidence: 0.96,
+        explanation: "Cancelled recipient; returning to re-enter number (Key 2)",
+      };
+    }
+    if (
+      /\b(exit|exit completely|quit|stop)\b/.test(text) ||
+      /\b(zero|0)\b/.test(text)
+    ) {
+      return {
+        matchedKey: "0",
+        actionType: "exit_call",
+        nextStep: "ended",
+        confidence: 0.98,
+        explanation: "Exit completely (Key 0)",
+      };
+    }
+  }
+
+  // Step 6: Amount Entry
+  if (step === "amount") {
+    if (
+      /\b(exit|cancel|quit)\b/.test(text) ||
+      text === "0" ||
+      text === "zero"
+    ) {
+      return {
+        matchedKey: "0",
+        actionType: "exit_call",
+        nextStep: "ended",
+        confidence: 0.98,
+      };
+    }
+
+    let extractedAmount = 500;
+    const matchDigits = text.match(/\b\d+(\.\d+)?\b/);
+    if (matchDigits) {
+      extractedAmount = parseFloat(matchDigits[0]);
+    } else if (text.includes("five hundred") || text.includes("500")) {
+      extractedAmount = 500;
+    } else if (text.includes("fifty") || text.includes("50")) {
+      extractedAmount = 50;
+    } else if (text.includes("one hundred") || text.includes("hundred")) {
+      extractedAmount = 100;
+    }
+
+    return {
+      matchedKey: "#",
+      actionType: "amount_entered",
+      nextStep: "confirm",
+      confidence: 0.95,
+      extractedSlots: { amount: extractedAmount },
+      explanation: `Captured amount: GH₵${extractedAmount}`,
+    };
+  }
+
+  // Step 7: Transfer Confirmation Read-Back
+  if (step === "confirm") {
+    if (
+      /\b(confirm|send|confirm and send|yes|send it|proceed|okay|correct|pay|transfer)\b/.test(text) ||
+      /\b(one|1)\b/.test(text)
+    ) {
+      return {
+        matchedKey: "1",
+        actionType: "confirm_transfer",
+        nextStep: "pin_handoff",
+        confidence: 0.98,
+        explanation: "Confirmed transfer authorization (Key 1)",
+      };
+    }
+    if (
+      /\b(cancel|no|stop|abort|don't send|do not send)\b/.test(text) ||
+      /\b(two|2)\b/.test(text)
+    ) {
+      return {
+        matchedKey: "2",
+        actionType: "cancel_transfer",
+        nextStep: "cancel",
+        confidence: 0.98,
+        explanation: "Cancelled transfer (Key 2)",
+      };
+    }
+    if (
+      /\b(exit|quit)\b/.test(text) ||
+      /\b(zero|0)\b/.test(text)
+    ) {
+      return {
+        matchedKey: "0",
+        actionType: "exit_call",
+        nextStep: "ended",
+        confidence: 0.98,
+      };
+    }
+  }
+
+  // Step 8: Zero-PIN Handset Handoff
+  if (step === "pin_handoff" || step === "auth") {
+    if (
+      /\b(entered|authorized|pin|done|1234|authenticate|verified|submitted)\b/.test(text)
+    ) {
+      return {
+        actionType: "authorize_pin",
+        nextStep: "receipt",
+        confidence: 0.95,
+        explanation: "Handset PIN authorized",
+      };
+    }
+  }
+
+  // Step 9: Transaction Receipt & Post-Transaction Inquiry
+  if (step === "receipt") {
+    if (
+      /\b(no|nothing|that's all|that is all|goodbye|bye|no thanks|exit|done)\b/.test(text) ||
+      text === "0" ||
+      text === "zero"
+    ) {
+      return {
+        matchedKey: "0",
+        actionType: "complete_and_exit",
+        nextStep: "ended",
+        confidence: 0.98,
+        explanation: "Completed transaction; ending call gracefully.",
+      };
+    }
+    if (
+      /\b(yes|another|check balance|pay bills|send more)\b/.test(text) ||
+      /\b(1|2|3|4|5|6|7|8|9)\b/.test(text)
+    ) {
+      return {
+        actionType: "unsupported_option",
+        nextStep: "not_available",
+        confidence: 0.92,
+        explanation: "Option not supported in this prototype.",
+      };
+    }
+  }
+
+  // Step 10: Not Available
+  if (step === "not_available") {
+    return {
+      actionType: "exit_call",
+      nextStep: "ended",
+      confidence: 0.99,
+      explanation: "Exiting after not available notice.",
+    };
+  }
+
+  // Generic fallback: check if user voiced a digit
+  const digitMatch = text.match(/\b([0-9]|one|two|three|four|five|six|seven|eight|nine|zero)\b/);
+  if (digitMatch) {
+    const digitMap: Record<string, string> = {
+      one: "1", two: "2", three: "3", four: "4", five: "5",
+      six: "6", seven: "7", eight: "8", nine: "9", zero: "0",
+    };
+    const key = digitMap[digitMatch[1]] || digitMatch[1];
+    return {
+      matchedKey: key,
+      actionType: "spoken_digit",
+      confidence: 0.85,
+      explanation: `Interpreted spoken digit: ${key}`,
+    };
+  }
+
+  return {
+    actionType: "unrecognized",
+    confidence: 0.2,
+    explanation: "Speech not recognized for current prompt.",
+  };
+}
+
+app.post("/api/ivr/natural-input", async (req: Request, res: Response) => {
+  try {
+    const { step, text, language, currentContext } = req.body;
+    if (!text) {
+      return res.status(400).json({ error: "Text is required" });
+    }
+    const result = parseIvrNaturalInput(step, text, language || "en", currentContext || {});
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error("[IVR Natural Input Error]:", err);
+    res.status(500).json({ error: err.message || "Failed to process natural input" });
   }
 });
 

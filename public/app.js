@@ -111,6 +111,7 @@
       this.loadTwiAudio();
       this.loadSubscribers();
       this.initWaveformCanvas();
+      this.setIdleState();
 
       // Pre-bind user interaction gestures anywhere on page to unlock media playback
       const unlockHandler = () => {
@@ -711,15 +712,16 @@
 
     // ── Call Simulator Pipeline ─────────────────────────────────────────
     startCall() {
-      // 1. Prime/play audio element immediately and synchronously within the user interaction event
-      const welcomeAudio = '/audio/Welcome_prompt_01.mp3';
-      this.playPhoneAudio(welcomeAudio, 'Welcome to Okwankyerɛfo Pa. For English, press 1. For Twi, press 2.');
-
       this.callState.active = true;
       this.callState.seconds = 0;
       this.callState.sessionId = 'session_' + Math.random().toString(36).substring(2, 9);
       this.callState.activeConvState = null;
       this.callState.enteredPinDigits = '';
+      this.callState.phone = '0553838464';
+      this.callState.name = 'Kwame Nyamebere';
+      this.callState.amount = '500';
+      this.callState.provider = 'MTN';
+
       clearInterval(this.callState.timerInterval);
       this.callState.timerInterval = setInterval(() => {
         this.callState.seconds++;
@@ -733,33 +735,690 @@
       document.getElementById('callStatusBadge').style.color = 'var(--emerald-accent)';
 
       this.resetConvInspector();
+
+      // Reset selection state and ensure speech recognition starts inactive while prompt plays
+      this.isPinPromptOpen = false;
+      this.optionSelectedForCurrentPrompt = false;
+      this.setSpeechRecognitionActive(false, 'Starting call - prompt will play');
+
       this.goToStep('welcome');
     },
 
-    endCall() {
+    setIdleState() {
       this.callState.active = false;
+      this.callState.step = 'idle';
       clearInterval(this.callState.timerInterval);
-      document.getElementById('callTimer').innerText = '00:00';
-      document.getElementById('callStatusBadge').innerText = 'Call Idle';
-      document.getElementById('callStatusBadge').style.color = 'var(--sky-accent)';
+      clearTimeout(this.speechRestartTimer);
+      this.isPinPromptOpen = false;
+      this.isPromptPlaying = false;
+      this.optionSelectedForCurrentPrompt = true;
+      this.lastProcessedVoiceText = '';
+      this.lastProcessedVoiceTime = 0;
+
+      const timer = document.getElementById('callTimer');
+      if (timer) timer.innerText = '00:00';
+
+      const statusBadge = document.getElementById('callStatusBadge');
+      if (statusBadge) {
+        statusBadge.innerText = 'Call Idle';
+        statusBadge.style.color = 'var(--sky-accent)';
+      }
 
       this.stopPhoneAudio();
+      this.setSpeechRecognitionActive(false, 'Simulation idle');
       this.updateStepIndicators('idle');
 
-      document.getElementById('currentStepTag').innerText = 'Call Ended';
-      document.getElementById('currentPromptTwi').innerText = 'Fa call no firi mu anaa sɔ bio.';
-      document.getElementById('currentPromptEn').innerText = 'Call disconnected. Click "Start Call Simulation" to begin again.';
-      document.getElementById('stepControlsViewport').innerHTML = `
-        <button class="btn btn-call-start" style="width:100%;" onclick="window.app.startCall()">
-          <span>📞</span> Place New Call
-        </button>
-      `;
-      document.getElementById('liveXmlCode').innerText = '<!-- Call disconnected -->';
+      const stepTag = document.getElementById('currentStepTag');
+      if (stepTag) stepTag.innerText = 'Simulation Ready';
+
+      const promptTwi = document.getElementById('currentPromptTwi');
+      if (promptTwi) promptTwi.innerText = '"Mia \'Start Call Simulation\' anaa \'Place New Call\' sɛ wobɛhyɛ aseɛ."';
+
+      const promptEn = document.getElementById('currentPromptEn');
+      if (promptEn) promptEn.innerText = '"Simulation idle. Click \'Start Call Simulation\' or \'Place New Call\' to begin."';
+
+      const viewport = document.getElementById('stepControlsViewport');
+      if (viewport) {
+        viewport.innerHTML = `
+          <div style="padding: 16px 8px; text-align: center;">
+            <div style="font-size: 28px; margin-bottom: 8px;">📞</div>
+            <div style="font-weight: 700; font-size: 14px; margin-bottom: 4px; color: var(--ink);">Ready to Test Ɔkwankyerɛfo Pa</div>
+            <p style="font-size: 12px; color: var(--ink-secondary); margin-bottom: 14px; line-height: 1.5;">
+              Dual-track accessibility IVR voice layer with Akan Twi and English speech.
+            </p>
+            <button class="btn btn-call-start" style="width: 100%; justify-content: center; font-size: 13.5px; padding: 10px 16px;" onclick="window.app.startCall()">
+              <span>📞</span> Place New Call
+            </button>
+          </div>
+        `;
+      }
+
+      const liveXml = document.getElementById('liveXmlCode');
+      if (liveXml) liveXml.innerText = '<!-- Call not started. Click "Start Call Simulation" or "Place New Call" to stream VoiceXML -->';
+
+      const transcript = document.getElementById('transcriptText');
+      if (transcript) transcript.innerText = 'Waiting to place call...';
+
+      const chips = document.getElementById('voiceSuggestionsChips');
+      if (chips) chips.innerHTML = '';
     },
 
+    endCall() {
+      this.setIdleState();
+      const stepTag = document.getElementById('currentStepTag');
+      if (stepTag) stepTag.innerText = 'Call Ended';
+      const promptTwi = document.getElementById('currentPromptTwi');
+      if (promptTwi) promptTwi.innerText = 'Fa call no firi mu anaa sɔ bio.';
+      const promptEn = document.getElementById('currentPromptEn');
+      if (promptEn) promptEn.innerText = 'Call disconnected. Click "Start Call Simulation" to begin again.';
+      const liveXml = document.getElementById('liveXmlCode');
+      if (liveXml) liveXml.innerText = '<!-- Call disconnected -->';
+    },
+
+    // ── Speech Recognition & Listening Lifecycle ─────────────────────────
+    speechRecogInstance: null,
+    listeningServiceEnabled: true,
+    isListeningActive: false,
+    isPromptPlaying: false,
+    optionSelectedForCurrentPrompt: false,
+    isPinPromptOpen: false,
+    speechRestartTimer: null,
+    audioStreamWithAec: null,
+    lastProcessedVoiceText: '',
+    lastProcessedVoiceTime: 0,
+
+    // Step 1: Microphone constraints with echoCancellation & noiseSuppression
+    async initMicrophoneConstraints() {
+      if (this.audioStreamWithAec) return this.audioStreamWithAec;
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        try {
+          const constraints = {
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true
+            }
+          };
+          this.audioStreamWithAec = await navigator.mediaDevices.getUserMedia(constraints);
+          console.log('[Microphone] Stream acquired with echoCancellation: true and noiseSuppression: true');
+          return this.audioStreamWithAec;
+        } catch (err) {
+          console.warn('[Microphone] getUserMedia with AEC constraints warning:', err);
+        }
+      }
+      return null;
+    },
+
+    // Central state controller for Speech Recognition
+    // STRICT RULES:
+    // 1. When the user PIN prompt is open, the speech layer MUST be turned off (Zero-PIN security).
+    // 2. When an audio prompt is playing, the speech layer MUST be off.
+    // 3. After the prompt finishes (and provided PIN prompt is not open and no option chosen yet), speech resumes.
+    setSpeechRecognitionActive(active, reason = '') {
+      console.log(`[SpeechRecognition Lifecycle] setSpeechRecognitionActive(${active}) - Reason: ${reason} (callActive=${this.callState.active}, isPromptPlaying=${this.isPromptPlaying}, isPinPromptOpen=${this.isPinPromptOpen}, optionSelected=${this.optionSelectedForCurrentPrompt}, enabled=${this.listeningServiceEnabled})`);
+
+      const bar = document.getElementById('simultaneousListeningBar');
+      const dot = document.getElementById('listeningPulseDot');
+      const micBtn = document.getElementById('btnToggleListeningMic');
+      const micIcon = document.getElementById('listeningMicIcon');
+      const statusText = document.getElementById('listeningStatusText');
+
+      if (active) {
+        // Enforce strict activation condition:
+        // Must be in an active call, prompt NOT playing, PIN prompt NOT open, no option selected yet, and user has not muted/disabled
+        if (!this.callState.active || this.isPromptPlaying || this.isPinPromptOpen || this.optionSelectedForCurrentPrompt || !this.listeningServiceEnabled) {
+          console.log('[SpeechRecognition Lifecycle] Activation prevented - conditions not met');
+          return;
+        }
+
+        this.isListeningActive = true;
+
+        if (bar) bar.classList.add('listening');
+        if (dot) dot.classList.remove('paused');
+        if (micBtn) {
+          micBtn.classList.add('active');
+          micBtn.classList.remove('muted');
+        }
+        if (micIcon) micIcon.innerText = '🎙️ Live Mic On';
+        if (statusText) {
+          statusText.innerHTML = '<strong>Prompt Finished:</strong> Listening — Speak your choice or press keypad';
+        }
+
+        this.startBrowserSpeechRecognition();
+      } else {
+        this.isListeningActive = false;
+
+        if (bar) bar.classList.remove('listening');
+        if (dot) dot.classList.add('paused');
+        if (micBtn) {
+          micBtn.classList.remove('active');
+          micBtn.classList.add('muted');
+        }
+        if (micIcon) {
+          micIcon.innerText = this.isPinPromptOpen ? '🔒 PIN Secure (Mic Off)' : '🔇 Mic Inactive';
+        }
+        if (statusText) {
+          if (!this.callState.active) {
+            statusText.innerHTML = '<strong>Call Idle:</strong> Click "Place New Call" to begin';
+          } else if (this.isPinPromptOpen) {
+            statusText.innerHTML = '<strong>PIN Prompt Open:</strong> Speech layer turned off for Zero-PIN security. Enter PIN on handset.';
+          } else if (this.isPromptPlaying) {
+            statusText.innerHTML = '<strong>Prompt Playing:</strong> Listening inactive until audio finishes';
+          } else if (this.optionSelectedForCurrentPrompt) {
+            statusText.innerHTML = '<strong>Option Selected:</strong> Processing next prompt...';
+          } else if (!this.listeningServiceEnabled) {
+            statusText.innerHTML = '<strong>Mic Muted:</strong> Voice input disabled';
+          } else {
+            statusText.innerHTML = '<strong>Listening Inactive</strong>';
+          }
+        }
+
+        this.stopBrowserSpeechRecognition();
+      }
+    },
+
+    startBrowserSpeechRecognition() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        const statusText = document.getElementById('listeningStatusText');
+        if (statusText) {
+          statusText.innerHTML = '<strong>Listening Service:</strong> Voice chips or keypad ready';
+        }
+        return;
+      }
+
+      if (this.speechRecogInstance) {
+        try {
+          this.speechRecogInstance.onend = null;
+          this.speechRecogInstance.abort();
+        } catch(e) {}
+        this.speechRecogInstance = null;
+      }
+
+      try {
+        const recog = new SpeechRecognition();
+        recog.lang = this.callState.lang === 'twi' ? 'ak-GH' : 'en-US';
+        recog.continuous = true;
+        recog.interimResults = true;
+
+        recog.onresult = (event) => {
+          // Strict guard: ignore any speech if prompt is playing, PIN prompt is open, option was selected, or not active
+          if (!this.isListeningActive || !this.callState.active || this.isPromptPlaying || this.isPinPromptOpen || this.optionSelectedForCurrentPrompt) {
+            return;
+          }
+
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const res = event.results[i];
+            const isFinal = res.isFinal;
+            const alt = res[0];
+            const confidence = (alt && typeof alt.confidence === 'number') ? alt.confidence : 0;
+            const rawTranscript = (alt && alt.transcript) ? alt.transcript.trim() : '';
+
+            if (!isFinal) {
+              const textEl = document.getElementById('transcriptText');
+              if (textEl && rawTranscript) {
+                textEl.innerText = `"${rawTranscript}..." (listening)`;
+              }
+              continue;
+            }
+
+            // Utterance length check to discard short noise artifact
+            const cleanSpeech = rawTranscript.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, '').trim();
+            const isSingleDigit = /^[0-9]$/.test(cleanSpeech);
+            const isShortValidWord = ['no', 'ok', 'at', 'en', 'hi', 'go'].includes(cleanSpeech.toLowerCase());
+            if (cleanSpeech.length < 2 || (cleanSpeech.length < 3 && !isSingleDigit && !isShortValidWord)) {
+              console.log(`[SpeechRecognition] Discarded short noise artifact (${cleanSpeech.length} chars): "${rawTranscript}"`);
+              continue;
+            }
+
+            // Confidence check (floor: 0.70)
+            if (confidence > 0 && confidence < 0.70) {
+              console.warn(`[SpeechRecognition] Low-confidence result: ${(confidence * 100).toFixed(1)}% ("${rawTranscript}")`);
+              const textEl = document.getElementById('transcriptText');
+              if (textEl) {
+                textEl.innerText = `Didn't catch that clearly. Please repeat or press keypad.`;
+              }
+              continue;
+            }
+
+            console.log(`[SpeechRecognition] Final speech input received: "${rawTranscript}" (confidence ${(confidence * 100).toFixed(1)}%)`);
+            this.handleNaturalVoiceInput(rawTranscript);
+          }
+        };
+
+        recog.onerror = (err) => {
+          console.warn('[SpeechRecognition onerror]:', err.error);
+          if (err.error === 'not-allowed') {
+            this.listeningServiceEnabled = false;
+            this.setSpeechRecognitionActive(false, 'Microphone permission denied');
+          }
+        };
+
+        recog.onend = () => {
+          console.log('[SpeechRecognition onend]');
+          // Reconnect only if we are still legitimately waiting for user speech
+          if (this.isListeningActive && this.callState.active && !this.isPromptPlaying && !this.isPinPromptOpen && !this.optionSelectedForCurrentPrompt && this.listeningServiceEnabled) {
+            clearTimeout(this.speechRestartTimer);
+            this.speechRestartTimer = setTimeout(() => {
+              if (this.isListeningActive && this.callState.active && !this.isPromptPlaying && !this.isPinPromptOpen && !this.optionSelectedForCurrentPrompt && this.listeningServiceEnabled) {
+                console.log('[SpeechRecognition] Restarting recognizer to continue listening for choice...');
+                try {
+                  recog.start();
+                } catch (e) {
+                  console.warn('[SpeechRecognition] Restart warning:', e);
+                }
+              }
+            }, 250);
+          }
+        };
+
+        recog.start();
+        this.speechRecogInstance = recog;
+      } catch (err) {
+        console.warn('SpeechRecognition startup notice:', err);
+      }
+    },
+
+    stopBrowserSpeechRecognition() {
+      clearTimeout(this.speechRestartTimer);
+      if (this.speechRecogInstance) {
+        try {
+          this.speechRecogInstance.onend = null;
+          this.speechRecogInstance.abort();
+        } catch(e) {}
+        try {
+          this.speechRecogInstance.stop();
+        } catch(e) {}
+        this.speechRecogInstance = null;
+      }
+    },
+
+    startListeningService() {
+      this.listeningServiceEnabled = true;
+      if (this.callState.active && !this.isPromptPlaying && !this.isPinPromptOpen && !this.optionSelectedForCurrentPrompt) {
+        this.setSpeechRecognitionActive(true, 'startListeningService called');
+      } else {
+        this.setSpeechRecognitionActive(false, 'startListeningService called (waiting for prompt or PIN prompt)');
+      }
+    },
+
+    stopListeningService() {
+      this.listeningServiceEnabled = false;
+      this.setSpeechRecognitionActive(false, 'stopListeningService called');
+    },
+
+    toggleListeningService() {
+      if (this.listeningServiceEnabled) {
+        this.stopListeningService();
+      } else {
+        this.startListeningService();
+      }
+    },
+
+    duckPromptAudio() {},
+    unduckPromptAudio() {},
+    pauseListeningForDtmf() {},
+
+    // Step Keyword/Intent validator reusing existing step options
+    isStepKeywordMatch(step, rawTranscript) {
+      if (!rawTranscript) return false;
+      const text = rawTranscript.toLowerCase().trim();
+      const currentStep = step || this.callState.step || 'welcome';
+
+      const stepKeywordsMap = {
+        'welcome': [
+          'english', '1', 'one', 'twi', '2', 'two', 'akan', 'first', 'second', 'anglais'
+        ],
+        'network': [
+          'mtn', '1', 'one', 'momo', 'scancom', 'yellow', 'telecel', '2', 'two',
+          'vodafone', 'voda', 'red', 'airteltigo', '3', 'three', 'airtel', 'tigo', 'at', 'blue',
+          'repeat', '9', 'nine', 'again', 'pardon', 'exit', '0', 'zero', 'cancel', 'quit', 'stop', 'bye'
+        ],
+        'provider': [
+          'mtn', '1', 'one', 'momo', 'scancom', 'yellow', 'telecel', '2', 'two',
+          'vodafone', 'voda', 'red', 'airteltigo', '3', 'three', 'airtel', 'tigo', 'at', 'blue',
+          'repeat', '9', 'nine', 'again', 'pardon', 'exit', '0', 'zero', 'cancel', 'quit', 'stop', 'bye'
+        ],
+        'services': [
+          'send money', 'send', 'money', '1', 'one', 'transfer', 'momo user', 'pay bills', 'bills',
+          '2', 'two', 'utility', 'utilities', 'bill', 'buy airtime', 'airtime', '3', 'three',
+          'bundle', 'data', 'credit', 'allow cashout', 'cashout', 'cash out', '4', 'four', 'withdraw',
+          'check account', 'account', 'check balance', 'balance', '5', 'five', 'go back', 'back',
+          'previous', 'return', '8', 'eight', 'exit', '0', 'zero', 'cancel', 'quit', 'stop', 'bye'
+        ],
+        'action': [
+          'send money', 'send', 'money', '1', 'one', 'transfer', 'momo user', 'pay bills', 'bills',
+          '2', 'two', 'utility', 'utilities', 'bill', 'buy airtime', 'airtime', '3', 'three',
+          'bundle', 'data', 'credit', 'allow cashout', 'cashout', 'cash out', '4', 'four', 'withdraw',
+          'check account', 'account', 'check balance', 'balance', '5', 'five', 'go back', 'back',
+          'previous', 'return', '8', 'eight', 'exit', '0', 'zero', 'cancel', 'quit', 'stop', 'bye'
+        ],
+        'recipient': [
+          'kwame', 'nyamebere', '0553838464', '8464', 'number', 'phone', 'brother', 'friend',
+          'exit', '0', 'zero', 'cancel', 'quit', 'stop'
+        ],
+        'recipient_verify': [
+          'confirm and send', 'confirm', 'send', 'yes', 'correct', 'proceed', 'okay', 'sure',
+          '1', 'one', 'cancel', 'no', 're-enter', 'change', 'edit', 'wrong', 'different',
+          '2', 'two', 'exit', 'exit completely', 'quit', 'stop', '0', 'zero'
+        ],
+        'verify_recipient': [
+          'confirm and send', 'confirm', 'send', 'yes', 'correct', 'proceed', 'okay', 'sure',
+          '1', 'one', 'cancel', 'no', 're-enter', 'change', 'edit', 'wrong', 'different',
+          '2', 'two', 'exit', 'exit completely', 'quit', 'stop', '0', 'zero'
+        ],
+        'amount': [
+          '500 cedis', '500', '50 cedis', '50', '100 cedis', '100', 'cedis', 'cedi',
+          'five hundred', 'fifty', 'one hundred', 'hundred', 'amount', 'go back', 'back',
+          '8', 'eight', 'exit', '0', 'zero', 'cancel', 'quit'
+        ],
+        'confirm': [
+          'confirm and send', 'confirm', 'send', 'yes', 'send it', 'proceed', 'okay', 'correct',
+          'pay', 'transfer', '1', 'one', 'cancel', 'no', 'stop', 'abort', "don't send", 'do not send',
+          '2', 'two', 'exit', 'quit', '0', 'zero'
+        ],
+        'pin_handoff': [
+          'pin entered', 'pin', 'entered', 'authorize', 'authorized', 'done', '1234',
+          'authenticate', 'verified', 'submitted', 'ok', 'yes'
+        ],
+        'auth': [
+          'pin entered', 'pin', 'entered', 'authorize', 'authorized', 'done', '1234',
+          'authenticate', 'verified', 'submitted', 'ok', 'yes'
+        ],
+        'receipt': [
+          'no', "that's all", 'that is all', 'nothing', 'goodbye', 'bye', 'no thanks',
+          'exit', 'done', '0', 'zero', 'yes', 'another', 'check balance', 'balance',
+          'pay bills', 'bills', 'send more', '1', '2'
+        ],
+        'not_available': [
+          'place new call', 'new call', 'call', 'restart', 'exit'
+        ]
+      };
+
+      const keywords = stepKeywordsMap[currentStep] || [];
+      for (const kw of keywords) {
+        if (text === kw) return true;
+        if (kw.length > 2 && text.includes(kw)) return true;
+        if (new RegExp(`\\b${kw}\\b`, 'i').test(text)) return true;
+      }
+
+      // Step-specific regex fallbacks matching server.ts parseIvrNaturalInput
+      if (currentStep === 'welcome') {
+        if (/\b(english|one|1|first|anglais)\b/i.test(text) || /\b(twi|two|2|akan|second)\b/i.test(text)) return true;
+      }
+      if (currentStep === 'network' || currentStep === 'provider') {
+        if (/\b(mtn|momo|scancom|yellow|1|one)\b/i.test(text)) return true;
+        if (/\b(telecel|vodafone|voda|red|2|two)\b/i.test(text)) return true;
+        if (/\b(airteltigo|airtel|tigo|at|blue|3|three)\b/i.test(text)) return true;
+        if (/\b(repeat|again|say again|hear again|pardon|9|nine)\b/i.test(text)) return true;
+        if (/\b(exit|cancel|quit|stop|hang up|bye|goodbye|0|zero)\b/i.test(text)) return true;
+      }
+      if (currentStep === 'services' || currentStep === 'action') {
+        if (/\b(send money|send|transfer|momo user|another momo user|send cash|1|one)\b/i.test(text)) return true;
+        if (/\b(pay bills|bills|utility|utilities|bill|2|two)\b/i.test(text)) return true;
+        if (/\b(buy airtime|airtime|bundle|data|credit|3|three)\b/i.test(text)) return true;
+        if (/\b(allow cashout|cashout|cash out|withdraw|4|four)\b/i.test(text)) return true;
+        if (/\b(check account|check your account|account|check balance|balance|5|five)\b/i.test(text)) return true;
+        if (/\b(back|go back|previous|return|8|eight)\b/i.test(text)) return true;
+        if (/\b(exit|cancel|quit|stop|hang up|bye|goodbye|0|zero)\b/i.test(text)) return true;
+      }
+      if (currentStep === 'recipient') {
+        const digitsOnly = text.replace(/[^0-9]/g, '');
+        if (digitsOnly.length === 10 || digitsOnly.endsWith('8464')) return true;
+        if (/\b(kwame|nyamebere|brother|friend)\b/i.test(text)) return true;
+        if (/\b(exit|cancel|quit|stop|0|zero)\b/i.test(text)) return true;
+      }
+      if (currentStep === 'recipient_verify' || currentStep === 'verify_recipient') {
+        if (/\b(confirm|send|confirm and send|yes|correct|proceed|okay|sure|send the money|1|one)\b/i.test(text)) return true;
+        if (/\b(cancel|no|re-enter|change|edit|wrong|different|2|two)\b/i.test(text)) return true;
+        if (/\b(exit|exit completely|quit|stop|0|zero)\b/i.test(text)) return true;
+      }
+      if (currentStep === 'amount') {
+        if (/\b\d+(\.\d+)?\b/.test(text) || /\b(cedis|cedi|five hundred|500|fifty|50|one hundred|hundred|100)\b/i.test(text)) return true;
+        if (/\b(back|go back|8|eight|exit|cancel|quit|0|zero)\b/i.test(text)) return true;
+      }
+      if (currentStep === 'confirm') {
+        if (/\b(confirm|send|confirm and send|yes|send it|proceed|okay|correct|pay|transfer|1|one)\b/i.test(text)) return true;
+        if (/\b(cancel|no|stop|abort|don't send|do not send|2|two)\b/i.test(text)) return true;
+        if (/\b(exit|quit|0|zero)\b/i.test(text)) return true;
+      }
+      if (currentStep === 'pin_handoff' || currentStep === 'auth') {
+        if (/\b(entered|authorized|pin|done|1234|authenticate|verified|submitted|authorize)\b/i.test(text)) return true;
+      }
+      if (currentStep === 'receipt') {
+        if (/\b(no|nothing|that's all|that is all|goodbye|bye|no thanks|exit|done|0|zero)\b/i.test(text)) return true;
+        if (/\b(yes|another|check balance|pay bills|send more|[1-9])\b/i.test(text)) return true;
+      }
+      if (currentStep === 'not_available') {
+        if (/\b(call|place new call|new call|restart|exit)\b/i.test(text)) return true;
+      }
+
+      // Generic single digit check
+      const cleanDigits = text.replace(/[^0-9]/g, '');
+      if (cleanDigits.length === 1) return true;
+      if (/\b(one|two|three|four|five|six|seven|eight|nine|zero)\b/i.test(text)) return true;
+
+      return false;
+    },
+
+    async handleNaturalVoiceInput(transcript) {
+      if (!transcript || !this.callState.active || this.isPinPromptOpen || this.isPromptPlaying || this.optionSelectedForCurrentPrompt) return;
+
+      const normText = transcript.toLowerCase().trim();
+      const now = Date.now();
+      // Step 3 Guard: Ensure no more than one action per utterance (debounce identical rapid bursts within 1.4s)
+      if (normText === this.lastProcessedVoiceText && (now - this.lastProcessedVoiceTime < 1400)) {
+        console.log(`[SpeechRecognition] Debounced duplicate utterance within 1.4s: "${transcript}"`);
+        return;
+      }
+      this.lastProcessedVoiceText = normText;
+      this.lastProcessedVoiceTime = now;
+
+      const preview = document.getElementById('listeningTranscriptPreview');
+      const textEl = document.getElementById('transcriptText');
+      if (preview) preview.style.display = 'flex';
+      if (textEl) textEl.innerText = `"${transcript}"`;
+
+      try {
+        const res = await fetch('/api/ivr/natural-input', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            step: this.callState.step,
+            text: transcript,
+            language: this.callState.lang,
+            currentContext: {
+              provider: this.callState.provider,
+              phone: this.callState.phone,
+              name: this.callState.name,
+              amount: this.callState.amount
+            }
+          })
+        });
+        const data = await res.json();
+        if (!data.success) {
+          console.warn('Natural voice interpretation returned unsuccessful:', data);
+          return;
+        }
+
+        // Low confidence or unrecognized: Discard and do not advance IVR state
+        if (data.actionType === 'unrecognized' || (typeof data.confidence === 'number' && data.confidence < 0.75 && !data.matchedKey && !data.nextStep)) {
+          console.log(`[SpeechRecognition] Intent unrecognized or low confidence (${data.confidence}): "${transcript}"`);
+          if (textEl) {
+            textEl.innerText = `Didn't catch that clearly. Please repeat or press keypad.`;
+          }
+          return;
+        }
+
+        // Visual feedback on screen
+        if (textEl) {
+          textEl.innerText = `"${transcript}" → ${data.explanation || data.actionType}`;
+        }
+
+        // If slots were extracted (e.g. amount or recipient)
+        if (data.extractedSlots) {
+          if (data.extractedSlots.network) this.callState.provider = data.extractedSlots.network;
+          if (data.extractedSlots.recipientPhone) this.callState.phone = data.extractedSlots.recipientPhone;
+          if (data.extractedSlots.recipientName) this.callState.name = data.extractedSlots.recipientName;
+          if (data.extractedSlots.amount) this.callState.amount = String(data.extractedSlots.amount);
+        }
+
+        // Update AI monitor card
+        this.updateConvInspector({
+          activeIntent: data.actionType || 'VOICE_RESPONSE',
+          confidence: data.confidence || 0.95,
+          state: {
+            status: data.nextStep ? `TRANSITION_TO_${data.nextStep.toUpperCase()}` : 'LISTENING',
+            network: this.callState.provider,
+            amount: this.callState.amount,
+            recipient_name: this.callState.name,
+            recipient_phone: this.callState.phone
+          }
+        });
+
+        // Act on result - mark option selected and immediately deactivate speech recognition until next prompt finishes
+        if (data.actionType === 'authorize_pin') {
+          this.optionSelectedForCurrentPrompt = true;
+          this.setSpeechRecognitionActive(false, 'Spoken PIN authorization option detected');
+          this.submitPinAuthorization();
+          return;
+        }
+
+        if (data.actionType === 'complete_and_exit' || data.actionType === 'exit_call') {
+          this.optionSelectedForCurrentPrompt = true;
+          this.setSpeechRecognitionActive(false, 'Spoken exit option detected');
+          this.goToStep('done_exit');
+          return;
+        }
+
+        if (data.nextStep === 'not_available' || data.actionType === 'unsupported_option') {
+          this.optionSelectedForCurrentPrompt = true;
+          this.setSpeechRecognitionActive(false, 'Spoken unavailable option detected');
+          this.goToStep('not_available');
+          return;
+        }
+
+        if (data.matchedKey) {
+          // Trigger the DTMF key action cleanly
+          this.optionSelectedForCurrentPrompt = true;
+          this.setSpeechRecognitionActive(false, `Spoken DTMF key "${data.matchedKey}" detected`);
+          this.pressKey(data.matchedKey);
+        } else if (data.nextStep) {
+          this.optionSelectedForCurrentPrompt = true;
+          this.setSpeechRecognitionActive(false, `Spoken next step "${data.nextStep}" detected`);
+          this.goToStep(data.nextStep);
+        }
+      } catch (err) {
+        console.error('Error handling natural voice input:', err);
+      }
+    },
+
+    submitNaturalVoiceInput() {
+      const input = document.getElementById('voiceNaturalInput');
+      if (!input) return;
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      this.handleNaturalVoiceInput(text);
+    },
+
+    renderVoiceSuggestions(step) {
+      const container = document.getElementById('voiceSuggestionsChips');
+      if (!container) return;
+
+      const chipsMap = {
+        'welcome': [
+          { label: '🗣️ "English"', val: 'English', primary: true },
+          { label: '🗣️ "Twi"', val: 'Twi' },
+          { label: '🗣️ "One (1)"', val: '1' }
+        ],
+        'network': [
+          { label: '🗣️ "MTN"', val: 'MTN', primary: true },
+          { label: '🗣️ "Telecel"', val: 'Telecel' },
+          { label: '🗣️ "AirtelTigo"', val: 'AirtelTigo' },
+          { label: '🗣️ "Repeat prompt"', val: 'Repeat' },
+          { label: '🗣️ "Exit"', val: 'Exit' }
+        ],
+        'services': [
+          { label: '🗣️ "Send money"', val: 'Send money', primary: true },
+          { label: '🗣️ "Pay bills"', val: 'Pay bills' },
+          { label: '🗣️ "Buy airtime"', val: 'Buy airtime' },
+          { label: '🗣️ "Allow cashout"', val: 'Allow cashout' },
+          { label: '🗣️ "Check account"', val: 'Check account' },
+          { label: '🗣️ "Go back"', val: 'Go back' }
+        ],
+        'recipient': [
+          { label: '🗣️ "Kwame Nyamebere"', val: 'Kwame Nyamebere', primary: true },
+          { label: '🗣️ "0553838464"', val: '0553838464' },
+          { label: '🗣️ "Number ends 8464"', val: 'Number ends 8464' },
+          { label: '🗣️ "Exit"', val: 'Exit' }
+        ],
+        'recipient_verify': [
+          { label: '🗣️ "Confirm and send"', val: 'Confirm and send', primary: true },
+          { label: '🗣️ "Cancel / Re-enter"', val: 'Cancel' },
+          { label: '🗣️ "Exit completely"', val: 'Exit' }
+        ],
+        'amount': [
+          { label: '🗣️ "500 cedis"', val: '500 cedis', primary: true },
+          { label: '🗣️ "50 cedis"', val: '50 cedis' },
+          { label: '🗣️ "100 cedis"', val: '100 cedis' },
+          { label: '🗣️ "Go back"', val: 'Go back' }
+        ],
+        'confirm': [
+          { label: '🗣️ "Confirm and send"', val: 'Confirm and send', primary: true },
+          { label: '🗣️ "Cancel"', val: 'Cancel' }
+        ],
+        'pin_handoff': [],
+        'receipt': [
+          { label: '🗣️ "No, that\'s all (Exit)"', val: 'No, that is all', primary: true },
+          { label: '🗣️ "Yes, check balance"', val: 'Check balance' },
+          { label: '🗣️ "Yes, pay bills"', val: 'Pay bills' }
+        ],
+        'not_available': [
+          { label: '🗣️ "Place new call"', val: 'Place new call', primary: true }
+        ]
+      };
+
+      if (step === 'pin_handoff' || step === 'auth') {
+        container.innerHTML = `
+          <div style="font-size: 11.5px; color: #a7f3d0; padding: 7px 12px; background: rgba(16, 185, 129, 0.15); border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.35); text-align: center; width: 100%;">
+            🔒 Speech layer is turned off for Zero-PIN security. Enter your 4-digit PIN on the handset keypad.
+          </div>
+        `;
+        return;
+      }
+
+      const chips = chipsMap[step] || [
+        { label: '🗣️ "Yes / Confirm"', val: 'Yes' },
+        { label: '🗣️ "No / Cancel"', val: 'No' },
+        { label: '🗣️ "Exit"', val: 'Exit' }
+      ];
+
+      container.innerHTML = chips.map(c => `
+        <button class="voice-chip ${c.primary ? 'primary-chip' : ''}" onclick="window.app.handleNaturalVoiceInput('${c.val}')">
+          ${c.label}
+        </button>
+      `).join('');
+    },
+
+    // ── IVR Flow Steps Navigation ─────────────────────────────────────────
     async goToStep(step) {
       this.callState.step = step;
       this.updateStepIndicators(step);
+      this.renderVoiceSuggestions(step);
+
+      // Reset option selected state for the new step
+      this.optionSelectedForCurrentPrompt = false;
+
+      // When the user PIN prompt is open, the speech layer must be turned off until PIN prompt is done
+      if (step === 'pin_handoff' || step === 'auth') {
+        this.isPinPromptOpen = true;
+        this.setSpeechRecognitionActive(false, `Entering step: ${step} (PIN prompt open - speech disabled)`);
+      } else {
+        this.isPinPromptOpen = false;
+        // Speech recognition is strictly INACTIVE while navigating and while the prompt plays
+        this.setSpeechRecognitionActive(false, `Entering step: ${step}`);
+      }
 
       const isTwi = this.callState.lang === 'twi';
       const promptTwi = document.getElementById('currentPromptTwi');
@@ -792,54 +1451,76 @@
             </button>
           </div>
         `;
-      } else if (step === 'conversational-entry') {
-        stepTag.innerText = 'Conversational Assistant & MoMo Hub';
-        const entryPromptEn = "How can I help you today? You can say things like 'send money to someone,' 'buy airtime,' or 'check my balance.' Or press 1 for the menu.";
-        const entryPromptTwi = "Ɛdeɛn na me ntumi mmoa wo nnɛ? Wotumi ka sɛ 'me pɛ sɛ me mane sika,' 'tɔ airtime,' anaa 'hwɛ me balance.' Anaa mia baako (1) ma menu no.";
+      } else if (step === 'network' || (step === 'provider' && !isTwi)) {
+        this.callState.step = 'network';
+        stepTag.innerText = 'Step 2: Network Provider Selection';
+        promptTwi.innerText = '"Paw wo network. MTN, mia baako (1). Telecel, mia mmienu (2). AT, mia mmiɛnsa (3). Mia akron (9) ma replay, hwee (0) ma agyae."';
+        promptEn.innerText = '"Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again, or 0 to exit."';
 
-        promptEn.innerText = `"${entryPromptEn}"`;
-        promptTwi.innerText = `"${entryPromptTwi}"`;
-
-        this.speakConversationalPrompt(isTwi ? entryPromptTwi : entryPromptEn);
-        this.updateConvInspector({
-          activeIntent: 'OPEN_CONVERSATION',
-          confidence: 1.0,
-          state: { status: 'LISTENING_AT_ENTRY', network: null, amount: null, recipient_name: null }
-        });
+        const audioFile = '/audio/English/Audio_prompt_03.mp3';
+        this.playPhoneAudio(audioFile, promptEn.innerText);
+        this.fetchVoiceXml(`/provider-select?lang=${this.callState.lang}&service=momo`);
 
         viewport.innerHTML = `
-          <div class="conv-container">
-            <div class="conv-input-row">
-              <button class="btn-mic" id="btnVoiceMic" title="Click to speak with microphone" onclick="window.app.toggleSpeechRecognition()">
-                <span id="micIcon">🎙️</span>
-              </button>
-              <input type="text" id="convTextInput" class="conv-text-input" placeholder="Speak or type (e.g. 'I want to send 500 cedis to Kwame')..." onkeydown="if(event.key==='Enter') window.app.submitConversationalInput()" />
-              <button class="btn-conv-send" onclick="window.app.submitConversationalInput()">Send</button>
-            </div>
-            
-            <div style="font-size:11px; color:var(--ink-muted); margin-top:2px;">
-              <span>Quick Demo Phrases:</span>
-            </div>
-            <div class="demo-chips-grid">
-              <button class="demo-chip highlight" onclick="window.app.sendConversationalTurn('I want to send 500 cedis to Kwame.')">
-                💬 "I want to send 500 cedis to Kwame."
-              </button>
-              <button class="demo-chip" onclick="window.app.sendConversationalTurn('Check my balance.')">
-                💬 "Check my balance."
-              </button>
-              <button class="demo-chip" onclick="window.app.sendConversationalTurn('Buy 20 cedis airtime.')">
-                💬 "Buy 20 cedis airtime."
-              </button>
-            </div>
-            <div style="margin-top:6px; border-top:1px dashed var(--border); padding-top:6px; display:flex; justify-content:space-between; align-items:center;">
-              <span style="font-size:11.5px; color:var(--ink-muted);">Prefer classic keypad?</span>
-              <button class="btn btn-sm btn-ghost" style="font-size:11.5px; color:var(--green-800); font-weight:700;" onclick="window.app.pressKey('1')">
-                🔢 Press 1 for Standard Menu
-              </button>
-            </div>
+          <div class="step-options-grid">
+            <button class="step-opt-btn" onclick="window.app.pressKey('1')">
+              <span>MTN Mobile Money</span>
+              <span class="opt-key-tag">Key 1</span>
+            </button>
+            <button class="step-opt-btn" onclick="window.app.pressKey('2')">
+              <span>Telecel Cash</span>
+              <span class="opt-key-tag">Key 2</span>
+            </button>
+            <button class="step-opt-btn" onclick="window.app.pressKey('3')">
+              <span>AirtelTigo Money</span>
+              <span class="opt-key-tag">Key 3</span>
+            </button>
+            <button class="step-opt-btn" onclick="window.app.pressKey('9')">
+              <span>Replay Prompt</span>
+              <span class="opt-key-tag">Key 9</span>
+            </button>
+          </div>
+        `;
+      } else if (step === 'services' || (step === 'action' && !isTwi)) {
+        this.callState.step = 'services';
+        stepTag.innerText = 'Step 3: MTN Services Menu';
+        promptTwi.innerText = '"MTN dwumadie. Sɛ woremane sika a, mia baako (1). Sɛ wotua bills a, mia mmienu (2). Tɔ airtime, mia mmiɛnsa (3). Mia 8 ma akyi, 0 ma agyae."';
+        promptEn.innerText = '"MTN services. To send money to another MoMo user, press 1. To pay bills, press 2. To buy airtime or bundle, press 3. To allow cashout, press 4. To check your account, press 5. Press 8 to go back, or 0 to exit."';
+
+        const audioFile = '/audio/English/Audio_prompt_05.mp3';
+        this.playPhoneAudio(audioFile, promptEn.innerText);
+        this.fetchVoiceXml(`/action-select?lang=${this.callState.lang}&provider=${this.callState.provider}`);
+
+        viewport.innerHTML = `
+          <div class="step-options-grid">
+            <button class="step-opt-btn" onclick="window.app.pressKey('1')">
+              <span style="color:var(--emerald-accent); font-weight:bold;">1: Send Money to another MoMo user</span>
+              <span class="opt-key-tag">Key 1</span>
+            </button>
+            <button class="step-opt-btn" onclick="window.app.pressKey('2')">
+              <span>2: Pay Bills</span>
+              <span class="opt-key-tag">Key 2</span>
+            </button>
+            <button class="step-opt-btn" onclick="window.app.pressKey('3')">
+              <span>3: Buy Airtime or Bundle</span>
+              <span class="opt-key-tag">Key 3</span>
+            </button>
+            <button class="step-opt-btn" onclick="window.app.pressKey('4')">
+              <span>4: Allow Cashout</span>
+              <span class="opt-key-tag">Key 4</span>
+            </button>
+            <button class="step-opt-btn" onclick="window.app.pressKey('5')">
+              <span>5: Check Account</span>
+              <span class="opt-key-tag">Key 5</span>
+            </button>
+            <button class="step-opt-btn" onclick="window.app.pressKey('8')">
+              <span>8: Go Back</span>
+              <span class="opt-key-tag">Key 8</span>
+            </button>
           </div>
         `;
       } else if (step === 'service') {
+        // Kept for Twi flow or alternative navigation
         stepTag.innerText = 'Step 2: Service Selection';
         promptTwi.innerText = '"Sɛ worepɛ Mobile Money anaa Telecom a, mia baako (1). Sikakorabea Banking, mia mmienu (2). Mia hwee (0) sɛ worepɛ agyae."';
         promptEn.innerText = '"For telecom or mobile money services, press 1. For banking services, press 2. To hear this again, press 9. To exit, press 0."';
@@ -857,63 +1538,13 @@
               <span class="opt-key-tag">Key 1</span>
             </button>
             <button class="step-opt-btn" onclick="window.app.pressKey('2')">
-              <span>Banking (Pilot)</span>
-              <span class="opt-key-tag">Key 2</span>
-            </button>
-          </div>
-        `;
-      } else if (step === 'provider') {
-        stepTag.innerText = 'Step 3: Network Provider Selection';
-        promptTwi.innerText = '"Paw wo network. MTN, mia baako (1). Telecel, mia mmienu (2). Africa\'s Talking AT, mia mmiɛnsa (3). Mia akron (9) ma replay, hwee (0) ma agyae."';
-        promptEn.innerText = '"Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again. Press 0 to exit."';
-
-        const audioFile = isTwi
-          ? '/audio/Twi/Audio_prompt_twi_03.mp3'
-          : '/audio/English/Audio_prompt_03.mp3';
-        this.playPhoneAudio(audioFile, isTwi ? promptTwi.innerText : promptEn.innerText);
-        this.fetchVoiceXml(`/provider-select?lang=${this.callState.lang}&service=${this.callState.service}`);
-
-        viewport.innerHTML = `
-          <div class="step-options-grid">
-            <button class="step-opt-btn" onclick="window.app.pressKey('1')">
-              <span>MTN Mobile Money</span>
-              <span class="opt-key-tag">Key 1</span>
-            </button>
-            <button class="step-opt-btn" onclick="window.app.pressKey('2')">
-              <span>Telecel Cash</span>
-              <span class="opt-key-tag">Key 2</span>
-            </button>
-            <button class="step-opt-btn" onclick="window.app.pressKey('3')">
-              <span>AT Money</span>
-              <span class="opt-key-tag">Key 3</span>
-            </button>
-          </div>
-        `;
-      } else if (step === 'action') {
-        stepTag.innerText = `Step 4: ${this.callState.provider} Action Menu`;
-        promptTwi.innerText = `"${this.callState.provider} dwumadie. Sɛ woremane sika a, mia baako (1). Sɛ woregye wo balance a, mia mmienu (2). Mia 8 ma akyi, 0 ma agyae."`;
-        promptEn.innerText = '"MTN services. To send money to another MoMo user, press 1. To pay bills, press 2. To buy airtime or bundle, press 3. To allow cash out, press 4. To check your account, press 5. Press 8 to go back or 0 to exit."';
-
-        const audioFile = isTwi
-          ? '/audio/Twi/Audio_prompt_twi_04.mp3'
-          : '/audio/English/Audio_prompt_05.mp3';
-        this.playPhoneAudio(audioFile, isTwi ? promptTwi.innerText : promptEn.innerText);
-        this.fetchVoiceXml(`/action-select?lang=${this.callState.lang}&provider=${this.callState.provider}`);
-
-        viewport.innerHTML = `
-          <div class="step-options-grid">
-            <button class="step-opt-btn" onclick="window.app.pressKey('1')">
-              <span>Send Mobile Money</span>
-              <span class="opt-key-tag">Key 1</span>
-            </button>
-            <button class="step-opt-btn" onclick="window.app.pressKey('2')">
-              <span>Check MoMo Balance</span>
+              <span>Banking Services</span>
               <span class="opt-key-tag">Key 2</span>
             </button>
           </div>
         `;
       } else if (step === 'recipient') {
-        stepTag.innerText = 'Step 5: Enter Recipient Number (# to submit)';
+        stepTag.innerText = 'Step 4: Recipient Number Entry (# to submit)';
         promptTwi.innerText = '"Fa nɔma du (10) a woremane kɔma no nwura mu, na wie no hash (#). Mia hwee (0) sɛ worepɛ agyae."';
         promptEn.innerText = '"Enter the 10-digit number you want to send money to, followed by hash. Press 0 to exit."';
 
@@ -923,19 +1554,51 @@
         this.playPhoneAudio(audioFile, isTwi ? promptTwi.innerText : promptEn.innerText);
         this.fetchVoiceXml(`/enter-recipient?lang=${this.callState.lang}&provider=${this.callState.provider}`);
 
+        const currentPhone = this.callState.phone || '0553838464';
+
         viewport.innerHTML = `
           <div style="text-align:center;">
-            <input type="text" id="inPhoneSim" value="${this.callState.phone}" maxlength="10" 
+            <input type="text" id="inPhoneSim" value="${currentPhone}" maxlength="10" 
               style="width:90%; padding:8px; font-size:16px; font-weight:bold; text-align:center; background:#000; border:1px solid var(--border-subtle); color:#fff; border-radius:6px; margin-bottom:8px;">
-            <button class="btn btn-sm btn-primary" style="width:90%;" onclick="window.app.submitSimRecipient()">
+            <button class="btn btn-sm btn-primary" style="width:90%; margin-bottom:6px;" onclick="window.app.submitSimRecipient()">
               Submit Number (#)
+            </button>
+            <div style="font-size:11px; color:var(--sky-accent); cursor:pointer;" onclick="document.getElementById('inPhoneSim').value='0553838464'; window.app.submitSimRecipient();">
+              👉 Fast-dial: Kwame Nyamebere (0553838464)
+            </div>
+          </div>
+        `;
+      } else if (step === 'recipient_verify') {
+        stepTag.innerText = 'Step 5: KYC Verification (Kwame Nyamebere)';
+        const last4 = (this.callState.phone || '0553838464').slice(-4);
+        promptTwi.innerText = `"Woremane sika kɔma Kwame Nyamebere, a ne fon nɔma wie ${last4}. Sɛ wopene so a, mia baako (1). Sɛ worepɛ sesa no a, mia mmienu (2). Mia hwee (0) ma agyae."`;
+        promptEn.innerText = `"You are about to send money to Kwame Nyamebere, whose phone number ends with ${last4}. To confirm and send the money, press 1. To cancel, press 2. To exit completely, press 0."`;
+
+        const audioFile = isTwi
+          ? '/audio/Twi/Audio_prompt_twi_06.mp3'
+          : '/audio/English/Audio_prompt_08.mp3';
+        this.playPhoneAudio(audioFile, isTwi ? promptTwi.innerText : promptEn.innerText);
+
+        viewport.innerHTML = `
+          <div class="step-options-grid">
+            <button class="step-opt-btn" onclick="window.app.pressKey('1')">
+              <span style="color:var(--emerald-accent); font-weight:bold;">1: Confirm and Send the Money</span>
+              <span class="opt-key-tag">Key 1</span>
+            </button>
+            <button class="step-opt-btn" onclick="window.app.pressKey('2')">
+              <span>2: Cancel / Re-enter Number</span>
+              <span class="opt-key-tag">Key 2</span>
+            </button>
+            <button class="step-opt-btn" onclick="window.app.pressKey('0')">
+              <span style="color:var(--danger-accent);">0: Exit Completely</span>
+              <span class="opt-key-tag">Key 0</span>
             </button>
           </div>
         `;
       } else if (step === 'amount') {
-        stepTag.innerText = `Step 6: Enter Amount to ${this.callState.name}`;
-        promptTwi.innerText = `"Fa cedi dodow a woremane kɔma ${this.callState.name} no nwura mu, na wie no hash (#). Fa nsoroma (*) di dwuma ma pesewa."`;
-        promptEn.innerText = `"Enter the cedi amount you want to send to ${this.callState.name}, followed by hash. Use star for pesewas."`;
+        stepTag.innerText = 'Step 6: Enter Cedi Amount (# to submit)';
+        promptTwi.innerText = `"Fa cedi dodow a woremane kɔma Kwame Nyamebere no nwura mu, na wie no hash (#). Fa nsoroma (*) di dwuma ma pesewa."`;
+        promptEn.innerText = `"Enter the cedi amount you want to send to Kwame Nyamebere, followed by hash. Use star for pesewas."`;
 
         const audioFile = isTwi
           ? '/audio/Twi/Audio_prompt_twi_08.mp3'
@@ -943,20 +1606,26 @@
         this.playPhoneAudio(audioFile, isTwi ? promptTwi.innerText : promptEn.innerText);
         this.fetchVoiceXml(`/enter-amount?lang=${this.callState.lang}&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(this.callState.name)}`);
 
+        const currentAmount = this.callState.amount || '500';
+
         viewport.innerHTML = `
           <div style="text-align:center;">
-            <input type="text" id="inAmountSim" value="${this.callState.amount}" 
+            <input type="text" id="inAmountSim" value="${currentAmount}" 
               style="width:90%; padding:8px; font-size:16px; font-weight:bold; text-align:center; background:#000; border:1px solid var(--border-subtle); color:#fff; border-radius:6px; margin-bottom:8px;">
-            <button class="btn btn-sm btn-primary" style="width:90%;" onclick="window.app.submitSimAmount()">
+            <button class="btn btn-sm btn-primary" style="width:90%; margin-bottom:6px;" onclick="window.app.submitSimAmount()">
               Submit Amount (#)
             </button>
+            <div style="display:flex; justify-content:center; gap:6px;">
+              <button class="btn btn-xs btn-outline" onclick="document.getElementById('inAmountSim').value='500'; window.app.submitSimAmount();">500 Cedis</button>
+              <button class="btn btn-xs btn-outline" onclick="document.getElementById('inAmountSim').value='50'; window.app.submitSimAmount();">50 Cedis</button>
+              <button class="btn btn-xs btn-outline" onclick="document.getElementById('inAmountSim').value='100'; window.app.submitSimAmount();">100 Cedis</button>
+            </div>
           </div>
         `;
       } else if (step === 'confirm') {
-        stepTag.innerText = 'Step 7: Safe Confirmation (Name Read-Back)';
-        const last4 = this.callState.phone.slice(-4);
-        promptTwi.innerText = `"Woremane sika cedi ${this.callState.amount} kɔma ${this.callState.name}, a ne fon nɔma wie ${last4}. Sɛ wopene so a, mia baako (1). Sɛ worepɛ sesa no a, mia mmienu (2). Mia hwee (0) ma agyae."`;
-        promptEn.innerText = `"You are about to send ${this.callState.amount} Ghana Cedis to ${this.callState.name}. To confirm and send, press 1. To cancel, press 2."`;
+        stepTag.innerText = 'Step 7: Transfer Confirmation Read-Back';
+        promptTwi.innerText = `"Woremane sika cedi 500 kɔma Kwame Nyamebere. Sɛ wopene so a, mia baako (1). Sɛ worepɛ sesa no a, mia mmienu (2)."`;
+        promptEn.innerText = `"You are about to send 500 Ghana cedis to Kwame Nyamebere. To confirm and send, press 1. To cancel, press 2."`;
 
         const audioFile = isTwi
           ? '/audio/Twi/Audio_prompt_twi_09.mp3'
@@ -968,23 +1637,20 @@
         viewport.innerHTML = `
           <div class="step-options-grid">
             <button class="step-opt-btn" onclick="window.app.pressKey('1')">
-              <span style="color:var(--emerald-accent); font-weight:bold;">1: Confirm Transfer</span>
+              <span style="color:var(--emerald-accent); font-weight:bold;">1: Confirm and Send</span>
               <span class="opt-key-tag">Key 1</span>
             </button>
             <button class="step-opt-btn" onclick="window.app.pressKey('2')">
-              <span>2: Edit / Re-enter Number</span>
+              <span style="color:var(--danger-accent);">2: Cancel</span>
               <span class="opt-key-tag">Key 2</span>
-            </button>
-            <button class="step-opt-btn" onclick="window.app.pressKey('0')">
-              <span style="color:var(--danger-accent);">0: Cancel Transaction</span>
-              <span class="opt-key-tag">Key 0</span>
             </button>
           </div>
         `;
-      } else if (step === 'done') {
+      } else if (step === 'pin_handoff' || step === 'done') {
+        this.callState.step = 'pin_handoff';
         stepTag.innerText = 'Step 8: Zero-PIN Security Handoff';
-        promptTwi.innerText = `"Yɛapene cedi ${this.callState.amount} a woremane kɔma ${this.callState.name} no so. Sesei, hwɛ wo screen na fa wo MoMo PIN nwura mu pɛpɛɛpɛ."`;
-        promptEn.innerText = '"Confirmed. Now, please check your phone screen and enter your MoMo PIN accurately. Thank you for using Okwankyerɛfo Pa. Goodbye."';
+        promptTwi.innerText = `"Yɛapene cedi 500 a woremane kɔma Kwame Nyamebere no so. Sesei, hwɛ wo screen na fa wo MoMo PIN nwura mu pɛpɛɛpɛ. Medaase. Akwaaba."`;
+        promptEn.innerText = '"Confirmed. Now, please check your phone screen and enter your MoMo PIN accurately. Thank you for using Ɔkwankyerɛfo Pa. Goodbye."';
 
         const successAudio = isTwi
           ? '/audio/Twi/Audio_prompt_twi_10.mp3'
@@ -994,16 +1660,137 @@
         this.fetchVoiceXml(`/safe-outcome?lang=${this.callState.lang}&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(this.callState.name)}&amount=${this.callState.amount}&dtmfDigits=1`);
 
         viewport.innerHTML = `
-          <div style="text-align:center; padding:10px 0;">
-            <div style="font-size:24px; margin-bottom:4px;">🔒</div>
-            <div style="font-size:12.5px; color:var(--emerald-accent); font-weight:bold;">
-              Zero-PIN Gate Enforced: Phone Prompt Sent to Handset
+          <div class="pin-handoff-card" style="background:#0f172a; border:1px solid var(--emerald-accent); border-radius:8px; padding:12px; text-align:center;">
+            <div style="font-size:12px; color:var(--emerald-accent); font-weight:bold; margin-bottom:4px;">
+              📲 Secure Handset PIN Authentication Prompt
             </div>
-            <button class="btn btn-sm btn-secondary" style="margin-top:10px;" onclick="window.app.startCall()">
+            <div style="font-size:11px; color:#cbd5e1; margin-bottom:8px;">
+              Transfer GH₵ 500.00 to Kwame Nyamebere
+            </div>
+            <div class="pin-display-dots" id="pinDisplayDots" style="font-size:22px; letter-spacing:8px; color:var(--emerald-accent); margin-bottom:8px;">
+              ○ ○ ○ ○
+            </div>
+            <div class="pin-keypad-mini" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:4px; max-width:180px; margin:0 auto;">
+              <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('1')">1</button>
+              <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('2')">2</button>
+              <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('3')">3</button>
+              <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('4')">4</button>
+              <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('5')">5</button>
+              <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('6')">6</button>
+              <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('7')">7</button>
+              <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('8')">8</button>
+              <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('9')">9</button>
+              <button class="btn btn-xs btn-ghost" onclick="window.app.clearPin()">Clear</button>
+              <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('0')">0</button>
+              <button class="btn btn-xs btn-primary" onclick="window.app.submitPinAuthorization()">OK</button>
+            </div>
+            <div style="margin-top:6px; font-size:10px; color:#6ee7b7;">
+              🛡️ Zero-PIN Security: Voice channel never captures PIN
+            </div>
+          </div>
+        `;
+      } else if (step === 'receipt') {
+        stepTag.innerText = 'Step 9: Transaction Receipt & Continuation';
+        const receiptEn = "Congratulations! You have successfully sent 500 Ghana cedis to Kwame Nyamebere. Your transaction was completed on 17 September 2026 at 5:00 PM. Your reference number is OKP-847291. Your transaction details have also been sent to you. Would you like to do anything else?";
+        promptEn.innerText = `"${receiptEn}"`;
+        promptTwi.innerText = `"${receiptEn}"`;
+
+        const receiptAudio = '/audio/English/Audio_prompt_12.mp3';
+        this.playPhoneAudio(receiptAudio, receiptEn);
+
+        viewport.innerHTML = `
+          <div class="receipt-card">
+            <div class="receipt-header">
+              <span>✅</span>
+              <span>Transaction Successfully Completed</span>
+            </div>
+            <div class="receipt-row">
+              <span>Recipient:</span>
+              <strong>Kwame Nyamebere (0553838464)</strong>
+            </div>
+            <div class="receipt-row">
+              <span>Amount Sent:</span>
+              <strong style="color:var(--emerald-accent);">GH₵ 500.00</strong>
+            </div>
+            <div class="receipt-row">
+              <span>Reference No:</span>
+              <strong>OKP-847291</strong>
+            </div>
+            <div class="receipt-row">
+              <span>Date &amp; Time:</span>
+              <span>17 Sep 2026, 5:00 PM</span>
+            </div>
+            <div class="receipt-row">
+              <span>Status:</span>
+              <strong style="color:var(--emerald-accent);">Completed</strong>
+            </div>
+            <div style="margin-top:8px; border-top:1px dashed rgba(255,255,255,0.15); padding-top:6px; font-size:11.5px; color:#e2e8f0; text-align:center;">
+              "Would you like to do anything else?"
+            </div>
+            <div style="display:flex; gap:6px; margin-top:8px;">
+              <button class="btn btn-sm btn-primary" style="flex:1;" onclick="window.app.pressKey('0')">
+                No, that's all (Exit 0)
+              </button>
+              <button class="btn btn-sm btn-outline" style="flex:1;" onclick="window.app.goToStep('not_available')">
+                Yes, other service
+              </button>
+            </div>
+          </div>
+        `;
+      } else if (step === 'not_available') {
+        stepTag.innerText = 'Option Unavailable';
+        const unavailText = "Sorry, that option is not available here. Thank you for using Ɔkwankyerɛfo Pa. Goodbye.";
+        promptEn.innerText = `"${unavailText}"`;
+        promptTwi.innerText = `"${unavailText}"`;
+
+        this.speakConversationalPrompt(unavailText);
+
+        viewport.innerHTML = `
+          <div style="background:#1e1e2e; border:1px solid var(--amber-accent); border-radius:8px; padding:12px; text-align:center; color:#fff;">
+            <div style="font-size:24px; margin-bottom:4px;">⚠️</div>
+            <div style="font-size:13px; font-weight:bold; margin-bottom:6px; color:var(--amber-accent);">
+              Option Not Available
+            </div>
+            <div style="font-size:11.5px; color:#cbd5e1; margin-bottom:10px;">
+              "Sorry, that option is not available here. Thank you for using Ɔkwankyerɛfo Pa. Goodbye."
+            </div>
+            <button class="btn btn-sm btn-primary" onclick="window.app.startCall()">
               Place New Call
             </button>
           </div>
         `;
+
+        // Automatically disconnect call after 4 seconds
+        setTimeout(() => {
+          if (this.callState.active && this.callState.step === 'not_available') {
+            this.endCall();
+          }
+        }, 4200);
+      } else if (step === 'done_exit') {
+        stepTag.innerText = 'Call Finished';
+        const exitText = "Thank you for using Ɔkwankyerɛfo Pa. Goodbye.";
+        promptEn.innerText = `"${exitText}"`;
+        promptTwi.innerText = `"${exitText}"`;
+
+        this.speakConversationalPrompt(exitText);
+
+        viewport.innerHTML = `
+          <div style="text-align:center; padding:14px 0;">
+            <div style="font-size:26px; margin-bottom:6px;">👋</div>
+            <div style="font-size:13px; color:var(--emerald-accent); font-weight:bold; margin-bottom:10px;">
+              Thank you for using Ɔkwankyerɛfo Pa. Goodbye.
+            </div>
+            <button class="btn btn-sm btn-primary" onclick="window.app.startCall()">
+              Place New Call
+            </button>
+          </div>
+        `;
+
+        setTimeout(() => {
+          if (this.callState.active && this.callState.step === 'done_exit') {
+            this.endCall();
+          }
+        }, 3200);
       } else if (step === 'cancel') {
         stepTag.innerText = 'Transaction Cancelled';
         promptTwi.innerText = '"Yɛatwa mu. Sika no mfiri wo account mu. Akwaaba."';
@@ -1023,21 +1810,54 @@
     },
 
     updateStepIndicators(step) {
-      const steps = ['welcome', 'service', 'provider', 'action', 'recipient', 'amount', 'confirm', 'done'];
+      const steps = ['welcome', 'network', 'services', 'recipient', 'recipient_verify', 'amount', 'confirm', 'pin_handoff', 'receipt'];
       const map = {
         'welcome': 'stepIndicatorWelcome',
+        'network': 'stepIndicatorProvider',
         'service': 'stepIndicatorService',
         'provider': 'stepIndicatorProvider',
+        'services': 'stepIndicatorAction',
         'action': 'stepIndicatorAction',
         'recipient': 'stepIndicatorRecipient',
+        'recipient_verify': 'stepIndicatorRecipient',
         'amount': 'stepIndicatorAmount',
         'confirm': 'stepIndicatorConfirm',
-        'done': 'stepIndicatorDone'
+        'pin_handoff': 'stepIndicatorDone',
+        'done': 'stepIndicatorDone',
+        'receipt': 'stepIndicatorReceipt'
       };
 
-      const currIdx = steps.indexOf(step);
-      steps.forEach((s, idx) => {
-        const el = document.getElementById(map[s]);
+      const stepOrder = {
+        'welcome': 0,
+        'service': 1,
+        'network': 2,
+        'provider': 2,
+        'services': 3,
+        'action': 3,
+        'recipient': 4,
+        'recipient_verify': 4,
+        'amount': 5,
+        'confirm': 6,
+        'pin_handoff': 7,
+        'done': 7,
+        'receipt': 8
+      };
+
+      const currIdx = stepOrder[step] !== undefined ? stepOrder[step] : -1;
+      const allIndicators = [
+        'stepIndicatorWelcome',
+        'stepIndicatorService',
+        'stepIndicatorProvider',
+        'stepIndicatorAction',
+        'stepIndicatorRecipient',
+        'stepIndicatorAmount',
+        'stepIndicatorConfirm',
+        'stepIndicatorDone',
+        'stepIndicatorReceipt'
+      ];
+
+      allIndicators.forEach((id, idx) => {
+        const el = document.getElementById(id);
         if (!el) return;
         el.classList.remove('current', 'completed');
         if (currIdx >= 0) {
@@ -1047,8 +1867,12 @@
       });
 
       const badge = document.getElementById('flowStepBadge');
-      if (badge && currIdx >= 0) {
-        badge.innerText = `Step ${currIdx + 1} of 8`;
+      if (badge) {
+        if (currIdx >= 0) {
+          badge.innerText = `Step ${currIdx + 1} of 9`;
+        } else {
+          badge.innerText = 'Ready';
+        }
       }
     },
 
@@ -1064,15 +1888,82 @@
       }
 
       if (!this.callState.active) {
-        // Auto start if user starts dialling
-        this.startCall();
+        // STRICT USER REQUIREMENT: The simulation must only start when the user presses
+        // "Start Call Simulation" or when the user places a new call.
+        const transcriptText = document.getElementById('transcriptText');
+        if (transcriptText) {
+          transcriptText.innerText = 'Simulation idle. Click "Start Call Simulation" or "Place New Call" to begin.';
+        }
         return;
       }
 
-      // Universal Navigation Grammar handlers:
+      // Keypad interaction while call is active: mark option selected and immediately deactivate speech recognition
+      this.optionSelectedForCurrentPrompt = true;
+      this.setSpeechRecognitionActive(false, `Keypad key "${key}" pressed`);
+
+      // If user is inside phone recipient number entry
+      if (this.callState.step === 'recipient') {
+        const phoneInput = document.getElementById('inPhoneSim');
+        if (key === '#') {
+          this.submitSimRecipient();
+          return;
+        }
+        if (key === '0' && (!phoneInput || phoneInput.value.length === 0)) {
+          this.goToStep('cancel');
+          return;
+        }
+        if (phoneInput && /^[0-9]$/.test(key) && phoneInput.value.length < 10) {
+          phoneInput.value += key;
+          return;
+        }
+      }
+
+      // If user is inside amount entry
+      if (this.callState.step === 'amount') {
+        const amountInput = document.getElementById('inAmountSim');
+        if (key === '#') {
+          this.submitSimAmount();
+          return;
+        }
+        if (key === '0' && (!amountInput || amountInput.value.length === 0)) {
+          this.goToStep('cancel');
+          return;
+        }
+        if (amountInput) {
+          if (/^[0-9]$/.test(key)) {
+            amountInput.value += key;
+            return;
+          }
+          if (key === '*' && !amountInput.value.includes('.')) {
+            amountInput.value += '.';
+            return;
+          }
+        }
+      }
+
+      // If user is inside PIN handoff
+      if (this.callState.step === 'pin_handoff') {
+        if (/^[0-9]$/.test(key)) {
+          this.enterPinDigit(key);
+          return;
+        }
+        if (key === '#') {
+          this.submitPinAuthorization();
+          return;
+        }
+        if (key === '*') {
+          this.clearPin();
+          return;
+        }
+      }
+
+      // Universal Navigation Grammar handlers
       if (key === '0') {
-        // Cancel transaction / exit
-        this.goToStep('cancel');
+        if (this.callState.step === 'receipt') {
+          this.goToStep('done_exit');
+        } else {
+          this.goToStep('cancel');
+        }
         return;
       }
       if (key === '9') {
@@ -1083,11 +1974,14 @@
       if (key === '8') {
         // Back to previous step
         const prevSteps = {
+          'network': 'welcome',
           'service': 'welcome',
           'provider': 'service',
+          'services': 'network',
           'action': 'provider',
-          'recipient': 'action',
-          'amount': 'recipient',
+          'recipient': 'services',
+          'recipient_verify': 'recipient',
+          'amount': 'recipient_verify',
           'confirm': 'amount'
         };
         const prev = prevSteps[this.callState.step];
@@ -1099,40 +1993,51 @@
 
       // Step-specific routing
       if (this.callState.step === 'welcome') {
-        this.callState.lang = key === '2' ? 'twi' : 'en';
-        this.goToStep('service');
-      } else if (this.callState.step === 'conversational-entry' || this.callState.step === 'conversational-turn') {
-        if (this.callState.step === 'conversational-entry' && key === '1') {
+        if (key === '1') {
+          this.callState.lang = 'en';
+          this.goToStep('network');
+        } else if (key === '2') {
+          this.callState.lang = 'twi';
           this.goToStep('service');
-        } else {
-          this.handleKeypadInConversation(key);
         }
-      } else if (this.callState.step === 'service') {
-        this.callState.service = key === '2' ? 'banking' : 'momo';
-        this.goToStep('provider');
-      } else if (this.callState.step === 'provider') {
+      } else if (this.callState.step === 'network' || this.callState.step === 'provider') {
         if (key === '1') this.callState.provider = 'MTN';
         else if (key === '2') this.callState.provider = 'Telecel';
         else if (key === '3') this.callState.provider = 'AT';
-        this.goToStep('action');
-      } else if (this.callState.step === 'action') {
+        this.goToStep('services');
+      } else if (this.callState.step === 'services' || this.callState.step === 'action') {
         if (key === '1') {
           this.goToStep('recipient');
+        } else if (['2', '3', '4', '5'].includes(key)) {
+          this.goToStep('not_available');
+        }
+      } else if (this.callState.step === 'service') {
+        this.callState.service = key === '2' ? 'banking' : 'momo';
+        this.goToStep('network');
+      } else if (this.callState.step === 'recipient_verify') {
+        if (key === '1') {
+          this.goToStep('amount');
         } else if (key === '2') {
-          alert('Balance check requested. Handset notification triggered.');
-          this.goToStep('done');
+          this.goToStep('recipient');
         }
       } else if (this.callState.step === 'confirm') {
         if (key === '1') {
-          this.goToStep('done');
+          this.goToStep('pin_handoff');
         } else if (key === '2') {
-          this.goToStep('recipient');
+          this.goToStep('cancel');
+        }
+      } else if (this.callState.step === 'receipt') {
+        if (key === '0' || key === '2') {
+          this.goToStep('done_exit');
+        } else {
+          this.goToStep('not_available');
         }
       }
     },
 
     submitSimRecipient() {
-      const val = document.getElementById('inPhoneSim').value.trim();
+      const inputEl = document.getElementById('inPhoneSim');
+      const val = inputEl ? inputEl.value.trim() : (this.callState.phone || '0553838464');
       if (val.length < 10) {
         alert('Please enter a valid 10-digit Ghanaian phone number.');
         return;
@@ -1145,13 +2050,14 @@
         this.callState.name = sub.name;
         this.callState.provider = sub.network;
       } else {
-        this.callState.name = `Subscriber (ends ${val.slice(-4)})`;
+        this.callState.name = val.endsWith('8464') ? 'Kwame Nyamebere' : `Subscriber (ends ${val.slice(-4)})`;
       }
-      this.goToStep('amount');
+      this.goToStep('recipient_verify');
     },
 
     submitSimAmount() {
-      const val = document.getElementById('inAmountSim').value.trim().replace('*', '.');
+      const inputEl = document.getElementById('inAmountSim');
+      const val = inputEl ? inputEl.value.trim().replace('*', '.') : (this.callState.amount || '500');
       const num = parseFloat(val);
       if (isNaN(num) || num <= 0) {
         alert('Please enter a valid amount.');
@@ -1209,6 +2115,7 @@
 
       if (!audioEl.paused && !audioEl.ended && audioEl.currentTime > 0) {
         audioEl.pause();
+        this.isPromptPlaying = false;
         this.stopWaveformAnimation();
         if (playLabel) playLabel.innerText = '▶️ Play Voice';
         if (sourceInd) sourceInd.innerText = 'Audio paused';
@@ -1224,6 +2131,10 @@
         audioEl.src = targetUrl;
         audioEl.load();
       }
+
+      this.isPromptPlaying = true;
+      this.setSpeechRecognitionActive(false, 'Manual audio play initiated');
+
       audioEl.play().then(() => {
         const fileName = targetUrl.split('/').pop();
         if (sourceInd) sourceInd.innerText = `🎙️ Pre-recorded Prompt: ${fileName}`;
@@ -1241,6 +2152,14 @@
 
       this.stopPhoneAudio();
       this.currentAudioUrl = audioUrl;
+
+      // When audio prompt begins, speech recognition is strictly inactive
+      this.isPromptPlaying = true;
+      this.setSpeechRecognitionActive(false, 'Audio prompt playback started');
+
+      if (audioEl) {
+        audioEl.volume = 1.0;
+      }
 
       // In English mode or whenever an audioUrl is supplied, NEVER use computer TTS
       if (audioUrl) {
@@ -1261,18 +2180,44 @@
             const fileName = audioUrl.split('/').pop();
             if (sourceInd) sourceInd.innerText = `🎙️ Pre-recorded Clip: ${fileName} (Ready — Click Play)`;
             if (playLabel) playLabel.innerText = '▶️ Play Voice';
-            // Never fallback to robotic speech when an authentic pre-recorded file exists
           });
         }
 
         audioEl.onended = () => {
+          this.isPromptPlaying = false;
           this.stopWaveformAnimation();
           if (sourceInd) sourceInd.innerText = 'Audio playback completed';
           if (playLabel) playLabel.innerText = '▶️ Play Voice';
+
+          // STRICT RULE: Speech recognition is active ONLY after each prompt is done playing
+          // whiles the user has still not selected an option with the keypad yet,
+          // AND provided the PIN prompt is not open.
+          if (this.callState.active && !this.optionSelectedForCurrentPrompt && this.listeningServiceEnabled && !this.isPinPromptOpen) {
+            console.log('[Audio Prompt Ended] Activating speech recognition for user response...');
+            this.setSpeechRecognitionActive(true, 'Prompt playback finished, waiting for choice');
+          } else {
+            console.log('[Audio Prompt Ended] Speech recognition remains inactive (option selected, PIN prompt open, or call inactive)');
+            if (this.isPinPromptOpen) {
+              this.setSpeechRecognitionActive(false, 'PIN prompt is open - speech turned off');
+            }
+          }
+        };
+
+        audioEl.onerror = () => {
+          this.isPromptPlaying = false;
+          this.stopWaveformAnimation();
+          if (this.callState.active && !this.optionSelectedForCurrentPrompt && this.listeningServiceEnabled && !this.isPinPromptOpen) {
+            this.setSpeechRecognitionActive(true, 'Audio error fallback, waiting for response');
+          }
         };
       } else {
         if (this.callState.lang === 'twi') {
           this.speakFallback(fallbackTtsText);
+        } else {
+          this.isPromptPlaying = false;
+          if (this.callState.active && !this.optionSelectedForCurrentPrompt && this.listeningServiceEnabled && !this.isPinPromptOpen) {
+            this.setSpeechRecognitionActive(true, 'Prompt step ready (no audio URL)');
+          }
         }
       }
     },
@@ -1280,6 +2225,9 @@
     speakFallback(text) {
       // Only called for missing Akan Twi dynamic phrases, never for English prototype prompts
       if (this.callState.lang === 'en') return;
+
+      this.isPromptPlaying = true;
+      this.setSpeechRecognitionActive(false, 'TTS fallback prompt playing');
 
       const sourceInd = document.getElementById('audioSourceIndicator');
       if (sourceInd) sourceInd.innerText = 'TTS Audio Synthesis Simulation';
@@ -1289,9 +2237,21 @@
         const utter = new SpeechSynthesisUtterance(text);
         utter.rate = 0.95;
         this.startWaveformAnimation();
-        utter.onend = () => this.stopWaveformAnimation();
-        utter.onerror = () => this.stopWaveformAnimation();
+        const onDone = () => {
+          this.isPromptPlaying = false;
+          this.stopWaveformAnimation();
+          if (this.callState.active && !this.optionSelectedForCurrentPrompt && this.listeningServiceEnabled && !this.isPinPromptOpen) {
+            this.setSpeechRecognitionActive(true, 'TTS prompt finished, waiting for response');
+          }
+        };
+        utter.onend = onDone;
+        utter.onerror = onDone;
         window.speechSynthesis.speak(utter);
+      } else {
+        this.isPromptPlaying = false;
+        if (this.callState.active && !this.optionSelectedForCurrentPrompt && this.listeningServiceEnabled && !this.isPinPromptOpen) {
+          this.setSpeechRecognitionActive(true, 'TTS unavailable, waiting for response');
+        }
       }
     },
 
@@ -1301,7 +2261,9 @@
       if (audioEl) {
         audioEl.pause();
         audioEl.currentTime = 0;
+        audioEl.volume = 1.0;
       }
+      this.isPromptPlaying = false;
       if (playLabel) {
         playLabel.innerText = '▶️ Play Voice';
       }
@@ -1376,6 +2338,10 @@
     speakConversationalPrompt(text) {
       if (!text) return;
       this.stopPhoneAudio();
+
+      this.isPromptPlaying = true;
+      this.setSpeechRecognitionActive(false, 'AI conversational prompt playing');
+
       const sourceInd = document.getElementById('audioSourceIndicator');
       if (sourceInd) sourceInd.innerText = '🗣️ AI Conversational Voice';
       if ('speechSynthesis' in window) {
@@ -1384,14 +2350,26 @@
         utter.rate = 1.0;
         utter.pitch = 1.0;
         this.startWaveformAnimation();
-        utter.onend = () => {
+        const onDone = () => {
+          this.isPromptPlaying = false;
           this.stopWaveformAnimation();
           if (sourceInd) sourceInd.innerText = 'Audio playback completed';
+          if (this.callState.active && !this.optionSelectedForCurrentPrompt && this.listeningServiceEnabled && !this.isPinPromptOpen) {
+            this.setSpeechRecognitionActive(true, 'Conversational prompt finished, waiting for choice');
+          } else {
+            if (this.isPinPromptOpen) {
+              this.setSpeechRecognitionActive(false, 'PIN prompt is open - speech turned off');
+            }
+          }
         };
-        utter.onerror = () => {
-          this.stopWaveformAnimation();
-        };
+        utter.onend = onDone;
+        utter.onerror = onDone;
         window.speechSynthesis.speak(utter);
+      } else {
+        this.isPromptPlaying = false;
+        if (this.callState.active && !this.optionSelectedForCurrentPrompt && this.listeningServiceEnabled && !this.isPinPromptOpen) {
+          this.setSpeechRecognitionActive(true, 'Conversational prompt ready, waiting for choice');
+        }
       }
     },
 
@@ -1401,9 +2379,9 @@
         alert("Speech recognition is not supported in this browser. Please type or click the demo speech chips below.");
         return;
       }
-      if (this.speechRecogInstance) {
-        this.speechRecogInstance.stop();
-        this.speechRecogInstance = null;
+      if (this.playgroundRecogInstance) {
+        this.playgroundRecogInstance.stop();
+        this.playgroundRecogInstance = null;
         const mic = document.getElementById('btnVoiceMic');
         if (mic) mic.classList.remove('recording');
         return;
@@ -1418,19 +2396,19 @@
       recog.onresult = (event) => {
         const transcript = event.results[0][0].transcript;
         if (mic) mic.classList.remove('recording');
-        this.speechRecogInstance = null;
+        this.playgroundRecogInstance = null;
         this.sendConversationalTurn(transcript);
       };
       recog.onerror = (err) => {
         console.warn('Speech recognition error:', err);
         if (mic) mic.classList.remove('recording');
-        this.speechRecogInstance = null;
+        this.playgroundRecogInstance = null;
       };
       recog.onend = () => {
         if (mic) mic.classList.remove('recording');
-        this.speechRecogInstance = null;
+        this.playgroundRecogInstance = null;
       };
-      this.speechRecogInstance = recog;
+      this.playgroundRecogInstance = recog;
       recog.start();
     },
 
@@ -1554,6 +2532,8 @@
       const viewport = document.getElementById('stepControlsViewport');
       if (!viewport) return;
       this.callState.enteredPinDigits = '';
+      this.isPinPromptOpen = true;
+      this.setSpeechRecognitionActive(false, 'Handset PIN prompt opened — speech turned off for Zero-PIN security');
 
       viewport.innerHTML = `
         <div class="secure-pin-card">
@@ -1579,7 +2559,7 @@
             <button class="pin-key-btn action-ok" onclick="window.app.submitPinAuthorization()">Authorize</button>
           </div>
           <div style="margin-top:10px; font-size:10.5px; color:#6ee7b7;">
-            🛡️ Zero-PIN Security Boundary: Handset verifies credentials. The AI layer receives ONLY an authorization outcome token.
+            🛡️ Zero-PIN Security Boundary: Handset verifies credentials. Voice layer is turned off.
           </div>
         </div>
       `;
@@ -1627,6 +2607,9 @@
         });
         const data = await res.json();
         if (data.success) {
+          // PIN prompt is now done! Mark PIN prompt closed so the cycle resumes
+          this.isPinPromptOpen = false;
+
           const promptEn = document.getElementById('currentPromptEn');
           const promptTwi = document.getElementById('currentPromptTwi');
           const stepTag = document.getElementById('currentStepTag');
@@ -1636,56 +2619,20 @@
           if (promptEn) promptEn.innerText = data.spokenReceipt;
           if (promptTwi) promptTwi.innerText = data.spokenReceipt;
 
-          this.speakConversationalPrompt(data.spokenReceipt);
-
           this.updateConvInspector({
             activeIntent: 'SEND_MONEY',
             confidence: 1.0,
             state: {
               status: 'OFFER_CONTINUATION',
               network: 'MTN',
-              amount: data.amount,
-              recipient_name: data.recipientName,
-              recipient_phone: data.recipientPhone
+              amount: data.amount || this.callState.amount || '500',
+              recipient_name: data.recipientName || this.callState.name || 'Kwame Nyamebere',
+              recipient_phone: data.recipientPhone || this.callState.phone || '0553838464'
             }
           });
 
-          const formattedTime = new Date(data.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-          viewport.innerHTML = `
-            <div class="receipt-card">
-              <div class="receipt-header">
-                <span>✅</span>
-                <span>Transfer Successfully Sent!</span>
-              </div>
-              <div class="receipt-row">
-                <span>Reference:</span>
-                <strong>${data.reference}</strong>
-              </div>
-              <div class="receipt-row">
-                <span>Amount Sent:</span>
-                <strong>GH₵ ${Number(data.amount).toFixed(2)}</strong>
-              </div>
-              <div class="receipt-row">
-                <span>Recipient:</span>
-                <strong>${data.recipientName} (${data.recipientPhone})</strong>
-              </div>
-              <div class="receipt-row">
-                <span>Completed At:</span>
-                <strong>${formattedTime}</strong>
-              </div>
-            </div>
-
-            <div style="font-size:12px; color:var(--ink-secondary); margin: 6px 0;">Would you like to do anything else?</div>
-            <div class="demo-chips-grid">
-              <button class="demo-chip highlight" onclick="window.app.sendConversationalTurn('Yes. Check my balance.')">
-                💬 "Yes. Check my balance."
-              </button>
-              <button class="demo-chip" onclick="window.app.sendConversationalTurn('No')">
-                📞 "No, that's all (Hang Up)"
-              </button>
-            </div>
-          `;
+          // Resume cycle: Navigate directly to the receipt step where audio prompt plays, speech is off during playback, and resumes after prompt finishes
+          this.goToStep('receipt');
         } else {
           alert(`Authorization failed: ${data.error}`);
         }

@@ -139,9 +139,9 @@
 
             <!-- Current Spoken Prompt Box -->
             <div class="prompt-box" id="promptBox">
-              <div class="prompt-step-tag" id="currentStepTag">Step 1: Welcome &amp; Language</div>
-              <div class="prompt-text-twi" id="currentPromptTwi">"For English, press 1. Twi firi mu, mia 2."</div>
-              <div class="prompt-text-en" id="currentPromptEn">"For English, press 1. For Akan Twi, press 2."</div>
+              <div class="prompt-step-tag" id="currentStepTag">Simulation Ready</div>
+              <div class="prompt-text-twi" id="currentPromptTwi">"Mia 'Start Call Simulation' anaa 'Place New Call' sɛ wobɛhyɛ aseɛ."</div>
+              <div class="prompt-text-en" id="currentPromptEn">"Simulation idle. Click 'Start Call Simulation' or 'Place New Call' to begin."</div>
             </div>
 
             <!-- In-Phone Audio Player Component -->
@@ -160,9 +160,48 @@
               </div>
             </div>
 
+            <!-- Simultaneous Voice & Natural Language Listening Service Bar -->
+            <div class="simultaneous-listening-bar" id="simultaneousListeningBar">
+              <div class="listening-header">
+                <div class="listening-status-indicator">
+                  <span class="listening-pulse-dot paused" id="listeningPulseDot"></span>
+                  <span class="listening-status-text" id="listeningStatusText">
+                    <strong>Call Idle:</strong> Click "Start Call Simulation" or "Place New Call" to begin
+                  </span>
+                </div>
+                <button class="btn-mic-pill muted" id="btnToggleListeningMic" onclick="window.app.toggleListeningService()" title="Toggle live microphone listening">
+                  <span id="listeningMicIcon">🔇 Mic Inactive</span>
+                </button>
+              </div>
+
+              <!-- Real-time transcript feedback -->
+              <div class="listening-transcript-preview" id="listeningTranscriptPreview">
+                <span class="transcript-tag">🗣️ Live Voice:</span>
+                <span class="transcript-text" id="transcriptText">Waiting to place call...</span>
+              </div>
+
+              <!-- Quick voice input & phrase shortcuts -->
+              <div class="voice-natural-input-row">
+                <input type="text" id="voiceNaturalInput" class="voice-natural-input" placeholder="Speak aloud or type phrase (e.g. 'English', 'MTN', 'Send money')..." onkeydown="if(event.key==='Enter') window.app.submitNaturalVoiceInput()" />
+                <button class="btn-voice-send" id="btnSendVoiceInput" onclick="window.app.submitNaturalVoiceInput()">Say</button>
+              </div>
+              <div class="voice-suggestions-chips" id="voiceSuggestionsChips">
+                <!-- Dynamically populated per current prompt -->
+              </div>
+            </div>
+
             <!-- Step Specific Interactive Action Panel inside Screen -->
             <div class="step-controls-viewport" id="stepControlsViewport">
-              <!-- Dynamically populated by JS according to step -->
+              <div style="padding: 16px 8px; text-align: center;">
+                <div style="font-size: 28px; margin-bottom: 8px;">📞</div>
+                <div style="font-weight: 700; font-size: 14px; margin-bottom: 4px; color: var(--ink);">Ready to Test Ɔkwankyerɛfo Pa</div>
+                <p style="font-size: 12px; color: var(--ink-secondary); margin-bottom: 14px; line-height: 1.5;">
+                  Dual-track accessibility IVR voice layer with Akan Twi and English speech.
+                </p>
+                <button class="btn btn-call-start" style="width: 100%; justify-content: center; font-size: 13.5px; padding: 10px 16px;" onclick="window.app.startCall()">
+                  <span>📞</span> Place New Call
+                </button>
+              </div>
             </div>
           </div>
 
@@ -241,10 +280,10 @@
           <div class="panel-card" id="flowRoadmapCard">
             <div class="panel-header">
               <h3 class="panel-title"><span>🧭</span> Accessibility Call Pipeline</h3>
-              <span class="badge" id="flowStepBadge">Step 1 of 8</span>
+              <span class="badge" id="flowStepBadge">Ready</span>
             </div>
             <div class="flow-stepper" id="flowStepper">
-              <div class="flow-step current" id="stepIndicatorWelcome">
+              <div class="flow-step" id="stepIndicatorWelcome">
                 <div class="step-num">1</div>
                 <div class="step-info">
                   <div class="step-title">Welcome &amp; Language Choice</div>
@@ -298,6 +337,13 @@
                 <div class="step-info">
                   <div class="step-title">Zero-PIN Security Handoff</div>
                   <div class="step-desc">Private screen prompt notification</div>
+                </div>
+              </div>
+              <div class="flow-step" id="stepIndicatorReceipt">
+                <div class="step-num">9</div>
+                <div class="step-info">
+                  <div class="step-title">Transaction Receipt &amp; Summary</div>
+                  <div class="step-desc">Ref: OKP-847291 &bull; Post-transaction prompt</div>
                 </div>
               </div>
             </div>
