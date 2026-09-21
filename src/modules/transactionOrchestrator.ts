@@ -90,9 +90,10 @@ class ServiceOrchestrator {
       this.mockUserBalance -= amount;
     }
 
+    const last4 = recipient_phone.slice(-4).split("").join(" ");
     const spokenReceipt =
-      `Congratulations! You have successfully sent ${amount} Ghana cedis to ${recipient_name}. ` +
-      `Completed at ${timeFormatted}. Reference: ${reference}. Would you like to do anything else?`;
+      `Thank you very much. You have successfully sent ${amount} Ghana Cedis to ${recipient_name}, phone number ending in ${last4}. ` +
+      `Completed at ${timeFormatted}. Your transaction reference is ${reference.split("").join(" ")}. Would you like to do anything else today?`;
 
     const result: TransactionResult = {
       status: "SUCCESS",

@@ -150,19 +150,21 @@ export function extractAmount(text: string): number | null {
  * Extracts recipient from text
  */
 export function extractRecipient(text: string): { name: string | null; phone: string | null } {
-  // 1. Check for raw 10-digit phone number in text
-  const phonePattern = /\b(0\d{9}|233\d{9})\b/;
+  // 1. Check for raw or formatted 10-digit phone number in text (allowing spaces, dashes, dots)
+  const phonePattern = /(?:(?:\+?233|0)[\s.-]?)?(?:[25]\d{1}[\s.-]?\d{3}[\s.-]?\d{4}|\d{9,10})\b/;
   const phoneMatch = text.match(phonePattern);
   if (phoneMatch) {
-    const norm = normalizePhoneNumber(phoneMatch[1]);
-    const contact = findContact(norm);
-    return {
-      phone: norm,
-      name: contact ? contact.name : null,
-    };
+    const norm = normalizePhoneNumber(phoneMatch[0]);
+    if (isPhoneNumber(norm)) {
+      const contact = findContact(norm);
+      return {
+        phone: norm,
+        name: contact ? contact.name : null,
+      };
+    }
   }
 
-  // 2. Check for spoken digits (e.g. "zero five five three eight...")
+  // 2. Check for spoken digits (e.g. "zero five five three eight..." or Akan "hwee enum enum...")
   const normPhone = normalizePhoneNumber(text);
   if (isPhoneNumber(normPhone)) {
     const contact = findContact(normPhone);
@@ -173,8 +175,8 @@ export function extractRecipient(text: string): { name: string | null; phone: st
   }
 
   // 3. Check for names specifically following recipient prepositions (e.g. "to Kwame Mensah", "send to Ama")
-  const recipientMatches = text.matchAll(/\b(?:send\s+(?:money\s+)?to|give\s+to|pay\s+to|transfer\s+to|to|for)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\b/gi);
-  const stopWords = new Set(["send", "transfer", "pay", "buy", "give", "make", "someone", "anyone", "my", "the", "a", "an", "mtn", "telecel", "at", "cash", "money", "cedis", "ghs"]);
+  const recipientMatches = text.matchAll(/\b(?:send\s+(?:money\s+)?to|give\s+to|pay\s+to|transfer\s+to|to|for|call\s+out|preferred\s+number(?:\s+for)?)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\b/gi);
+  const stopWords = new Set(["send", "transfer", "pay", "buy", "give", "make", "someone", "anyone", "my", "the", "a", "an", "mtn", "telecel", "at", "cash", "money", "cedis", "ghs", "number", "preferred"]);
 
   for (const match of recipientMatches) {
     const candidateName = match[1].trim();

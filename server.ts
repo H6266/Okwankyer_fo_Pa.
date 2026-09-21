@@ -6,7 +6,7 @@ import { transactionOrchestrator } from "./src/modules/transactionOrchestrator";
 import { conversationManager } from "./src/modules/conversationManager";
 import { speechToText } from "./src/modules/sttService";
 import { parseUserIntent, extractAmount, extractRecipient } from "./src/modules/nluService";
-import { MOCK_CONTACTS, findContact } from "./src/modules/mockContacts";
+import { MOCK_CONTACTS, findContact, normalizePhoneNumber, formatPhoneNumberForSpeech, isPhoneNumber } from "./src/modules/mockContacts";
 
 const app = express();
 const PORT = 3000;
@@ -111,11 +111,12 @@ export function lookupRecipient(rawPhone: string): { valid: boolean; error?: str
   }
 
   // Dynamic fallback for any valid Ghanaian number
+  const last4 = clean.slice(-4).split("").join(" ");
   return {
     valid: true,
     record: {
       phoneNumber: clean,
-      name: `Subscriber (${clean.slice(0, 3)}...${clean.slice(-4)})`,
+      name: `Subscriber ending in ${last4}`,
       network,
     },
   };
@@ -749,7 +750,7 @@ app.post("/api/upload-audio", (req: Request, res: Response) => {
 });
 
 // ── API: Health Status ───────────────────────────────────────────────
-app.get("/health", (req: Request, res: Response) => {
+const handleHealth = (req: Request, res: Response) => {
   const baseUrl = getPublicBaseUrl(req);
   res.json({
     status: "ok",
@@ -771,7 +772,10 @@ app.get("/health", (req: Request, res: Response) => {
       "Hybrid Native Audio + Dynamic TTS",
     ],
   });
-});
+};
+
+app.get("/health", handleHealth);
+app.get("/api/health", handleHealth);
 
 // ── API: Render Deployment Sync Status ────────────────────────────────
 app.get("/api/render/status", async (_req: Request, res: Response) => {
@@ -1356,11 +1360,11 @@ app.all("/enter-recipient", (req: Request, res: Response) => {
       ? `${baseUrl}/audio/Twi/Audio_prompt_twi_05.mp3`
       : `${baseUrl}/audio/English/Audio_prompt_06.mp3`;
     const errSay = err === "invalid"
-      ? (lang === "twi" ? `    <Say voice="man">Nɔma no nyɛ pɛpɛɛpɛ.</Say>\n` : `    <Say voice="man">That number wasn't recognized.</Say>\n`)
+      ? (lang === "twi" ? `    <Say voice="man">Nɔma no nyɛ pɛpɛɛpɛ. Me pa wo kyɛw, bɔ nɔma no bio.</Say>\n` : `    <Say voice="man">Please, that phone number wasn't recognized. Kindly try again.</Say>\n`)
       : "";
     const promptText = lang === "twi"
-      ? "Fa nɔma du a woremane kɔma no nwura mu, na wie no hash."
-      : "Please enter the 10-digit recipient phone number, followed by hash.";
+      ? "Me pa wo kyɛw, fa nɔma du a woremane kɔma no nwura mu pɛpɛɛpɛ, na wie no hash."
+      : "Please enter or speak your preferred 10-digit recipient phone number, followed by hash.";
     const xml = `${errSay}    <Play url="${audioUrl}"/>
     <GetDigits timeout="12" finishOnKey="#" numDigits="15" callbackUrl="${baseUrl}/verify-recipient?lang=${lang}&amp;provider=${provider}">
         <Say voice="man">${promptText}</Say>
@@ -1373,15 +1377,15 @@ app.all("/enter-recipient", (req: Request, res: Response) => {
   if (err === "invalid") {
     prefixPrompt =
       lang === "twi"
-        ? "Nɔma no nyɛ pɛpɛɛpɛ. Mpaepaemu: "
-        : "That phone number appears incomplete or invalid. ";
+        ? "Me pa wo kyɛw, nɔma no nyɛ pɛpɛɛpɛ. "
+        : "Please, that phone number appears incomplete or invalid. ";
   }
 
   const prompt =
     prefixPrompt +
     (lang === "twi"
-      ? "Fa nɔma du (10) a woremane kɔma no nwura mu, na wie no hash (#). Mia hwee (0) sɛ worepɛ agyae."
-      : "Please enter the 10-digit recipient phone number, followed by hash. Press 0 to cancel.");
+      ? "Me pa wo kyɛw, fa nɔma du (10) a woremane kɔma no nwura mu, na wie no hash (#). Mia hwee (0) sɛ worepɛ agyae."
+      : "Please enter or speak your preferred 10-digit recipient phone number, followed by hash. Press 0 to cancel.");
 
   const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="15" callbackUrl="${baseUrl}/verify-recipient?lang=${lang}&amp;provider=${provider}">
         <Say voice="man">${prompt}</Say>
@@ -1433,10 +1437,15 @@ app.all("/recipient-verify", (req: Request, res: Response) => {
     ? `${baseUrl}/audio/Twi/Audio_prompt_twi_06.mp3`
     : `${baseUrl}/audio/English/Audio_prompt_08.mp3`;
 
-  const callbackUrl = `${baseUrl}/recipient-verify-choice?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}`;
+  const cleanPhone = normalizePhoneNumber(phone);
+  const phoneSpaced = formatPhoneNumberForSpeech(cleanPhone);
+  const last4 = cleanPhone.slice(-4);
+  const last4Spaced = last4.split("").join(" ");
+
+  const callbackUrl = `${baseUrl}/recipient-verify-choice?lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}`;
   const promptText = lang === "twi"
-    ? `Woapaw ${name}. Sɛ ɛyɛ ampa a, mia baako. Sɛ worepɛ sesa no a, mia mmienu.`
-    : `You are sending to ${name}. Press 1 to confirm, or 2 to change.`;
+    ? `Medaase pa ara. Woapaw ${name}, a ne nɔma yɛ ${phoneSpaced}, a ɛwie ${last4Spaced}. Me pa wo kyɛw, sɛ ɛyɛ ampa a, mia baako (1). Sɛ worepɛ sesa no a, mia mmienu (2). Sɛ worepɛ agyae a, mia hwee (0).`
+    : `Thank you, please. You have chosen ${name}, with preferred number ${phoneSpaced}, ending in ${last4Spaced}. Press 1 to confirm, 2 to change, or 0 to exit.`;
 
   const xml = `    <Play url="${audioUrl}"/>
     <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
@@ -1495,8 +1504,8 @@ app.all("/enter-amount", (req: Request, res: Response) => {
       ? (lang === "twi" ? `    <Say voice="man">Sika dodow no nyɛ pɛpɛɛpɛ.</Say>\n` : `    <Say voice="man">That amount wasn't recognized.</Say>\n`)
       : "";
     const promptText = lang === "twi"
-      ? `Fa cedi dodow a woremane kɔma ${name} no nwura mu, na wie no hash.`
-      : `Enter the amount in Ghana Cedis to send to ${name}, followed by hash.`;
+      ? `Me pa wo kyɛw, fa cedi dodow a woremane kɔma ${name} no nwura mu, na wie no hash.`
+      : `Please enter the amount in Ghana Cedis to send to ${name}, followed by hash.`;
     const xml = `${errSay}    <Play url="${audioUrl}"/>
     <GetDigits timeout="10" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/verify-amount?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}">
         <Say voice="man">${promptText}</Say>
@@ -1509,15 +1518,15 @@ app.all("/enter-amount", (req: Request, res: Response) => {
   if (err === "invalid") {
     prefixPrompt =
       lang === "twi"
-        ? "Sika dodow no nyɛ pɛpɛɛpɛ. "
-        : "Invalid amount entered. ";
+        ? "Me pa wo kyɛw, sika dodow no nyɛ pɛpɛɛpɛ. "
+        : "Please, invalid amount entered. ";
   }
 
   const prompt =
     prefixPrompt +
     (lang === "twi"
-      ? `Fa cedi dodow a woremane kɔma ${name} no nwura mu, na wie no hash (#). Fa nsoroma (*) di dwuma ma pesewa. Mia hwee (0) sɛ worepɛ agyae.`
-      : `Enter the amount in Ghana Cedis to send to ${name}, followed by hash. Use star for pesewas. Press 0 to cancel.`);
+      ? `Me pa wo kyɛw, fa cedi dodow a woremane kɔma ${name} no nwura mu, na wie no hash (#). Fa nsoroma (*) di dwuma ma pesewa. Mia hwee (0) sɛ worepɛ agyae.`
+      : `Please enter the amount in Ghana Cedis to send to ${name}, followed by hash. Use star for pesewas. Press 0 to cancel.`);
 
   const xml = `    <GetDigits timeout="10" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/verify-amount?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}">
         <Say voice="man">${prompt}</Say>
@@ -1570,16 +1579,19 @@ app.all("/safe-confirmation", (req: Request, res: Response) => {
   const amount = (req.query?.amount || req.body?.amount || "500") as string;
   const baseUrl = getPublicBaseUrl(req);
 
-  const callbackUrl = `${baseUrl}/safe-outcome?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}`;
-  const last4 = phone.slice(-4);
+  const cleanPhone = normalizePhoneNumber(phone);
+  const last4 = cleanPhone.slice(-4);
+  const last4Spaced = last4.split("").join(" ");
+
+  const callbackUrl = `${baseUrl}/safe-outcome?lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}`;
 
   if (lang === "en" || lang === "twi") {
     const audioUrl = lang === "twi"
       ? `${baseUrl}/audio/Twi/Audio_prompt_twi_08.mp3`
       : `${baseUrl}/audio/English/Audio_prompt_10.mp3`;
     const promptText = lang === "twi"
-      ? `Woremane sika cedi ${amount} kɔma ${name}, a ne fon nɔma wie ${last4}. Sɛ wopene so a, mia baako. Sɛ worepɛ sesa no a, mia mmienu. Sɛ worepɛ agyae a, mia hwee.`
-      : `You are sending ${amount} Cedis to ${name}, ending in ${last4}. Press 1 to confirm, 2 to change, or 0 to cancel.`;
+      ? `Medaase pa ara. Me pa wo kyɛw, woremane sika cedi ${amount} kɔma ${name}, a ne fon nɔma wie ${last4Spaced}. Sɛ wopene so a, mia baako (1). Sɛ worepɛ sesa no a, mia mmienu (2). Sɛ worepɛ agyae a, mia hwee (0).`
+      : `Thank you, please. You are about to send ${amount} Ghana Cedis to ${name}, whose phone number ends with ${last4Spaced}. Press 1 to confirm, 2 to change, or 0 to cancel.`;
     const xml = `    <Play url="${audioUrl}"/>
     <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
         <Say voice="man">${promptText}</Say>
@@ -1588,7 +1600,7 @@ app.all("/safe-confirmation", (req: Request, res: Response) => {
     return xmlResponse(res, xml);
   }
 
-  const prompt = `Woremane sika cedi ${amount} kɔma ${name}, a ne fon nɔma wie ${last4}. Sɛ wopene so a, mia baako (1). Sɛ worepɛ sesa no a, mia mmienu (2). Sɛ worepɛ agyae koraa a, mia hwee (0).`;
+  const prompt = `Medaase pa ara. Me pa wo kyɛw, woremane sika cedi ${amount} kɔma ${name}, a ne fon nɔma wie ${last4Spaced}. Sɛ wopene so a, mia baako (1). Sɛ worepɛ sesa no a, mia mmienu (2). Sɛ worepɛ agyae koraa a, mia hwee (0).`;
 
   const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
         <Say voice="man">${prompt}</Say>
@@ -2069,15 +2081,21 @@ export function parseIvrNaturalInput(
       };
     }
 
+    const recip = extractRecipient(text);
     const digitsOnly = text.replace(/[^0-9]/g, "");
+    const normPhone = normalizePhoneNumber(text);
+    const validNorm = isPhoneNumber(normPhone) ? normPhone : "";
+    const resolvedPhone = recip.phone || validNorm;
+
     if (
+      resolvedPhone ||
       digitsOnly.length === 10 ||
       digitsOnly.endsWith("8464") ||
       /\b(kwame|nyamebere|brother|friend|kwame nyamebere)\b/.test(text)
     ) {
-      const phone = digitsOnly.length === 10 ? digitsOnly : "0553838464";
+      const phone = resolvedPhone || (digitsOnly.length === 10 ? digitsOnly : "0553838464");
       const lookup = lookupRecipient(phone);
-      const name = lookup.record?.name || "Kwame Nyamebere";
+      const name = recip.name || lookup.record?.name || "Kwame Nyamebere";
       return {
         matchedKey: "#",
         actionType: "recipient_entered",
@@ -2087,7 +2105,7 @@ export function parseIvrNaturalInput(
           recipientPhone: phone,
           recipientName: name,
         },
-        explanation: `Identified recipient ${name} (${phone})`,
+        explanation: `Identified recipient ${name} (${phone}) respectfully`,
       };
     }
 

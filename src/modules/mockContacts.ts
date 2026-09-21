@@ -49,6 +49,35 @@ const WORD_TO_DIGIT: Record<string, string> = {
   seven: "7",
   eight: "8",
   nine: "9",
+  // Akan / Twi spoken digits
+  hwee: "0",
+  koraa: "0",
+  baako: "1",
+  bako: "1",
+  koro: "1",
+  mmienu: "2",
+  mienu: "2",
+  abien: "2",
+  mmiensa: "3",
+  mmiɛnsa: "3",
+  miensa: "3",
+  abiesa: "3",
+  anan: "4",
+  enan: "4",
+  nan: "4",
+  enum: "5",
+  num: "5",
+  anom: "5",
+  nsia: "6",
+  sia: "6",
+  nson: "7",
+  son: "7",
+  nwɔtwe: "8",
+  nwotwe: "8",
+  motwe: "8",
+  wotwe: "8",
+  nkron: "9",
+  kron: "9",
 };
 
 /**
@@ -90,14 +119,30 @@ export function isPhoneNumber(token: string): boolean {
 }
 
 /**
- * Masks phone number for voice readback (Section 8: "ends in 8464")
+ * Masks phone number for voice readback with spaced digits for natural TTS
  */
 export function maskPhoneNumber(phoneNumber: string): string {
   const clean = normalizePhoneNumber(phoneNumber);
   if (clean.length >= 4) {
-    return `ending in ${clean.slice(-4)}`;
+    const last4Spaced = clean.slice(-4).split("").join(" ");
+    return `ending in ${last4Spaced}`;
   }
   return clean;
+}
+
+/**
+ * Formats a phone number for clear, respectful cadence in TTS voice prompts.
+ * Generates spaced digits grouped in 3-3-4 cadence (e.g. "0 2 4, 1 2 3, 4 5 6 7").
+ */
+export function formatPhoneNumberForSpeech(phoneNumber: string): string {
+  const clean = normalizePhoneNumber(phoneNumber);
+  if (clean.length === 10) {
+    const p1 = clean.slice(0, 3).split("").join(" ");
+    const p2 = clean.slice(3, 6).split("").join(" ");
+    const p3 = clean.slice(6).split("").join(" ");
+    return `${p1}, ${p2}, ${p3}`;
+  }
+  return clean.split("").join(" ");
 }
 
 /**

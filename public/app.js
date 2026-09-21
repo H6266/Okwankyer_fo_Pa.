@@ -3140,8 +3140,12 @@
       if (sourceInd) sourceInd.innerText = '🗣️ AI Conversational Voice';
       if ('speechSynthesis' in window) {
         window.speechSynthesis.cancel();
-        const utter = new SpeechSynthesisUtterance(text);
-        utter.rate = 1.0;
+        // Format digit sequences so speech synthesis speaks them as courteous individual digits with natural pauses
+        const formattedSpeech = text
+          .replace(/(\b0\d{9}\b)/g, (m) => m.slice(0, 3).split('').join(' ') + ', ' + m.slice(3, 6).split('').join(' ') + ', ' + m.slice(6).split('').join(' '))
+          .replace(/ending in (\d{4})/gi, (_m, digits) => `ending in ${digits.split('').join(' ')}`);
+        const utter = new SpeechSynthesisUtterance(formattedSpeech);
+        utter.rate = 0.95; // Courteous, measured cadence
         utter.pitch = 1.0;
         this.startWaveformAnimation();
         const onDone = () => {
@@ -3278,10 +3282,22 @@
           <button class="demo-chip" onclick="window.app.sendConversationalTurn('Telecel')">💬 "Telecel"</button>
           <button class="demo-chip" onclick="window.app.sendConversationalTurn('AT')">💬 "AT"</button>
         `;
+      } else if (state.status === 'AWAITING_RECIPIENT') {
+        demoChipsHtml = `
+          <button class="demo-chip highlight" onclick="window.app.sendConversationalTurn('My preferred number is 055 383 8464')">💬 "055 383 8464 (Preferred Number)"</button>
+          <button class="demo-chip" onclick="window.app.sendConversationalTurn('024 123 4567')">💬 "024 123 4567"</button>
+          <button class="demo-chip" onclick="window.app.sendConversationalTurn('Kwame Nyamebere')">💬 "Kwame Nyamebere"</button>
+        `;
+      } else if (state.status === 'AWAITING_AMOUNT') {
+        demoChipsHtml = `
+          <button class="demo-chip highlight" onclick="window.app.sendConversationalTurn('500 cedis')">💬 "500 Cedis"</button>
+          <button class="demo-chip" onclick="window.app.sendConversationalTurn('200 cedis')">💬 "200 Cedis"</button>
+          <button class="demo-chip" onclick="window.app.sendConversationalTurn('50 cedis')">💬 "50 Cedis"</button>
+        `;
       } else if (state.status === 'AWAITING_CONFIRMATION') {
         demoChipsHtml = `
           <button class="demo-chip highlight" onclick="window.app.sendConversationalTurn('Yes')">💬 "1: Yes / Confirm"</button>
-          <button class="demo-chip" onclick="window.app.sendConversationalTurn('No, make it 200')">💬 "No, make it 200"</button>
+          <button class="demo-chip" onclick="window.app.sendConversationalTurn('No, change number')">💬 "2: Change Number"</button>
           <button class="demo-chip" onclick="window.app.sendConversationalTurn('Cancel')">💬 "Cancel"</button>
         `;
       } else if (state.status === 'OFFER_CONTINUATION') {
@@ -3291,9 +3307,9 @@
         `;
       } else {
         demoChipsHtml = `
-          <button class="demo-chip highlight" onclick="window.app.sendConversationalTurn('I want to send 500 cedis to Kwame.')">💬 "I want to send 500 cedis to Kwame."</button>
-          <button class="demo-chip" onclick="window.app.sendConversationalTurn('Check my balance.')">💬 "Check my balance."</button>
-          <button class="demo-chip" onclick="window.app.sendConversationalTurn('Cancel')">💬 "Cancel"</button>
+          <button class="demo-chip highlight" onclick="window.app.sendConversationalTurn('I want to send 500 cedis to my preferred number 055 383 8464.')">💬 "Send 500 to preferred number 055 383 8464"</button>
+          <button class="demo-chip" onclick="window.app.sendConversationalTurn('Send 500 cedis to Kwame.')">💬 "Send 500 to Kwame"</button>
+          <button class="demo-chip" onclick="window.app.sendConversationalTurn('Check my balance.')">💬 "Check my balance"</button>
         `;
       }
 

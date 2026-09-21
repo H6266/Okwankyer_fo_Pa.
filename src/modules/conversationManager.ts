@@ -15,7 +15,7 @@ import {
   classifyIntentLocally,
   IntentType,
 } from "./nluService";
-import { findContact, maskPhoneNumber, normalizePhoneNumber, isPhoneNumber } from "./mockContacts";
+import { findContact, maskPhoneNumber, normalizePhoneNumber, formatPhoneNumberForSpeech, isPhoneNumber } from "./mockContacts";
 import { transactionOrchestrator, TransactionResult } from "./transactionOrchestrator";
 import { secureAuthGate } from "./secureAuth";
 
@@ -288,20 +288,53 @@ class ConversationManager {
         cleanLower === "proceed" ||
         cleanLower === "correct" ||
         cleanLower === "thats right" ||
-        cleanLower === "yep";
+        cleanLower === "yep" ||
+        cleanLower === "yoo" ||
+        cleanLower === "ampa";
+
+      const isTwi = state.language === "twi";
 
       if (isConfirmed) {
         state.status = "AWAITING_SECURE_PIN";
         state.confirmation = true;
-        // Prompt specification Section 10 & 16:
         return {
           state,
-          spokenPrompt: "Confirmed. Please check your phone screen and enter your MoMo PIN securely.",
+          spokenPrompt: isTwi
+            ? "Medaase, woapene so pɛpɛɛpɛ. Me pa wo kyɛw, hwɛ wo fon so sesei ara na fa wo MoMo PIN bɔ mu ahobammbɔ mu."
+            : "Thank you, confirmed. Please check your phone screen now and enter your MoMo PIN securely on the network prompt.",
           displayStepTag: "Step 8: Zero-PIN Security Handoff",
           requiresPinInput: true,
           isCompleted: false,
           offeredMenuFallback: false,
           confidence: 0.98,
+          activeIntent: "SEND_MONEY",
+        };
+      }
+
+      const isChange =
+        cleanLower === "2" ||
+        cleanLower === "change" ||
+        cleanLower === "edit" ||
+        cleanLower.includes("change number") ||
+        cleanLower.includes("wrong number") ||
+        cleanLower.includes("different number") ||
+        cleanLower === "no" ||
+        cleanLower === "sesa";
+
+      if (isChange) {
+        state.status = "AWAITING_RECIPIENT";
+        state.recipient_name = null;
+        state.recipient_phone = null;
+        return {
+          state,
+          spokenPrompt: isTwi
+            ? "Me pa wo kyɛw, firi me kwan. Yɛsrɛ wo, bɔ nɔma foforɔ a wopɛ no dennen bio."
+            : "Understood, please. Kindly call out your preferred recipient number or name again.",
+          displayStepTag: "Re-enter Preferred Number",
+          requiresPinInput: false,
+          isCompleted: false,
+          offeredMenuFallback: false,
+          confidence: 0.95,
           activeIntent: "SEND_MONEY",
         };
       }
@@ -315,11 +348,16 @@ class ConversationManager {
     if (nlu.confidence < 0.4 || nlu.intent === "UNKNOWN") {
       state.consecutiveFailures++;
       const showKeypadFallback = state.consecutiveFailures >= 2;
+      const isTwi = state.language === "twi";
       return {
         state,
-        spokenPrompt: showKeypadFallback
-          ? "I am having trouble understanding. Please use your keypad by pressing 1 for the main menu, or say cancel."
-          : "I didn't quite understand that. You can say something like 'Send 500 cedis to Kwame,' or press 1 for the menu.",
+        spokenPrompt: isTwi
+          ? (showKeypadFallback
+            ? "Me pa wo kyɛw, mantie no yiye. Yɛsrɛ wo, mia baako (1) ma menu kɛseɛ no, anaa ka sɛ 'agyae'."
+            : "Me pa wo kyɛw, mantie no yiye. Wotumi ka te sɛ 'Mane cedi 500 kɔma Kwame', anaa bɔ nɔma du (10) a wopɛ no.")
+          : (showKeypadFallback
+            ? "Pardon me, please. I am having trouble catching that. Kindly use your keypad by pressing 1 for the main menu, or say cancel."
+            : "Pardon me, please. I didn't quite catch that. You can kindly call out your preferred number like '055 383 8464', or say 'Send 500 cedis to Kwame.'"),
         displayStepTag: "Input Unrecognized",
         requiresPinInput: false,
         isCompleted: false,
@@ -407,13 +445,16 @@ class ConversationManager {
    * If all slots present, skips straight to confirmation!
    */
   private progressSendMoney(state: ConversationState): ConversationTurnResult {
+    const isTwi = state.language === "twi";
+
     // 1. Check network
-    // Per Reference Demo Script: User: "I want to send 500 cedis to Kwame." -> System: "Sure. Which network would you like to use?"
     if (!state.network) {
       state.status = "AWAITING_NETWORK";
       return {
         state,
-        spokenPrompt: "Sure. Which network would you like to use?",
+        spokenPrompt: isTwi
+          ? "Me pa wo kyɛw, network bɛn na worepɛ de adi dwuma? MTN, Telecel, anaa AT?"
+          : "Certainly, please. Which network provider would you like to use? MTN, Telecel, or AirtelTigo?",
         displayStepTag: "Network Selection",
         requiresPinInput: false,
         isCompleted: false,
@@ -428,7 +469,9 @@ class ConversationManager {
       state.status = "AWAITING_RECIPIENT";
       return {
         state,
-        spokenPrompt: "Who would you like to send money to? You can say a name like Kwame or speak a 10-digit number.",
+        spokenPrompt: isTwi
+          ? "Me pa wo kyɛw, hwan na worepɛ amane sika no akɔma no? Wotumi bɔ din te sɛ Kwame anaa bɔ nɔma du (10) a wopɛ no pɛpɛɛpɛ."
+          : "Please, who would you like to send money to? Kindly call out a recipient name like Kwame, or speak your preferred 10-digit number.",
         displayStepTag: "Recipient Selection",
         requiresPinInput: false,
         isCompleted: false,
@@ -452,7 +495,9 @@ class ConversationManager {
       state.status = "AWAITING_AMOUNT";
       return {
         state,
-        spokenPrompt: `How much would you like to send to ${state.recipient_name || "the recipient"} in Ghana Cedis?`,
+        spokenPrompt: isTwi
+          ? `Me pa wo kyɛw, sika Ghana cedi dodoɔ sɛn na worepɛ amane akɔma ${state.recipient_name || "onipa no"}?`
+          : `Please, how much would you like to send to ${state.recipient_name || "the recipient"} in Ghana Cedis?`,
         displayStepTag: "Enter Amount",
         requiresPinInput: false,
         isCompleted: false,
@@ -468,20 +513,19 @@ class ConversationManager {
   }
 
   /**
-   * Builds the exact confirmation prompt from Section 8 & Section 16:
-   * "I found Kwame Nyamebere with the phone number ending in 8464.
-   *  You are about to send 500 Ghana cedis to Kwame Nyamebere.
-   *  Would you like to proceed?"
+   * Builds respectful, polite confirmation prompt with clear digit readback
    */
   private generateConfirmationPrompt(state: ConversationState): ConversationTurnResult {
-    const masked = state.recipient_phone ? maskPhoneNumber(state.recipient_phone) : "on file";
+    const cleanPhone = state.recipient_phone ? normalizePhoneNumber(state.recipient_phone) : "";
+    const last4Spaced = cleanPhone.length >= 4 ? cleanPhone.slice(-4).split("").join(" ") : "";
+    const phoneSpaced = cleanPhone ? formatPhoneNumberForSpeech(cleanPhone) : "";
     const name = state.recipient_name || "Subscriber";
     const amt = state.amount || 0;
+    const isTwi = state.language === "twi";
 
-    const spokenPrompt =
-      `I found ${name} with the phone number ${masked}. ` +
-      `You are about to send ${amt} Ghana cedis to ${name}. ` +
-      `Would you like to proceed?`;
+    const spokenPrompt = isTwi
+      ? `Medaase pa ara. Woapaw ${name}, a ne nɔma a wopɛ no yɛ ${phoneSpaced || "deɛ ɛwɔ hɔ no"}, a ɛwie ${last4Spaced}. Me pa wo kyɛw, worebɛmane Ghana cedi ${amt} akɔma ${name}. Sɛ ɛyɛ ampa a, ka sɛ 'yoo' anaa mia baako (1) na yɛnkɔ so. Sɛ worepɛ asesa nɔma no a, mia mmienu (2).`
+      : `Thank you, please. You selected ${name} with preferred number ${phoneSpaced || "on file"}, ending in ${last4Spaced}. You are about to send ${amt} Ghana Cedis to ${name}. Kindly confirm if you would like to proceed by saying yes or pressing 1, or say change to try another number.`;
 
     return {
       state,
