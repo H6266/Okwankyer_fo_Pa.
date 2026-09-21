@@ -908,10 +908,19 @@
 
       this.resetConvInspector();
 
-      // Reset selection state and ensure speech recognition starts inactive while prompt plays
+      // Acquire mic constraints with AEC and noise suppression early
+      this.initMicrophoneConstraints().catch(e => console.warn('[Microphone] AEC init notice:', e));
+
+      // Reset selection state and prepare live voice status
       this.isPinPromptOpen = false;
       this.optionSelectedForCurrentPrompt = false;
-      this.setSpeechRecognitionActive(false, 'Starting call - prompt will play');
+      this.lastFastVoiceTriggerKey = null;
+      this.lastFastVoiceTriggerTime = 0;
+
+      const transcript = document.getElementById('transcriptText');
+      if (transcript) {
+        transcript.innerHTML = '🎙️ <em>Listening &mdash; Speak a number (e.g. \'1\', \'2\') or phrase...</em>';
+      }
 
       this.goToStep('welcome');
     },
@@ -926,6 +935,13 @@
       this.optionSelectedForCurrentPrompt = true;
       this.lastProcessedVoiceText = '';
       this.lastProcessedVoiceTime = 0;
+      this.lastFastVoiceTriggerKey = null;
+      this.lastFastVoiceTriggerTime = 0;
+
+      const transcript = document.getElementById('transcriptText');
+      if (transcript) {
+        transcript.innerText = 'Waiting to place call...';
+      }
 
       const timer = document.getElementById('callTimer');
       if (timer) timer.innerText = '00:00';
@@ -1001,6 +1017,8 @@
     audioStreamWithAec: null,
     lastProcessedVoiceText: '',
     lastProcessedVoiceTime: 0,
+    lastFastVoiceTriggerKey: null,
+    lastFastVoiceTriggerTime: 0,
 
     // Step 1: Microphone constraints with echoCancellation & noiseSuppression
     async initMicrophoneConstraints() {
@@ -1097,7 +1115,7 @@
 
     extractSpokenDigit(rawText) {
       if (!rawText) return null;
-      const text = String(rawText).toLowerCase().trim();
+      let text = String(rawText).toLowerCase().trim();
 
       // 1. Direct single digit or symbol
       if (/^[0-9]$/.test(text)) {
@@ -1110,12 +1128,18 @@
         return { key: '#', label: 'Hash / Submit (#)' };
       }
 
+      // Strip conversational prefixes so "number 1", "press 1", "option two", "mepe baako", "give me one", etc. match cleanly
+      const cleaned = text.replace(/^(please\s+)?(press|key|option|number|choice|select|choose|give me|i want|i choose|it is|it's|me\s*pɛ|mepe|fa|mia)\s+/i, '').trim();
+      if (/^[0-9]$/.test(cleaned)) {
+        return { key: cleaned, label: `Digit ${cleaned}` };
+      }
+
       // 2. English & Akan Twi word mappings (including homophones and spoken variations)
       const map = [
         { regex: /\b(1|one|won|first|baako|bako|koro)\b/i, key: '1', label: 'One / Baako (1)' },
-        { regex: /\b(2|two|to|too|second|mmienu|mienu|abien)\b/i, key: '2', label: 'Two / Mmienu (2)' },
+        { regex: /\b(2|two|too|second|mmienu|mienu|abien)\b/i, key: '2', label: 'Two / Mmienu (2)' },
         { regex: /\b(3|three|tree|third|mmiensa|mmiɛnsa|miensa|abiesa)\b/i, key: '3', label: 'Three / Mmiɛnsa (3)' },
-        { regex: /\b(4|four|for|fore|fourth|anan|enan|nan)\b/i, key: '4', label: 'Four / Anan (4)' },
+        { regex: /\b(4|four|fore|fourth|anan|enan|nan)\b/i, key: '4', label: 'Four / Anan (4)' },
         { regex: /\b(5|five|fifth|enum|num|anom)\b/i, key: '5', label: 'Five / Enum (5)' },
         { regex: /\b(6|six|sixth|nsia|sia)\b/i, key: '6', label: 'Six / Nsia (6)' },
         { regex: /\b(7|seven|seventh|nson|son)\b/i, key: '7', label: 'Seven / Nson (7)' },
@@ -1125,12 +1149,306 @@
       ];
 
       for (const item of map) {
-        if (item.regex.test(text)) {
+        if (item.regex.test(cleaned) || item.regex.test(text)) {
           return { key: item.key, label: item.label };
         }
       }
 
       return null;
+    },
+
+    extractSpokenPhoneNumber(rawText) {
+      if (!rawText) return null;
+      const text = String(rawText).toLowerCase().trim();
+      const directDigits = text.replace(/[^0-9]/g, '');
+      if (directDigits.length === 10 && directDigits.startsWith('0')) {
+        return directDigits;
+      }
+      if (directDigits.length > 10) {
+        const m = directDigits.match(/0[25][0-9]{8}/);
+        if (m) return m[0];
+      }
+      const wordMap = {
+        'zero': '0', 'oh': '0', 'o': '0', 'hwee': '0',
+        'one': '1', 'won': '1', 'baako': '1', 'bako': '1',
+        'two': '2', 'too': '2', 'mmienu': '2', 'mienu': '2',
+        'three': '3', 'tree': '3', 'mmiensa': '3',
+        'four': '4', 'anan': '4',
+        'five': '5', 'enum': '5',
+        'six': '6', 'nsia': '6',
+        'seven': '7', 'nson': '7',
+        'eight': '8', 'ate': '8', 'nwɔtwe': '8', 'nwotwe': '8',
+        'nine': '9', 'nkron': '9'
+      };
+      const tokens = text.split(/[\s-]+/);
+      let digits = '';
+      for (const token of tokens) {
+        if (/^[0-9]$/.test(token)) {
+          digits += token;
+        } else if (wordMap[token]) {
+          digits += wordMap[token];
+        }
+      }
+      if (digits.length === 10 && digits.startsWith('0')) {
+        return digits;
+      }
+      return null;
+    },
+
+    extractSpokenAmount(rawText) {
+      if (!rawText) return null;
+      const text = String(rawText).toLowerCase().trim();
+      if (/\b(five hundred|500)\b/i.test(text)) return '500';
+      if (/\b(fifty|50)\b/i.test(text)) return '50';
+      if (/\b(one hundred|hundred|100)\b/i.test(text)) return '100';
+      if (/\b(two hundred|200)\b/i.test(text)) return '200';
+      if (/\b(three hundred|300)\b/i.test(text)) return '300';
+      if (/\b(four hundred|400)\b/i.test(text)) return '400';
+      if (/\b(twenty|20)\b/i.test(text)) return '20';
+      if (/\b(ten|10)\b/i.test(text)) return '10';
+
+      const numMatch = text.match(/\b([1-9][0-9]{0,4}(?:\.[0-9]{1,2})?)\b/);
+      if (numMatch) {
+        const val = numMatch[1];
+        if ((val === '8' && /\b(back|go back)\b/i.test(text)) || (val === '9' && /\b(repeat|again)\b/i.test(text))) {
+          return null;
+        }
+        return val;
+      }
+      return null;
+    },
+
+    // ⚡ Ultra-Fast Client-Side Intent Matcher (0ms Network Latency)
+    matchFastVoiceIntent(rawTranscript, step, lang) {
+      if (!rawTranscript) return null;
+      const raw = String(rawTranscript).toLowerCase().trim();
+      const text = raw.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (!text) return null;
+
+      const currentStep = step || this.callState.step || 'welcome';
+      const isTwi = (lang === 'twi') || (this.callState.lang === 'twi');
+
+      // 1. Spoken digit extraction
+      const spokenDigit = this.extractSpokenDigit(text);
+
+      // 2. Universal Navigation Keywords (Active across steps)
+      if (/\b(exit|cancel|hang up|quit|stop|bye|goodbye|firi mu)\b/i.test(text)) {
+        return { matchedKey: '0', label: 'Exit (Key 0)', explanation: 'Exit Call' };
+      }
+      if (/\b(go back|back|previous|return|san akyi)\b/i.test(text)) {
+        return { matchedKey: '8', label: 'Back (Key 8)', explanation: 'Go Back' };
+      }
+      if (/\b(repeat|replay|say again|hear again|pardon|tie wei bio|tie bio)\b/i.test(text)) {
+        const repeatKey = (isTwi && currentStep === 'network') ? '4' : '9';
+        return { matchedKey: repeatKey, label: `Repeat (Key ${repeatKey})`, explanation: 'Repeat Prompt' };
+      }
+
+      // 3. Step-Specific Rules
+      // STEP 1: Welcome & Language Choice
+      if (currentStep === 'welcome') {
+        if (/\b(english|anglais)\b/i.test(text) || text.includes('for english') || text.includes('speak english') || spokenDigit?.key === '1') {
+          return { matchedKey: '1', label: 'English (Key 1)', explanation: 'Selected English' };
+        }
+        if (/\b(twi|akan|asante)\b/i.test(text) || text.includes('for twi') || text.includes('speak twi') || spokenDigit?.key === '2') {
+          return { matchedKey: '2', label: 'Twi (Key 2)', explanation: 'Selected Akan Twi' };
+        }
+        // Other digits voiced on welcome prompt trigger Audio 11
+        if (spokenDigit) {
+          return { matchedKey: spokenDigit.key, label: `Digit ${spokenDigit.key}`, explanation: `Wrong Figure (${spokenDigit.key})` };
+        }
+        return null;
+      }
+
+      // STEP 2: Service Selection (English Flow)
+      if (currentStep === 'service') {
+        if (/\b(telecom|momo|mobile money)\b/i.test(text) || spokenDigit?.key === '1') {
+          return { matchedKey: '1', label: 'Mobile Money (Key 1)', explanation: 'Selected Mobile Money' };
+        }
+        if (/\b(banking|bank)\b/i.test(text) || spokenDigit?.key === '2') {
+          return { matchedKey: '2', label: 'Banking (Key 2)', explanation: 'Selected Banking' };
+        }
+        if (spokenDigit) {
+          return { matchedKey: spokenDigit.key, label: `Digit ${spokenDigit.key}`, explanation: `Wrong Figure (${spokenDigit.key})` };
+        }
+        return null;
+      }
+
+      // STEP 3: Network / Provider Selection
+      if (currentStep === 'network' || currentStep === 'provider') {
+        if (isTwi && (/\b(tie|bio)\b/i.test(text) || spokenDigit?.key === '4')) {
+          return { matchedKey: '4', label: 'Tie bio (Key 4)', explanation: 'Repeat Network Prompt' };
+        }
+        if (/\b(mtn|scancom|yellow)\b/i.test(text) || spokenDigit?.key === '1') {
+          return { matchedKey: '1', label: 'MTN (Key 1)', explanation: 'Selected MTN Network' };
+        }
+        if (/\b(telecel|vodafone|voda|red)\b/i.test(text) || spokenDigit?.key === '2') {
+          return { matchedKey: '2', label: 'Telecel (Key 2)', explanation: 'Selected Telecel Network' };
+        }
+        if (/\b(airteltigo|airtel|tigo|at|blue)\b/i.test(text) || spokenDigit?.key === '3') {
+          return { matchedKey: '3', label: 'AirtelTigo (Key 3)', explanation: 'Selected AirtelTigo Network' };
+        }
+        if (spokenDigit) {
+          return { matchedKey: spokenDigit.key, label: `Digit ${spokenDigit.key}`, explanation: `Wrong Figure (${spokenDigit.key})` };
+        }
+        return null;
+      }
+
+      // STEP 4: Services / Actions Menu
+      if (currentStep === 'services' || currentStep === 'action') {
+        if (/\b(send money|send|transfer|momo user|another momo|send cash|mena sika)\b/i.test(text) || spokenDigit?.key === '1') {
+          return { matchedKey: '1', label: 'Send Money (Key 1)', explanation: 'Selected Send Money' };
+        }
+        if (/\b(pay bills|bills|utility|utilities|bill|tua bills)\b/i.test(text) || spokenDigit?.key === '2') {
+          return { matchedKey: '2', label: 'Pay Bills (Key 2)', explanation: 'Selected Pay Bills' };
+        }
+        if (/\b(buy airtime|airtime|bundle|data|credit|tɔ airtime|to airtime)\b/i.test(text) || spokenDigit?.key === '3') {
+          return { matchedKey: '3', label: 'Buy Airtime (Key 3)', explanation: 'Selected Buy Airtime' };
+        }
+        if (/\b(allow cashout|cashout|cash out|withdraw)\b/i.test(text) || spokenDigit?.key === '4') {
+          return { matchedKey: '4', label: 'Allow Cashout (Key 4)', explanation: 'Selected Allow Cashout' };
+        }
+        if (/\b(check account|check balance|account|balance)\b/i.test(text) || spokenDigit?.key === '5') {
+          return { matchedKey: '5', label: 'Check Account (Key 5)', explanation: 'Selected Check Account' };
+        }
+        if (spokenDigit) {
+          return { matchedKey: spokenDigit.key, label: `Digit ${spokenDigit.key}`, explanation: `Wrong Figure (${spokenDigit.key})` };
+        }
+        return null;
+      }
+
+      // STEP 5: Recipient Phone Number Entry
+      if (currentStep === 'recipient') {
+        const phoneFromText = this.extractSpokenPhoneNumber(text);
+        if (phoneFromText) {
+          return {
+            nextStep: 'recipient_verify',
+            slots: { phone: phoneFromText, name: 'Kwame Nyamebere' },
+            label: `Phone: ${phoneFromText}`,
+            explanation: `Entered phone number ${phoneFromText}`
+          };
+        }
+        if (/\b(kwame|nyamebere|brother|friend|preferred)\b/i.test(text)) {
+          return {
+            nextStep: 'recipient_verify',
+            slots: { phone: '0553838464', name: 'Kwame Nyamebere' },
+            label: 'Kwame Nyamebere (055 383 8464)',
+            explanation: 'Selected saved contact Kwame Nyamebere'
+          };
+        }
+        if (text === '#' || /\b(hash|pound|submit|enter|done)\b/i.test(text) || spokenDigit?.key === '#') {
+          return { matchedKey: '#', label: 'Submit (#)', explanation: 'Submit Phone Number' };
+        }
+        if (spokenDigit && /^[0-9]$/.test(spokenDigit.key)) {
+          return { appendDigit: spokenDigit.key, label: `Digit ${spokenDigit.key}`, explanation: `Appended digit ${spokenDigit.key}` };
+        }
+        return null;
+      }
+
+      // STEP 6: Recipient Confirmation (KYC Verification)
+      if (currentStep === 'recipient_verify' || currentStep === 'verify_recipient') {
+        if (/\b(confirm and send|confirm|send|yes|correct|proceed|okay|sure|gye tum)\b/i.test(text) || spokenDigit?.key === '1') {
+          return { matchedKey: '1', label: 'Confirm & Send (Key 1)', explanation: 'Confirmed recipient details' };
+        }
+        if (/\b(cancel|no|re-enter|change|edit|wrong|different|sesa no)\b/i.test(text) || spokenDigit?.key === '2') {
+          return { matchedKey: '2', label: 'Cancel / Re-enter (Key 2)', explanation: 'Re-enter recipient phone' };
+        }
+        if (spokenDigit) {
+          return { matchedKey: spokenDigit.key, label: `Digit ${spokenDigit.key}`, explanation: `Wrong Figure (${spokenDigit.key})` };
+        }
+        return null;
+      }
+
+      // STEP 7: Amount Entry
+      if (currentStep === 'amount') {
+        const amountVal = this.extractSpokenAmount(text);
+        if (amountVal) {
+          return {
+            nextStep: 'confirm',
+            slots: { amount: String(amountVal) },
+            label: `GH₵ ${amountVal}`,
+            explanation: `Entered amount GH₵ ${amountVal}`
+          };
+        }
+        if (text === '#' || /\b(hash|pound|submit|done)\b/i.test(text) || spokenDigit?.key === '#') {
+          return { matchedKey: '#', label: 'Submit (#)', explanation: 'Submit Amount' };
+        }
+        if (spokenDigit && /^[0-9]$/.test(spokenDigit.key)) {
+          return { appendDigit: spokenDigit.key, label: `Digit ${spokenDigit.key}`, explanation: `Appended digit ${spokenDigit.key}` };
+        }
+        return null;
+      }
+
+      // STEP 8: Final Payment Confirmation
+      if (currentStep === 'confirm') {
+        if (/\b(confirm and send|confirm|send|yes|send it|proceed|okay|correct|pay|transfer|gye tum)\b/i.test(text) || spokenDigit?.key === '1') {
+          return { matchedKey: '1', label: 'Confirm Transfer (Key 1)', explanation: 'Proceed to PIN authorization' };
+        }
+        if (/\b(cancel|no|stop|abort|don't send|do not send)\b/i.test(text) || spokenDigit?.key === '2') {
+          return { matchedKey: '2', label: 'Cancel (Key 2)', explanation: 'Cancelled transfer' };
+        }
+        if (spokenDigit) {
+          return { matchedKey: spokenDigit.key, label: `Digit ${spokenDigit.key}`, explanation: `Wrong Figure (${spokenDigit.key})` };
+        }
+        return null;
+      }
+
+      // STEP 9: Receipt / Exit
+      if (currentStep === 'receipt') {
+        if (/\b(no|nothing|that's all|that is all|goodbye|bye|no thanks|done|exit|dabi)\b/i.test(text) || spokenDigit?.key === '0' || spokenDigit?.key === '2') {
+          return { matchedKey: '0', label: 'Exit (Key 0)', explanation: 'Ended call' };
+        }
+        if (/\b(yes|another|check balance|pay bills|send more|aane)\b/i.test(text) || spokenDigit?.key === '1') {
+          return { matchedKey: '1', label: 'Another Service (Key 1)', explanation: 'Requested another service' };
+        }
+        return null;
+      }
+
+      // Generic fallback: direct spoken digit
+      if (spokenDigit) {
+        return { matchedKey: spokenDigit.key, label: spokenDigit.label, explanation: `Voiced digit ${spokenDigit.key}` };
+      }
+
+      return null;
+    },
+
+    executeFastVoiceAction(match, rawTranscript) {
+      if (match.appendDigit) {
+        if (this.callState.step === 'recipient') {
+          const inputEl = document.getElementById('inPhoneSim');
+          if (inputEl) {
+            if (inputEl.value.length >= 10) inputEl.value = '';
+            inputEl.value += match.appendDigit;
+            this.callState.phone = inputEl.value;
+            if (inputEl.value.length === 10) {
+              setTimeout(() => { this.submitSimRecipient(); }, 400);
+            }
+          }
+        } else if (this.callState.step === 'amount') {
+          const inputEl = document.getElementById('inAmountSim');
+          if (inputEl) {
+            inputEl.value += match.appendDigit;
+            this.callState.amount = inputEl.value;
+          }
+        }
+        return;
+      }
+
+      if (match.matchedKey) {
+        this.pressVoiceKey(match.matchedKey, rawTranscript);
+        return;
+      }
+
+      if (match.nextStep) {
+        this.optionSelectedForCurrentPrompt = true;
+        this.setSpeechRecognitionActive(false, `Fast voice next step: ${match.nextStep}`);
+        if (match.slots) {
+          if (match.slots.phone) this.callState.phone = match.slots.phone;
+          if (match.slots.name) this.callState.name = match.slots.name;
+          if (match.slots.amount) this.callState.amount = String(match.slots.amount);
+          if (match.slots.provider) this.callState.provider = match.slots.provider;
+        }
+        this.goToStep(match.nextStep);
+      }
     },
 
     pressVoiceKey(key, spokenLabel) {
@@ -1144,7 +1462,7 @@
         this.startCall();
         setTimeout(() => {
           this.pressVoiceKey(key, spokenLabel);
-        }, 600);
+        }, 500);
         return;
       }
 
@@ -1156,7 +1474,7 @@
       const textEl = document.getElementById('transcriptText');
       if (preview) preview.style.display = 'flex';
       if (textEl) {
-        textEl.innerHTML = `<strong>🗣️ Voiced Key:</strong> "${displayWord}" &rarr; <span style="color:#34d399; font-weight:700;">Punched [${key}]</span>`;
+        textEl.innerHTML = `<strong>🗣️ Voiced:</strong> "${displayWord}" &rarr; <span class="transcript-match-badge">⚡ Punched [${key}]</span>`;
       }
 
       // 2. Animate physical button on handset
@@ -1170,17 +1488,19 @@
         btnEl.classList.add('key-pressed');
         setTimeout(() => {
           btnEl.classList.remove('key-pressed');
-        }, 350);
+        }, 300);
         setTimeout(() => {
           btnEl.classList.remove('key-voiced');
-        }, 700);
+        }, 600);
       }
 
-      // 3. Mark option selected and deactivate speech recognition for current prompt
-      this.optionSelectedForCurrentPrompt = true;
-      this.setSpeechRecognitionActive(false, `Voice substitution punching key [${key}]`);
+      // 3. Mark option selected and deactivate speech recognition for menu selection prompts
+      if (this.callState.step !== 'recipient' && this.callState.step !== 'amount') {
+        this.optionSelectedForCurrentPrompt = true;
+        this.setSpeechRecognitionActive(false, `Voice substitution punching key [${key}]`);
+      }
 
-      // 4. Delegate to physical pressKey logic (handles valid routes, universal keys 0/8/9, and Audio 11 for wrong figures)
+      // 4. Delegate to physical pressKey logic
       this.pressKey(key);
     },
 
@@ -1199,22 +1519,19 @@
       }
 
       if (this.speechRecogInstance) {
-        try {
-          this.speechRecogInstance.onend = null;
-          this.speechRecogInstance.abort();
-        } catch(e) {}
-        this.speechRecogInstance = null;
+        // Recognition already alive and continuous
+        return;
       }
 
       try {
         const recog = new SpeechRecognition();
-        // en-GH accurately captures Ghanaian English and local phonetic digits
-        recog.lang = 'en-GH';
+        // en-US achieves instant local recognition (<50ms) across all desktop and mobile browsers
+        recog.lang = 'en-US';
         recog.continuous = true;
         recog.interimResults = true;
+        recog.maxAlternatives = 3;
 
         recog.onresult = (event) => {
-          // Strict guard: ignore speech ONLY IF call is inactive, PIN prompt is open, or option was already selected
           if (!this.isListeningActive || !this.callState.active || this.isPinPromptOpen || this.optionSelectedForCurrentPrompt) {
             return;
           }
@@ -1223,59 +1540,47 @@
             const res = event.results[i];
             const isFinal = res.isFinal;
             const alt = res[0];
-            const confidence = (alt && typeof alt.confidence === 'number') ? alt.confidence : 0;
             const rawTranscript = (alt && alt.transcript) ? alt.transcript.trim() : '';
+            if (!rawTranscript) continue;
 
-            if (!isFinal) {
-              const textEl = document.getElementById('transcriptText');
-              if (textEl && rawTranscript) {
-                textEl.innerText = `"${rawTranscript}..." (listening)`;
-              }
-              // Fast barge-in check on interim speech: if a clear digit word like "baako", "bako", "one", "1", "two", "mmienu" was spoken, cut through!
-              const quickMatch = this.extractSpokenDigit(rawTranscript);
-              if (quickMatch && this.isPromptPlaying) {
-                console.log(`[Barge-In Interim] Voiced digit "${rawTranscript}" detected during audio playback! Cutting through immediately...`);
-                this.stopPhoneAudio();
-              }
-              continue;
-            }
+            const textEl = document.getElementById('transcriptText');
 
-            // INSTANT VOICE-TO-KEYPAD SUBSTITUTION WITH BARGE-IN:
-            // If the user called out a number (1, 2, 3... or one, two, baako, mmienu, back, exit),
-            // immediately substitute punching the key on the phone and cut prompt audio!
-            const digitMatch = this.extractSpokenDigit(rawTranscript);
-            if (digitMatch) {
-              console.log(`[SpeechRecognition] Instant Voice Keypad Substitution: "${rawTranscript}" -> Key [${digitMatch.key}]`);
+            // ⚡ ULTRA-FAST INTENT EVALUATION (Direct execution on interim or final result)
+            const fastMatch = this.matchFastVoiceIntent(rawTranscript, this.callState.step, this.callState.lang);
+            if (fastMatch) {
+              const now = Date.now();
+              const actionKey = fastMatch.matchedKey || fastMatch.nextStep || fastMatch.appendDigit;
+              // Guard against rapid duplicate triggers within 500ms
+              if (this.lastFastVoiceTriggerKey === actionKey && (now - this.lastFastVoiceTriggerTime < 500)) {
+                return;
+              }
+              this.lastFastVoiceTriggerKey = actionKey;
+              this.lastFastVoiceTriggerTime = now;
+
+              console.log(`[FastVoiceEngine] ⚡ Instant Match (${isFinal ? 'final' : 'interim'}): "${rawTranscript}" ->`, fastMatch);
               if (this.isPromptPlaying) {
-                console.log(`[Barge-In] Interrupting audio prompt for user spoken digit: ${digitMatch.key}`);
                 this.stopPhoneAudio();
               }
-              this.pressVoiceKey(digitMatch.key, rawTranscript);
+
+              if (textEl) {
+                textEl.innerHTML = `<strong>🗣️ Voiced:</strong> "${rawTranscript}" &rarr; <span class="transcript-match-badge">⚡ Instant Match: ${fastMatch.label || ('Key [' + fastMatch.matchedKey + ']')}</span>`;
+              }
+
+              this.executeFastVoiceAction(fastMatch, rawTranscript);
               return;
             }
 
-            // Utterance length check to discard short noise artifact
-            const cleanSpeech = rawTranscript.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, '').trim();
-            const isSingleDigit = /^[0-9]$/.test(cleanSpeech);
-            const isShortValidWord = ['no', 'ok', 'at', 'en', 'hi', 'go'].includes(cleanSpeech.toLowerCase());
-            if (cleanSpeech.length < 2 || (cleanSpeech.length < 3 && !isSingleDigit && !isShortValidWord)) {
-              console.log(`[SpeechRecognition] Discarded short noise artifact (${cleanSpeech.length} chars): "${rawTranscript}"`);
-              continue;
-            }
-
-            // Confidence check (floor: 0.65)
-            if (confidence > 0 && confidence < 0.65) {
-              console.warn(`[SpeechRecognition] Low-confidence result: ${(confidence * 100).toFixed(1)}% ("${rawTranscript}")`);
-              const textEl = document.getElementById('transcriptText');
+            // If interim and not matched yet, display real-time live hearing feedback
+            if (!isFinal) {
               if (textEl) {
-                textEl.innerText = `Didn't catch that clearly. Please repeat or press keypad.`;
+                textEl.innerHTML = `🗣️ Hearing: <strong style="color:#6ee7b7;">"${rawTranscript}..."</strong>`;
               }
               continue;
             }
 
-            console.log(`[SpeechRecognition] Final speech input received: "${rawTranscript}" (confidence ${(confidence * 100).toFixed(1)}%)`);
+            // Final result received and not matched by fast engine: delegate to natural voice parser
+            console.log(`[SpeechRecognition] Final speech received for natural parsing: "${rawTranscript}"`);
             if (this.isPromptPlaying) {
-              console.log(`[Barge-In] Interrupting audio prompt for natural language speech: "${rawTranscript}"`);
               this.stopPhoneAudio();
             }
             this.handleNaturalVoiceInput(rawTranscript);
@@ -1288,26 +1593,22 @@
             this.listeningServiceEnabled = false;
             this.setSpeechRecognitionActive(false, 'Microphone permission denied');
           } else if (err.error === 'language-not-supported') {
-            console.log('[SpeechRecognition] en-GH not supported in this browser, falling back to en-US');
+            console.log('[SpeechRecognition] Falling back to en-US');
             recog.lang = 'en-US';
           }
         };
 
         recog.onend = () => {
           console.log('[SpeechRecognition onend]');
-          // Reconnect if we are still waiting for user input and PIN prompt is NOT open
+          this.speechRecogInstance = null;
+          // Reconnect seamlessly if call is active and PIN prompt is NOT open
           if (this.isListeningActive && this.callState.active && !this.isPinPromptOpen && !this.optionSelectedForCurrentPrompt && this.listeningServiceEnabled) {
             clearTimeout(this.speechRestartTimer);
             this.speechRestartTimer = setTimeout(() => {
               if (this.isListeningActive && this.callState.active && !this.isPinPromptOpen && !this.optionSelectedForCurrentPrompt && this.listeningServiceEnabled) {
-                console.log('[SpeechRecognition] Restarting recognizer to continue listening for choice...');
-                try {
-                  recog.start();
-                } catch (e) {
-                  console.warn('[SpeechRecognition] Restart warning:', e);
-                }
+                this.startBrowserSpeechRecognition();
               }
-            }, 250);
+            }, 100);
           }
         };
 
@@ -1334,10 +1635,10 @@
 
     startListeningService() {
       this.listeningServiceEnabled = true;
-      if (this.callState.active && !this.isPromptPlaying && !this.isPinPromptOpen && !this.optionSelectedForCurrentPrompt) {
+      if (this.callState.active && !this.isPinPromptOpen && !this.optionSelectedForCurrentPrompt) {
         this.setSpeechRecognitionActive(true, 'startListeningService called');
       } else {
-        this.setSpeechRecognitionActive(false, 'startListeningService called (waiting for prompt or PIN prompt)');
+        this.setSpeechRecognitionActive(false, 'startListeningService called (waiting for call or PIN prompt)');
       }
     },
 
@@ -1517,6 +1818,17 @@
       const textEl = document.getElementById('transcriptText');
       if (preview) preview.style.display = 'flex';
       if (textEl) textEl.innerText = `"${transcript}"`;
+
+      // ⚡ FAST-PATH INTENT MATCH CHECK (Zero network delay)
+      const fastMatch = this.matchFastVoiceIntent(transcript, this.callState.step, this.callState.lang);
+      if (fastMatch) {
+        console.log(`[FastVoiceEngine] ⚡ Instant Local Intent Match: "${transcript}" ->`, fastMatch);
+        if (textEl) {
+          textEl.innerHTML = `<strong>🗣️ Voiced:</strong> "${transcript}" &rarr; <span class="transcript-match-badge">⚡ Instant Match: ${fastMatch.label || ('Key [' + fastMatch.matchedKey + ']')}</span>`;
+        }
+        this.executeFastVoiceAction(fastMatch, transcript);
+        return;
+      }
 
       try {
         const res = await fetch('/api/ivr/natural-input', {
@@ -1783,8 +2095,9 @@
         this.setSpeechRecognitionActive(false, `Entering step: ${step} (PIN prompt open - speech disabled)`);
       } else {
         this.isPinPromptOpen = false;
-        // Speech recognition is strictly INACTIVE while navigating and while the prompt plays
-        this.setSpeechRecognitionActive(false, `Entering step: ${step}`);
+        if (this.listeningServiceEnabled && this.callState.active) {
+          this.setSpeechRecognitionActive(true, `Entering step: ${step} (Fast Voice Ready)`);
+        }
       }
 
       // Enforce strict language separation:
