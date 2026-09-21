@@ -62,4 +62,4 @@ node_modules/
 dist/
 .env
 .env.local
-*.rst
+*.rstbun.lock
