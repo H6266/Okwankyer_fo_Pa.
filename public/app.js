@@ -987,9 +987,6 @@
       const liveXml = document.getElementById('liveXmlCode');
       if (liveXml) liveXml.innerText = '<!-- Call not started. Click "Start Call Simulation" or "Place New Call" to stream VoiceXML -->';
 
-      const transcript = document.getElementById('transcriptText');
-      if (transcript) transcript.innerText = 'Waiting to place call...';
-
       const chips = document.getElementById('voiceSuggestionsChips');
       if (chips) chips.innerHTML = '';
     },
