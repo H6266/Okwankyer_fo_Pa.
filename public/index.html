@@ -99,14 +99,17 @@
       <div class="voice-mode-selector-bar" id="voiceModeBar">
         <div class="voice-mode-label">
           <span>🎧 Voice Audio Track:</span>
-          <span style="font-weight:normal; font-size:11.5px; color:var(--ink-muted);">Select active speech engine for call prompts</span>
+          <span style="font-weight:normal; font-size:11.5px; color:var(--ink-muted);">Strict Language Audio Guarantee</span>
         </div>
         <div class="voice-mode-toggles">
-          <button class="voice-mode-btn active" id="btnVoiceModeDefault" onclick="window.app.setVoiceMode('bilingual')">
-            🇬🇭 Bilingual Core (Twi/EN)
+          <button class="voice-mode-btn active" id="btnVoiceModeTwi" onclick="window.app.setVoiceMode('twi')">
+            🇬🇭 Akan Twi Track (Twi Audio Only)
           </button>
-          <button class="voice-mode-btn" id="btnVoiceModePrototype" onclick="window.app.setVoiceMode('prototype')">
-            🇬🇧 English Prototype (12 Prompts)
+          <button class="voice-mode-btn" id="btnVoiceModeEn" onclick="window.app.setVoiceMode('en')">
+            🇬🇧 English Track (English Audio Only)
+          </button>
+          <button class="voice-mode-btn" id="btnVoiceModeAuto" onclick="window.app.setVoiceMode('auto')">
+            🌐 Interactive IVR (1: EN, 2: Twi)
           </button>
         </div>
       </div>
@@ -139,9 +142,23 @@
 
             <!-- Current Spoken Prompt Box -->
             <div class="prompt-box" id="promptBox">
-              <div class="prompt-step-tag" id="currentStepTag">Simulation Ready</div>
-              <div class="prompt-text-twi" id="currentPromptTwi">"Mia 'Start Call Simulation' anaa 'Place New Call' sɛ wobɛhyɛ aseɛ."</div>
-              <div class="prompt-text-en" id="currentPromptEn">"Simulation idle. Click 'Start Call Simulation' or 'Place New Call' to begin."</div>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:4px;">
+                <div class="prompt-step-tag" id="currentStepTag">Simulation Ready</div>
+                <div class="prompt-lang-badge" id="currentLangBadge" style="font-size:11px; font-weight:700; padding:2px 8px; border-radius:12px; background:rgba(16,185,129,0.15); color:var(--emerald-accent); border:1px solid rgba(16,185,129,0.3);">
+                  🇬🇭 Akan Twi Active
+                </div>
+              </div>
+              <div class="prompt-primary-block" id="primaryPromptBlock">
+                <div class="prompt-header-label" id="primaryPromptLabel" style="font-size:10px; text-transform:uppercase; letter-spacing:0.5px; color:var(--emerald-accent); margin-bottom:3px; font-weight:700;">Spoken Prompt (Akan Twi)</div>
+                <div class="prompt-text-twi" id="currentPromptTwi">"Mia 'Start Call Simulation' anaa 'Place New Call' sɛ wobɛhyɛ aseɛ."</div>
+              </div>
+              <div class="prompt-secondary-block" id="secondaryPromptBlock" style="margin-top:6px; padding-top:6px; border-top:1px dashed rgba(255,255,255,0.12);">
+                <div class="prompt-header-label" id="secondaryPromptLabel" style="font-size:10px; text-transform:uppercase; letter-spacing:0.5px; color:var(--ink-muted); margin-bottom:2px;">English Translation</div>
+                <div class="prompt-text-en" id="currentPromptEn">"Simulation idle. Click 'Start Call Simulation' or 'Place New Call' to begin."</div>
+              </div>
+              <div class="prompt-audio-file-tag" id="currentAudioFileTag" style="margin-top:7px; font-size:11px; color:var(--sky-accent); display:flex; align-items:center; gap:4px; font-family:monospace; background:rgba(15,23,42,0.6); padding:3px 8px; border-radius:4px; border:1px solid rgba(56,189,248,0.2);">
+                <span>🎵 Playing:</span> <span id="currentAudioFileName" style="color:#38bdf8; font-weight:600;">No audio loaded</span>
+              </div>
             </div>
 
             <!-- In-Phone Audio Player Component -->
@@ -205,60 +222,82 @@
             </div>
           </div>
 
-          <!-- Realistic Physical DTMF Keypad with Dual Tones -->
+          <!-- Realistic Physical DTMF Keypad with Dual Tones & Voice Substitution -->
           <div class="phone-keypad-container" id="phoneKeypadContainer">
             <div class="keypad-title-bar">
-              <span>Universal Voice Keypad</span>
-              <span class="keypad-hint">Keyboard 0-9, *, # active</span>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span>🎙️ Universal Voice Keypad</span>
+                <span class="badge" style="font-size: 9.5px; background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 1px 6px; border-radius: 9999px;">Voice Substitute Active</span>
+              </div>
+              <span class="keypad-hint">Say 0-9 aloud or punch</span>
             </div>
+
+            <!-- Voice Keypad Quick Substitution Bar -->
+            <div class="voice-keypad-strip" id="voiceKeypadStrip" style="margin-bottom: 10px; padding: 7px 8px; background: rgba(15, 23, 42, 0.65); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08);">
+              <div style="font-size: 10.5px; color: #34d399; font-weight: 700; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center;">
+                <span>🗣️ Voice Substitution (Say or Tap):</span>
+                <span style="color: rgba(246, 248, 243, 0.6); font-weight: 400; font-size: 9.5px;">Replaces punching on phone</span>
+              </div>
+              <div class="voice-digits-row" style="display: flex; flex-wrap: wrap; gap: 4px;">
+                <button type="button" class="btn-voice-digit" onclick="window.app.speakVoiceDigit('1', 'Baako / One')" title="Say '1' or 'Baako'">🗣️ "1" Baako</button>
+                <button type="button" class="btn-voice-digit" onclick="window.app.speakVoiceDigit('2', 'Mmienu / Two')" title="Say '2' or 'Mmienu'">🗣️ "2" Mmienu</button>
+                <button type="button" class="btn-voice-digit" onclick="window.app.speakVoiceDigit('3', 'Mmiɛnsa / Three')" title="Say '3' or 'Mmiɛnsa'">🗣️ "3" Mmiɛnsa</button>
+                <button type="button" class="btn-voice-digit" onclick="window.app.speakVoiceDigit('4', 'Anan / Four')" title="Say '4' or 'Anan'">🗣️ "4" Anan</button>
+                <button type="button" class="btn-voice-digit" onclick="window.app.speakVoiceDigit('5', 'Enum / Five')" title="Say '5' or 'Enum'">🗣️ "5" Enum</button>
+                <button type="button" class="btn-voice-digit" onclick="window.app.speakVoiceDigit('8', 'Nwɔtwe / Back')" title="Say '8' or 'Back'">🗣️ "8" Back</button>
+                <button type="button" class="btn-voice-digit" onclick="window.app.speakVoiceDigit('9', 'Nkron / Replay')" title="Say '9' or 'Replay'">🗣️ "9" Replay</button>
+                <button type="button" class="btn-voice-digit" onclick="window.app.speakVoiceDigit('0', 'Hwee / Exit')" title="Say '0' or 'Exit'">🗣️ "0" Exit</button>
+              </div>
+            </div>
+
             <div class="keypad-grid" id="keypadGrid">
               <button class="key-btn" id="key1" onclick="window.app.pressKey('1')">
                 <span class="key-digit">1</span>
-                <span class="key-sub">EN / Confirm</span>
+                <span class="key-sub">Baako / One</span>
               </button>
               <button class="key-btn" id="key2" onclick="window.app.pressKey('2')">
                 <span class="key-digit">2</span>
-                <span class="key-sub">Twi / Balance</span>
+                <span class="key-sub">Mmienu / Two</span>
               </button>
               <button class="key-btn" id="key3" onclick="window.app.pressKey('3')">
                 <span class="key-digit">3</span>
-                <span class="key-sub">AT Network</span>
+                <span class="key-sub">Mmiɛnsa / Three</span>
               </button>
               <button class="key-btn" id="key4" onclick="window.app.pressKey('4')">
                 <span class="key-digit">4</span>
-                <span class="key-sub">GHI</span>
+                <span class="key-sub">Anan / Four</span>
               </button>
               <button class="key-btn" id="key5" onclick="window.app.pressKey('5')">
                 <span class="key-digit">5</span>
-                <span class="key-sub">JKL</span>
+                <span class="key-sub">Enum / Five</span>
               </button>
               <button class="key-btn" id="key6" onclick="window.app.pressKey('6')">
                 <span class="key-digit">6</span>
-                <span class="key-sub">MNO</span>
+                <span class="key-sub">Nsia / Six</span>
               </button>
               <button class="key-btn" id="key7" onclick="window.app.pressKey('7')">
                 <span class="key-digit">7</span>
-                <span class="key-sub">PQRS</span>
+                <span class="key-sub">Nson / Seven</span>
               </button>
               <button class="key-btn key-nav" id="key8" onclick="window.app.pressKey('8')">
                 <span class="key-digit">8</span>
-                <span class="key-sub nav-highlight">&larr; Back (8)</span>
+                <span class="key-sub nav-highlight">&larr; Nwɔtwe / Back</span>
               </button>
               <button class="key-btn key-nav" id="key9" onclick="window.app.pressKey('9')">
                 <span class="key-digit">9</span>
-                <span class="key-sub nav-highlight">&#8635; Repeat (9)</span>
+                <span class="key-sub nav-highlight">&#8635; Nkron / Replay</span>
               </button>
               <button class="key-btn" id="keyStar" onclick="window.app.pressKey('*')">
                 <span class="key-digit">*</span>
-                <span class="key-sub">Pesewas (.)</span>
+                <span class="key-sub">Nsoroma / Dot (*)</span>
               </button>
               <button class="key-btn key-cancel" id="key0" onclick="window.app.pressKey('0')">
                 <span class="key-digit">0</span>
-                <span class="key-sub cancel-highlight">&#10005; Cancel (0)</span>
+                <span class="key-sub cancel-highlight">&#10005; Hwee / Exit (0)</span>
               </button>
               <button class="key-btn key-submit" id="keyHash" onclick="window.app.pressKey('#')">
                 <span class="key-digit">#</span>
-                <span class="key-sub submit-highlight">&#10003; Submit (#)</span>
+                <span class="key-sub submit-highlight">&#10003; Submit / Gye Tum</span>
               </button>
             </div>
 

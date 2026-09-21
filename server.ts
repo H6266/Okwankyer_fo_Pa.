@@ -387,15 +387,16 @@ app.all("/audio/*", (req: Request, res: Response) => {
 
     const legacyTwiMap: Record<string, string> = {
       "01_service_select.mp3": "Twi/Audio_prompt_twi_02.mp3",
-      "02_network_select.mp3": "Twi/Audio_prompt_twi_03.mp3",
+      "02_network_select.mp3": "Twi/Audio_prompt_twi_02.mp3",
+      "03_network_select_alt.mp3": "Twi/Audio_prompt_twi_03.mp3",
       "04_mtn_services_menu.mp3": "Twi/Audio_prompt_twi_04.mp3",
       "05_enter_recipient_phone.mp3": "Twi/Audio_prompt_twi_05.mp3",
-      "07_confirm_recipient_name.mp3": "Twi/Audio_prompt_twi_07.mp3",
-      "08_enter_amount_cedis.mp3": "Twi/Audio_prompt_twi_08.mp3",
-      "09_confirm_transfer_summary.mp3": "Twi/Audio_prompt_twi_09.mp3",
-      "10_pin_prompt_screen_handoff.mp3": "Twi/Audio_prompt_twi_10.mp3",
-      "11_transaction_receipt_summary.mp3": "Twi/Audio_prompt_twi_11.mp3",
-      "cancel_twi.mp3": "Twi/Audio_prompt_twi_10.mp3",
+      "07_confirm_recipient_name.mp3": "Twi/Audio_prompt_twi_06.mp3",
+      "08_enter_amount_cedis.mp3": "Twi/Audio_prompt_twi_07.mp3",
+      "09_confirm_transfer_summary.mp3": "Twi/Audio_prompt_twi_08.mp3",
+      "10_pin_prompt_screen_handoff.mp3": "Twi/Audio_prompt_twi_09.mp3",
+      "11_transaction_receipt_summary.mp3": "Twi/Audio_prompt_twi_10.mp3",
+      "cancel_twi.mp3": "Twi/Audio_prompt_twi_11.mp3",
     };
 
     if (fs.existsSync(inEng) && !fs.statSync(inEng).isDirectory()) {
@@ -411,15 +412,15 @@ app.all("/audio/*", (req: Request, res: Response) => {
     } else if (cleanSubpath === "confirm_en.mp3") {
       filePath = path.join(process.cwd(), "audio", "English", "Audio_prompt_10.mp3");
     } else if (cleanSubpath === "confirm_twi.mp3") {
-      filePath = path.join(process.cwd(), "audio", "Twi", "Audio_prompt_twi_09.mp3");
+      filePath = path.join(process.cwd(), "audio", "Twi", "Audio_prompt_twi_08.mp3");
     } else if (cleanSubpath === "success_en.mp3") {
       filePath = path.join(process.cwd(), "audio", "English", "Audio_prompt_11.mp3");
     } else if (cleanSubpath === "success_twi.mp3") {
-      filePath = path.join(process.cwd(), "audio", "Twi", "Audio_prompt_twi_10.mp3");
+      filePath = path.join(process.cwd(), "audio", "Twi", "Audio_prompt_twi_09.mp3");
     } else if (cleanSubpath === "cancel_en.mp3") {
       filePath = path.join(process.cwd(), "audio", "English", "Audio_prompt_11.mp3");
     } else if (cleanSubpath === "cancel_twi.mp3") {
-      filePath = path.join(process.cwd(), "audio", "Twi", "Audio_prompt_twi_10.mp3");
+      filePath = path.join(process.cwd(), "audio", "Twi", "Audio_prompt_twi_11.mp3");
     }
   }
 
@@ -610,78 +611,78 @@ app.get("/api/twi-audio", (_req: Request, res: Response) => {
         number: "02",
         filename: "Audio_prompt_twi_02.mp3",
         url: "/audio/Twi/Audio_prompt_twi_02.mp3",
-        spokenText: "Telecom anaa Mobile Money dwumadie no, mia baako. Banking dwumadie no, mia mmienu. Sɛ wopɛ sɛ wote bio a, mia akron. Sɛ wopɛ sɛ wogyae a, mia hwee.",
-        description: "2. Service Selection (Telecom vs Banking)",
+        spokenText: "Afei selecte wo network. Sɛ MTN a, mia baako. Sɛ Telecel a, mia mmienu. Sɛ AirtelTigo a, mia mmiɛnsa. Mia anan na tie wei biom. Mia zero na si ha.",
+        description: "2. Network Provider Selection (MTN, Telecel, AT)",
       },
       {
         number: "03",
         filename: "Audio_prompt_twi_03.mp3",
         url: "/audio/Twi/Audio_prompt_twi_03.mp3",
-        spokenText: "Yi wo nkitahodi dwumakuo no. Sɛ ɛyɛ MTN a, mia baako. Sɛ ɛyɛ Telecel a, mia mmienu. Sɛ ɛyɛ AT a, mia mmiɛnsa.",
-        description: "3. Network Provider Selection",
+        spokenText: "Sɛ wopɛ sɛ wosende sika kɔ Mobile Money a, mia baako. Sikakorabea dwumadie no, mia mmienu.",
+        description: "3. Service Selection (Telecom MoMo vs Banking)",
       },
       {
         number: "04",
         filename: "Audio_prompt_twi_04.mp3",
         url: "/audio/Twi/Audio_prompt_twi_04.mp3",
-        spokenText: "MTN dwumadie. Sɛ wopɛ sɛ womena sika ma obi a ɔde MoMo a, mia baako. Sɛ wopɛ sɛ wotua ka a, mia mmienu.",
-        description: "4. MTN MoMo Services Menu",
+        spokenText: "Sɛ wopɛ sɛ wosend sika kɔ ma MoMo user a, mia 1. Sɛ wopɛ sɛ wotua bills a, mia 2. Sɛ wopɛ sɛ wotɔ airtime anaa bundle a, mia 3. Sɛ wopɛ sɛ woallow-i cash out a, mia 4. Sɛ wopɛ sɛ wocheck-i wo account no a, mia 5. Mia 8 na kɔ back. Mia 0 na firi ha.",
+        description: "4. MTN MoMo Services Menu (Send money, Pay bills, etc.)",
       },
       {
         number: "05",
         filename: "Audio_prompt_twi_05.mp3",
         url: "/audio/Twi/Audio_prompt_twi_05.mp3",
-        spokenText: "Bɔ nɔma du a wopɛ sɛ womena sika no ma no, na wie a bɔ hash. Sɛ wopɛ sɛ wogyae a, mia hwee.",
+        spokenText: "Afei, bɔ nɔmba no a wopɛ sɛ wosende sika no to so no. Wowie a, fa hash ka ho. Mia zero na san akyi.",
         description: "5. Recipient Phone Number Entry",
       },
       {
         number: "06",
         filename: "Audio_prompt_twi_06.mp3",
         url: "/audio/Twi/Audio_prompt_twi_06.mp3",
-        spokenText: "Nɔma a wobɔeɛ no pɛpɛɛpɛ.",
-        description: "6. Dialled Recipient Digits Confirmation",
+        spokenText: "Me pɛ sɛ wo bɛ sendi sika kɔ Kwame Nyamebrɛ fɔn so, anaa number 8464 ɛna ɛtɔ. Sɛ wo pɛ sɛ wo gye tum na wo sendi sika ma me a baako (1). Sɛ wo pɛ sɛ wo cancel a mia mmienu (2). Sɛ wo pɛ sɛ wo firi mu a mia zero (0).",
+        description: "6. KYC Recipient Verification (Kwame Nyamebere ending 8464)",
       },
       {
         number: "07",
         filename: "Audio_prompt_twi_07.mp3",
         url: "/audio/Twi/Audio_prompt_twi_07.mp3",
-        spokenText: "Worebɛmena sika ama Kwame Nyameba. Sɛ wopene so a, mia baako. Sɛ wopɛ sɛ wotwa mu a, mia mmienu.",
-        description: "7. KYC Recipient Verification",
+        spokenText: "Mepa wo kyɛw, si di amount a wo pɛ sɛ wo send ɛkɔ Kwame Nyame Brɛfo so, woyɛ a fa hash ɛntua to.",
+        description: "7. Transfer Amount Prompt",
       },
       {
         number: "08",
         filename: "Audio_prompt_twi_08.mp3",
         url: "/audio/Twi/Audio_prompt_twi_08.mp3",
-        spokenText: "Bɔ Ghana sidi dodoɔ a wopɛ sɛ womena ma Kwame Nyameba na wie a bɔ hash.",
-        description: "8. Transfer Amount Prompt",
+        spokenText: "Me pɛ sɛ wo sendi 500 Ghana cedis asɛm a kɔ m'abɛɛ na namba so. Sɛ wopɛ sɛ woyi tum na wo sendi a, mia baako (1). Sɛ wopɛ sɛ wo cancel a, mia mmienu (2).",
+        description: "8. Transfer Confirmation Read-back (500 GHS)",
       },
       {
         number: "09",
         filename: "Audio_prompt_twi_09.mp3",
         url: "/audio/Twi/Audio_prompt_twi_09.mp3",
-        spokenText: "Worebɛmena Ghana sidi ahanum ama Kwame Nyameba. Sɛ wopene so na womena a, mia baako. Sɛ wotwa mu a, mia mmienu.",
-        description: "9. Transfer Confirmation Read-back",
+        spokenText: "Me pɛ sɛ ɔfa ɛsi wo phone no so na bɔ wo MoMo PIN.",
+        description: "9. Zero-PIN Handset Handoff (Screen PIN Entry)",
       },
       {
         number: "10",
         filename: "Audio_prompt_twi_10.mp3",
         url: "/audio/Twi/Audio_prompt_twi_10.mp3",
-        spokenText: "Woapene so. Afei, yɛsrɛ wo hwɛ wo fon no anim na bɔ wo MoMo PIN pɔtee. Yɛda wo ase sɛ wode Ɔkwankyerɛfo Pa dii dwuma.",
-        description: "10. Zero-PIN Handset Handoff",
+        spokenText: "Congratulations! 500 Ghana Cedis a wosendee to Kwame Nyamebrɛ namba no so no yɛ successful. Wo transaction no yɛ completed wɔ 17th September 2026...",
+        description: "10. Transaction Receipt & Reference Number",
       },
       {
         number: "11",
         filename: "Audio_prompt_twi_11.mp3",
         url: "/audio/Twi/Audio_prompt_twi_11.mp3",
-        spokenText: "Mo! Woatumi amena Ghana sidi ahanum ama Kwame Nyameba pɛpɛɛpɛ. Reference nɔma no yɛ OKP 847291.",
-        description: "11. Transaction Receipt & Ref Number",
+        spokenText: "Mpanimfoɔ, fakyɛ yɛn sɛ option yi nni hɔ bio. Yɛdaase sɛ woayɛ use wɔ Ɔkwankyerɛfo Pa. Goodbye.",
+        description: "11. Option Not Available / Exit Notification",
       },
       {
         number: "12",
         filename: "Audio_prompt_twi_12.mp3",
         url: "/audio/Twi/Audio_prompt_twi_12.mp3",
-        spokenText: "Yɛda wo ase. Nante yie.",
-        description: "12. Thank You & Closing",
+        spokenText: "Yɛda wo ase sɛ wode Ɔkwankyerɛfo Pa adi dwuma. Nante yie.",
+        description: "12. Studio Closing / Goodbye",
       },
     ],
   };
@@ -804,11 +805,13 @@ function checkUniversalNav(
   res: Response
 ): boolean {
   if (digit === "0") {
-    // TODO: Pending Phase 2 (Twi recordings)
-    const msg =
-      lang === "twi"
-        ? "Yɛatwa mu sɛnea worepɛ no. Akwaaba, nante yiye."
-        : "Transaction cancelled as requested. Thank you for using Ɔkwankyerɛfo Pa. Goodbye.";
+    // Cancellation
+    if (lang === "twi") {
+      const xml = `    <Play url="${getPublicBaseUrl()}/audio/Twi/Audio_prompt_twi_12.mp3"/>\n    <Reject/>`;
+      xmlResponse(res, xml);
+      return true;
+    }
+    const msg = "Transaction cancelled as requested. Thank you for using Ɔkwankyerɛfo Pa. Goodbye.";
     xmlResponse(res, `    <Say voice="man">${msg}</Say>\n    <Reject/>`);
     return true;
   }
@@ -821,6 +824,27 @@ function checkUniversalNav(
     return true;
   }
   return false;
+}
+
+// ── Helper: Invalid DTMF / Wrong Figure Handler (Audio 11 for Twi) ─────
+// The 11th audio for the Twi tree prompt plays when someone punches a wrong figure,
+// an option not mentioned in the audio, or that does not have any prompt for that option.
+function handleInvalidDtmf(
+  lang: string,
+  retryUrl: string,
+  res: Response,
+  baseUrl: string,
+  customMsg?: string
+) {
+  if (lang === "twi") {
+    const xml = `    <Play url="${baseUrl}/audio/Twi/Audio_prompt_twi_11.mp3"/>
+    <Redirect>${retryUrl}</Redirect>`;
+    return xmlResponse(res, xml);
+  } else {
+    const xml = `    <Say voice="man">${customMsg || "That option is not recognized. Please choose a valid option from the menu."}</Say>
+    <Redirect>${retryUrl}</Redirect>`;
+    return xmlResponse(res, xml);
+  }
 }
 
 // ── Helper: Speech Fallback VoiceXML Builder ───────────────────────────
@@ -1050,10 +1074,21 @@ ${buildSpeechFallbackXml({ promptAudioUrl: introAudioUrl, speechCallbackUrl: spe
 
 // ── Step 2: Language Selection ────────────────────────────────────────
 app.all("/language-selection", (req: Request, res: Response) => {
-  const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "1") as string;
+  const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getPublicBaseUrl(req);
+
+  if (dtmf !== "1" && dtmf !== "2") {
+    // Unrecognized figure punched on welcome prompt -> 11th Audio for Twi
+    return handleInvalidDtmf("twi", `${baseUrl}/voice-menu`, res, baseUrl, "Please press 1 for English or 2 for Akan Twi.");
+  }
+
   const lang = dtmf === "2" ? "twi" : "en";
   console.log(`🗣️ Language chosen: ${lang.toUpperCase()}`);
+
+  if (lang === "twi") {
+    // Twi flow directly branches into Network selection (Audio prompt twi 02)
+    return xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?lang=twi&amp;service=momo</Redirect>`);
+  }
 
   xmlResponse(res, `    <Redirect>${baseUrl}/service-select?lang=${lang}</Redirect>`);
 });
@@ -1086,7 +1121,7 @@ ${buildSpeechFallbackXml({ promptAudioUrl: audioUrl, speechCallbackUrl: speechFa
 
 app.all("/service-choice", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as string;
-  const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "1") as string;
+  const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getPublicBaseUrl(req);
 
   if (checkUniversalNav(dtmf, lang, `${baseUrl}/voice-menu`, `${baseUrl}/service-select?lang=${lang}`, res)) {
@@ -1095,7 +1130,6 @@ app.all("/service-choice", (req: Request, res: Response) => {
 
   if (dtmf === "2") {
     // Banking roadmap teaser
-    // TODO: Pending Phase 2 (Twi recordings)
     const bankMsg =
       lang === "twi"
         ? "Yɛredi Sikakorabea nhyehyɛe no ho dwuma sesei. Yɛrebɛsan akɔ Mobile Money so."
@@ -1105,7 +1139,12 @@ app.all("/service-choice", (req: Request, res: Response) => {
     return xmlResponse(res, xml);
   }
 
-  xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?lang=${lang}&amp;service=momo</Redirect>`);
+  if (dtmf === "1") {
+    return xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?lang=${lang}&amp;service=momo</Redirect>`);
+  }
+
+  // Any other figure punched
+  return handleInvalidDtmf(lang, `${baseUrl}/service-select?lang=${lang}`, res, baseUrl, "Invalid option. Press 1 for Telecom or 2 for Banking.");
 });
 
 // ── Step 4: Provider Selection (MTN / Telecel / AT) ───────────────────
@@ -1116,7 +1155,7 @@ app.all("/provider-select", (req: Request, res: Response) => {
 
   if (lang === "en" || lang === "twi") {
     const audioUrl = lang === "twi"
-      ? `${baseUrl}/audio/Twi/Audio_prompt_twi_03.mp3`
+      ? `${baseUrl}/audio/Twi/Audio_prompt_twi_02.mp3`
       : `${baseUrl}/audio/English/Audio_prompt_03.mp3`;
     const speechFallbackUrl = `${baseUrl}/speech-fallback?step=provider-select&amp;service=${service}&amp;retryUrl=%2Fprovider-select%3Flang%3D${lang}%26service%3D${service}`;
     const xml = `    <Play url="${audioUrl}"/>
@@ -1138,18 +1177,29 @@ ${buildSpeechFallbackXml({ promptAudioUrl: audioUrl, speechCallbackUrl: speechFa
 app.all("/provider-choice", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as string;
   const service = (req.query?.service || req.body?.service || "momo") as string;
-  const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "1") as string;
+  const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getPublicBaseUrl(req);
 
   if (checkUniversalNav(dtmf, lang, `${baseUrl}/service-select?lang=${lang}`, `${baseUrl}/provider-select?lang=${lang}&service=${service}`, res)) {
     return;
   }
 
-  let provider = "MTN";
-  if (dtmf === "2") provider = "Telecel";
-  if (dtmf === "3") provider = "AT";
+  if (lang === "twi" && dtmf === "4") {
+    // Twi prompt 02 explicitly states: "Mia anan (4) na tie wei biom"
+    return xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?lang=twi&amp;service=${service}</Redirect>`);
+  }
 
-  xmlResponse(res, `    <Redirect>${baseUrl}/action-select?lang=${lang}&amp;provider=${provider}</Redirect>`);
+  let provider = "";
+  if (dtmf === "1") provider = "MTN";
+  else if (dtmf === "2") provider = "Telecel";
+  else if (dtmf === "3") provider = "AT";
+
+  if (provider) {
+    return xmlResponse(res, `    <Redirect>${baseUrl}/action-select?lang=${lang}&amp;provider=${provider}</Redirect>`);
+  }
+
+  // Wrong figure punched -> 11th Audio plays for Twi
+  return handleInvalidDtmf(lang, `${baseUrl}/provider-select?lang=${lang}&amp;service=${service}`, res, baseUrl, "Invalid network selection. Press 1 for MTN, 2 for Telecel, or 3 for AT.");
 });
 
 // ── Step 5: Action Menu (Send Money, Bills, Airtime, Balance) ─────────
@@ -1186,26 +1236,30 @@ ${buildSpeechFallbackXml({ promptAudioUrl: audioUrl, speechCallbackUrl: speechFa
 app.all("/action-choice", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as string;
   const provider = (req.query?.provider || req.body?.provider || "MTN") as string;
-  const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "1") as string;
+  const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getPublicBaseUrl(req);
 
   if (checkUniversalNav(dtmf, lang, `${baseUrl}/provider-select?lang=${lang}`, `${baseUrl}/action-select?lang=${lang}&provider=${provider}`, res)) {
     return;
   }
 
-  if (dtmf === "2") {
-    // Balance check info
-    // TODO: Pending Phase 2 (Twi recordings)
-    const balMsg =
+  if (dtmf === "1") {
+    // Transfer flow: Prompt for recipient number
+    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?lang=${lang}&amp;provider=${provider}</Redirect>`);
+  }
+
+  if (["2", "3", "4", "5"].includes(dtmf)) {
+    const unavailMsg =
       lang === "twi"
-        ? "Woregye wo balance. Sesei, hwɛ wo fon so na fa wo MoMo PIN nwura mu pɛpɛɛpɛ."
-        : "Checking balance. Please check your screen now to enter your PIN securely on the network prompt.";
-    const xml = `    <Say voice="man">${balMsg}</Say>\n    <Reject/>`;
+        ? "Dwumadie yi nni ha sesei. Yɛsrɛ wo, bɔ baako (1) na send sika kɔ ma nipa foforo."
+        : "This service option is unavailable in the prototype. Please press 1 to transfer money.";
+    const xml = `    <Say voice="man">${unavailMsg}</Say>
+    <Redirect>${baseUrl}/action-select?lang=${lang}&amp;provider=${provider}</Redirect>`;
     return xmlResponse(res, xml);
   }
 
-  // Transfer flow: Prompt for recipient number
-  xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?lang=${lang}&amp;provider=${provider}</Redirect>`);
+  // Any other figure punched -> 11th Audio plays for Twi
+  return handleInvalidDtmf(lang, `${baseUrl}/action-select?lang=${lang}&amp;provider=${provider}`, res, baseUrl, "Invalid service option. Press 1 to send money, or 0 to exit.");
 });
 
 // ── Step 6: Enter Recipient Number ────────────────────────────────────
@@ -1271,16 +1325,68 @@ app.all("/verify-recipient", (req: Request, res: Response) => {
   const lookup = lookupRecipient(dtmf);
   if (!lookup.valid || !lookup.record) {
     console.log(`⚠️ Invalid recipient number entered: ${dtmf} (${lookup.error})`);
+    if (lang === "twi") {
+      return handleInvalidDtmf("twi", `${baseUrl}/enter-recipient?lang=twi&amp;provider=${provider}&amp;err=invalid`, res, baseUrl);
+    }
     return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?lang=${lang}&amp;provider=${provider}&amp;err=invalid</Redirect>`);
   }
 
   const recipient = lookup.record;
   console.log(`✅ Recipient resolved: ${recipient.name} (${recipient.phoneNumber})`);
 
+  // Route to Step 7.5: Recipient KYC Name Verification (Audio Prompt 06 in Twi)
   xmlResponse(
     res,
-    `    <Redirect>${baseUrl}/enter-amount?lang=${lang}&amp;provider=${provider}&amp;phone=${recipient.phoneNumber}&amp;name=${encodeURIComponent(recipient.name)}</Redirect>`
+    `    <Redirect>${baseUrl}/recipient-verify?lang=${lang}&amp;provider=${provider}&amp;phone=${recipient.phoneNumber}&amp;name=${encodeURIComponent(recipient.name)}</Redirect>`
   );
+});
+
+// ── Step 7.5: Recipient Verification & Name Confirmation (Prompt 06 in Twi)
+app.all("/recipient-verify", (req: Request, res: Response) => {
+  const lang = (req.query?.lang || req.body?.lang || "en") as string;
+  const provider = (req.query?.provider || req.body?.provider || "MTN") as string;
+  const phone = (req.query?.phone || req.body?.phone || "0553838464") as string;
+  const name = (req.query?.name || req.body?.name || "Kwame Nyamebere") as string;
+  const baseUrl = getPublicBaseUrl(req);
+
+  const audioUrl = lang === "twi"
+    ? `${baseUrl}/audio/Twi/Audio_prompt_twi_06.mp3`
+    : `${baseUrl}/audio/English/Audio_prompt_08.mp3`;
+
+  const callbackUrl = `${baseUrl}/recipient-verify-choice?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}`;
+
+  const xml = `    <Play url="${audioUrl}"/>
+    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
+    </GetDigits>
+    <Say voice="man">No response received. Goodbye.</Say>`;
+
+  xmlResponse(res, xml);
+});
+
+app.all("/recipient-verify-choice", (req: Request, res: Response) => {
+  const lang = (req.query?.lang || req.body?.lang || "en") as string;
+  const provider = (req.query?.provider || req.body?.provider || "MTN") as string;
+  const phone = (req.query?.phone || req.body?.phone || "0553838464") as string;
+  const name = (req.query?.name || req.body?.name || "Kwame Nyamebere") as string;
+  const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
+  const baseUrl = getPublicBaseUrl(req);
+
+  if (checkUniversalNav(dtmf, lang, `${baseUrl}/enter-recipient?lang=${lang}&provider=${provider}`, `${baseUrl}/recipient-verify?lang=${lang}&provider=${provider}&phone=${phone}&name=${encodeURIComponent(name)}`, res)) {
+    return;
+  }
+
+  if (dtmf === "1") {
+    // Confirmed recipient -> proceed to amount (Prompt 07)
+    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}</Redirect>`);
+  }
+
+  if (dtmf === "2") {
+    // Re-enter recipient number
+    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?lang=${lang}&amp;provider=${provider}</Redirect>`);
+  }
+
+  // Any other figure punched -> 11th Audio plays for Twi
+  return handleInvalidDtmf(lang, `${baseUrl}/recipient-verify?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}`, res, baseUrl, "Invalid option. Press 1 to confirm or 2 to re-enter.");
 });
 
 // ── Step 8: Enter Amount ──────────────────────────────────────────────
@@ -1294,7 +1400,7 @@ app.all("/enter-amount", (req: Request, res: Response) => {
 
   if (lang === "en" || lang === "twi") {
     const audioUrl = lang === "twi"
-      ? `${baseUrl}/audio/Twi/Audio_prompt_twi_08.mp3`
+      ? `${baseUrl}/audio/Twi/Audio_prompt_twi_07.mp3`
       : `${baseUrl}/audio/English/Audio_prompt_09.mp3`;
     const errSay = err === "invalid"
       ? (lang === "twi" ? `    <Say voice="man">Sika dodow no nyɛ pɛpɛɛpɛ.</Say>\n` : `    <Say voice="man">That amount wasn't recognized.</Say>\n`)
@@ -1343,13 +1449,16 @@ app.all("/verify-amount", (req: Request, res: Response) => {
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getPublicBaseUrl(req);
 
-  if (checkUniversalNav(dtmf, lang, `${baseUrl}/enter-recipient?lang=${lang}&provider=${provider}`, `${baseUrl}/enter-amount?lang=${lang}&provider=${provider}&phone=${phone}&name=${encodeURIComponent(name)}`, res)) {
+  if (checkUniversalNav(dtmf, lang, `${baseUrl}/recipient-verify?lang=${lang}&provider=${provider}&phone=${phone}&name=${encodeURIComponent(name)}`, `${baseUrl}/enter-amount?lang=${lang}&provider=${provider}&phone=${phone}&name=${encodeURIComponent(name)}`, res)) {
     return;
   }
 
   const validation = validateAmount(dtmf);
   if (!validation.valid || validation.amountGHS === undefined) {
     console.log(`⚠️ Invalid amount entered: ${dtmf} (${validation.error})`);
+    if (lang === "twi") {
+      return handleInvalidDtmf("twi", `${baseUrl}/enter-amount?lang=twi&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;err=invalid`, res, baseUrl);
+    }
     return xmlResponse(
       res,
       `    <Redirect>${baseUrl}/enter-amount?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;err=invalid</Redirect>`
@@ -1378,7 +1487,7 @@ app.all("/safe-confirmation", (req: Request, res: Response) => {
 
   if (lang === "en" || lang === "twi") {
     const audioUrl = lang === "twi"
-      ? `${baseUrl}/audio/Twi/Audio_prompt_twi_09.mp3`
+      ? `${baseUrl}/audio/Twi/Audio_prompt_twi_08.mp3`
       : `${baseUrl}/audio/English/Audio_prompt_10.mp3`;
     const speechFallbackUrl = `${baseUrl}/speech-fallback?step=safe-confirmation&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}&amp;retryUrl=%2Fsafe-confirmation%3Flang%3D${lang}%26provider%3D${provider}%26phone%3D${phone}%26name%3D${encodeURIComponent(name)}%26amount%3D${amount}`;
     const xml = `    <Play url="${audioUrl}"/>
@@ -1407,7 +1516,7 @@ app.all("/safe-outcome", (req: Request, res: Response) => {
   const phone = (req.query?.phone || req.body?.phone || "") as string;
   const name = (req.query?.name || req.body?.name || "") as string;
   const amount = (req.query?.amount || req.body?.amount || "") as string;
-  const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "1") as string;
+  const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getPublicBaseUrl(req);
 
   console.log(`🎯 Safe confirmation choice: ${dtmf}`);
@@ -1419,9 +1528,14 @@ app.all("/safe-outcome", (req: Request, res: Response) => {
 
   if (dtmf === "0") {
     const cancelAudio = lang === "twi"
-      ? `${baseUrl}/audio/Twi/Audio_prompt_twi_10.mp3`
-      : `${baseUrl}/audio/English/Audio_prompt_11.mp3`;
+      ? `${baseUrl}/audio/Twi/Audio_prompt_twi_12.mp3`
+      : `${baseUrl}/audio/English/Audio_prompt_12.mp3`;
     return xmlResponse(res, `    <Play url="${cancelAudio}"/>\n    <Reject/>`);
+  }
+
+  if (dtmf !== "1") {
+    // Wrong figure punched on confirmation prompt -> 11th Audio for Twi
+    return handleInvalidDtmf(lang, `${baseUrl}/safe-confirmation?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}`, res, baseUrl, "Invalid option. Press 1 to confirm transfer or 2 to change details.");
   }
 
   // Confirmed (Key 1): Strong Security Posture Handoff
@@ -1435,7 +1549,7 @@ app.all("/safe-outcome", (req: Request, res: Response) => {
   }).catch((err) => console.error("[Keypad] Converged transaction execution error:", err));
 
   const audioUrl = lang === "twi"
-    ? `${baseUrl}/audio/Twi/Audio_prompt_twi_10.mp3`
+    ? `${baseUrl}/audio/Twi/Audio_prompt_twi_09.mp3`
     : `${baseUrl}/audio/English/Audio_prompt_11.mp3`;
   const xml = `    <Play url="${audioUrl}"/>\n    <Reject/>`;
   return xmlResponse(res, xml);
@@ -1531,6 +1645,44 @@ export interface IvrNaturalInputResult {
   explanation?: string;
 }
 
+export function extractSpokenDigit(rawText: string): { key: string; label: string } | null {
+  if (!rawText) return null;
+  const text = rawText.toLowerCase().trim();
+
+  // Direct single digit or clean symbol
+  if (/^[0-9]$/.test(text)) {
+    return { key: text, label: `Digit ${text}` };
+  }
+  if (text === '*' || text === 'star' || text === 'asterisk' || text === 'nsoroma') {
+    return { key: '*', label: 'Star / Pesewas (*)' };
+  }
+  if (text === '#' || text === 'hash' || text === 'pound' || text === 'submit') {
+    return { key: '#', label: 'Hash / Submit (#)' };
+  }
+
+  // English & Twi word mappings (including homophones and Akan digits)
+  const map: Array<{ regex: RegExp; key: string; label: string }> = [
+    { regex: /\b(1|one|won|first|baako|bako|koro)\b/i, key: '1', label: 'One / Baako (1)' },
+    { regex: /\b(2|two|to|too|second|mmienu|mienu|abien)\b/i, key: '2', label: 'Two / Mmienu (2)' },
+    { regex: /\b(3|three|tree|third|mmiensa|mmiɛnsa|miensa|abiesa)\b/i, key: '3', label: 'Three / Mmiɛnsa (3)' },
+    { regex: /\b(4|four|for|fore|fourth|anan|enan|nan)\b/i, key: '4', label: 'Four / Anan (4)' },
+    { regex: /\b(5|five|fifth|enum|num|anom)\b/i, key: '5', label: 'Five / Enum (5)' },
+    { regex: /\b(6|six|sixth|nsia|sia)\b/i, key: '6', label: 'Six / Nsia (6)' },
+    { regex: /\b(7|seven|seventh|nson|son)\b/i, key: '7', label: 'Seven / Nson (7)' },
+    { regex: /\b(8|eight|ate|eighth|nwɔtwe|nwotwe|motwe|wotwe)\b/i, key: '8', label: 'Eight / Nwɔtwe (8)' },
+    { regex: /\b(9|nine|ninth|nkron|kron)\b/i, key: '9', label: 'Nine / Nkron (9)' },
+    { regex: /\b(0|zero|oh|hwee|koraa)\b/i, key: '0', label: 'Zero / Hwee (0)' },
+  ];
+
+  for (const item of map) {
+    if (item.regex.test(text)) {
+      return { key: item.key, label: item.label };
+    }
+  }
+
+  return null;
+}
+
 export function parseIvrNaturalInput(
   step: string,
   rawText: string,
@@ -1538,18 +1690,19 @@ export function parseIvrNaturalInput(
   currentContext: any = {}
 ): IvrNaturalInputResult {
   const text = (rawText || "").toLowerCase().trim();
+  const spokenDigit = extractSpokenDigit(text);
 
   // Step 1: Welcome
   if (step === "welcome") {
     if (
       /\b(english|one|1|first|anglais)\b/.test(text) ||
       text.includes("for english") ||
-      text === "1"
+      spokenDigit?.key === "1"
     ) {
       return {
         matchedKey: "1",
         actionType: "select_english",
-        nextStep: "network",
+        nextStep: "service",
         confidence: 0.98,
         explanation: "Matched English language selection (Key 1)",
       };
@@ -1557,7 +1710,7 @@ export function parseIvrNaturalInput(
     if (
       /\b(twi|two|2|akan|second)\b/.test(text) ||
       text.includes("for twi") ||
-      text === "2"
+      spokenDigit?.key === "2"
     ) {
       return {
         matchedKey: "2",
@@ -1567,13 +1720,60 @@ export function parseIvrNaturalInput(
         explanation: "Matched Twi language selection (Key 2)",
       };
     }
+    // If another digit was called out on Welcome, it's not in the prompt -> Audio 11
+    if (spokenDigit) {
+      return {
+        matchedKey: spokenDigit.key,
+        actionType: "unrecognized",
+        nextStep: "wrong_figure",
+        confidence: 0.9,
+        explanation: `Voiced digit ${spokenDigit.key} is not in prompt. Triggering Audio 11.`,
+      };
+    }
   }
 
-  // Step 2: Network Provider Selection
+  // Step 2: Service Selection (English Flow)
+  if (step === "service") {
+    if (
+      /\b(telecom|momo|mobile money|one|1)\b/.test(text) ||
+      spokenDigit?.key === "1"
+    ) {
+      return {
+        matchedKey: "1",
+        actionType: "select_service",
+        nextStep: "network",
+        confidence: 0.98,
+        explanation: "Selected Mobile Money Service (Key 1)",
+      };
+    }
+    if (
+      /\b(banking|bank|account|two|2)\b/.test(text) ||
+      spokenDigit?.key === "2"
+    ) {
+      return {
+        matchedKey: "2",
+        actionType: "select_service",
+        nextStep: "network",
+        confidence: 0.98,
+        explanation: "Selected Banking Service (Key 2)",
+      };
+    }
+    if (spokenDigit) {
+      return {
+        matchedKey: spokenDigit.key,
+        actionType: "unrecognized",
+        nextStep: "wrong_figure",
+        confidence: 0.9,
+        explanation: `Voiced digit ${spokenDigit.key} is not in prompt. Triggering Audio 11.`,
+      };
+    }
+  }
+
+  // Step 3: Network Provider Selection
   if (step === "network" || step === "provider") {
     if (
       /\b(mtn|momo|scancom|yellow)\b/.test(text) ||
-      /\b(one|1|first)\b/.test(text)
+      spokenDigit?.key === "1"
     ) {
       return {
         matchedKey: "1",
@@ -1586,7 +1786,7 @@ export function parseIvrNaturalInput(
     }
     if (
       /\b(telecel|vodafone|voda|red)\b/.test(text) ||
-      /\b(two|2|second)\b/.test(text)
+      spokenDigit?.key === "2"
     ) {
       return {
         matchedKey: "2",
@@ -1599,7 +1799,7 @@ export function parseIvrNaturalInput(
     }
     if (
       /\b(airteltigo|airtel|tigo|at|blue)\b/.test(text) ||
-      /\b(three|3|third)\b/.test(text)
+      spokenDigit?.key === "3"
     ) {
       return {
         matchedKey: "3",
@@ -1610,10 +1810,28 @@ export function parseIvrNaturalInput(
         explanation: "Matched AirtelTigo Network Provider (Key 3)",
       };
     }
+    if (language === "twi" && (spokenDigit?.key === "4" || /\b(tie|bio|anan|4)\b/.test(text))) {
+      // In Twi Audio 02: "Mia anan (4) na tie wei biom"
+      return {
+        matchedKey: "4",
+        actionType: "repeat_prompt",
+        confidence: 0.98,
+        explanation: "Matched Repeat Prompt in Twi (Key 4)",
+      };
+    }
     if (
       /\b(repeat|again|say again|hear again|pardon)\b/.test(text) ||
-      /\b(nine|9)\b/.test(text)
+      spokenDigit?.key === "9"
     ) {
+      if (language === "twi") {
+        return {
+          matchedKey: "9",
+          actionType: "unrecognized",
+          nextStep: "wrong_figure",
+          confidence: 0.9,
+          explanation: "In Twi Prompt 02, repeat is key 4. Key 9 triggers Audio 11.",
+        };
+      }
       return {
         matchedKey: "9",
         actionType: "repeat_prompt",
@@ -1623,7 +1841,7 @@ export function parseIvrNaturalInput(
     }
     if (
       /\b(exit|cancel|quit|stop|hang up|bye|goodbye)\b/.test(text) ||
-      /\b(zero|0)\b/.test(text)
+      spokenDigit?.key === "0"
     ) {
       return {
         matchedKey: "0",
@@ -1633,13 +1851,22 @@ export function parseIvrNaturalInput(
         explanation: "Matched Exit Request (Key 0)",
       };
     }
+    if (spokenDigit) {
+      return {
+        matchedKey: spokenDigit.key,
+        actionType: "unrecognized",
+        nextStep: "wrong_figure",
+        confidence: 0.9,
+        explanation: `Voiced digit ${spokenDigit.key} is not in prompt. Triggering Audio 11.`,
+      };
+    }
   }
 
   // Step 3: MTN Services Menu
   if (step === "services" || step === "action") {
     if (
       /\b(send money|send|transfer|momo user|another momo user|send cash)\b/.test(text) ||
-      /\b(one|1)\b/.test(text)
+      spokenDigit?.key === "1"
     ) {
       return {
         matchedKey: "1",
@@ -1651,7 +1878,7 @@ export function parseIvrNaturalInput(
     }
     if (
       /\b(pay bills|bills|utility|utilities|bill)\b/.test(text) ||
-      /\b(two|2)\b/.test(text)
+      spokenDigit?.key === "2"
     ) {
       return {
         matchedKey: "2",
@@ -1663,7 +1890,7 @@ export function parseIvrNaturalInput(
     }
     if (
       /\b(buy airtime|airtime|bundle|data|credit)\b/.test(text) ||
-      /\b(three|3)\b/.test(text)
+      spokenDigit?.key === "3"
     ) {
       return {
         matchedKey: "3",
@@ -1675,7 +1902,7 @@ export function parseIvrNaturalInput(
     }
     if (
       /\b(allow cashout|cashout|cash out|withdraw)\b/.test(text) ||
-      /\b(four|4)\b/.test(text)
+      spokenDigit?.key === "4"
     ) {
       return {
         matchedKey: "4",
@@ -1687,7 +1914,7 @@ export function parseIvrNaturalInput(
     }
     if (
       /\b(check account|check your account|account|check balance|balance)\b/.test(text) ||
-      /\b(five|5)\b/.test(text)
+      spokenDigit?.key === "5"
     ) {
       return {
         matchedKey: "5",
@@ -1699,7 +1926,7 @@ export function parseIvrNaturalInput(
     }
     if (
       /\b(back|go back|previous|return)\b/.test(text) ||
-      /\b(eight|8)\b/.test(text)
+      spokenDigit?.key === "8"
     ) {
       return {
         matchedKey: "8",
@@ -1711,7 +1938,7 @@ export function parseIvrNaturalInput(
     }
     if (
       /\b(exit|cancel|quit|stop|hang up|bye|goodbye)\b/.test(text) ||
-      /\b(zero|0)\b/.test(text)
+      spokenDigit?.key === "0"
     ) {
       return {
         matchedKey: "0",
@@ -1721,14 +1948,22 @@ export function parseIvrNaturalInput(
         explanation: "Matched Exit Request (Key 0)",
       };
     }
+    if (spokenDigit) {
+      return {
+        matchedKey: spokenDigit.key,
+        actionType: "unrecognized",
+        nextStep: "wrong_figure",
+        confidence: 0.9,
+        explanation: `Voiced digit ${spokenDigit.key} is not in prompt. Triggering Audio 11.`,
+      };
+    }
   }
 
   // Step 4: Recipient Entry
   if (step === "recipient") {
     if (
       /\b(exit|cancel|quit|stop)\b/.test(text) ||
-      text === "0" ||
-      text === "zero"
+      spokenDigit?.key === "0"
     ) {
       return {
         matchedKey: "0",
@@ -1760,13 +1995,22 @@ export function parseIvrNaturalInput(
         explanation: `Identified recipient ${name} (${phone})`,
       };
     }
+
+    if (spokenDigit) {
+      return {
+        matchedKey: spokenDigit.key,
+        actionType: "digit_entered",
+        confidence: 0.95,
+        explanation: `Voiced digit ${spokenDigit.key} entered for phone number`,
+      };
+    }
   }
 
   // Step 5: Recipient Verification
   if (step === "recipient_verify" || step === "verify_recipient") {
     if (
       /\b(confirm|send|confirm and send|yes|correct|proceed|okay|sure|send the money)\b/.test(text) ||
-      /\b(one|1)\b/.test(text)
+      spokenDigit?.key === "1"
     ) {
       return {
         matchedKey: "1",
@@ -1778,7 +2022,7 @@ export function parseIvrNaturalInput(
     }
     if (
       /\b(cancel|no|re-enter|change|edit|wrong|different)\b/.test(text) ||
-      /\b(two|2)\b/.test(text)
+      spokenDigit?.key === "2"
     ) {
       return {
         matchedKey: "2",
@@ -1790,7 +2034,7 @@ export function parseIvrNaturalInput(
     }
     if (
       /\b(exit|exit completely|quit|stop)\b/.test(text) ||
-      /\b(zero|0)\b/.test(text)
+      spokenDigit?.key === "0"
     ) {
       return {
         matchedKey: "0",
@@ -1800,20 +2044,37 @@ export function parseIvrNaturalInput(
         explanation: "Exit completely (Key 0)",
       };
     }
+    if (spokenDigit) {
+      return {
+        matchedKey: spokenDigit.key,
+        actionType: "unrecognized",
+        nextStep: "wrong_figure",
+        confidence: 0.9,
+        explanation: `Voiced digit ${spokenDigit.key} is not in prompt. Triggering Audio 11.`,
+      };
+    }
   }
 
   // Step 6: Amount Entry
   if (step === "amount") {
     if (
       /\b(exit|cancel|quit)\b/.test(text) ||
-      text === "0" ||
-      text === "zero"
+      spokenDigit?.key === "0"
     ) {
       return {
         matchedKey: "0",
         actionType: "exit_call",
         nextStep: "ended",
         confidence: 0.98,
+      };
+    }
+    if (spokenDigit?.key === "8" || /\b(back|go back)\b/.test(text)) {
+      return {
+        matchedKey: "8",
+        actionType: "go_back",
+        nextStep: "recipient_verify",
+        confidence: 0.98,
+        explanation: "Go back to recipient verification (Key 8)",
       };
     }
 
@@ -1843,7 +2104,7 @@ export function parseIvrNaturalInput(
   if (step === "confirm") {
     if (
       /\b(confirm|send|confirm and send|yes|send it|proceed|okay|correct|pay|transfer)\b/.test(text) ||
-      /\b(one|1)\b/.test(text)
+      spokenDigit?.key === "1"
     ) {
       return {
         matchedKey: "1",
@@ -1855,25 +2116,34 @@ export function parseIvrNaturalInput(
     }
     if (
       /\b(cancel|no|stop|abort|don't send|do not send)\b/.test(text) ||
-      /\b(two|2)\b/.test(text)
+      spokenDigit?.key === "2"
     ) {
       return {
         matchedKey: "2",
         actionType: "cancel_transfer",
-        nextStep: "cancel",
+        nextStep: "recipient",
         confidence: 0.98,
-        explanation: "Cancelled transfer (Key 2)",
+        explanation: "Cancelled transfer; re-entering details (Key 2)",
       };
     }
     if (
       /\b(exit|quit)\b/.test(text) ||
-      /\b(zero|0)\b/.test(text)
+      spokenDigit?.key === "0"
     ) {
       return {
         matchedKey: "0",
         actionType: "exit_call",
         nextStep: "ended",
         confidence: 0.98,
+      };
+    }
+    if (spokenDigit) {
+      return {
+        matchedKey: spokenDigit.key,
+        actionType: "unrecognized",
+        nextStep: "wrong_figure",
+        confidence: 0.9,
+        explanation: `Voiced digit ${spokenDigit.key} is not in prompt. Triggering Audio 11.`,
       };
     }
   }
@@ -1896,11 +2166,11 @@ export function parseIvrNaturalInput(
   if (step === "receipt") {
     if (
       /\b(no|nothing|that's all|that is all|goodbye|bye|no thanks|exit|done)\b/.test(text) ||
-      text === "0" ||
-      text === "zero"
+      spokenDigit?.key === "0" ||
+      spokenDigit?.key === "2"
     ) {
       return {
-        matchedKey: "0",
+        matchedKey: spokenDigit?.key || "0",
         actionType: "complete_and_exit",
         nextStep: "ended",
         confidence: 0.98,
@@ -1909,13 +2179,23 @@ export function parseIvrNaturalInput(
     }
     if (
       /\b(yes|another|check balance|pay bills|send more)\b/.test(text) ||
-      /\b(1|2|3|4|5|6|7|8|9)\b/.test(text)
+      spokenDigit?.key === "1"
     ) {
       return {
+        matchedKey: "1",
         actionType: "unsupported_option",
         nextStep: "not_available",
         confidence: 0.92,
         explanation: "Option not supported in this prototype.",
+      };
+    }
+    if (spokenDigit) {
+      return {
+        matchedKey: spokenDigit.key,
+        actionType: "unrecognized",
+        nextStep: "wrong_figure",
+        confidence: 0.9,
+        explanation: `Voiced digit ${spokenDigit.key} is not in prompt. Triggering Audio 11.`,
       };
     }
   }
@@ -1948,8 +2228,11 @@ export function parseIvrNaturalInput(
 
   return {
     actionType: "unrecognized",
+    nextStep: "wrong_figure",
     confidence: 0.2,
-    explanation: "Speech not recognized for current prompt.",
+    explanation: language === "twi"
+      ? "Asɛm anaa nɔmba a wɔbɔe no nni prompt no mu. Prompt 11 reka kyerɛ wo sɛ nɔmba no nni dwumadie no mu."
+      : "Input was not recognized for this prompt.",
   };
 }
 

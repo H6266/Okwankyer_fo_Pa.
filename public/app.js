@@ -70,11 +70,11 @@
     callState: {
       active: false,
       step: 'idle',
-      lang: 'en',
+      lang: 'twi',
       service: 'momo',
       provider: 'MTN',
-      phone: '0241234567',
-      name: 'Kwame Nyameba',
+      phone: '0553838464',
+      name: 'Kwame Nyamebere',
       amount: '500',
       lastInput: '',
       timerInterval: null,
@@ -91,7 +91,7 @@
     twiData: null,
     activeTwiAudio: null,
     activeTwiIdx: null,
-    voiceMode: 'prototype', // 'prototype' (12 uploaded studio prompts for English) | 'bilingual'
+    voiceMode: 'twi', // 'twi' (Authentic Twi Studio Audio) | 'en' (Dedicated English Audio) | 'auto' (Interactive IVR)
     recorder: {
       mediaRecorder: null,
       audioChunks: [],
@@ -338,24 +338,84 @@
       audio.play().catch(e => console.log('Playback error:', e));
     },
 
-    // ── English Prototype Audio Suite (/audio/English_audio_prot/) ────────
+    // ── Dedicated Voice Audio Suite Selection (Twi / English / Interactive) ──
     setVoiceMode(mode) {
-      this.voiceMode = mode;
+      this.voiceMode = mode; // 'twi' | 'en' | 'auto'
+
+      if (mode === 'twi') {
+        this.callState.lang = 'twi';
+      } else if (mode === 'en') {
+        this.callState.lang = 'en';
+      }
+
+      const btnTwi = document.getElementById('btnVoiceModeTwi');
+      const btnEn = document.getElementById('btnVoiceModeEn');
+      const btnAuto = document.getElementById('btnVoiceModeAuto');
       const btnDefault = document.getElementById('btnVoiceModeDefault');
       const btnProt = document.getElementById('btnVoiceModePrototype');
-      if (btnDefault && btnProt) {
-        btnDefault.classList.toggle('active', mode === 'bilingual');
-        btnProt.classList.toggle('active', mode === 'prototype');
-      }
+
+      if (btnTwi) btnTwi.classList.toggle('active', mode === 'twi');
+      if (btnEn) btnEn.classList.toggle('active', mode === 'en');
+      if (btnAuto) btnAuto.classList.toggle('active', mode === 'auto');
+      if (btnDefault) btnDefault.classList.toggle('active', mode === 'twi' || mode === 'auto' || mode === 'bilingual');
+      if (btnProt) btnProt.classList.toggle('active', mode === 'en' || mode === 'prototype');
+
+      this.updatePromptDisplayLanguage();
+
       const indicator = document.getElementById('audioSourceIndicator');
       if (indicator) {
-        indicator.innerText = mode === 'prototype' 
-          ? 'Source: English Prototype Audio (/audio/English_audio_prot/)'
-          : 'Source: Bilingual Akan Twi & English Core';
+        if (mode === 'twi') {
+          indicator.innerText = 'Track: 🇬🇭 Authentic Akan Twi Audio (/audio/Twi/)';
+        } else if (mode === 'en') {
+          indicator.innerText = 'Track: 🇬🇧 Dedicated English Audio (/audio/English/)';
+        } else {
+          indicator.innerText = 'Track: 🌐 Interactive IVR (Follows Call Language Selection)';
+        }
       }
-      // Re-trigger current step audio with new engine
+
+      // Re-trigger current step audio with new language engine
       if (this.callState.active && this.callState.step !== 'idle') {
         this.goToStep(this.callState.step);
+      }
+    },
+
+    updatePromptDisplayLanguage() {
+      const isTwi = this.callState.lang === 'twi';
+      const langBadge = document.getElementById('currentLangBadge');
+      const primaryLabel = document.getElementById('primaryPromptLabel');
+      const secondaryLabel = document.getElementById('secondaryPromptLabel');
+      const promptTwi = document.getElementById('currentPromptTwi');
+      const promptEn = document.getElementById('currentPromptEn');
+
+      if (langBadge) {
+        langBadge.innerHTML = isTwi ? '🇬🇭 Akan Twi Active' : '🇬🇧 English Active';
+        langBadge.style.color = isTwi ? 'var(--emerald-accent)' : '#38bdf8';
+        langBadge.style.background = isTwi ? 'rgba(16,185,129,0.15)' : 'rgba(56,189,248,0.15)';
+        langBadge.style.borderColor = isTwi ? 'rgba(16,185,129,0.3)' : 'rgba(56,189,248,0.3)';
+      }
+
+      if (primaryLabel) {
+        primaryLabel.innerText = isTwi ? 'Spoken Prompt (Akan Twi)' : 'Spoken Prompt (English)';
+        primaryLabel.style.color = isTwi ? 'var(--emerald-accent)' : '#38bdf8';
+      }
+      if (secondaryLabel) {
+        secondaryLabel.innerText = isTwi ? 'English Translation' : 'Twi (Akan) Nkyerɛaseɛ';
+      }
+
+      if (promptTwi && promptEn) {
+        if (isTwi) {
+          promptTwi.style.fontSize = '14.5px';
+          promptTwi.style.fontWeight = '700';
+          promptTwi.style.color = '#f8fafc';
+          promptEn.style.fontSize = '12px';
+          promptEn.style.color = '#94a3b8';
+        } else {
+          promptEn.style.fontSize = '14.5px';
+          promptEn.style.fontWeight = '700';
+          promptEn.style.color = '#f8fafc';
+          promptTwi.style.fontSize = '12px';
+          promptTwi.style.color = '#94a3b8';
+        }
       }
     },
 
@@ -768,6 +828,9 @@
       this.setSpeechRecognitionActive(false, 'Simulation idle');
       this.updateStepIndicators('idle');
 
+      const fileTag = document.getElementById('currentAudioFileName');
+      if (fileTag) fileTag.innerText = 'No audio loaded';
+
       const stepTag = document.getElementById('currentStepTag');
       if (stepTag) stepTag.innerText = 'Simulation Ready';
 
@@ -917,6 +980,94 @@
       }
     },
 
+    extractSpokenDigit(rawText) {
+      if (!rawText) return null;
+      const text = String(rawText).toLowerCase().trim();
+
+      // 1. Direct single digit or symbol
+      if (/^[0-9]$/.test(text)) {
+        return { key: text, label: `Digit ${text}` };
+      }
+      if (text === '*' || text === 'star' || text === 'asterisk' || text === 'nsoroma') {
+        return { key: '*', label: 'Star / Pesewas (*)' };
+      }
+      if (text === '#' || text === 'hash' || text === 'pound' || text === 'submit') {
+        return { key: '#', label: 'Hash / Submit (#)' };
+      }
+
+      // 2. English & Akan Twi word mappings (including homophones and spoken variations)
+      const map = [
+        { regex: /\b(1|one|won|first|baako|bako|koro)\b/i, key: '1', label: 'One / Baako (1)' },
+        { regex: /\b(2|two|to|too|second|mmienu|mienu|abien)\b/i, key: '2', label: 'Two / Mmienu (2)' },
+        { regex: /\b(3|three|tree|third|mmiensa|mmiɛnsa|miensa|abiesa)\b/i, key: '3', label: 'Three / Mmiɛnsa (3)' },
+        { regex: /\b(4|four|for|fore|fourth|anan|enan|nan)\b/i, key: '4', label: 'Four / Anan (4)' },
+        { regex: /\b(5|five|fifth|enum|num|anom)\b/i, key: '5', label: 'Five / Enum (5)' },
+        { regex: /\b(6|six|sixth|nsia|sia)\b/i, key: '6', label: 'Six / Nsia (6)' },
+        { regex: /\b(7|seven|seventh|nson|son)\b/i, key: '7', label: 'Seven / Nson (7)' },
+        { regex: /\b(8|eight|ate|eighth|nwɔtwe|nwotwe|motwe|wotwe)\b/i, key: '8', label: 'Eight / Nwɔtwe (8)' },
+        { regex: /\b(9|nine|ninth|nkron|kron)\b/i, key: '9', label: 'Nine / Nkron (9)' },
+        { regex: /\b(0|zero|oh|hwee|koraa)\b/i, key: '0', label: 'Zero / Hwee (0)' },
+      ];
+
+      for (const item of map) {
+        if (item.regex.test(text)) {
+          return { key: item.key, label: item.label };
+        }
+      }
+
+      return null;
+    },
+
+    pressVoiceKey(key, spokenLabel) {
+      if (!this.callState.active) {
+        console.log('[Voice Keypad] Call inactive, starting call simulation...');
+        this.startCall();
+        setTimeout(() => {
+          this.pressVoiceKey(key, spokenLabel);
+        }, 600);
+        return;
+      }
+
+      const displayWord = spokenLabel || key;
+      console.log(`[Voice Keypad] Voice-to-Keypad Substitution: "${displayWord}" -> Punching Key [${key}]`);
+
+      // 1. Visual feedback in live transcript box
+      const preview = document.getElementById('listeningTranscriptPreview');
+      const textEl = document.getElementById('transcriptText');
+      if (preview) preview.style.display = 'flex';
+      if (textEl) {
+        textEl.innerHTML = `<strong>🗣️ Voiced Key:</strong> "${displayWord}" &rarr; <span style="color:#34d399; font-weight:700;">Punched [${key}]</span>`;
+      }
+
+      // 2. Animate physical button on handset
+      const btnIdMap = { '*': 'keyStar', '#': 'keyHash' };
+      const btnId = btnIdMap[key] || `key${key}`;
+      const btnEl = document.getElementById(btnId);
+      if (btnEl) {
+        btnEl.classList.remove('key-voiced');
+        void btnEl.offsetWidth; // trigger reflow
+        btnEl.classList.add('key-voiced');
+        btnEl.classList.add('key-pressed');
+        setTimeout(() => {
+          btnEl.classList.remove('key-pressed');
+        }, 350);
+        setTimeout(() => {
+          btnEl.classList.remove('key-voiced');
+        }, 700);
+      }
+
+      // 3. Mark option selected and deactivate speech recognition for current prompt
+      this.optionSelectedForCurrentPrompt = true;
+      this.setSpeechRecognitionActive(false, `Voice substitution punching key [${key}]`);
+
+      // 4. Delegate to physical pressKey logic (handles valid routes, universal keys 0/8/9, and Audio 11 for wrong figures)
+      this.pressKey(key);
+    },
+
+    speakVoiceDigit(key, word) {
+      this.pressVoiceKey(key, word);
+    },
+
     startBrowserSpeechRecognition() {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SpeechRecognition) {
@@ -937,7 +1088,8 @@
 
       try {
         const recog = new SpeechRecognition();
-        recog.lang = this.callState.lang === 'twi' ? 'ak-GH' : 'en-US';
+        // en-GH accurately captures Ghanaian English and local phonetic digits
+        recog.lang = 'en-GH';
         recog.continuous = true;
         recog.interimResults = true;
 
@@ -962,6 +1114,16 @@
               continue;
             }
 
+            // INSTANT VOICE-TO-KEYPAD SUBSTITUTION:
+            // If the user called out a number (1, 2, 3... or one, two, baako, mmienu, back, exit),
+            // immediately substitute punching the key on the phone!
+            const digitMatch = this.extractSpokenDigit(rawTranscript);
+            if (digitMatch) {
+              console.log(`[SpeechRecognition] Instant Voice Keypad Substitution: "${rawTranscript}" -> Key [${digitMatch.key}]`);
+              this.pressVoiceKey(digitMatch.key, rawTranscript);
+              return;
+            }
+
             // Utterance length check to discard short noise artifact
             const cleanSpeech = rawTranscript.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, '').trim();
             const isSingleDigit = /^[0-9]$/.test(cleanSpeech);
@@ -971,8 +1133,8 @@
               continue;
             }
 
-            // Confidence check (floor: 0.70)
-            if (confidence > 0 && confidence < 0.70) {
+            // Confidence check (floor: 0.65)
+            if (confidence > 0 && confidence < 0.65) {
               console.warn(`[SpeechRecognition] Low-confidence result: ${(confidence * 100).toFixed(1)}% ("${rawTranscript}")`);
               const textEl = document.getElementById('transcriptText');
               if (textEl) {
@@ -991,6 +1153,9 @@
           if (err.error === 'not-allowed') {
             this.listeningServiceEnabled = false;
             this.setSpeechRecognitionActive(false, 'Microphone permission denied');
+          } else if (err.error === 'language-not-supported') {
+            console.log('[SpeechRecognition] en-GH not supported in this browser, falling back to en-US');
+            recog.lang = 'en-US';
           }
         };
 
@@ -1241,9 +1406,17 @@
           return;
         }
 
-        // Low confidence or unrecognized: Discard and do not advance IVR state
-        if (data.actionType === 'unrecognized' || (typeof data.confidence === 'number' && data.confidence < 0.75 && !data.matchedKey && !data.nextStep)) {
-          console.log(`[SpeechRecognition] Intent unrecognized or low confidence (${data.confidence}): "${transcript}"`);
+        // Check if unmentioned / wrong figure was returned by parser or IVR tree
+        if (data.actionType === 'unrecognized' || data.nextStep === 'wrong_figure') {
+          this.optionSelectedForCurrentPrompt = true;
+          this.setSpeechRecognitionActive(false, 'Unrecognized spoken input detected');
+          this.handleWrongFigure(transcript);
+          return;
+        }
+
+        // Low confidence guard for ambiguous noise
+        if (typeof data.confidence === 'number' && data.confidence < 0.65 && !data.matchedKey && !data.nextStep) {
+          console.log(`[SpeechRecognition] Ambiguous low confidence speech (${data.confidence}): "${transcript}"`);
           if (textEl) {
             textEl.innerText = `Didn't catch that clearly. Please repeat or press keypad.`;
           }
@@ -1299,10 +1472,8 @@
         }
 
         if (data.matchedKey) {
-          // Trigger the DTMF key action cleanly
-          this.optionSelectedForCurrentPrompt = true;
-          this.setSpeechRecognitionActive(false, `Spoken DTMF key "${data.matchedKey}" detected`);
-          this.pressKey(data.matchedKey);
+          // Trigger the DTMF key action cleanly via Voice Keypad Substitution
+          this.pressVoiceKey(data.matchedKey, transcript);
         } else if (data.nextStep) {
           this.optionSelectedForCurrentPrompt = true;
           this.setSpeechRecognitionActive(false, `Spoken next step "${data.nextStep}" detected`);
@@ -1326,51 +1497,58 @@
       const container = document.getElementById('voiceSuggestionsChips');
       if (!container) return;
 
-      const chipsMap = {
+      const isTwi = this.callState.lang === 'twi';
+      const chipsMapEn = {
         'welcome': [
           { label: '🗣️ "English"', val: 'English', primary: true },
           { label: '🗣️ "Twi"', val: 'Twi' },
           { label: '🗣️ "One (1)"', val: '1' }
         ],
+        'service': [
+          { label: '🗣️ "Telecom / MoMo (1)"', val: 'Telecom', primary: true },
+          { label: '🗣️ "Banking (2)"', val: 'Banking' },
+          { label: '🗣️ "Replay (9)"', val: 'Replay' },
+          { label: '🗣️ "Exit (0)"', val: 'Exit' }
+        ],
         'network': [
-          { label: '🗣️ "MTN"', val: 'MTN', primary: true },
-          { label: '🗣️ "Telecel"', val: 'Telecel' },
-          { label: '🗣️ "AirtelTigo"', val: 'AirtelTigo' },
-          { label: '🗣️ "Repeat prompt"', val: 'Repeat' },
-          { label: '🗣️ "Exit"', val: 'Exit' }
+          { label: '🗣️ "MTN (1)"', val: 'MTN', primary: true },
+          { label: '🗣️ "Telecel (2)"', val: 'Telecel' },
+          { label: '🗣️ "AirtelTigo (3)"', val: 'AirtelTigo' },
+          { label: '🗣️ "Repeat prompt (9)"', val: 'Repeat' },
+          { label: '🗣️ "Exit (0)"', val: 'Exit' }
         ],
         'services': [
-          { label: '🗣️ "Send money"', val: 'Send money', primary: true },
-          { label: '🗣️ "Pay bills"', val: 'Pay bills' },
-          { label: '🗣️ "Buy airtime"', val: 'Buy airtime' },
-          { label: '🗣️ "Allow cashout"', val: 'Allow cashout' },
-          { label: '🗣️ "Check account"', val: 'Check account' },
-          { label: '🗣️ "Go back"', val: 'Go back' }
+          { label: '🗣️ "Send money (1)"', val: 'Send money', primary: true },
+          { label: '🗣️ "Pay bills (2)"', val: 'Pay bills' },
+          { label: '🗣️ "Buy airtime (3)"', val: 'Buy airtime' },
+          { label: '🗣️ "Allow cashout (4)"', val: 'Allow cashout' },
+          { label: '🗣️ "Check account (5)"', val: 'Check account' },
+          { label: '🗣️ "Go back (8)"', val: 'Go back' }
         ],
         'recipient': [
           { label: '🗣️ "Kwame Nyamebere"', val: 'Kwame Nyamebere', primary: true },
           { label: '🗣️ "0553838464"', val: '0553838464' },
           { label: '🗣️ "Number ends 8464"', val: 'Number ends 8464' },
-          { label: '🗣️ "Exit"', val: 'Exit' }
+          { label: '🗣️ "Exit (0)"', val: 'Exit' }
         ],
         'recipient_verify': [
-          { label: '🗣️ "Confirm and send"', val: 'Confirm and send', primary: true },
-          { label: '🗣️ "Cancel / Re-enter"', val: 'Cancel' },
-          { label: '🗣️ "Exit completely"', val: 'Exit' }
+          { label: '🗣️ "Confirm and send (1)"', val: 'Confirm and send', primary: true },
+          { label: '🗣️ "Cancel / Re-enter (2)"', val: 'Cancel' },
+          { label: '🗣️ "Exit completely (0)"', val: 'Exit' }
         ],
         'amount': [
           { label: '🗣️ "500 cedis"', val: '500 cedis', primary: true },
           { label: '🗣️ "50 cedis"', val: '50 cedis' },
           { label: '🗣️ "100 cedis"', val: '100 cedis' },
-          { label: '🗣️ "Go back"', val: 'Go back' }
+          { label: '🗣️ "Go back (8)"', val: 'Go back' }
         ],
         'confirm': [
-          { label: '🗣️ "Confirm and send"', val: 'Confirm and send', primary: true },
-          { label: '🗣️ "Cancel"', val: 'Cancel' }
+          { label: '🗣️ "Confirm and send (1)"', val: 'Confirm and send', primary: true },
+          { label: '🗣️ "Cancel (2)"', val: 'Cancel' }
         ],
         'pin_handoff': [],
         'receipt': [
-          { label: '🗣️ "No, that\'s all (Exit)"', val: 'No, that is all', primary: true },
+          { label: '🗣️ "No, that\'s all (Exit 0)"', val: 'No, that is all', primary: true },
           { label: '🗣️ "Yes, check balance"', val: 'Check balance' },
           { label: '🗣️ "Yes, pay bills"', val: 'Pay bills' }
         ],
@@ -1379,19 +1557,74 @@
         ]
       };
 
+      const chipsMapTwi = {
+        'welcome': [
+          { label: '🗣️ "English (1)"', val: 'English' },
+          { label: '🗣️ "Akan Twi (2)"', val: 'Twi', primary: true }
+        ],
+        'service': [
+          { label: '🗣️ "Mobile Money (1)"', val: 'MoMo', primary: true },
+          { label: '🗣️ "Sikakorabea (2)"', val: 'Banking' }
+        ],
+        'network': [
+          { label: '🗣️ "MTN (1)"', val: 'MTN', primary: true },
+          { label: '🗣️ "Telecel (2)"', val: 'Telecel' },
+          { label: '🗣️ "AirtelTigo (3)"', val: 'AirtelTigo' },
+          { label: '🗣️ "Tie wei bio (4)"', val: 'Repeat' },
+          { label: '🗣️ "Si ha (0)"', val: 'Exit' }
+        ],
+        'services': [
+          { label: '🗣️ "Mena sika (1)"', val: 'Send money', primary: true },
+          { label: '🗣️ "Tua bills (2)"', val: 'Pay bills' },
+          { label: '🗣️ "Tɔ airtime (3)"', val: 'Buy airtime' },
+          { label: '🗣️ "Allow cashout (4)"', val: 'Allow cashout' },
+          { label: '🗣️ "Check account (5)"', val: 'Check account' },
+          { label: '🗣️ "Kɔ back (8)"', val: 'Go back' }
+        ],
+        'recipient': [
+          { label: '🗣️ "Kwame Nyamebrɛ"', val: 'Kwame Nyamebere', primary: true },
+          { label: '🗣️ "0553838464"', val: '0553838464' },
+          { label: '🗣️ "Nɔma wie 8464"', val: 'Number ends 8464' },
+          { label: '🗣️ "San akyi (0)"', val: 'Exit' }
+        ],
+        'recipient_verify': [
+          { label: '🗣️ "Gye tum na sendi (1)"', val: 'Confirm and send', primary: true },
+          { label: '🗣️ "Cancel / Sesa no (2)"', val: 'Cancel' },
+          { label: '🗣️ "Firi mu (0)"', val: 'Exit' }
+        ],
+        'amount': [
+          { label: '🗣️ "500 cedis"', val: '500 cedis', primary: true },
+          { label: '🗣️ "50 cedis"', val: '50 cedis' },
+          { label: '🗣️ "100 cedis"', val: '100 cedis' },
+          { label: '🗣️ "San akyi (8)"', val: 'Go back' }
+        ],
+        'confirm': [
+          { label: '🗣️ "Gye tum na sendi (1)"', val: 'Confirm and send', primary: true },
+          { label: '🗣️ "Cancel (2)"', val: 'Cancel' }
+        ],
+        'pin_handoff': [],
+        'receipt': [
+          { label: '🗣️ "Dabi, wie pɔtee (0)"', val: 'No, that is all', primary: true },
+          { label: '🗣️ "Aane, dwumadie foforɔ"', val: 'Other' }
+        ],
+        'not_available': [
+          { label: '🗣️ "San bɔ fɔn"', val: 'Place new call', primary: true }
+        ]
+      };
+
       if (step === 'pin_handoff' || step === 'auth') {
         container.innerHTML = `
           <div style="font-size: 11.5px; color: #a7f3d0; padding: 7px 12px; background: rgba(16, 185, 129, 0.15); border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.35); text-align: center; width: 100%;">
-            🔒 Speech layer is turned off for Zero-PIN security. Enter your 4-digit PIN on the handset keypad.
+            🔒 ${isTwi ? 'Kasa nnyigyei no ayɛ din ma Zero-PIN ahobammbɔ. Bɔ wo PIN nɔma 4 wɔ wo fon no anim pɔtee.' : 'Speech layer is turned off for Zero-PIN security. Enter your 4-digit PIN on the handset keypad.'}
           </div>
         `;
         return;
       }
 
-      const chips = chipsMap[step] || [
-        { label: '🗣️ "Yes / Confirm"', val: 'Yes' },
-        { label: '🗣️ "No / Cancel"', val: 'No' },
-        { label: '🗣️ "Exit"', val: 'Exit' }
+      const chips = (isTwi ? chipsMapTwi[step] : chipsMapEn[step]) || [
+        { label: isTwi ? '🗣️ "Aane / Gye tum"' : '🗣️ "Yes / Confirm"', val: 'Yes' },
+        { label: isTwi ? '🗣️ "Dabi / Cancel"' : '🗣️ "No / Cancel"', val: 'No' },
+        { label: isTwi ? '🗣️ "Firi mu"' : '🗣️ "Exit"', val: 'Exit' }
       ];
 
       container.innerHTML = chips.map(c => `
@@ -1401,7 +1634,7 @@
       `).join('');
     },
 
-    // ── IVR Flow Steps Navigation ─────────────────────────────────────────
+    // ── IVR Flow Steps Navigation (Strict Language-Separated Execution) ──
     async goToStep(step) {
       this.callState.step = step;
       this.updateStepIndicators(step);
@@ -1420,393 +1653,709 @@
         this.setSpeechRecognitionActive(false, `Entering step: ${step}`);
       }
 
+      // Enforce strict language separation:
+      // Once chosen at Welcome, lang stays locked. Never mix Twi audio into English, nor English audio into Twi!
+      if (this.voiceMode === 'twi') {
+        this.callState.lang = 'twi';
+      } else if (this.voiceMode === 'en') {
+        this.callState.lang = 'en';
+      }
       const isTwi = this.callState.lang === 'twi';
+      this.updatePromptDisplayLanguage();
+
       const promptTwi = document.getElementById('currentPromptTwi');
       const promptEn = document.getElementById('currentPromptEn');
       const stepTag = document.getElementById('currentStepTag');
       const viewport = document.getElementById('stepControlsViewport');
-      const xmlInspector = document.getElementById('liveXmlCode');
 
-      if (step === 'welcome') {
-        stepTag.innerText = 'Step 1: Welcome & Language Choice';
-        promptTwi.innerText = '"For English, press 1. Twi firi mu, mia 2."';
-        promptEn.innerText = '"Welcome to Ɔkwankyerɛfo Pa, an easy financial transaction service. For English, press 1. For Twi, press 2."';
+      const last4 = (this.callState.phone || '0553838464').slice(-4);
+      const recipientName = this.callState.name || 'Kwame Nyamebere';
 
-        const audioFile = '/audio/Welcome_prompt_01.mp3';
-        const audioEl = document.getElementById('phoneAudioElement');
-        if (!audioEl || audioEl.paused || audioEl.ended || this.currentAudioUrl !== audioFile) {
-          this.playPhoneAudio(audioFile, 'Welcome to Okwankyerɛfo Pa. For English, press 1. For Twi, press 2.');
+      // ─────────────────────────────────────────────────────────────────
+      // DEDICATED PROMPTS SUITE FOR ENGLISH (Strictly /audio/English/*.mp3)
+      // ─────────────────────────────────────────────────────────────────
+      const ENGLISH_FLOW = {
+        welcome: {
+          tag: 'Step 1: Welcome & Language Choice',
+          audio: '/audio/Welcome_prompt_01.mp3',
+          promptText: '"Welcome to Ɔkwankyerɛfo Pa, an easy financial transaction service. For English, press 1. For Twi, press 2."',
+          xmlUrl: '/voice-menu',
+          render: () => `
+            <div class="step-options-grid">
+              <button class="step-opt-btn" onclick="window.app.pressKey('1')">
+                <span style="color:var(--emerald-accent); font-weight:bold;">🇬🇧 1: English Language (Select 1)</span>
+                <span class="opt-key-tag">Press 1</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('2')">
+                <span>🇬🇭 2: Akan Twi (Select 2)</span>
+                <span class="opt-key-tag">Press 2</span>
+              </button>
+            </div>
+          `
+        },
+        service: {
+          tag: 'Step 2: Service Selection (Telecoms vs Banking)',
+          audio: '/audio/English/Audio_prompt_02.mp3',
+          promptText: '"For telecom or mobile money services, press 1. For banking services, press 2. To hear this again, press 9. To exit, press 0."',
+          xmlUrl: `/service-select?lang=en`,
+          render: () => `
+            <div class="step-options-grid">
+              <button class="step-opt-btn" onclick="window.app.pressKey('1')">
+                <span style="color:var(--emerald-accent); font-weight:bold;">1: Telecom / Mobile Money</span>
+                <span class="opt-key-tag">Key 1</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('2')">
+                <span>2: Banking Services (Pilot)</span>
+                <span class="opt-key-tag">Key 2</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('9')">
+                <span>9: Replay Prompt</span>
+                <span class="opt-key-tag">Key 9</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('0')">
+                <span style="color:var(--danger-accent);">0: Exit</span>
+                <span class="opt-key-tag">Key 0</span>
+              </button>
+            </div>
+          `
+        },
+        network: {
+          tag: 'Step 3: Network Provider Selection',
+          audio: '/audio/English/Audio_prompt_03.mp3',
+          promptText: '"Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again, or 0 to exit."',
+          xmlUrl: `/provider-select?lang=en&service=momo`,
+          render: () => `
+            <div class="step-options-grid">
+              <button class="step-opt-btn" onclick="window.app.pressKey('1')">
+                <span style="color:var(--emerald-accent); font-weight:bold;">1: MTN Mobile Money</span>
+                <span class="opt-key-tag">Key 1</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('2')">
+                <span>2: Telecel Cash</span>
+                <span class="opt-key-tag">Key 2</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('3')">
+                <span>3: AirtelTigo Money</span>
+                <span class="opt-key-tag">Key 3</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('9')">
+                <span>9: Replay Prompt</span>
+                <span class="opt-key-tag">Key 9</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('0')">
+                <span style="color:var(--danger-accent);">0: Exit</span>
+                <span class="opt-key-tag">Key 0</span>
+              </button>
+            </div>
+          `
+        },
+        services: {
+          tag: 'Step 4: MTN Services Menu',
+          audio: '/audio/English/Audio_prompt_05.mp3',
+          promptText: '"MTN services. To send money to another MoMo user, press 1. To pay bills, press 2. To buy airtime or bundle, press 3. To allow cashout, press 4. To check your account, press 5. Press 8 to go back, or 0 to exit."',
+          xmlUrl: `/action-select?lang=en&provider=${this.callState.provider || 'MTN'}`,
+          render: () => `
+            <div class="step-options-grid">
+              <button class="step-opt-btn" onclick="window.app.pressKey('1')">
+                <span style="color:var(--emerald-accent); font-weight:bold;">1: Send Money to another MoMo user</span>
+                <span class="opt-key-tag">Key 1</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('2')">
+                <span>2: Pay Bills</span>
+                <span class="opt-key-tag">Key 2</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('3')">
+                <span>3: Buy Airtime or Bundle</span>
+                <span class="opt-key-tag">Key 3</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('4')">
+                <span>4: Allow Cashout</span>
+                <span class="opt-key-tag">Key 4</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('5')">
+                <span>5: Check Account Balance</span>
+                <span class="opt-key-tag">Key 5</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('8')">
+                <span>8: Go Back</span>
+                <span class="opt-key-tag">Key 8</span>
+              </button>
+            </div>
+          `
+        },
+        recipient: {
+          tag: 'Step 5: Recipient Number Entry (# to submit)',
+          audio: '/audio/English/Audio_prompt_06.mp3',
+          promptText: '"Enter the 10-digit number you want to send money to, followed by hash. Press 0 to exit."',
+          xmlUrl: `/enter-recipient?lang=en&provider=${this.callState.provider || 'MTN'}`,
+          render: () => `
+            <div style="text-align:center;">
+              <input type="text" id="inPhoneSim" value="${this.callState.phone || '0553838464'}" maxlength="10" 
+                style="width:90%; padding:8px; font-size:16px; font-weight:bold; text-align:center; background:#000; border:1px solid var(--border-subtle); color:#fff; border-radius:6px; margin-bottom:8px;">
+              <button class="btn btn-sm btn-primary" style="width:90%; margin-bottom:6px;" onclick="window.app.submitSimRecipient()">
+                Submit Number (#)
+              </button>
+              <div style="font-size:11px; color:var(--sky-accent); cursor:pointer;" onclick="document.getElementById('inPhoneSim').value='0553838464'; window.app.submitSimRecipient();">
+                👉 Fast-dial: Kwame Nyamebere (0553838464)
+              </div>
+            </div>
+          `
+        },
+        recipient_verify: {
+          tag: 'Step 6: KYC Verification (Kwame Nyamebere)',
+          audio: '/audio/English/Audio_prompt_08.mp3',
+          promptText: `"You are about to send money to Kwame Nyamebere, whose phone number ends with ${last4}. To confirm and send the money, press 1. To cancel, press 2. To exit completely, press 0."`,
+          render: () => `
+            <div class="step-options-grid">
+              <button class="step-opt-btn" onclick="window.app.pressKey('1')">
+                <span style="color:var(--emerald-accent); font-weight:bold;">1: Confirm and Send the Money</span>
+                <span class="opt-key-tag">Key 1</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('2')">
+                <span>2: Cancel / Re-enter Number</span>
+                <span class="opt-key-tag">Key 2</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('0')">
+                <span style="color:var(--danger-accent);">0: Exit Completely</span>
+                <span class="opt-key-tag">Key 0</span>
+              </button>
+            </div>
+          `
+        },
+        amount: {
+          tag: 'Step 7: Enter Cedi Amount (# to submit)',
+          audio: '/audio/English/Audio_prompt_09.mp3',
+          promptText: '"Enter the cedi amount you want to send to Kwame Nyamebere, followed by hash. Use star for pesewas."',
+          xmlUrl: `/enter-amount?lang=en&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(recipientName)}`,
+          render: () => `
+            <div style="text-align:center;">
+              <input type="text" id="inAmountSim" value="${this.callState.amount || '500'}" 
+                style="width:90%; padding:8px; font-size:16px; font-weight:bold; text-align:center; background:#000; border:1px solid var(--border-subtle); color:#fff; border-radius:6px; margin-bottom:8px;">
+              <button class="btn btn-sm btn-primary" style="width:90%; margin-bottom:6px;" onclick="window.app.submitSimAmount()">
+                Submit Amount (#)
+              </button>
+              <div style="display:flex; justify-content:center; gap:6px;">
+                <button class="btn btn-xs btn-outline" onclick="document.getElementById('inAmountSim').value='500'; window.app.submitSimAmount();">500 Cedis</button>
+                <button class="btn btn-xs btn-outline" onclick="document.getElementById('inAmountSim').value='50'; window.app.submitSimAmount();">50 Cedis</button>
+                <button class="btn btn-xs btn-outline" onclick="document.getElementById('inAmountSim').value='100'; window.app.submitSimAmount();">100 Cedis</button>
+              </div>
+            </div>
+          `
+        },
+        confirm: {
+          tag: 'Step 8: Transfer Confirmation Read-Back',
+          audio: '/audio/English/Audio_prompt_10.mp3',
+          promptText: '"You are about to send 500 Ghana cedis to Kwame Nyamebere. To confirm and send, press 1. To cancel, press 2."',
+          xmlUrl: `/safe-confirmation?lang=en&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(recipientName)}&amount=${this.callState.amount}`,
+          render: () => `
+            <div class="step-options-grid">
+              <button class="step-opt-btn" onclick="window.app.pressKey('1')">
+                <span style="color:var(--emerald-accent); font-weight:bold;">1: Confirm and Send</span>
+                <span class="opt-key-tag">Key 1</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('2')">
+                <span style="color:var(--danger-accent);">2: Cancel</span>
+                <span class="opt-key-tag">Key 2</span>
+              </button>
+            </div>
+          `
+        },
+        pin_handoff: {
+          tag: 'Step 9: Zero-PIN Security Handset Handoff',
+          audio: '/audio/English/Audio_prompt_11.mp3',
+          promptText: '"Confirmed. Now, please check your phone screen and enter your momo pin accurately. Thank you for using Ɔkwankyerɛfo Pa. Goodbye."',
+          xmlUrl: `/safe-outcome?lang=en&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(recipientName)}&amount=${this.callState.amount}&dtmfDigits=1`,
+          render: () => this.renderPinPadUi('Transfer GH₵ 500.00 to Kwame Nyamebere', false)
+        },
+        receipt: {
+          tag: 'Step 10: Transaction Receipt & Continuation',
+          audio: '/audio/English/Audio_prompt_12.mp3',
+          promptText: '"Congratulations! You have successfully sent 500 Ghana cedis to Kwame Nyamebere. Your transaction was completed on 17 September 2026 at 5:00 PM. Your reference number is OKP-847291. Your transaction details have also been sent to you. Would you like to do anything else?"',
+          render: () => this.renderReceiptUi(false)
+        },
+        not_available: {
+          tag: 'Option Unavailable',
+          audio: '/audio/English/Audio_prompt_error.mp3',
+          promptText: '"Sorry, that option is not available here. Thank you for using Ɔkwankyerɛfo Pa. Goodbye."',
+          render: () => this.renderUnavailableUi('"Sorry, that option is not available here. Thank you for using Ɔkwankyerɛfo Pa. Goodbye."', 'Place New Call')
+        },
+        wrong_figure: {
+          tag: '⚠️ Option Not in Prompt (Wrong Figure)',
+          audio: '/audio/English/Audio_prompt_11.mp3',
+          promptText: '"That option was not recognized in the audio prompt. Please punch a valid number or option from the menu."',
+          render: () => `
+            <div style="background:#1e1e2e; border:1px solid var(--amber-accent); border-radius:8px; padding:12px; text-align:center; color:#fff;">
+              <div style="font-size:24px; margin-bottom:4px;">⚠️</div>
+              <div style="font-size:13px; font-weight:bold; margin-bottom:6px; color:var(--amber-accent);">
+                Option Not in Audio Prompt
+              </div>
+              <div style="font-size:11.5px; color:#cbd5e1; margin-bottom:10px;">
+                ${this.callState.lastInvalidKey ? `You punched <strong style="color:var(--amber-accent); font-size:14px;">[${this.callState.lastInvalidKey}]</strong>. ` : ''}Audio prompt 11 plays to inform you this figure is not recognized. Please punch a valid option.
+              </div>
+              <div style="display:flex; justify-content:center; gap:8px;">
+                <button class="btn btn-sm btn-primary" onclick="window.app.retryStepAfterError()">
+                  🔄 Punch Again
+                </button>
+                <button class="btn btn-sm btn-outline" onclick="window.app.pressKey('0')">
+                  0: Exit
+                </button>
+              </div>
+            </div>
+          `
+        },
+        done_exit: {
+          tag: 'Call Finished',
+          audio: '/audio/English/Audio_prompt_11.mp3',
+          promptText: '"Thank you for using Ɔkwankyerɛfo Pa. Goodbye."',
+          render: () => this.renderDoneExitUi('"Thank you for using Ɔkwankyerɛfo Pa. Goodbye."', 'Place New Call')
+        },
+        cancel: {
+          tag: 'Transaction Cancelled',
+          audio: '/audio/English/Audio_prompt_11.mp3',
+          promptText: '"Transaction cancelled. No money has been deducted from your account. Goodbye."',
+          render: () => `
+            <button class="btn btn-sm btn-secondary" style="width:100%;" onclick="window.app.startCall()">
+              Restart Flow
+            </button>
+          `
         }
-        this.fetchVoiceXml('/voice-menu');
+      };
 
-        viewport.innerHTML = `
-          <div class="step-options-grid">
-            <button class="step-opt-btn" onclick="window.app.pressKey('1')">
-              <span>English Language</span>
-              <span class="opt-key-tag">Press 1</span>
-            </button>
-            <button class="step-opt-btn" onclick="window.app.pressKey('2')">
-              <span>Twi (Akan Kasa)</span>
-              <span class="opt-key-tag">Press 2</span>
-            </button>
-          </div>
-        `;
-      } else if (step === 'network' || (step === 'provider' && !isTwi)) {
-        this.callState.step = 'network';
-        stepTag.innerText = 'Step 2: Network Provider Selection';
-        promptTwi.innerText = '"Paw wo network. MTN, mia baako (1). Telecel, mia mmienu (2). AT, mia mmiɛnsa (3). Mia akron (9) ma replay, hwee (0) ma agyae."';
-        promptEn.innerText = '"Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again, or 0 to exit."';
-
-        const audioFile = '/audio/English/Audio_prompt_03.mp3';
-        this.playPhoneAudio(audioFile, promptEn.innerText);
-        this.fetchVoiceXml(`/provider-select?lang=${this.callState.lang}&service=momo`);
-
-        viewport.innerHTML = `
-          <div class="step-options-grid">
-            <button class="step-opt-btn" onclick="window.app.pressKey('1')">
-              <span>MTN Mobile Money</span>
-              <span class="opt-key-tag">Key 1</span>
-            </button>
-            <button class="step-opt-btn" onclick="window.app.pressKey('2')">
-              <span>Telecel Cash</span>
-              <span class="opt-key-tag">Key 2</span>
-            </button>
-            <button class="step-opt-btn" onclick="window.app.pressKey('3')">
-              <span>AirtelTigo Money</span>
-              <span class="opt-key-tag">Key 3</span>
-            </button>
-            <button class="step-opt-btn" onclick="window.app.pressKey('9')">
-              <span>Replay Prompt</span>
-              <span class="opt-key-tag">Key 9</span>
-            </button>
-          </div>
-        `;
-      } else if (step === 'services' || (step === 'action' && !isTwi)) {
-        this.callState.step = 'services';
-        stepTag.innerText = 'Step 3: MTN Services Menu';
-        promptTwi.innerText = '"MTN dwumadie. Sɛ woremane sika a, mia baako (1). Sɛ wotua bills a, mia mmienu (2). Tɔ airtime, mia mmiɛnsa (3). Mia 8 ma akyi, 0 ma agyae."';
-        promptEn.innerText = '"MTN services. To send money to another MoMo user, press 1. To pay bills, press 2. To buy airtime or bundle, press 3. To allow cashout, press 4. To check your account, press 5. Press 8 to go back, or 0 to exit."';
-
-        const audioFile = '/audio/English/Audio_prompt_05.mp3';
-        this.playPhoneAudio(audioFile, promptEn.innerText);
-        this.fetchVoiceXml(`/action-select?lang=${this.callState.lang}&provider=${this.callState.provider}`);
-
-        viewport.innerHTML = `
-          <div class="step-options-grid">
-            <button class="step-opt-btn" onclick="window.app.pressKey('1')">
-              <span style="color:var(--emerald-accent); font-weight:bold;">1: Send Money to another MoMo user</span>
-              <span class="opt-key-tag">Key 1</span>
-            </button>
-            <button class="step-opt-btn" onclick="window.app.pressKey('2')">
-              <span>2: Pay Bills</span>
-              <span class="opt-key-tag">Key 2</span>
-            </button>
-            <button class="step-opt-btn" onclick="window.app.pressKey('3')">
-              <span>3: Buy Airtime or Bundle</span>
-              <span class="opt-key-tag">Key 3</span>
-            </button>
-            <button class="step-opt-btn" onclick="window.app.pressKey('4')">
-              <span>4: Allow Cashout</span>
-              <span class="opt-key-tag">Key 4</span>
-            </button>
-            <button class="step-opt-btn" onclick="window.app.pressKey('5')">
-              <span>5: Check Account</span>
-              <span class="opt-key-tag">Key 5</span>
-            </button>
-            <button class="step-opt-btn" onclick="window.app.pressKey('8')">
-              <span>8: Go Back</span>
-              <span class="opt-key-tag">Key 8</span>
-            </button>
-          </div>
-        `;
-      } else if (step === 'service') {
-        // Kept for Twi flow or alternative navigation
-        stepTag.innerText = 'Step 2: Service Selection';
-        promptTwi.innerText = '"Sɛ worepɛ Mobile Money anaa Telecom a, mia baako (1). Sikakorabea Banking, mia mmienu (2). Mia hwee (0) sɛ worepɛ agyae."';
-        promptEn.innerText = '"For telecom or mobile money services, press 1. For banking services, press 2. To hear this again, press 9. To exit, press 0."';
-
-        const audioFile = isTwi
-          ? '/audio/Twi/Audio_prompt_twi_02.mp3'
-          : '/audio/English/Audio_prompt_02.mp3';
-        this.playPhoneAudio(audioFile, isTwi ? promptTwi.innerText : promptEn.innerText);
-        this.fetchVoiceXml(`/service-select?lang=${this.callState.lang}`);
-
-        viewport.innerHTML = `
-          <div class="step-options-grid">
-            <button class="step-opt-btn" onclick="window.app.pressKey('1')">
-              <span>Mobile Money / Telecom</span>
-              <span class="opt-key-tag">Key 1</span>
-            </button>
-            <button class="step-opt-btn" onclick="window.app.pressKey('2')">
-              <span>Banking Services</span>
-              <span class="opt-key-tag">Key 2</span>
-            </button>
-          </div>
-        `;
-      } else if (step === 'recipient') {
-        stepTag.innerText = 'Step 4: Recipient Number Entry (# to submit)';
-        promptTwi.innerText = '"Fa nɔma du (10) a woremane kɔma no nwura mu, na wie no hash (#). Mia hwee (0) sɛ worepɛ agyae."';
-        promptEn.innerText = '"Enter the 10-digit number you want to send money to, followed by hash. Press 0 to exit."';
-
-        const audioFile = isTwi
-          ? '/audio/Twi/Audio_prompt_twi_05.mp3'
-          : '/audio/English/Audio_prompt_06.mp3';
-        this.playPhoneAudio(audioFile, isTwi ? promptTwi.innerText : promptEn.innerText);
-        this.fetchVoiceXml(`/enter-recipient?lang=${this.callState.lang}&provider=${this.callState.provider}`);
-
-        const currentPhone = this.callState.phone || '0553838464';
-
-        viewport.innerHTML = `
-          <div style="text-align:center;">
-            <input type="text" id="inPhoneSim" value="${currentPhone}" maxlength="10" 
-              style="width:90%; padding:8px; font-size:16px; font-weight:bold; text-align:center; background:#000; border:1px solid var(--border-subtle); color:#fff; border-radius:6px; margin-bottom:8px;">
-            <button class="btn btn-sm btn-primary" style="width:90%; margin-bottom:6px;" onclick="window.app.submitSimRecipient()">
-              Submit Number (#)
-            </button>
-            <div style="font-size:11px; color:var(--sky-accent); cursor:pointer;" onclick="document.getElementById('inPhoneSim').value='0553838464'; window.app.submitSimRecipient();">
-              👉 Fast-dial: Kwame Nyamebere (0553838464)
-            </div>
-          </div>
-        `;
-      } else if (step === 'recipient_verify') {
-        stepTag.innerText = 'Step 5: KYC Verification (Kwame Nyamebere)';
-        const last4 = (this.callState.phone || '0553838464').slice(-4);
-        promptTwi.innerText = `"Woremane sika kɔma Kwame Nyamebere, a ne fon nɔma wie ${last4}. Sɛ wopene so a, mia baako (1). Sɛ worepɛ sesa no a, mia mmienu (2). Mia hwee (0) ma agyae."`;
-        promptEn.innerText = `"You are about to send money to Kwame Nyamebere, whose phone number ends with ${last4}. To confirm and send the money, press 1. To cancel, press 2. To exit completely, press 0."`;
-
-        const audioFile = isTwi
-          ? '/audio/Twi/Audio_prompt_twi_06.mp3'
-          : '/audio/English/Audio_prompt_08.mp3';
-        this.playPhoneAudio(audioFile, isTwi ? promptTwi.innerText : promptEn.innerText);
-
-        viewport.innerHTML = `
-          <div class="step-options-grid">
-            <button class="step-opt-btn" onclick="window.app.pressKey('1')">
-              <span style="color:var(--emerald-accent); font-weight:bold;">1: Confirm and Send the Money</span>
-              <span class="opt-key-tag">Key 1</span>
-            </button>
-            <button class="step-opt-btn" onclick="window.app.pressKey('2')">
-              <span>2: Cancel / Re-enter Number</span>
-              <span class="opt-key-tag">Key 2</span>
-            </button>
-            <button class="step-opt-btn" onclick="window.app.pressKey('0')">
-              <span style="color:var(--danger-accent);">0: Exit Completely</span>
-              <span class="opt-key-tag">Key 0</span>
-            </button>
-          </div>
-        `;
-      } else if (step === 'amount') {
-        stepTag.innerText = 'Step 6: Enter Cedi Amount (# to submit)';
-        promptTwi.innerText = `"Fa cedi dodow a woremane kɔma Kwame Nyamebere no nwura mu, na wie no hash (#). Fa nsoroma (*) di dwuma ma pesewa."`;
-        promptEn.innerText = `"Enter the cedi amount you want to send to Kwame Nyamebere, followed by hash. Use star for pesewas."`;
-
-        const audioFile = isTwi
-          ? '/audio/Twi/Audio_prompt_twi_08.mp3'
-          : '/audio/English/Audio_prompt_09.mp3';
-        this.playPhoneAudio(audioFile, isTwi ? promptTwi.innerText : promptEn.innerText);
-        this.fetchVoiceXml(`/enter-amount?lang=${this.callState.lang}&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(this.callState.name)}`);
-
-        const currentAmount = this.callState.amount || '500';
-
-        viewport.innerHTML = `
-          <div style="text-align:center;">
-            <input type="text" id="inAmountSim" value="${currentAmount}" 
-              style="width:90%; padding:8px; font-size:16px; font-weight:bold; text-align:center; background:#000; border:1px solid var(--border-subtle); color:#fff; border-radius:6px; margin-bottom:8px;">
-            <button class="btn btn-sm btn-primary" style="width:90%; margin-bottom:6px;" onclick="window.app.submitSimAmount()">
-              Submit Amount (#)
-            </button>
-            <div style="display:flex; justify-content:center; gap:6px;">
-              <button class="btn btn-xs btn-outline" onclick="document.getElementById('inAmountSim').value='500'; window.app.submitSimAmount();">500 Cedis</button>
-              <button class="btn btn-xs btn-outline" onclick="document.getElementById('inAmountSim').value='50'; window.app.submitSimAmount();">50 Cedis</button>
-              <button class="btn btn-xs btn-outline" onclick="document.getElementById('inAmountSim').value='100'; window.app.submitSimAmount();">100 Cedis</button>
-            </div>
-          </div>
-        `;
-      } else if (step === 'confirm') {
-        stepTag.innerText = 'Step 7: Transfer Confirmation Read-Back';
-        promptTwi.innerText = `"Woremane sika cedi 500 kɔma Kwame Nyamebere. Sɛ wopene so a, mia baako (1). Sɛ worepɛ sesa no a, mia mmienu (2)."`;
-        promptEn.innerText = `"You are about to send 500 Ghana cedis to Kwame Nyamebere. To confirm and send, press 1. To cancel, press 2."`;
-
-        const audioFile = isTwi
-          ? '/audio/Twi/Audio_prompt_twi_09.mp3'
-          : '/audio/English/Audio_prompt_10.mp3';
-        this.playPhoneAudio(audioFile, isTwi ? promptTwi.innerText : promptEn.innerText);
-
-        this.fetchVoiceXml(`/safe-confirmation?lang=${this.callState.lang}&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(this.callState.name)}&amount=${this.callState.amount}`);
-
-        viewport.innerHTML = `
-          <div class="step-options-grid">
-            <button class="step-opt-btn" onclick="window.app.pressKey('1')">
-              <span style="color:var(--emerald-accent); font-weight:bold;">1: Confirm and Send</span>
-              <span class="opt-key-tag">Key 1</span>
-            </button>
-            <button class="step-opt-btn" onclick="window.app.pressKey('2')">
-              <span style="color:var(--danger-accent);">2: Cancel</span>
-              <span class="opt-key-tag">Key 2</span>
-            </button>
-          </div>
-        `;
-      } else if (step === 'pin_handoff' || step === 'done') {
-        this.callState.step = 'pin_handoff';
-        stepTag.innerText = 'Step 8: Zero-PIN Security Handoff';
-        promptTwi.innerText = `"Yɛapene cedi 500 a woremane kɔma Kwame Nyamebere no so. Sesei, hwɛ wo screen na fa wo MoMo PIN nwura mu pɛpɛɛpɛ. Medaase. Akwaaba."`;
-        promptEn.innerText = '"Confirmed. Now, please check your phone screen and enter your MoMo PIN accurately. Thank you for using Ɔkwankyerɛfo Pa. Goodbye."';
-
-        const successAudio = isTwi
-          ? '/audio/Twi/Audio_prompt_twi_10.mp3'
-          : '/audio/English/Audio_prompt_11.mp3';
-        this.playPhoneAudio(successAudio, isTwi ? promptTwi.innerText : promptEn.innerText);
-
-        this.fetchVoiceXml(`/safe-outcome?lang=${this.callState.lang}&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(this.callState.name)}&amount=${this.callState.amount}&dtmfDigits=1`);
-
-        viewport.innerHTML = `
-          <div class="pin-handoff-card" style="background:#0f172a; border:1px solid var(--emerald-accent); border-radius:8px; padding:12px; text-align:center;">
-            <div style="font-size:12px; color:var(--emerald-accent); font-weight:bold; margin-bottom:4px;">
-              📲 Secure Handset PIN Authentication Prompt
-            </div>
-            <div style="font-size:11px; color:#cbd5e1; margin-bottom:8px;">
-              Transfer GH₵ 500.00 to Kwame Nyamebere
-            </div>
-            <div class="pin-display-dots" id="pinDisplayDots" style="font-size:22px; letter-spacing:8px; color:var(--emerald-accent); margin-bottom:8px;">
-              ○ ○ ○ ○
-            </div>
-            <div class="pin-keypad-mini" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:4px; max-width:180px; margin:0 auto;">
-              <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('1')">1</button>
-              <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('2')">2</button>
-              <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('3')">3</button>
-              <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('4')">4</button>
-              <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('5')">5</button>
-              <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('6')">6</button>
-              <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('7')">7</button>
-              <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('8')">8</button>
-              <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('9')">9</button>
-              <button class="btn btn-xs btn-ghost" onclick="window.app.clearPin()">Clear</button>
-              <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('0')">0</button>
-              <button class="btn btn-xs btn-primary" onclick="window.app.submitPinAuthorization()">OK</button>
-            </div>
-            <div style="margin-top:6px; font-size:10px; color:#6ee7b7;">
-              🛡️ Zero-PIN Security: Voice channel never captures PIN
-            </div>
-          </div>
-        `;
-      } else if (step === 'receipt') {
-        stepTag.innerText = 'Step 9: Transaction Receipt & Continuation';
-        const receiptEn = "Congratulations! You have successfully sent 500 Ghana cedis to Kwame Nyamebere. Your transaction was completed on 17 September 2026 at 5:00 PM. Your reference number is OKP-847291. Your transaction details have also been sent to you. Would you like to do anything else?";
-        promptEn.innerText = `"${receiptEn}"`;
-        promptTwi.innerText = `"${receiptEn}"`;
-
-        const receiptAudio = '/audio/English/Audio_prompt_12.mp3';
-        this.playPhoneAudio(receiptAudio, receiptEn);
-
-        viewport.innerHTML = `
-          <div class="receipt-card">
-            <div class="receipt-header">
-              <span>✅</span>
-              <span>Transaction Successfully Completed</span>
-            </div>
-            <div class="receipt-row">
-              <span>Recipient:</span>
-              <strong>Kwame Nyamebere (0553838464)</strong>
-            </div>
-            <div class="receipt-row">
-              <span>Amount Sent:</span>
-              <strong style="color:var(--emerald-accent);">GH₵ 500.00</strong>
-            </div>
-            <div class="receipt-row">
-              <span>Reference No:</span>
-              <strong>OKP-847291</strong>
-            </div>
-            <div class="receipt-row">
-              <span>Date &amp; Time:</span>
-              <span>17 Sep 2026, 5:00 PM</span>
-            </div>
-            <div class="receipt-row">
-              <span>Status:</span>
-              <strong style="color:var(--emerald-accent);">Completed</strong>
-            </div>
-            <div style="margin-top:8px; border-top:1px dashed rgba(255,255,255,0.15); padding-top:6px; font-size:11.5px; color:#e2e8f0; text-align:center;">
-              "Would you like to do anything else?"
-            </div>
-            <div style="display:flex; gap:6px; margin-top:8px;">
-              <button class="btn btn-sm btn-primary" style="flex:1;" onclick="window.app.pressKey('0')">
-                No, that's all (Exit 0)
+      // ─────────────────────────────────────────────────────────────────
+      // DEDICATED PROMPTS SUITE FOR TWI (Strictly /audio/Twi/*.mp3)
+      // ─────────────────────────────────────────────────────────────────
+      const TWI_FLOW = {
+        welcome: {
+          tag: 'Step 1: Welcome & Kasa Paw',
+          audio: '/audio/Welcome_prompt_01.mp3',
+          promptText: '"Akwaaba kɔ Ɔkwankyerɛfo Pa, an easy financial transaction service. For English, press 1. Twi firi mu, mia 2."',
+          xmlUrl: '/voice-menu',
+          render: () => `
+            <div class="step-options-grid">
+              <button class="step-opt-btn" onclick="window.app.pressKey('1')">
+                <span>🇬🇧 1: English Language (Mia 1)</span>
+                <span class="opt-key-tag">Mia 1</span>
               </button>
-              <button class="btn btn-sm btn-outline" style="flex:1;" onclick="window.app.goToStep('not_available')">
-                Yes, other service
+              <button class="step-opt-btn" onclick="window.app.pressKey('2')">
+                <span style="color:var(--emerald-accent); font-weight:bold;">🇬🇭 2: Akan Twi (Mia 2)</span>
+                <span class="opt-key-tag">Mia 2</span>
               </button>
             </div>
-          </div>
-        `;
-      } else if (step === 'not_available') {
-        stepTag.innerText = 'Option Unavailable';
-        const unavailText = "Sorry, that option is not available here. Thank you for using Ɔkwankyerɛfo Pa. Goodbye.";
-        promptEn.innerText = `"${unavailText}"`;
-        promptTwi.innerText = `"${unavailText}"`;
-
-        this.speakConversationalPrompt(unavailText);
-
-        viewport.innerHTML = `
-          <div style="background:#1e1e2e; border:1px solid var(--amber-accent); border-radius:8px; padding:12px; text-align:center; color:#fff;">
-            <div style="font-size:24px; margin-bottom:4px;">⚠️</div>
-            <div style="font-size:13px; font-weight:bold; margin-bottom:6px; color:var(--amber-accent);">
-              Option Not Available
+          `
+        },
+        service: {
+          tag: 'Step 2: Dwumadie a Wopɛ (MoMo vs Sikakorabea)',
+          audio: '/audio/Twi/Audio_prompt_twi_03.mp3',
+          promptText: '"Sɛ wopɛ sɛ wosende sika kɔ Mobile Money a, mia baako (1). Sikakorabea dwumadie no, mia mmienu (2)."',
+          xmlUrl: `/service-select?lang=twi`,
+          render: () => `
+            <div class="step-options-grid">
+              <button class="step-opt-btn" onclick="window.app.pressKey('1')">
+                <span style="color:var(--emerald-accent); font-weight:bold;">1: Mobile Money Dwumadie</span>
+                <span class="opt-key-tag">Mia 1</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('2')">
+                <span>2: Sikakorabea Banking</span>
+                <span class="opt-key-tag">Mia 2</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('0')">
+                <span style="color:var(--danger-accent);">0: Firi ha</span>
+                <span class="opt-key-tag">Mia 0</span>
+              </button>
             </div>
-            <div style="font-size:11.5px; color:#cbd5e1; margin-bottom:10px;">
-              "Sorry, that option is not available here. Thank you for using Ɔkwankyerɛfo Pa. Goodbye."
+          `
+        },
+        network: {
+          tag: 'Step 2: Yi Wo Network Dwumakuo',
+          audio: '/audio/Twi/Audio_prompt_twi_02.mp3',
+          promptText: '"Afei selecte wo network. Sɛ MTN a, mia baako (1). Sɛ Telecel a, mia mmienu (2). Sɛ AirtelTigo a, mia mmiɛnsa (3). Mia anan (4) na tie wei biom. Mia zero (0) na si ha."',
+          xmlUrl: `/provider-select?lang=twi&service=momo`,
+          render: () => `
+            <div class="step-options-grid">
+              <button class="step-opt-btn" onclick="window.app.pressKey('1')">
+                <span style="color:var(--emerald-accent); font-weight:bold;">1: MTN Mobile Money</span>
+                <span class="opt-key-tag">Mia 1</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('2')">
+                <span>2: Telecel Cash</span>
+                <span class="opt-key-tag">Mia 2</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('3')">
+                <span>3: AirtelTigo Money</span>
+                <span class="opt-key-tag">Mia 3</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('4')">
+                <span>4: Tie wei biom (Replay)</span>
+                <span class="opt-key-tag">Mia 4</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('0')">
+                <span style="color:var(--danger-accent);">0: Si ha (Exit)</span>
+                <span class="opt-key-tag">Mia 0</span>
+              </button>
             </div>
-            <button class="btn btn-sm btn-primary" onclick="window.app.startCall()">
-              Place New Call
+          `
+        },
+        services: {
+          tag: 'Step 3: MTN MoMo Dwumadie Menu',
+          audio: '/audio/Twi/Audio_prompt_twi_04.mp3',
+          promptText: '"Sɛ wopɛ sɛ wosend sika kɔ ma MoMo user a, mia 1. Sɛ wopɛ sɛ wotua bills a, mia 2. Sɛ wopɛ sɛ wotɔ airtime anaa bundle a, mia 3. Sɛ wopɛ sɛ woallow-i cash out a, mia 4. Sɛ wopɛ sɛ wocheck-i wo account no a, mia 5. Mia 8 na kɔ back. Mia 0 na firi ha."',
+          xmlUrl: `/action-select?lang=twi&provider=${this.callState.provider || 'MTN'}`,
+          render: () => `
+            <div class="step-options-grid">
+              <button class="step-opt-btn" onclick="window.app.pressKey('1')">
+                <span style="color:var(--emerald-accent); font-weight:bold;">1: Send sika kɔ ma MoMo user</span>
+                <span class="opt-key-tag">Mia 1</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('2')">
+                <span>2: Tua Bills (Ka)</span>
+                <span class="opt-key-tag">Mia 2</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('3')">
+                <span>3: Tɔ Airtime anaa Bundle</span>
+                <span class="opt-key-tag">Mia 3</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('4')">
+                <span>4: Allow Cashout</span>
+                <span class="opt-key-tag">Mia 4</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('5')">
+                <span>5: Checki wo Account</span>
+                <span class="opt-key-tag">Mia 5</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('8')">
+                <span>8: Kɔ Back (Akyi)</span>
+                <span class="opt-key-tag">Mia 8</span>
+              </button>
+            </div>
+          `
+        },
+        recipient: {
+          tag: 'Step 4: Bɔ Nea Oregye Sika No Nɔmba (#)',
+          audio: '/audio/Twi/Audio_prompt_twi_05.mp3',
+          promptText: '"Afei, bɔ nɔmba no a wopɛ sɛ wosende sika no to so no. Wowie a, fa hash ka ho. Mia zero na san akyi."',
+          xmlUrl: `/enter-recipient?lang=twi&provider=${this.callState.provider || 'MTN'}`,
+          render: () => `
+            <div style="text-align:center;">
+              <input type="text" id="inPhoneSim" value="${this.callState.phone || '0553838464'}" maxlength="10" 
+                style="width:90%; padding:8px; font-size:16px; font-weight:bold; text-align:center; background:#000; border:1px solid var(--border-subtle); color:#fff; border-radius:6px; margin-bottom:8px;">
+              <button class="btn btn-sm btn-primary" style="width:90%; margin-bottom:6px;" onclick="window.app.submitSimRecipient()">
+                Fa Hash Ka Ho (#)
+              </button>
+              <div style="font-size:11px; color:var(--sky-accent); cursor:pointer;" onclick="document.getElementById('inPhoneSim').value='0553838464'; window.app.submitSimRecipient();">
+                👉 Kwame Nyamebrɛ nɔmba: 0553838464
+              </div>
+            </div>
+          `
+        },
+        recipient_verify: {
+          tag: 'Step 5: KYC Verification (Kwame Nyamebrɛ)',
+          audio: '/audio/Twi/Audio_prompt_twi_06.mp3',
+          promptText: `"Me pɛ sɛ wo bɛ sendi sika kɔ Kwame Nyamebrɛ fɔn so, anaa number ${last4} ɛna ɛtɔ. Sɛ wo pɛ sɛ wo gye tum na wo sendi sika ma me a baako (1). Sɛ wo pɛ sɛ wo cancel a mia mmienu (2). Sɛ wo pɛ sɛ wo firi mu a mia zero (0)."`,
+          render: () => `
+            <div class="step-options-grid">
+              <button class="step-opt-btn" onclick="window.app.pressKey('1')">
+                <span style="color:var(--emerald-accent); font-weight:bold;">1: Gye tum na sendi sika no</span>
+                <span class="opt-key-tag">Mia 1</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('2')">
+                <span>2: Cancel / Sesa nɔmba no</span>
+                <span class="opt-key-tag">Mia 2</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('0')">
+                <span style="color:var(--danger-accent);">0: Firi mu koraa</span>
+                <span class="opt-key-tag">Mia 0</span>
+              </button>
+            </div>
+          `
+        },
+        amount: {
+          tag: 'Step 6: Bɔ Cedi Dodow (#)',
+          audio: '/audio/Twi/Audio_prompt_twi_07.mp3',
+          promptText: '"Mepa wo kyɛw, si di amount a wo pɛ sɛ wo send ɛkɔ Kwame Nyame Brɛfo so, woyɛ a fa hash ɛntua to."',
+          xmlUrl: `/enter-amount?lang=twi&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(recipientName)}`,
+          render: () => `
+            <div style="text-align:center;">
+              <input type="text" id="inAmountSim" value="${this.callState.amount || '500'}" 
+                style="width:90%; padding:8px; font-size:16px; font-weight:bold; text-align:center; background:#000; border:1px solid var(--border-subtle); color:#fff; border-radius:6px; margin-bottom:8px;">
+              <button class="btn btn-sm btn-primary" style="width:90%; margin-bottom:6px;" onclick="window.app.submitSimAmount()">
+                Fa Hash Wie (#)
+              </button>
+              <div style="display:flex; justify-content:center; gap:6px;">
+                <button class="btn btn-xs btn-outline" onclick="document.getElementById('inAmountSim').value='500'; window.app.submitSimAmount();">500 Cedis</button>
+                <button class="btn btn-xs btn-outline" onclick="document.getElementById('inAmountSim').value='50'; window.app.submitSimAmount();">50 Cedis</button>
+                <button class="btn btn-xs btn-outline" onclick="document.getElementById('inAmountSim').value='100'; window.app.submitSimAmount();">100 Cedis</button>
+              </div>
+            </div>
+          `
+        },
+        confirm: {
+          tag: 'Step 7: Pene Sika no so (Read-back)',
+          audio: '/audio/Twi/Audio_prompt_twi_08.mp3',
+          promptText: '"Me pɛ sɛ wo sendi 500 Ghana cedis asɛm a kɔ m\'abɛɛ na namba so. Sɛ wopɛ sɛ woyi tum na wo sendi a, mia baako (1). Sɛ wopɛ sɛ wo cancel a, mia mmienu (2)."',
+          xmlUrl: `/safe-confirmation?lang=twi&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(recipientName)}&amount=${this.callState.amount}`,
+          render: () => `
+            <div class="step-options-grid">
+              <button class="step-opt-btn" onclick="window.app.pressKey('1')">
+                <span style="color:var(--emerald-accent); font-weight:bold;">1: Yi tum na sendi (Pene so)</span>
+                <span class="opt-key-tag">Mia 1</span>
+              </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('2')">
+                <span style="color:var(--danger-accent);">2: Cancel (Twa mu)</span>
+                <span class="opt-key-tag">Mia 2</span>
+              </button>
+            </div>
+          `
+        },
+        pin_handoff: {
+          tag: 'Step 8: Zero-PIN Fon Ahobammbɔ',
+          audio: '/audio/Twi/Audio_prompt_twi_09.mp3',
+          promptText: '"Me pɛ sɛ ɔfa ɛsi wo phone no so na bɔ wo momo PIN."',
+          xmlUrl: `/safe-outcome?lang=twi&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(recipientName)}&amount=${this.callState.amount}&dtmfDigits=1`,
+          render: () => this.renderPinPadUi('Mena GH₵ 500.00 kɔma Kwame Nyamebrɛ', true)
+        },
+        receipt: {
+          tag: 'Step 9: Nkratoɔ & Reference Nɔmba',
+          audio: '/audio/Twi/Audio_prompt_twi_10.mp3',
+          promptText: '"Congratulations! 500 Ghana Cedis a wosendee to Kwame Nyamebrɛ namba no so no yɛ successful. Wo transaction no yɛ completed wɔ 17th September 2026..."',
+          render: () => this.renderReceiptUi(true)
+        },
+        wrong_figure: {
+          tag: '⚠️ Nɔmba a Wobɔe no Nni Hɔ (Wrong Figure - Prompt 11)',
+          audio: '/audio/Twi/Audio_prompt_twi_11.mp3',
+          promptText: '"Mpanimfoɔ, fakyɛ yɛn sɛ option yi nni hɔ bio. Yɛdaase sɛ woayɛ use wɔ Ɔkwankyerɛfo Pa. Goodbye."',
+          render: () => `
+            <div style="background:#1e1e2e; border:1px solid var(--amber-accent); border-radius:8px; padding:12px; text-align:center; color:#fff;">
+              <div style="font-size:24px; margin-bottom:4px;">⚠️</div>
+              <div style="font-size:13px; font-weight:bold; margin-bottom:6px; color:var(--amber-accent);">
+                Nɔmba a Wobɔe no Nni Audio Prompt no Mu
+              </div>
+              <div style="font-size:11.5px; color:#cbd5e1; margin-bottom:10px;">
+                ${this.callState.lastInvalidKey ? `Wobɔɔ <strong style="color:var(--amber-accent); font-size:14px;">[${this.callState.lastInvalidKey}]</strong>. ` : ''}Audio prompt 11 reka kyerɛ wo sɛ option yi nni dwumadie no mu. Yɛsrɛ wo, san bɔ nɔmba pɔtee a wɔbɔɔ din no.
+              </div>
+              <div style="display:flex; justify-content:center; gap:8px;">
+                <button class="btn btn-sm btn-primary" onclick="window.app.retryStepAfterError()">
+                  🔄 San Bɔ Biom (Punch Again)
+                </button>
+                <button class="btn btn-sm btn-outline" onclick="window.app.pressKey('0')">
+                  0: Firi Mu (Exit)
+                </button>
+              </div>
+            </div>
+          `
+        },
+        not_available: {
+          tag: 'Option Yi Nni Hɔ Bio',
+          audio: '/audio/Twi/Audio_prompt_twi_11.mp3',
+          promptText: '"Mpanimfoɔ, fakyɛ yɛn sɛ option yi nni hɔ bio. Yɛdaase sɛ woayɛ use wɔ Ɔkwankyerɛfo Pa. Goodbye."',
+          render: () => this.renderUnavailableUi('"Mpanimfoɔ, fakyɛ yɛn sɛ option yi nni hɔ bio. Yɛdaase sɛ woayɛ use wɔ Ɔkwankyerɛfo Pa. Goodbye."', 'San Bɔ Fɔn Foforɔ')
+        },
+        done_exit: {
+          tag: 'Dwumadie no Awie',
+          audio: '/audio/Twi/Audio_prompt_twi_12.mp3',
+          promptText: '"Yɛda wo ase sɛ wode Ɔkwankyerɛfo Pa adi dwuma. Nante yie."',
+          render: () => this.renderDoneExitUi('"Yɛda wo ase sɛ wode Ɔkwankyerɛfo Pa adi dwuma. Nante yie."', 'San Bɔ Fɔn Foforɔ')
+        },
+        cancel: {
+          tag: 'Dwumadie no Atwa Mu',
+          audio: '/audio/Twi/Audio_prompt_twi_12.mp3',
+          promptText: '"Yɛda wo ase sɛ wode Ɔkwankyerɛfo Pa adi dwuma. Nante yie."',
+          render: () => `
+            <button class="btn btn-sm btn-secondary" style="width:100%;" onclick="window.app.startCall()">
+              San Hyɛ Ase Foforɔ
             </button>
-          </div>
-        `;
+          `
+        }
+      };
 
-        // Automatically disconnect call after 4 seconds
+      // Select flow strictly based on language
+      const flow = isTwi ? TWI_FLOW : ENGLISH_FLOW;
+      const stepConfig = flow[step] || flow['welcome'];
+
+      // Update Header & Prompt Text
+      stepTag.innerText = stepConfig.tag;
+      if (isTwi) {
+        promptTwi.innerText = stepConfig.promptText;
+        promptEn.innerText = ENGLISH_FLOW[step]?.promptText || '';
+      } else {
+        promptEn.innerText = stepConfig.promptText;
+        promptTwi.innerText = TWI_FLOW[step]?.promptText || '';
+      }
+
+      // Play audio strictly from the dedicated language asset suite
+      const audioFile = stepConfig.audio;
+      const audioEl = document.getElementById('phoneAudioElement');
+      if (step === 'welcome') {
+        if (!audioEl || audioEl.paused || audioEl.ended || this.currentAudioUrl !== audioFile) {
+          this.playPhoneAudio(audioFile, stepConfig.promptText);
+        }
+      } else {
+        this.playPhoneAudio(audioFile, stepConfig.promptText);
+      }
+
+      // Fetch voice XML if route is defined
+      if (stepConfig.xmlUrl) {
+        this.fetchVoiceXml(stepConfig.xmlUrl);
+      }
+
+      // Render step interactive viewport
+      viewport.innerHTML = stepConfig.render();
+
+      // Auto-disconnect timers for closing steps
+      if (step === 'not_available') {
         setTimeout(() => {
           if (this.callState.active && this.callState.step === 'not_available') {
             this.endCall();
           }
         }, 4200);
       } else if (step === 'done_exit') {
-        stepTag.innerText = 'Call Finished';
-        const exitText = "Thank you for using Ɔkwankyerɛfo Pa. Goodbye.";
-        promptEn.innerText = `"${exitText}"`;
-        promptTwi.innerText = `"${exitText}"`;
-
-        this.speakConversationalPrompt(exitText);
-
-        viewport.innerHTML = `
-          <div style="text-align:center; padding:14px 0;">
-            <div style="font-size:26px; margin-bottom:6px;">👋</div>
-            <div style="font-size:13px; color:var(--emerald-accent); font-weight:bold; margin-bottom:10px;">
-              Thank you for using Ɔkwankyerɛfo Pa. Goodbye.
-            </div>
-            <button class="btn btn-sm btn-primary" onclick="window.app.startCall()">
-              Place New Call
-            </button>
-          </div>
-        `;
-
         setTimeout(() => {
           if (this.callState.active && this.callState.step === 'done_exit') {
             this.endCall();
           }
         }, 3200);
-      } else if (step === 'cancel') {
-        stepTag.innerText = 'Transaction Cancelled';
-        promptTwi.innerText = '"Yɛatwa mu. Sika no mfiri wo account mu. Akwaaba."';
-        promptEn.innerText = '"Transaction cancelled. No money has been deducted from your account. Goodbye."';
-
-        const cancelAudio = isTwi
-          ? '/audio/Twi/Audio_prompt_twi_10.mp3'
-          : '/audio/English/Audio_prompt_11.mp3';
-        this.playPhoneAudio(cancelAudio, isTwi ? promptTwi.innerText : promptEn.innerText);
-
-        viewport.innerHTML = `
-          <button class="btn btn-sm btn-secondary" style="width:100%;" onclick="window.app.startCall()">
-            Restart Flow
-          </button>
-        `;
+      } else if (step === 'wrong_figure') {
+        clearTimeout(this.errorReturnTimer);
+        this.errorReturnTimer = setTimeout(() => {
+          if (this.callState.active && this.callState.step === 'wrong_figure') {
+            this.retryStepAfterError();
+          }
+        }, 6000);
       }
+    },
+
+    handleWrongFigure(key) {
+      console.log(`[Invalid Input Handler] Wrong figure punched: "${key}" on step: "${this.callState.step}"`);
+      
+      // Preserve original step before error
+      if (this.callState.step !== 'wrong_figure') {
+        this.callState.previousStepBeforeError = this.callState.step;
+      }
+      this.callState.lastInvalidKey = key || 'Unrecognized';
+
+      // Visual feedback on the status indicator
+      const statusText = document.getElementById('listeningStatusText');
+      if (statusText) {
+        if (this.callState.lang === 'twi') {
+          statusText.innerHTML = `⚠️ <strong style="color:var(--amber-accent);">Nɔmba a wobɔe no nni prompt no mu:</strong> Audio prompt 11 reka kyerɛ wo sɛ nɔmba [${this.callState.lastInvalidKey}] nni dwumadie no mu.`;
+        } else {
+          statusText.innerHTML = `⚠️ <strong style="color:var(--amber-accent);">Option not in prompt:</strong> Audio prompt 11 playing: key [${this.callState.lastInvalidKey}] is not recognized.`;
+        }
+      }
+
+      this.goToStep('wrong_figure');
+    },
+
+    retryStepAfterError() {
+      clearTimeout(this.errorReturnTimer);
+      const targetStep = this.callState.previousStepBeforeError || (this.callState.lang === 'twi' ? 'network' : 'welcome');
+      console.log(`[Invalid Input Handler] Returning to step: ${targetStep} so caller can punch again`);
+      this.goToStep(targetStep);
+    },
+
+    renderPinPadUi(title, isTwi) {
+      return `
+        <div class="pin-handoff-card" style="background:#0f172a; border:1px solid var(--emerald-accent); border-radius:8px; padding:12px; text-align:center;">
+          <div style="font-size:12px; color:var(--emerald-accent); font-weight:bold; margin-bottom:4px;">
+            📲 ${isTwi ? 'Fon So MoMo PIN Ahobammbɔ' : 'Secure Handset PIN Authentication Prompt'}
+          </div>
+          <div style="font-size:11px; color:#cbd5e1; margin-bottom:8px;">
+            ${title}
+          </div>
+          <div class="pin-display-dots" id="pinDisplayDots" style="font-size:22px; letter-spacing:8px; color:var(--emerald-accent); margin-bottom:8px;">
+            ○ ○ ○ ○
+          </div>
+          <div class="pin-keypad-mini" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:4px; max-width:180px; margin:0 auto;">
+            <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('1')">1</button>
+            <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('2')">2</button>
+            <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('3')">3</button>
+            <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('4')">4</button>
+            <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('5')">5</button>
+            <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('6')">6</button>
+            <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('7')">7</button>
+            <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('8')">8</button>
+            <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('9')">9</button>
+            <button class="btn btn-xs btn-ghost" onclick="window.app.clearPin()">${isTwi ? 'Popa' : 'Clear'}</button>
+            <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('0')">0</button>
+            <button class="btn btn-xs btn-primary" onclick="window.app.submitPinAuthorization()">OK</button>
+          </div>
+          <div style="margin-top:6px; font-size:10px; color:#6ee7b7;">
+            🛡️ ${isTwi ? 'Zero-PIN Ahobammbɔ: Nne kwan no nntie PIN da.' : 'Zero-PIN Security: Voice channel never captures PIN'}
+          </div>
+        </div>
+      `;
+    },
+
+    renderReceiptUi(isTwi) {
+      return `
+        <div class="receipt-card">
+          <div class="receipt-header">
+            <span>✅</span>
+            <span>${isTwi ? 'Woatumi Awie Dwumadie No Pɛpɛɛpɛ' : 'Transaction Successfully Completed'}</span>
+          </div>
+          <div class="receipt-row">
+            <span>${isTwi ? 'Nea Onyae:' : 'Recipient:'}</span>
+            <strong>Kwame Nyamebere (0553838464)</strong>
+          </div>
+          <div class="receipt-row">
+            <span>${isTwi ? 'Sika a Womenee:' : 'Amount Sent:'}</span>
+            <strong style="color:var(--emerald-accent);">GH₵ 500.00</strong>
+          </div>
+          <div class="receipt-row">
+            <span>${isTwi ? 'Reference Nɔmba:' : 'Reference No:'}</span>
+            <strong>OKP-847291</strong>
+          </div>
+          <div class="receipt-row">
+            <span>${isTwi ? 'Da & Berɛ:' : 'Date & Time:'}</span>
+            <span>17 Sep 2026, 5:00 PM</span>
+          </div>
+          <div class="receipt-row">
+            <span>Status:</span>
+            <strong style="color:var(--emerald-accent);">${isTwi ? 'Awie (Completed)' : 'Completed'}</strong>
+          </div>
+          <div style="margin-top:8px; border-top:1px dashed rgba(255,255,255,0.15); padding-top:6px; font-size:11.5px; color:#e2e8f0; text-align:center;">
+            ${isTwi ? '"Wopɛ sɛ woyɛ biribi foforɔ bi bio anaa?"' : '"Would you like to do anything else?"'}
+          </div>
+          <div style="display:flex; gap:6px; margin-top:8px;">
+            <button class="btn btn-sm btn-primary" style="flex:1;" onclick="window.app.pressKey('0')">
+              ${isTwi ? 'Dabi, ma no nso (Mia 0)' : "No, that's all (Exit 0)"}
+            </button>
+            <button class="btn btn-sm btn-outline" style="flex:1;" onclick="window.app.goToStep('not_available')">
+              ${isTwi ? 'Aane, dwumadie foforɔ' : 'Yes, other service'}
+            </button>
+          </div>
+        </div>
+      `;
+    },
+
+    renderUnavailableUi(text, btnLabel) {
+      return `
+        <div style="background:#1e1e2e; border:1px solid var(--amber-accent); border-radius:8px; padding:12px; text-align:center; color:#fff;">
+          <div style="font-size:24px; margin-bottom:4px;">⚠️</div>
+          <div style="font-size:13px; font-weight:bold; margin-bottom:6px; color:var(--amber-accent);">
+            Option Not Available
+          </div>
+          <div style="font-size:11.5px; color:#cbd5e1; margin-bottom:10px;">
+            ${text}
+          </div>
+          <button class="btn btn-sm btn-primary" onclick="window.app.startCall()">
+            ${btnLabel}
+          </button>
+        </div>
+      `;
+    },
+
+    renderDoneExitUi(text, btnLabel) {
+      return `
+        <div style="text-align:center; padding:14px 0;">
+          <div style="font-size:26px; margin-bottom:6px;">👋</div>
+          <div style="font-size:13px; color:var(--emerald-accent); font-weight:bold; margin-bottom:10px;">
+            ${text}
+          </div>
+          <button class="btn btn-sm btn-primary" onclick="window.app.startCall()">
+            ${btnLabel}
+          </button>
+        </div>
+      `;
     },
 
     updateStepIndicators(step) {
@@ -1957,6 +2506,13 @@
         }
       }
 
+      // If currently displaying wrong figure prompt, any key cancels timer and restores previous step
+      if (this.callState.step === 'wrong_figure') {
+        clearTimeout(this.errorReturnTimer);
+        const prevStep = this.callState.previousStepBeforeError || (this.callState.lang === 'twi' ? 'network' : 'welcome');
+        this.callState.step = prevStep;
+      }
+
       // Universal Navigation Grammar handlers
       if (key === '0') {
         if (this.callState.step === 'receipt') {
@@ -1967,18 +2523,36 @@
         return;
       }
       if (key === '9') {
-        // Repeat current prompt
+        // Steps where 9 is NOT a valid repeat key
+        if (this.callState.step === 'welcome' || this.callState.step === 'recipient' || this.callState.step === 'amount' || this.callState.step === 'pin_handoff') {
+          this.handleWrongFigure('9');
+          return;
+        }
+        if (this.callState.lang === 'twi' && this.callState.step === 'network') {
+          // In Twi prompt 02, repeat is explicitly key 4 ("Mia anan 4 na tie wei biom"), so 9 is invalid
+          this.handleWrongFigure('9');
+          return;
+        }
+        // Valid repeat current prompt
         this.goToStep(this.callState.step);
         return;
       }
       if (key === '8') {
-        // Back to previous step
-        const prevSteps = {
-          'network': 'welcome',
+        // Back to previous step (language aware)
+        const isTwi = this.callState.lang === 'twi';
+        const prevSteps = isTwi ? {
+          'services': 'network',
+          'action': 'network',
+          'recipient': 'services',
+          'recipient_verify': 'recipient',
+          'amount': 'recipient_verify',
+          'confirm': 'amount'
+        } : {
           'service': 'welcome',
+          'network': 'service',
           'provider': 'service',
           'services': 'network',
-          'action': 'provider',
+          'action': 'network',
           'recipient': 'services',
           'recipient_verify': 'recipient',
           'amount': 'recipient_verify',
@@ -1987,50 +2561,120 @@
         const prev = prevSteps[this.callState.step];
         if (prev) {
           this.goToStep(prev);
+          return;
         }
-        return;
+        // 8 is not an option in welcome or Twi network
+        if (this.callState.step === 'welcome' || (isTwi && this.callState.step === 'network')) {
+          this.handleWrongFigure('8');
+          return;
+        }
       }
 
       // Step-specific routing
       if (this.callState.step === 'welcome') {
         if (key === '1') {
+          // English chosen exclusively
           this.callState.lang = 'en';
-          this.goToStep('network');
-        } else if (key === '2') {
-          this.callState.lang = 'twi';
+          this.voiceMode = 'en';
+          this.setVoiceMode('en');
           this.goToStep('service');
+        } else if (key === '2') {
+          // Twi chosen exclusively
+          this.callState.lang = 'twi';
+          this.voiceMode = 'twi';
+          this.setVoiceMode('twi');
+          this.goToStep('network');
+        } else {
+          // Any other figure on welcome -> Prompt 11
+          this.handleWrongFigure(key);
+        }
+      } else if (this.callState.step === 'service') {
+        if (key === '1' || key === '2') {
+          this.callState.service = key === '2' ? 'banking' : 'momo';
+          this.goToStep('network');
+        } else {
+          this.handleWrongFigure(key);
         }
       } else if (this.callState.step === 'network' || this.callState.step === 'provider') {
-        if (key === '1') this.callState.provider = 'MTN';
-        else if (key === '2') this.callState.provider = 'Telecel';
-        else if (key === '3') this.callState.provider = 'AT';
-        this.goToStep('services');
+        if (this.callState.lang === 'twi' && key === '4') {
+          // Twi prompt 02 explicitly states: "Mia anan (4) na tie wei biom"
+          this.goToStep('network');
+          return;
+        }
+        if (key === '1') {
+          this.callState.provider = 'MTN';
+          this.goToStep('services');
+        } else if (key === '2') {
+          this.callState.provider = 'Telecel';
+          this.goToStep('services');
+        } else if (key === '3') {
+          this.callState.provider = 'AT';
+          this.goToStep('services');
+        } else {
+          // Unmentioned figure -> Audio 11
+          this.handleWrongFigure(key);
+        }
       } else if (this.callState.step === 'services' || this.callState.step === 'action') {
         if (key === '1') {
           this.goToStep('recipient');
         } else if (['2', '3', '4', '5'].includes(key)) {
           this.goToStep('not_available');
+        } else {
+          // Any unlisted figure (6, 7, *, #) -> Audio 11
+          this.handleWrongFigure(key);
         }
-      } else if (this.callState.step === 'service') {
-        this.callState.service = key === '2' ? 'banking' : 'momo';
-        this.goToStep('network');
+      } else if (this.callState.step === 'recipient') {
+        const inputEl = document.getElementById('inPhoneSim');
+        if (key === '#') {
+          this.submitSimRecipient();
+        } else if (['0','1','2','3','4','5','6','7','8','9'].includes(key)) {
+          if (inputEl && inputEl.value.length < 10) {
+            inputEl.value += key;
+            this.callState.phone = inputEl.value;
+          }
+        } else {
+          this.handleWrongFigure(key);
+        }
       } else if (this.callState.step === 'recipient_verify') {
         if (key === '1') {
           this.goToStep('amount');
         } else if (key === '2') {
           this.goToStep('recipient');
+        } else {
+          this.handleWrongFigure(key);
+        }
+      } else if (this.callState.step === 'amount') {
+        const inputEl = document.getElementById('inAmountSim');
+        if (key === '#') {
+          this.submitSimAmount();
+        } else if (key === '*') {
+          if (inputEl && !inputEl.value.includes('.')) {
+            inputEl.value += '.';
+            this.callState.amount = inputEl.value;
+          }
+        } else if (['0','1','2','3','4','5','6','7','8','9'].includes(key)) {
+          if (inputEl) {
+            inputEl.value += key;
+            this.callState.amount = inputEl.value;
+          }
+        } else {
+          this.handleWrongFigure(key);
         }
       } else if (this.callState.step === 'confirm') {
         if (key === '1') {
           this.goToStep('pin_handoff');
         } else if (key === '2') {
-          this.goToStep('cancel');
+          this.goToStep('recipient');
+        } else {
+          this.handleWrongFigure(key);
         }
       } else if (this.callState.step === 'receipt') {
         if (key === '0' || key === '2') {
           this.goToStep('done_exit');
-        } else {
+        } else if (key === '1') {
           this.goToStep('not_available');
+        } else {
+          this.handleWrongFigure(key);
         }
       }
     },
@@ -2039,7 +2683,7 @@
       const inputEl = document.getElementById('inPhoneSim');
       const val = inputEl ? inputEl.value.trim() : (this.callState.phone || '0553838464');
       if (val.length < 10) {
-        alert('Please enter a valid 10-digit Ghanaian phone number.');
+        this.handleWrongFigure(val ? `Nɔma ${val}` : 'Incomplete');
         return;
       }
       this.callState.phone = val;
@@ -2060,7 +2704,7 @@
       const val = inputEl ? inputEl.value.trim().replace('*', '.') : (this.callState.amount || '500');
       const num = parseFloat(val);
       if (isNaN(num) || num <= 0) {
-        alert('Please enter a valid amount.');
+        this.handleWrongFigure(val ? `${val} Cedis` : 'Invalid Amount');
         return;
       }
       this.callState.amount = String(num);
@@ -2152,6 +2796,11 @@
 
       this.stopPhoneAudio();
       this.currentAudioUrl = audioUrl;
+
+      const fileTag = document.getElementById('currentAudioFileName');
+      if (fileTag) {
+        fileTag.innerText = audioUrl ? audioUrl : 'None';
+      }
 
       // When audio prompt begins, speech recognition is strictly inactive
       this.isPromptPlaying = true;

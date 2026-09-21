@@ -1,0 +1,120 @@
+{
+  "audio/Welcome_prompt_01.mp3": {
+    "verbatim": "Welcome to Okwanchofapa, an easy financial transaction service. For English, press 1. For Twi, press 2.",
+    "language": "English",
+    "options": {
+      "1": "English",
+      "2": "Twi"
+    },
+    "step": "Language selection"
+  },
+  "audio/English/Audio_prompt_02.mp3": {
+    "verbatim": "For Telecom mobile money services, press 1. For banking services, press 2. To hear this again, press 9. To exit, press 0.",
+    "language": "English",
+    "options": {
+      "0": "To exit",
+      "1": "Telecom mobile money services",
+      "2": "banking services",
+      "9": "To hear this again"
+    },
+    "step": "Main Menu"
+  },
+  "audio/English/Audio_prompt_03.mp3": {
+    "verbatim": "Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again. Press 0 to exit.",
+    "language": "English",
+    "options": {
+      "0": "Exit",
+      "1": "MTN",
+      "2": "Telecel",
+      "3": "AirtelTigo",
+      "9": "Replay menu"
+    },
+    "step": "Network Selection"
+  },
+  "audio/English/Audio_prompt_04.mp3": {
+    "verbatim": "Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again or 0 to exit.",
+    "language": "English",
+    "options": "1: MTN, 2: Telecel, 3: AirtelTigo, 9: Repeat, 0: Exit",
+    "step": "Network Selection"
+  },
+  "audio/English/Audio_prompt_05.mp3": {
+    "verbatim": "MTN services. To send money to another MoMo user, press 1. To pay bills, press 2. To buy airtime or bundle, press 3. To allow cash out, press 4. To check your account, press 5. Press 8 to go back or 0 to exit.",
+    "language": "English",
+    "options": {
+      "0": "Exit",
+      "1": "Send money to another MoMo user",
+      "2": "Pay bills",
+      "3": "Buy airtime or bundle",
+      "4": "Allow cash out",
+      "5": "Check your account",
+      "8": "Go back"
+    },
+    "step": "MTN Services Main Menu"
+  },
+  "audio/English/Audio_prompt_06.mp3": {
+    "verbatim": "Enter the 10 digit number you want to send money to followed by hash. Press 0 to exit.",
+    "language": "English",
+    "options": "Enter a 10 digit number, or press 0 to exit",
+    "step": "Enter recipient number"
+  },
+  "audio/English/Audio_prompt_07.mp3": {
+    "verbatim": "0 2 4 1 2 3 4 5 6 7 hash",
+    "language": "English",
+    "options": "None",
+    "step": "Enter recipient phone number"
+  },
+  "audio/English/Audio_prompt_08.mp3": {
+    "verbatim": "You are about to send money to Kojo Nyamebru whose phone number ends with 4567. To confirm and send the money, press 1, to cancel, press 2, to exit completely, press 0.",
+    "language": "English",
+    "options": "1: Confirm and send; 2: Cancel; 0: Exit",
+    "step": "Transaction confirmation"
+  },
+  "audio/English/Audio_prompt_09.mp3": {
+    "verbatim": "Enter the cedi amount you want to send to Kwami Nyamebre followed by hash. Use star for pesewas.",
+    "language": "English",
+    "options": "Use * for decimal point (pesewas) and # to submit",
+    "step": "Enter transaction amount"
+  },
+  "audio/English/Audio_prompt_10.mp3": {
+    "verbatim": "You are about to send 500 Ghana Cedis to Kwame Namebo. To confirm and send, press 1. To cancel, press 2.",
+    "language": "English",
+    "options": "Press 1 to confirm and send, press 2 to cancel",
+    "step": "Transaction Confirmation"
+  },
+  "audio/English/Audio_prompt_11.mp3": {
+    "verbatim": "Confirmed. Now, please check your phone's screen and enter your Momo PIN accurately. Thank you for using Okwanso Papa. Goodbye.",
+    "language": "English",
+    "options": null,
+    "step": "Momo PIN entry confirmation"
+  },
+  "audio/English/Audio_prompt_12.mp3": {
+    "verbatim": "Congratulations, you have successfully sent 500 Ghana Cedis to Kwame Nyamebr3. Your transaction was completed on 17th September 2026 at 5:00 PM. Your reference number is OKP847291. Your transaction details have also been sent to you. Would you like to do anything else?",
+    "language": "English",
+    "options": "None specified in the audio.",
+    "step": "Transaction confirmation"
+  },
+  "audio/Twi/Audio_prompt_twi_02.mp3": {
+    "verbatim": "Afei select-i wo network. Sɛ MTN a, mia baako. Sɛ Telecel a, mia mmienu. Sɛ AirtelTigo a, mia mmiɛnsa. Mia nnan na tie wei biom. Mia zero na si ha.",
+    "language": "Akan Twi",
+    "options": "1 for MTN, 2 for Telecel, 3 for AirtelTigo, 4 to repeat, 0 to end/exit",
+    "step": "Network selection"
+  },
+  "audio/Twi/Audio_prompt_twi_03.mp3": {
+    "verbatim": "Sɛ wonpɛ sɛ wo si ka ko mobio yi simu 1, mi abako. Sɛ wopɛ sɛ wotie abɛ osɛ, mi amienu. Sɛ wopɛ sɛ wo tɔ airtime anaa bundle, mi amiesa. Sɛ wopɛ sɛ woala woka shouter, mi afour. Sɛ wopɛ sɛ wochecki wo account no a, mi afive. Mia eight na kowɛchi. Mia zero nɛsi ha.",
+    "language": "Akan Twi",
+    "options": "1 (kura), 2 (abɛ osɛ), 3 (airtime/bundle), 4 (shouter), 5 (account), 8 (kowɛchi), 0 (nɛsi ha)",
+    "step": "Main Menu"
+  },
+  "audio/Twi/Audio_prompt_twi_04.mp3": {
+    "verbatim": "Sɛ wopɛ sɛ wosend sika kɔ ma momo user, mia 1. Sɛ wopɛ sɛ wotia bɔɔsa, mia 2. Sɛ wopɛ sɛ wotɔ airtime anaa bundle, mia 3. Sɛ wopɛ sɛ woallow cash out, mia 4. Sɛ wopɛ sɛ wochecki wo account no, mia 5. Mia 8 na kɔ back. Mia 0 next.",
+    "language": "Akan Twi",
+    "options": "1: send money to momo user, 2: withdraw cash, 3: buy airtime or bundle, 4: allow cash out, 5: check account, 8: go back, 0: next",
+    "step": "Main Menu"
+  },
+  "audio/Twi/Audio_prompt_twi_05.mp3": {
+    "verbatim": "Afei mobɔ namba no a wopɛ sɛ wosend sika toso no, wie a fa ash ɛka ho. Mia zero na esi ha.",
+    "language": "Akan Twi",
+    "options": "[phone number]# to specify recipient, 0 to go back",
+    "step": "Enter recipient phone number"
+  }
+}
