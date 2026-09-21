@@ -1811,8 +1811,8 @@
       const ENGLISH_FLOW = {
         welcome: {
           tag: 'Step 1: Welcome & Language Choice',
-          audio: '/audio/Welcome_prompt_01.mp3',
-          promptText: '"Welcome to Ɔkwankyerɛfo Pa, an easy financial transaction service. For English, press 1. For Twi, press 2."',
+          audio: '/audio/welcome_prompt_01.mp3',
+          promptText: 'First introduction audio playing (welcome_prompt_01.mp3). For English, press 1. For Twi, press 2.',
           xmlUrl: '/voice-menu',
           render: () => `
             <div class="step-options-grid">
@@ -2061,8 +2061,8 @@
       const TWI_FLOW = {
         welcome: {
           tag: 'Step 1: Welcome & Kasa Paw',
-          audio: '/audio/Welcome_prompt_01.mp3',
-          promptText: '"Akwaaba kɔ Ɔkwankyerɛfo Pa, an easy financial transaction service. For English, press 1. Twi firi mu, mia 2."',
+          audio: '/audio/welcome_prompt_01.mp3',
+          promptText: 'First introduction audio playing (welcome_prompt_01.mp3). For English, press 1. Twi firi mu, mia 2.',
           xmlUrl: '/voice-menu',
           render: () => `
             <div class="step-options-grid">
@@ -2319,8 +2319,9 @@
       const audioFile = stepConfig.audio;
       const audioEl = document.getElementById('phoneAudioElement');
       if (step === 'welcome') {
+        // First introduction audio is welcome_prompt_01.mp3 - never read a synthetic welcome message
         if (!audioEl || audioEl.paused || audioEl.ended || this.currentAudioUrl !== audioFile) {
-          this.playPhoneAudio(audioFile, stepConfig.promptText);
+          this.playPhoneAudio(audioFile, null);
         }
       } else {
         this.playPhoneAudio(audioFile, stepConfig.promptText);
@@ -2869,7 +2870,7 @@
     unlockAudio(targetUrl) {
       const audioEl = document.getElementById('phoneAudioElement');
       if (audioEl) {
-        const urlToPrime = targetUrl || this.currentAudioUrl || '/audio/English_audio_prot/12_welcome_language_intro.mp3';
+        const urlToPrime = targetUrl || this.currentAudioUrl || '/audio/welcome_prompt_01.mp3';
         if (audioEl.src !== urlToPrime && !audioEl.src.endsWith(urlToPrime)) {
           audioEl.src = urlToPrime;
         }
@@ -2910,7 +2911,7 @@
         window.speechSynthesis.cancel();
       }
 
-      const targetUrl = this.currentAudioUrl || '/audio/English_audio_prot/12_welcome_language_intro.mp3';
+      const targetUrl = this.currentAudioUrl || '/audio/welcome_prompt_01.mp3';
       if (audioEl.src !== targetUrl && !audioEl.src.endsWith(targetUrl)) {
         audioEl.src = targetUrl;
         audioEl.load();
@@ -2936,6 +2937,11 @@
 
       this.stopPhoneAudio();
       this.currentAudioUrl = audioUrl;
+
+      // Never speak a fallback synthetic welcome message for the intro prompt
+      if ((audioUrl && audioUrl.toLowerCase().includes('welcome_prompt_01')) || this.callState.step === 'welcome') {
+        fallbackTtsText = null;
+      }
 
       const fileTag = document.getElementById('currentAudioFileName');
       if (fileTag) {

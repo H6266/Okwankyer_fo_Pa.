@@ -149,12 +149,12 @@ export interface PhraseItem {
 export const PHRASE_BANK: PhraseItem[] = [
   {
     id: "intro",
-    filename: "intro.mp3",
+    filename: "welcome_prompt_01.mp3",
     category: "welcome",
     language: "bilingual",
     title: "Intro & Language Prompt",
     spokenText: "For English, press 1. Twi firi mu, mia 2.",
-    description: "Plays when incoming/outgoing call connects. Welcomes user and asks for language selection.",
+    description: "Plays when incoming/outgoing call connects. Plays welcome_prompt_01.mp3 without synthetic welcome speech.",
   },
   {
     id: "confirm_twi",
@@ -372,7 +372,14 @@ app.all("/audio/*", (req: Request, res: Response) => {
     const inTwi = path.join(process.cwd(), "audio", "Twi", cleanSubpath);
     const baseName = path.basename(cleanSubpath);
 
+    if (cleanSubpath.toLowerCase() === "welcome_prompt_01.mp3" || baseName.toLowerCase() === "welcome_prompt_01.mp3") {
+      filePath = path.join(process.cwd(), "audio", "Welcome_prompt_01.mp3");
+    }
+
     const legacyEngMap: Record<string, string> = {
+      "welcome_prompt_01.mp3": "Welcome_prompt_01.mp3",
+      "Welcome_prompt_01.mp3": "Welcome_prompt_01.mp3",
+      "intro.mp3": "Welcome_prompt_01.mp3",
       "12_welcome_language_intro.mp3": "Welcome_prompt_01.mp3",
       "01_service_select.mp3": "English/Audio_prompt_02.mp3",
       "02_network_select.mp3": "English/Audio_prompt_03.mp3",
@@ -1117,12 +1124,11 @@ function handleVoiceMenu(req: Request, res: Response) {
   const caller = req.body?.callerNumber || req.query?.callerNumber || "caller";
   console.log(`📞 Inbound voice call connected from ${caller}!`);
 
-  const introAudioUrl = `${baseUrl}/audio/Welcome_prompt_01.mp3`;
+  const introAudioUrl = `${baseUrl}/audio/welcome_prompt_01.mp3`;
 
-  // Standard Africa's Talking compliant XML: <Play> streams audio, <GetDigits> with <Say> captures keypress & speaks prompt
-  const xml = `    <Play url="${introAudioUrl}"/>
-    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection">
-        <Say voice="man">Welcome to Kwankyerɛfo Pa. For English, press 1. For Akan Twi, press 2.</Say>
+  // Africa's Talking compliant XML: Play welcome_prompt_01.mp3 as first introduction audio; do not read any synthetic welcome message
+  const xml = `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection">
+        <Play url="${introAudioUrl}"/>
     </GetDigits>
     <Say voice="man">No response received. Goodbye.</Say>`;
 
@@ -2797,9 +2803,9 @@ app.all("/", (req: Request, res: Response) => {
         const res = await fetch('/voice-menu');
         const xml = await res.text();
         xmlLog.innerText = xml;
-        spoken.innerHTML = '🗣️ <strong>"Welcome to Ɔkwankyerɛfo Pa. For English, press 1. Twi firi mu, mia 2."</strong>';
+        spoken.innerHTML = '🗣️ <strong>(Playing welcome_prompt_01.mp3 — For English, press 1. For Twi, press 2.)</strong>';
         audioBox.style.display = 'block';
-        audioBox.innerHTML = '<audio controls autoplay src="/audio/English_audio_prot/12_welcome_language_intro.mp3"></audio>';
+        audioBox.innerHTML = '<audio controls autoplay src="/audio/welcome_prompt_01.mp3"></audio>';
 
         inputArea.innerHTML = \`
           <div style="display:flex; gap:10px; justify-content:center;">
