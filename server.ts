@@ -891,10 +891,13 @@ function handleInvalidDtmf(
 ) {
   if (lang === "twi") {
     const xml = `    <Play url="${baseUrl}/audio/Twi/Audio_prompt_twi_11.mp3"/>
+    <Say voice="man">Nɔma no nyɛ pɛpɛɛpɛ. Sɛ worepɛ agyae a, mia hwee.</Say>
     <Redirect>${retryUrl}</Redirect>`;
     return xmlResponse(res, xml);
   } else {
-    const xml = `    <Say voice="man">${customMsg || "That option is not recognized. Please choose a valid option from the menu."}</Say>
+    const fallbackMsg = customMsg || "That option is not recognized. Please choose a valid option from the menu.";
+    const xml = `    <Play url="${baseUrl}/audio/English/Audio_prompt_13.mp3"/>
+    <Say voice="man">${fallbackMsg}</Say>
     <Redirect>${retryUrl}</Redirect>`;
     return xmlResponse(res, xml);
   }
@@ -1112,12 +1115,12 @@ function handleVoiceMenu(req: Request, res: Response) {
 
   const introAudioUrl = `${baseUrl}/audio/Welcome_prompt_01.mp3`;
 
-  // English/Bilingual intro menu: GetDigits with nested Play enables instantaneous barge-in on Africa's Talking!
-  const speechFallbackUrl = `${baseUrl}/speech-fallback?step=language-selection&amp;retryUrl=%2Fvoice-menu`;
-  const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection">
-        <Play url="${introAudioUrl}"/>
+  // Standard Africa's Talking compliant XML: <Play> streams audio, <GetDigits> with <Say> captures keypress & speaks prompt
+  const xml = `    <Play url="${introAudioUrl}"/>
+    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection">
+        <Say voice="man">Welcome to Kwankyerɛfo Pa. For English, press 1. For Akan Twi, press 2.</Say>
     </GetDigits>
-${buildSpeechFallbackXml({ speechCallbackUrl: speechFallbackUrl, promptText: "Please speak 1 for English or 2 for Akan Twi after the beep." })}`;
+    <Say voice="man">No response received. Goodbye.</Say>`;
 
   xmlResponse(res, xml);
 }
@@ -1157,11 +1160,14 @@ app.all("/service-select", (req: Request, res: Response) => {
     const audioUrl = lang === "twi"
       ? `${baseUrl}/audio/Twi/Audio_prompt_twi_02.mp3`
       : `${baseUrl}/audio/English/Audio_prompt_02.mp3`;
-    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=service-select&amp;retryUrl=%2Fservice-select%3Flang%3D${lang}`;
-    const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?lang=${lang}">
-        <Play url="${audioUrl}"/>
+    const promptText = lang === "twi"
+      ? "Sɛ worepɛ Mobile Money a, mia baako. Sɛ worepɛ Sikakorabea a, mia mmienu."
+      : "For Mobile Money, press 1. For Banking, press 2.";
+    const xml = `    <Play url="${audioUrl}"/>
+    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?lang=${lang}">
+        <Say voice="man">${promptText}</Say>
     </GetDigits>
-${buildSpeechFallbackXml({ speechCallbackUrl: speechFallbackUrl })}`;
+    <Say voice="man">No response received. Goodbye.</Say>`;
     return xmlResponse(res, xml);
   }
 
@@ -1217,11 +1223,14 @@ app.all("/provider-select", (req: Request, res: Response) => {
     const audioUrl = lang === "twi"
       ? `${baseUrl}/audio/Twi/Audio_prompt_twi_02.mp3`
       : `${baseUrl}/audio/English/Audio_prompt_03.mp3`;
-    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=provider-select&amp;service=${service}&amp;retryUrl=%2Fprovider-select%3Flang%3D${lang}%26service%3D${service}`;
-    const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?lang=${lang}&amp;service=${service}">
-        <Play url="${audioUrl}"/>
+    const promptText = lang === "twi"
+      ? "Paw wo network. MTN, mia baako. Telecel, mia mmienu. Africa's Talking AT, mia mmiɛnsa."
+      : "For MTN, press 1. For Telecel, press 2. For AT, press 3.";
+    const xml = `    <Play url="${audioUrl}"/>
+    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?lang=${lang}&amp;service=${service}">
+        <Say voice="man">${promptText}</Say>
     </GetDigits>
-${buildSpeechFallbackXml({ speechCallbackUrl: speechFallbackUrl })}`;
+    <Say voice="man">No response received. Goodbye.</Say>`;
     return xmlResponse(res, xml);
   }
 
@@ -1277,11 +1286,14 @@ app.all("/action-select", (req: Request, res: Response) => {
     const audioUrl = lang === "twi"
       ? `${baseUrl}/audio/Twi/Audio_prompt_twi_04.mp3`
       : `${baseUrl}/audio/English/Audio_prompt_05.mp3`;
-    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=action-select&amp;provider=${provider}&amp;retryUrl=%2Faction-select%3Flang%3D${lang}%26provider%3D${provider}`;
-    const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?lang=${lang}&amp;provider=${provider}">
-        <Play url="${audioUrl}"/>
+    const promptText = lang === "twi"
+      ? `${provider} dwumadie. Sɛ woremane sika a, mia baako. Sɛ woregye wo balance a, mia mmienu.`
+      : `${provider} menu. To send money, press 1. To check balance, press 2.`;
+    const xml = `    <Play url="${audioUrl}"/>
+    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?lang=${lang}&amp;provider=${provider}">
+        <Say voice="man">${promptText}</Say>
     </GetDigits>
-${buildSpeechFallbackXml({ speechCallbackUrl: speechFallbackUrl })}`;
+    <Say voice="man">No response received. Goodbye.</Say>`;
     return xmlResponse(res, xml);
   }
 
@@ -1346,15 +1358,14 @@ app.all("/enter-recipient", (req: Request, res: Response) => {
     const errSay = err === "invalid"
       ? (lang === "twi" ? `    <Say voice="man">Nɔma no nyɛ pɛpɛɛpɛ.</Say>\n` : `    <Say voice="man">That number wasn't recognized.</Say>\n`)
       : "";
-    const retryQuery = err ? `%26err%3D${encodeURIComponent(err)}` : "";
-    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=enter-recipient&amp;provider=${provider}&amp;retryUrl=%2Fenter-recipient%3Flang%3D${lang}%26provider%3D${provider}${retryQuery}`;
-    const xml = `${errSay}    <GetDigits timeout="12" finishOnKey="#" numDigits="15" callbackUrl="${baseUrl}/verify-recipient?lang=${lang}&amp;provider=${provider}">
-        <Play url="${audioUrl}"/>
+    const promptText = lang === "twi"
+      ? "Fa nɔma du a woremane kɔma no nwura mu, na wie no hash."
+      : "Please enter the 10-digit recipient phone number, followed by hash.";
+    const xml = `${errSay}    <Play url="${audioUrl}"/>
+    <GetDigits timeout="12" finishOnKey="#" numDigits="15" callbackUrl="${baseUrl}/verify-recipient?lang=${lang}&amp;provider=${provider}">
+        <Say voice="man">${promptText}</Say>
     </GetDigits>
-${buildSpeechFallbackXml({
-  errorPrefixText: err === "invalid" ? (lang === "twi" ? "Nɔma no nyɛ pɛpɛɛpɛ." : "That number wasn't recognized.") : undefined,
-  speechCallbackUrl: speechFallbackUrl,
-})}`;
+    <Say voice="man">No phone number entered. Goodbye.</Say>`;
     return xmlResponse(res, xml);
   }
 
@@ -1423,9 +1434,13 @@ app.all("/recipient-verify", (req: Request, res: Response) => {
     : `${baseUrl}/audio/English/Audio_prompt_08.mp3`;
 
   const callbackUrl = `${baseUrl}/recipient-verify-choice?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}`;
+  const promptText = lang === "twi"
+    ? `Woapaw ${name}. Sɛ ɛyɛ ampa a, mia baako. Sɛ worepɛ sesa no a, mia mmienu.`
+    : `You are sending to ${name}. Press 1 to confirm, or 2 to change.`;
 
-  const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
-        <Play url="${audioUrl}"/>
+  const xml = `    <Play url="${audioUrl}"/>
+    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
+        <Say voice="man">${promptText}</Say>
     </GetDigits>
     <Say voice="man">No response received. Goodbye.</Say>`;
 
@@ -1479,15 +1494,14 @@ app.all("/enter-amount", (req: Request, res: Response) => {
     const errSay = err === "invalid"
       ? (lang === "twi" ? `    <Say voice="man">Sika dodow no nyɛ pɛpɛɛpɛ.</Say>\n` : `    <Say voice="man">That amount wasn't recognized.</Say>\n`)
       : "";
-    const retryQuery = err ? `%26err%3D${encodeURIComponent(err)}` : "";
-    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=enter-amount&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;retryUrl=%2Fenter-amount%3Flang%3D${lang}%26provider%3D${provider}%26phone%3D${phone}%26name%3D${encodeURIComponent(name)}${retryQuery}`;
-    const xml = `${errSay}    <GetDigits timeout="10" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/verify-amount?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}">
-        <Play url="${audioUrl}"/>
+    const promptText = lang === "twi"
+      ? `Fa cedi dodow a woremane kɔma ${name} no nwura mu, na wie no hash.`
+      : `Enter the amount in Ghana Cedis to send to ${name}, followed by hash.`;
+    const xml = `${errSay}    <Play url="${audioUrl}"/>
+    <GetDigits timeout="10" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/verify-amount?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}">
+        <Say voice="man">${promptText}</Say>
     </GetDigits>
-${buildSpeechFallbackXml({
-  errorPrefixText: err === "invalid" ? (lang === "twi" ? "Sika dodow no nyɛ pɛpɛɛpɛ." : "That amount wasn't recognized.") : undefined,
-  speechCallbackUrl: speechFallbackUrl,
-})}`;
+    <Say voice="man">No amount entered. Goodbye.</Say>`;
     return xmlResponse(res, xml);
   }
 
@@ -1557,20 +1571,23 @@ app.all("/safe-confirmation", (req: Request, res: Response) => {
   const baseUrl = getPublicBaseUrl(req);
 
   const callbackUrl = `${baseUrl}/safe-outcome?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}`;
+  const last4 = phone.slice(-4);
 
   if (lang === "en" || lang === "twi") {
     const audioUrl = lang === "twi"
       ? `${baseUrl}/audio/Twi/Audio_prompt_twi_08.mp3`
       : `${baseUrl}/audio/English/Audio_prompt_10.mp3`;
-    const speechFallbackUrl = `${baseUrl}/speech-fallback?step=safe-confirmation&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}&amp;retryUrl=%2Fsafe-confirmation%3Flang%3D${lang}%26provider%3D${provider}%26phone%3D${phone}%26name%3D${encodeURIComponent(name)}%26amount%3D${amount}`;
-    const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
-        <Play url="${audioUrl}"/>
+    const promptText = lang === "twi"
+      ? `Woremane sika cedi ${amount} kɔma ${name}, a ne fon nɔma wie ${last4}. Sɛ wopene so a, mia baako. Sɛ worepɛ sesa no a, mia mmienu. Sɛ worepɛ agyae a, mia hwee.`
+      : `You are sending ${amount} Cedis to ${name}, ending in ${last4}. Press 1 to confirm, 2 to change, or 0 to cancel.`;
+    const xml = `    <Play url="${audioUrl}"/>
+    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
+        <Say voice="man">${promptText}</Say>
     </GetDigits>
-${buildSpeechFallbackXml({ speechCallbackUrl: speechFallbackUrl })}`;
+    <Say voice="man">No response received. Goodbye.</Say>`;
     return xmlResponse(res, xml);
   }
 
-  const last4 = phone.slice(-4);
   const prompt = `Woremane sika cedi ${amount} kɔma ${name}, a ne fon nɔma wie ${last4}. Sɛ wopene so a, mia baako (1). Sɛ worepɛ sesa no a, mia mmienu (2). Sɛ worepɛ agyae koraa a, mia hwee (0).`;
 
   const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">

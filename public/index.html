@@ -969,6 +969,32 @@ async function uploadAudio(filePath, filename, phraseId) {
             </div>
           </div>
 
+          <!-- Telecom Reachability & Diagnostics Checklist -->
+          <div style="background:rgba(234,179,8,0.07); border:1px solid rgba(234,179,8,0.25); border-radius:8px; padding:14px 16px; margin-bottom:18px;">
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+              <span style="font-size:18px;">🔍</span>
+              <strong style="font-size:14px; color:#facc15;">Why a Call Might Say "Not Reachable" &amp; How to Fix It</strong>
+            </div>
+            <p style="font-size:12px; color:var(--text-secondary, #94a3b8); margin:0 0 10px 0; line-height:1.5;">
+              Your Render server and VoiceXML gateway are verified 100% active and healthy. If dialing <strong>+233 30 804 8098</strong> says "not reachable" on your phone, check these 3 carrier items:
+            </p>
+            <ol style="margin:0; padding-left:18px; font-size:12px; color:var(--text-secondary, #94a3b8); line-height:1.6;">
+              <li style="margin-bottom:6px;">
+                <strong style="color:#f1f5f9;">Correct Local Dialing Format:</strong><br>
+                When calling from Ghana on MTN, Telecel, or AirtelTigo, try dialing with the local trunk prefix: <span class="font-mono" style="color:#38bdf8; font-weight:bold;">030 804 8098</span> as well as <span class="font-mono" style="color:#38bdf8; font-weight:bold;">+233 30 804 8098</span>.
+              </li>
+              <li style="margin-bottom:6px;">
+                <strong style="color:#f1f5f9;">Africa's Talking Account Balance:</strong><br>
+                In Africa's Talking, receiving inbound voice calls on virtual numbers requires an active prepaid wallet balance (even $1.00 or GHS 10.00). If your AT account balance is <strong>$0.00</strong>, Africa's Talking's telecom carrier automatically drops incoming calls before they reach your webhook. Check your balance in the top-right of the AT dashboard.
+              </li>
+              <li>
+                <strong style="color:#f1f5f9;">Check AT Voice Logs:</strong><br>
+                In <strong>africastalking.com</strong> &rarr; <strong>Voice</strong> &rarr; <strong>Call Logs / Sessions</strong>:
+                if you see your call listed, check the status (e.g. <em>Insufficient Balance</em> or <em>Callback Error</em>). If no call is listed at all, the telecom provider hasn't finished routing the number to your account.
+              </li>
+            </ol>
+          </div>
+
           <div class="config-grid">
             <div class="config-item">
               <div class="config-label">Voice Inbound Number</div>
