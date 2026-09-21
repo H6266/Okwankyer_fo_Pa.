@@ -38,7 +38,10 @@ if (USERNAME && API_KEY) {
   }
 }
 
-const VOICE_NUMBER = process.env.AT_VOICE_NUMBER || "+233308048098";
+const rawVoiceNumber = process.env.AT_VOICE_NUMBER?.trim();
+const VOICE_NUMBER = (rawVoiceNumber && /^\+[0-9]+$/.test(rawVoiceNumber))
+  ? rawVoiceNumber
+  : "+233308048098";
 
 // ── KYC & Recipient Database (Simulated Telco Core) ───────────────────
 // Maps Ghanaian phone numbers to verified real names for human-readable confirmation
@@ -337,21 +340,21 @@ function audioExists(filename: string): boolean {
 }
 
 function getPublicBaseUrl(req?: Request): string {
-  const publicBase = process.env.BASE_URL || process.env.PUBLIC_BASE_URL || process.env.APP_URL;
-  if (publicBase) {
-    return publicBase.replace(/\/+$/, "");
-  }
   if (req) {
     const host = (req.headers["x-forwarded-host"] as string) || req.get("host");
     let proto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "http";
-    if (host) {
-      if (host.includes(".run.app") || host.includes("ai.studio") || (!host.includes("localhost") && !host.includes("127.0.0.1"))) {
+    if (host && !host.includes("localhost") && !host.includes("127.0.0.1")) {
+      if (host.includes(".run.app") || host.includes("onrender.com") || host.includes("ai.studio") || req.headers["x-forwarded-proto"] === "https") {
         proto = "https";
       }
       return `${proto}://${host}`.replace(/\/+$/, "");
     }
   }
-  return "https://ais-dev-cpr6p4vdntetpvjzrftv3o-557622788575.europe-west1.run.app";
+  const publicBase = process.env.BASE_URL || process.env.PUBLIC_BASE_URL || process.env.APP_URL;
+  if (publicBase) {
+    return publicBase.replace(/\/+$/, "");
+  }
+  return "https://ais-dev-g6ekfsvjle7g7t5rt6s36d-537806139713.europe-west1.run.app";
 }
 
 // ── Streaming Audio Handler with HTTP 206 Byte Ranges ─────────────────
@@ -746,15 +749,65 @@ app.post("/api/upload-audio", (req: Request, res: Response) => {
 });
 
 // ── API: Health Status ───────────────────────────────────────────────
-app.get("/health", (_req: Request, res: Response) => {
+app.get("/health", (req: Request, res: Response) => {
+  const baseUrl = getPublicBaseUrl(req);
   res.json({
     status: "ok",
     service: "Ɔkwankyerɛfo Pa",
     team: "Anidasoɔ (Hope)",
     abstract: "A Voice Accessibility Layer for Ghana's Digital Services (MoMo Pilot)",
     voiceNumber: VOICE_NUMBER,
+    username: USERNAME || "Hannes",
     atConfigured: Boolean(voiceClient),
+    baseUrl,
+    callbackUrl: `${baseUrl}/voice-menu`,
+    features: [
+      "Voice Accessibility Layer",
+      "Instant DTMF Barge-In (<GetDigits><Play/></GetDigits>)",
+      "Universal Navigation Grammar (#, 0, 8, 9)",
+      "Smart KYC Recipient Lookup",
+      "Human-Readable Safe Confirmation",
+      "Zero-PIN Voice Security Gate",
+      "Hybrid Native Audio + Dynamic TTS",
+    ],
   });
+});
+
+// ── API: Render Deployment Sync Status ────────────────────────────────
+app.get("/api/render/status", async (_req: Request, res: Response) => {
+  const renderUrl = "https://okwankyer-fo-pa.onrender.com/health";
+  try {
+    const start = Date.now();
+    const response = await fetch(renderUrl, { signal: AbortSignal.timeout(4500) });
+    const elapsed = Date.now() - start;
+    if (!response.ok) {
+      return res.json({
+        online: false,
+        statusCode: response.status,
+        inSync: false,
+        latencyMs: elapsed,
+        message: `Render returned HTTP ${response.status}`,
+      });
+    }
+    const data: any = await response.json();
+    const hasLatestBargeIn = Array.isArray(data?.features) && data.features.some((f: string) => f.includes("Barge-In"));
+
+    res.json({
+      online: true,
+      inSync: hasLatestBargeIn,
+      latencyMs: elapsed,
+      renderData: data,
+      message: hasLatestBargeIn
+        ? "Render is running the latest IVR build with instant barge-in!"
+        : "Render is running an older commit. Export/Push your latest code to GitHub to trigger Render's auto-deploy.",
+    });
+  } catch (err: any) {
+    res.json({
+      online: false,
+      inSync: false,
+      message: "Render instance is sleeping or unreachable: " + (err.message || err),
+    });
+  }
 });
 
 // ── API: KYC & Recipient Directory ───────────────────────────────────
@@ -859,13 +912,10 @@ function buildSpeechFallbackXml(options: {
   if (options.errorPrefixText) {
     prompt += `    <Say voice="man">${options.errorPrefixText}</Say>\n`;
   }
-  if (options.promptAudioUrl) {
-    prompt += `    <Play url="${options.promptAudioUrl}"/>`;
-  } else {
-    prompt += `    <Say voice="man">${options.promptText || "Please speak after the beep."}</Say>`;
+  if (options.promptText) {
+    prompt += `    <Say voice="man">${options.promptText}</Say>\n`;
   }
-  return `${prompt}
-    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="10" callbackUrl="${options.speechCallbackUrl}"/>
+  return `${prompt}    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="10" callbackUrl="${options.speechCallbackUrl}"/>
     <Say voice="man">No response received. Goodbye.</Say>`;
 }
 
@@ -1062,12 +1112,12 @@ function handleVoiceMenu(req: Request, res: Response) {
 
   const introAudioUrl = `${baseUrl}/audio/Welcome_prompt_01.mp3`;
 
-  // English/Bilingual intro menu: DTMF primary, fallback to speech recording
+  // English/Bilingual intro menu: GetDigits with nested Play enables instantaneous barge-in on Africa's Talking!
   const speechFallbackUrl = `${baseUrl}/speech-fallback?step=language-selection&amp;retryUrl=%2Fvoice-menu`;
-  const xml = `    <Play url="${introAudioUrl}"/>
-    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection">
+  const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection">
+        <Play url="${introAudioUrl}"/>
     </GetDigits>
-${buildSpeechFallbackXml({ promptAudioUrl: introAudioUrl, speechCallbackUrl: speechFallbackUrl })}`;
+${buildSpeechFallbackXml({ speechCallbackUrl: speechFallbackUrl, promptText: "Please speak 1 for English or 2 for Akan Twi after the beep." })}`;
 
   xmlResponse(res, xml);
 }
@@ -1076,6 +1126,11 @@ ${buildSpeechFallbackXml({ promptAudioUrl: introAudioUrl, speechCallbackUrl: spe
 app.all("/language-selection", (req: Request, res: Response) => {
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getPublicBaseUrl(req);
+
+  if (!dtmf) {
+    // Timeout or no digit pressed: safely replay welcome prompt
+    return xmlResponse(res, `    <Redirect>${baseUrl}/voice-menu</Redirect>`);
+  }
 
   if (dtmf !== "1" && dtmf !== "2") {
     // Unrecognized figure punched on welcome prompt -> 11th Audio for Twi
@@ -1103,15 +1158,15 @@ app.all("/service-select", (req: Request, res: Response) => {
       ? `${baseUrl}/audio/Twi/Audio_prompt_twi_02.mp3`
       : `${baseUrl}/audio/English/Audio_prompt_02.mp3`;
     const speechFallbackUrl = `${baseUrl}/speech-fallback?step=service-select&amp;retryUrl=%2Fservice-select%3Flang%3D${lang}`;
-    const xml = `    <Play url="${audioUrl}"/>
-    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?lang=${lang}">
+    const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?lang=${lang}">
+        <Play url="${audioUrl}"/>
     </GetDigits>
-${buildSpeechFallbackXml({ promptAudioUrl: audioUrl, speechCallbackUrl: speechFallbackUrl })}`;
+${buildSpeechFallbackXml({ speechCallbackUrl: speechFallbackUrl })}`;
     return xmlResponse(res, xml);
   }
 
   const prompt = "Sɛ worepɛ Mobile Money anaa Telecom a, mia baako (1). Sɛ worepɛ Sikakorabea Banking a, mia mmienu (2). Mia hwee (0) sɛ worepɛ agyae.";
-  const xml = `    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?lang=${lang}">
+  const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?lang=${lang}">
         <Say voice="man">${prompt}</Say>
     </GetDigits>
     <Say voice="man">No response. Goodbye.</Say>`;
@@ -1123,6 +1178,11 @@ app.all("/service-choice", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as string;
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getPublicBaseUrl(req);
+
+  if (!dtmf) {
+    // Timeout/silence: repeat service selection
+    return xmlResponse(res, `    <Redirect>${baseUrl}/service-select?lang=${lang}</Redirect>`);
+  }
 
   if (checkUniversalNav(dtmf, lang, `${baseUrl}/voice-menu`, `${baseUrl}/service-select?lang=${lang}`, res)) {
     return;
@@ -1158,15 +1218,15 @@ app.all("/provider-select", (req: Request, res: Response) => {
       ? `${baseUrl}/audio/Twi/Audio_prompt_twi_02.mp3`
       : `${baseUrl}/audio/English/Audio_prompt_03.mp3`;
     const speechFallbackUrl = `${baseUrl}/speech-fallback?step=provider-select&amp;service=${service}&amp;retryUrl=%2Fprovider-select%3Flang%3D${lang}%26service%3D${service}`;
-    const xml = `    <Play url="${audioUrl}"/>
-    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?lang=${lang}&amp;service=${service}">
+    const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?lang=${lang}&amp;service=${service}">
+        <Play url="${audioUrl}"/>
     </GetDigits>
-${buildSpeechFallbackXml({ promptAudioUrl: audioUrl, speechCallbackUrl: speechFallbackUrl })}`;
+${buildSpeechFallbackXml({ speechCallbackUrl: speechFallbackUrl })}`;
     return xmlResponse(res, xml);
   }
 
   const prompt = "Paw wo network. MTN, mia baako (1). Telecel, mia mmienu (2). Africa's Talking AT, mia mmiɛnsa (3). Mia akron (9) sɛ worepɛ ate bio, anaa hwee (0) sɛ worepɛ agyae.";
-  const xml = `    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?lang=${lang}&amp;service=${service}">
+  const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?lang=${lang}&amp;service=${service}">
         <Say voice="man">${prompt}</Say>
     </GetDigits>
     <Say voice="man">No response. Goodbye.</Say>`;
@@ -1179,6 +1239,11 @@ app.all("/provider-choice", (req: Request, res: Response) => {
   const service = (req.query?.service || req.body?.service || "momo") as string;
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getPublicBaseUrl(req);
+
+  if (!dtmf) {
+    // Timeout/silence: repeat provider selection
+    return xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?lang=${lang}&amp;service=${service}</Redirect>`);
+  }
 
   if (checkUniversalNav(dtmf, lang, `${baseUrl}/service-select?lang=${lang}`, `${baseUrl}/provider-select?lang=${lang}&service=${service}`, res)) {
     return;
@@ -1213,10 +1278,10 @@ app.all("/action-select", (req: Request, res: Response) => {
       ? `${baseUrl}/audio/Twi/Audio_prompt_twi_04.mp3`
       : `${baseUrl}/audio/English/Audio_prompt_05.mp3`;
     const speechFallbackUrl = `${baseUrl}/speech-fallback?step=action-select&amp;provider=${provider}&amp;retryUrl=%2Faction-select%3Flang%3D${lang}%26provider%3D${provider}`;
-    const xml = `    <Play url="${audioUrl}"/>
-    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?lang=${lang}&amp;provider=${provider}">
+    const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?lang=${lang}&amp;provider=${provider}">
+        <Play url="${audioUrl}"/>
     </GetDigits>
-${buildSpeechFallbackXml({ promptAudioUrl: audioUrl, speechCallbackUrl: speechFallbackUrl })}`;
+${buildSpeechFallbackXml({ speechCallbackUrl: speechFallbackUrl })}`;
     return xmlResponse(res, xml);
   }
 
@@ -1225,7 +1290,7 @@ ${buildSpeechFallbackXml({ promptAudioUrl: audioUrl, speechCallbackUrl: speechFa
       ? `${provider} dwumadie. Sɛ woremane sika a, mia baako (1). Sɛ woregye wo balance a, mia mmienu (2). Mia hwee (0) sɛ worepɛ agyae.`
       : `${provider} menu. To send money, press 1. To check balance, press 2. Press 8 to go back, or 0 to cancel.`;
 
-  const xml = `    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?lang=${lang}&amp;provider=${provider}">
+  const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?lang=${lang}&amp;provider=${provider}">
         <Say voice="man">${prompt}</Say>
     </GetDigits>
     <Say voice="man">No response. Goodbye.</Say>`;
@@ -1238,6 +1303,11 @@ app.all("/action-choice", (req: Request, res: Response) => {
   const provider = (req.query?.provider || req.body?.provider || "MTN") as string;
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getPublicBaseUrl(req);
+
+  if (!dtmf) {
+    // Timeout/silence: repeat action selection
+    return xmlResponse(res, `    <Redirect>${baseUrl}/action-select?lang=${lang}&amp;provider=${provider}</Redirect>`);
+  }
 
   if (checkUniversalNav(dtmf, lang, `${baseUrl}/provider-select?lang=${lang}`, `${baseUrl}/action-select?lang=${lang}&provider=${provider}`, res)) {
     return;
@@ -1278,12 +1348,11 @@ app.all("/enter-recipient", (req: Request, res: Response) => {
       : "";
     const retryQuery = err ? `%26err%3D${encodeURIComponent(err)}` : "";
     const speechFallbackUrl = `${baseUrl}/speech-fallback?step=enter-recipient&amp;provider=${provider}&amp;retryUrl=%2Fenter-recipient%3Flang%3D${lang}%26provider%3D${provider}${retryQuery}`;
-    const xml = `${errSay}    <Play url="${audioUrl}"/>
-    <GetDigits timeout="12" finishOnKey="#" numDigits="15" callbackUrl="${baseUrl}/verify-recipient?lang=${lang}&amp;provider=${provider}">
+    const xml = `${errSay}    <GetDigits timeout="12" finishOnKey="#" numDigits="15" callbackUrl="${baseUrl}/verify-recipient?lang=${lang}&amp;provider=${provider}">
+        <Play url="${audioUrl}"/>
     </GetDigits>
 ${buildSpeechFallbackXml({
   errorPrefixText: err === "invalid" ? (lang === "twi" ? "Nɔma no nyɛ pɛpɛɛpɛ." : "That number wasn't recognized.") : undefined,
-  promptAudioUrl: audioUrl,
   speechCallbackUrl: speechFallbackUrl,
 })}`;
     return xmlResponse(res, xml);
@@ -1355,8 +1424,8 @@ app.all("/recipient-verify", (req: Request, res: Response) => {
 
   const callbackUrl = `${baseUrl}/recipient-verify-choice?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}`;
 
-  const xml = `    <Play url="${audioUrl}"/>
-    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
+  const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
+        <Play url="${audioUrl}"/>
     </GetDigits>
     <Say voice="man">No response received. Goodbye.</Say>`;
 
@@ -1370,6 +1439,11 @@ app.all("/recipient-verify-choice", (req: Request, res: Response) => {
   const name = (req.query?.name || req.body?.name || "Kwame Nyamebere") as string;
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getPublicBaseUrl(req);
+
+  if (!dtmf) {
+    // Timeout/silence: repeat recipient verification
+    return xmlResponse(res, `    <Redirect>${baseUrl}/recipient-verify?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}</Redirect>`);
+  }
 
   if (checkUniversalNav(dtmf, lang, `${baseUrl}/enter-recipient?lang=${lang}&provider=${provider}`, `${baseUrl}/recipient-verify?lang=${lang}&provider=${provider}&phone=${phone}&name=${encodeURIComponent(name)}`, res)) {
     return;
@@ -1407,12 +1481,11 @@ app.all("/enter-amount", (req: Request, res: Response) => {
       : "";
     const retryQuery = err ? `%26err%3D${encodeURIComponent(err)}` : "";
     const speechFallbackUrl = `${baseUrl}/speech-fallback?step=enter-amount&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;retryUrl=%2Fenter-amount%3Flang%3D${lang}%26provider%3D${provider}%26phone%3D${phone}%26name%3D${encodeURIComponent(name)}${retryQuery}`;
-    const xml = `${errSay}    <Play url="${audioUrl}"/>
-    <GetDigits timeout="10" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/verify-amount?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}">
+    const xml = `${errSay}    <GetDigits timeout="10" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/verify-amount?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}">
+        <Play url="${audioUrl}"/>
     </GetDigits>
 ${buildSpeechFallbackXml({
   errorPrefixText: err === "invalid" ? (lang === "twi" ? "Sika dodow no nyɛ pɛpɛɛpɛ." : "That amount wasn't recognized.") : undefined,
-  promptAudioUrl: audioUrl,
   speechCallbackUrl: speechFallbackUrl,
 })}`;
     return xmlResponse(res, xml);
@@ -1490,17 +1563,17 @@ app.all("/safe-confirmation", (req: Request, res: Response) => {
       ? `${baseUrl}/audio/Twi/Audio_prompt_twi_08.mp3`
       : `${baseUrl}/audio/English/Audio_prompt_10.mp3`;
     const speechFallbackUrl = `${baseUrl}/speech-fallback?step=safe-confirmation&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}&amp;retryUrl=%2Fsafe-confirmation%3Flang%3D${lang}%26provider%3D${provider}%26phone%3D${phone}%26name%3D${encodeURIComponent(name)}%26amount%3D${amount}`;
-    const xml = `    <Play url="${audioUrl}"/>
-    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
+    const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
+        <Play url="${audioUrl}"/>
     </GetDigits>
-${buildSpeechFallbackXml({ promptAudioUrl: audioUrl, speechCallbackUrl: speechFallbackUrl })}`;
+${buildSpeechFallbackXml({ speechCallbackUrl: speechFallbackUrl })}`;
     return xmlResponse(res, xml);
   }
 
   const last4 = phone.slice(-4);
   const prompt = `Woremane sika cedi ${amount} kɔma ${name}, a ne fon nɔma wie ${last4}. Sɛ wopene so a, mia baako (1). Sɛ worepɛ sesa no a, mia mmienu (2). Sɛ worepɛ agyae koraa a, mia hwee (0).`;
 
-  const xml = `    <GetDigits timeout="6" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
+  const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
         <Say voice="man">${prompt}</Say>
     </GetDigits>
     <Say voice="man">No response received. Goodbye.</Say>`;
@@ -1510,7 +1583,7 @@ ${buildSpeechFallbackXml({ promptAudioUrl: audioUrl, speechCallbackUrl: speechFa
 
 // ── Step 11: Final Outcome & PIN Security Handoff ─────────────────────
 // NOTE: ZERO-PIN BOUNDARY PRESERVED. PIN entry occurs 100% on the SIM/USSD network overlay, never over voice.
-app.all("/safe-outcome", (req: Request, res: Response) => {
+app.all(["/safe-outcome", "/safe-confirmation-choice"], (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as string;
   const provider = (req.query?.provider || req.body?.provider || "MTN") as string;
   const phone = (req.query?.phone || req.body?.phone || "") as string;
@@ -1520,6 +1593,11 @@ app.all("/safe-outcome", (req: Request, res: Response) => {
   const baseUrl = getPublicBaseUrl(req);
 
   console.log(`🎯 Safe confirmation choice: ${dtmf}`);
+
+  if (!dtmf) {
+    // Timeout/silence: repeat safe confirmation
+    return xmlResponse(res, `    <Redirect>${baseUrl}/safe-confirmation?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}</Redirect>`);
+  }
 
   if (dtmf === "2") {
     console.log("🔄 User chose to re-enter details");
@@ -2260,8 +2338,74 @@ app.get("/api/contacts", (_req: Request, res: Response) => {
   res.json(Object.values(MOCK_CONTACTS));
 });
 
-// ── Legacy Compatibility Routes for backward compatibility ────────────
-app.all("/voice-menu", handleVoiceMenu);
+// ── Africa's Talking Voice Callbacks & Gateway Aliases ────────────────
+app.all(
+  [
+    "/voice",
+    "/voice-menu",
+    "/voice/callback",
+    "/voice/events",
+    "/call",
+    "/call/callback",
+    "/ivr",
+    "/ivr/callback",
+    "/callback",
+    "/incoming-call",
+    "/voice-call",
+    "/at",
+    "/at/voice",
+    "/at/callback",
+    "/africastalking/voice",
+    "/africastalking/callback"
+  ],
+  handleVoiceMenu
+);
+
+app.post("/api/at/trigger-call", async (req: Request, res: Response) => {
+  const phoneNumber = (req.body?.phoneNumber || req.query?.phoneNumber) as string;
+  const baseUrl = getPublicBaseUrl(req);
+
+  if (!phoneNumber) {
+    return res.status(400).json({ success: false, error: "Missing destination phoneNumber" });
+  }
+
+  if (voiceClient && API_KEY && API_KEY !== "your_africastalking_api_key_here") {
+    try {
+      const atRes = await voiceClient.call({
+        callFrom: VOICE_NUMBER,
+        callTo: [phoneNumber],
+        callbackUrl: `${baseUrl}/voice-menu`,
+      });
+      console.log(`📡 AT Voice trigger successfully placed for: ${phoneNumber}`, atRes);
+      return res.json({
+        success: true,
+        provider: "Africa's Talking",
+        callerId: VOICE_NUMBER,
+        destination: phoneNumber,
+        callbackUrl: `${baseUrl}/voice-menu`,
+        atResponse: atRes,
+        message: `Outbound call queued via Africa's Talking from ${VOICE_NUMBER} to ${phoneNumber}`
+      });
+    } catch (e: any) {
+      console.error(`❌ AT outbound call error:`, e.message || e);
+      return res.status(500).json({
+        success: false,
+        error: e.message || "Failed to trigger call via Africa's Talking SDK"
+      });
+    }
+  } else {
+    console.log(`⚠️ AT outbound call simulated for ${phoneNumber} (AT credentials not configured in .env)`);
+    return res.json({
+      success: true,
+      simulated: true,
+      provider: "Africa's Talking (Simulator Mode)",
+      callerId: VOICE_NUMBER,
+      destination: phoneNumber,
+      callbackUrl: `${baseUrl}/voice-menu`,
+      message: `Call simulation initiated for ${phoneNumber}. Add AT_API_KEY in .env for live GSM network dispatch.`
+    });
+  }
+});
 
 app.all("/transfer-menu", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as string;
@@ -2280,23 +2424,6 @@ app.all("/momo-confirmation", (req: Request, res: Response) => {
     res,
     `    <Redirect>${baseUrl}/safe-outcome?lang=${lang}&amp;dtmfDigits=${dtmf}&amp;name=${encodeURIComponent("Kwame Mensah")}&amp;amount=50</Redirect>`
   );
-});
-
-// ── Health Check ─────────────────────────────────────────────────────
-app.get("/health", (_req: Request, res: Response) => {
-  res.json({
-    status: "ok",
-    service: "Ɔkwankyerɛfo Pa",
-    team: "Anidasoɔ (Hope)",
-    features: [
-      "Voice Accessibility Layer",
-      "Universal Navigation Grammar (#, 0, 8, 9)",
-      "Smart KYC Recipient Lookup",
-      "Human-Readable Safe Confirmation",
-      "Zero-PIN Voice Security Gate",
-      "Hybrid Native Audio + Dynamic TTS",
-    ],
-  });
 });
 
 // ── Step 0: USSD Dial Callback Trigger ───────────────────────────────

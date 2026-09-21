@@ -15,5 +15,7 @@ services:
         sync: false
       - key: AT_VOICE_NUMBER
         value: "+233308048098"
+      - key: PORT
+        value: "3000"
       - key: BASE_URL
         sync: false

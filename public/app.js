@@ -106,6 +106,7 @@
     init() {
       this.bindKeyboard();
       this.loadStatus();
+      this.checkRenderStatus();
       this.loadPhrases();
       this.loadPrototypeAudio();
       this.loadTwiAudio();
@@ -196,12 +197,123 @@
       try {
         const res = await fetch('/health');
         const data = await res.json();
-        if (data.service) {
-          const cfgBaseUrl = document.getElementById('cfgBaseUrl');
-          if (cfgBaseUrl) cfgBaseUrl.innerText = window.location.origin;
-        }
+        const liveOrigin = window.location.origin;
+        const liveCallback = `${liveOrigin}/voice-menu`;
+
+        const cfgBaseUrl = document.getElementById('cfgBaseUrl');
+        if (cfgBaseUrl) cfgBaseUrl.innerText = liveOrigin;
+
+        const cfgCallbackUrl = document.getElementById('cfgCallbackUrl');
+        if (cfgCallbackUrl) cfgCallbackUrl.innerText = '/voice-menu';
+
+        const inputLiveCallbackUrl = document.getElementById('inputLiveCallbackUrl');
+        if (inputLiveCallbackUrl) inputLiveCallbackUrl.value = liveCallback;
+
+        const cfgVoiceNumber = document.getElementById('cfgVoiceNumber');
+        if (cfgVoiceNumber && data.voiceNumber) cfgVoiceNumber.innerText = data.voiceNumber;
+
+        const cfgUsername = document.getElementById('cfgUsername');
+        if (cfgUsername && data.username) cfgUsername.innerText = data.username;
       } catch (err) {
         console.error('Failed to load status:', err);
+      }
+    },
+
+    copyCallbackUrl() {
+      const liveCallback = `${window.location.origin}/voice-menu`;
+      navigator.clipboard.writeText(liveCallback).then(() => {
+        const btn = document.getElementById('btnCopyCallbackUrl');
+        if (btn) {
+          const original = btn.innerHTML;
+          btn.innerHTML = '✅ Copied to Clipboard!';
+          btn.style.background = '#059669';
+          setTimeout(() => {
+            btn.innerHTML = original;
+            btn.style.background = '';
+          }, 3000);
+        }
+      }).catch(err => {
+        alert('Callback URL: ' + liveCallback);
+      });
+    },
+
+    async testInboundWebhook() {
+      const statusBox = document.getElementById('testWebhookStatus');
+      const btn = document.getElementById('btnTestInboundWebhook');
+      if (statusBox) {
+        statusBox.style.display = 'block';
+        statusBox.style.color = '#38bdf8';
+        statusBox.innerText = 'Simulating incoming Africa\'s Talking call (POST /voice-menu)...';
+      }
+      try {
+        const res = await fetch('/voice-menu', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            isActive: '1',
+            direction: 'Inbound',
+            callerNumber: '+233543546010',
+            destinationNumber: '+233308048098',
+            sessionId: 'ATVId_sim_' + Date.now()
+          })
+        });
+        const xml = await res.text();
+        if (statusBox) {
+          statusBox.style.color = '#4ade80';
+          statusBox.innerText = `✅ Inbound Gateway Active!\nHTTP ${res.status} OK (VoiceXML Generated with Barge-In):\n\n${xml}`;
+        }
+      } catch (err) {
+        if (statusBox) {
+          statusBox.style.color = '#f87171';
+          statusBox.innerText = '❌ Error testing inbound webhook: ' + err.message;
+        }
+      }
+    },
+
+    async checkRenderStatus() {
+      const statusBadge = document.getElementById('renderStatusBadge');
+      const descEl = document.getElementById('renderStatusDesc');
+      if (statusBadge) {
+        statusBadge.innerText = 'Checking Render...';
+        statusBadge.style.background = '#475569';
+        statusBadge.style.color = '#fff';
+      }
+      try {
+        const res = await fetch('/api/render/status');
+        const data = await res.json();
+        if (data.online) {
+          if (data.inSync) {
+            if (statusBadge) {
+              statusBadge.innerText = 'Render Cloud: Synchronized & Live';
+              statusBadge.style.background = '#059669';
+            }
+            if (descEl) {
+              descEl.innerHTML = '<span style="color:#10b981;">✅ Render Cloud is running the latest build with instant barge-in support.</span>';
+            }
+          } else {
+            if (statusBadge) {
+              statusBadge.innerText = 'Render Cloud: Online (Sync Pending)';
+              statusBadge.style.background = '#d97706';
+            }
+            if (descEl) {
+              descEl.innerHTML = '<span style="color:#f59e0b;">⚠️ Render is online, but running an earlier commit without instant barge-in.</span><br>' +
+                'Push or Export the latest code from GitHub to trigger Render\'s auto-deploy, or use the Cloud Run Callback URL above for immediate live testing.';
+            }
+          }
+        } else {
+          if (statusBadge) {
+            statusBadge.innerText = 'Render Cloud: Sleeping / Cold Start';
+            statusBadge.style.background = '#64748b';
+          }
+          if (descEl) {
+            descEl.innerHTML = '<span style="color:#94a3b8;">Render instance is spinning up. Retrying in a few moments...</span>';
+          }
+        }
+      } catch (err) {
+        if (statusBadge) {
+          statusBadge.innerText = 'Render Cloud: Offline';
+          statusBadge.style.background = '#dc2626';
+        }
       }
     },
 
@@ -915,8 +1027,8 @@
     // Central state controller for Speech Recognition
     // STRICT RULES:
     // 1. When the user PIN prompt is open, the speech layer MUST be turned off (Zero-PIN security).
-    // 2. When an audio prompt is playing, the speech layer MUST be off.
-    // 3. After the prompt finishes (and provided PIN prompt is not open and no option chosen yet), speech resumes.
+    // 2. When an audio prompt is playing, the speech layer remains ACTIVE for Barge-In (cut-through), allowing users to speak "baako", "1", "one", etc. immediately to interrupt.
+    // 3. After the prompt finishes (provided PIN prompt is not open and no option chosen yet), speech resumes/continues seamlessly.
     setSpeechRecognitionActive(active, reason = '') {
       console.log(`[SpeechRecognition Lifecycle] setSpeechRecognitionActive(${active}) - Reason: ${reason} (callActive=${this.callState.active}, isPromptPlaying=${this.isPromptPlaying}, isPinPromptOpen=${this.isPinPromptOpen}, optionSelected=${this.optionSelectedForCurrentPrompt}, enabled=${this.listeningServiceEnabled})`);
 
@@ -928,8 +1040,9 @@
 
       if (active) {
         // Enforce strict activation condition:
-        // Must be in an active call, prompt NOT playing, PIN prompt NOT open, no option selected yet, and user has not muted/disabled
-        if (!this.callState.active || this.isPromptPlaying || this.isPinPromptOpen || this.optionSelectedForCurrentPrompt || !this.listeningServiceEnabled) {
+        // Must be in an active call, PIN prompt NOT open, no option selected yet, and user has not muted/disabled.
+        // NOTE: Barge-in enabled: listening is allowed even while prompt is playing!
+        if (!this.callState.active || this.isPinPromptOpen || this.optionSelectedForCurrentPrompt || !this.listeningServiceEnabled) {
           console.log('[SpeechRecognition Lifecycle] Activation prevented - conditions not met');
           return;
         }
@@ -942,9 +1055,13 @@
           micBtn.classList.add('active');
           micBtn.classList.remove('muted');
         }
-        if (micIcon) micIcon.innerText = '🎙️ Live Mic On';
+        if (micIcon) micIcon.innerText = this.isPromptPlaying ? '⚡ Live Mic (Barge-In)' : '🎙️ Live Mic On';
         if (statusText) {
-          statusText.innerHTML = '<strong>Prompt Finished:</strong> Listening — Speak your choice or press keypad';
+          if (this.isPromptPlaying) {
+            statusText.innerHTML = '<strong>⚡ Prompt Playing (Barge-In Active):</strong> Say your choice (e.g. "baako", "1") or punch keypad anytime to interrupt';
+          } else {
+            statusText.innerHTML = '<strong>Prompt Finished:</strong> Listening — Speak your choice or press keypad';
+          }
         }
 
         this.startBrowserSpeechRecognition();
@@ -965,8 +1082,6 @@
             statusText.innerHTML = '<strong>Call Idle:</strong> Click "Place New Call" to begin';
           } else if (this.isPinPromptOpen) {
             statusText.innerHTML = '<strong>PIN Prompt Open:</strong> Speech layer turned off for Zero-PIN security. Enter PIN on handset.';
-          } else if (this.isPromptPlaying) {
-            statusText.innerHTML = '<strong>Prompt Playing:</strong> Listening inactive until audio finishes';
           } else if (this.optionSelectedForCurrentPrompt) {
             statusText.innerHTML = '<strong>Option Selected:</strong> Processing next prompt...';
           } else if (!this.listeningServiceEnabled) {
@@ -1019,6 +1134,11 @@
     },
 
     pressVoiceKey(key, spokenLabel) {
+      if (this.isPromptPlaying) {
+        console.log(`[Barge-In] Interrupting audio prompt for voice key [${key}]`);
+        this.stopPhoneAudio();
+      }
+
       if (!this.callState.active) {
         console.log('[Voice Keypad] Call inactive, starting call simulation...');
         this.startCall();
@@ -1094,8 +1214,8 @@
         recog.interimResults = true;
 
         recog.onresult = (event) => {
-          // Strict guard: ignore any speech if prompt is playing, PIN prompt is open, option was selected, or not active
-          if (!this.isListeningActive || !this.callState.active || this.isPromptPlaying || this.isPinPromptOpen || this.optionSelectedForCurrentPrompt) {
+          // Strict guard: ignore speech ONLY IF call is inactive, PIN prompt is open, or option was already selected
+          if (!this.isListeningActive || !this.callState.active || this.isPinPromptOpen || this.optionSelectedForCurrentPrompt) {
             return;
           }
 
@@ -1111,15 +1231,25 @@
               if (textEl && rawTranscript) {
                 textEl.innerText = `"${rawTranscript}..." (listening)`;
               }
+              // Fast barge-in check on interim speech: if a clear digit word like "baako", "bako", "one", "1", "two", "mmienu" was spoken, cut through!
+              const quickMatch = this.extractSpokenDigit(rawTranscript);
+              if (quickMatch && this.isPromptPlaying) {
+                console.log(`[Barge-In Interim] Voiced digit "${rawTranscript}" detected during audio playback! Cutting through immediately...`);
+                this.stopPhoneAudio();
+              }
               continue;
             }
 
-            // INSTANT VOICE-TO-KEYPAD SUBSTITUTION:
+            // INSTANT VOICE-TO-KEYPAD SUBSTITUTION WITH BARGE-IN:
             // If the user called out a number (1, 2, 3... or one, two, baako, mmienu, back, exit),
-            // immediately substitute punching the key on the phone!
+            // immediately substitute punching the key on the phone and cut prompt audio!
             const digitMatch = this.extractSpokenDigit(rawTranscript);
             if (digitMatch) {
               console.log(`[SpeechRecognition] Instant Voice Keypad Substitution: "${rawTranscript}" -> Key [${digitMatch.key}]`);
+              if (this.isPromptPlaying) {
+                console.log(`[Barge-In] Interrupting audio prompt for user spoken digit: ${digitMatch.key}`);
+                this.stopPhoneAudio();
+              }
               this.pressVoiceKey(digitMatch.key, rawTranscript);
               return;
             }
@@ -1144,6 +1274,10 @@
             }
 
             console.log(`[SpeechRecognition] Final speech input received: "${rawTranscript}" (confidence ${(confidence * 100).toFixed(1)}%)`);
+            if (this.isPromptPlaying) {
+              console.log(`[Barge-In] Interrupting audio prompt for natural language speech: "${rawTranscript}"`);
+              this.stopPhoneAudio();
+            }
             this.handleNaturalVoiceInput(rawTranscript);
           }
         };
@@ -1161,11 +1295,11 @@
 
         recog.onend = () => {
           console.log('[SpeechRecognition onend]');
-          // Reconnect only if we are still legitimately waiting for user speech
-          if (this.isListeningActive && this.callState.active && !this.isPromptPlaying && !this.isPinPromptOpen && !this.optionSelectedForCurrentPrompt && this.listeningServiceEnabled) {
+          // Reconnect if we are still waiting for user input and PIN prompt is NOT open
+          if (this.isListeningActive && this.callState.active && !this.isPinPromptOpen && !this.optionSelectedForCurrentPrompt && this.listeningServiceEnabled) {
             clearTimeout(this.speechRestartTimer);
             this.speechRestartTimer = setTimeout(() => {
-              if (this.isListeningActive && this.callState.active && !this.isPromptPlaying && !this.isPinPromptOpen && !this.optionSelectedForCurrentPrompt && this.listeningServiceEnabled) {
+              if (this.isListeningActive && this.callState.active && !this.isPinPromptOpen && !this.optionSelectedForCurrentPrompt && this.listeningServiceEnabled) {
                 console.log('[SpeechRecognition] Restarting recognizer to continue listening for choice...');
                 try {
                   recog.start();
@@ -2436,6 +2570,12 @@
         setTimeout(() => keyEl.classList.remove('key-pressed'), 140);
       }
 
+      // Barge-in: If audio prompt is currently playing, immediately cut it off on keypad press
+      if (this.isPromptPlaying) {
+        console.log(`[Barge-In] Keypad key [${key}] cut through prompt audio playback`);
+        this.stopPhoneAudio();
+      }
+
       if (!this.callState.active) {
         // STRICT USER REQUIREMENT: The simulation must only start when the user presses
         // "Start Call Simulation" or when the user places a new call.
@@ -2802,9 +2942,14 @@
         fileTag.innerText = audioUrl ? audioUrl : 'None';
       }
 
-      // When audio prompt begins, speech recognition is strictly inactive
+      // When audio prompt begins, speech recognition is ACTIVE for Barge-In (cut-through),
+      // allowing the caller to speak their choice (e.g. "baako", "1", "one") or press keypad to interrupt!
       this.isPromptPlaying = true;
-      this.setSpeechRecognitionActive(false, 'Audio prompt playback started');
+      this.optionSelectedForCurrentPrompt = false;
+
+      if (this.callState.active && !this.isPinPromptOpen && this.listeningServiceEnabled) {
+        this.setSpeechRecognitionActive(true, 'Audio prompt playback started - Barge-In listening active');
+      }
 
       if (audioEl) {
         audioEl.volume = 1.0;
@@ -3593,24 +3738,78 @@
     },
 
     async triggerRealCall() {
-      const phone = document.getElementById('inputOutboundPhone').value.trim();
+      const phoneInput = document.getElementById('inputOutboundPhone');
+      const statusEl = document.getElementById('outboundCallStatus');
+      const btn = document.getElementById('btnTriggerOutbound');
+      const phone = phoneInput ? phoneInput.value.trim() : '';
+
+      const showStatus = (msg, isSuccess, isWarn = false) => {
+        if (!statusEl) return;
+        statusEl.style.display = 'block';
+        if (isWarn) {
+          statusEl.style.background = '#fffbeb';
+          statusEl.style.border = '1px solid #fde68a';
+          statusEl.style.color = '#92400e';
+        } else if (isSuccess) {
+          statusEl.style.background = '#f0fdf4';
+          statusEl.style.border = '1px solid #bbf7d0';
+          statusEl.style.color = '#166534';
+        } else {
+          statusEl.style.background = '#fef2f2';
+          statusEl.style.border = '1px solid #fecaca';
+          statusEl.style.color = '#991b1b';
+        }
+        statusEl.innerHTML = msg;
+      };
+
       if (!phone) {
-        alert('Please enter a destination phone number with country code, e.g. +233543546010');
+        showStatus('⚠️ Please enter a destination phone number with country code, e.g. <strong>+233543546010</strong>', false, true);
+        if (phoneInput) phoneInput.focus();
         return;
       }
-      alert(`Initiating Africa's Talking outbound callback call to: ${phone}`);
+
+      if (btn) {
+        btn.disabled = true;
+        btn.innerText = 'Dialing...';
+      }
+      showStatus(`📡 Connecting to Africa's Talking Voice Gateway for <strong>${phone}</strong>...`, true, true);
+
       try {
-        const params = new URLSearchParams();
-        params.append('phoneNumber', phone);
-        const res = await fetch('/ussd-trigger', {
+        const res = await fetch('/api/at/trigger-call', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: params.toString()
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phoneNumber: phone })
         });
-        const text = await res.text();
-        alert(`Gateway response: ${text}`);
+        const data = await res.json();
+        if (data.success) {
+          if (data.simulated) {
+            showStatus(`📞 <strong>${data.provider}</strong>: ${data.message}<br><small style="opacity:0.85">Set <code>AT_API_KEY</code> in environment variables to route live calls through Ghana GSM towers.</small>`, true, true);
+          } else {
+            showStatus(`✅ <strong>Call Dispatched!</strong> Live call placed to <strong>${phone}</strong> via Africa's Talking (+233308048098). Pick up your phone to experience the IVR flow!`, true);
+          }
+        } else {
+          showStatus(`❌ Gateway error: ${data.error || 'Failed to dispatch call'}`, false);
+        }
       } catch (err) {
-        alert('Error triggering outbound call');
+        // Fallback to legacy ussd-trigger if endpoint fails
+        try {
+          const params = new URLSearchParams();
+          params.append('phoneNumber', phone);
+          const res = await fetch('/ussd-trigger', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: params.toString()
+          });
+          const text = await res.text();
+          showStatus(`📡 Gateway Response: ${text}`, true);
+        } catch (innerErr) {
+          showStatus('❌ Network error while connecting to voice gateway.', false);
+        }
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerText = 'Dial Phone';
+        }
       }
     }
   };

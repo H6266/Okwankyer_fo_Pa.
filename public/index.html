@@ -918,24 +918,72 @@ async function uploadAudio(filePath, filename, phraseId) {
         <!-- Gateway Configuration -->
         <div class="panel-card" id="gatewayConfigCard">
           <div class="panel-header">
-            <h3 class="panel-title"><span>⚙️</span> Telephony Gateway Configuration</h3>
-            <span class="badge">Africa's Talking</span>
+            <h3 class="panel-title"><span>⚙️</span> Africa's Talking Telecom Integration</h3>
+            <span class="badge" style="background:#059669; color:#fff;">Live Ready</span>
           </div>
+
+          <!-- Link Instructions Box -->
+          <div style="background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.25); border-radius:8px; padding:14px 16px; margin-bottom:18px;">
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+              <span style="font-size:18px;">📡</span>
+              <strong style="font-size:14px; color:#10b981;">Connect Africa's Talking Inbound Voice Number</strong>
+            </div>
+            <p style="font-size:13px; color:var(--text-secondary, #94a3b8); margin:0 0 10px 0; line-height:1.5;">
+              When anyone calls your Africa's Talking number (e.g. <strong>+233 30 804 8098</strong>), Africa's Talking routes the live call to your Callback URL:
+            </p>
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+              <input type="text" readonly class="form-input font-mono" id="inputLiveCallbackUrl" style="flex:1; min-width:260px; font-size:12px; background:rgba(0,0,0,0.2); cursor:pointer;" onclick="this.select()">
+              <button class="btn btn-primary" id="btnCopyCallbackUrl" onclick="window.app.copyCallbackUrl()" style="white-space:nowrap; padding:8px 16px;">
+                📋 Copy Callback URL
+              </button>
+              <button class="btn" id="btnTestInboundWebhook" onclick="window.app.testInboundWebhook()" style="white-space:nowrap; padding:8px 16px; background:#334155; color:#fff; border:none; cursor:pointer; border-radius:6px;">
+                🧪 Test Inbound Webhook
+              </button>
+            </div>
+            <div id="testWebhookStatus" style="margin-top:10px; font-size:12px; display:none; padding:8px 12px; border-radius:6px; background:rgba(0,0,0,0.3); font-family:monospace; white-space:pre-wrap; max-height:150px; overflow-y:auto;"></div>
+
+            <div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.08); font-size:12px; color:var(--text-secondary, #94a3b8); line-height:1.6;">
+              <strong>Quick 2-Step Linking in Africa's Talking Dashboard:</strong><br>
+              1. Open <strong>africastalking.com</strong> &rarr; <strong>Voice</strong> &rarr; <strong>Phone Numbers</strong>.<br>
+              2. Select your number (<strong>+233 30 804 8098</strong>), paste the Callback URL above into the <strong>Callback URL</strong> field, and click <strong>Save / Update</strong>.
+            </div>
+          </div>
+
+          <!-- Render Cloud Synchronization Status -->
+          <div style="background:rgba(30,41,59,0.7); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:14px 16px; margin-bottom:18px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:8px;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:18px;">☁️</span>
+                <strong style="font-size:14px; color:#f1f5f9;">Render Cloud Deployment Sync</strong>
+              </div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span id="renderStatusBadge" class="badge" style="background:#475569; color:#fff; font-size:11px; padding:4px 10px;">Checking Render...</span>
+                <button class="btn" onclick="window.app.checkRenderStatus()" style="padding:4px 10px; font-size:11px; background:#334155; color:#cbd5e1; border:none; cursor:pointer; border-radius:4px;">🔄 Refresh</button>
+              </div>
+            </div>
+            <div id="renderStatusDesc" style="font-size:12px; color:#94a3b8; line-height:1.5;">
+              Checking connection to <code style="color:#38bdf8;">https://okwankyer-fo-pa.onrender.com</code>...
+            </div>
+            <div style="margin-top:10px; font-size:11px; color:#64748b; line-height:1.5; border-top:1px solid rgba(255,255,255,0.06); padding-top:8px;">
+              💡 <em>To update Render:</em> Export or push your changes to GitHub. Render automatically detects commits to your repository and deploys the new build.
+            </div>
+          </div>
+
           <div class="config-grid">
             <div class="config-item">
               <div class="config-label">Voice Inbound Number</div>
               <div class="config-val font-mono" id="cfgVoiceNumber">+233 30 804 8098</div>
             </div>
             <div class="config-item">
-              <div class="config-label">AT Username</div>
-              <div class="config-val font-mono" id="cfgUsername">sandbox / configured</div>
+              <div class="config-label">AT Account Username</div>
+              <div class="config-val font-mono" id="cfgUsername">Hannes</div>
             </div>
             <div class="config-item">
-              <div class="config-label">Base URL</div>
+              <div class="config-label">App Host Base URL</div>
               <div class="config-val font-mono" id="cfgBaseUrl">-</div>
             </div>
             <div class="config-item">
-              <div class="config-label">Callback Webhook (VoiceXML)</div>
+              <div class="config-label">Primary Webhook Route</div>
               <div class="config-val font-mono" id="cfgCallbackUrl">/voice-menu</div>
             </div>
           </div>
@@ -948,6 +996,7 @@ async function uploadAudio(filePath, filename, phraseId) {
               <input type="text" class="form-input" id="inputOutboundPhone" placeholder="+233543546010">
               <button class="btn btn-primary" id="btnTriggerOutbound" onclick="window.app.triggerRealCall()">Dial Phone</button>
             </div>
+            <div id="outboundCallStatus" style="margin-top:10px; font-size:13px; display:none; padding:10px 14px; border-radius:6px; line-height:1.4;"></div>
           </div>
         </div>
 
