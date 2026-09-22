@@ -352,11 +352,11 @@ function getPublicBaseUrl(req?: Request): string {
       return `${proto}://${host}`.replace(/\/+$/, "");
     }
   }
-  const publicBase = process.env.BASE_URL || process.env.PUBLIC_BASE_URL || process.env.APP_URL;
+  const publicBase = process.env.APP_URL || process.env.BASE_URL || process.env.PUBLIC_BASE_URL;
   if (publicBase) {
     return publicBase.replace(/\/+$/, "");
   }
-  return "https://ais-dev-grgnfko753hdfphmbq4yqr-6256800213.europe-west1.run.app";
+  return "https://ais-dev-g6ekfsvjle7g7t5rt6s36d-537806139713.europe-west1.run.app";
 }
 
 // ── Streaming Audio Handler with HTTP 206 Byte Ranges ─────────────────
