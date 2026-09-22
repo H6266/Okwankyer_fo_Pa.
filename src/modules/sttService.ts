@@ -32,10 +32,10 @@ function getAi(): GoogleGenAI | null {
 async function transcribeAudioBufferWithGemini(buffer: Buffer, mime: string): Promise<SttResult> {
   const ai = getAi();
   if (!ai) {
-    console.warn("⚠️ GEMINI_API_KEY not configured, using fallback STT response");
+    console.warn("⚠️ GEMINI_API_KEY not configured. Please set GEMINI_API_KEY in environment variables for voice transcription.");
     return {
-      text: "one",
-      confidence: 0.85,
+      text: "empty",
+      confidence: 0,
       languageDetected: "en",
       provider: "FallbackSTT",
     };
@@ -53,19 +53,20 @@ async function transcribeAudioBufferWithGemini(buffer: Buffer, mime: string): Pr
           },
         },
         {
-          text: `You are an automated speech recognition engine for an IVR phone banking and mobile money system in Ghana.
+          text: `You are an automated speech recognition engine for an IVR phone banking and mobile money system in Ghana (Okwankyerɛfo Pa).
 The caller may speak in English or Ghanaian Akan Twi.
 Listen to the recording and transcribe the user's spoken command, number, name, or amount.
-Examples of caller speech:
-- Numbers: '1', '2', '3', 'one', 'two', 'three', 'baako', 'mmienu', 'mmeensa', 'first', 'second'
-- Languages: 'English', 'Twi', 'Akan'
-- Providers: 'MTN', 'Telecel', 'Vodafone', 'AirtelTigo', 'AT'
-- Actions: 'send money', 'transfer', 'check balance', 'balance', 'airtime', 'bills'
-- Recipients: 'Kwame', 'Ama', '0241234567', phone numbers
-- Amounts: '50', 'fifty cedis', '500', 'two hundred'
-- Commands: 'repeat', 'back', 'cancel', 'exit', 'yes', 'confirm', 'no'
 
-Return ONLY the plain transcribed words or numbers. Do NOT include markdown, punctuation, quotes, or conversational filler. If the recording is silent, inaudible, or empty, return 'empty'.`,
+Common Ghanaian caller speech:
+- Numbers: '1', '2', '3', 'one', 'two', 'three', 'baako', 'mmienu', 'mmeensa', 'first', 'second', 'option one', 'option two'
+- Languages: 'English', 'Twi', 'Akan', 'me pɛ Twi', 'kasa Twi', 'brofo'
+- Providers: 'MTN', 'Telecel', 'Vodafone', 'AirtelTigo', 'AT'
+- Actions: 'send money', 'transfer', 'check balance', 'balance', 'airtime', 'bills', 'sika', 'mane sika'
+- Recipients: 'Kwame', 'Ama', '0241234567', phone numbers
+- Amounts: '50', 'fifty cedis', '500', 'two hundred', 'ahankron'
+- Confirmation: 'yes', 'confirm', 'no', 'change', 'repeat', 'back', 'cancel', 'stop', 'aane', 'ɛyɛ', 'dabi', 'sesa'
+
+Return ONLY the plain transcribed words or numbers. Do NOT include markdown, punctuation, quotes, or conversational filler. If the recording is silent, background static, inaudible, or empty, return 'empty'.`,
         },
       ],
     });
@@ -107,7 +108,13 @@ export class TelephonySpeechService implements SpeechToTextProvider {
         }
         const arrayBuffer = await resp.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
-        const mime = audioPayload.toLowerCase().endsWith(".mp3") ? "audio/mp3" : "audio/wav";
+        const contentType = (resp.headers.get("content-type") || "").toLowerCase();
+        let mime = "audio/mp3";
+        if (contentType.includes("wav") || audioPayload.toLowerCase().includes(".wav")) {
+          mime = "audio/wav";
+        } else if (contentType.includes("mpeg") || contentType.includes("mp3") || audioPayload.toLowerCase().includes(".mp3")) {
+          mime = "audio/mp3";
+        }
         return await transcribeAudioBufferWithGemini(buffer, mime);
       } catch (err) {
         console.error("Failed to fetch recording URL:", err);
