@@ -1368,7 +1368,7 @@ function handleVoiceMenu(req: Request, res: Response) {
   const caller = req.body?.callerNumber || req.query?.callerNumber || "caller";
   console.log(`📞 Inbound voice call connected from ${caller}!`);
 
-  const introAudioUrl = `${baseUrl}/audio/Welcome_prompt_01.mp3`;
+  const introAudioUrl = `${baseUrl}/audio/English/Welcome_prompt_01.mp3`;
 
   // Africa's Talking VoiceXML:
   // Pure audio playback without any synthetic text-to-speech.
