@@ -149,12 +149,12 @@ export interface PhraseItem {
 export const PHRASE_BANK: PhraseItem[] = [
   {
     id: "intro",
-    filename: "welcome_prompt_01.mp3",
+    filename: "Welcome_prompt_01.mp3",
     category: "welcome",
     language: "bilingual",
     title: "Intro & Language Prompt",
     spokenText: "For English, press 1. Twi firi mu, mia 2.",
-    description: "Plays when incoming/outgoing call connects. Plays welcome_prompt_01.mp3 without synthetic welcome speech.",
+    description: "Plays when incoming/outgoing call connects. Plays Welcome_prompt_01.mp3 without synthetic welcome speech.",
   },
   {
     id: "confirm_twi",
@@ -1124,9 +1124,9 @@ function handleVoiceMenu(req: Request, res: Response) {
   const caller = req.body?.callerNumber || req.query?.callerNumber || "caller";
   console.log(`📞 Inbound voice call connected from ${caller}!`);
 
-  const introAudioUrl = `${baseUrl}/audio/welcome_prompt_01.mp3`;
+  const introAudioUrl = `${baseUrl}/audio/Welcome_prompt_01.mp3`;
 
-  // Africa's Talking compliant XML: Play welcome_prompt_01.mp3 as first introduction audio; do not read any synthetic welcome message
+  // Africa's Talking compliant XML: Play Welcome_prompt_01.mp3 as first introduction audio; do not read any synthetic welcome message
   const xml = `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection">
         <Play url="${introAudioUrl}"/>
     </GetDigits>
@@ -2803,9 +2803,9 @@ app.all("/", (req: Request, res: Response) => {
         const res = await fetch('/voice-menu');
         const xml = await res.text();
         xmlLog.innerText = xml;
-        spoken.innerHTML = '🗣️ <strong>(Playing welcome_prompt_01.mp3 — For English, press 1. For Twi, press 2.)</strong>';
+        spoken.innerHTML = '🗣️ <strong>(Playing Welcome_prompt_01.mp3 — For English, press 1. For Twi, press 2.)</strong>';
         audioBox.style.display = 'block';
-        audioBox.innerHTML = '<audio controls autoplay src="/audio/welcome_prompt_01.mp3"></audio>';
+        audioBox.innerHTML = '<audio controls autoplay src="/audio/Welcome_prompt_01.mp3"></audio>';
 
         inputArea.innerHTML = \`
           <div style="display:flex; gap:10px; justify-content:center;">

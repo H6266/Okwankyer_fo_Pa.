@@ -2121,8 +2121,8 @@
       const ENGLISH_FLOW = {
         welcome: {
           tag: 'Step 1: Welcome & Language Choice',
-          audio: '/audio/welcome_prompt_01.mp3',
-          promptText: 'First introduction audio playing (welcome_prompt_01.mp3). For English, press 1. For Twi, press 2.',
+          audio: '/audio/Welcome_prompt_01.mp3',
+          promptText: 'First introduction audio playing (Welcome_prompt_01.mp3). For English, press 1. For Twi, press 2.',
           xmlUrl: '/voice-menu',
           render: () => `
             <div class="step-options-grid">
@@ -2371,8 +2371,8 @@
       const TWI_FLOW = {
         welcome: {
           tag: 'Step 1: Welcome & Kasa Paw',
-          audio: '/audio/welcome_prompt_01.mp3',
-          promptText: 'First introduction audio playing (welcome_prompt_01.mp3). For English, press 1. Twi firi mu, mia 2.',
+          audio: '/audio/Welcome_prompt_01.mp3',
+          promptText: 'First introduction audio playing (Welcome_prompt_01.mp3). For English, press 1. Twi firi mu, mia 2.',
           xmlUrl: '/voice-menu',
           render: () => `
             <div class="step-options-grid">
@@ -2629,7 +2629,7 @@
       const audioFile = stepConfig.audio;
       const audioEl = document.getElementById('phoneAudioElement');
       if (step === 'welcome') {
-        // First introduction audio is welcome_prompt_01.mp3 - never read a synthetic welcome message
+        // First introduction audio is Welcome_prompt_01.mp3 - never read a synthetic welcome message
         if (!audioEl || audioEl.paused || audioEl.ended || this.currentAudioUrl !== audioFile) {
           this.playPhoneAudio(audioFile, null);
         }
@@ -3180,7 +3180,7 @@
     unlockAudio(targetUrl) {
       const audioEl = document.getElementById('phoneAudioElement');
       if (audioEl) {
-        const urlToPrime = targetUrl || this.currentAudioUrl || '/audio/welcome_prompt_01.mp3';
+        const urlToPrime = targetUrl || this.currentAudioUrl || '/audio/Welcome_prompt_01.mp3';
         if (audioEl.src !== urlToPrime && !audioEl.src.endsWith(urlToPrime)) {
           audioEl.src = urlToPrime;
         }
@@ -3221,7 +3221,7 @@
         window.speechSynthesis.cancel();
       }
 
-      const targetUrl = this.currentAudioUrl || '/audio/welcome_prompt_01.mp3';
+      const targetUrl = this.currentAudioUrl || '/audio/Welcome_prompt_01.mp3';
       if (audioEl.src !== targetUrl && !audioEl.src.endsWith(targetUrl)) {
         audioEl.src = targetUrl;
         audioEl.load();
