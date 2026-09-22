@@ -113,6 +113,7 @@
       this.loadSubscribers();
       this.initWaveformCanvas();
       this.setIdleState();
+      this.fetchPipelineStatus();
 
       // Pre-bind user interaction gestures anywhere on page to unlock media playback
       const unlockHandler = () => {
@@ -160,14 +161,16 @@
         'studio': 'tabBtnStudio',
         'kyc': 'tabBtnKyc',
         'grammar': 'tabBtnNavGrammar',
-        'api': 'tabBtnApi'
+        'api': 'tabBtnApi',
+        'pipeline': 'tabBtnPipeline'
       };
       const panelMap = {
         'simulator': 'panelSimulator',
         'studio': 'panelStudio',
         'kyc': 'panelKyc',
         'grammar': 'panelGrammar',
-        'api': 'panelApi'
+        'api': 'panelApi',
+        'pipeline': 'panelPipeline'
       };
 
       const btn = document.getElementById(btnMap[tabId]);
@@ -1125,24 +1128,42 @@
         return { key: '#', label: 'Hash / Submit (#)' };
       }
 
-      // Strip conversational prefixes so "number 1", "press 1", "option two", "mepe baako", "give me one", etc. match cleanly
-      const cleaned = text.replace(/^(please\s+)?(press|key|option|number|choice|select|choose|give me|i want|i choose|it is|it's|me\s*pɛ|mepe|fa|mia)\s+/i, '').trim();
+      // Special colloquial Ghanaian expressions & phonetic variants:
+      // "one and a bar", "one or p one", "p one", "p1", "paw baako", "two and a bar", etc.
+      if (/\b(1\s*and\s*a\s*bar|one\s*and\s*a\s*bar|one\s*and\s*a\s*ba|one\s*under\s*bar|one\s*a\s*bar|one\s*anaa\s*baako|one\s*anaa|one\s*or\s*p\s*one|p\s*1|p1|p\s*one|p-one|pee\s*one|pi\s*one|p\.\s*one|paw\s*1|paw\s*one|paw\s*baako|pa\s*baako)\b/i.test(text)) {
+        return { key: '1', label: 'One / Baako (1)' };
+      }
+      if (/\b(2\s*and\s*a\s*bar|two\s*and\s*a\s*bar|two\s*and\s*a\s*ba|two\s*under\s*bar|two\s*a\s*bar|two\s*anaa\s*mmienu|two\s*anaa|two\s*or\s*p\s*two|p\s*2|p2|p\s*two|p-two|pee\s*two|pi\s*two|p\.\s*two|paw\s*2|paw\s*two|paw\s*mmienu|pa\s*mmienu)\b/i.test(text)) {
+        return { key: '2', label: 'Two / Mmienu (2)' };
+      }
+      if (/\b(3\s*and\s*a\s*bar|three\s*and\s*a\s*bar|three\s*and\s*a\s*ba|three\s*under\s*bar|three\s*a\s*bar|three\s*anaa\s*mmiensa|three\s*anaa|p\s*3|p3|p\s*three|p-three|pee\s*three|pi\s*three|p\.\s*three|paw\s*3|paw\s*three|paw\s*mmiensa|paw\s*mmiɛnsa)\b/i.test(text)) {
+        return { key: '3', label: 'Three / Mmiɛnsa (3)' };
+      }
+      if (/\b(4\s*and\s*a\s*bar|four\s*and\s*a\s*bar|p\s*4|p4|p\s*four|p-four|pee\s*four|paw\s*4|paw\s*four|paw\s*anan)\b/i.test(text)) {
+        return { key: '4', label: 'Four / Anan (4)' };
+      }
+      if (/\b(5\s*and\s*a\s*bar|five\s*and\s*a\s*bar|p\s*5|p5|p\s*five|p-five|pee\s*five|paw\s*5|paw\s*five|paw\s*enum)\b/i.test(text)) {
+        return { key: '5', label: 'Five / Enum (5)' };
+      }
+
+      // Strip conversational prefixes so "number 1", "press 1", "option two", "mepe baako", "give me one", "say 1", etc. match cleanly
+      const cleaned = text.replace(/^(please\s+)?(press|key|option|number|choice|select|choose|give me|i want|i choose|it is|it's|me\s*pɛ|mepe|fa|mia|p|p-|p\.|paw|pa|say|saying|click|clicked|punched)\s+/i, '').trim();
       if (/^[0-9]$/.test(cleaned)) {
         return { key: cleaned, label: `Digit ${cleaned}` };
       }
 
       // 2. English & Akan Twi word mappings (including homophones and spoken variations)
       const map = [
-        { regex: /\b(1|one|won|first|baako|bako|koro)\b/i, key: '1', label: 'One / Baako (1)' },
-        { regex: /\b(2|two|too|second|mmienu|mienu|abien)\b/i, key: '2', label: 'Two / Mmienu (2)' },
-        { regex: /\b(3|three|tree|third|mmiensa|mmiɛnsa|miensa|abiesa)\b/i, key: '3', label: 'Three / Mmiɛnsa (3)' },
-        { regex: /\b(4|four|fore|fourth|anan|enan|nan)\b/i, key: '4', label: 'Four / Anan (4)' },
-        { regex: /\b(5|five|fifth|enum|num|anom)\b/i, key: '5', label: 'Five / Enum (5)' },
-        { regex: /\b(6|six|sixth|nsia|sia)\b/i, key: '6', label: 'Six / Nsia (6)' },
-        { regex: /\b(7|seven|seventh|nson|son)\b/i, key: '7', label: 'Seven / Nson (7)' },
-        { regex: /\b(8|eight|ate|eighth|nwɔtwe|nwotwe|motwe|wotwe)\b/i, key: '8', label: 'Eight / Nwɔtwe (8)' },
-        { regex: /\b(9|nine|ninth|nkron|kron)\b/i, key: '9', label: 'Nine / Nkron (9)' },
-        { regex: /\b(0|zero|oh|hwee|koraa)\b/i, key: '0', label: 'Zero / Hwee (0)' },
+        { regex: /\b(1|one|won|first|baako|bako|koro|p\s*1|p1|p\s*one|paw\s*baako)\b/i, key: '1', label: 'One / Baako (1)' },
+        { regex: /\b(2|two|too|second|mmienu|mienu|abien|p\s*2|p2|p\s*two|paw\s*mmienu)\b/i, key: '2', label: 'Two / Mmienu (2)' },
+        { regex: /\b(3|three|tree|third|mmiensa|mmiɛnsa|miensa|abiesa|p\s*3|p3|p\s*three)\b/i, key: '3', label: 'Three / Mmiɛnsa (3)' },
+        { regex: /\b(4|four|fore|fourth|anan|enan|nan|p\s*4|p4|p\s*four)\b/i, key: '4', label: 'Four / Anan (4)' },
+        { regex: /\b(5|five|fifth|enum|num|anom|p\s*5|p5|p\s*five)\b/i, key: '5', label: 'Five / Enum (5)' },
+        { regex: /\b(6|six|sixth|nsia|sia|p\s*6|p6)\b/i, key: '6', label: 'Six / Nsia (6)' },
+        { regex: /\b(7|seven|seventh|nson|son|p\s*7|p7)\b/i, key: '7', label: 'Seven / Nson (7)' },
+        { regex: /\b(8|eight|ate|eighth|nwɔtwe|nwotwe|motwe|wotwe|p\s*8|p8)\b/i, key: '8', label: 'Eight / Nwɔtwe (8)' },
+        { regex: /\b(9|nine|ninth|nkron|kron|p\s*9|p9)\b/i, key: '9', label: 'Nine / Nkron (9)' },
+        { regex: /\b(0|zero|oh|hwee|koraa|p\s*0|p0)\b/i, key: '0', label: 'Zero / Hwee (0)' },
       ];
 
       for (const item of map) {
@@ -1569,6 +1590,11 @@
 
             // If interim and not matched yet, display real-time live hearing feedback
             if (!isFinal) {
+              // ⚡ INSTANT BARGE-IN: If caller starts speaking while audio prompt is playing, cut audio immediately!
+              if (this.isPromptPlaying && rawTranscript.length >= 2) {
+                console.log(`[Barge-In] ⚡ Interrupting audio prompt immediately for speech: "${rawTranscript}"`);
+                this.stopPhoneAudio();
+              }
               if (textEl) {
                 textEl.innerHTML = `🗣️ Hearing: <strong style="color:#6ee7b7;">"${rawTranscript}..."</strong>`;
               }
@@ -1799,7 +1825,12 @@
     },
 
     async handleNaturalVoiceInput(transcript) {
-      if (!transcript || !this.callState.active || this.isPinPromptOpen || this.isPromptPlaying || this.optionSelectedForCurrentPrompt) return;
+      if (!transcript || !this.callState.active || this.isPinPromptOpen) return;
+      if (this.isPromptPlaying) {
+        console.log(`[Barge-In] ⚡ Interrupting audio prompt for natural voice input: "${transcript}"`);
+        this.stopPhoneAudio();
+      }
+      if (this.optionSelectedForCurrentPrompt) return;
 
       const normText = transcript.toLowerCase().trim();
       const now = Date.now();
@@ -4142,6 +4173,137 @@
           btn.disabled = false;
           btn.innerText = 'Dial Phone';
         }
+      }
+    },
+
+    // ── One-Click Deployment Pipeline ──────────────────────────────────
+    pipelineState: null,
+    async fetchPipelineStatus() {
+      try {
+        const res = await fetch('/api/pipeline/status');
+        if (!res.ok) return;
+        const data = await res.json();
+        this.pipelineState = data;
+        this.renderPipelineUI(data);
+      } catch (e) {
+        console.warn('Could not fetch pipeline status:', e);
+      }
+    },
+    renderPipelineUI(data) {
+      if (!data) return;
+      const repoEl = document.getElementById('pipelineRepoUrl');
+      if (repoEl) repoEl.innerText = data.repositoryUrl || 'https://github.com/H6266/Okwankyer_fo_Pa';
+
+      const commitHashEl = document.getElementById('pipelineCommitHash');
+      if (commitHashEl && data.lastCommit) {
+        commitHashEl.innerText = data.lastCommit.shortHash || data.lastCommit.hash?.substring(0, 7) || '87316bd';
+      }
+
+      const commitMsgEl = document.getElementById('pipelineCommitMsg');
+      if (commitMsgEl && data.lastCommit) {
+        commitMsgEl.innerText = data.lastCommit.message || '';
+      }
+
+      const commitAuthorEl = document.getElementById('pipelineCommitAuthor');
+      if (commitAuthorEl && data.lastCommit) {
+        commitAuthorEl.innerText = `${data.lastCommit.author || ''} • ${data.lastCommit.date || ''}`;
+      }
+
+      const hostEl = document.getElementById('pipelineHostUrl');
+      if (hostEl) hostEl.innerText = data.hostingServer || window.location.origin;
+
+      const deployedAtEl = document.getElementById('pipelineDeployedAt');
+      if (deployedAtEl && data.lastDeployedAt) {
+        deployedAtEl.innerText = new Date(data.lastDeployedAt).toLocaleString();
+      }
+
+      const cbUrlEl = document.getElementById('pipelineCallbackUrl');
+      if (cbUrlEl && data.telephony) {
+        cbUrlEl.value = data.telephony.callbackUrl;
+      }
+
+      // Render Stages
+      if (data.stages && data.stages.length) {
+        const listEl = document.getElementById('pipelineStagesList');
+        if (listEl) {
+          listEl.innerHTML = data.stages.map((st, idx) => {
+            const icon = st.status === 'success' ? '✅' : st.status === 'running' ? '⏳' : st.status === 'failed' ? '❌' : '⚪';
+            const badgeClass = st.status === 'success' ? 'badge-success' : st.status === 'running' ? 'badge-warn' : 'badge-neutral';
+            return `
+              <div class="pipeline-step-item ${st.status}">
+                <div class="step-num">${idx + 1}</div>
+                <div class="step-info">
+                  <div class="step-title-row">
+                    <strong style="color:#f8fafc; font-size:13.5px;">${st.name}</strong>
+                    <span class="badge ${badgeClass}" style="font-size:10px; padding:3px 8px;">${icon} ${st.status.toUpperCase()}${st.durationMs ? ' (' + st.durationMs + 'ms)' : ''}</span>
+                  </div>
+                  <div class="step-desc">${st.description}</div>
+                  ${st.output ? `<div class="step-output"><code>${st.output}</code></div>` : ''}
+                </div>
+              </div>
+            `;
+          }).join('');
+        }
+      }
+
+      // Render Logs
+      if (data.logs && data.logs.length) {
+        const logsEl = document.getElementById('pipelineLogsConsole');
+        if (logsEl) {
+          logsEl.innerHTML = data.logs.map(log => {
+            let color = '#38bdf8';
+            if (log.includes('complete') || log.includes('SUCCESSFUL') || log.includes('Passed')) color = '#34d399';
+            if (log.includes('WARN')) color = '#fbbf24';
+            if (log.includes('ERROR') || log.includes('failed')) color = '#f87171';
+            return `<div class="log-line" style="color:${color}">${log}</div>`;
+          }).join('');
+          logsEl.scrollTop = logsEl.scrollHeight;
+        }
+      }
+    },
+    async triggerPipelineDeploy() {
+      const btn = document.getElementById('btnTriggerPipeline');
+      const banner = document.getElementById('pipelineSuccessBanner');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span>⏳</span> Running Deployment Pipeline...';
+      }
+      if (banner) banner.style.display = 'none';
+
+      try {
+        const res = await fetch('/api/pipeline/deploy', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          this.pipelineState = data;
+          this.renderPipelineUI(data);
+          if (banner) {
+            banner.style.display = 'block';
+            banner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          }
+        } else {
+          alert('Deployment Error: ' + (data.error || 'Unknown failure'));
+        }
+      } catch (err) {
+        alert('Network error while running deployment pipeline');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<span>🚀</span> Run One-Click Deployment Pipeline';
+        }
+        this.fetchPipelineStatus();
+      }
+    },
+    copyPipelineWebhook() {
+      const el = document.getElementById('pipelineCallbackUrl');
+      if (el) {
+        navigator.clipboard.writeText(el.value).then(() => {
+          const btn = document.getElementById('btnCopyPipeWebhook');
+          if (btn) {
+            const original = btn.innerText;
+            btn.innerText = '✅ Copied!';
+            setTimeout(() => { btn.innerText = original; }, 2000);
+          }
+        });
       }
     }
   };

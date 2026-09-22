@@ -151,23 +151,67 @@ async function runRegressionSuite() {
     assert(isRepeatNarrow("repeat that"), "Narrowed repeat: 'repeat that' matches repeat");
     assert(!isRepeatNarrow("what's my balance"), "Narrowed repeat: 'what's my balance' does NOT match repeat");
 
-    // (f) Invalid-input retry preserves audio prompt and prepends concise Say error
+    // (f) Invalid-input retry preserves audio prompt with zero TTS Say tags
     const resErrRecip = await fetch(`${baseUrl}/enter-recipient?lang=en&provider=MTN&err=invalid`);
     const xmlErrRecip = await resErrRecip.text();
     assert(
-      xmlErrRecip.includes("<Say voice=\"man\">That number wasn't recognized.</Say>") &&
+      !xmlErrRecip.includes("<Say") &&
       xmlErrRecip.includes("<Play url=\"") &&
-      xmlErrRecip.includes("05_enter_recipient_phone.mp3"),
-      "(f) Retry audio preservation: enter-recipient with err=invalid retains <Play> prompt and prepends error <Say>"
+      (xmlErrRecip.includes("Audio_prompt_06.mp3") || xmlErrRecip.includes("05_enter_recipient_phone.mp3")),
+      "(f) Retry audio preservation: enter-recipient with err=invalid retains pure <Play> prompt with zero TTS"
     );
 
     const resErrAmt = await fetch(`${baseUrl}/enter-amount?lang=en&provider=MTN&err=invalid`);
     const xmlErrAmt = await resErrAmt.text();
     assert(
-      xmlErrAmt.includes("<Say voice=\"man\">That amount wasn't recognized.</Say>") &&
+      !xmlErrAmt.includes("<Say") &&
       xmlErrAmt.includes("<Play url=\"") &&
-      xmlErrAmt.includes("08_enter_amount_cedis.mp3"),
-      "(g) Retry audio preservation: enter-amount with err=invalid retains <Play> prompt and prepends error <Say>"
+      (xmlErrAmt.includes("Audio_prompt_09.mp3") || xmlErrAmt.includes("Audio_prompt_08.mp3") || xmlErrAmt.includes("08_enter_amount_cedis.mp3")),
+      "(g) Retry audio preservation: enter-amount with err=invalid retains pure <Play> prompt with zero TTS"
+    );
+
+    // --- Test 8: Voice Prompt Recognition Variations & Barge-In Structure ---
+    console.log("\n--- Section 8: Spoken Aliases & Telephony Barge-In Verification ---");
+    
+    // (h) "one and a bar" at language-selection resolves to English (dtmfDigits=1)
+    const resH = await fetch(`${baseUrl}/speech-fallback?step=language-selection&speechText=one+and+a+bar`);
+    const xmlH = await resH.text();
+    assert(
+      xmlH.includes("dtmfDigits=1"),
+      "(h) Colloquial voice: 'one and a bar' at language-selection resolves to dtmfDigits=1"
+    );
+
+    // (i) "p one" at language-selection resolves to English (dtmfDigits=1)
+    const resI = await fetch(`${baseUrl}/speech-fallback?step=language-selection&speechText=p+one`);
+    const xmlI = await resI.text();
+    assert(
+      xmlI.includes("dtmfDigits=1"),
+      "(i) Colloquial voice: 'p one' at language-selection resolves to dtmfDigits=1"
+    );
+
+    // (j) "two and a bar" at language-selection resolves to Twi (dtmfDigits=2)
+    const resJ = await fetch(`${baseUrl}/speech-fallback?step=language-selection&speechText=two+and+a+bar`);
+    const xmlJ = await resJ.text();
+    assert(
+      xmlJ.includes("dtmfDigits=2"),
+      "(j) Colloquial voice: 'two and a bar' at language-selection resolves to dtmfDigits=2"
+    );
+
+    // (k) "p 2" at provider-select resolves to Telecel (dtmfDigits=2)
+    const resK = await fetch(`${baseUrl}/speech-fallback?step=provider-select&speechText=p+2`);
+    const xmlK = await resK.text();
+    assert(
+      xmlK.includes("dtmfDigits=2"),
+      "(k) Colloquial voice: 'p 2' at provider-select resolves to Telecel (dtmfDigits=2)"
+    );
+
+    // (l) Telephony Barge-in structure: <GetDigits> wraps <Play> in /voice-menu
+    const resL = await fetch(`${baseUrl}/voice-menu`);
+    const xmlL = await resL.text();
+    const hasBargeInStructure = /<GetDigits[^>]*>[\s\S]*?<Play\s+url="[^"]+"[\s\S]*?<\/GetDigits>/i.test(xmlL);
+    assert(
+      hasBargeInStructure,
+      "(l) Telephony Barge-In: <Play> is nested inside <GetDigits> in /voice-menu response"
     );
   } catch (err) {
     console.error("Endpoint verification error:", err);
