@@ -213,6 +213,46 @@ async function runRegressionSuite() {
       hasBargeInStructure,
       "(l) Telephony Barge-In: <Play> is nested inside <GetDigits> in /voice-menu response"
     );
+
+    // (m) Silence / no DTMF at language-selection triggers <Record>
+    const resM = await fetch(`${baseUrl}/language-selection`);
+    const xmlM = await resM.text();
+    assert(
+      xmlM.includes("<Record") && xmlM.includes("step=language-selection"),
+      "(m) Voice Recognition Fallback: empty DTMF at language-selection returns <Record>"
+    );
+
+    // (n) Silence / no DTMF at provider-choice triggers <Record>
+    const resN = await fetch(`${baseUrl}/provider-choice?lang=en&service=momo`);
+    const xmlN = await resN.text();
+    assert(
+      xmlN.includes("<Record") && xmlN.includes("step=provider-select"),
+      "(n) Voice Recognition Fallback: empty DTMF at provider-choice returns <Record>"
+    );
+
+    // (o) Spoken digit "1" at language-selection resolves to dtmfDigits=1
+    const resO = await fetch(`${baseUrl}/speech-fallback?step=language-selection&speechText=1`);
+    const xmlO = await resO.text();
+    assert(
+      xmlO.includes("dtmfDigits=1"),
+      "(o) Spoken digit: '1' at language-selection resolves to dtmfDigits=1"
+    );
+
+    // (p) Spoken digit "2" at language-selection resolves to dtmfDigits=2
+    const resP = await fetch(`${baseUrl}/speech-fallback?step=language-selection&speechText=2`);
+    const xmlP = await resP.text();
+    assert(
+      xmlP.includes("dtmfDigits=2"),
+      "(p) Spoken digit: '2' at language-selection resolves to dtmfDigits=2"
+    );
+
+    // (q) Direct keypad DTMF pressed during <Record> in speech-fallback
+    const resQ = await fetch(`${baseUrl}/speech-fallback?step=language-selection&dtmfDigits=2`);
+    const xmlQ = await resQ.text();
+    assert(
+      xmlQ.includes("dtmfDigits=2"),
+      "(q) Direct DTMF during record: dtmfDigits=2 routes directly"
+    );
   } catch (err) {
     console.error("Endpoint verification error:", err);
     assert(false, "Endpoint integration verification succeeded without network failure");

@@ -1191,6 +1191,27 @@ app.all("/speech-fallback", async (req: Request, res: Response) => {
   console.log(`   Recording URL: ${recordingUrl || "none"}`);
   console.log(`   Speech text payload: ${speechText || "none"}`);
 
+  // 1. Direct DTMF if user pressed a key during recording
+  const directDtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
+  if (directDtmf) {
+    console.log(`⚡ Direct DTMF captured during record: ${directDtmf}`);
+    if (step === "language-selection") {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/language-selection?dtmfDigits=${directDtmf}</Redirect>`);
+    }
+    if (step === "service-select") {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/service-choice?lang=en&amp;dtmfDigits=${directDtmf}</Redirect>`);
+    }
+    if (step === "provider-select") {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/provider-choice?lang=en&amp;service=${service}&amp;dtmfDigits=${directDtmf}</Redirect>`);
+    }
+    if (step === "action-select") {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/action-choice?lang=en&amp;provider=${provider}&amp;dtmfDigits=${directDtmf}</Redirect>`);
+    }
+    if (step === "safe-confirmation") {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/safe-outcome?lang=en&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}&amp;dtmfDigits=${directDtmf}</Redirect>`);
+    }
+  }
+
   // Transcribe the audio or use simulated text input
   let transcript = "";
   let confidence = 0;
@@ -1260,41 +1281,47 @@ app.all("/speech-fallback", async (req: Request, res: Response) => {
   // Route step-specific NLU resolution
   if (step === "language-selection") {
     let resolvedDtmf = "1";
-    if (/\b(twi|akan|asante|two|mmienu|p\s*two|p\s*2|paw\s*mmienu|two\s*and\s*a\s*bar|two\s*anaa)\b/i.test(cleanText)) {
+    if (/\b(twi|akan|asante|two|mmienu|p\s*two|p\s*2|paw\s*mmienu|two\s*and\s*a\s*bar|two\s*anaa|2|second)\b/i.test(cleanText)) {
       resolvedDtmf = "2";
-    } else if (/\b(english|one|baako|p\s*one|p\s*1|paw\s*baako|one\s*and\s*a\s*bar|one\s*anaa)\b/i.test(cleanText)) {
+    } else if (/\b(english|one|baako|p\s*one|p\s*1|paw\s*baako|one\s*and\s*a\s*bar|one\s*anaa|1|first)\b/i.test(cleanText)) {
       resolvedDtmf = "1";
     }
+    console.log(`🎙️ Speech resolved language-selection to DTMF: ${resolvedDtmf}`);
     return xmlResponse(res, `    <Redirect>${baseUrl}/language-selection?dtmfDigits=${resolvedDtmf}</Redirect>`);
   }
 
   if (step === "service-select") {
     let resolvedDtmf = "1";
-    if (/\b(bank|banking|bank account|deposit|p\s*two|p\s*2|two\s*and\s*a\s*bar)\b/i.test(cleanText)) {
+    if (/\b(bank|banking|bank account|deposit|p\s*two|p\s*2|two\s*and\s*a\s*bar|two|2|second)\b/i.test(cleanText)) {
       resolvedDtmf = "2";
+    } else if (/\b(momo|mobile money|telecom|phone|one|1|first|p\s*one|p\s*1)\b/i.test(cleanText)) {
+      resolvedDtmf = "1";
     }
+    console.log(`🎙️ Speech resolved service-select to DTMF: ${resolvedDtmf}`);
     return xmlResponse(res, `    <Redirect>${baseUrl}/service-choice?lang=en&amp;dtmfDigits=${resolvedDtmf}</Redirect>`);
   }
 
   if (step === "provider-select") {
     let resolvedDtmf = "1"; // MTN default
-    if (/\b(telecel|vodafone|voda|p\s*two|p\s*2|two\s*and\s*a\s*bar)\b/i.test(cleanText)) {
+    if (/\b(telecel|vodafone|voda|p\s*two|p\s*2|two\s*and\s*a\s*bar|two|2|second)\b/i.test(cleanText)) {
       resolvedDtmf = "2";
-    } else if (/\b(at|airtel|tigo|airteltigo|p\s*three|p\s*3|three\s*and\s*a\s*bar)\b/i.test(cleanText)) {
+    } else if (/\b(at|airtel|tigo|airteltigo|p\s*three|p\s*3|three\s*and\s*a\s*bar|three|3|third)\b/i.test(cleanText)) {
       resolvedDtmf = "3";
-    } else if (/\b(mtn|scancom|yellow|p\s*one|p\s*1|one\s*and\s*a\s*bar)\b/i.test(cleanText)) {
+    } else if (/\b(mtn|scancom|yellow|p\s*one|p\s*1|one\s*and\s*a\s*bar|one|1|first)\b/i.test(cleanText)) {
       resolvedDtmf = "1";
     }
+    console.log(`🎙️ Speech resolved provider-select to DTMF: ${resolvedDtmf}`);
     return xmlResponse(res, `    <Redirect>${baseUrl}/provider-choice?lang=en&amp;service=${service}&amp;dtmfDigits=${resolvedDtmf}</Redirect>`);
   }
 
   if (step === "action-select") {
     let resolvedDtmf = "1"; // Send Money default
-    if (/\b(balance|check balance|my balance|statement|p\s*5|p\s*five)\b/i.test(cleanText)) {
+    if (/\b(balance|check balance|my balance|statement|p\s*5|p\s*five|five|5|p\s*2|two|2)\b/i.test(cleanText)) {
       resolvedDtmf = "2";
-    } else if (/\b(send|transfer|momo|p\s*one|p\s*1|one\s*and\s*a\s*bar)\b/i.test(cleanText)) {
+    } else if (/\b(send|transfer|momo|p\s*one|p\s*1|one\s*and\s*a\s*bar|one|1|first)\b/i.test(cleanText)) {
       resolvedDtmf = "1";
     }
+    console.log(`🎙️ Speech resolved action-select to DTMF: ${resolvedDtmf}`);
     return xmlResponse(res, `    <Redirect>${baseUrl}/action-choice?lang=en&amp;provider=${provider}&amp;dtmfDigits=${resolvedDtmf}</Redirect>`);
   }
 
@@ -1388,8 +1415,9 @@ app.all("/language-selection", (req: Request, res: Response) => {
   const baseUrl = getPublicBaseUrl(req);
 
   if (!dtmf) {
-    // Timeout or no digit pressed: safely replay welcome prompt
-    return xmlResponse(res, `    <Redirect>${baseUrl}/voice-menu</Redirect>`);
+    // Timeout or no digit pressed: record spoken choice (e.g. "one", "English", "two", "Twi")
+    const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="3" callbackUrl="${baseUrl}/speech-fallback?step=language-selection"/>`;
+    return xmlResponse(res, xml);
   }
 
   if (dtmf !== "1" && dtmf !== "2") {
@@ -1431,8 +1459,9 @@ app.all("/service-choice", (req: Request, res: Response) => {
   const baseUrl = getPublicBaseUrl(req);
 
   if (!dtmf) {
-    // Timeout/silence: repeat service selection
-    return xmlResponse(res, `    <Redirect>${baseUrl}/service-select?lang=${lang}</Redirect>`);
+    // Timeout/silence: record spoken service choice (e.g. "one", "momo", "two", "banking")
+    const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="3" callbackUrl="${baseUrl}/speech-fallback?step=service-select&amp;lang=${lang}"/>`;
+    return xmlResponse(res, xml);
   }
 
   if (checkUniversalNav(dtmf, lang, `${baseUrl}/voice-menu`, `${baseUrl}/service-select?lang=${lang}`, res)) {
@@ -1477,8 +1506,9 @@ app.all("/provider-choice", (req: Request, res: Response) => {
   const baseUrl = getPublicBaseUrl(req);
 
   if (!dtmf) {
-    // Timeout/silence: repeat provider selection
-    return xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?lang=${lang}&amp;service=${service}</Redirect>`);
+    // Timeout/silence: record spoken network choice (e.g. "MTN", "Telecel", "AirtelTigo")
+    const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="3" callbackUrl="${baseUrl}/speech-fallback?step=provider-select&amp;lang=${lang}&amp;service=${service}"/>`;
+    return xmlResponse(res, xml);
   }
 
   if (checkUniversalNav(dtmf, lang, `${baseUrl}/service-select?lang=${lang}`, `${baseUrl}/provider-select?lang=${lang}&service=${service}`, res)) {
@@ -1528,8 +1558,9 @@ app.all("/action-choice", (req: Request, res: Response) => {
   const baseUrl = getPublicBaseUrl(req);
 
   if (!dtmf) {
-    // Timeout/silence: repeat action selection
-    return xmlResponse(res, `    <Redirect>${baseUrl}/action-select?lang=${lang}&amp;provider=${provider}</Redirect>`);
+    // Timeout/silence: record spoken action choice (e.g. "send money", "check balance")
+    const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="3" callbackUrl="${baseUrl}/speech-fallback?step=action-select&amp;lang=${lang}&amp;provider=${provider}"/>`;
+    return xmlResponse(res, xml);
   }
 
   if (checkUniversalNav(dtmf, lang, `${baseUrl}/provider-select?lang=${lang}`, `${baseUrl}/action-select?lang=${lang}&provider=${provider}`, res)) {
@@ -1574,6 +1605,12 @@ app.all("/verify-recipient", (req: Request, res: Response) => {
   const provider = (req.query?.provider || req.body?.provider || "MTN") as string;
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getPublicBaseUrl(req);
+
+  if (!dtmf) {
+    // Record spoken recipient phone number or name
+    const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="8" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=enter-recipient&amp;lang=${lang}&amp;provider=${provider}"/>`;
+    return xmlResponse(res, xml);
+  }
 
   if (checkUniversalNav(dtmf, lang, `${baseUrl}/action-select?lang=${lang}&provider=${provider}`, `${baseUrl}/enter-recipient?lang=${lang}&provider=${provider}`, res)) {
     return;
@@ -1627,8 +1664,9 @@ app.all("/recipient-verify-choice", (req: Request, res: Response) => {
   const baseUrl = getPublicBaseUrl(req);
 
   if (!dtmf) {
-    // Timeout/silence: repeat recipient verification
-    return xmlResponse(res, `    <Redirect>${baseUrl}/recipient-verify?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}</Redirect>`);
+    // Record spoken response
+    const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="3" callbackUrl="${baseUrl}/speech-fallback?step=safe-confirmation&amp;lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}"/>`;
+    return xmlResponse(res, xml);
   }
 
   if (checkUniversalNav(dtmf, lang, `${baseUrl}/enter-recipient?lang=${lang}&provider=${provider}`, `${baseUrl}/recipient-verify?lang=${lang}&provider=${provider}&phone=${phone}&name=${encodeURIComponent(name)}`, res)) {
@@ -1677,6 +1715,12 @@ app.all("/verify-amount", (req: Request, res: Response) => {
   const name = (req.query?.name || req.body?.name || "") as string;
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getPublicBaseUrl(req);
+
+  if (!dtmf) {
+    // Record spoken amount (e.g. "fifty cedis", "500", "two hundred")
+    const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="6" timeout="3" callbackUrl="${baseUrl}/speech-fallback?step=enter-amount&amp;lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}"/>`;
+    return xmlResponse(res, xml);
+  }
 
   if (checkUniversalNav(dtmf, lang, `${baseUrl}/recipient-verify?lang=${lang}&provider=${provider}&phone=${phone}&name=${encodeURIComponent(name)}`, `${baseUrl}/enter-amount?lang=${lang}&provider=${provider}&phone=${phone}&name=${encodeURIComponent(name)}`, res)) {
     return;
@@ -1735,8 +1779,9 @@ app.all(["/safe-outcome", "/safe-confirmation-choice"], (req: Request, res: Resp
   console.log(`🎯 Safe confirmation choice: ${dtmf}`);
 
   if (!dtmf) {
-    // Timeout/silence: repeat safe confirmation
-    return xmlResponse(res, `    <Redirect>${baseUrl}/safe-confirmation?lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}</Redirect>`);
+    // Record spoken confirmation ("yes", "confirm", "change", "cancel")
+    const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="3" callbackUrl="${baseUrl}/speech-fallback?step=safe-confirmation&amp;lang=${lang}&amp;provider=${provider}&amp;phone=${phone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}"/>`;
+    return xmlResponse(res, xml);
   }
 
   if (dtmf === "2") {
