@@ -352,7 +352,7 @@ function getPublicBaseUrl(req?: Request): string {
       return `${proto}://${host}`.replace(/\/+$/, "");
     }
   }
-  const publicBase = process.env.APP_URL || process.env.BASE_URL || process.env.PUBLIC_BASE_URL;
+  const publicBase = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL || process.env.BASE_URL || process.env.PUBLIC_BASE_URL;
   if (publicBase) {
     return publicBase.replace(/\/+$/, "");
   }
@@ -1232,11 +1232,38 @@ app.all("/speech-fallback", async (req: Request, res: Response) => {
     confidence = 0;
   }
 
-  // Low-confidence or empty speech: replay the prompt and re-listen
+  const retry = parseInt((req.body?.retry || req.query?.retry || "0") as string, 10);
+
+  // Low-confidence or empty speech: replay the prompt and re-listen once, or disconnect cleanly
   if (!transcript || transcript.toLowerCase() === "empty" || confidence < 0.4) {
-    console.log(`⚠️ Speech empty or unrecognized. Re-prompting step.`);
-    const fallbackRedirect = retryUrl ? `${baseUrl}${retryUrl}` : `${baseUrl}/voice-menu`;
-    return xmlResponse(res, `    <Redirect>${fallbackRedirect}</Redirect>`);
+    console.log(`⚠️ Speech empty or unrecognized (retry count: ${retry}).`);
+    if (retry >= 2) {
+      console.log(`🛑 Max retries reached after silent speech. Ending call gracefully.`);
+      const cancelAudio = lang === "twi"
+        ? `${baseUrl}/audio/Twi/Audio_prompt_twi_12.mp3`
+        : `${baseUrl}/audio/English/Audio_prompt_12.mp3`;
+      return xmlResponse(res, `    <Play url="${cancelAudio}"/>\n    <Reject/>`);
+    }
+
+    let stepRedirect = `${baseUrl}/voice-menu?retry=2`;
+    if (step === "language-selection") {
+      stepRedirect = `${baseUrl}/language-selection?retry=1`;
+    } else if (step === "service-select") {
+      stepRedirect = `${baseUrl}/service-select?lang=${lang}&amp;retry=2`;
+    } else if (step === "provider-select") {
+      stepRedirect = `${baseUrl}/provider-select?lang=${lang}&amp;service=${service}&amp;retry=2`;
+    } else if (step === "action-select") {
+      stepRedirect = `${baseUrl}/action-select?lang=${lang}&amp;provider=${provider}&amp;retry=2`;
+    } else if (step === "enter-recipient") {
+      stepRedirect = `${baseUrl}/enter-recipient?lang=${lang}&amp;provider=${provider}&amp;retry=2`;
+    } else if (step === "recipient-verify") {
+      stepRedirect = `${baseUrl}/recipient-verify?lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}&amp;retry=2`;
+    } else if (step === "enter-amount") {
+      stepRedirect = `${baseUrl}/enter-amount?lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}&amp;retry=2`;
+    } else if (step === "safe-confirmation") {
+      stepRedirect = `${baseUrl}/safe-confirmation?lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}&amp;retry=2`;
+    }
+    return xmlResponse(res, `    <Redirect>${stepRedirect}</Redirect>`);
   }
 
   const cleanText = transcript.toLowerCase();
@@ -1424,20 +1451,18 @@ function handleVoiceMenu(req: Request, res: Response) {
 
   const baseUrl = getPublicBaseUrl(req);
   const caller = req.body?.callerNumber || req.query?.callerNumber || "caller";
-  console.log(`📞 Inbound voice call connected from ${caller}!`);
+  const retry = (req.query?.retry || req.body?.retry || "0") as string;
+  console.log(`📞 Inbound voice call connected from ${caller}! (attempt: ${retry})`);
 
   const introAudioUrl = `${baseUrl}/audio/English/Welcome_prompt_01.mp3`;
 
-  // Africa's Talking VoiceXML:
-  // Pure audio playback without any synthetic text-to-speech.
-  // 1. Nest <Play> inside <GetDigits> to enable Instant Telephony Barge-In!
-  // 2. Caller can press 1 or 2 at any point during audio to interrupt and proceed immediately.
-  // 3. If caller does not press keys, immediately record voice input via <Record> for automatic STT recognition.
-  const xml = `    <GetDigits timeout="2" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection">
+  // Standard Open-Source Telephony IVR Pattern:
+  // 1. Nest <Play> inside <GetDigits> with an 8-second post-playback window.
+  // 2. Instant Barge-In: Pressing 1 or 2 at any point triggers callback immediately.
+  // 3. No dangling <Redirect> tags below <GetDigits> (prevents the 2-second repeat loop).
+  const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?retry=${retry}">
         <Play url="${introAudioUrl}"/>
-    </GetDigits>
-    <Record trimSilence="true" finishOnKey="#" playBeep="false" maxLength="5" timeout="3" callbackUrl="${baseUrl}/speech-fallback?step=language-selection"/>
-    <Redirect>${baseUrl}/voice-menu</Redirect>`;
+    </GetDigits>`;
 
   xmlResponse(res, xml);
 }
@@ -1445,12 +1470,27 @@ function handleVoiceMenu(req: Request, res: Response) {
 // ── Step 2: Language Selection ────────────────────────────────────────
 app.all("/language-selection", (req: Request, res: Response) => {
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
+  const retry = parseInt((req.body?.retry || req.query?.retry || "0") as string, 10);
   const baseUrl = getPublicBaseUrl(req);
 
+  // If no digit was pressed within the 8-second window:
   if (!dtmf) {
-    // Timeout or no digit pressed: record spoken choice (e.g. "one", "English", "two", "Twi")
-    const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="false" maxLength="5" timeout="3" callbackUrl="${baseUrl}/speech-fallback?step=language-selection"/>`;
-    return xmlResponse(res, xml);
+    if (retry === 0) {
+      console.log(`⏱️ Timeout on language-selection (attempt 1). Listening for spoken language ("English" or "Twi")...`);
+      // Offer speech recording with a short beep so caller can say "English" or "Twi"
+      const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=language-selection&amp;retry=1"/>`;
+      return xmlResponse(res, xml);
+    } else if (retry === 1) {
+      console.log(`⏱️ Timeout on language-selection (attempt 2). Re-prompting once...`);
+      const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?retry=2">
+        <Play url="${baseUrl}/audio/English/Welcome_prompt_01.mp3"/>
+    </GetDigits>`;
+      return xmlResponse(res, xml);
+    } else {
+      console.log(`🛑 Max retries reached on language-selection. Disconnecting.`);
+      const cancelAudio = `${baseUrl}/audio/English/Audio_prompt_12.mp3`;
+      return xmlResponse(res, `    <Play url="${cancelAudio}"/>\n    <Reject/>`);
+    }
   }
 
   if (dtmf !== "1" && dtmf !== "2") {
@@ -1472,17 +1512,16 @@ app.all("/language-selection", (req: Request, res: Response) => {
 // ── Step 3: Service Selection (Telecom / Banking) ─────────────────────
 app.all("/service-select", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as string;
+  const retry = (req.query?.retry || req.body?.retry || "0") as string;
   const baseUrl = getPublicBaseUrl(req);
 
   const audioUrl = lang === "twi"
     ? `${baseUrl}/audio/Twi/Audio_prompt_twi_02.mp3`
     : `${baseUrl}/audio/English/Audio_prompt_02.mp3`;
 
-  const xml = `    <GetDigits timeout="2" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?lang=${lang}">
+  const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?lang=${lang}&amp;retry=${retry}">
         <Play url="${audioUrl}"/>
-    </GetDigits>
-    <Record trimSilence="true" finishOnKey="#" playBeep="false" maxLength="5" timeout="3" callbackUrl="${baseUrl}/speech-fallback?step=service-select&amp;lang=${lang}"/>
-    <Redirect>${baseUrl}/service-select?lang=${lang}</Redirect>`;
+    </GetDigits>`;
 
   return xmlResponse(res, xml);
 });
@@ -1490,12 +1529,19 @@ app.all("/service-select", (req: Request, res: Response) => {
 app.all("/service-choice", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as string;
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
+  const retry = parseInt((req.body?.retry || req.query?.retry || "0") as string, 10);
   const baseUrl = getPublicBaseUrl(req);
 
   if (!dtmf) {
-    // Timeout/silence: record spoken service choice (e.g. "one", "momo", "two", "banking")
-    const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="false" maxLength="5" timeout="3" callbackUrl="${baseUrl}/speech-fallback?step=service-select&amp;lang=${lang}"/>`;
-    return xmlResponse(res, xml);
+    if (retry === 0) {
+      const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=service-select&amp;lang=${lang}&amp;retry=1"/>`;
+      return xmlResponse(res, xml);
+    } else if (retry === 1) {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/service-select?lang=${lang}&amp;retry=2</Redirect>`);
+    } else {
+      const cancelAudio = lang === "twi" ? `${baseUrl}/audio/Twi/Audio_prompt_twi_12.mp3` : `${baseUrl}/audio/English/Audio_prompt_12.mp3`;
+      return xmlResponse(res, `    <Play url="${cancelAudio}"/>\n    <Reject/>`);
+    }
   }
 
   if (checkUniversalNav(dtmf, lang, `${baseUrl}/voice-menu`, `${baseUrl}/service-select?lang=${lang}`, res)) {
@@ -1504,7 +1550,7 @@ app.all("/service-choice", (req: Request, res: Response) => {
 
   if (dtmf === "2") {
     // Banking routes to provider-select (momo) without synthetic TTS
-    return xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?lang=${lang}&amp;service=momo</Redirect>`);
+    return xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?lang=${lang}&amp;service=banking</Redirect>`);
   }
 
   if (dtmf === "1") {
@@ -1519,17 +1565,16 @@ app.all("/service-choice", (req: Request, res: Response) => {
 app.all("/provider-select", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as string;
   const service = (req.query?.service || req.body?.service || "momo") as string;
+  const retry = (req.query?.retry || req.body?.retry || "0") as string;
   const baseUrl = getPublicBaseUrl(req);
 
   const audioUrl = lang === "twi"
     ? `${baseUrl}/audio/Twi/Audio_prompt_twi_02.mp3`
     : `${baseUrl}/audio/English/Audio_prompt_03.mp3`;
 
-  const xml = `    <GetDigits timeout="2" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?lang=${lang}&amp;service=${service}">
+  const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?lang=${lang}&amp;service=${service}&amp;retry=${retry}">
         <Play url="${audioUrl}"/>
-    </GetDigits>
-    <Record trimSilence="true" finishOnKey="#" playBeep="false" maxLength="5" timeout="3" callbackUrl="${baseUrl}/speech-fallback?step=provider-select&amp;lang=${lang}&amp;service=${service}"/>
-    <Redirect>${baseUrl}/provider-select?lang=${lang}&amp;service=${service}</Redirect>`;
+    </GetDigits>`;
 
   return xmlResponse(res, xml);
 });
@@ -1538,12 +1583,19 @@ app.all("/provider-choice", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as string;
   const service = (req.query?.service || req.body?.service || "momo") as string;
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
+  const retry = parseInt((req.body?.retry || req.query?.retry || "0") as string, 10);
   const baseUrl = getPublicBaseUrl(req);
 
   if (!dtmf) {
-    // Timeout/silence: record spoken network choice (e.g. "MTN", "Telecel", "AirtelTigo")
-    const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="false" maxLength="5" timeout="3" callbackUrl="${baseUrl}/speech-fallback?step=provider-select&amp;lang=${lang}&amp;service=${service}"/>`;
-    return xmlResponse(res, xml);
+    if (retry === 0) {
+      const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=provider-select&amp;lang=${lang}&amp;service=${service}&amp;retry=1"/>`;
+      return xmlResponse(res, xml);
+    } else if (retry === 1) {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?lang=${lang}&amp;service=${service}&amp;retry=2</Redirect>`);
+    } else {
+      const cancelAudio = lang === "twi" ? `${baseUrl}/audio/Twi/Audio_prompt_twi_12.mp3` : `${baseUrl}/audio/English/Audio_prompt_12.mp3`;
+      return xmlResponse(res, `    <Play url="${cancelAudio}"/>\n    <Reject/>`);
+    }
   }
 
   if (checkUniversalNav(dtmf, lang, `${baseUrl}/service-select?lang=${lang}`, `${baseUrl}/provider-select?lang=${lang}&service=${service}`, res)) {
@@ -1572,17 +1624,16 @@ app.all("/provider-choice", (req: Request, res: Response) => {
 app.all("/action-select", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as string;
   const provider = (req.query?.provider || req.body?.provider || "MTN") as string;
+  const retry = (req.query?.retry || req.body?.retry || "0") as string;
   const baseUrl = getPublicBaseUrl(req);
 
   const audioUrl = lang === "twi"
     ? `${baseUrl}/audio/Twi/Audio_prompt_twi_04.mp3`
     : `${baseUrl}/audio/English/Audio_prompt_05.mp3`;
 
-  const xml = `    <GetDigits timeout="2" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?lang=${lang}&amp;provider=${provider}">
+  const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?lang=${lang}&amp;provider=${provider}&amp;retry=${retry}">
         <Play url="${audioUrl}"/>
-    </GetDigits>
-    <Record trimSilence="true" finishOnKey="#" playBeep="false" maxLength="5" timeout="3" callbackUrl="${baseUrl}/speech-fallback?step=action-select&amp;lang=${lang}&amp;provider=${provider}"/>
-    <Redirect>${baseUrl}/action-select?lang=${lang}&amp;provider=${provider}</Redirect>`;
+    </GetDigits>`;
 
   return xmlResponse(res, xml);
 });
@@ -1591,12 +1642,19 @@ app.all("/action-choice", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as string;
   const provider = (req.query?.provider || req.body?.provider || "MTN") as string;
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
+  const retry = parseInt((req.body?.retry || req.query?.retry || "0") as string, 10);
   const baseUrl = getPublicBaseUrl(req);
 
   if (!dtmf) {
-    // Timeout/silence: record spoken action choice (e.g. "send money", "check balance")
-    const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="false" maxLength="5" timeout="3" callbackUrl="${baseUrl}/speech-fallback?step=action-select&amp;lang=${lang}&amp;provider=${provider}"/>`;
-    return xmlResponse(res, xml);
+    if (retry === 0) {
+      const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=action-select&amp;lang=${lang}&amp;provider=${provider}&amp;retry=1"/>`;
+      return xmlResponse(res, xml);
+    } else if (retry === 1) {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/action-select?lang=${lang}&amp;provider=${provider}&amp;retry=2</Redirect>`);
+    } else {
+      const cancelAudio = lang === "twi" ? `${baseUrl}/audio/Twi/Audio_prompt_twi_12.mp3` : `${baseUrl}/audio/English/Audio_prompt_12.mp3`;
+      return xmlResponse(res, `    <Play url="${cancelAudio}"/>\n    <Reject/>`);
+    }
   }
 
   if (checkUniversalNav(dtmf, lang, `${baseUrl}/provider-select?lang=${lang}`, `${baseUrl}/action-select?lang=${lang}&provider=${provider}`, res)) {
@@ -1621,17 +1679,17 @@ app.all("/action-choice", (req: Request, res: Response) => {
 app.all("/enter-recipient", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as string;
   const provider = (req.query?.provider || req.body?.provider || "MTN") as string;
+  const retry = (req.query?.retry || req.body?.retry || "0") as string;
   const baseUrl = getPublicBaseUrl(req);
 
   const audioUrl = lang === "twi"
     ? `${baseUrl}/audio/Twi/Audio_prompt_twi_05.mp3`
     : `${baseUrl}/audio/English/Audio_prompt_06.mp3`;
 
-  const xml = `    <GetDigits timeout="3" finishOnKey="#" numDigits="15" callbackUrl="${baseUrl}/verify-recipient?lang=${lang}&amp;provider=${provider}">
+  // 10 digits followed by # with 10 second timeout
+  const xml = `    <GetDigits timeout="10" finishOnKey="#" numDigits="15" callbackUrl="${baseUrl}/verify-recipient?lang=${lang}&amp;provider=${provider}&amp;retry=${retry}">
         <Play url="${audioUrl}"/>
-    </GetDigits>
-    <Record trimSilence="true" finishOnKey="#" playBeep="false" maxLength="8" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=enter-recipient&amp;lang=${lang}&amp;provider=${provider}"/>
-    <Redirect>${baseUrl}/enter-recipient?lang=${lang}&amp;provider=${provider}</Redirect>`;
+    </GetDigits>`;
 
   return xmlResponse(res, xml);
 });
@@ -1641,12 +1699,19 @@ app.all("/verify-recipient", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as string;
   const provider = (req.query?.provider || req.body?.provider || "MTN") as string;
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
+  const retry = parseInt((req.body?.retry || req.query?.retry || "0") as string, 10);
   const baseUrl = getPublicBaseUrl(req);
 
   if (!dtmf) {
-    // Record spoken recipient phone number or name
-    const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="false" maxLength="8" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=enter-recipient&amp;lang=${lang}&amp;provider=${provider}"/>`;
-    return xmlResponse(res, xml);
+    if (retry === 0) {
+      const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="8" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=enter-recipient&amp;lang=${lang}&amp;provider=${provider}&amp;retry=1"/>`;
+      return xmlResponse(res, xml);
+    } else if (retry === 1) {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?lang=${lang}&amp;provider=${provider}&amp;retry=2</Redirect>`);
+    } else {
+      const cancelAudio = lang === "twi" ? `${baseUrl}/audio/Twi/Audio_prompt_twi_12.mp3` : `${baseUrl}/audio/English/Audio_prompt_12.mp3`;
+      return xmlResponse(res, `    <Play url="${cancelAudio}"/>\n    <Reject/>`);
+    }
   }
 
   if (checkUniversalNav(dtmf, lang, `${baseUrl}/action-select?lang=${lang}&provider=${provider}`, `${baseUrl}/enter-recipient?lang=${lang}&provider=${provider}`, res)) {
@@ -1675,6 +1740,7 @@ app.all("/recipient-verify", (req: Request, res: Response) => {
   const provider = (req.query?.provider || req.body?.provider || "MTN") as string;
   const phone = (req.query?.phone || req.body?.phone || "0553838464") as string;
   const name = (req.query?.name || req.body?.name || "Kwame Nyamebere") as string;
+  const retry = (req.query?.retry || req.body?.retry || "0") as string;
   const baseUrl = getPublicBaseUrl(req);
 
   const audioUrl = lang === "twi"
@@ -1682,13 +1748,11 @@ app.all("/recipient-verify", (req: Request, res: Response) => {
     : `${baseUrl}/audio/English/Audio_prompt_08.mp3`;
 
   const cleanPhone = normalizePhoneNumber(phone);
-  const callbackUrl = `${baseUrl}/recipient-verify-choice?lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}`;
+  const callbackUrl = `${baseUrl}/recipient-verify-choice?lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}&amp;retry=${retry}`;
 
-  const xml = `    <GetDigits timeout="2" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
+  const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
         <Play url="${audioUrl}"/>
-    </GetDigits>
-    <Record trimSilence="true" finishOnKey="#" playBeep="false" maxLength="5" timeout="3" callbackUrl="${baseUrl}/speech-fallback?step=recipient-verify&amp;lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}"/>
-    <Redirect>${baseUrl}/recipient-verify?lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}</Redirect>`;
+    </GetDigits>`;
 
   xmlResponse(res, xml);
 });
@@ -1699,13 +1763,20 @@ app.all("/recipient-verify-choice", (req: Request, res: Response) => {
   const phone = (req.query?.phone || req.body?.phone || "0553838464") as string;
   const name = (req.query?.name || req.body?.name || "Kwame Nyamebere") as string;
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
+  const retry = parseInt((req.body?.retry || req.query?.retry || "0") as string, 10);
   const baseUrl = getPublicBaseUrl(req);
   const cleanPhone = normalizePhoneNumber(phone);
 
   if (!dtmf) {
-    // Record spoken response
-    const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="false" maxLength="5" timeout="3" callbackUrl="${baseUrl}/speech-fallback?step=recipient-verify&amp;lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}"/>`;
-    return xmlResponse(res, xml);
+    if (retry === 0) {
+      const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=recipient-verify&amp;lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}&amp;retry=1"/>`;
+      return xmlResponse(res, xml);
+    } else if (retry === 1) {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/recipient-verify?lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}&amp;retry=2</Redirect>`);
+    } else {
+      const cancelAudio = lang === "twi" ? `${baseUrl}/audio/Twi/Audio_prompt_twi_12.mp3` : `${baseUrl}/audio/English/Audio_prompt_12.mp3`;
+      return xmlResponse(res, `    <Play url="${cancelAudio}"/>\n    <Reject/>`);
+    }
   }
 
   if (checkUniversalNav(dtmf, lang, `${baseUrl}/enter-recipient?lang=${lang}&provider=${provider}`, `${baseUrl}/recipient-verify?lang=${lang}&provider=${provider}&phone=${cleanPhone}&name=${encodeURIComponent(name)}`, res)) {
@@ -1732,6 +1803,7 @@ app.all("/enter-amount", (req: Request, res: Response) => {
   const provider = (req.query?.provider || req.body?.provider || "MTN") as string;
   const phone = (req.query?.phone || req.body?.phone || "0241234567") as string;
   const name = (req.query?.name || req.body?.name || "Kwame Nyameba") as string;
+  const retry = (req.query?.retry || req.body?.retry || "0") as string;
   const baseUrl = getPublicBaseUrl(req);
   const cleanPhone = normalizePhoneNumber(phone);
 
@@ -1739,11 +1811,9 @@ app.all("/enter-amount", (req: Request, res: Response) => {
     ? `${baseUrl}/audio/Twi/Audio_prompt_twi_07.mp3`
     : `${baseUrl}/audio/English/Audio_prompt_09.mp3`;
 
-  const xml = `    <GetDigits timeout="2" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/verify-amount?lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}">
+  const xml = `    <GetDigits timeout="10" finishOnKey="#" numDigits="6" callbackUrl="${baseUrl}/verify-amount?lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}&amp;retry=${retry}">
         <Play url="${audioUrl}"/>
-    </GetDigits>
-    <Record trimSilence="true" finishOnKey="#" playBeep="false" maxLength="6" timeout="3" callbackUrl="${baseUrl}/speech-fallback?step=enter-amount&amp;lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}"/>
-    <Redirect>${baseUrl}/enter-amount?lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}</Redirect>`;
+    </GetDigits>`;
 
   return xmlResponse(res, xml);
 });
@@ -1755,13 +1825,20 @@ app.all("/verify-amount", (req: Request, res: Response) => {
   const phone = (req.query?.phone || req.body?.phone || "") as string;
   const name = (req.query?.name || req.body?.name || "") as string;
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
+  const retry = parseInt((req.body?.retry || req.query?.retry || "0") as string, 10);
   const baseUrl = getPublicBaseUrl(req);
   const cleanPhone = normalizePhoneNumber(phone);
 
   if (!dtmf) {
-    // Record spoken amount (e.g. "fifty cedis", "500", "two hundred")
-    const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="false" maxLength="6" timeout="3" callbackUrl="${baseUrl}/speech-fallback?step=enter-amount&amp;lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}"/>`;
-    return xmlResponse(res, xml);
+    if (retry === 0) {
+      const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="6" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=enter-amount&amp;lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}&amp;retry=1"/>`;
+      return xmlResponse(res, xml);
+    } else if (retry === 1) {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}&amp;retry=2</Redirect>`);
+    } else {
+      const cancelAudio = lang === "twi" ? `${baseUrl}/audio/Twi/Audio_prompt_twi_12.mp3` : `${baseUrl}/audio/English/Audio_prompt_12.mp3`;
+      return xmlResponse(res, `    <Play url="${cancelAudio}"/>\n    <Reject/>`);
+    }
   }
 
   if (checkUniversalNav(dtmf, lang, `${baseUrl}/recipient-verify?lang=${lang}&provider=${provider}&phone=${cleanPhone}&name=${encodeURIComponent(name)}`, `${baseUrl}/enter-amount?lang=${lang}&provider=${provider}&phone=${cleanPhone}&name=${encodeURIComponent(name)}`, res)) {
@@ -1790,20 +1867,19 @@ app.all("/safe-confirmation", (req: Request, res: Response) => {
   const phone = (req.query?.phone || req.body?.phone || "0241234567") as string;
   const name = (req.query?.name || req.body?.name || "Kwame Nyameba") as string;
   const amount = (req.query?.amount || req.body?.amount || "500") as string;
+  const retry = (req.query?.retry || req.body?.retry || "0") as string;
   const baseUrl = getPublicBaseUrl(req);
 
   const cleanPhone = normalizePhoneNumber(phone);
-  const callbackUrl = `${baseUrl}/safe-outcome?lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}`;
+  const callbackUrl = `${baseUrl}/safe-outcome?lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}&amp;retry=${retry}`;
 
   const audioUrl = lang === "twi"
     ? `${baseUrl}/audio/Twi/Audio_prompt_twi_08.mp3`
     : `${baseUrl}/audio/English/Audio_prompt_10.mp3`;
 
-  const xml = `    <GetDigits timeout="2" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
+  const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
         <Play url="${audioUrl}"/>
-    </GetDigits>
-    <Record trimSilence="true" finishOnKey="#" playBeep="false" maxLength="5" timeout="3" callbackUrl="${baseUrl}/speech-fallback?step=safe-confirmation&amp;lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}"/>
-    <Redirect>${baseUrl}/safe-confirmation?lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}</Redirect>`;
+    </GetDigits>`;
 
   return xmlResponse(res, xml);
 });
@@ -1817,15 +1893,22 @@ app.all(["/safe-outcome", "/safe-confirmation-choice"], (req: Request, res: Resp
   const name = (req.query?.name || req.body?.name || "") as string;
   const amount = (req.query?.amount || req.body?.amount || "") as string;
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
+  const retry = parseInt((req.body?.retry || req.query?.retry || "0") as string, 10);
   const baseUrl = getPublicBaseUrl(req);
   const cleanPhone = normalizePhoneNumber(phone);
 
   console.log(`🎯 Safe confirmation choice: ${dtmf}`);
 
   if (!dtmf) {
-    // Record spoken confirmation ("yes", "confirm", "change", "cancel")
-    const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="false" maxLength="5" timeout="3" callbackUrl="${baseUrl}/speech-fallback?step=safe-confirmation&amp;lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}"/>`;
-    return xmlResponse(res, xml);
+    if (retry === 0) {
+      const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=safe-confirmation&amp;lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}&amp;retry=1"/>`;
+      return xmlResponse(res, xml);
+    } else if (retry === 1) {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/safe-confirmation?lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}&amp;amount=${amount}&amp;retry=2</Redirect>`);
+    } else {
+      const cancelAudio = lang === "twi" ? `${baseUrl}/audio/Twi/Audio_prompt_twi_12.mp3` : `${baseUrl}/audio/English/Audio_prompt_12.mp3`;
+      return xmlResponse(res, `    <Play url="${cancelAudio}"/>\n    <Reject/>`);
+    }
   }
 
   if (dtmf === "2") {
@@ -3246,4 +3329,18 @@ app.all("/", (req: Request, res: Response) => {
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Ɔkwankyerɛfo Pa server running on http://0.0.0.0:${PORT}`);
+
+  // Self keep-alive ping for Render free instances to prevent cold sleep & AT busy timeouts
+  const externalUrl = process.env.RENDER_EXTERNAL_URL || process.env.BASE_URL;
+  if (externalUrl) {
+    console.log(`⚡ Warm keep-alive enabled for external URL: ${externalUrl}`);
+    setInterval(async () => {
+      try {
+        await fetch(`${externalUrl.replace(/\/$/, "")}/api/health`);
+        console.log(`💓 Keep-alive ping sent to ${externalUrl}`);
+      } catch (err: any) {
+        // Silently ignore ping errors
+      }
+    }, 8 * 60 * 1000); // Every 8 minutes
+  }
 });
