@@ -8,6 +8,7 @@ import { conversationManager } from "./src/modules/conversationManager";
 import { speechToText } from "./src/modules/sttService";
 import { parseUserIntent, extractAmount, extractRecipient } from "./src/modules/nluService";
 import { MOCK_CONTACTS, findContact, normalizePhoneNumber, formatPhoneNumberForSpeech, isPhoneNumber } from "./src/modules/mockContacts";
+import { mtnMomoService } from "./src/modules/mtnMomoService";
 
 const app = express();
 const PORT = 3000;
@@ -18,29 +19,50 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(process.cwd(), "public")));
 
 // ── Config ────────────────────────────────────────────────────────────
-const USERNAME = process.env.AT_USERNAME;
-const API_KEY = process.env.AT_API_KEY;
+let currentUsername = (process.env.AT_USERNAME || "sandbox").trim();
+let currentApiKey = (process.env.AT_API_KEY || "").trim();
+const GEMINI_KEY = process.env.GEMINI_API_KEY;
 
-if (!USERNAME) {
-  console.log("⚠️  AT_USERNAME is not set. Outbound voice calls will not trigger via AT API.");
+// Auto-adapt sandbox username if key starts with atsk_
+if (currentApiKey.startsWith("atsk_") && currentUsername.toLowerCase() !== "sandbox") {
+  console.log(`ℹ️ [Africa's Talking] Detected sandbox API key (atsk_). Automatically setting username to "sandbox".`);
+  currentUsername = "sandbox";
 }
 
-if (!API_KEY) {
-  console.log("⚠️  AT_API_KEY is not set — outbound voice calls will not work until configured.");
+if (!process.env.AT_USERNAME) {
+  console.log("ℹ️  AT_USERNAME not set in env (defaulting to sandbox).");
+}
+
+if (!currentApiKey) {
+  console.log("⚠️  AT_API_KEY is not set — outbound voice calls will run in Simulator mode until configured.");
+}
+
+if (!GEMINI_KEY) {
+  console.log("❌ [CRITICAL FOR VOICE RECOGNITION] GEMINI_API_KEY is not set in Render Environment Variables!");
+  console.log("👉 For callers to speak ('one', 'two', 'Twi', 'MTN') and have the IVR advance automatically:");
+  console.log("   Render Dashboard -> Services -> Environment -> Add 'GEMINI_API_KEY'");
+} else {
+  console.log("🤖 GEMINI_API_KEY configured. Spoken Akan Twi and English speech recognition engine active.");
 }
 
 let voiceClient: VoiceService | null = null;
-if (USERNAME && API_KEY) {
-  try {
-    const at = initialize(USERNAME, API_KEY);
-    voiceClient = at.Voice;
-  } catch (err) {
-    console.error("Failed to initialize Africa's Talking client:", err);
+function initVoiceClient() {
+  if (currentUsername && currentApiKey) {
+    try {
+      const at = initialize(currentUsername, currentApiKey);
+      voiceClient = at.Voice;
+    } catch (err) {
+      console.error("Failed to initialize Africa's Talking client:", err);
+      voiceClient = null;
+    }
+  } else {
+    voiceClient = null;
   }
 }
+initVoiceClient();
 
-const rawVoiceNumber = process.env.AT_VOICE_NUMBER?.trim();
-const VOICE_NUMBER = (rawVoiceNumber && /^\+[0-9]+$/.test(rawVoiceNumber))
+let rawVoiceNumber = process.env.AT_VOICE_NUMBER?.trim();
+let VOICE_NUMBER = (rawVoiceNumber && /^\+[0-9]+$/.test(rawVoiceNumber))
   ? rawVoiceNumber
   : "+233308048098";
 
@@ -766,7 +788,7 @@ const handleHealth = (req: Request, res: Response) => {
     team: "Anidasoɔ (Hope)",
     abstract: "A Voice Accessibility Layer for Ghana's Digital Services (MoMo Pilot)",
     voiceNumber: VOICE_NUMBER,
-    username: USERNAME || "Hannes",
+    username: currentUsername || "Hannes",
     atConfigured: Boolean(voiceClient),
     baseUrl,
     callbackUrl: `${baseUrl}/voice-menu`,
@@ -1179,8 +1201,24 @@ app.all("/speech-fallback", async (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as string;
   const retryUrl = (req.query?.retryUrl || req.body?.retryUrl || "") as string;
   const targetUrl = (req.query?.targetUrl || req.body?.targetUrl || "") as string;
-  const recordingUrl = (req.body?.recordingUrl || req.query?.recordingUrl || "") as string;
-  const speechText = (req.body?.speechText || req.query?.speechText || "") as string;
+  const recordingUrl = (
+    req.body?.recordingUrl ||
+    req.query?.recordingUrl ||
+    req.body?.RecordingUrl ||
+    req.query?.RecordingUrl ||
+    req.body?.recordingURL ||
+    req.query?.recordingURL ||
+    req.body?.recording_url ||
+    req.query?.recording_url ||
+    ""
+  ) as string;
+  const speechText = (
+    req.body?.speechText ||
+    req.query?.speechText ||
+    req.body?.SpeechText ||
+    req.query?.SpeechText ||
+    ""
+  ) as string;
   const provider = (req.query?.provider || req.body?.provider || "MTN") as string;
   const service = (req.query?.service || req.body?.service || "momo") as string;
   const phone = (req.query?.phone || req.body?.phone || "0241234567") as string;
@@ -1188,13 +1226,23 @@ app.all("/speech-fallback", async (req: Request, res: Response) => {
   const amount = (req.query?.amount || req.body?.amount || "500") as string;
   const baseUrl = getPublicBaseUrl(req);
   const cleanPhone = normalizePhoneNumber(phone);
-
-  console.log(`🎙️ Speech fallback triggered for step: ${step} (lang: ${lang})`);
-  console.log(`   Recording URL: ${recordingUrl || "none"}`);
-  console.log(`   Speech text payload: ${speechText || "none"}`);
+  const duration = (req.body?.durationInSeconds || req.query?.durationInSeconds || "0") as string;
 
   // 1. Direct DTMF if user pressed a key during recording
-  const directDtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
+  const directDtmf = (
+    req.body?.dtmfDigits ||
+    req.query?.dtmfDigits ||
+    req.body?.digits ||
+    req.query?.digits ||
+    req.body?.dtmf ||
+    req.query?.dtmf ||
+    ""
+  ).trim() as string;
+
+  console.log(`🎙️ Speech fallback invoked for step: "${step}" (lang: "${lang}", retry: ${req.query?.retry || req.body?.retry || 0})`);
+  console.log(`   Recording URL detected: "${recordingUrl || 'NONE'}" (${duration}s)`);
+  console.log(`   Direct DTMF detected: "${directDtmf || 'NONE'}"`);
+  console.log(`   Speech text payload: "${speechText || 'NONE'}"`);
   if (directDtmf) {
     console.log(`⚡ Direct DTMF captured during record: ${directDtmf}`);
     if (step === "language-selection") {
@@ -1456,13 +1504,13 @@ function handleVoiceMenu(req: Request, res: Response) {
 
   const introAudioUrl = `${baseUrl}/audio/English/Welcome_prompt_01.mp3`;
 
-  // Standard Open-Source Telephony IVR Pattern:
-  // 1. Nest <Play> inside <GetDigits> with an 8-second post-playback window.
-  // 2. Instant Barge-In: Pressing 1 or 2 at any point triggers callback immediately.
-  // 3. No dangling <Redirect> tags below <GetDigits> (prevents the 2-second repeat loop).
-  const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?retry=${retry}">
+  // Dual-mode Voice + Keypad (DTMF & Speech Recognition):
+  // 1. Plays Welcome prompt inside <GetDigits timeout="2"> for instant keypad barge-in (press 1 or 2).
+  // 2. If no button pressed, immediately triggers <Record> with beep to capture caller's spoken choice ("one", "two", "Twi", "English").
+  const xml = `    <GetDigits timeout="2" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?retry=${retry}">
         <Play url="${introAudioUrl}"/>
-    </GetDigits>`;
+    </GetDigits>
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=language-selection&amp;retry=${retry}"/>`;
 
   xmlResponse(res, xml);
 }
@@ -1519,9 +1567,10 @@ app.all("/service-select", (req: Request, res: Response) => {
     ? `${baseUrl}/audio/Twi/Audio_prompt_twi_02.mp3`
     : `${baseUrl}/audio/English/Audio_prompt_02.mp3`;
 
-  const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?lang=${lang}&amp;retry=${retry}">
+  const xml = `    <GetDigits timeout="2" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?lang=${lang}&amp;retry=${retry}">
         <Play url="${audioUrl}"/>
-    </GetDigits>`;
+    </GetDigits>
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=service-select&amp;lang=${lang}&amp;retry=${retry}"/>`;
 
   return xmlResponse(res, xml);
 });
@@ -2687,13 +2736,18 @@ app.post("/api/at/trigger-call", async (req: Request, res: Response) => {
     return res.status(400).json({ success: false, error: "Missing destination phoneNumber" });
   }
 
-  if (voiceClient && API_KEY && API_KEY !== "your_africastalking_api_key_here") {
+  if (voiceClient && currentApiKey && currentApiKey !== "your_africastalking_api_key_here") {
     try {
       const atRes = await voiceClient.call({
         callFrom: VOICE_NUMBER,
         callTo: [phoneNumber],
         callbackUrl: `${baseUrl}/voice-menu`,
       });
+
+      if (atRes?.errorMessage && atRes.errorMessage !== "None") {
+        throw new Error(atRes.errorMessage);
+      }
+
       console.log(`📡 AT Voice trigger successfully placed for: ${phoneNumber}`, atRes);
       return res.json({
         success: true,
@@ -2705,14 +2759,26 @@ app.post("/api/at/trigger-call", async (req: Request, res: Response) => {
         message: `Outbound call queued via Africa's Talking from ${VOICE_NUMBER} to ${phoneNumber}`
       });
     } catch (e: any) {
-      console.error(`❌ AT outbound call error:`, e.message || e);
-      return res.status(500).json({
+      console.error(`❌ AT outbound call error for ${phoneNumber}:`, e.message || e);
+      const isAuthError = (e.message || "").toLowerCase().includes("authentication is invalid");
+      const isSandboxKey = currentApiKey.startsWith("atsk_");
+
+      let helpMsg = e.message;
+      if (isAuthError) {
+        helpMsg = isSandboxKey
+          ? "Africa's Talking sandbox keys (atsk_...) cannot place live GSM cellular calls to physical Ghanaian SIM cards. Use a live Production API key and production username on africastalking.com, or test via the interactive Phone Simulator."
+          : "Africa's Talking rejected the supplied credentials ('The supplied authentication is invalid'). Please verify your AT_USERNAME and AT_API_KEY in the Africa's Talking portal.";
+      }
+
+      return res.status(400).json({
         success: false,
-        error: e.message || "Failed to trigger call via Africa's Talking SDK"
+        error: e.message || "Failed to trigger call via Africa's Talking SDK",
+        guidance: helpMsg,
+        simulatedAvailable: true,
       });
     }
   } else {
-    console.log(`⚠️ AT outbound call simulated for ${phoneNumber} (AT credentials not configured in .env)`);
+    console.log(`⚠️ AT outbound call simulated for ${phoneNumber} (AT credentials not configured)`);
     return res.json({
       success: true,
       simulated: true,
@@ -2723,6 +2789,65 @@ app.post("/api/at/trigger-call", async (req: Request, res: Response) => {
       message: `Call simulation initiated for ${phoneNumber}. Add AT_API_KEY in .env for live GSM network dispatch.`
     });
   }
+});
+
+// Query Africa's Talking configuration & diagnostics
+app.get("/api/at/config", (req: Request, res: Response) => {
+  res.json({
+    success: true,
+    username: currentUsername,
+    voiceNumber: VOICE_NUMBER,
+    isConfigured: Boolean(currentApiKey && currentApiKey !== "your_africastalking_api_key_here"),
+    keyPrefix: currentApiKey ? currentApiKey.slice(0, 8) + "••••" : "not set",
+    isSandboxKey: currentApiKey.startsWith("atsk_"),
+  });
+});
+
+// Test Africa's Talking credentials directly
+app.post("/api/at/test-credentials", async (req: Request, res: Response) => {
+  const testUser = (req.body?.username || currentUsername).trim();
+  const testKey = (req.body?.apiKey || currentApiKey).trim();
+
+  if (!testKey) {
+    return res.status(400).json({ success: false, error: "API key is required to test credentials." });
+  }
+
+  try {
+    const testService = new VoiceService(testUser, testKey);
+    const result = await testService.verifyCredentials();
+    res.json({
+      success: result.valid,
+      ...result,
+      isSandbox: testKey.startsWith("atsk_") || testUser.toLowerCase() === "sandbox",
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Update Africa's Talking credentials in-memory
+app.post("/api/at/update-credentials", (req: Request, res: Response) => {
+  const { username, apiKey, voiceNumber } = req.body;
+  if (username) currentUsername = String(username).trim();
+  if (apiKey) currentApiKey = String(apiKey).trim();
+  if (voiceNumber && /^\+[0-9]+$/.test(String(voiceNumber).trim())) {
+    VOICE_NUMBER = String(voiceNumber).trim();
+  }
+
+  if (currentApiKey.startsWith("atsk_") && currentUsername.toLowerCase() !== "sandbox") {
+    currentUsername = "sandbox";
+  }
+
+  initVoiceClient();
+
+  res.json({
+    success: true,
+    message: "Africa's Talking configuration updated successfully.",
+    username: currentUsername,
+    voiceNumber: VOICE_NUMBER,
+    isConfigured: Boolean(currentApiKey),
+    isSandboxKey: currentApiKey.startsWith("atsk_"),
+  });
 });
 
 app.all("/transfer-menu", (req: Request, res: Response) => {
@@ -2755,14 +2880,18 @@ app.post("/ussd-trigger", async (req: Request, res: Response) => {
 
   if (voiceClient && phoneNumber) {
     try {
-      await voiceClient.call({
+      const atRes = await voiceClient.call({
         callFrom: VOICE_NUMBER,
         callTo: [phoneNumber],
         callbackUrl: `${baseUrl}/voice-menu`,
       });
-      console.log(`📡 Voice trigger activated for line: ${phoneNumber}`);
+      if (atRes?.errorMessage && atRes.errorMessage !== "None") {
+        console.warn(`⚠️ AT call callback error for ${phoneNumber}: ${atRes.errorMessage}`);
+      } else {
+        console.log(`📡 Voice trigger activated for line: ${phoneNumber}`);
+      }
     } catch (e: any) {
-      console.log(`❌ Failed to initiate callback call: ${e.message || e}`);
+      console.warn(`⚠️ Outbound call via AT failed (${e.message}). Falling back to simulated voice session.`);
     }
   } else {
     console.log("⚠️ Skipped outbound call — AT credentials or phoneNumber missing.");
@@ -2770,6 +2899,258 @@ app.post("/ussd-trigger", async (req: Request, res: Response) => {
 
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
   res.send(ussdResponse);
+});
+
+// ── MTN Mobile Money (MoMo) Open API Gateway Endpoints ────────────────
+// 1. Get System & Credentials Diagnostics
+app.get("/api/momo/status", (req: Request, res: Response) => {
+  const diag = mtnMomoService.getDiagnostics();
+  res.json({
+    success: true,
+    ...diag,
+  });
+});
+
+// 2. RequestToPay (Collection / Zero-PIN Handset Push Prompt)
+app.post("/api/momo/request-to-pay", async (req: Request, res: Response) => {
+  try {
+    const { amount, payerPhone, payerName, payerMessage, payeeNote, externalId } = req.body;
+    if (!amount || !payerPhone) {
+      return res.status(400).json({ error: "amount and payerPhone are required." });
+    }
+
+    const tx = await mtnMomoService.requestToPay({
+      amount: parseFloat(amount),
+      payerPhone: String(payerPhone),
+      payerName: payerName ? String(payerName) : undefined,
+      payerMessage: payerMessage ? String(payerMessage) : undefined,
+      payeeNote: payeeNote ? String(payeeNote) : undefined,
+      externalId: externalId ? String(externalId) : undefined,
+    });
+
+    res.json({ success: true, transaction: tx });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to initiate RequestToPay" });
+  }
+});
+
+// 3. RequestToPay Status Check
+app.get("/api/momo/request-to-pay/:referenceId", async (req: Request, res: Response) => {
+  try {
+    const { referenceId } = req.params;
+    const tx = await mtnMomoService.getTransactionStatus(referenceId);
+    if (!tx) {
+      return res.status(404).json({ error: "Transaction reference not found" });
+    }
+    res.json({ success: true, transaction: tx });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 4. Transfer (Disbursement / Payout)
+app.post("/api/momo/transfer", async (req: Request, res: Response) => {
+  try {
+    const { amount, payeePhone, payeeName, payerMessage, payeeNote, externalId } = req.body;
+    if (!amount || !payeePhone) {
+      return res.status(400).json({ error: "amount and payeePhone are required." });
+    }
+
+    const tx = await mtnMomoService.transfer({
+      amount: parseFloat(amount),
+      payeePhone: String(payeePhone),
+      payeeName: payeeName ? String(payeeName) : undefined,
+      payerMessage: payerMessage ? String(payerMessage) : undefined,
+      payeeNote: payeeNote ? String(payeeNote) : undefined,
+      externalId: externalId ? String(externalId) : undefined,
+    });
+
+    res.json({ success: true, transaction: tx });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to initiate Transfer" });
+  }
+});
+
+// 5. Transfer Status Check
+app.get("/api/momo/transfer/:referenceId", async (req: Request, res: Response) => {
+  try {
+    const { referenceId } = req.params;
+    const tx = await mtnMomoService.getTransactionStatus(referenceId);
+    if (!tx) {
+      return res.status(404).json({ error: "Transfer reference not found" });
+    }
+    res.json({ success: true, transaction: tx });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 6. Account Balance
+app.get("/api/momo/account/balance", async (req: Request, res: Response) => {
+  try {
+    const product = (req.query.product === "disbursement" ? "disbursement" : "collection") as "collection" | "disbursement";
+    const balance = await mtnMomoService.getAccountBalance(product);
+    res.json({ success: true, balance });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 7. Validate Account Holder & KYC
+app.get("/api/momo/account/holder/:phone", async (req: Request, res: Response) => {
+  try {
+    const { phone } = req.params;
+    const holder = await mtnMomoService.validateAccountHolder(phone);
+    res.json({ success: true, accountHolder: holder });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 8. Webhook Notification Callback
+app.post("/api/momo/callback", (req: Request, res: Response) => {
+  const refHeader = (req.headers["x-reference-id"] || req.headers["x-reference_id"]) as string;
+  const updated = mtnMomoService.handleWebhook(req.body, refHeader);
+  res.status(200).json({ success: true, recorded: Boolean(updated) });
+});
+
+// 9. Sandbox Auto-Provisioner Helper
+app.post("/api/momo/sandbox/provision", async (req: Request, res: Response) => {
+  try {
+    const { subscriptionKey, callbackHost } = req.body;
+    if (!subscriptionKey) {
+      return res.status(400).json({ error: "subscriptionKey is required." });
+    }
+    const host = callbackHost || getPublicBaseUrl(req);
+    const provisioned = await mtnMomoService.autoProvisionSandbox(subscriptionKey, host);
+    res.json({
+      success: true,
+      message: "Sandbox API User and Key created successfully!",
+      ...provisioned,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to auto-provision sandbox user" });
+  }
+});
+
+// 10. Transaction Ledger History
+app.get("/api/momo/transactions", (req: Request, res: Response) => {
+  res.json({
+    success: true,
+    transactions: mtnMomoService.getHistory(),
+  });
+});
+
+// 11. Synchronize Specific Transaction with MTN MoMo API
+app.post("/api/momo/sync/:referenceId", async (req: Request, res: Response) => {
+  try {
+    const { referenceId } = req.params;
+    const tx = await mtnMomoService.getTransactionStatus(referenceId);
+    if (!tx) {
+      return res.status(404).json({ error: "Transaction reference not found" });
+    }
+    mtnMomoService.notifyListeners(tx);
+    res.json({ success: true, transaction: tx });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to sync transaction status" });
+  }
+});
+
+// 12. Real-Time Transaction Status Synchronization Stream (SSE)
+app.get("/api/momo/events", (req: Request, res: Response) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  // Send initial ping
+  res.write(`data: ${JSON.stringify({ type: "INIT", time: new Date().toISOString() })}\n\n`);
+
+  const unsubscribe = mtnMomoService.addListener((tx) => {
+    res.write(`data: ${JSON.stringify({ type: "TX_UPDATE", transaction: tx })}\n\n`);
+  });
+
+  req.on("close", () => {
+    unsubscribe();
+  });
+});
+
+// 13. Active Keys & Configuration Query
+app.get("/api/momo/keys", (req: Request, res: Response) => {
+  res.json({
+    success: true,
+    ...mtnMomoService.getKeys(),
+  });
+});
+
+// 14. Switch Active Subscription Key (Primary, Secondary, or Custom)
+app.post("/api/momo/switch-key", (req: Request, res: Response) => {
+  try {
+    const { keyType, customKey } = req.body;
+    const updated = mtnMomoService.switchKey(keyType || "primary", customKey);
+    res.json({
+      success: true,
+      message: `Active key switched to ${keyType || "primary"} successfully.`,
+      ...updated,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 15. Switch Target Environment (Sandbox vs Production)
+app.post("/api/momo/switch-env", (req: Request, res: Response) => {
+  try {
+    const { targetEnv } = req.body;
+    if (targetEnv !== "sandbox" && targetEnv !== "production") {
+      return res.status(400).json({ error: "targetEnv must be 'sandbox' or 'production'" });
+    }
+    const updated = mtnMomoService.setTargetEnv(targetEnv);
+    res.json({
+      success: true,
+      message: `Target environment switched to ${targetEnv}.`,
+      ...updated,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 16. Test Real Registered MoMo Account / Phone Number
+app.post("/api/momo/test-account", async (req: Request, res: Response) => {
+  try {
+    const { phone, amount, subscriberName, keyChoice, customKey, targetEnv } = req.body;
+    if (!phone) {
+      return res.status(400).json({ error: "phone number is required to test registered MoMo account." });
+    }
+    const result = await mtnMomoService.testRealAccount({
+      phone: String(phone),
+      amount: amount ? parseFloat(amount) : 5.0,
+      subscriberName: subscriberName ? String(subscriberName) : undefined,
+      keyChoice,
+      customKey,
+      targetEnv,
+    });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to execute registered MoMo account test" });
+  }
+});
+
+// 17. Authorize / Reject Simulated Handset Prompt
+app.post("/api/momo/authorize-prompt", (req: Request, res: Response) => {
+  try {
+    const { referenceId, action } = req.body;
+    if (!referenceId) {
+      return res.status(400).json({ error: "referenceId is required." });
+    }
+    const record = mtnMomoService.authorizeSimulatedPrompt(String(referenceId), action === "reject" ? "reject" : "approve");
+    if (!record) {
+      return res.status(404).json({ error: "Transaction not found." });
+    }
+    res.json({ success: true, transaction: record });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── Root Web UI & Interactive Console ────────────────────────────────

@@ -32,7 +32,9 @@ function getAi(): GoogleGenAI | null {
 async function transcribeAudioBufferWithGemini(buffer: Buffer, mime: string): Promise<SttResult> {
   const ai = getAi();
   if (!ai) {
-    console.warn("⚠️ GEMINI_API_KEY not configured. Please set GEMINI_API_KEY in environment variables for voice transcription.");
+    console.error("❌ [CRITICAL] GEMINI_API_KEY is not configured in process.env!");
+    console.error("👉 To enable spoken voice recognition (English & Akan Twi):");
+    console.error("   Open your Render Dashboard -> Environment -> Add 'GEMINI_API_KEY'");
     return {
       text: "empty",
       confidence: 0,
@@ -43,18 +45,8 @@ async function transcribeAudioBufferWithGemini(buffer: Buffer, mime: string): Pr
 
   try {
     const base64Data = buffer.toString("base64");
-    const response = await ai.models.generateContent({
-      model: "gemini-3.8-flash",
-      contents: [
-        {
-          inlineData: {
-            data: base64Data,
-            mimeType: mime,
-          },
-        },
-        {
-          text: `You are an automated speech recognition engine for an IVR phone banking and mobile money system in Ghana (Okwankyerɛfo Pa).
-The caller may speak in English or Ghanaian Akan Twi.
+    const promptText = `You are an automated speech recognition engine for an IVR phone banking and mobile money system in Ghana (Okwankyerɛfo Pa).
+The caller spoke in English or Ghanaian Akan Twi.
 Listen to the recording and transcribe the user's spoken command, number, name, or amount.
 
 Common Ghanaian caller speech:
@@ -66,10 +58,44 @@ Common Ghanaian caller speech:
 - Amounts: '50', 'fifty cedis', '500', 'two hundred', 'ahankron'
 - Confirmation: 'yes', 'confirm', 'no', 'change', 'repeat', 'back', 'cancel', 'stop', 'aane', 'ɛyɛ', 'dabi', 'sesa'
 
-Return ONLY the plain transcribed words or numbers. Do NOT include markdown, punctuation, quotes, or conversational filler. If the recording is silent, background static, inaudible, or empty, return 'empty'.`,
-        },
-      ],
-    });
+Return ONLY the plain transcribed words or numbers. Do NOT include markdown, punctuation, quotes, or conversational filler. If the recording is silent, background static, inaudible, or empty, return 'empty'.`;
+
+    let response: any = null;
+    // Multi-model cascade for quota and rate-limit resilience:
+    // Starts with gemini-3.1-flash-lite (high token throughput pool), then gemini-flash-latest, then gemini-3.8-flash
+    const candidateModels = ["gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.8-flash"];
+
+    for (const modelName of candidateModels) {
+      try {
+        response = await ai.models.generateContent({
+          model: modelName,
+          contents: [
+            {
+              inlineData: {
+                data: base64Data,
+                mimeType: mime,
+              },
+            },
+            { text: promptText },
+          ],
+        });
+        if (response?.text) {
+          break;
+        }
+      } catch (modelErr: any) {
+        const isQuota = modelErr?.message?.includes("quota") || modelErr?.message?.includes("resource_exhausted") || modelErr?.status === 429;
+        if (isQuota) {
+          console.warn(`[STT Service] Model ${modelName} quota exceeded, automatically failing over to next model candidate...`);
+        } else {
+          console.warn(`[STT Service] Model ${modelName} failed (${modelErr?.message || modelErr}), trying next candidate...`);
+        }
+      }
+    }
+
+    if (!response || !response.text) {
+      console.warn("⚠️ All STT models exhausted or quota reached. Using fallback empty speech detection.");
+      return { text: "empty", confidence: 0.1, provider: "FallbackSTT" };
+    }
 
     const text = (response.text || "").trim().replace(/["'`]/g, "");
     console.log(`🤖 Gemini Speech Recognition result: "${text}"`);
@@ -80,7 +106,7 @@ Return ONLY the plain transcribed words or numbers. Do NOT include markdown, pun
       languageDetected: "en",
       provider: "GeminiSTT",
     };
-  } catch (err) {
+  } catch (err: any) {
     console.error("❌ Gemini audio transcription error:", err);
     return { text: "empty", confidence: 0.1, provider: "GeminiSTTError" };
   }
@@ -101,13 +127,21 @@ export class TelephonySpeechService implements SpeechToTextProvider {
     ) {
       console.log(`📥 Downloading Africa's Talking recording from: ${audioPayload}`);
       try {
-        const resp = await fetch(audioPayload);
+        let resp = await fetch(audioPayload);
+        if (!resp.ok && process.env.AT_API_KEY) {
+          resp = await fetch(audioPayload, { headers: { apiKey: process.env.AT_API_KEY } });
+        }
         if (!resp.ok) {
-          console.error(`Failed to download recording from ${audioPayload}: ${resp.status}`);
+          console.error(`Failed to download recording from ${audioPayload}: HTTP ${resp.status}`);
           return { text: "empty", confidence: 0, provider: "TelephonySpeechService" };
         }
         const arrayBuffer = await resp.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
+        console.log(`📥 Recording downloaded successfully: ${buffer.length} bytes`);
+        if (buffer.length < 500) {
+          console.warn("⚠️ Audio payload is very small (<500 bytes), likely empty recording.");
+          return { text: "empty", confidence: 0.1, provider: "TelephonySpeechService" };
+        }
         const contentType = (resp.headers.get("content-type") || "").toLowerCase();
         let mime = "audio/mp3";
         if (contentType.includes("wav") || audioPayload.toLowerCase().includes(".wav")) {
@@ -116,8 +150,8 @@ export class TelephonySpeechService implements SpeechToTextProvider {
           mime = "audio/mp3";
         }
         return await transcribeAudioBufferWithGemini(buffer, mime);
-      } catch (err) {
-        console.error("Failed to fetch recording URL:", err);
+      } catch (err: any) {
+        console.error("Failed to fetch recording URL:", err.message);
         return { text: "empty", confidence: 0, provider: "TelephonySpeechService" };
       }
     }

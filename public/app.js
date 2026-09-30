@@ -114,6 +114,11 @@
       this.initWaveformCanvas();
       this.setIdleState();
       this.fetchPipelineStatus();
+      this.loadMomoStatus();
+      this.loadMomoTransactions();
+      this.loadMomoKeys();
+      this.initMomoEventsStream();
+      this.startMomoClock();
 
       // Pre-bind user interaction gestures anywhere on page to unlock media playback
       const unlockHandler = () => {
@@ -162,6 +167,7 @@
         'kyc': 'tabBtnKyc',
         'grammar': 'tabBtnNavGrammar',
         'api': 'tabBtnApi',
+        'momo': 'tabBtnMomo',
         'pipeline': 'tabBtnPipeline'
       };
       const panelMap = {
@@ -170,6 +176,7 @@
         'kyc': 'panelKyc',
         'grammar': 'panelGrammar',
         'api': 'panelApi',
+        'momo': 'panelMomo',
         'pipeline': 'panelPipeline'
       };
 
@@ -4151,28 +4158,54 @@
             showStatus(`✅ <strong>Call Dispatched!</strong> Live call placed to <strong>${phone}</strong> via Africa's Talking (+233308048098). Pick up your phone to experience the IVR flow!`, true);
           }
         } else {
-          showStatus(`❌ Gateway error: ${data.error || 'Failed to dispatch call'}`, false);
+          const isAuth = (data.error || '').includes('authentication is invalid');
+          const errMsg = isAuth
+            ? `⚠️ <strong>Africa's Talking Authentication Error:</strong> The supplied authentication is invalid.<br><small style="display:block; margin:6px 0; color:#b45309; line-height:1.4;">${data.guidance || "Verify your AT_USERNAME and AT_API_KEY on africastalking.com."}</small><button class="btn btn-sm btn-primary" onclick="window.app.startSimulatedCallForPhone('${phone}')" style="margin-top:6px; background:#16211a; color:#fff; font-weight:700;">▶️ Test Call in Phone Simulator</button>`
+            : `❌ Gateway error: ${data.error || 'Failed to dispatch call'}`;
+          showStatus(errMsg, false);
         }
       } catch (err) {
-        // Fallback to legacy ussd-trigger if endpoint fails
-        try {
-          const params = new URLSearchParams();
-          params.append('phoneNumber', phone);
-          const res = await fetch('/ussd-trigger', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: params.toString()
-          });
-          const text = await res.text();
-          showStatus(`📡 Gateway Response: ${text}`, true);
-        } catch (innerErr) {
-          showStatus('❌ Network error while connecting to voice gateway.', false);
-        }
+        showStatus(`❌ Error reaching telephony gateway: ${err.message}. <button class="btn btn-sm" onclick="window.app.startSimulatedCallForPhone('${phone}')" style="margin-top:6px;">▶️ Open Phone Simulator</button>`, false);
       } finally {
         if (btn) {
           btn.disabled = false;
           btn.innerText = 'Dial Phone';
         }
+      }
+    },
+
+    startSimulatedCallForPhone(phone) {
+      this.switchTab('simulator');
+      this.startCall();
+    },
+
+    async testAtCredentials() {
+      const btn = document.getElementById('btnTestAtCreds');
+      const statusEl = document.getElementById('outboundCallStatus');
+      if (btn) btn.innerText = 'Testing...';
+
+      try {
+        const res = await fetch('/api/at/test-credentials', { method: 'POST' });
+        const data = await res.json();
+
+        if (statusEl) {
+          statusEl.style.display = 'block';
+          if (data.success) {
+            statusEl.style.background = '#f0fdf4';
+            statusEl.style.border = '1px solid #bbf7d0';
+            statusEl.style.color = '#166534';
+            statusEl.innerHTML = `✅ <strong>Credentials Verified!</strong> Africa's Talking account is active. Wallet balance: <strong>${data.balance || 'Active'}</strong>`;
+          } else {
+            statusEl.style.background = '#fffbeb';
+            statusEl.style.border = '1px solid #fde68a';
+            statusEl.style.color = '#92400e';
+            statusEl.innerHTML = `⚠️ <strong>Africa's Talking Notice:</strong> ${data.errorMessage || 'Invalid authentication'}<br><small style="color:#78350f;">Note: Sandbox keys (atsk_...) require username "sandbox" and work with the Voice Simulator.</small>`;
+          }
+        }
+      } catch (e) {
+        alert('Failed to connect to credentials testing endpoint: ' + (e && e.message ? e.message : e));
+      } finally {
+        if (btn) btn.innerHTML = '<span>🧪</span> Verify AT Credentials';
       }
     },
 
@@ -4304,6 +4337,720 @@
             setTimeout(() => { btn.innerText = original; }, 2000);
           }
         });
+      }
+    },
+
+    // ── MTN MoMo Open API Gateway Controller ───────────────────────────
+    switchMomoOp(op) {
+      const ops = ['requestToPay', 'transfer', 'kyc', 'provision'];
+      ops.forEach(o => {
+        const el = document.getElementById('momoOp' + o.charAt(0).toUpperCase() + o.slice(1));
+        if (el) el.style.display = o === op ? 'block' : 'none';
+      });
+      const btn1 = document.getElementById('btnMomoOp1');
+      const btn2 = document.getElementById('btnMomoOp2');
+      const btn3 = document.getElementById('btnMomoOp3');
+      const btn4 = document.getElementById('btnMomoOp4');
+
+      [btn1, btn2, btn3, btn4].forEach(b => {
+        if (b) {
+          b.className = 'btn btn-sm btn-outline';
+          b.style.background = '';
+          b.style.color = '';
+          b.style.fontWeight = 'normal';
+        }
+      });
+
+      const activeBtn = op === 'requestToPay' ? btn1 : op === 'transfer' ? btn2 : op === 'kyc' ? btn3 : btn4;
+      if (activeBtn) {
+        activeBtn.className = 'btn btn-sm';
+        activeBtn.style.background = '#16211a';
+        activeBtn.style.color = '#fff';
+        activeBtn.style.fontWeight = '700';
+      }
+    },
+
+    async loadMomoStatus() {
+      try {
+        const res = await fetch('/api/momo/status');
+        const data = await res.json();
+        if (!data.success) return;
+
+        const badge = document.getElementById('momoModeBadge');
+        if (badge) {
+          if (data.activeMode === 'LIVE_PRODUCTION') {
+            badge.innerText = '● LIVE PRODUCTION';
+            badge.style.background = '#10b981';
+          } else if (data.activeMode === 'SANDBOX_API') {
+            badge.innerText = '● SANDBOX API';
+            badge.style.background = '#3b82f6';
+          } else {
+            badge.innerText = '● RESILIENT EMULATOR (100% Active)';
+            badge.style.background = '#d99e1f';
+          }
+        }
+
+        const envBadge = document.getElementById('momoTargetEnvBadge');
+        if (envBadge) {
+          envBadge.innerText = `Env: ${data.targetEnvironment.toUpperCase()} (${data.currency})`;
+        }
+
+        const statGateway = document.getElementById('momoStatGateway');
+        if (statGateway) {
+          statGateway.innerText = data.activeMode === 'LIVE_PRODUCTION' ? 'Live MTN Gateway' : data.activeMode === 'SANDBOX_API' ? 'Sandbox API Active' : 'Resilient Zero-Fail';
+        }
+
+        const statEnv = document.getElementById('momoStatEnv');
+        if (statEnv) {
+          statEnv.innerText = data.baseUrl;
+        }
+
+        const statTx = document.getElementById('momoStatTxCount');
+        if (statTx && data.stats) {
+          statTx.innerText = `${data.stats.totalTransactions} Dispatched`;
+        }
+
+        const chk1 = document.getElementById('chkStep1Badge');
+        if (chk1) {
+          const ok = data.credentials.collection.subscriptionKeyConfigured;
+          chk1.innerText = ok ? 'Configured ✅' : 'Pending Key ⚠️';
+          chk1.style.background = ok ? '#10b981' : '#f59e0b';
+        }
+
+        const chk2 = document.getElementById('chkStep2Badge');
+        if (chk2) {
+          const ok = data.credentials.collection.apiUserIdConfigured && data.credentials.collection.apiKeyConfigured;
+          chk2.innerText = ok ? 'Configured ✅' : 'Pending Auth ⚠️';
+          chk2.style.background = ok ? '#10b981' : '#f59e0b';
+        }
+
+        const webhookEl = document.getElementById('momoWebhookDisplay');
+        if (webhookEl) {
+          webhookEl.innerText = `${window.location.origin}/api/momo/callback`;
+        }
+      } catch (err) {
+        console.warn('Failed to load MoMo status:', err);
+      }
+    },
+
+    async checkMomoBalance() {
+      try {
+        const res = await fetch('/api/momo/account/balance');
+        const data = await res.json();
+        if (data.success && data.balance) {
+          const statBalance = document.getElementById('momoStatBalance');
+          if (statBalance) {
+            statBalance.innerText = `GH₵ ${data.balance.availableBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+          }
+          this.showMomoConsole('Account Balance Inquiry', data.balance);
+        }
+      } catch (err) {
+        alert('Failed to query MoMo balance');
+      }
+    },
+
+    async submitMomoRequestToPay() {
+      const phone = document.getElementById('momoPayerPhone')?.value;
+      const amount = document.getElementById('momoPayAmount')?.value;
+      const name = document.getElementById('momoPayerName')?.value;
+      const msg = document.getElementById('momoPayerMsg')?.value;
+
+      if (!phone || !amount) {
+        alert('Please provide mobile phone number and amount');
+        return;
+      }
+
+      const btn = document.getElementById('btnSubmitMomoRtp');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerText = '⏳ Dispatched to MTN MoMo...';
+      }
+
+      try {
+        const res = await fetch('/api/momo/request-to-pay', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            payerPhone: phone,
+            amount: parseFloat(amount),
+            payerName: name,
+            payerMessage: msg,
+          }),
+        });
+        const data = await res.json();
+        this.showMomoConsole('Request to Pay (Collection)', data);
+        this.loadMomoTransactions();
+        this.loadMomoStatus();
+      } catch (err) {
+        alert('Error dispatching RequestToPay: ' + (err && err.message ? err.message : err));
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<span>📲</span> Dispatch MoMo Request to Pay (Push USSD)';
+        }
+      }
+    },
+
+    async submitMomoTransfer() {
+      const phone = document.getElementById('momoPayeePhone')?.value;
+      const amount = document.getElementById('momoTransferAmount')?.value;
+      const name = document.getElementById('momoPayeeName')?.value;
+
+      if (!phone || !amount) {
+        alert('Please provide mobile phone number and amount');
+        return;
+      }
+
+      const btn = document.getElementById('btnSubmitMomoTransfer');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerText = '⏳ Disbursing payout...';
+      }
+
+      try {
+        const res = await fetch('/api/momo/transfer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            payeePhone: phone,
+            amount: parseFloat(amount),
+            payeeName: name,
+          }),
+        });
+        const data = await res.json();
+        this.showMomoConsole('Disbursement / Transfer', data);
+        this.loadMomoTransactions();
+        this.loadMomoStatus();
+      } catch (err) {
+        alert('Error dispatching Transfer: ' + (err && err.message ? err.message : err));
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<span>💸</span> Execute MoMo Wallet Disbursement';
+        }
+      }
+    },
+
+    async submitMomoKycCheck() {
+      const phone = document.getElementById('momoKycPhone')?.value;
+      if (!phone) {
+        alert('Enter phone number to check');
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/momo/account/holder/${encodeURIComponent(phone)}`);
+        const data = await res.json();
+        this.showMomoConsole('KYC Subscriber Check', data);
+      } catch (err) {
+        alert('Error checking account holder: ' + (err && err.message ? err.message : err));
+      }
+    },
+
+    async submitMomoSandboxProvision() {
+      const subKey = document.getElementById('momoProvisionSubKey')?.value;
+      if (!subKey) {
+        alert('Please enter your MTN Developer Subscription Key');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/momo/sandbox/provision', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subscriptionKey: subKey }),
+        });
+        const data = await res.json();
+        this.showMomoConsole('Sandbox Provisioning', data);
+        if (data.success) {
+          this.loadMomoStatus();
+          alert('Sandbox user and API Key provisioned successfully!');
+        }
+      } catch (err) {
+        alert('Error provisioning sandbox user: ' + (err && err.message ? err.message : err));
+      }
+    },
+
+    async loadMomoTransactions() {
+      try {
+        const res = await fetch('/api/momo/transactions');
+        const data = await res.json();
+        const tbody = document.getElementById('momoLedgerTableBody');
+        if (!tbody || !data.transactions) return;
+
+        if (data.transactions.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:18px; color:var(--ink-muted);">No transactions recorded yet.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = data.transactions.map(tx => {
+          const statusBadge = tx.status === 'SUCCESSFUL'
+            ? '<span class="badge" style="background:#10b981; color:#fff;">SUCCESSFUL</span>'
+            : tx.status === 'PENDING'
+            ? '<span class="badge" style="background:#f59e0b; color:#fff;">PENDING PIN</span>'
+            : '<span class="badge" style="background:#ef4444; color:#fff;">FAILED</span>';
+
+          const modeBadge = tx.mode === 'LIVE_API'
+            ? '<span class="badge" style="background:#059669; color:#fff; font-size:10px;">LIVE_API</span>'
+            : tx.mode === 'SANDBOX_API'
+            ? '<span class="badge" style="background:#2563eb; color:#fff; font-size:10px;">SANDBOX_API</span>'
+            : '<span class="badge" style="background:#d99e1f; color:#16211a; font-weight:700; font-size:10px;">EMULATOR</span>';
+
+          const typeLabel = tx.type === 'COLLECTION_REQUEST_TO_PAY' ? '📲 RequestToPay' : '💸 Transfer';
+          const dateStr = new Date(tx.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+          return `<tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding:10px; font-family:monospace; font-weight:700; color:var(--ink);">${tx.externalId || tx.referenceId.slice(0, 10)}</td>
+            <td style="padding:10px; font-weight:600;">${typeLabel}</td>
+            <td style="padding:10px; font-weight:700; color:#10b981;">GH₵ ${Number(tx.amount).toFixed(2)}</td>
+            <td style="padding:10px;">${tx.recipientName || 'Subscriber'} <span style="font-family:monospace; color:var(--ink-muted); font-size:11px;">(${tx.msisdn})</span></td>
+            <td style="padding:10px;">${statusBadge} <button class="btn btn-sm btn-outline" onclick="window.app.syncMomoTx('${tx.referenceId}')" title="Synchronize status with MTN MoMo API" style="padding:2px 6px; font-size:10px; margin-left:4px;">🔄</button></td>
+            <td style="padding:10px;">${modeBadge}</td>
+            <td style="padding:10px; font-size:12px; color:var(--ink-muted);">${dateStr}</td>
+          </tr>`;
+        }).join('');
+      } catch (err) {
+        console.warn('Failed to load MoMo transactions:', err);
+      }
+    },
+
+    async syncMomoTx(referenceId) {
+      if (!referenceId) return;
+      try {
+        const res = await fetch(`/api/momo/sync/${encodeURIComponent(referenceId)}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success && data.transaction) {
+          this.showMomoConsole('Transaction Status Synced', data.transaction);
+          this.loadMomoTransactions();
+          this.loadMomoStatus();
+        } else {
+          alert('Sync response: ' + (data.error || 'No updates'));
+        }
+      } catch (err) {
+        alert('Failed to sync transaction: ' + (err && err.message ? err.message : err));
+      }
+    },
+
+    initMomoEventsStream() {
+      if (typeof EventSource !== 'undefined') {
+        try {
+          const evtSource = new EventSource('/api/momo/events');
+          evtSource.onmessage = (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              if (data.type === 'TX_UPDATE') {
+                this.loadMomoTransactions();
+                this.loadMomoStatus();
+                console.log('[MoMo Live Stream] Synced transaction update:', data.transaction.referenceId, data.transaction.status);
+              }
+            } catch (e) {
+              // ignore
+            }
+          };
+        } catch (e) {
+          console.warn('SSE not supported or failed to connect:', e);
+        }
+      }
+    },
+
+    // ── Real Registered MoMo Account & Phone Testing Suite ─────────────
+    currentPendingRef: null,
+
+    startMomoClock() {
+      const update = () => {
+        const el = document.getElementById('realMomoClock');
+        if (el) {
+          const now = new Date();
+          el.innerText = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+      };
+      update();
+      setInterval(update, 15000);
+    },
+
+    async loadMomoKeys() {
+      try {
+        const res = await fetch('/api/momo/keys');
+        const data = await res.json();
+        if (!data.success) return;
+
+        const badgeKey = document.getElementById('badgeActiveKey');
+        if (badgeKey) {
+          const isPrimary = data.activeKeyType === 'primary';
+          badgeKey.innerText = isPrimary ? 'Primary Key (251831ea...)' : data.activeKeyType === 'secondary' ? 'Secondary Key (4ed7eac0...)' : 'Custom Key Active';
+          badgeKey.style.background = isPrimary ? '#10b981' : '#8b5cf6';
+        }
+
+        const badgeEnv = document.getElementById('badgeActiveEnv');
+        if (badgeEnv) {
+          const isProd = data.targetEnv === 'production';
+          badgeEnv.innerText = isProd ? 'Live Production (proxy.momoapi.mtn.com)' : 'MTN Sandbox API (Connected)';
+          badgeEnv.style.background = isProd ? '#059669' : '#0284c7';
+        }
+
+        const labelEnv = document.getElementById('labelCurrentEnv');
+        if (labelEnv) {
+          labelEnv.innerText = data.targetEnv === 'production'
+            ? 'production (https://proxy.momoapi.mtn.com - Live Ghana SIMs)'
+            : 'sandbox (https://sandbox.momodeveloper.mtn.com - Active)';
+        }
+
+        const btnP = document.getElementById('btnKeyPrimary');
+        const btnS = document.getElementById('btnKeySecondary');
+        if (btnP && btnS) {
+          if (data.activeKeyType === 'primary') {
+            btnP.className = 'btn btn-sm';
+            btnP.style.background = '#d99e1f';
+            btnP.style.color = '#16211a';
+            btnP.style.fontWeight = '700';
+            btnP.style.borderColor = '#d99e1f';
+
+            btnS.className = 'btn btn-sm btn-outline';
+            btnS.style.background = '';
+            btnS.style.color = '';
+            btnS.style.fontWeight = 'normal';
+          } else if (data.activeKeyType === 'secondary') {
+            btnS.className = 'btn btn-sm';
+            btnS.style.background = '#d99e1f';
+            btnS.style.color = '#16211a';
+            btnS.style.fontWeight = '700';
+            btnS.style.borderColor = '#d99e1f';
+
+            btnP.className = 'btn btn-sm btn-outline';
+            btnP.style.background = '';
+            btnP.style.color = '';
+            btnP.style.fontWeight = 'normal';
+          }
+        }
+
+        const btnEnvSand = document.getElementById('btnEnvSandbox');
+        const btnEnvPr = document.getElementById('btnEnvProd');
+        if (btnEnvSand && btnEnvPr) {
+          if (data.targetEnv === 'production') {
+            btnEnvPr.className = 'btn btn-sm';
+            btnEnvPr.style.background = '#059669';
+            btnEnvPr.style.color = '#fff';
+            btnEnvPr.style.fontWeight = '700';
+
+            btnEnvSand.className = 'btn btn-sm btn-outline';
+            btnEnvSand.style.background = '';
+            btnEnvSand.style.color = '';
+            btnEnvSand.style.fontWeight = 'normal';
+          } else {
+            btnEnvSand.className = 'btn btn-sm';
+            btnEnvSand.style.background = '#0284c7';
+            btnEnvSand.style.color = '#fff';
+            btnEnvSand.style.fontWeight = '700';
+
+            btnEnvPr.className = 'btn btn-sm btn-outline';
+            btnEnvPr.style.background = '';
+            btnEnvPr.style.color = '';
+            btnEnvPr.style.fontWeight = 'normal';
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load MoMo keys:', err);
+      }
+    },
+
+    async selectMomoKey(keyType) {
+      try {
+        const res = await fetch('/api/momo/switch-key', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ keyType })
+        });
+        const data = await res.json();
+        if (data.success) {
+          this.loadMomoKeys();
+          this.loadMomoStatus();
+          alert(`Switched active key to: ${keyType.toUpperCase()} (momodeveloper.mtn.com)`);
+        }
+      } catch (err) {
+        alert('Failed to switch subscription key: ' + (err && err.message ? err.message : err));
+      }
+    },
+
+    promptCustomKey() {
+      const custom = window.prompt('Enter your custom MTN MoMo Developer Subscription Key (Primary or Secondary):');
+      if (custom && custom.trim()) {
+        fetch('/api/momo/switch-key', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ keyType: 'custom', customKey: custom.trim() })
+        }).then(r => r.json()).then(data => {
+          if (data.success) {
+            this.loadMomoKeys();
+            this.loadMomoStatus();
+            alert('Custom subscription key active!');
+          }
+        });
+      }
+    },
+
+    async switchMomoEnv(targetEnv) {
+      try {
+        const res = await fetch('/api/momo/switch-env', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ targetEnv })
+        });
+        const data = await res.json();
+        if (data.success) {
+          this.loadMomoKeys();
+          this.loadMomoStatus();
+          alert(`Target environment set to: ${targetEnv.toUpperCase()}`);
+        }
+      } catch (err) {
+        alert('Failed to switch environment: ' + (err && err.message ? err.message : err));
+      }
+    },
+
+    fillRealMomoPhone(phone, name) {
+      const p = document.getElementById('realMomoPhone');
+      const n = document.getElementById('realMomoName');
+      if (p) p.value = phone;
+      if (n) n.value = name;
+    },
+
+    clearRealMomoPhone() {
+      const p = document.getElementById('realMomoPhone');
+      if (p) {
+        p.value = '';
+        p.focus();
+      }
+    },
+
+    async verifyRealMomoAccount() {
+      const phoneInput = document.getElementById('realMomoPhone');
+      const phone = phoneInput ? phoneInput.value.trim() : '';
+      if (!phone) {
+        alert('Please enter a Ghanaian mobile phone number to verify.');
+        if (phoneInput) phoneInput.focus();
+        return;
+      }
+
+      const btn = document.getElementById('btnVerifyRealMoMo');
+      if (btn) btn.innerText = '🔍 Verifying...';
+
+      try {
+        const res = await fetch(`/api/momo/account/holder/${encodeURIComponent(phone)}`);
+        const data = await res.json();
+        const holder = data.accountHolder || {};
+
+        this.renderAuditTrail([
+          {
+            step: 'MSISDN Number Format',
+            status: 'SUCCESS',
+            details: { input: phone, formattedMsisdn: holder.msisdn, country: 'Ghana (+233)' }
+          },
+          {
+            step: 'MTN Mobile Money Account KYC Check',
+            status: holder.isActive ? 'SUCCESS' : 'WARNING',
+            details: {
+              msisdn: holder.msisdn,
+              isActive: holder.isActive,
+              subscriberName: holder.name || 'MTN MoMo Subscriber',
+              networkMode: holder.mode,
+              note: holder.isActive ? 'Registered & Active on MTN MoMo' : 'Account status check returned inactive'
+            }
+          }
+        ], holder.isActive ? 'KYC VERIFIED: ACTIVE SUBSCRIBER' : 'KYC CHECK COMPLETE');
+
+        if (holder.name) {
+          const nameInput = document.getElementById('realMomoName');
+          if (nameInput) nameInput.value = holder.name;
+        }
+
+        this.showMomoConsole('KYC Account Holder Verification', data);
+      } catch (err) {
+        alert('KYC verification error: ' + (err && err.message ? err.message : err));
+      } finally {
+        if (btn) btn.innerText = '🔍 1. Verify MoMo KYC';
+      }
+    },
+
+    async dispatchRealMomoPrompt() {
+      const phoneInput = document.getElementById('realMomoPhone');
+      const amountInput = document.getElementById('realMomoAmount');
+      const nameInput = document.getElementById('realMomoName');
+
+      const phone = phoneInput ? phoneInput.value.trim() : '';
+      const amount = amountInput ? parseFloat(amountInput.value) || 5.0 : 5.0;
+      const name = nameInput ? nameInput.value.trim() : 'MTN MoMo Subscriber';
+
+      if (!phone) {
+        alert('Please enter a Ghanaian phone number.');
+        if (phoneInput) phoneInput.focus();
+        return;
+      }
+
+      const btn = document.getElementById('btnPushRealMoMo');
+      if (btn) btn.innerText = '📲 Dispatching Push...';
+
+      try {
+        const res = await fetch('/api/momo/test-account', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phone,
+            amount,
+            subscriberName: name
+          })
+        });
+
+        const data = await res.json();
+        if (!data.success) {
+          throw new Error(data.error || 'Failed to dispatch MoMo transaction');
+        }
+
+        const tx = data.transaction || {};
+        this.currentPendingRef = tx.referenceId;
+
+        // Update Handset Prompt Dialog
+        const promptText = document.getElementById('handsetPromptText');
+        if (promptText) {
+          promptText.innerHTML = `Authorize payment of <strong style="color:#fbbf24;">GH₵ ${Number(tx.amount || amount).toFixed(2)}</strong> to <strong>ƆKWANKYERƐFO PA</strong> (Ref: <code style="color:#38bdf8;">${tx.externalId || tx.referenceId.slice(0, 10)}</code>)?`;
+        }
+
+        const promptBadge = document.getElementById('handsetPromptBadge');
+        if (promptBadge) {
+          promptBadge.innerText = 'AWAITING PIN';
+          promptBadge.style.background = '#f59e0b';
+          promptBadge.style.color = '#000';
+        }
+
+        const refDisplay = document.getElementById('handsetRefDisplay');
+        if (refDisplay) {
+          refDisplay.innerText = `Ref: ${tx.externalId} (${tx.mode})`;
+        }
+
+        const btnApprove = document.getElementById('btnHandsetApprove');
+        const btnReject = document.getElementById('btnHandsetReject');
+        if (btnApprove) btnApprove.disabled = false;
+        if (btnReject) btnReject.disabled = false;
+
+        // Display Audit Steps
+        if (data.auditSteps) {
+          this.renderAuditTrail(data.auditSteps, `DISPATCHED: ${tx.status} (${tx.mode})`);
+        }
+
+        this.showMomoConsole('RequestToPay Push Prompt Sent', data);
+        this.loadMomoTransactions();
+        this.loadMomoStatus();
+      } catch (err) {
+        alert('Failed to dispatch MoMo Push: ' + (err && err.message ? err.message : err));
+      } finally {
+        if (btn) btn.innerText = '📲 2. Send MoMo Push';
+      }
+    },
+
+    async authorizeHandsetPrompt(action) {
+      if (!this.currentPendingRef) {
+        alert('No pending MoMo prompt to authorize. Please dispatch a push transaction first.');
+        return;
+      }
+
+      const btnApprove = document.getElementById('btnHandsetApprove');
+      const btnReject = document.getElementById('btnHandsetReject');
+      if (btnApprove) btnApprove.disabled = true;
+      if (btnReject) btnReject.disabled = true;
+
+      try {
+        const res = await fetch('/api/momo/authorize-prompt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            referenceId: this.currentPendingRef,
+            action: action === 'reject' ? 'reject' : 'approve'
+          })
+        });
+
+        const data = await res.json();
+        if (data.success && data.transaction) {
+          const tx = data.transaction;
+          const promptBadge = document.getElementById('handsetPromptBadge');
+          const promptText = document.getElementById('handsetPromptText');
+
+          if (tx.status === 'SUCCESSFUL') {
+            if (promptBadge) {
+              promptBadge.innerText = 'APPROVED & PAID';
+              promptBadge.style.background = '#10b981';
+              promptBadge.style.color = '#fff';
+            }
+            if (promptText) {
+              promptText.innerHTML = `✅ Payment of <strong style="color:#10b981;">GH₵ ${Number(tx.amount).toFixed(2)}</strong> authorized successfully!<br><span style="font-size:11.5px; color:#94a3b8;">Financial Transaction ID: <strong style="color:#38bdf8;">${tx.financialTransactionId}</strong></span>`;
+            }
+          } else {
+            if (promptBadge) {
+              promptBadge.innerText = 'REJECTED / DECLINED';
+              promptBadge.style.background = '#ef4444';
+              promptBadge.style.color = '#fff';
+            }
+            if (promptText) {
+              promptText.innerHTML = `❌ Transaction declined by subscriber on handset.`;
+            }
+          }
+
+          this.loadMomoTransactions();
+          this.loadMomoStatus();
+          this.showMomoConsole(`Handset ${action.toUpperCase()} Result`, data);
+        }
+      } catch (err) {
+        alert('Authorization action failed: ' + (err && err.message ? err.message : err));
+      }
+    },
+
+    async runFullRealMoMoTest() {
+      const phoneInput = document.getElementById('realMomoPhone');
+      const phone = phoneInput ? phoneInput.value.trim() : '';
+      if (!phone) {
+        alert('Please enter a Ghanaian mobile phone number to run the test.');
+        if (phoneInput) phoneInput.focus();
+        return;
+      }
+
+      await this.verifyRealMomoAccount();
+      await new Promise(r => setTimeout(r, 600));
+      await this.dispatchRealMomoPrompt();
+    },
+
+    renderAuditTrail(steps, badgeText) {
+      const container = document.getElementById('realMomoAuditContainer');
+      const stepsDiv = document.getElementById('realMomoAuditSteps');
+      const badge = document.getElementById('realMomoAuditBadge');
+
+      if (!container || !stepsDiv) return;
+      container.style.display = 'block';
+
+      if (badge && badgeText) {
+        badge.innerText = badgeText;
+        badge.style.background = badgeText.includes('SUCCESS') || badgeText.includes('VERIFIED') ? '#10b981' : '#f59e0b';
+      }
+
+      stepsDiv.innerHTML = steps.map((s, idx) => {
+        const icon = s.status === 'SUCCESS' ? '✅' : s.status === 'WARNING' ? '⚠️' : s.status === 'ERROR' ? '❌' : 'ℹ️';
+        const color = s.status === 'SUCCESS' ? '#10b981' : s.status === 'WARNING' ? '#f59e0b' : s.status === 'ERROR' ? '#ef4444' : '#0284c7';
+        return `<div style="background: var(--surface); padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border);">
+          <div style="font-weight: 700; color: ${color}; display: flex; align-items: center; gap: 6px;">
+            <span>${icon}</span> Step ${idx + 1}: ${s.step}
+          </div>
+          <div style="font-family: monospace; font-size: 11.5px; color: var(--ink-secondary); margin-top: 4px; overflow-x: auto;">
+            ${JSON.stringify(s.details)}
+          </div>
+        </div>`;
+      }).join('');
+    },
+
+    showMomoConsole(title, data) {
+      const box = document.getElementById('momoConsoleBox');
+      const badge = document.getElementById('momoConsoleBadge');
+      const out = document.getElementById('momoConsoleOutput');
+      if (box && out) {
+        box.style.display = 'block';
+        if (badge) badge.innerText = title;
+        out.innerText = JSON.stringify(data, null, 2);
+        box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
     }
   };

@@ -9,6 +9,8 @@
  * implementations for the hackathon prototype.
  */
 
+import { mtnMomoService, MoMoTransactionRecord } from "./mtnMomoService";
+
 export interface TransactionRequest {
   source: "VOICE" | "KEYPAD";
   network: "MTN" | "Telecel" | "AT";
@@ -31,6 +33,12 @@ export interface TransactionResult {
   timestamp: string;
   message: string;
   spokenReceipt: string;
+  momoDetails?: {
+    referenceId: string;
+    mode: "LIVE_API" | "SANDBOX_API" | "EMULATOR";
+    status: string;
+    financialTransactionId?: string;
+  };
 }
 
 export interface AccountBalance {
@@ -90,6 +98,30 @@ class ServiceOrchestrator {
       this.mockUserBalance -= amount;
     }
 
+    // Dispatch to MTN MoMo Gateway (works in LIVE, SANDBOX, or EMULATOR mode seamlessly)
+    let momoDetails: TransactionResult["momoDetails"] | undefined;
+    if (!network || network === "MTN") {
+      try {
+        const momoTx = await mtnMomoService.requestToPay({
+          amount,
+          payerPhone: recipient_phone,
+          payerName: recipient_name,
+          payerMessage: `Transfer of GH₵${amount} to ${recipient_name}`,
+          payeeNote: "Ɔkwankyerɛfo Pa Voice MoMo",
+          externalId: reference,
+        });
+
+        momoDetails = {
+          referenceId: momoTx.referenceId,
+          mode: momoTx.mode,
+          status: momoTx.status,
+          financialTransactionId: momoTx.financialTransactionId,
+        };
+      } catch (momoErr: any) {
+        console.warn(`[ServiceOrchestrator] MTN MoMo dispatch notice: ${momoErr.message}`);
+      }
+    }
+
     const last4 = recipient_phone.slice(-4).split("").join(" ");
     const spokenReceipt =
       `Thank you very much. You have successfully sent ${amount} Ghana Cedis to ${recipient_name}, phone number ending in ${last4}. ` +
@@ -106,6 +138,7 @@ class ServiceOrchestrator {
       timestamp,
       message: `Transaction ${reference} completed via ${source}.`,
       spokenReceipt,
+      momoDetails,
     };
 
     // Store in idempotency cache

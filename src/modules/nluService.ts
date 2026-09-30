@@ -449,7 +449,7 @@ export async function parseUserIntent(text: string): Promise<ExtractedEntities> 
   // 2. Query Gemini API if configured with multi-model fallback cascade
   const ai = getGeminiClient();
   if (ai) {
-    const candidateModels = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.1-flash-lite"];
+    const candidateModels = ["gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.8-flash"];
     const prompt = `Analyze this Ghanaian voice assistant transaction phrase: "${text}"
 Extract:
 - intent: one of ["SEND_MONEY", "PAY_BILL", "BUY_AIRTIME", "BUY_DATA", "CASH_OUT", "CHECK_BALANCE", "CHECK_ACCOUNT", "CANCEL", "GO_BACK", "HELP", "EXIT", "UNKNOWN"]
@@ -490,13 +490,18 @@ Rules:
           };
         }
       } catch (err: any) {
-        // If 503 high demand or transient error on this model, fall through to next candidate
-        const isTransient = err?.message?.includes("503") || err?.status === 503 || err?.message?.includes("high demand");
-        if (isTransient) {
-          console.warn(`[NluService] Model ${modelName} unavailable (503/high demand), failing over...`);
+        // If quota exceeded (429/resource_exhausted), 503 high demand, or error, failover to next model
+        const isQuotaOrTransient =
+          err?.message?.includes("quota") ||
+          err?.message?.includes("resource_exhausted") ||
+          err?.message?.includes("503") ||
+          err?.status === 429;
+
+        if (isQuotaOrTransient) {
+          console.warn(`[NluService] Model ${modelName} quota/rate limit reached, automatically failing over to next candidate...`);
           continue;
         }
-        console.warn(`[NluService] Model ${modelName} invocation error:`, err?.message || err);
+        console.warn(`[NluService] Model ${modelName} error (${err?.message || err}), continuing cascade...`);
       }
     }
   }
