@@ -1549,22 +1549,20 @@ app.all("/language-selection", (req: Request, res: Response) => {
   const lang = dtmf === "2" ? "twi" : "en";
   console.log(`🗣️ Language chosen: ${lang.toUpperCase()}`);
 
-  if (lang === "twi") {
-    // Twi flow directly branches into Network selection (Audio prompt twi 02)
-    return xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?lang=twi&amp;service=momo</Redirect>`);
-  }
-
+  // Both English and Twi follow the exact same progression into Service Selection (MoMo vs Banking)
   xmlResponse(res, `    <Redirect>${baseUrl}/service-select?lang=${lang}</Redirect>`);
 });
 
-// ── Step 3: Service Selection (Telecom / Banking) ─────────────────────
+// ── Step 2: Service Selection (Telecom / Banking) ─────────────────────
 app.all("/service-select", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as string;
   const retry = (req.query?.retry || req.body?.retry || "0") as string;
   const baseUrl = getPublicBaseUrl(req);
 
+  // In Twi: Audio_prompt_twi_03.mp3 (MoMo vs Banking)
+  // In English: Audio_prompt_02.mp3 (MoMo vs Banking)
   const audioUrl = lang === "twi"
-    ? `${baseUrl}/audio/Twi/Audio_prompt_twi_02.mp3`
+    ? `${baseUrl}/audio/Twi/Audio_prompt_twi_03.mp3`
     : `${baseUrl}/audio/English/Audio_prompt_02.mp3`;
 
   const xml = `    <GetDigits timeout="2" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?lang=${lang}&amp;retry=${retry}">
@@ -2154,7 +2152,7 @@ export function parseIvrNaturalInput(
       return {
         matchedKey: "2",
         actionType: "select_twi",
-        nextStep: "network",
+        nextStep: "service",
         confidence: 0.98,
         explanation: "Matched Twi language selection (Key 2)",
       };
@@ -2171,10 +2169,10 @@ export function parseIvrNaturalInput(
     }
   }
 
-  // Step 2: Service Selection (English Flow)
+  // Step 2: Service Selection (Telecom / Banking) - Parity for English & Twi
   if (step === "service") {
     if (
-      /\b(telecom|momo|mobile money|one|1)\b/.test(text) ||
+      /\b(telecom|momo|mobile money|one|1|baako|sika)\b/.test(text) ||
       spokenDigit?.key === "1"
     ) {
       return {
@@ -2186,7 +2184,7 @@ export function parseIvrNaturalInput(
       };
     }
     if (
-      /\b(banking|bank|account|two|2)\b/.test(text) ||
+      /\b(banking|bank|account|two|2|sikakorabea|mmienu)\b/.test(text) ||
       spokenDigit?.key === "2"
     ) {
       return {
@@ -2195,6 +2193,29 @@ export function parseIvrNaturalInput(
         nextStep: "network",
         confidence: 0.98,
         explanation: "Selected Banking Service (Key 2)",
+      };
+    }
+    if (
+      /\b(repeat|again|say again|hear again|pardon|tie|tie biom)\b/.test(text) ||
+      spokenDigit?.key === "9"
+    ) {
+      return {
+        matchedKey: "9",
+        actionType: "repeat_prompt",
+        confidence: 0.98,
+        explanation: "Replay Service Menu (Key 9)",
+      };
+    }
+    if (
+      /\b(exit|cancel|firi ha|firi mu|quit|stop)\b/.test(text) ||
+      spokenDigit?.key === "0"
+    ) {
+      return {
+        matchedKey: "0",
+        actionType: "exit_call",
+        nextStep: "ended",
+        confidence: 0.98,
+        explanation: "Exit Call (Key 0)",
       };
     }
     if (spokenDigit) {

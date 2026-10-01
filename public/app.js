@@ -1284,13 +1284,19 @@
         return null;
       }
 
-      // STEP 2: Service Selection (English Flow)
+      // STEP 2: Service Selection (English & Twi Parity)
       if (currentStep === 'service') {
-        if (/\b(telecom|momo|mobile money)\b/i.test(text) || spokenDigit?.key === '1') {
+        if (/\b(telecom|momo|mobile money|baako|sika)\b/i.test(text) || spokenDigit?.key === '1') {
           return { matchedKey: '1', label: 'Mobile Money (Key 1)', explanation: 'Selected Mobile Money' };
         }
-        if (/\b(banking|bank)\b/i.test(text) || spokenDigit?.key === '2') {
+        if (/\b(banking|bank|sikakorabea|mmienu)\b/i.test(text) || spokenDigit?.key === '2') {
           return { matchedKey: '2', label: 'Banking (Key 2)', explanation: 'Selected Banking' };
+        }
+        if (/\b(repeat|again|say again|tie|tie biom)\b/i.test(text) || spokenDigit?.key === '9') {
+          return { matchedKey: '9', label: 'Repeat (Key 9)', explanation: 'Repeat Service Menu' };
+        }
+        if (/\b(exit|cancel|firi ha|firi mu)\b/i.test(text) || spokenDigit?.key === '0') {
+          return { matchedKey: '0', label: 'Exit (Key 0)', explanation: 'Exit Call' };
         }
         if (spokenDigit) {
           return { matchedKey: spokenDigit.key, label: `Digit ${spokenDigit.key}`, explanation: `Wrong Figure (${spokenDigit.key})` };
@@ -2007,9 +2013,9 @@
           { label: '🗣️ "Go back (8)"', val: 'Go back' }
         ],
         'recipient': [
-          { label: '🗣️ "Kwame Nyamebere"', val: 'Kwame Nyamebere', primary: true },
-          { label: '🗣️ "0553838464"', val: '0553838464' },
-          { label: '🗣️ "Number ends 8464"', val: 'Number ends 8464' },
+          { label: '🗣️ "055 383 8464 (Phone #)"', val: '0553838464', primary: true },
+          { label: '🗣️ "024 123 4567"', val: '0241234567' },
+          { label: '🗣️ "Submit (#)"', val: '#' },
           { label: '🗣️ "Exit (0)"', val: 'Exit' }
         ],
         'recipient_verify': [
@@ -2045,7 +2051,9 @@
         ],
         'service': [
           { label: '🗣️ "Mobile Money (1)"', val: 'MoMo', primary: true },
-          { label: '🗣️ "Sikakorabea (2)"', val: 'Banking' }
+          { label: '🗣️ "Sikakorabea (2)"', val: 'Banking' },
+          { label: '🗣️ "Tie biom (9)"', val: 'Repeat' },
+          { label: '🗣️ "Si ha / Firi ha (0)"', val: 'Exit' }
         ],
         'network': [
           { label: '🗣️ "MTN (1)"', val: 'MTN', primary: true },
@@ -2063,10 +2071,10 @@
           { label: '🗣️ "Kɔ back (8)"', val: 'Go back' }
         ],
         'recipient': [
-          { label: '🗣️ "Kwame Nyamebrɛ"', val: 'Kwame Nyamebere', primary: true },
-          { label: '🗣️ "0553838464"', val: '0553838464' },
-          { label: '🗣️ "Nɔma wie 8464"', val: 'Number ends 8464' },
-          { label: '🗣️ "San akyi (0)"', val: 'Exit' }
+          { label: '🗣️ "055 383 8464 (Nɔmba #)"', val: '0553838464', primary: true },
+          { label: '🗣️ "024 123 4567"', val: '0241234567' },
+          { label: '🗣️ "Fa hash ka ho (#)"', val: '#' },
+          { label: '🗣️ "Si ha (0)"', val: 'Exit' }
         ],
         'recipient_verify': [
           { label: '🗣️ "Gye tum na sendi (1)"', val: 'Confirm and send', primary: true },
@@ -2426,9 +2434,9 @@
           `
         },
         service: {
-          tag: 'Step 2: Dwumadie a Wopɛ (MoMo vs Sikakorabea)',
+          tag: 'Step 2: Dwumadie a Wopɛ (Telecom MoMo vs Sikakorabea)',
           audio: '/audio/Twi/Audio_prompt_twi_03.mp3',
-          promptText: '"Sɛ wopɛ sɛ wosende sika kɔ Mobile Money a, mia baako (1). Sikakorabea dwumadie no, mia mmienu (2)."',
+          promptText: '"Sɛ wopɛ sɛ wosende sika kɔ Mobile Money a, mia baako (1). Sikakorabea dwumadie no, mia mmienu (2). Tie biom, mia 9. Firi ha, mia 0."',
           xmlUrl: `/service-select?lang=twi`,
           render: () => `
             <div class="step-options-grid">
@@ -2440,15 +2448,19 @@
                 <span>2: Sikakorabea Banking</span>
                 <span class="opt-key-tag">Mia 2</span>
               </button>
+              <button class="step-opt-btn" onclick="window.app.pressKey('9')">
+                <span>9: Tie Prompt Biom</span>
+                <span class="opt-key-tag">Mia 9</span>
+              </button>
               <button class="step-opt-btn" onclick="window.app.pressKey('0')">
-                <span style="color:var(--danger-accent);">0: Firi ha</span>
+                <span style="color:var(--danger-accent);">0: Firi ha (Exit)</span>
                 <span class="opt-key-tag">Mia 0</span>
               </button>
             </div>
           `
         },
         network: {
-          tag: 'Step 2: Yi Wo Network Dwumakuo',
+          tag: 'Step 3: Yi Wo Network Dwumakuo (MTN, Telecel, AT)',
           audio: '/audio/Twi/Audio_prompt_twi_02.mp3',
           promptText: '"Afei selecte wo network. Sɛ MTN a, mia baako (1). Sɛ Telecel a, mia mmienu (2). Sɛ AirtelTigo a, mia mmiɛnsa (3). Mia anan (4) na tie wei biom. Mia zero (0) na si ha."',
           xmlUrl: `/provider-select?lang=twi&service=momo`,
@@ -2478,7 +2490,7 @@
           `
         },
         services: {
-          tag: 'Step 3: MTN MoMo Dwumadie Menu',
+          tag: 'Step 4: MTN MoMo Dwumadie Menu (Actions)',
           audio: '/audio/Twi/Audio_prompt_twi_04.mp3',
           promptText: '"Sɛ wopɛ sɛ wosend sika kɔ ma MoMo user a, mia 1. Sɛ wopɛ sɛ wotua bills a, mia 2. Sɛ wopɛ sɛ wotɔ airtime anaa bundle a, mia 3. Sɛ wopɛ sɛ woallow-i cash out a, mia 4. Sɛ wopɛ sɛ wocheck-i wo account no a, mia 5. Mia 8 na kɔ back. Mia 0 na firi ha."',
           xmlUrl: `/action-select?lang=twi&provider=${this.callState.provider || 'MTN'}`,
@@ -2512,7 +2524,7 @@
           `
         },
         recipient: {
-          tag: 'Step 4: Bɔ Nea Oregye Sika No Nɔmba (#)',
+          tag: 'Step 5: Bɔ Nɔmba Du No (# to submit)',
           audio: '/audio/Twi/Audio_prompt_twi_05.mp3',
           promptText: '"Afei, bɔ nɔmba no a wopɛ sɛ wosende sika no to so no. Wowie a, fa hash ka ho. Mia zero na san akyi."',
           xmlUrl: `/enter-recipient?lang=twi&provider=${this.callState.provider || 'MTN'}`,
@@ -2524,13 +2536,13 @@
                 Fa Hash Ka Ho (#)
               </button>
               <div style="font-size:11px; color:var(--sky-accent); cursor:pointer;" onclick="document.getElementById('inPhoneSim').value='0553838464'; window.app.submitSimRecipient();">
-                👉 Kwame Nyamebrɛ nɔmba: 0553838464
+                👉 Bɔ nɔmba du (10) no: 0553838464 (#)
               </div>
             </div>
           `
         },
         recipient_verify: {
-          tag: 'Step 5: KYC Verification (Kwame Nyamebrɛ)',
+          tag: 'Step 6: KYC Verification (Kwame Nyamebrɛ)',
           audio: '/audio/Twi/Audio_prompt_twi_06.mp3',
           promptText: `"Me pɛ sɛ wo bɛ sendi sika kɔ Kwame Nyamebrɛ fɔn so, anaa number ${last4} ɛna ɛtɔ. Sɛ wo pɛ sɛ wo gye tum na wo sendi sika ma me a baako (1). Sɛ wo pɛ sɛ wo cancel a mia mmienu (2). Sɛ wo pɛ sɛ wo firi mu a mia zero (0)."`,
           render: () => `
@@ -2551,7 +2563,7 @@
           `
         },
         amount: {
-          tag: 'Step 6: Bɔ Cedi Dodow (#)',
+          tag: 'Step 7: Bɔ Cedi Dodow (# to submit)',
           audio: '/audio/Twi/Audio_prompt_twi_07.mp3',
           promptText: '"Mepa wo kyɛw, si di amount a wo pɛ sɛ wo send ɛkɔ Kwame Nyame Brɛfo so, woyɛ a fa hash ɛntua to."',
           xmlUrl: `/enter-amount?lang=twi&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(recipientName)}`,
@@ -2571,7 +2583,7 @@
           `
         },
         confirm: {
-          tag: 'Step 7: Pene Sika no so (Read-back)',
+          tag: 'Step 8: Pene Sika no so (Safe Confirmation)',
           audio: '/audio/Twi/Audio_prompt_twi_08.mp3',
           promptText: '"Me pɛ sɛ wo sendi 500 Ghana cedis asɛm a kɔ m\'abɛɛ na namba so. Sɛ wopɛ sɛ woyi tum na wo sendi a, mia baako (1). Sɛ wopɛ sɛ wo cancel a, mia mmienu (2)."',
           xmlUrl: `/safe-confirmation?lang=twi&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(recipientName)}&amount=${this.callState.amount}`,
@@ -2589,14 +2601,14 @@
           `
         },
         pin_handoff: {
-          tag: 'Step 8: Zero-PIN Fon Ahobammbɔ',
+          tag: 'Step 9: Zero-PIN Fon Ahobammbɔ (Handset Handoff)',
           audio: '/audio/Twi/Audio_prompt_twi_09.mp3',
           promptText: '"Me pɛ sɛ ɔfa ɛsi wo phone no so na bɔ wo momo PIN."',
           xmlUrl: `/safe-outcome?lang=twi&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(recipientName)}&amount=${this.callState.amount}&dtmfDigits=1`,
           render: () => this.renderPinPadUi('Mena GH₵ 500.00 kɔma Kwame Nyamebrɛ', true)
         },
         receipt: {
-          tag: 'Step 9: Nkratoɔ & Reference Nɔmba',
+          tag: 'Step 10: Nkratoɔ & Reference Nɔmba (Transaction Receipt)',
           audio: '/audio/Twi/Audio_prompt_twi_10.mp3',
           promptText: '"Congratulations! 500 Ghana Cedis a wosendee to Kwame Nyamebrɛ namba no so no yɛ successful. Wo transaction no yɛ completed wɔ 17th September 2026..."',
           render: () => this.renderReceiptUi(true)
@@ -3027,16 +3039,8 @@
         return;
       }
       if (key === '8') {
-        // Back to previous step (language aware)
-        const isTwi = this.callState.lang === 'twi';
-        const prevSteps = isTwi ? {
-          'services': 'network',
-          'action': 'network',
-          'recipient': 'services',
-          'recipient_verify': 'recipient',
-          'amount': 'recipient_verify',
-          'confirm': 'amount'
-        } : {
+        // Back to previous step (identical across English & Twi)
+        const prevSteps = {
           'service': 'welcome',
           'network': 'service',
           'provider': 'service',
@@ -3052,8 +3056,8 @@
           this.goToStep(prev);
           return;
         }
-        // 8 is not an option in welcome or Twi network
-        if (this.callState.step === 'welcome' || (isTwi && this.callState.step === 'network')) {
+        // 8 is not an option in welcome
+        if (this.callState.step === 'welcome') {
           this.handleWrongFigure('8');
           return;
         }
@@ -3068,11 +3072,11 @@
           this.setVoiceMode('en');
           this.goToStep('service');
         } else if (key === '2') {
-          // Twi chosen exclusively
+          // Twi chosen exclusively - follows identical progression into service selection
           this.callState.lang = 'twi';
           this.voiceMode = 'twi';
           this.setVoiceMode('twi');
-          this.goToStep('network');
+          this.goToStep('service');
         } else {
           // Any other figure on welcome -> Prompt 11
           this.handleWrongFigure(key);
@@ -3081,6 +3085,10 @@
         if (key === '1' || key === '2') {
           this.callState.service = key === '2' ? 'banking' : 'momo';
           this.goToStep('network');
+        } else if (key === '9') {
+          this.goToStep('service');
+        } else if (key === '0') {
+          this.goToStep('done_exit');
         } else {
           this.handleWrongFigure(key);
         }

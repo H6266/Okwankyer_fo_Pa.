@@ -73,7 +73,7 @@
 
 ---
 
-### Step 2: Service & Network Selection
+### Step 2: Service Category Selection (Telecom MoMo vs. Banking)
 
 #### Branch A: English Path
 - **Context**: Caller pressed <kbd>1</kbd>. Directed to Service Category Menu.
@@ -81,24 +81,37 @@
 - **Spoken Text**:
   > *"For Telecom mobile money services, press 1. For banking services, press 2. To hear this again, press 9. To exit, press 0."*
 - **User Action**: Press <kbd>1</kbd> for Telecom Mobile Money.
-- **Sub-step (Network Selection)**:
-  - **Audio File**: `/audio/English/Audio_prompt_03.mp3`
-  - **Spoken Text**:
-    > *"Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again. Press 0 to exit."*
-  - **User Action**: Press <kbd>1</kbd> for MTN MoMo.
 
 #### Branch B: Akan Twi Path
-- **Context**: Caller pressed <kbd>2</kbd>. Directed directly to Network Selection in Twi.
+- **Context**: Caller pressed <kbd>2</kbd>. Directed to Service Category Menu in Twi.
+- **Audio File**: `/audio/Twi/Audio_prompt_twi_03.mp3`
+- **Spoken Text**:
+  > *"Sɛ wopɛ sɛ wosende sika kɔ Mobile Money a, mia baako (1). Sikakorabea dwumadie no, mia mmienu (2). Tie biom, mia 9. Firi ha, mia 0."*
+- **English Translation**:
+  > *"If you want to send money via Mobile Money, press 1. For banking services, press 2. To hear this again, press 9. To exit, press 0."*
+- **User Action**: Press <kbd>1</kbd> for Mobile Money.
+
+---
+
+### Step 3: Network Provider Selection (MTN, Telecel, AT)
+
+#### Branch A: English Path
+- **Audio File**: `/audio/English/Audio_prompt_03.mp3`
+- **Spoken Text**:
+  > *"Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again. Press 0 to exit."*
+- **User Action**: Press <kbd>1</kbd> for MTN MoMo.
+
+#### Branch B: Akan Twi Path
 - **Audio File**: `/audio/Twi/Audio_prompt_twi_02.mp3`
 - **Spoken Text**:
-  > *"Afei select-i wo network. Sɛ MTN a, mia baako. Sɛ Telecel a, mia mmienu. Sɛ AirtelTigo a, mia mmiɛnsa. Mia nnan na tie wei biom. Mia zero na si ha."*
+  > *"Afei select-i wo network. Sɛ MTN a, mia baako (1). Sɛ Telecel a, mia mmienu (2). Sɛ AirtelTigo a, mia mmiɛnsa (3). Mia anan (4) na tie wei biom. Mia zero (0) na si ha."*
 - **English Translation**:
   > *"Now select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 4 to listen to this again. Press 0 to exit here."*
 - **User Action**: Press <kbd>1</kbd> for MTN.
 
 ---
 
-### Step 3: Main Mobile Money Action Menu
+### Step 4: Main Mobile Money Action Menu
 
 #### Branch A: English Path
 - **Audio File**: `/audio/English/Audio_prompt_05.mp3`
@@ -116,7 +129,7 @@
 
 ---
 
-### Step 4: Recipient Phone Number Entry
+### Step 5: Recipient Phone Number Entry
 
 #### Branch A: English Path
 - **Audio File**: `/audio/English/Audio_prompt_06.mp3`
@@ -134,7 +147,7 @@
 
 ---
 
-### Step 5: Real-Time Recipient Verification (KYC Readback)
+### Step 6: Real-Time Recipient Verification (KYC Readback)
 *The system instantly queries the telecom subscriber directory and reads back the verified recipient's name to prevent wrong transfers.*
 
 #### Branch A: English Path
@@ -153,7 +166,7 @@
 
 ---
 
-### Step 6: Amount Entry in Ghana Cedis
+### Step 7: Amount Entry in Ghana Cedis
 
 #### Branch A: English Path
 - **Audio File**: `/audio/English/Audio_prompt_09.mp3`
@@ -171,7 +184,7 @@
 
 ---
 
-### Step 7: "Safe Confirmation" Final Gate
+### Step 8: "Safe Confirmation" Final Gate
 *The critical double-check before any payment is authorized.*
 
 #### Branch A: English Path
@@ -190,7 +203,7 @@
 
 ---
 
-### Step 8: The Zero-PIN Voice Security Gate
+### Step 9: The Zero-PIN Voice Security Gate
 *Crucial Security Mandate: The voice call NEVER asks the user to speak or keypad their MoMo PIN.*
 
 #### Branch A: English Path
@@ -209,7 +222,7 @@
 
 ---
 
-### Step 9: Transaction Summary Receipt & Sign-Off
+### Step 10: Transaction Summary Receipt & Sign-Off
 
 #### Branch A: English Path
 - **Audio File**: `/audio/English/Audio_prompt_12.mp3`

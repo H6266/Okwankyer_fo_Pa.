@@ -328,9 +328,9 @@ class ConversationManager {
         return {
           state,
           spokenPrompt: isTwi
-            ? "Me pa wo kyɛw, firi me kwan. Yɛsrɛ wo, bɔ nɔma foforɔ a wopɛ no dennen bio."
-            : "Understood, please. Kindly call out your preferred recipient number or name again.",
-          displayStepTag: "Re-enter Preferred Number",
+            ? "Me pa wo kyɛw, bɔ nɔmba du (10) a wopɛ sɛ womane sika no kɔ ma no a hash ka ho. Mia zero na si ha."
+            : "Understood, please. Kindly enter the 10-digit number you want to send money to followed by hash. Press 0 to exit.",
+          displayStepTag: "Step 5: Recipient Number Entry",
           requiresPinInput: false,
           isCompleted: false,
           offeredMenuFallback: false,
@@ -354,10 +354,10 @@ class ConversationManager {
         spokenPrompt: isTwi
           ? (showKeypadFallback
             ? "Me pa wo kyɛw, mantie no yiye. Yɛsrɛ wo, mia baako (1) ma menu kɛseɛ no, anaa ka sɛ 'agyae'."
-            : "Me pa wo kyɛw, mantie no yiye. Wotumi ka te sɛ 'Mane cedi 500 kɔma Kwame', anaa bɔ nɔma du (10) a wopɛ no.")
+            : "Me pa wo kyɛw, mantie no yiye. Yɛsrɛ wo, bɔ nɔmba du (10) a wopɛ no a hash ka ho, anaa bɔ cedi dodow no.")
           : (showKeypadFallback
             ? "Pardon me, please. I am having trouble catching that. Kindly use your keypad by pressing 1 for the main menu, or say cancel."
-            : "Pardon me, please. I didn't quite catch that. You can kindly call out your preferred number like '055 383 8464', or say 'Send 500 cedis to Kwame.'"),
+            : "Pardon me, please. I didn't quite catch that. Kindly enter the 10-digit recipient number followed by hash, or dial your cedi amount."),
         displayStepTag: "Input Unrecognized",
         requiresPinInput: false,
         isCompleted: false,
@@ -464,15 +464,15 @@ class ConversationManager {
       };
     }
 
-    // 2. Check recipient
+    // 2. Check recipient (Strict number entry parity across English and Twi)
     if (!state.recipient_name && !state.recipient_phone) {
       state.status = "AWAITING_RECIPIENT";
       return {
         state,
         spokenPrompt: isTwi
-          ? "Me pa wo kyɛw, hwan na worepɛ amane sika no akɔma no? Wotumi bɔ din te sɛ Kwame anaa bɔ nɔma du (10) a wopɛ no pɛpɛɛpɛ."
-          : "Please, who would you like to send money to? Kindly call out a recipient name like Kwame, or speak your preferred 10-digit number.",
-        displayStepTag: "Recipient Selection",
+          ? "Afei, bɔ nɔmba du (10) a wopɛ sɛ womane sika no kɔ ma no a hash ka ho. Mia zero na si ha."
+          : "Enter the 10 digit number you want to send money to followed by hash. Press 0 to exit.",
+        displayStepTag: "Step 5: Recipient Number Entry",
         requiresPinInput: false,
         isCompleted: false,
         offeredMenuFallback: false,
@@ -496,9 +496,9 @@ class ConversationManager {
       return {
         state,
         spokenPrompt: isTwi
-          ? `Me pa wo kyɛw, sika Ghana cedi dodoɔ sɛn na worepɛ amane akɔma ${state.recipient_name || "onipa no"}?`
-          : `Please, how much would you like to send to ${state.recipient_name || "the recipient"} in Ghana Cedis?`,
-        displayStepTag: "Enter Amount",
+          ? "Mpo, siidi amount a worepɛ sɛ wosende kɔ no, wowie a fa hash ka ho. Fa star ma pesewas."
+          : "Enter the cedi amount you want to send followed by hash. Use star for pesewas.",
+        displayStepTag: "Step 7: Enter Cedi Amount",
         requiresPinInput: false,
         isCompleted: false,
         offeredMenuFallback: false,
@@ -524,13 +524,13 @@ class ConversationManager {
     const isTwi = state.language === "twi";
 
     const spokenPrompt = isTwi
-      ? `Medaase pa ara. Woapaw ${name}, a ne nɔma a wopɛ no yɛ ${phoneSpaced || "deɛ ɛwɔ hɔ no"}, a ɛwie ${last4Spaced}. Me pa wo kyɛw, worebɛmane Ghana cedi ${amt} akɔma ${name}. Sɛ ɛyɛ ampa a, ka sɛ 'yoo' anaa mia baako (1) na yɛnkɔ so. Sɛ worepɛ asesa nɔma no a, mia mmienu (2).`
-      : `Thank you, please. You selected ${name} with preferred number ${phoneSpaced || "on file"}, ending in ${last4Spaced}. You are about to send ${amt} Ghana Cedis to ${name}. Kindly confirm if you would like to proceed by saying yes or pressing 1, or say change to try another number.`;
+      ? `Worepɛ sɛ wosend ${amt} Ghana Cedis kɔ ${name} nɔmba a ɛwie ${last4Spaced} no so. Sɛ wopɛ sɛ wogye tum na wosend a, mia baako (1). Sɛ wopɛ sɛ wokansɛla a, mia mmienu (2).`
+      : `You are about to send ${amt} Ghana Cedis to ${name}, whose phone number ends with ${last4Spaced}. To confirm and send, press 1. To cancel, press 2.`;
 
     return {
       state,
       spokenPrompt,
-      displayStepTag: "Confirm Transfer Summary",
+      displayStepTag: "Step 8: Transfer Confirmation Read-Back",
       requiresPinInput: false,
       isCompleted: false,
       offeredMenuFallback: false,
