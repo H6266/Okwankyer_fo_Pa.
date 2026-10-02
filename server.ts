@@ -23,7 +23,7 @@ import {
   redactSensitiveData,
 } from "./src/modules/devServices";
 import { PRESET_SCENARIOS } from "./src/modules/scenarioRecorder";
-import { aiSystem } from "./ai_system";
+import { aiSystem, diagnosticsEngine } from "./ai_system";
 
 const app = express();
 const PORT = 3000;

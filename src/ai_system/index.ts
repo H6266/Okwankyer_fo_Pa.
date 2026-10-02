@@ -1,17 +1,18 @@
 /**
  * Ɔkwankyerɛfo Pa - AI System Master Package Entry
  *
- * Unified architecture:
+ * Canonical architecture:
  * - core/        -> aiEngine, aiTypes, aiConfig, aiErrors
  * - perception/  -> inputProcessor, languageDetector, inputNormalizer, speechContext
- * - understanding/ -> intentEngine, entityEngine, correctionEngine, ambiguityEngine, confidenceEngine
- * - memory/      -> sessionMemory, conversationMemory, contextManager, userProfile
+ * - understanding/ -> intentEngine, entityEngine, correctionEngine, ambiguityEngine, confidenceEngine, coreferenceResolver, negationEngine
+ * - memory/      -> workingMemory, sessionMemory, conversationMemory, contextManager, userProfile, taskMemory, episodicMemory, semanticMemory, preferenceMemory, pronunciationMemory, transactionMemory, memoryRetriever, memoryConsolidator, memoryPolicy, memoryManager
  * - dialogue/    -> dialogueManager, slotManager, clarificationEngine, responsePlanner
  * - navigation/  -> navigationGraph, navigationPlanner, routeResolver
  * - actions/     -> actionTypes, toolRegistry, actionValidator, actionPlanner
  * - safety/      -> transactionGuard, confirmationGuard, piiGuard, riskEngine
- * - speech/      -> speechNormalizer, pronunciation, tts, voiceProfiles
+ * - speech/      -> speechNormalizer, pronunciation, voiceProfiles, tts, interruptionEngine
  * - providers/   -> aiProvider, modelAdapter
+ * - observability/ -> diagnosticsEngine, aiTrace
  */
 
 // Core
@@ -30,14 +31,27 @@ export * from "./perception/inputProcessor";
 export * from "./understanding/intentEngine";
 export * from "./understanding/entityEngine";
 export * from "./understanding/correctionEngine";
+export * from "./understanding/coreferenceResolver";
+export * from "./understanding/negationEngine";
 export * from "./understanding/ambiguityEngine";
 export * from "./understanding/confidenceEngine";
 
 // Memory
+export * from "./memory/memoryPolicy";
+export * from "./memory/workingMemory";
 export * from "./memory/sessionMemory";
 export * from "./memory/conversationMemory";
 export * from "./memory/contextManager";
 export * from "./memory/userProfile";
+export * from "./memory/taskMemory";
+export * from "./memory/episodicMemory";
+export * from "./memory/semanticMemory";
+export * from "./memory/preferenceMemory";
+export * from "./memory/pronunciationMemory";
+export * from "./memory/transactionMemory";
+export * from "./memory/memoryRetriever";
+export * from "./memory/memoryConsolidator";
+export * from "./memory/memoryManager";
 
 // Dialogue
 export * from "./dialogue/slotManager";
@@ -73,10 +87,15 @@ export * from "./speech/voiceProfiles/ghanaProfile";
 export * from "./speech/tts/ttsProvider";
 export * from "./speech/tts/ttsAdapter";
 export * from "./speech/tts/ttsService";
+export * from "./speech/interruptionEngine";
 
 // Providers
 export * from "./providers/aiProvider";
 export * from "./providers/modelAdapter";
+
+// Observability
+export * from "./observability/diagnosticsEngine";
+export * from "./observability/aiTrace";
 
 import { aiEngine } from "./core/aiEngine";
 export default aiEngine;
