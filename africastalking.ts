@@ -1,5 +1,23 @@
+export function normalizeAtPhone(phoneStr: string): string {
+  let cleaned = (phoneStr || "").replace(/[\s\-\(\)]/g, "").trim();
+  if (cleaned.startsWith("+")) {
+    return cleaned;
+  }
+  if (cleaned.startsWith("233")) {
+    return `+${cleaned}`;
+  }
+  if (cleaned.startsWith("0") && cleaned.length === 10) {
+    return `+233${cleaned.slice(1)}`;
+  }
+  if (/^\d{9,15}$/.test(cleaned)) {
+    return `+${cleaned}`;
+  }
+  return cleaned;
+}
+
 export function validatePhone(phoneStr: string): boolean {
-  return /^\+\d{1,3}\d{3,}$/.test(phoneStr);
+  const normalized = normalizeAtPhone(phoneStr);
+  return /^\+\d{1,3}\d{4,14}$/.test(normalized);
 }
 
 export interface VoiceCallOptions {
@@ -25,11 +43,15 @@ export class VoiceService {
   }
 
   async call(options: VoiceCallOptions): Promise<any> {
-    for (const phoneNumber of options.callTo) {
+    const normalizedCallTo: string[] = [];
+    for (const rawPhone of options.callTo) {
+      const phoneNumber = normalizeAtPhone(rawPhone);
       if (!validatePhone(phoneNumber)) {
-        throw new Error("Invalid callTo phone number: " + phoneNumber);
+        throw new Error("Invalid callTo phone number: " + rawPhone);
       }
+      normalizedCallTo.push(phoneNumber);
     }
+    const callFromNumber = normalizeAtPhone(options.callFrom);
 
     // Auto-adapt sandbox username if key starts with atsk_
     let effectiveUsername = this.username;
@@ -39,8 +61,8 @@ export class VoiceService {
 
     const formParams = new URLSearchParams({
       username: effectiveUsername,
-      from: options.callFrom,
-      to: options.callTo.join(","),
+      from: callFromNumber,
+      to: normalizedCallTo.join(","),
     });
 
     const headers: Record<string, string> = {

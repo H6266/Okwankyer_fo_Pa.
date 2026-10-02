@@ -1733,8 +1733,8 @@ app.all("/enter-recipient", (req: Request, res: Response) => {
     ? `${baseUrl}/audio/Twi/Audio_prompt_twi_05.mp3`
     : `${baseUrl}/audio/English/Audio_prompt_06.mp3`;
 
-  // 10 digits followed by # with 10 second timeout
-  const xml = `    <GetDigits timeout="10" finishOnKey="#" numDigits="15" callbackUrl="${baseUrl}/verify-recipient?lang=${lang}&amp;provider=${provider}&amp;retry=${retry}">
+  // 40 seconds to enter phone number, press hash (#) to submit 10 digits
+  const xml = `    <GetDigits timeout="40" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/verify-recipient?lang=${lang}&amp;provider=${provider}&amp;retry=${retry}">
         <Play url="${audioUrl}"/>
     </GetDigits>`;
 
@@ -1745,7 +1745,8 @@ app.all("/enter-recipient", (req: Request, res: Response) => {
 app.all("/verify-recipient", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as string;
   const provider = (req.query?.provider || req.body?.provider || "MTN") as string;
-  const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
+  const rawDtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
+  const dtmf = rawDtmf.replace(/#/g, "").trim();
   const retry = parseInt((req.body?.retry || req.query?.retry || "0") as string, 10);
   const baseUrl = getPublicBaseUrl(req);
 
@@ -1858,7 +1859,8 @@ app.all("/enter-amount", (req: Request, res: Response) => {
     ? `${baseUrl}/audio/Twi/Audio_prompt_twi_07.mp3`
     : `${baseUrl}/audio/English/Audio_prompt_09.mp3`;
 
-  const xml = `    <GetDigits timeout="10" finishOnKey="#" numDigits="6" callbackUrl="${baseUrl}/verify-amount?lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}&amp;retry=${retry}">
+  // 30 seconds to enter amount followed by hash (#), star (*) for decimal
+  const xml = `    <GetDigits timeout="30" finishOnKey="#" numDigits="8" callbackUrl="${baseUrl}/verify-amount?lang=${lang}&amp;provider=${provider}&amp;phone=${cleanPhone}&amp;name=${encodeURIComponent(name)}&amp;retry=${retry}">
         <Play url="${audioUrl}"/>
     </GetDigits>`;
 
