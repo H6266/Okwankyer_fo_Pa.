@@ -23,6 +23,7 @@ import {
   redactSensitiveData,
 } from "./src/modules/devServices";
 import { PRESET_SCENARIOS } from "./src/modules/scenarioRecorder";
+import { aiSystem } from "./ai_system";
 
 const app = express();
 const PORT = 3000;
@@ -1356,6 +1357,122 @@ app.delete("/api/tasks/:id", (req: Request, res: Response) => {
     return res.status(404).json({ error: "Task not found" });
   }
   res.json({ success: true, message: `Task ${id} deleted successfully` });
+});
+
+// ── AI System (Multilingual ASR, NLU & Conversational State) Endpoints ──
+app.get("/api/ai/status", (_req: Request, res: Response) => {
+  res.json({
+    status: "ok",
+    system: "Ɔkwankyerɛfo Pa AI Subsystem",
+    geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
+    languages: ["en", "twi"],
+    zeroPinEnforced: true,
+  });
+});
+
+app.post("/api/ai/process", async (req: Request, res: Response) => {
+  try {
+    const {
+      sessionId,
+      channel,
+      input,
+      audioBuffer,
+      mimeType,
+      language,
+      currentScreen,
+      currentStep,
+      conversationHistory,
+      transactionState,
+      availableActions,
+      userProfile,
+    } = req.body;
+
+    if (!input && !audioBuffer) {
+      return res.status(400).json({ error: "Missing 'input' or 'audioBuffer'." });
+    }
+
+    const result = await aiSystem.process({
+      sessionId: sessionId || `session_${Date.now()}`,
+      channel: channel || "VOICE",
+      input: input || "",
+      audioBuffer,
+      mimeType,
+      language: language || "tw",
+      currentScreen,
+      currentStep,
+      conversationHistory,
+      transactionState,
+      availableActions,
+      userProfile,
+    });
+
+    res.json({ success: true, result });
+  } catch (err: any) {
+    console.error("AI process error:", err);
+    res.status(500).json({ error: err.message || "Failed to process AI input" });
+  }
+});
+
+app.post("/api/ai/analyze", async (req: Request, res: Response) => {
+  try {
+    const { utterance, languageHint } = req.body;
+    if (!utterance || typeof utterance !== "string") {
+      return res.status(400).json({ error: "Missing or invalid 'utterance' field." });
+    }
+    const result = await aiSystem.analyzeUtterance(utterance, languageHint || "bilingual");
+    res.json({ success: true, result });
+  } catch (err: any) {
+    console.error("AI analyze error:", err);
+    res.status(500).json({ error: err.message || "Failed to analyze utterance" });
+  }
+});
+
+app.post("/api/ai/transcribe", async (req: Request, res: Response) => {
+  try {
+    const { audioBase64, mimeType, language } = req.body;
+    if (!audioBase64) {
+      return res.status(400).json({ error: "Missing 'audioBase64' payload." });
+    }
+    const result = await aiSystem.transcribe({
+      audioBuffer: audioBase64,
+      mimeType: mimeType || "audio/webm",
+      expectedLanguage: language || "bilingual",
+    });
+    res.json({ success: true, result });
+  } catch (err: any) {
+    console.error("AI transcribe error:", err);
+    res.status(500).json({ error: err.message || "Failed to transcribe audio" });
+  }
+});
+
+app.post("/api/ai/dialogue/turn", async (req: Request, res: Response) => {
+  try {
+    const { sessionId, text, audioBase64, mimeType } = req.body;
+    const sessionKey = sessionId || `session_${Date.now()}`;
+    const result = await aiSystem.handleTurn(sessionKey, {
+      text,
+      audioBuffer: audioBase64,
+      mimeType,
+    });
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error("AI dialogue error:", err);
+    res.status(500).json({ error: err.message || "Failed to process dialogue turn" });
+  }
+});
+
+app.post("/api/ai/synthesize", async (req: Request, res: Response) => {
+  try {
+    const { text, language, style } = req.body;
+    if (!text) {
+      return res.status(400).json({ error: "Missing 'text' to synthesize." });
+    }
+    const result = await aiSystem.synthesizeSpeech(text, language || "en", style);
+    res.json({ success: true, result });
+  } catch (err: any) {
+    console.error("AI synthesize error:", err);
+    res.status(500).json({ error: err.message || "Failed to synthesize speech" });
+  }
 });
 
 // ── Developer Console & Shipping Engine API Endpoints ─────────────────
