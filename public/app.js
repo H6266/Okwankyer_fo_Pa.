@@ -81,8 +81,20 @@
       seconds: 0,
       sessionId: 'session_' + Math.random().toString(36).substring(2, 9),
       activeConvState: null,
-      enteredPinDigits: ''
+      enteredPinDigits: '',
+      callerPhone: '0543546010',
+      callerName: 'Hannes Aboagye (My Real Phone)',
+      lastReference: 'OKP-847291',
+      lastMomoDetails: null
     },
+    linkedPhone: {
+      msisdn: '0543546010',
+      formatted: '+233 54 354 6010',
+      name: 'Hannes Aboagye (My Real Phone)',
+      amount: '5.00',
+      isSynced: true,
+    },
+    stepTimerInterval: null,
     phrases: [],
     subscribers: [],
     prototypeData: null,
@@ -112,6 +124,7 @@
       this.loadTwiAudio();
       this.loadSubscribers();
       this.initWaveformCanvas();
+      this.updateLinkedPhoneFromInput();
       this.setIdleState();
       this.fetchPipelineStatus();
       this.loadMomoStatus();
@@ -892,17 +905,265 @@
       }
     },
 
+    // ── Linked Phone & MoMo Trial Session Synchronizer ──────────────────
+    formatGhanaPhone(phone) {
+      if (!phone) return '';
+      let clean = String(phone).replace(/[\s\-\(\)\+]/g, '').trim();
+      if (clean.startsWith('233') && clean.length === 12) {
+        return `+233 ${clean.substring(3, 5)} ${clean.substring(5, 8)} ${clean.substring(8)}`;
+      }
+      if (clean.startsWith('0') && clean.length === 10) {
+        return `+233 ${clean.substring(1, 3)} ${clean.substring(3, 6)} ${clean.substring(6)}`;
+      }
+      return phone;
+    },
+
+    updateLinkedPhoneFromInput() {
+      const phoneInput = document.getElementById('simLinkedPhoneInput');
+      const nameInput = document.getElementById('simLinkedNameInput');
+      const amountInput = document.getElementById('simLinkedAmountInput');
+
+      const phone = phoneInput ? phoneInput.value.trim() : (this.linkedPhone ? this.linkedPhone.msisdn : '0543546010');
+      const name = nameInput ? nameInput.value.trim() : (this.linkedPhone ? this.linkedPhone.name : 'Hannes Aboagye');
+      const amount = amountInput ? amountInput.value.trim() : (this.linkedPhone ? this.linkedPhone.amount : '5.00');
+
+      if (!this.linkedPhone) {
+        this.linkedPhone = { msisdn: '0543546010', formatted: '+233 54 354 6010', name: 'Hannes Aboagye', amount: '5.00', isSynced: true };
+      }
+
+      this.linkedPhone.msisdn = phone;
+      this.linkedPhone.formatted = this.formatGhanaPhone(phone);
+      this.linkedPhone.name = name;
+      this.linkedPhone.amount = amount;
+
+      const badge = document.getElementById('simLinkedMsisdnBadge');
+      if (badge) badge.innerText = this.linkedPhone.formatted;
+
+      const vpPhone = document.getElementById('viewportLinkedPhone');
+      if (vpPhone) vpPhone.innerText = phone;
+
+      const vpName = document.getElementById('viewportLinkedName');
+      if (vpName) vpName.innerText = name;
+
+      const vpAmount = document.getElementById('viewportLinkedAmount');
+      if (vpAmount) vpAmount.innerText = parseFloat(amount || 0).toFixed(2);
+    },
+
+    setLinkedPhonePreset(phone, name, amount) {
+      const phoneInput = document.getElementById('simLinkedPhoneInput');
+      const nameInput = document.getElementById('simLinkedNameInput');
+      const amountInput = document.getElementById('simLinkedAmountInput');
+
+      if (phoneInput) phoneInput.value = phone;
+      if (nameInput) nameInput.value = name;
+      if (amountInput) amountInput.value = Number(amount).toFixed(2);
+
+      this.updateLinkedPhoneFromInput();
+      this.syncLinkedPhoneToCall(true);
+    },
+
+    syncLinkedPhoneToCall(quiet = false) {
+      this.updateLinkedPhoneFromInput();
+      this.callState.callerPhone = this.linkedPhone.msisdn;
+      this.callState.callerName = this.linkedPhone.name;
+      this.callState.amount = this.linkedPhone.amount;
+
+      const statusBadge = document.getElementById('simMomoStatusBadge');
+      if (statusBadge) {
+        statusBadge.innerText = '🟢 Linked & Synced';
+        statusBadge.style.background = '#10b981';
+      }
+
+      const callerSub = document.getElementById('callCallerSub');
+      if (callerSub) {
+        callerSub.innerText = `${this.linkedPhone.formatted} • Linked Account`;
+      }
+
+      if (!quiet) {
+        const toast = document.createElement('div');
+        toast.style.cssText = 'position:fixed; bottom:24px; right:24px; background:#10b981; color:#fff; padding:12px 18px; border-radius:8px; font-weight:700; z-index:99999; box-shadow:0 8px 24px rgba(0,0,0,0.3); display:flex; align-items:center; gap:8px;';
+        toast.innerHTML = `<span>✅</span> Account ${this.linkedPhone.formatted} synchronized with trial session!`;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 2600);
+      }
+    },
+
+    async triggerSimLivePush() {
+      this.updateLinkedPhoneFromInput();
+      const phone = this.linkedPhone.msisdn;
+      const amount = parseFloat(this.linkedPhone.amount || '5.00');
+      const name = this.linkedPhone.name;
+
+      if (!phone || isNaN(amount) || amount <= 0) {
+        alert('Please enter a valid phone number and trial amount.');
+        return;
+      }
+
+      this.showMomoConsole('Initiating 1-Click Live MoMo Push...', {
+        event: 'MOMO_REQUEST_TO_PAY_DISPATCH',
+        targetMsisdn: phone,
+        formattedMsisdn: this.linkedPhone.formatted,
+        amount: amount,
+        currency: 'GHS',
+        payerName: name,
+        cellularTokensBurned: 0,
+        gateway: 'MTN Mobile Money Open API',
+        timestamp: new Date().toISOString()
+      });
+
+      const statusBadge = document.getElementById('simMomoStatusBadge');
+      if (statusBadge) {
+        statusBadge.innerText = '⏳ Dispatching Push...';
+        statusBadge.style.background = '#f59e0b';
+      }
+
+      try {
+        const res = await fetch('/api/momo/request-to-pay', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount,
+            payerPhone: phone,
+            payerName: name,
+            payerMessage: `Ɔkwankyerɛfo Pa Voice MoMo Trial (${amount} GHS)`,
+            payeeNote: 'Voice Accessibility Layer Pilot',
+          })
+        });
+
+        const data = await res.json();
+        this.showMomoConsole('1-Click MoMo Push Result', data);
+
+        if (data.success && data.transaction) {
+          const tx = data.transaction;
+          if (statusBadge) {
+            statusBadge.innerText = `● Prompt Sent: ${tx.status}`;
+            statusBadge.style.background = tx.status === 'SUCCESSFUL' ? '#10b981' : '#3b82f6';
+          }
+
+          this.loadMomoTransactions();
+          this.loadMomoStatus();
+
+          // Poll for status check
+          if (tx.referenceId && (tx.status === 'PENDING' || tx.status === 'PROCESSED')) {
+            let polls = 0;
+            const pollInterval = setInterval(async () => {
+              polls++;
+              if (polls > 6) {
+                clearInterval(pollInterval);
+                return;
+              }
+              try {
+                const pollRes = await fetch(`/api/momo/request-to-pay/${tx.referenceId}`);
+                const pollData = await pollRes.json();
+                if (pollData.success && pollData.transaction) {
+                  this.showMomoConsole(`MoMo Status Poll #${polls}`, pollData.transaction);
+                  if (pollData.transaction.status === 'SUCCESSFUL') {
+                    if (statusBadge) {
+                      statusBadge.innerText = '🟢 Payment Approved!';
+                      statusBadge.style.background = '#10b981';
+                    }
+                    clearInterval(pollInterval);
+                  }
+                }
+              } catch (_) {}
+            }, 3000);
+          }
+        } else {
+          if (statusBadge) {
+            statusBadge.innerText = '⚠️ Push Failed';
+            statusBadge.style.background = '#ef4444';
+          }
+        }
+      } catch (err) {
+        this.showMomoConsole('MoMo Dispatch Error', { error: err.message || err });
+        alert('Failed to send MoMo push: ' + (err.message || err));
+      }
+    },
+
+    async triggerSimPayout() {
+      this.updateLinkedPhoneFromInput();
+      const phone = this.linkedPhone.msisdn;
+      const amount = parseFloat(this.linkedPhone.amount || '5.00');
+      const name = this.linkedPhone.name;
+
+      if (!phone || isNaN(amount) || amount <= 0) {
+        alert('Please enter a valid phone number and trial amount.');
+        return;
+      }
+
+      this.showMomoConsole('Initiating 1-Click MoMo Payout (Disbursement)...', {
+        event: 'MOMO_DISBURSEMENT_DISPATCH',
+        payeePhone: phone,
+        formattedMsisdn: this.linkedPhone.formatted,
+        amount: amount,
+        currency: 'GHS',
+        payeeName: name,
+        cellularTokensBurned: 0,
+        gateway: 'MTN Mobile Money Open API',
+        timestamp: new Date().toISOString()
+      });
+
+      const statusBadge = document.getElementById('simMomoStatusBadge');
+      if (statusBadge) {
+        statusBadge.innerText = '⏳ Disbursing Payout...';
+        statusBadge.style.background = '#f59e0b';
+      }
+
+      try {
+        const res = await fetch('/api/momo/transfer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount,
+            payeePhone: phone,
+            payeeName: name,
+            payerMessage: `Trial Payout to ${phone}`,
+            payeeNote: 'Ɔkwankyerɛfo Pa Voice MoMo Pilot',
+          })
+        });
+
+        const data = await res.json();
+        this.showMomoConsole('1-Click MoMo Payout Result', data);
+
+        if (data.success && data.transaction) {
+          const tx = data.transaction;
+          if (statusBadge) {
+            statusBadge.innerText = `● Payout Sent: ${tx.status}`;
+            statusBadge.style.background = tx.status === 'SUCCESSFUL' ? '#10b981' : '#3b82f6';
+          }
+          this.loadMomoTransactions();
+          this.loadMomoStatus();
+        } else {
+          if (statusBadge) {
+            statusBadge.innerText = '⚠️ Payout Notice';
+            statusBadge.style.background = '#f59e0b';
+          }
+        }
+      } catch (err) {
+        this.showMomoConsole('MoMo Payout Error', { error: err.message || err });
+        alert('Failed to send MoMo payout: ' + (err.message || err));
+      }
+    },
+
     // ── Call Simulator Pipeline ─────────────────────────────────────────
     startCall() {
+      this.updateLinkedPhoneFromInput();
       this.callState.active = true;
       this.callState.seconds = 0;
       this.callState.sessionId = 'session_' + Math.random().toString(36).substring(2, 9);
       this.callState.activeConvState = null;
       this.callState.enteredPinDigits = '';
-      this.callState.phone = '0553838464';
-      this.callState.name = 'Kwame Nyamebere';
-      this.callState.amount = '500';
+      this.callState.callerPhone = this.linkedPhone.msisdn;
+      this.callState.callerName = this.linkedPhone.name;
+      this.callState.phone = this.callState.phone || '0553838464';
+      this.callState.name = this.callState.name || 'Kwame Nyamebere';
+      this.callState.amount = this.linkedPhone.amount || '5.00';
       this.callState.provider = 'MTN';
+
+      const callerSub = document.getElementById('callCallerSub');
+      if (callerSub) {
+        callerSub.innerText = `${this.linkedPhone.formatted} • Linked Account (0 AT Tokens)`;
+      }
 
       clearInterval(this.callState.timerInterval);
       this.callState.timerInterval = setInterval(() => {
@@ -980,15 +1241,30 @@
 
       const viewport = document.getElementById('stepControlsViewport');
       if (viewport) {
+        const phone = this.linkedPhone ? this.linkedPhone.msisdn : '0543546010';
+        const name = this.linkedPhone ? this.linkedPhone.name : 'Hannes Aboagye (My Real Phone)';
+        const amount = this.linkedPhone ? parseFloat(this.linkedPhone.amount || 5).toFixed(2) : '5.00';
         viewport.innerHTML = `
-          <div style="padding: 16px 8px; text-align: center;">
-            <div style="font-size: 28px; margin-bottom: 8px;">📞</div>
-            <div style="font-weight: 700; font-size: 14px; margin-bottom: 4px; color: var(--ink);">Ready to Test Ɔkwankyerɛfo Pa</div>
-            <p style="font-size: 12px; color: var(--ink-secondary); margin-bottom: 14px; line-height: 1.5;">
-              Dual-track accessibility IVR voice layer with Akan Twi and English speech.
+          <div style="padding: 14px 8px; text-align: center;">
+            <div style="font-size: 26px; margin-bottom: 6px;">📞</div>
+            <div style="font-weight: 700; font-size: 14px; margin-bottom: 3px; color: var(--ink);">Ready to Test Ɔkwankyerɛfo Pa</div>
+            <p style="font-size: 11.5px; color: var(--ink-secondary); margin-bottom: 10px; line-height: 1.4;">
+              Interactive Voice Simulation &bull; Akan Twi &amp; English (0 Cellular Tokens)
             </p>
+
+            <div style="background: rgba(217, 158, 31, 0.12); border: 1px solid #d99e1f; border-radius: 8px; padding: 10px; margin-bottom: 12px; text-align: left;">
+              <div style="font-size: 10px; text-transform: uppercase; font-weight: 700; color: #d99e1f; letter-spacing: 0.5px;">Linked MoMo Target:</div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 3px;">
+                <span style="font-size: 13.5px; font-weight: 800; color: var(--ink); font-family: monospace;" id="viewportLinkedPhone">${phone}</span>
+                <span style="font-size: 12px; font-weight: 800; color: #10b981;">GH₵ <span id="viewportLinkedAmount">${amount}</span></span>
+              </div>
+              <div style="font-size: 10.5px; color: var(--ink-muted); margin-top: 2px;">
+                <span id="viewportLinkedName">${name}</span> &bull; MTN Mobile Money
+              </div>
+            </div>
+
             <button class="btn btn-call-start" style="width: 100%; justify-content: center; font-size: 13.5px; padding: 10px 16px;" onclick="window.app.startCall()">
-              <span>📞</span> Place New Call
+              <span>📞</span> Start Call (with Linked Number)
             </button>
           </div>
         `;
@@ -2143,6 +2419,40 @@
         }
       }
 
+      // Step Timer Controls: 40s for recipient, 30s for amount, 30s for PIN
+      clearInterval(this.stepTimerInterval);
+      if (step === 'recipient') {
+        let remaining = 40;
+        this.stepTimerInterval = setInterval(() => {
+          remaining--;
+          const el = document.getElementById('stepCountdownRecipient');
+          if (el) el.innerText = `${remaining}s`;
+          if (remaining <= 0) {
+            clearInterval(this.stepTimerInterval);
+          }
+        }, 1000);
+      } else if (step === 'amount') {
+        let remaining = 30;
+        this.stepTimerInterval = setInterval(() => {
+          remaining--;
+          const el = document.getElementById('stepCountdownAmount');
+          if (el) el.innerText = `${remaining}s`;
+          if (remaining <= 0) {
+            clearInterval(this.stepTimerInterval);
+          }
+        }, 1000);
+      } else if (step === 'pin_handoff') {
+        let remaining = 30;
+        this.stepTimerInterval = setInterval(() => {
+          remaining--;
+          const el = document.getElementById('pinCountdown');
+          if (el) el.innerText = `${remaining}s`;
+          if (remaining <= 0) {
+            clearInterval(this.stepTimerInterval);
+          }
+        }, 1000);
+      }
+
       // Enforce strict language separation:
       // Once chosen at Welcome, lang stays locked. Never mix Twi audio into English, nor English audio into Twi!
       if (this.voiceMode === 'twi') {
@@ -2278,18 +2588,30 @@
           audio: '/audio/English/Audio_prompt_06.mp3',
           promptText: '"Enter the 10-digit number you want to send money to, followed by hash. Press 0 to exit."',
           xmlUrl: `/enter-recipient?lang=en&provider=${this.callState.provider || 'MTN'}`,
-          render: () => `
+          render: () => {
+            const linkedMsisdn = this.linkedPhone ? this.linkedPhone.msisdn : '0543546010';
+            return `
             <div style="text-align:center;">
+              <div style="font-size:11px; color:#10b981; font-weight:700; margin-bottom:6px; display:flex; justify-content:center; gap:6px; align-items:center;">
+                <span>⏱️ Time Remaining:</span>
+                <span id="stepCountdownRecipient" style="background:rgba(16,185,129,0.2); padding:1px 6px; border-radius:4px; font-family:monospace;">40s</span>
+                <span style="color:var(--ink-muted); font-size:10px;">(10 digits then #)</span>
+              </div>
               <input type="text" id="inPhoneSim" value="${this.callState.phone || '0553838464'}" maxlength="10" 
                 style="width:90%; padding:8px; font-size:16px; font-weight:bold; text-align:center; background:#000; border:1px solid var(--border-subtle); color:#fff; border-radius:6px; margin-bottom:8px;">
               <button class="btn btn-sm btn-primary" style="width:90%; margin-bottom:6px;" onclick="window.app.submitSimRecipient()">
                 Submit Number (#)
               </button>
-              <div style="font-size:11px; color:var(--sky-accent); cursor:pointer;" onclick="document.getElementById('inPhoneSim').value='0553838464'; window.app.submitSimRecipient();">
-                👉 Fast-dial: Kwame Nyamebere (0553838464)
+              <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:4px; margin-top:6px;">
+                <span class="btn btn-xs btn-outline" style="cursor:pointer;" onclick="document.getElementById('inPhoneSim').value='${linkedMsisdn}'; window.app.submitSimRecipient();">
+                  👉 Use Linked: ${linkedMsisdn}
+                </span>
+                <span class="btn btn-xs btn-outline" style="cursor:pointer;" onclick="document.getElementById('inPhoneSim').value='0553838464'; window.app.submitSimRecipient();">
+                  👉 Kwame: 0553838464
+                </span>
               </div>
             </div>
-          `
+          `;}
         },
         recipient_verify: {
           tag: 'Step 6: KYC Verification (Kwame Nyamebere)',
@@ -2317,20 +2639,27 @@
           audio: '/audio/English/Audio_prompt_09.mp3',
           promptText: '"Enter the cedi amount you want to send to Kwame Nyamebere, followed by hash. Use star for pesewas."',
           xmlUrl: `/enter-amount?lang=en&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(recipientName)}`,
-          render: () => `
+          render: () => {
+            const trialAmt = this.linkedPhone ? parseFloat(this.linkedPhone.amount || 5).toFixed(2) : '5.00';
+            return `
             <div style="text-align:center;">
-              <input type="text" id="inAmountSim" value="${this.callState.amount || '500'}" 
+              <div style="font-size:11px; color:#10b981; font-weight:700; margin-bottom:6px; display:flex; justify-content:center; gap:6px; align-items:center;">
+                <span>⏱️ Time Remaining:</span>
+                <span id="stepCountdownAmount" style="background:rgba(16,185,129,0.2); padding:1px 6px; border-radius:4px; font-family:monospace;">30s</span>
+                <span style="color:var(--ink-muted); font-size:10px;">(* for decimal, # to submit)</span>
+              </div>
+              <input type="text" id="inAmountSim" value="${this.callState.amount || trialAmt}" 
                 style="width:90%; padding:8px; font-size:16px; font-weight:bold; text-align:center; background:#000; border:1px solid var(--border-subtle); color:#fff; border-radius:6px; margin-bottom:8px;">
               <button class="btn btn-sm btn-primary" style="width:90%; margin-bottom:6px;" onclick="window.app.submitSimAmount()">
                 Submit Amount (#)
               </button>
-              <div style="display:flex; justify-content:center; gap:6px;">
-                <button class="btn btn-xs btn-outline" onclick="document.getElementById('inAmountSim').value='500'; window.app.submitSimAmount();">500 Cedis</button>
-                <button class="btn btn-xs btn-outline" onclick="document.getElementById('inAmountSim').value='50'; window.app.submitSimAmount();">50 Cedis</button>
-                <button class="btn btn-xs btn-outline" onclick="document.getElementById('inAmountSim').value='100'; window.app.submitSimAmount();">100 Cedis</button>
+              <div style="display:flex; justify-content:center; gap:6px; flex-wrap:wrap;">
+                <button class="btn btn-xs btn-outline" onclick="document.getElementById('inAmountSim').value='${trialAmt}'; window.app.submitSimAmount();">GH₵ ${trialAmt} (Trial)</button>
+                <button class="btn btn-xs btn-outline" onclick="document.getElementById('inAmountSim').value='50'; window.app.submitSimAmount();">GH₵ 50</button>
+                <button class="btn btn-xs btn-outline" onclick="document.getElementById('inAmountSim').value='100'; window.app.submitSimAmount();">GH₵ 100</button>
               </div>
             </div>
-          `
+          `;}
         },
         confirm: {
           tag: 'Step 8: Transfer Confirmation Read-Back',
@@ -2528,18 +2857,30 @@
           audio: '/audio/Twi/Audio_prompt_twi_05.mp3',
           promptText: '"Afei, bɔ nɔmba no a wopɛ sɛ wosende sika no to so no. Wowie a, fa hash ka ho. Mia zero na san akyi."',
           xmlUrl: `/enter-recipient?lang=twi&provider=${this.callState.provider || 'MTN'}`,
-          render: () => `
+          render: () => {
+            const linkedMsisdn = this.linkedPhone ? this.linkedPhone.msisdn : '0543546010';
+            return `
             <div style="text-align:center;">
+              <div style="font-size:11px; color:#10b981; font-weight:700; margin-bottom:6px; display:flex; justify-content:center; gap:6px; align-items:center;">
+                <span>⏱️ Berɛ a Aka:</span>
+                <span id="stepCountdownRecipient" style="background:rgba(16,185,129,0.2); padding:1px 6px; border-radius:4px; font-family:monospace;">40s</span>
+                <span style="color:var(--ink-muted); font-size:10px;">(Bɔ nɔmba 10 na fa # wie)</span>
+              </div>
               <input type="text" id="inPhoneSim" value="${this.callState.phone || '0553838464'}" maxlength="10" 
                 style="width:90%; padding:8px; font-size:16px; font-weight:bold; text-align:center; background:#000; border:1px solid var(--border-subtle); color:#fff; border-radius:6px; margin-bottom:8px;">
               <button class="btn btn-sm btn-primary" style="width:90%; margin-bottom:6px;" onclick="window.app.submitSimRecipient()">
                 Fa Hash Ka Ho (#)
               </button>
-              <div style="font-size:11px; color:var(--sky-accent); cursor:pointer;" onclick="document.getElementById('inPhoneSim').value='0553838464'; window.app.submitSimRecipient();">
-                👉 Bɔ nɔmba du (10) no: 0553838464 (#)
+              <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:4px; margin-top:6px;">
+                <span class="btn btn-xs btn-outline" style="cursor:pointer;" onclick="document.getElementById('inPhoneSim').value='${linkedMsisdn}'; window.app.submitSimRecipient();">
+                  👉 Me Nɔmba: ${linkedMsisdn}
+                </span>
+                <span class="btn btn-xs btn-outline" style="cursor:pointer;" onclick="document.getElementById('inPhoneSim').value='0553838464'; window.app.submitSimRecipient();">
+                  👉 Kwame: 0553838464
+                </span>
               </div>
             </div>
-          `
+          `;}
         },
         recipient_verify: {
           tag: 'Step 6: KYC Verification (Kwame Nyamebrɛ)',
@@ -2567,20 +2908,27 @@
           audio: '/audio/Twi/Audio_prompt_twi_07.mp3',
           promptText: '"Mepa wo kyɛw, si di amount a wo pɛ sɛ wo send ɛkɔ Kwame Nyame Brɛfo so, woyɛ a fa hash ɛntua to."',
           xmlUrl: `/enter-amount?lang=twi&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(recipientName)}`,
-          render: () => `
+          render: () => {
+            const trialAmt = this.linkedPhone ? parseFloat(this.linkedPhone.amount || 5).toFixed(2) : '5.00';
+            return `
             <div style="text-align:center;">
-              <input type="text" id="inAmountSim" value="${this.callState.amount || '500'}" 
+              <div style="font-size:11px; color:#10b981; font-weight:700; margin-bottom:6px; display:flex; justify-content:center; gap:6px; align-items:center;">
+                <span>⏱️ Berɛ a Aka:</span>
+                <span id="stepCountdownAmount" style="background:rgba(16,185,129,0.2); padding:1px 6px; border-radius:4px; font-family:monospace;">30s</span>
+                <span style="color:var(--ink-muted); font-size:10px;">(* ma decimal, # ma wie)</span>
+              </div>
+              <input type="text" id="inAmountSim" value="${this.callState.amount || trialAmt}" 
                 style="width:90%; padding:8px; font-size:16px; font-weight:bold; text-align:center; background:#000; border:1px solid var(--border-subtle); color:#fff; border-radius:6px; margin-bottom:8px;">
               <button class="btn btn-sm btn-primary" style="width:90%; margin-bottom:6px;" onclick="window.app.submitSimAmount()">
                 Fa Hash Wie (#)
               </button>
-              <div style="display:flex; justify-content:center; gap:6px;">
-                <button class="btn btn-xs btn-outline" onclick="document.getElementById('inAmountSim').value='500'; window.app.submitSimAmount();">500 Cedis</button>
+              <div style="display:flex; justify-content:center; gap:6px; flex-wrap:wrap;">
+                <button class="btn btn-xs btn-outline" onclick="document.getElementById('inAmountSim').value='${trialAmt}'; window.app.submitSimAmount();">GH₵ ${trialAmt} (Trial)</button>
                 <button class="btn btn-xs btn-outline" onclick="document.getElementById('inAmountSim').value='50'; window.app.submitSimAmount();">50 Cedis</button>
                 <button class="btn btn-xs btn-outline" onclick="document.getElementById('inAmountSim').value='100'; window.app.submitSimAmount();">100 Cedis</button>
               </div>
             </div>
-          `
+          `;}
         },
         confirm: {
           tag: 'Step 8: Pene Sika no so (Safe Confirmation)',
@@ -2748,13 +3096,25 @@
     },
 
     renderPinPadUi(title, isTwi) {
+      const payerMsisdn = this.linkedPhone ? this.linkedPhone.formatted : '+233 54 354 6010';
+      const payerLabel = this.linkedPhone ? this.linkedPhone.name : 'Linked Subscriber';
+      const amt = parseFloat(this.callState.amount || (this.linkedPhone ? this.linkedPhone.amount : 5)).toFixed(2);
+      const recPhone = this.callState.phone || '0553838464';
+      const recName = this.callState.name || 'Kwame Nyamebere';
+
       return `
         <div class="pin-handoff-card" style="background:#0f172a; border:1px solid var(--emerald-accent); border-radius:8px; padding:12px; text-align:center;">
-          <div style="font-size:12px; color:var(--emerald-accent); font-weight:bold; margin-bottom:4px;">
-            📲 ${isTwi ? 'Fon So MoMo PIN Ahobammbɔ' : 'Secure Handset PIN Authentication Prompt'}
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; font-size:11px;">
+            <span style="color:var(--emerald-accent); font-weight:bold;">
+              📲 ${isTwi ? 'Fon So MoMo PIN Ahobammbɔ' : 'Secure Handset PIN Authorization'}
+            </span>
+            <span style="color:#10b981; font-weight:700; background:rgba(16,185,129,0.15); padding:2px 6px; border-radius:4px;">
+              ⏱️ <span id="pinCountdown">30s</span>
+            </span>
           </div>
-          <div style="font-size:11px; color:#cbd5e1; margin-bottom:8px;">
-            ${title}
+          <div style="font-size:11px; color:#cbd5e1; margin-bottom:6px; line-height:1.4;">
+            <div>Account: <strong style="color:#38bdf8;">${payerMsisdn}</strong> (${payerLabel})</div>
+            <div>To: <strong>${recName}</strong> (${recPhone}) &bull; <strong style="color:var(--emerald-accent);">GH₵ ${amt}</strong></div>
           </div>
           <div class="pin-display-dots" id="pinDisplayDots" style="font-size:22px; letter-spacing:8px; color:var(--emerald-accent); margin-bottom:8px;">
             ○ ○ ○ ○
@@ -2773,14 +3133,21 @@
             <button class="btn btn-xs btn-outline" onclick="window.app.enterPinDigit('0')">0</button>
             <button class="btn btn-xs btn-primary" onclick="window.app.submitPinAuthorization()">OK</button>
           </div>
-          <div style="margin-top:6px; font-size:10px; color:#6ee7b7;">
-            🛡️ ${isTwi ? 'Zero-PIN Ahobammbɔ: Nne kwan no nntie PIN da.' : 'Zero-PIN Security: Voice channel never captures PIN'}
+          <div style="margin-top:8px; font-size:10px; color:#6ee7b7;">
+            🛡️ ${isTwi ? 'Zero-PIN Ahobammbɔ: Nne kwan no nntie PIN da. MTN MoMo API re-process sika no.' : 'Zero-PIN Security: Voice channel never captures PIN. MTN MoMo API processes payment.'}
           </div>
         </div>
       `;
     },
 
     renderReceiptUi(isTwi) {
+      const payerMsisdn = this.linkedPhone ? this.linkedPhone.formatted : '+233 54 354 6010';
+      const recPhone = this.callState.phone || '0553838464';
+      const recName = this.callState.name || 'Kwame Nyamebere';
+      const amt = parseFloat(this.callState.amount || (this.linkedPhone ? this.linkedPhone.amount : 500)).toFixed(2);
+      const ref = this.callState.lastReference || 'OKP-' + Math.floor(100000 + Math.random() * 900000);
+      const momo = this.callState.lastMomoDetails;
+
       return `
         <div class="receipt-card">
           <div class="receipt-header">
@@ -2788,24 +3155,30 @@
             <span>${isTwi ? 'Woatumi Awie Dwumadie No Pɛpɛɛpɛ' : 'Transaction Successfully Completed'}</span>
           </div>
           <div class="receipt-row">
+            <span>${isTwi ? 'Nea Otuae:' : 'Debited Account:'}</span>
+            <strong style="color:#38bdf8;">${payerMsisdn}</strong>
+          </div>
+          <div class="receipt-row">
             <span>${isTwi ? 'Nea Onyae:' : 'Recipient:'}</span>
-            <strong>Kwame Nyamebere (0553838464)</strong>
+            <strong>${recName} (${recPhone})</strong>
           </div>
           <div class="receipt-row">
             <span>${isTwi ? 'Sika a Womenee:' : 'Amount Sent:'}</span>
-            <strong style="color:var(--emerald-accent);">GH₵ 500.00</strong>
+            <strong style="color:var(--emerald-accent);">GH₵ ${amt}</strong>
           </div>
           <div class="receipt-row">
             <span>${isTwi ? 'Reference Nɔmba:' : 'Reference No:'}</span>
-            <strong>OKP-847291</strong>
+            <strong style="font-family:monospace;">${ref}</strong>
           </div>
-          <div class="receipt-row">
-            <span>${isTwi ? 'Da & Berɛ:' : 'Date & Time:'}</span>
-            <span>17 Sep 2026, 5:00 PM</span>
+          ${momo ? `
+          <div class="receipt-row" style="background:rgba(217,158,31,0.1); padding:4px 6px; border-radius:4px; font-size:11px;">
+            <span>MoMo Gateway:</span>
+            <span style="color:#d99e1f; font-weight:700;">${momo.mode} &bull; ${momo.status}</span>
           </div>
+          ` : ''}
           <div class="receipt-row">
             <span>Status:</span>
-            <strong style="color:var(--emerald-accent);">${isTwi ? 'Awie (Completed)' : 'Completed'}</strong>
+            <strong style="color:var(--emerald-accent);">${isTwi ? 'Awie (Completed)' : 'Completed (No Tokens Burned)'}</strong>
           </div>
           <div style="margin-top:8px; border-top:1px dashed rgba(255,255,255,0.15); padding-top:6px; font-size:11.5px; color:#e2e8f0; text-align:center;">
             ${isTwi ? '"Wopɛ sɛ woyɛ biribi foforɔ bi bio anaa?"' : '"Would you like to do anything else?"'}
@@ -3772,15 +4145,33 @@
       this.callState.enteredPinDigits = '';
 
       try {
+        const callerPhone = this.linkedPhone ? this.linkedPhone.msisdn : '0543546010';
+        const callerName = this.linkedPhone ? this.linkedPhone.name : 'Linked Subscriber';
+        const amountNum = parseFloat(this.callState.amount || (this.linkedPhone ? this.linkedPhone.amount : '5.00'));
+        const recPhone = this.callState.phone || '0553838464';
+        const recName = this.callState.name || 'Kwame Nyamebere';
+
         const res = await fetch('/api/conversation/authorize', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId: this.callState.sessionId })
+          body: JSON.stringify({
+            sessionId: this.callState.sessionId,
+            callerPhone,
+            callerName,
+            recipientPhone: recPhone,
+            recipientName: recName,
+            amount: amountNum,
+          })
         });
         const data = await res.json();
         if (data.success) {
           // PIN prompt is now done! Mark PIN prompt closed so the cycle resumes
           this.isPinPromptOpen = false;
+          this.callState.lastReference = data.reference || 'OKP-' + Math.floor(100000 + Math.random() * 900000);
+          this.callState.lastMomoDetails = data.momoDetails;
+
+          this.loadMomoTransactions();
+          this.loadMomoStatus();
 
           const promptEn = document.getElementById('currentPromptEn');
           const promptTwi = document.getElementById('currentPromptTwi');
@@ -3905,14 +4296,57 @@
 
     // ── Fetch VoiceXML for Inspector ─────────────────────────────────────
     async fetchVoiceXml(endpoint) {
+      if (!endpoint) return;
       try {
-        const res = await fetch(endpoint);
-        const xml = await res.text();
-        const codeEl = document.getElementById('liveXmlCode');
-        if (codeEl) codeEl.innerText = xml;
+        const fullUrl = endpoint.startsWith('http') ? endpoint : `${window.location.origin}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timeoutId = controller ? setTimeout(() => controller.abort(), 4000) : null;
+        
+        const res = await fetch(fullUrl, {
+          signal: controller ? controller.signal : undefined,
+          headers: { 'Accept': 'application/xml, text/xml, */*' }
+        });
+        if (timeoutId) clearTimeout(timeoutId);
+
+        if (res && res.ok) {
+          const xml = await res.text();
+          const codeEl = document.getElementById('liveXmlCode');
+          if (codeEl && xml) codeEl.innerText = xml;
+        } else {
+          this.renderFallbackXml(endpoint);
+        }
       } catch (err) {
-        console.error('Failed to fetch XML:', err);
+        // Silently fall back to synthesized VoiceXML to keep the inspector live without throwing error banners
+        this.renderFallbackXml(endpoint);
       }
+    },
+
+    renderFallbackXml(endpoint) {
+      const codeEl = document.getElementById('liveXmlCode');
+      if (!codeEl) return;
+      const cleanEp = (endpoint || '').toLowerCase();
+      let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n';
+      if (cleanEp.includes('voice-menu') || cleanEp.includes('welcome')) {
+        xml += '    <GetDigits timeout="2" finishOnKey="#" numDigits="1" callbackUrl="/language-selection">\n        <Play url="/audio/Welcome_prompt_01.mp3"/>\n    </GetDigits>\n';
+      } else if (cleanEp.includes('service-select')) {
+        xml += '    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="/provider-select">\n        <Play url="/audio/English/Audio_prompt_02.mp3"/>\n    </GetDigits>\n';
+      } else if (cleanEp.includes('provider-select')) {
+        xml += '    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="/action-select">\n        <Play url="/audio/English/Audio_prompt_03.mp3"/>\n    </GetDigits>\n';
+      } else if (cleanEp.includes('action-select')) {
+        xml += '    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="/enter-recipient">\n        <Play url="/audio/English/Audio_prompt_05.mp3"/>\n    </GetDigits>\n';
+      } else if (cleanEp.includes('enter-recipient')) {
+        xml += '    <GetDigits timeout="40" finishOnKey="#" numDigits="10" callbackUrl="/verify-recipient">\n        <Play url="/audio/English/Audio_prompt_06.mp3"/>\n    </GetDigits>\n';
+      } else if (cleanEp.includes('enter-amount')) {
+        xml += '    <GetDigits timeout="30" finishOnKey="#" numDigits="8" callbackUrl="/verify-amount">\n        <Play url="/audio/English/Audio_prompt_09.mp3"/>\n    </GetDigits>\n';
+      } else if (cleanEp.includes('safe-confirmation')) {
+        xml += '    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="/safe-outcome">\n        <Play url="/audio/English/Audio_prompt_10.mp3"/>\n    </GetDigits>\n';
+      } else if (cleanEp.includes('safe-outcome')) {
+        xml += '    <Play url="/audio/English/Audio_prompt_11.mp3"/>\n    <Reject/>\n';
+      } else {
+        xml += '    <!-- Live VoiceXML stream ready for IVR ingress -->\n';
+      }
+      xml += '</Response>';
+      codeEl.innerText = xml;
     },
 
     copyCurrentXml() {

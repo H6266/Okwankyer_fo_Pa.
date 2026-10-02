@@ -123,6 +123,106 @@
         </div>
       </div>
 
+      <!-- Real MoMo Account Linker & Live Sync Box -->
+      <div class="panel-card" style="margin-bottom: 20px; border: 2px solid #d99e1f; box-shadow: 0 4px 20px rgba(217, 158, 31, 0.12); background: linear-gradient(135deg, rgba(217, 158, 31, 0.08) 0%, rgba(16, 185, 129, 0.05) 100%);">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+          <div>
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px; flex-wrap:wrap;">
+              <span class="badge" style="background:#d99e1f; color:#16211a; font-weight:800;">LIVE MOMO TRIAL</span>
+              <span class="badge" id="simMomoStatusBadge" style="background:#10b981; color:#fff; font-weight:700;">🟢 Linked &amp; Synced</span>
+              <span class="badge" style="background:rgba(2,132,199,0.15); color:#0284c7; border:1px solid rgba(2,132,199,0.3); font-size:11px; font-weight:600;">Zero Cellular Tokens Burned</span>
+            </div>
+            <h3 style="font-size:17px; font-weight:700; color:var(--ink); margin:0;">
+              <span>📲</span> Connect &amp; Synchronize Real Phone Number for MoMo Transactions
+            </h3>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btn btn-sm btn-outline" onclick="window.app.switchTab('momo')" style="font-weight:600;">
+              <span>⚙️</span> View MoMo Keys
+            </button>
+            <button class="btn btn-sm" onclick="window.app.triggerSimPayout()" style="background:#0284c7; color:#fff; font-weight:700;">
+              <span>💸</span> 1-Click Payout (Disburse)
+            </button>
+            <button class="btn btn-sm" onclick="window.app.triggerSimLivePush()" style="background:#d99e1f; color:#16211a; font-weight:700;">
+              <span>⚡</span> 1-Click Live MoMo Push (Collect)
+            </button>
+          </div>
+        </div>
+
+        <p style="font-size:12px; color:var(--ink-secondary); margin-bottom:14px; line-height:1.5;">
+          Connect your real phone number (e.g. <code>0543546010</code> or <code>0553838464</code>). When you start a call simulation below, this phone number automatically synchronizes as your trial transaction target, triggering the genuine MTN MoMo collection/transfer engine and live status sync.
+        </p>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px; align-items:end;">
+          <div>
+            <label class="form-label" style="font-size:11.5px; font-weight:700; display:flex; justify-content:space-between;">
+              <span>Your Mobile Money Phone Number:</span>
+              <span id="simLinkedMsisdnBadge" style="color:#10b981; font-family:monospace; font-weight:700;">+233 54 354 6010</span>
+            </label>
+            <input type="text" class="form-input font-mono" id="simLinkedPhoneInput" value="0543546010" placeholder="e.g. 0543546010" oninput="window.app.updateLinkedPhoneFromInput()">
+          </div>
+
+          <div>
+            <label class="form-label" style="font-size:11.5px; font-weight:700;">Subscriber Name / Account Label:</label>
+            <input type="text" class="form-input" id="simLinkedNameInput" value="Hannes Aboagye (My Real Phone)" placeholder="e.g. Kwame Nyamebere" oninput="window.app.updateLinkedPhoneFromInput()">
+          </div>
+
+          <div>
+            <label class="form-label" style="font-size:11.5px; font-weight:700;">Trial Amount (GHS):</label>
+            <div style="display:flex; gap:6px;">
+              <input type="number" class="form-input font-mono" id="simLinkedAmountInput" value="5.00" step="1" min="1" max="1000" style="max-width:110px;" oninput="window.app.updateLinkedPhoneFromInput()">
+              <button class="btn btn-sm btn-primary" style="flex:1;" onclick="window.app.syncLinkedPhoneToCall()">
+                <span>🔗</span> Sync to Call
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Switcher Chips -->
+        <div style="display:flex; align-items:center; gap:8px; margin-top:12px; flex-wrap:wrap; padding-top:10px; border-top:1px solid rgba(0,0,0,0.06);">
+          <span style="font-size:11px; color:var(--ink-muted); font-weight:600;">Quick Select:</span>
+          <button type="button" class="btn btn-xs btn-outline" onclick="window.app.setLinkedPhonePreset('0543546010', 'Hannes Aboagye', 5)">
+            👤 0543546010 (My Real Phone)
+          </button>
+          <button type="button" class="btn btn-xs btn-outline" onclick="window.app.setLinkedPhonePreset('0553838464', 'Kwame Nyamebere', 50)">
+            👤 0553838464 (Kwame)
+          </button>
+          <button type="button" class="btn btn-xs btn-outline" onclick="window.app.setLinkedPhonePreset('0241234567', 'Ama Mensah', 20)">
+            👤 0241234567 (Ama)
+          </button>
+          <span style="margin-left:auto; font-size:11px; color:#10b981; font-weight:600;">
+            ✓ Active MTN Keys Loaded (Collections &amp; Disbursements)
+          </span>
+        </div>
+
+        <!-- Roadmap & Challenges Resolution Accordion -->
+        <details style="margin-top: 14px; background: rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.08); border-radius: 6px; padding: 8px 12px;">
+          <summary style="font-size: 12px; font-weight: 700; color: var(--ink); cursor: pointer; display: flex; align-items: center; gap: 6px;">
+            <span>🚀</span> <strong>Moving from Prototype to Functional Product: Roadmap &amp; Resolution of Current Challenges</strong>
+          </summary>
+          <div style="margin-top: 10px; font-size: 11.5px; color: var(--ink-secondary); line-height: 1.6; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
+            <div style="background: var(--surface); padding: 10px; border-radius: 6px; border: 1px solid var(--border);">
+              <div style="font-weight: 700; color: #d97706; margin-bottom: 4px;">📞 1. Africa's Talking Cellular Voice Tokens</div>
+              <p style="margin: 0 0 6px 0;">
+                <strong>The Challenge:</strong> Real outbound cellular phone calls consume AT Voice airtime credits per second and require an active prepaid voice balance and assigned Ghana SIP trunk number.
+              </p>
+              <p style="margin: 0; color: #10b981;">
+                <strong>Solution in Place:</strong> The browser Interactive Call Simulator below replicates the <em>exact</em> VoiceXML protocol, authentic Akan Twi audio prompts, 40s/30s timers, and Zero-PIN security with <strong>zero token burn</strong>! For production, simply fund the AT Voice wallet and assign a live shortcode.
+              </p>
+            </div>
+            <div style="background: var(--surface); padding: 10px; border-radius: 6px; border: 1px solid var(--border);">
+              <div style="font-weight: 700; color: #2563eb; margin-bottom: 4px;">🟡 2. MTN MoMo API: Sandbox to Live Production</div>
+              <p style="margin: 0 0 6px 0;">
+                <strong>The Challenge:</strong> MTN Developer Sandbox requires generating an API User UUID and API Key via provisioning, whereas Live Production requires an enterprise agreement with MTN Ghana.
+              </p>
+              <p style="margin: 0; color: #10b981;">
+                <strong>Solution in Place:</strong> Our standalone <code>momo_api/</code> and <code>src/integrations/momo</code> modules feature auto-provisioning, multi-key switching (Primary/Secondary/Custom), and resilient fallback emulation so trial transactions succeed smoothly in every environment.
+              </p>
+            </div>
+          </div>
+        </details>
+      </div>
+
       <div class="simulator-layout">
         <!-- Phone Handset Frame -->
         <div class="phone-frame" id="phoneFrame">
@@ -219,14 +319,27 @@
 
             <!-- Step Specific Interactive Action Panel inside Screen -->
             <div class="step-controls-viewport" id="stepControlsViewport">
-              <div style="padding: 16px 8px; text-align: center;">
-                <div style="font-size: 28px; margin-bottom: 8px;">📞</div>
-                <div style="font-weight: 700; font-size: 14px; margin-bottom: 4px; color: var(--ink);">Ready to Test Ɔkwankyerɛfo Pa</div>
-                <p style="font-size: 12px; color: var(--ink-secondary); margin-bottom: 14px; line-height: 1.5;">
-                  Dual-track accessibility IVR voice layer with Akan Twi and English speech.
+              <div style="padding: 14px 8px; text-align: center;">
+                <div style="font-size: 26px; margin-bottom: 6px;">📞</div>
+                <div style="font-weight: 700; font-size: 14px; margin-bottom: 3px; color: var(--ink);">Ready to Test Ɔkwankyerɛfo Pa</div>
+                <p style="font-size: 11.5px; color: var(--ink-secondary); margin-bottom: 10px; line-height: 1.4;">
+                  Interactive Voice Simulation &bull; Akan Twi &amp; English
                 </p>
+
+                <!-- Linked MoMo Account Badge inside Handset -->
+                <div style="background: rgba(217, 158, 31, 0.12); border: 1px solid #d99e1f; border-radius: 8px; padding: 10px; margin-bottom: 12px; text-align: left;">
+                  <div style="font-size: 10px; text-transform: uppercase; font-weight: 700; color: #d99e1f; letter-spacing: 0.5px;">Linked MoMo Target:</div>
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 3px;">
+                    <span style="font-size: 13.5px; font-weight: 800; color: var(--ink); font-family: monospace;" id="viewportLinkedPhone">0543546010</span>
+                    <span style="font-size: 12px; font-weight: 800; color: #10b981;">GH₵ <span id="viewportLinkedAmount">5.00</span></span>
+                  </div>
+                  <div style="font-size: 10.5px; color: var(--ink-muted); margin-top: 2px;">
+                    <span id="viewportLinkedName">Hannes Aboagye</span> &bull; MTN Mobile Money
+                  </div>
+                </div>
+
                 <button class="btn btn-call-start" style="width: 100%; justify-content: center; font-size: 13.5px; padding: 10px 16px;" onclick="window.app.startCall()">
-                  <span>📞</span> Place New Call
+                  <span>📞</span> Start Call (with Linked Number)
                 </button>
               </div>
             </div>

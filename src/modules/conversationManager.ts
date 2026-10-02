@@ -41,6 +41,8 @@ export interface ConversationState {
   currency: "GHS";
   confirmation: boolean | null;
   status: ConversationStatus;
+  caller_phone?: string | null;
+  caller_name?: string | null;
   consecutiveFailures: number;
   lastUpdated: number;
   history: Array<Omit<ConversationState, "history">>;
@@ -543,8 +545,25 @@ class ConversationManager {
    * Finalizes secure transaction handoff.
    * Verified by secureAuthGate; does not receive or handle any PIN!
    */
-  public async completeAuthorizedTransaction(sessionId: string): Promise<ConversationTurnResult> {
+  public async completeAuthorizedTransaction(
+    sessionId: string,
+    overrides?: {
+      callerPhone?: string;
+      callerName?: string;
+      recipientPhone?: string;
+      recipientName?: string;
+      amount?: number;
+    }
+  ): Promise<ConversationTurnResult> {
     const state = this.getOrCreateSession(sessionId);
+
+    if (overrides) {
+      if (overrides.callerPhone) state.caller_phone = overrides.callerPhone;
+      if (overrides.callerName) state.caller_name = overrides.callerName;
+      if (overrides.recipientPhone) state.recipient_phone = overrides.recipientPhone;
+      if (overrides.recipientName) state.recipient_name = overrides.recipientName;
+      if (overrides.amount) state.amount = overrides.amount;
+    }
 
     // Call isolated secure auth gate to confirm client screen verification
     const authResult = await secureAuthGate.verifyClientAuthorization({
@@ -565,6 +584,8 @@ class ConversationManager {
       recipient_name: state.recipient_name || "Kwame Nyamebere",
       amount: state.amount || 500,
       sessionId,
+      payer_phone: state.caller_phone || "0543546010",
+      payer_name: state.caller_name || "Account Subscriber",
     });
 
     state.lastTransactionResult = tx;

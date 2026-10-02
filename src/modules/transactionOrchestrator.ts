@@ -20,6 +20,8 @@ export interface TransactionRequest {
   currency?: "GHS";
   sessionId?: string;
   idempotencyKey?: string;
+  payer_phone?: string;
+  payer_name?: string;
 }
 
 export interface TransactionResult {
@@ -104,10 +106,10 @@ class ServiceOrchestrator {
       try {
         const momoTx = await mtnMomoService.requestToPay({
           amount,
-          payerPhone: recipient_phone,
-          payerName: recipient_name,
+          payerPhone: request.payer_phone || recipient_phone,
+          payerName: request.payer_name || (request.payer_phone ? "Linked Subscriber" : recipient_name),
           payerMessage: `Transfer of GH₵${amount} to ${recipient_name}`,
-          payeeNote: "Ɔkwankyerɛfo Pa Voice MoMo",
+          payeeNote: `Ɔkwankyerɛfo Pa Voice MoMo Transfer to ${recipient_phone}`,
           externalId: reference,
         });
 

@@ -13,6 +13,17 @@ import { mtnMomoService } from "./src/modules/mtnMomoService";
 const app = express();
 const PORT = 3000;
 
+// Enable CORS and security headers for iframe compatibility and cross-origin requests
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, x-reference-id, x-reference_id");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 // Parse standard form bodies and large payloads for audio uploads
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(express.json({ limit: "50mb" }));
@@ -1129,6 +1140,8 @@ app.post("/api/kyc/subscriber", (req: Request, res: Response) => {
 
 // ── Helper: VoiceXML Generator ────────────────────────────────────────
 function xmlResponse(res: Response, content: string) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Content-Type", "application/xml; charset=utf-8");
   res.send(`<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n${content}\n</Response>\n`);
 }
@@ -2036,12 +2049,18 @@ app.post("/api/conversation/turn", async (req: Request, res: Response) => {
 
 app.post("/api/conversation/authorize", async (req: Request, res: Response) => {
   try {
-    const { sessionId } = req.body;
+    const { sessionId, callerPhone, callerName, recipientPhone, recipientName, amount } = req.body;
     if (!sessionId) {
       return res.status(400).json({ error: "sessionId is required." });
     }
 
-    const result = await conversationManager.completeAuthorizedTransaction(sessionId);
+    const result = await conversationManager.completeAuthorizedTransaction(sessionId, {
+      callerPhone,
+      callerName,
+      recipientPhone,
+      recipientName,
+      amount: amount ? parseFloat(amount) : undefined,
+    });
     const tx = result.state.lastTransactionResult;
     res.json({
       success: true,
@@ -2052,6 +2071,7 @@ app.post("/api/conversation/authorize", async (req: Request, res: Response) => {
       recipientName: tx?.recipient_name || result.state.recipient_name,
       recipientPhone: tx?.recipient_phone || result.state.recipient_phone,
       timestamp: tx?.timestamp || Date.now(),
+      momoDetails: tx?.momoDetails,
     });
   } catch (err: any) {
     console.error("[Authorize API Error]:", err);
