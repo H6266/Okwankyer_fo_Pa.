@@ -1,1 +1,99 @@
 @import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-page: #FFFFFF;
+    --bg-surface: #FFFFFF;
+    --bg-surface-subtle: #F8FAFC;
+    --border-subtle: #E2E8F0;
+    --border-strong: #CBD5E1;
+    
+    --text-primary: #0F172A;
+    --text-secondary: #334155;
+    --text-muted: #64748B;
+    
+    /* Ghana heritage palette with crisp light contrast */
+    --gh-green: #047857;
+    --gh-green-light: #059669;
+    --gh-green-deep: #064E3B;
+    --gh-gold: #D97706;
+    --gh-gold-warm: #F59E0B;
+    --gh-gold-soft: #FEF3C7;
+    --gh-red: #DC2626;
+    --gh-red-soft: #FEE2E2;
+  }
+
+  .dark {
+    --bg-page: #0A110D;
+    --bg-surface: #101B15;
+    --bg-surface-subtle: #16241D;
+    --border-subtle: rgba(212, 175, 55, 0.16);
+    --border-strong: rgba(212, 175, 55, 0.32);
+    
+    --text-primary: #F8FAF8;
+    --text-secondary: #D4DFD8;
+    --text-muted: #95A99E;
+
+    --gh-green: #144936;
+    --gh-green-light: #1D634B;
+    --gh-green-deep: #061710;
+    --gh-gold: #E5BF42;
+    --gh-gold-soft: #231E0F;
+    --gh-red: #C53939;
+    --gh-red-soft: #2D1414;
+  }
+
+  .high-contrast {
+    --bg-page: #000000;
+    --bg-surface: #0A0A0A;
+    --bg-surface-subtle: #141414;
+    --border-subtle: #FFFFFF;
+    --border-strong: #FFD700;
+    --text-primary: #FFFFFF;
+    --text-secondary: #FFFF00;
+    --text-muted: #E0E0E0;
+    --gh-green: #00FF66;
+    --gh-gold: #FFD700;
+    --gh-red: #FF3333;
+  }
+
+  body {
+    background-color: var(--bg-page);
+    color: var(--text-primary);
+    font-family: 'Atkinson Hyperlegible', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Plus Jakarta Sans', 'Atkinson Hyperlegible', system-ui, sans-serif;
+    letter-spacing: -0.02em;
+  }
+
+  code, pre, kbd, .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Accessible focus ring */
+:focus-visible {
+  outline: 3px solid var(--gh-gold);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* Large touch targets */
+button, a, input, select {
+  min-height: 44px;
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

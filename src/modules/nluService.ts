@@ -354,7 +354,7 @@ export function classifyIntentLocally(text: string): ExtractedEntities {
   if (lower.includes("bill") || lower.includes("ecg") || lower.includes("water") || lower.includes("dstv")) {
     return {
       intent: "PAY_BILL",
-      confidence: 0.89,
+      confidence: 0.95,
       amount: extractAmount(text),
       currency: "GHS",
       recipient_name: null,
@@ -367,7 +367,7 @@ export function classifyIntentLocally(text: string): ExtractedEntities {
   if (lower.includes("cash out") || lower.includes("withdraw")) {
     return {
       intent: "CASH_OUT",
-      confidence: 0.88,
+      confidence: 0.94,
       amount: extractAmount(text),
       currency: "GHS",
       recipient_name: null,
@@ -442,7 +442,7 @@ export async function parseUserIntent(text: string): Promise<ExtractedEntities> 
   const localResult = classifyIntentLocally(text);
 
   // If high confidence local result, use immediately for low latency
-  if (localResult.confidence >= 0.90) {
+  if (localResult.confidence >= 0.80) {
     return localResult;
   }
 

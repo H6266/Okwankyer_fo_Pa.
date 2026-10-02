@@ -1,0 +1,462 @@
+/**
+ * Typed API Client Layer for Ɔkwankyerɛfo Pa
+ * Communicates with backend Express services
+ */
+
+export interface HealthResponse {
+  status: string;
+  service: string;
+  team: string;
+  abstract: string;
+  voiceNumber: string;
+  username: string;
+  atConfigured: boolean;
+  baseUrl: string;
+  callbackUrl: string;
+  features: string[];
+}
+
+export interface AudioItem {
+  id: string;
+  number: string;
+  language: "en" | "twi" | "bilingual";
+  step: number;
+  filename: string;
+  title: string;
+  spokenText: string;
+  description: string;
+  url: string;
+  exists: boolean;
+  sizeBytes: number;
+  sizeFormatted: string;
+  durationEstSec: number;
+}
+
+export interface AudioManifestResponse {
+  englishPrompts: AudioItem[];
+  twiPrompts: AudioItem[];
+  sharedPrompts: AudioItem[];
+  totalClips: number;
+  allPresent: boolean;
+}
+
+export interface SessionRecord {
+  id: string;
+  sessionId: string;
+  callerNumber: string;
+  startedAt: string;
+  durationSeconds: number;
+  language: "en" | "twi";
+  finalStep: string;
+  stepReachedIndex: number;
+  outcome: "COMPLETED" | "CANCELLED" | "TIMEOUT" | "ERROR";
+  amountGHS?: number;
+  recipientName?: string;
+  recipientPhone?: string;
+  referenceId?: string;
+  voiceXmlTrace: Array<{
+    step: string;
+    requestBody?: any;
+    voiceXml: string;
+    timestamp: string;
+  }>;
+}
+
+export interface LedgerItem {
+  id: string;
+  referenceId: string;
+  type: "COLLECTION" | "DISBURSEMENT";
+  provider: "MTN" | "Telecel" | "AT";
+  phoneNumber: string;
+  recipientName?: string;
+  amount: number;
+  currency: "GHS";
+  status: "SUCCESSFUL" | "PENDING" | "FAILED";
+  zeroPinVerified: boolean;
+  createdAt: string;
+}
+
+export interface SmokeTestCheck {
+  id: string;
+  name: string;
+  description: string;
+  status: "pass" | "fail" | "warn" | "pending";
+  latencyMs: number;
+  details?: string;
+}
+
+export interface SmokeTestResponse {
+  timestamp: string;
+  overallStatus: "pass" | "fail" | "warn";
+  checks: SmokeTestCheck[];
+  passCount: number;
+  failCount: number;
+  warnCount: number;
+}
+
+export interface EndpointParam {
+  name: string;
+  type: string;
+  required: boolean;
+  description: string;
+  example: any;
+}
+
+export interface EndpointDoc {
+  id: string;
+  group: "Collections" | "Disbursements" | "KYC & Subscribers" | "Voice & Webhooks" | "System & Health";
+  name: string;
+  method: "GET" | "POST";
+  path: string;
+  description: string;
+  headers?: Record<string, string>;
+  params?: EndpointParam[];
+  defaultPayload?: any;
+}
+
+export interface KycLookupResponse {
+  valid: boolean;
+  error?: string;
+  record?: {
+    phoneNumber: string;
+    name: string;
+    network: "MTN" | "Telecel" | "AT" | "G-Money";
+    tier?: string;
+  };
+}
+
+export interface MomoRequestToPayRequest {
+  amount: number;
+  currency: "GHS";
+  payerPhone: string;
+  payerMessage?: string;
+  payeeNote?: string;
+  referenceId?: string;
+}
+
+export interface MomoTransactionStatus {
+  referenceId: string;
+  externalId?: string;
+  amount: number;
+  currency: string;
+  status: "SUCCESSFUL" | "PENDING" | "FAILED";
+  reason?: string;
+  financialTransactionId?: string;
+  timestamp: string;
+}
+
+export const api = {
+  async getHealth(): Promise<HealthResponse> {
+    const res = await fetch("/api/health");
+    if (!res.ok) throw new Error(`Health check returned ${res.status}`);
+    return res.json();
+  },
+
+  async getAudioManifest(): Promise<AudioManifestResponse> {
+    const res = await fetch("/api/audio/manifest");
+    if (!res.ok) throw new Error(`Audio manifest request failed: ${res.status}`);
+    return res.json();
+  },
+
+  async getSessions(): Promise<SessionRecord[]> {
+    const res = await fetch("/api/sessions");
+    if (!res.ok) throw new Error(`Sessions fetch failed: ${res.status}`);
+    const data = await res.json();
+    return data.sessions || [];
+  },
+
+  async getLedger(): Promise<LedgerItem[]> {
+    const res = await fetch("/api/ledger");
+    if (!res.ok) throw new Error(`Ledger fetch failed: ${res.status}`);
+    const data = await res.json();
+    return data.ledger || [];
+  },
+
+  async runSmokeTest(): Promise<SmokeTestResponse> {
+    const res = await fetch("/api/dev/smoke-test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!res.ok) throw new Error(`Smoke test failed: ${res.status}`);
+    return res.json();
+  },
+
+  async getEndpoints(): Promise<EndpointDoc[]> {
+    const res = await fetch("/api/dev/endpoints");
+    if (!res.ok) throw new Error(`Endpoints catalog fetch failed: ${res.status}`);
+    const data = await res.json();
+    return data.endpoints || [];
+  },
+
+  async lookupKyc(phoneNumber: string): Promise<KycLookupResponse> {
+    const res = await fetch(`/api/kyc/lookup?phone=${encodeURIComponent(phoneNumber)}`);
+    if (!res.ok) throw new Error(`KYC lookup failed: ${res.status}`);
+    return res.json();
+  },
+
+  async simulateVoiceMenu(payload: {
+    sessionId: string;
+    phoneNumber: string;
+    dtmfDigits?: string;
+    step?: string;
+    language?: "en" | "twi";
+  }): Promise<{ voiceXml: string; status: number }> {
+    const params = new URLSearchParams();
+    params.append("sessionId", payload.sessionId);
+    params.append("phoneNumber", payload.phoneNumber);
+    if (payload.dtmfDigits !== undefined) params.append("dtmfDigits", payload.dtmfDigits);
+    if (payload.step) params.append("step", payload.step);
+
+    const res = await fetch("/voice-menu", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+    });
+    const xml = await res.text();
+    return { voiceXml: xml, status: res.status };
+  },
+
+  async sendCustomApiRequest(endpoint: {
+    method: "GET" | "POST";
+    path: string;
+    headers?: Record<string, string>;
+    body?: any;
+  }): Promise<{ status: number; durationMs: number; headers: Record<string, string>; data: any }> {
+    const start = performance.now();
+    const fetchOptions: RequestInit = {
+      method: endpoint.method,
+      headers: {
+        Accept: "application/json, text/xml, */*",
+        ...(endpoint.headers || {}),
+      },
+    };
+
+    if (endpoint.method === "POST" && endpoint.body) {
+      if (typeof endpoint.body === "string") {
+        fetchOptions.body = endpoint.body;
+      } else {
+        fetchOptions.headers = {
+          "Content-Type": "application/json",
+          ...fetchOptions.headers,
+        };
+        fetchOptions.body = JSON.stringify(endpoint.body);
+      }
+    }
+
+    const res = await fetch(endpoint.path, fetchOptions);
+    const durationMs = Math.round(performance.now() - start);
+
+    const resHeaders: Record<string, string> = {};
+    res.headers.forEach((val, key) => {
+      resHeaders[key] = val;
+    });
+
+    const text = await res.text();
+    let parsedData: any = text;
+    try {
+      parsedData = JSON.parse(text);
+    } catch {
+      // Keep as text / XML
+    }
+
+    return {
+      status: res.status,
+      durationMs,
+      headers: resHeaders,
+      data: parsedData,
+    };
+  },
+
+  // ── Dedicated MTN MoMo Testing Methods ──────────────────────────────
+  async getMomoStatus(): Promise<any> {
+    const res = await fetch("/api/momo/status");
+    return res.json();
+  },
+
+  async getMomoBalance(product: "collection" | "disbursement" = "collection"): Promise<any> {
+    const res = await fetch(`/api/momo/account/balance?product=${product}`);
+    return res.json();
+  },
+
+  async validateMomoHolder(phone: string): Promise<any> {
+    const res = await fetch(`/api/momo/account/holder/${encodeURIComponent(phone)}`);
+    return res.json();
+  },
+
+  async requestToPay(params: {
+    amount: number;
+    payerPhone: string;
+    payerName?: string;
+    payerMessage?: string;
+    payeeNote?: string;
+    externalId?: string;
+  }): Promise<any> {
+    const res = await fetch("/api/momo/request-to-pay", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async getMomoTransactionStatus(referenceId: string): Promise<any> {
+    const res = await fetch(`/api/momo/request-to-pay/${encodeURIComponent(referenceId)}`);
+    return res.json();
+  },
+
+  async authorizeMomoPrompt(referenceId: string, action: "approve" | "reject" = "approve"): Promise<any> {
+    const res = await fetch("/api/momo/authorize-prompt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ referenceId, action }),
+    });
+    return res.json();
+  },
+
+  async testRealAccount(params: {
+    phone: string;
+    amount?: number;
+    subscriberName?: string;
+  }): Promise<any> {
+    const res = await fetch("/api/momo/test-account", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async simulateMomoWebhook(params: {
+    referenceId: string;
+    status: "SUCCESSFUL" | "FAILED";
+    financialTransactionId?: string;
+  }): Promise<any> {
+    const res = await fetch("/api/momo/webhook-simulate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  // ── Africa's Talking Shipping & Deployment Methods ──────────────────
+  async getShippingStatus(): Promise<any> {
+    const res = await fetch("/api/shipping/status");
+    if (!res.ok) throw new Error(`Shipping status fetch failed: ${res.status}`);
+    return res.json();
+  },
+
+  async deployToAfricasTalking(): Promise<any> {
+    const res = await fetch("/api/shipping/deploy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!res.ok) throw new Error(`Deploy to Africa's Talking failed: ${res.status}`);
+    return res.json();
+  },
+
+  async dispatchTestCall(phone: string): Promise<any> {
+    const res = await fetch("/api/shipping/test-call", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone }),
+    });
+    return res.json();
+  },
+
+  async updateShippingConfig(config: { username?: string; apiKey?: string; voiceNumber?: string }): Promise<any> {
+    const res = await fetch("/api/shipping/update-config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(config),
+    });
+    return res.json();
+  },
+
+  // ── Team Tasks API (Asana-Style Agile Board) ────────────────────────
+  async getTasks(): Promise<{ tasks: ProjectTask[]; members: TaskMember[]; stats: TaskStats }> {
+    const res = await fetch("/api/tasks");
+    if (!res.ok) throw new Error(`Tasks fetch failed: ${res.status}`);
+    return res.json();
+  },
+
+  async createTask(task: {
+    title: string;
+    description?: string;
+    status?: TaskStatus;
+    priority?: TaskPriority;
+    assigneeId?: string;
+    dueDate?: string;
+    tags?: string[];
+    section?: string;
+  }): Promise<{ success: boolean; task: ProjectTask }> {
+    const res = await fetch("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(task),
+    });
+    if (!res.ok) throw new Error(`Task creation failed: ${res.status}`);
+    return res.json();
+  },
+
+  async updateTask(id: string, updates: Partial<ProjectTask> & { assigneeId?: string }): Promise<{ success: boolean; task: ProjectTask }> {
+    const res = await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) throw new Error(`Task update failed: ${res.status}`);
+    return res.json();
+  },
+
+  async deleteTask(id: string): Promise<{ success: boolean }> {
+    const res = await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error(`Task deletion failed: ${res.status}`);
+    return res.json();
+  },
+};
+
+export type TaskStatus = "todo" | "in_progress" | "in_review" | "done";
+export type TaskPriority = "low" | "medium" | "high" | "urgent";
+
+export interface TaskMember {
+  id: string;
+  name: string;
+  role: string;
+  initials: string;
+  email: string;
+  color: string;
+}
+
+export interface TaskSubtask {
+  id: string;
+  title: string;
+  completed: boolean;
+}
+
+export interface ProjectTask {
+  id: string;
+  title: string;
+  description: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  assignee: TaskMember;
+  dueDate: string;
+  tags: string[];
+  subtasks: TaskSubtask[];
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string | null;
+  section: string;
+}
+
+export interface TaskStats {
+  total: number;
+  completed: number;
+  inProgress: number;
+  inReview: number;
+  todo: number;
+  completionRate: number;
+}

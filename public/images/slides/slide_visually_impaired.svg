@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="100%" height="100%">
+  <defs>
+    <linearGradient id="accessBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#071b14" />
+      <stop offset="50%" stop-color="#0c2c20" />
+      <stop offset="100%" stop-color="#141916" />
+    </linearGradient>
+    <linearGradient id="goldGrad3" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#D4AF37" />
+      <stop offset="100%" stop-color="#F3E5AB" />
+    </linearGradient>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#accessBg)" />
+
+  <!-- Acoustic Waves & High Contrast Visuals -->
+  <g transform="translate(1050, 240)">
+    <!-- Headphones Arc Silhouette -->
+    <path d="M 220 180 A 160 160 0 0 1 540 180" fill="none" stroke="#D4AF37" stroke-width="12" stroke-linecap="round" />
+    <rect x="180" y="160" width="55" height="100" rx="20" fill="#D4AF37" />
+    <rect x="525" y="160" width="55" height="100" rx="20" fill="#D4AF37" />
+
+    <!-- Waveform Frequency Bars (Voice synthesis visualizer) -->
+    <g transform="translate(240, 320)" fill="#4ade80">
+      <rect x="0" y="40" width="8" height="60" rx="4" />
+      <rect x="16" y="20" width="8" height="100" rx="4" />
+      <rect x="32" y="10" width="8" height="120" rx="4" fill="#D4AF37" />
+      <rect x="48" y="30" width="8" height="80" rx="4" />
+      <rect x="64" y="5" width="8" height="130" rx="4" fill="#D4AF37" />
+      <rect x="80" y="25" width="8" height="90" rx="4" />
+      <rect x="96" y="15" width="8" height="110" rx="4" fill="#D4AF37" />
+      <rect x="112" y="35" width="8" height="70" rx="4" />
+      <rect x="128" y="10" width="8" height="120" rx="4" fill="#D4AF37" />
+      <rect x="144" y="25" width="8" height="90" rx="4" />
+      <rect x="160" y="45" width="8" height="50" rx="4" />
+      <rect x="176" y="20" width="8" height="100" rx="4" fill="#D4AF37" />
+      <rect x="192" y="30" width="8" height="80" rx="4" />
+      <rect x="208" y="15" width="8" height="110" rx="4" fill="#D4AF37" />
+      <rect x="224" y="40" width="8" height="60" rx="4" />
+      <rect x="240" y="20" width="8" height="100" rx="4" />
+      <rect x="256" y="50" width="8" height="40" rx="4" />
+    </g>
+
+    <!-- Spoken KYC Verification Card -->
+    <g transform="translate(100, 500)">
+      <rect x="0" y="0" width="560" height="140" rx="20" fill="#122018" stroke="#D4AF37" stroke-width="2.5" />
+      <circle cx="50" cy="50" r="24" fill="#D4AF37" opacity="0.2" />
+      <text x="50" y="58" fill="#D4AF37" font-size="20" text-anchor="middle">🔊</text>
+      <text x="90" y="44" fill="#a7f3d0" font-size="12" font-family="monospace" letter-spacing="1">SPOKEN KYC NAME CONFIRMATION</text>
+      <text x="90" y="74" fill="#FFFFFF" font-size="20" font-family="system-ui" font-weight="bold">"Kwame Nyamebere ending in 8464"</text>
+      <text x="90" y="105" fill="#e2e8f0" font-size="14" font-family="system-ui">Recipient verified before cash deduction • Zero room for mistyped digits</text>
+    </g>
+  </g>
+
+  <rect x="0" y="1064" width="1920" height="16" fill="url(#goldGrad3)" />
+</svg>
