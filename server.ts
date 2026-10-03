@@ -57,8 +57,8 @@ app.use((req: Request, res: Response, next) => {
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 app.use(express.json({ limit: "1mb" }));
 
-// Static public directory
-app.use(express.static(path.resolve(process.cwd(), "public")));
+// Static public directory (disable index to let Vite/SPA handle index.html)
+app.use(express.static(path.resolve(process.cwd(), "public"), { index: false }));
 
 // ── Safe Audio Streaming (HTTP 206 Partial Content + Path Traversal Guard) ─
 app.all("/audio/*", (req: Request, res: Response) => {
@@ -120,6 +120,11 @@ app.use(momoRouter);
 app.use(shippingRouter);
 app.use(aiRouter);
 app.use(adminRouter);
+
+// Fallback for unmatched API routes to ensure clean JSON responses
+app.all("/api/*", (_req: Request, res: Response) => {
+  res.status(404).json({ success: false, error: "API route not found" });
+});
 
 // ── Server Bootstrap & Frontend Serving ───────────────────────────────
 async function startServer() {

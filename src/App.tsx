@@ -4,6 +4,11 @@ import { ThemeLanguageProvider } from "./context/ThemeLanguageContext";
 import { LandingPage } from "./pages/LandingPage";
 import { DashboardLayout } from "./components/dashboard/DashboardLayout";
 import { OverviewPage } from "./pages/dashboard/OverviewPage";
+import { MomoLabPage } from "./pages/dashboard/MomoLabPage";
+import { AsrLabPage } from "./pages/dashboard/AsrLabPage";
+import { TtsLabPage } from "./pages/dashboard/TtsLabPage";
+import { LlmLabPage } from "./pages/dashboard/LlmLabPage";
+import { IvrLabPage } from "./pages/dashboard/IvrLabPage";
 import { VoiceTesterPage } from "./pages/dashboard/VoiceTesterPage";
 import { SpeechPlaygroundPage } from "./pages/dashboard/SpeechPlaygroundPage";
 import { AudioLibraryPage } from "./pages/dashboard/AudioLibraryPage";
@@ -29,9 +34,21 @@ export default function App() {
           {/* Developer & QA Testing Dashboard */}
           <Route path="/dashboard" element={<DashboardLayout />}>
             <Route index element={<OverviewPage />} />
+            {/* Primary Laboratories */}
+            <Route path="momo" element={<MomoLabPage />} />
+            <Route path="api" element={<MomoLabPage />} />
+            <Route path="asr" element={<AsrLabPage />} />
+            <Route path="tts" element={<TtsLabPage />} />
+            <Route path="llm" element={<LlmLabPage />} />
+            <Route path="ivr" element={<IvrLabPage />} />
+            
+            {/* Core Verification & Tools */}
+            <Route path="tests" element={<TestCasesPage />} />
             <Route path="tasks" element={<TasksPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+
+            {/* Backwards-compatible Secondary Routes */}
             <Route path="shipping" element={<ShippingPage />} />
-            <Route path="api" element={<ApiTesterPage />} />
             <Route path="voice" element={<VoiceTesterPage />} />
             <Route path="speech" element={<SpeechPlaygroundPage />} />
             <Route path="audio" element={<AudioLibraryPage />} />
@@ -39,8 +56,6 @@ export default function App() {
             <Route path="kyc" element={<KycDirectoryPage />} />
             <Route path="ledger" element={<LedgerPage />} />
             <Route path="calls" element={<CallLogsPage />} />
-            <Route path="tests" element={<TestCasesPage />} />
-            <Route path="settings" element={<SettingsPage />} />
             <Route path="docs" element={<DocsPage />} />
           </Route>
 

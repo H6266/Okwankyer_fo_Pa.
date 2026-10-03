@@ -302,6 +302,27 @@ export const api = {
     return res.json();
   },
 
+  async transferFunds(params: {
+    amount: number;
+    payeePhone: string;
+    payeeName?: string;
+    payerMessage?: string;
+    payeeNote?: string;
+    externalId?: string;
+  }): Promise<any> {
+    const res = await fetch("/api/momo/transfer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async getTransferStatus(referenceId: string): Promise<any> {
+    const res = await fetch(`/api/momo/transfer/${encodeURIComponent(referenceId)}`);
+    return res.json();
+  },
+
   async authorizeMomoPrompt(referenceId: string, action: "approve" | "reject" = "approve"): Promise<any> {
     const res = await fetch("/api/momo/authorize-prompt", {
       method: "POST",
@@ -321,6 +342,82 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
     });
+    return res.json();
+  },
+
+  async runMomoTestSuite(): Promise<any> {
+    const res = await fetch("/api/momo/test-all", { method: "POST" });
+    return res.json();
+  },
+
+  async sendMoney(params: {
+    recipient_phone: string;
+    recipient_name: string;
+    amount: number;
+    network?: string;
+  }): Promise<any> {
+    const res = await fetch("/api/momo/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async buyAirtime(params: {
+    phone: string;
+    amount: number;
+    network?: string;
+  }): Promise<any> {
+    const res = await fetch("/api/momo/airtime", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async buyData(params: {
+    phone: string;
+    bundle: string;
+    amount?: number;
+    network?: string;
+  }): Promise<any> {
+    const res = await fetch("/api/momo/data", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async payBills(params: {
+    biller: string;
+    accountNumber: string;
+    amount: number;
+  }): Promise<any> {
+    const res = await fetch("/api/momo/bills", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async cashOut(params: {
+    phone: string;
+    amount: number;
+  }): Promise<any> {
+    const res = await fetch("/api/momo/cashout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async getMomoTransactions(): Promise<any> {
+    const res = await fetch("/api/momo/transactions");
     return res.json();
   },
 

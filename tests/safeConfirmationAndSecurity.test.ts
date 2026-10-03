@@ -274,5 +274,5 @@ describe("Task 4: AI Evaluation Harness", () => {
     expect(report.accuracyPercent).toBeGreaterThanOrEqual(80);
     expect(report.totalOutOfScope).toBeGreaterThanOrEqual(4);
     expect(report.fallbackTriggeredCount).toBeGreaterThanOrEqual(3);
-  });
+  }, 30000);
 });

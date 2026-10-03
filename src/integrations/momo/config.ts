@@ -3,6 +3,9 @@
  */
 
 import crypto from "crypto";
+import dotenv from "dotenv";
+dotenv.config();
+
 import { MoMoConfig } from "./types";
 
 export const MOMO_SANDBOX_BASE_URL = "https://sandbox.momodeveloper.mtn.com";
@@ -68,23 +71,29 @@ export function loadConfigFromEnv(): MoMoConfig {
 
   const currency = process.env.MOMO_CURRENCY || (targetEnv === "production" ? "GHS" : "EUR");
 
-  const sharedSubKey = process.env.MOMO_SUBSCRIPTION_KEY || "";
-  const sharedUserId = process.env.MOMO_API_USER_ID || "";
-  const sharedApiKey = process.env.MOMO_API_KEY || "";
+  // In MTN MoMo Open API, Collections and Disbursements are separate product subscriptions.
+  // A Disbursement key is invalid for Collections endpoints and vice versa.
+  const collSubKey = (process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY || "").trim();
+  const collUserId = (process.env.MOMO_COLLECTION_API_USER_ID || (collSubKey ? process.env.MOMO_API_USER_ID : "") || "").trim();
+  const collApiKey = (process.env.MOMO_COLLECTION_API_KEY || (collSubKey ? process.env.MOMO_API_KEY : "") || "").trim();
+
+  const disbSubKey = (process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY || process.env.MOMO_SUBSCRIPTION_KEY || "").trim();
+  const disbUserId = (process.env.MOMO_DISBURSEMENT_API_USER_ID || process.env.MOMO_API_USER_ID || "").trim();
+  const disbApiKey = (process.env.MOMO_DISBURSEMENT_API_KEY || process.env.MOMO_API_KEY || "").trim();
 
   return {
     baseUrl,
     targetEnv,
     currency,
     collection: {
-      subscriptionKey: process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY || sharedSubKey,
-      apiUserId: process.env.MOMO_COLLECTION_API_USER_ID || sharedUserId,
-      apiKey: process.env.MOMO_COLLECTION_API_KEY || sharedApiKey,
+      subscriptionKey: collSubKey,
+      apiUserId: collUserId,
+      apiKey: collApiKey,
     },
     disbursement: {
-      subscriptionKey: process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY || sharedSubKey,
-      apiUserId: process.env.MOMO_DISBURSEMENT_API_USER_ID || sharedUserId,
-      apiKey: process.env.MOMO_DISBURSEMENT_API_KEY || sharedApiKey,
+      subscriptionKey: disbSubKey,
+      apiUserId: disbUserId,
+      apiKey: disbApiKey,
     },
     callbackHost: process.env.MOMO_CALLBACK_HOST,
   };

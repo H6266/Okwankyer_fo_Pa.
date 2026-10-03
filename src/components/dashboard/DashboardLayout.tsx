@@ -28,19 +28,14 @@ import { api, HealthResponse } from "../../lib/api";
 
 const NAV_ITEMS = [
   { path: "/dashboard", label: "Overview", icon: LayoutDashboard, exact: true },
-  { path: "/dashboard/tasks", label: "Team Tasks", icon: CheckSquare, badge: "Asana" },
-  { path: "/dashboard/shipping", label: "Shipping & Deploy", icon: Rocket, badge: "Ship to AT" },
-  { path: "/dashboard/api", label: "MoMo API Tester", icon: Code2, badge: "Test Here" },
-  { path: "/dashboard/voice", label: "Voice Tester", icon: PhoneCall },
-  { path: "/dashboard/transaction", label: "Safe Walkthrough", icon: ShieldCheck },
-  { path: "/dashboard/kyc", label: "KYC Directory", icon: Users },
-  { path: "/dashboard/ledger", label: "MoMo Ledger", icon: ReceiptText },
-  { path: "/dashboard/speech", label: "Speech & NLU", icon: Mic2 },
-  { path: "/dashboard/audio", label: "Audio Library", icon: FileAudio },
-  { path: "/dashboard/calls", label: "Call Analytics", icon: History },
-  { path: "/dashboard/tests", label: "Test Cases", icon: CheckSquare },
-  { path: "/dashboard/settings", label: "Config & Keys", icon: Settings },
-  { path: "/dashboard/docs", label: "Documentation", icon: BookOpen },
+  { path: "/dashboard/momo", label: "🟢 MoMo Laboratory", icon: Code2, badge: "Phase 1" },
+  { path: "/dashboard/asr", label: "⚪ ASR Laboratory", icon: Mic2, badge: "Phase 2" },
+  { path: "/dashboard/tts", label: "⚪ TTS Laboratory", icon: FileAudio, badge: "Phase 3" },
+  { path: "/dashboard/llm", label: "⚪ LLM / Intent Lab", icon: Zap, badge: "Phase 4" },
+  { path: "/dashboard/ivr", label: "📞 IVR / Africa's Talking", icon: PhoneCall, badge: "Phase 5" },
+  { path: "/dashboard/tests", label: "🧪 Integration Tests", icon: ShieldCheck },
+  { path: "/dashboard/tasks", label: "📋 Hackathon Tasks", icon: CheckSquare },
+  { path: "/dashboard/settings", label: "⚙ Settings", icon: Settings },
 ];
 
 export const DashboardLayout: React.FC = () => {

@@ -9,7 +9,7 @@
     "start": "node dist/server.cjs",
     "test": "vitest run",
     "test:voicexml": "vitest run tests/voicexmlSnapshots.test.ts",
-    "test:e2e": "vitest run tests/e2eScenarios.test.ts",
+    "test:e2e": "vitest run tests/ivrFullFlowIntegration.test.ts",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "check:copy": "node scripts/check-copy.mjs",

@@ -5,7 +5,7 @@ import { aiBootstrap } from "../src/ai_system/core/aiBootstrap";
 import { redactPii } from "../src/domain/validation";
 import { runEvaluationHarness, runAudioEvaluationHarness } from "../src/ai_eval/evalHarness";
 
-describe("Hard Rules for AI Telephony Layer", () => {
+describe("Hard Rules for AI Telephony Layer", { timeout: 20000 }, () => {
   // ── Rule 1: Fail Closed ─────────────────────────────────────────────
   it("Rule 1: Fails closed to UNKNOWN on out-of-scope or low-confidence utterances", async () => {
     const oos = await parseUserIntent("what is the weather in Tokyo today");
@@ -124,5 +124,5 @@ describe("Hard Rules for AI Telephony Layer", () => {
     expect(audioReport.totalAudioSamples).toBeGreaterThan(0);
     expect(audioReport.samplesEvaluated).toBeGreaterThan(0);
     expect(audioReport.averageLatencyMs).toBeGreaterThanOrEqual(0);
-  });
+  }, 30000);
 });

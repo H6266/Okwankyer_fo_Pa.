@@ -3,6 +3,9 @@
  * Loads, normalizes, and validates environment variables on application startup.
  */
 
+import dotenv from "dotenv";
+dotenv.config();
+
 export interface AppConfig {
   nodeEnv: "development" | "production" | "test";
   port: number;
@@ -28,6 +31,8 @@ export interface AppConfig {
     apiUserId: string;
     apiKey: string;
     configured: boolean;
+    disbursementConfigured: boolean;
+    collectionConfigured: boolean;
   };
 }
 
@@ -76,9 +81,17 @@ export function loadConfig(): AppConfig {
     atUsername = "sandbox";
   }
 
-  const momoSubKey = (process.env.MOMO_SUBSCRIPTION_KEY || process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY || "").trim();
-  const momoUserId = (process.env.MOMO_API_USER_ID || "").trim();
-  const momoApiKey = (process.env.MOMO_API_KEY || "").trim();
+  const momoSubKey = (process.env.MOMO_SUBSCRIPTION_KEY || process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY || process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY || "").trim();
+  const momoUserId = (process.env.MOMO_API_USER_ID || process.env.MOMO_DISBURSEMENT_API_USER_ID || process.env.MOMO_COLLECTION_API_USER_ID || "").trim();
+  const momoApiKey = (process.env.MOMO_API_KEY || process.env.MOMO_DISBURSEMENT_API_KEY || process.env.MOMO_COLLECTION_API_KEY || "").trim();
+
+  const disbSubKey = (process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY || momoSubKey).trim();
+  const disbUserId = (process.env.MOMO_DISBURSEMENT_API_USER_ID || momoUserId).trim();
+  const disbApiKey = (process.env.MOMO_DISBURSEMENT_API_KEY || momoApiKey).trim();
+
+  const collSubKey = (process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY || "").trim();
+  const collUserId = (process.env.MOMO_COLLECTION_API_USER_ID || (collSubKey ? momoUserId : "")).trim();
+  const collApiKey = (process.env.MOMO_COLLECTION_API_KEY || (collSubKey ? momoApiKey : "")).trim();
 
   return {
     nodeEnv,
@@ -105,6 +118,8 @@ export function loadConfig(): AppConfig {
       apiUserId: momoUserId,
       apiKey: momoApiKey,
       configured: Boolean(momoSubKey && momoUserId && momoApiKey),
+      disbursementConfigured: Boolean(disbSubKey && disbUserId && disbApiKey),
+      collectionConfigured: Boolean(collSubKey && collUserId && collApiKey),
     },
   };
 }
