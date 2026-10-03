@@ -65,6 +65,9 @@ export const MomoLabPage: React.FC = () => {
 
   // Send Money Form
   const [senderAccount, setSenderAccount] = useState("MTN MoMo Sandbox Float (EUR/GHS)");
+  const [senderPhone, setSenderPhone] = useState("0553838464");
+  const [sendMode, setSendMode] = useState<"COLLECTION_REQUEST_TO_PAY" | "DISBURSEMENT_TRANSFER">("COLLECTION_REQUEST_TO_PAY");
+  const [backendMatrix, setBackendMatrix] = useState<any[]>([]);
   const [recipientPhone, setRecipientPhone] = useState("0553838464");
   const [recipientName, setRecipientName] = useState("Sand Box");
   const [sendAmount, setSendAmount] = useState("5.00");
@@ -124,6 +127,31 @@ export const MomoLabPage: React.FC = () => {
   // Ledger / Transactions
   const [ledgerTransactions, setLedgerTransactions] = useState<TxRecord[]>([]);
   const [loadingLedger, setLoadingLedger] = useState(false);
+
+  // Quick Sandbox Provisioning Form
+  const [provisionKey, setProvisionKey] = useState("");
+  const [provisioning, setProvisioning] = useState(false);
+  const [provisionResult, setProvisionResult] = useState<any>(null);
+
+  const handleProvision = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!provisionKey.trim()) return;
+    setProvisioning(true);
+    setProvisionResult(null);
+    try {
+      const res = await api.provisionMomoSandbox(provisionKey.trim());
+      setProvisionResult(res);
+      if (res?.success) {
+        refreshStatus();
+        fetchBalance();
+        fetchLedger();
+      }
+    } catch (err: any) {
+      setProvisionResult({ success: false, error: err.message });
+    } finally {
+      setProvisioning(false);
+    }
+  };
 
   // Classification Matrix Data
   const verificationMatrix = [
@@ -339,6 +367,9 @@ export const MomoLabPage: React.FC = () => {
     refreshStatus();
     fetchBalance("disbursement");
     fetchLedger();
+    api.getCapabilityMatrix().then((res) => {
+      if (res?.matrix) setBackendMatrix(res.matrix);
+    }).catch((err) => console.warn("Capability matrix notice:", err));
   }, []);
 
   // Handle Validate Recipient
@@ -371,6 +402,8 @@ export const MomoLabPage: React.FC = () => {
         recipient_name: recipientName,
         amount: parseFloat(sendAmount) || 5.0,
         network: "MTN",
+        payer_phone: senderPhone,
+        mode: sendMode,
       });
       setSendMoneyResult(res);
       fetchLedger();
@@ -608,21 +641,21 @@ export const MomoLabPage: React.FC = () => {
             <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Gateway Target</div>
             <div className="text-sm font-extrabold text-slate-800 mt-0.5 flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-emerald-500" />
-              {momoStatus?.targetEnv === "production" ? "MTN Production Proxy" : "MTN Sandbox Gateway"}
+              {momoStatus?.diagnostics?.targetEnvironment === "production" ? "MTN Production Proxy" : "MTN Sandbox Gateway"}
             </div>
           </div>
 
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
             <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Disbursement (Payouts)</div>
-            <div className="text-sm font-extrabold text-emerald-700 mt-0.5">
-              REAL MTN API ACTIVE
+            <div className={`text-sm font-extrabold mt-0.5 ${momoStatus?.diagnostics?.credentials?.disbursement?.apiKeyConfigured ? "text-emerald-700" : "text-amber-700"}`}>
+              {momoStatus?.diagnostics?.credentials?.disbursement?.apiKeyConfigured ? "REAL MTN API ACTIVE" : "Needs API Key"}
             </div>
           </div>
 
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
             <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Collections (Debits)</div>
-            <div className="text-sm font-extrabold text-amber-700 mt-0.5">
-              Unconfigured in .env
+            <div className={`text-sm font-extrabold mt-0.5 ${momoStatus?.diagnostics?.credentials?.collection?.apiKeyConfigured ? "text-emerald-700" : "text-amber-700"}`}>
+              {momoStatus?.diagnostics?.credentials?.collection?.apiKeyConfigured ? "REAL MTN API ACTIVE" : "Needs API Key"}
             </div>
           </div>
 
@@ -634,6 +667,72 @@ export const MomoLabPage: React.FC = () => {
                 : "0.00 EUR (Queried Live)"}
             </div>
           </div>
+        </div>
+
+        {/* Quick Sandbox Auto-Provisioner Banner */}
+        <div className="mt-5 p-4 rounded-xl bg-blue-50/70 border border-blue-200">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <Zap className="w-4 h-4 text-blue-600" />
+                <span className="text-xs font-black uppercase tracking-wider text-blue-900">
+                  Auto-Provision Sandbox with Subscription Key
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-300">
+                  Primary or Secondary Key
+                </span>
+              </div>
+              <p className="text-xs text-blue-800 mt-1 max-w-xl">
+                Have only your <strong>Primary Key</strong> or <strong>Secondary Key</strong>? Paste it here to auto-create the sandbox API User ID and API Key with MTN directly.
+              </p>
+            </div>
+            <form onSubmit={handleProvision} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full lg:w-auto">
+              <input
+                type="text"
+                placeholder="Enter Primary or Secondary Subscription Key..."
+                value={provisionKey}
+                onChange={(e) => setProvisionKey(e.target.value)}
+                className="px-3.5 py-2 text-xs rounded-xl border border-blue-300 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full sm:w-80 font-mono shadow-2xs"
+              />
+              <button
+                type="submit"
+                disabled={provisioning || !provisionKey.trim()}
+                className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-xl transition-colors whitespace-nowrap shadow-xs flex items-center justify-center gap-1.5"
+              >
+                {provisioning ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Provisioning...</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-3.5 h-3.5" />
+                    <span>Auto-Provision Sandbox</span>
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+          {provisionResult && (
+            <div className={`mt-3 p-3 rounded-lg text-xs font-mono ${provisionResult.success ? "bg-emerald-100 text-emerald-800 border border-emerald-300" : "bg-red-100 text-red-800 border border-red-300"}`}>
+              {provisionResult.success ? (
+                <div className="flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-bold">{provisionResult.message}</div>
+                    <div className="text-[11px] text-emerald-700 mt-0.5">
+                      API User: {provisionResult.apiUserId} | API Key: {provisionResult.apiKey ? `${provisionResult.apiKey.slice(0, 4)}••••` : "Generated"}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <XCircle className="w-4 h-4 text-red-600 shrink-0" />
+                  <span>Error: {provisionResult.error}</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -701,23 +800,83 @@ export const MomoLabPage: React.FC = () => {
 
             {/* Diagnostic Seam Info */}
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-[11px] font-mono space-y-1">
-              <div><strong>MTN Endpoint:</strong> POST /disbursement/v1_0/transfer</div>
-              <div><strong>Auth:</strong> Bearer Token + Ocp-Apim-Subscription-Key</div>
-              <div><strong>Network Seam:</strong> Leaves server directly to sandbox.momodeveloper.mtn.com</div>
+              <div><strong>Transaction Seam:</strong> Central Transaction Service &rarr; MTN MoMo Gateway</div>
+              <div><strong>Endpoint:</strong> {sendMode === "COLLECTION_REQUEST_TO_PAY" ? "POST /collection/v1_0/requesttopay (Handset USSD Push)" : "POST /disbursement/v1_0/transfer (Direct Float Payout)"}</div>
+              <div><strong>Zero-PIN Security:</strong> PIN is entered strictly on caller phone screen; never in this application</div>
+            </div>
+
+            {/* Currency Transparency Notice */}
+            <div className="p-3 bg-amber-50/80 rounded-xl border border-amber-200 text-xs text-amber-900 flex items-start gap-2">
+              <Coins className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <strong>Currency Transparency:</strong> You specify amounts in <strong>Ghana Cedis (GH₵)</strong>.
+                MTN MoMo Sandbox accounts transact in <strong>EUR</strong> by default.
+                Production operates in <strong>GH₵ (GHS)</strong>. We display both raw sandbox and requested values without silent conversions.
+              </div>
             </div>
 
             <form onSubmit={handleSendMoney} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Sender (System Float Account)
+                  Transaction Model
                 </label>
-                <input
-                  type="text"
-                  readOnly
-                  value={senderAccount}
-                  className="w-full text-xs bg-slate-100 border border-slate-200 text-slate-600 rounded-xl px-3.5 py-2.5 cursor-not-allowed font-medium"
-                />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSendMode("COLLECTION_REQUEST_TO_PAY")}
+                    className={`p-3 text-left rounded-xl border transition-all ${
+                      sendMode === "COLLECTION_REQUEST_TO_PAY"
+                        ? "bg-emerald-50 border-emerald-500 text-emerald-900 shadow-xs"
+                        : "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100"
+                    }`}
+                  >
+                    <div className="text-xs font-extrabold flex items-center gap-1.5">
+                      <Smartphone className="w-3.5 h-3.5 text-emerald-600" />
+                      Consumer P2P (Handset USSD)
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-1 leading-normal">
+                      Pulls funds from user&apos;s own wallet via USSD prompt. User enters PIN on their handset.
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSendMode("DISBURSEMENT_TRANSFER")}
+                    className={`p-3 text-left rounded-xl border transition-all ${
+                      sendMode === "DISBURSEMENT_TRANSFER"
+                        ? "bg-emerald-50 border-emerald-500 text-emerald-900 shadow-xs"
+                        : "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100"
+                    }`}
+                  >
+                    <div className="text-xs font-extrabold flex items-center gap-1.5">
+                      <Send className="w-3.5 h-3.5 text-emerald-600" />
+                      Direct Disbursement (Float)
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-1 leading-normal">
+                      Pushes funds from business float balance to recipient wallet. No subscriber PIN.
+                    </div>
+                  </button>
+                </div>
               </div>
+
+              {sendMode === "COLLECTION_REQUEST_TO_PAY" && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Sender Phone Number (Caller MSISDN)
+                  </label>
+                  <input
+                    type="text"
+                    value={senderPhone}
+                    onChange={(e) => setSenderPhone(e.target.value)}
+                    placeholder="0553838464"
+                    className="w-full text-xs border border-slate-300 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 rounded-xl px-3.5 py-2.5 font-mono text-slate-900 outline-none"
+                    required
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    This phone will receive the MTN network USSD authorization push prompt.
+                  </p>
+                </div>
+              )}
 
               <div>
                 <div className="flex items-center justify-between mb-1">
@@ -781,7 +940,7 @@ export const MomoLabPage: React.FC = () => {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Amount (GH₵ / EUR Float)
+                  Amount (GH₵)
                 </label>
                 <div className="relative">
                   <span className="absolute left-3.5 top-2.5 text-xs font-bold text-slate-400">GH₵</span>
@@ -803,7 +962,7 @@ export const MomoLabPage: React.FC = () => {
                 className="w-full inline-flex items-center justify-center gap-2 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-xs transition-all disabled:opacity-50"
               >
                 <Send className="w-4 h-4" />
-                <span>{sendingMoney ? "Dispatching HTTP POST to MTN Gateway..." : `DISPATCH REAL MTN TRANSFER (GH₵ ${sendAmount})`}</span>
+                <span>{sendingMoney ? "Dispatching to Central Transaction Service..." : `DISPATCH TRANSACTION (GH₵ ${sendAmount})`}</span>
               </button>
             </form>
           </div>
@@ -814,7 +973,7 @@ export const MomoLabPage: React.FC = () => {
               <div className="flex items-center justify-between pb-3 border-b border-slate-800">
                 <span className="text-xs font-bold text-slate-400 flex items-center gap-1.5 font-mono">
                   <Terminal className="w-3.5 h-3.5 text-emerald-400" />
-                  GATEWAY LOGS &amp; RAW TRACE
+                  CENTRAL TRANSACTION LOGS &amp; TRACE
                 </span>
                 {sendPollingActive && (
                   <span className="text-[10px] font-bold text-amber-300 bg-amber-950 px-2 py-0.5 rounded-full border border-amber-800/80 animate-pulse">
@@ -827,7 +986,7 @@ export const MomoLabPage: React.FC = () => {
                 {sendMoneyResult ? (
                   <div className="space-y-3">
                     <div className="p-3 bg-slate-800/80 rounded-xl border border-slate-700 space-y-1">
-                      <div className="text-slate-400 text-[11px]">TRANSACTION SETTLEMENT:</div>
+                      <div className="text-slate-400 text-[11px]">TRANSACTION STATUS:</div>
                       <div className="text-base font-extrabold flex items-center gap-2">
                         {sendMoneyResult.transaction?.status === "SUCCESS" || sendMoneyResult.transaction?.status === "SUCCESSFUL" ? (
                           <span className="text-emerald-400 flex items-center gap-1">
@@ -839,17 +998,23 @@ export const MomoLabPage: React.FC = () => {
                           </span>
                         ) : (
                           <span className="text-rose-400 flex items-center gap-1">
-                            <XCircle className="w-4 h-4" /> {sendMoneyResult.error || "FAILED"}
+                            <XCircle className="w-4 h-4" /> {sendMoneyResult.error || sendMoneyResult.transaction?.status || "FAILED"}
                           </span>
                         )}
                       </div>
                     </div>
 
-                    <div className="text-[11px] text-slate-300 space-y-1">
+                    <div className="text-[11px] text-slate-300 space-y-1.5">
                       <div>
-                        <span className="text-slate-500">Reference UUID:</span>{" "}
+                        <span className="text-slate-500">Operation:</span>{" "}
+                        <span className="text-emerald-400 font-bold">
+                          {sendMoneyResult.transaction?.operationType || "SEND_MONEY"}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Reference:</span>{" "}
                         <span className="text-slate-200">
-                          {sendMoneyResult.transaction?.momoDetails?.referenceId || sendMoneyResult.transaction?.reference || "-"}
+                          {sendMoneyResult.transaction?.reference || sendMoneyResult.transaction?.momoDetails?.referenceId || "-"}
                         </span>
                       </div>
                       {sendMoneyResult.transaction?.momoDetails?.financialTransactionId && (
@@ -861,9 +1026,28 @@ export const MomoLabPage: React.FC = () => {
                         </div>
                       )}
                       <div>
-                        <span className="text-slate-500">Mode:</span>{" "}
-                        <span className="text-emerald-400 font-bold">
-                          {sendMoneyResult.transaction?.momoDetails?.mode || "SANDBOX_API"}
+                        <span className="text-slate-500">Requested Amount:</span>{" "}
+                        <span className="text-slate-200 font-bold">
+                          GH₵ {sendMoneyResult.transaction?.amount}
+                        </span>
+                      </div>
+                      {sendMoneyResult.transaction?.executionCurrency && (
+                        <div>
+                          <span className="text-slate-500">Gateway Currency:</span>{" "}
+                          <span className="text-amber-300 font-bold">
+                            {sendMoneyResult.transaction?.amount} {sendMoneyResult.transaction?.executionCurrency}
+                          </span>
+                        </div>
+                      )}
+                      {sendMoneyResult.transaction?.currencyNotice && (
+                        <div className="text-[10px] text-amber-400/90 bg-amber-950/40 p-2 rounded-lg border border-amber-900/60 leading-normal">
+                          {sendMoneyResult.transaction.currencyNotice}
+                        </div>
+                      )}
+                      <div>
+                        <span className="text-slate-500">Authorization Model:</span>{" "}
+                        <span className="text-slate-300 text-[10px] leading-tight block mt-0.5">
+                          {sendMoneyResult.transaction?.authorizationModel || "Customer enters PIN on their own mobile handset via MTN network USSD prompt (Zero-PIN in app)"}
                         </span>
                       </div>
                       <div>
@@ -1643,13 +1827,19 @@ export const MomoLabPage: React.FC = () => {
       {/* ── TAB 10: COMPLETE CLASSIFICATION MATRIX ────────────────────────── */}
       {activeTab === "matrix" && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-6">
-          <div>
-            <h2 className="text-base font-extrabold text-slate-900">
-              Complete MoMo Operation Verification Matrix
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Rigorous breakdown of every operation in the system, distinguishing genuine MTN gateway calls from routed pipelines and local emulators.
-            </p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-extrabold text-slate-900">
+                Authoritative MTN MoMo Capability Matrix
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Exact verification of all financial operations, distinguishing genuine MTN gateway calls from operations requiring third-party VAS gateways.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 text-[11px] font-mono">
+              <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold border border-emerald-300">REAL (MTN API)</span>
+              <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-bold border border-amber-300">VAS REQUIRED</span>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -1657,44 +1847,60 @@ export const MomoLabPage: React.FC = () => {
               <thead className="bg-slate-50 text-slate-600 font-bold border-y border-slate-200 uppercase text-[10px]">
                 <tr>
                   <th className="py-3 px-3">Operation</th>
-                  <th className="py-3 px-3">Classification</th>
-                  <th className="py-3 px-3">MTN Endpoint</th>
-                  <th className="py-3 px-3">Leaves Server?</th>
-                  <th className="py-3 px-3">HTTP Status</th>
-                  <th className="py-3 px-3">Response Source</th>
-                  <th className="py-3 px-3">Files Responsible</th>
+                  <th className="py-3 px-3">MTN Product</th>
+                  <th className="py-3 px-3">Endpoint</th>
+                  <th className="py-3 px-3">Status</th>
+                  <th className="py-3 px-3">Authorization Model</th>
+                  <th className="py-3 px-3">Credentials Required</th>
+                  <th className="py-3 px-3">Technical Notes</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {verificationMatrix.map((item, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50/80">
-                    <td className="py-3 px-3 font-extrabold text-slate-900">
-                      {item.operation}
-                    </td>
-                    <td className="py-3 px-3">
-                      <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${item.badgeColor}`}>
-                        {item.classification}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 font-mono text-[11px] text-slate-700">
-                      {item.endpoint}
-                    </td>
-                    <td className="py-3 px-3 font-bold">
-                      <span className={item.leavesServer === "YES" ? "text-emerald-700" : "text-amber-700"}>
-                        {item.leavesServer}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 font-mono text-[11px] text-slate-800">
-                      {item.httpStatus}
-                    </td>
-                    <td className="py-3 px-3 text-slate-700">
-                      {item.source}
-                    </td>
-                    <td className="py-3 px-3 font-mono text-[10px] text-slate-500">
-                      {item.files}
-                    </td>
-                  </tr>
-                ))}
+                {(backendMatrix.length > 0 ? backendMatrix : verificationMatrix.map(v => ({
+                  operation: v.operation,
+                  mtnProduct: v.source,
+                  endpoint: v.endpoint,
+                  status: v.classification.includes("REAL") ? "REAL" : v.classification.includes("PARTIAL") ? "REQUIRES_VAS_AGGREGATOR" : "NOT_CONFIGURED",
+                  authorization: "Handset USSD Push (Zero-PIN)",
+                  credentials: v.auth,
+                  notes: v.fallback,
+                }))).map((item: any, idx: number) => {
+                  const isReal = item.status === "REAL" || item.status?.includes("REAL");
+                  const isVas = item.status === "REQUIRES_VAS_AGGREGATOR" || item.status?.includes("VAS");
+                  return (
+                    <tr key={idx} className="hover:bg-slate-50/80">
+                      <td className="py-3 px-3 font-extrabold text-slate-900 whitespace-nowrap">
+                        {item.operation}
+                      </td>
+                      <td className="py-3 px-3 text-slate-700 font-medium">
+                        {item.mtnProduct || item.product || "MTN MoMo API"}
+                      </td>
+                      <td className="py-3 px-3 font-mono text-[11px] text-slate-700">
+                        {item.endpoint}
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                          isReal
+                            ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                            : isVas
+                            ? "bg-amber-100 text-amber-800 border-amber-300"
+                            : "bg-slate-100 text-slate-700 border-slate-300"
+                        }`}>
+                          {item.status}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-[11px] text-slate-600 max-w-xs leading-normal">
+                        {item.authorization}
+                      </td>
+                      <td className="py-3 px-3 text-[11px] font-mono text-slate-500 max-w-xs">
+                        {item.credentials}
+                      </td>
+                      <td className="py-3 px-3 text-[11px] text-slate-500 leading-normal">
+                        {item.notes}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

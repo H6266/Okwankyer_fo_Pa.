@@ -81,15 +81,31 @@ export function loadConfig(): AppConfig {
     atUsername = "sandbox";
   }
 
-  const momoSubKey = (process.env.MOMO_SUBSCRIPTION_KEY || process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY || process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY || "").trim();
+  const primaryMtnKey = (
+    process.env.MTN_API_PRIMARY_KEY ||
+    process.env.mtn_api_primary_key ||
+    process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY ||
+    process.env.MOMO_SUBSCRIPTION_KEY ||
+    ""
+  ).trim();
+
+  const secondaryMtnKey = (
+    process.env.MTN_API_SECONDARY_KEY ||
+    process.env.mtn_api_secondary_key ||
+    process.env.MOMO_SUBSCRIPTION_KEY_SECONDARY ||
+    process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY ||
+    primaryMtnKey
+  ).trim();
+
+  const momoSubKey = (process.env.MOMO_SUBSCRIPTION_KEY || primaryMtnKey).trim();
   const momoUserId = (process.env.MOMO_API_USER_ID || process.env.MOMO_DISBURSEMENT_API_USER_ID || process.env.MOMO_COLLECTION_API_USER_ID || "").trim();
   const momoApiKey = (process.env.MOMO_API_KEY || process.env.MOMO_DISBURSEMENT_API_KEY || process.env.MOMO_COLLECTION_API_KEY || "").trim();
 
-  const disbSubKey = (process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY || momoSubKey).trim();
+  const disbSubKey = (process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY || secondaryMtnKey || momoSubKey).trim();
   const disbUserId = (process.env.MOMO_DISBURSEMENT_API_USER_ID || momoUserId).trim();
   const disbApiKey = (process.env.MOMO_DISBURSEMENT_API_KEY || momoApiKey).trim();
 
-  const collSubKey = (process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY || "").trim();
+  const collSubKey = (process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY || primaryMtnKey).trim();
   const collUserId = (process.env.MOMO_COLLECTION_API_USER_ID || (collSubKey ? momoUserId : "")).trim();
   const collApiKey = (process.env.MOMO_COLLECTION_API_KEY || (collSubKey ? momoApiKey : "")).trim();
 

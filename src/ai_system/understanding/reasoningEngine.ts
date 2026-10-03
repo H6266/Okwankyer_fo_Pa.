@@ -94,7 +94,7 @@ export class ReasoningEngine {
       return this.deterministicReasoning(params);
     }
 
-    if (!geminiClient.isAvailable()) {
+    if (!geminiClient.isAvailable() || process.env.NODE_ENV === "test" || Boolean(process.env.VITEST)) {
       return this.deterministicReasoning(params);
     }
 

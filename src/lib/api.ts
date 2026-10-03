@@ -271,6 +271,20 @@ export const api = {
     return res.json();
   },
 
+  async provisionMomoSandbox(subscriptionKey?: string): Promise<any> {
+    const res = await fetch("/api/momo/provision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subscriptionKey }),
+    });
+    return res.json();
+  },
+
+  async getCapabilityMatrix(): Promise<any> {
+    const res = await fetch("/api/momo/capability-matrix");
+    return res.json();
+  },
+
   async getMomoBalance(product: "collection" | "disbursement" = "collection"): Promise<any> {
     const res = await fetch(`/api/momo/account/balance?product=${product}`);
     return res.json();
@@ -355,6 +369,8 @@ export const api = {
     recipient_name: string;
     amount: number;
     network?: string;
+    payer_phone?: string;
+    mode?: "COLLECTION_REQUEST_TO_PAY" | "DISBURSEMENT_TRANSFER";
   }): Promise<any> {
     const res = await fetch("/api/momo/send", {
       method: "POST",

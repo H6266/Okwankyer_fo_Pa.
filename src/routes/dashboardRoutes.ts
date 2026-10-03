@@ -19,9 +19,22 @@ import { adminRateLimiter } from "../middleware/rateLimiter";
 
 export const dashboardRouter = Router();
 
-// Apply admin rate limiting and authentication across developer dashboard endpoints
-dashboardRouter.use(adminRateLimiter);
-dashboardRouter.use(requireAdminAuth);
+// Apply admin rate limiting and authentication strictly across developer dashboard endpoints
+dashboardRouter.use((req: Request, res: Response, next) => {
+  const isDashboardRoute =
+    req.path.startsWith("/api/dev") ||
+    req.path.startsWith("/api/tasks") ||
+    req.path.startsWith("/api/phrase-bank") ||
+    req.path.startsWith("/api/prototype-audio") ||
+    req.path.startsWith("/api/twi-audio") ||
+    req.path.startsWith("/api/conversation") ||
+    req.path === "/transactions/send";
+
+  if (isDashboardRoute) {
+    return adminRateLimiter(req, res, () => requireAdminAuth(req, res, next));
+  }
+  return next();
+});
 
 // ── Audio Phrase Bank ─────────────────────────────────────────────────
 dashboardRouter.get("/api/phrase-bank", (_req: Request, res: Response) => {

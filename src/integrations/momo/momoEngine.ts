@@ -41,13 +41,28 @@ export class MoMoEngine {
   private listeners: Set<(tx: MoMoTransactionRecord) => void> = new Set();
 
   public readonly knownKeys = {
-    primary: process.env.MOMO_SUBSCRIPTION_KEY || "",
-    secondary: process.env.MOMO_SUBSCRIPTION_KEY_SECONDARY || "",
+    primary:
+      process.env.MTN_API_PRIMARY_KEY ||
+      process.env.mtn_api_primary_key ||
+      process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY ||
+      process.env.MOMO_SUBSCRIPTION_KEY ||
+      "",
+    secondary:
+      process.env.MTN_API_SECONDARY_KEY ||
+      process.env.mtn_api_secondary_key ||
+      process.env.MOMO_SUBSCRIPTION_KEY_SECONDARY ||
+      process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY ||
+      "",
     activeKeyType: "primary" as "primary" | "secondary" | "custom",
   };
 
   constructor(customConfig?: Partial<MoMoConfig>) {
     this.config = customConfig ? { ...loadConfigFromEnv(), ...customConfig } : loadConfigFromEnv();
+    if (this.config.targetEnv === "sandbox" && (this.knownKeys.primary || this.knownKeys.secondary)) {
+      this.ensureSandboxProvisioned("collection").catch((err) => {
+        console.warn("[MoMoEngine] Background auto-provision notice:", err.message);
+      });
+    }
   }
 
   /**
@@ -255,6 +270,35 @@ export class MoMoEngine {
   }
 
   /**
+   * Automatically provisions Sandbox API User ID and API Key if a Subscription Key is available.
+   * Enables seamless testing with only the primary or secondary subscription key.
+   */
+  public async ensureSandboxProvisioned(product: "collection" | "disbursement" = "collection"): Promise<boolean> {
+    if (this.config.targetEnv !== "sandbox") return false;
+    const p = product === "collection" ? this.config.collection : this.config.disbursement;
+    if (p.apiUserId && p.apiKey && p.subscriptionKey) return true;
+
+    const subKey =
+      p.subscriptionKey ||
+      this.knownKeys.primary ||
+      this.knownKeys.secondary ||
+      process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY ||
+      process.env.MOMO_SUBSCRIPTION_KEY ||
+      process.env.MOMO_SUBSCRIPTION_KEY_SECONDARY;
+
+    if (!subKey) return false;
+
+    try {
+      console.log(`[MTN MoMo Engine] Auto-provisioning sandbox credentials using subscription key (${subKey.slice(0, 6)}...)...`);
+      await this.autoProvisionSandbox(subKey);
+      return true;
+    } catch (err: any) {
+      console.warn(`[MTN MoMo Engine] Sandbox auto-provision notice:`, err.message);
+      return false;
+    }
+  }
+
+  /**
    * Fetches or reuses cached OAuth 2.0 Bearer Token from MTN MoMo API
    */
   private async getAccessToken(product: "collection" | "disbursement"): Promise<string> {
@@ -310,7 +354,10 @@ export class MoMoEngine {
   public async requestToPay(params: RequestToPayParams): Promise<MoMoTransactionRecord> {
     const { amount, payerPhone, payerName, payerMessage, payeeNote, externalId } = params;
     if (!this.isConfigured("collection")) {
-      throw new Error("MTN MoMo Collections is not configured.");
+      const autoProvisioned = await this.ensureSandboxProvisioned("collection");
+      if (!autoProvisioned) {
+        throw new Error("MTN MoMo Collections is not configured.");
+      }
     }
     const referenceId = this.generateReferenceId();
     const extId = externalId || `OKP-${Math.floor(100000 + Math.random() * 900000)}`;
@@ -390,7 +437,10 @@ export class MoMoEngine {
   public async transfer(params: TransferParams): Promise<MoMoTransactionRecord> {
     const { amount, payeePhone, payeeName, payerMessage, payeeNote, externalId } = params;
     if (!this.isConfigured("disbursement")) {
-      throw new Error("MTN MoMo Disbursement is not configured.");
+      const autoProvisioned = await this.ensureSandboxProvisioned("disbursement");
+      if (!autoProvisioned) {
+        throw new Error("MTN MoMo Disbursement is not configured.");
+      }
     }
     const referenceId = this.generateReferenceId();
     const extId = externalId || `OKP-${Math.floor(100000 + Math.random() * 900000)}`;
@@ -503,39 +553,39 @@ export class MoMoEngine {
    * 4. CHECK ACCOUNT BALANCE
    */
   public async getAccountBalance(product: "collection" | "disbursement" = "collection"): Promise<MoMoBalanceResult> {
-    if (this.isConfigured(product)) {
-      try {
-        const token = await this.getAccessToken(product);
-        const url = `${this.config.baseUrl}/${product}/v1_0/account/balance`;
-
-        const res = await fetch(url, {
-          method: "GET",
-          headers: {
-            "Authorization": `Bearer ${token}`,
-            "X-Target-Environment": this.config.targetEnv,
-            "Ocp-Apim-Subscription-Key": (product === "collection" ? this.config.collection.subscriptionKey : this.config.disbursement.subscriptionKey) || "",
-          },
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          const balanceNum = parseFloat(data.availableBalance) || 0;
-          const curr = data.currency || this.config.currency;
-          return {
-            availableBalance: balanceNum,
-            currency: curr,
-            formatted: `${balanceNum.toLocaleString("en-US", { minimumFractionDigits: 2 })} ${curr}`,
-            mode: this.config.targetEnv === "production" ? "LIVE_API" : "SANDBOX_API",
-          };
-        }
-      } catch (err: any) {
-        console.warn(`[MTN MoMo Engine] Balance inquiry notice: ${err.message}.`);
-      }
+    if (!this.isConfigured(product)) {
+      await this.ensureSandboxProvisioned(product);
+    }
+    if (!this.isConfigured(product)) {
+      throw new Error(`MTN MoMo ${product} credentials not configured.`);
     }
 
-    throw new Error(
-      `Unable to retrieve ${product} MoMo account balance from MTN.`
-    );
+    const token = await this.getAccessToken(product);
+    const url = `${this.config.baseUrl}/${product}/v1_0/account/balance`;
+
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "X-Target-Environment": this.config.targetEnv,
+        "Ocp-Apim-Subscription-Key": (product === "collection" ? this.config.collection.subscriptionKey : this.config.disbursement.subscriptionKey) || "",
+      },
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      const balanceNum = parseFloat(data.availableBalance) || 0;
+      const curr = data.currency || this.config.currency;
+      return {
+        availableBalance: balanceNum,
+        currency: curr,
+        formatted: `${balanceNum.toLocaleString("en-US", { minimumFractionDigits: 2 })} ${curr}`,
+        mode: this.config.targetEnv === "production" ? "LIVE_API" : "SANDBOX_API",
+      };
+    } else {
+      const errText = await res.text();
+      throw new Error(`MTN ${product} balance inquiry failed (${res.status}): ${errText}`);
+    }
   }
 
   /**
@@ -543,6 +593,9 @@ export class MoMoEngine {
    */
   public async validateAccountHolder(phone: string): Promise<MoMoAccountHolderResult> {
     const msisdn = this.formatMsisdn(phone);
+    if (!this.isConfigured("collection")) {
+      await this.ensureSandboxProvisioned("collection");
+    }
     if (!this.isConfigured("collection")) {
       throw new Error("MTN MoMo Collections is not configured.");
     }

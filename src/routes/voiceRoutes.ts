@@ -24,8 +24,32 @@ import { durableTransactionStore } from "../services/durableTransactionStore";
 
 export const voiceRouter = Router();
 
-// Apply Africa's Talking webhook verification to all telephony routes
-voiceRouter.use(verifyAtWebhook);
+const TELEPHONY_ROUTES = new Set([
+  "/voice-menu",
+  "/language-selection",
+  "/service-select",
+  "/service-choice",
+  "/provider-select",
+  "/provider-choice",
+  "/action-select",
+  "/action-choice",
+  "/enter-recipient",
+  "/verify-recipient",
+  "/recipient-verify-choice",
+  "/enter-amount",
+  "/verify-amount",
+  "/safe-confirmation",
+  "/safe-outcome",
+  "/speech-fallback",
+]);
+
+// Apply Africa's Talking webhook verification strictly to telephony routes
+voiceRouter.use((req: Request, res: Response, next) => {
+  if (TELEPHONY_ROUTES.has(req.path)) {
+    return verifyAtWebhook(req, res, next);
+  }
+  return next();
+});
 
 function xmlResponse(res: Response, content: string): void {
   res.set("Content-Type", "application/xml; charset=utf-8");

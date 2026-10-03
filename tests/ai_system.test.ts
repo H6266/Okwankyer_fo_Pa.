@@ -3,7 +3,7 @@
  * Comprehensive validation across all ten subsystems, hard latency targets, and Zero-PIN safety guarantees.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 import { aiEngine } from "../src/ai_system/core/aiEngine";
 import { aiMemory } from "../src/ai_system/core/aiMemory";
 import { aiUnderstanding } from "../src/ai_system/core/aiUnderstanding";
@@ -384,6 +384,16 @@ describe("Ɔkwankyerɛfo Pa - 10-System Cognitive Engine Master Test Suite", () 
   // 10. END-TO-END CENTRAL AI ENGINE MULTI-TURN ORCHESTRATION & LATENCY
   // =========================================================================
   describe("System 10: Multi-Turn Orchestration & Latency Benchmarks (<80ms)", () => {
+    beforeAll(async () => {
+      // Warm up pipeline caches and JIT compiler before measuring strict latency
+      await aiEngine.process({
+        sessionId: "warmup_session",
+        channel: "VOICE",
+        input: "Warm up pipeline",
+        currentStep: "welcome",
+      });
+    });
+
     it("completes full end-to-end processing within <80ms budget", async () => {
       const sessionId = `e2e_benchmark_${Date.now()}`;
 

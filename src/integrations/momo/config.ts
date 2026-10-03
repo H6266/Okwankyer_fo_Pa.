@@ -73,11 +73,27 @@ export function loadConfigFromEnv(): MoMoConfig {
 
   // In MTN MoMo Open API, Collections and Disbursements are separate product subscriptions.
   // A Disbursement key is invalid for Collections endpoints and vice versa.
-  const collSubKey = (process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY || "").trim();
+  const primaryKey = (
+    process.env.MTN_API_PRIMARY_KEY ||
+    process.env.mtn_api_primary_key ||
+    process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY ||
+    process.env.MOMO_SUBSCRIPTION_KEY ||
+    ""
+  ).trim();
+
+  const secondaryKey = (
+    process.env.MTN_API_SECONDARY_KEY ||
+    process.env.mtn_api_secondary_key ||
+    process.env.MOMO_SUBSCRIPTION_KEY_SECONDARY ||
+    process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY ||
+    primaryKey
+  ).trim();
+
+  const collSubKey = (process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY || primaryKey).trim();
   const collUserId = (process.env.MOMO_COLLECTION_API_USER_ID || (collSubKey ? process.env.MOMO_API_USER_ID : "") || "").trim();
   const collApiKey = (process.env.MOMO_COLLECTION_API_KEY || (collSubKey ? process.env.MOMO_API_KEY : "") || "").trim();
 
-  const disbSubKey = (process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY || process.env.MOMO_SUBSCRIPTION_KEY || "").trim();
+  const disbSubKey = (process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY || secondaryKey || primaryKey).trim();
   const disbUserId = (process.env.MOMO_DISBURSEMENT_API_USER_ID || process.env.MOMO_API_USER_ID || "").trim();
   const disbApiKey = (process.env.MOMO_DISBURSEMENT_API_KEY || process.env.MOMO_API_KEY || "").trim();
 

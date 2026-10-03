@@ -28,6 +28,9 @@ import { validateGhanaPhoneNumber } from "./src/domain/validation";
 
 const app = express();
 
+// Trust reverse proxy (Google Cloud Run / Load Balancers) to read X-Forwarded-For correctly
+app.set("trust proxy", 1);
+
 // ── Security Middleware ───────────────────────────────────────────────
 // Helmet configured for iframe embedding in AI Studio and mobile preview
 app.use(
