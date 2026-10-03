@@ -1,7 +1,10 @@
 /**
  * Payment Provider Abstraction Layer for Ghana Digital Financial Services
- * Supports MTN MoMo (Active), Telecel Cash (Roadmap Stub), AT Money (Roadmap Stub)
+ * Uses the MTN MoMo API for active transactions; other networks remain roadmap stubs.
  */
+
+import { mtnMomoService } from "./mtnMomoService";
+import type { MoMoEngine } from "../integrations/momo/momoEngine";
 
 export interface KycRecord {
   phoneNumber: string;
@@ -53,157 +56,73 @@ export interface PaymentProvider {
   getStatus(referenceId: string): Promise<TransactionStatusResult>;
 }
 
-// ── In-Memory Sandbox Ledger Storage ─────────────────────────────────
-export interface LedgerEntry {
-  id: string;
-  referenceId: string;
-  type: "COLLECTION" | "DISBURSEMENT";
-  provider: "MTN" | "Telecel" | "AT";
-  phoneNumber: string;
-  recipientName?: string;
-  amount: number;
-  currency: "GHS";
-  status: "SUCCESSFUL" | "PENDING" | "FAILED";
-  zeroPinVerified: boolean;
-  createdAt: string;
-}
-
-export const sandboxLedger: LedgerEntry[] = [
-  {
-    id: "tx-1",
-    referenceId: "OKP-847291",
-    type: "COLLECTION",
-    provider: "MTN",
-    phoneNumber: "0553838464",
-    recipientName: "Kwame Nyamebere",
-    amount: 500.0,
-    currency: "GHS",
-    status: "SUCCESSFUL",
-    zeroPinVerified: true,
-    createdAt: new Date(Date.now() - 3600000 * 2).toISOString(),
-  },
-  {
-    id: "tx-2",
-    referenceId: "OKP-392104",
-    type: "COLLECTION",
-    provider: "MTN",
-    phoneNumber: "0241234567",
-    recipientName: "Kwame Nyameba",
-    amount: 50.0,
-    currency: "GHS",
-    status: "SUCCESSFUL",
-    zeroPinVerified: true,
-    createdAt: new Date(Date.now() - 3600000 * 5).toISOString(),
-  },
-  {
-    id: "tx-3",
-    referenceId: "OKP-109283",
-    type: "DISBURSEMENT",
-    provider: "MTN",
-    phoneNumber: "0543546010",
-    recipientName: "Hannes Aboagye",
-    amount: 120.0,
-    currency: "GHS",
-    status: "SUCCESSFUL",
-    zeroPinVerified: true,
-    createdAt: new Date(Date.now() - 3600000 * 12).toISOString(),
-  },
-  {
-    id: "tx-4",
-    referenceId: "OKP-552910",
-    type: "COLLECTION",
-    provider: "MTN",
-    phoneNumber: "0244123456",
-    recipientName: "Kwame Mensah",
-    amount: 75.5,
-    currency: "GHS",
-    status: "SUCCESSFUL",
-    zeroPinVerified: true,
-    createdAt: new Date(Date.now() - 3600000 * 24).toISOString(),
-  },
-];
-
 // ── MTN Implementation ───────────────────────────────────────────────
 export class MtnPaymentProvider implements PaymentProvider {
   readonly id = "MTN";
   readonly name = "MTN Mobile Money (Ghana)";
   readonly isImplemented = true;
 
+  constructor(private readonly momoService: MoMoEngine = mtnMomoService) {}
+
   async lookupKyc(phone: string): Promise<KycRecord> {
-    const clean = phone.replace(/[^0-9]/g, "");
-    if (clean.endsWith("8464") || clean === "0553838464") {
-      return { phoneNumber: clean, name: "Kwame Nyamebere", network: "MTN", verified: true, tier: "Tier 2" };
-    }
-    if (clean === "0241234567") {
-      return { phoneNumber: clean, name: "Kwame Nyameba", network: "MTN", verified: true, tier: "Tier 1" };
-    }
-    if (clean === "0543546010") {
-      return { phoneNumber: clean, name: "Hannes Aboagye", network: "MTN", verified: true, tier: "Tier 3" };
-    }
-    const last4 = clean.slice(-4).split("").join(" ");
-    return { phoneNumber: clean, name: `Subscriber ending in ${last4}`, network: "MTN", verified: true, tier: "Standard" };
+    const holder = await this.momoService.validateAccountHolder(phone);
+    const last4 = holder.msisdn.slice(-4).split("").join(" ");
+    return {
+      phoneNumber: holder.msisdn,
+      name: holder.name || `Subscriber ending in ${last4}`,
+      network: "MTN",
+      verified: holder.isActive,
+    };
   }
 
   async requestToPay(params: RequestToPayParams): Promise<{ referenceId: string; status: "PENDING" | "SUCCESSFUL" }> {
-    const ref = params.referenceId || `OKP-${Math.floor(100000 + Math.random() * 900000)}`;
-    const kyc = await this.lookupKyc(params.payerPhone);
-    sandboxLedger.unshift({
-      id: `tx-${Date.now()}`,
-      referenceId: ref,
-      type: "COLLECTION",
-      provider: "MTN",
-      phoneNumber: params.payerPhone,
-      recipientName: kyc.name,
+    const transaction = await this.momoService.requestToPay({
       amount: params.amount,
-      currency: "GHS",
-      status: "SUCCESSFUL",
-      zeroPinVerified: true,
-      createdAt: new Date().toISOString(),
+      payerPhone: params.payerPhone,
+      payerMessage: params.payerMessage,
+      payeeNote: params.payeeNote,
+      externalId: params.referenceId,
     });
-    return { referenceId: ref, status: "SUCCESSFUL" };
+    return {
+      referenceId: transaction.referenceId,
+      status: transaction.status === "SUCCESSFUL" ? "SUCCESSFUL" : "PENDING",
+    };
   }
 
   async transfer(params: TransferParams): Promise<{ referenceId: string; status: "PENDING" | "SUCCESSFUL" }> {
-    const ref = params.referenceId || `OKP-${Math.floor(100000 + Math.random() * 900000)}`;
-    const kyc = await this.lookupKyc(params.recipientPhone);
-    sandboxLedger.unshift({
-      id: `tx-${Date.now()}`,
-      referenceId: ref,
-      type: "DISBURSEMENT",
-      provider: "MTN",
-      phoneNumber: params.recipientPhone,
-      recipientName: kyc.name,
+    const transaction = await this.momoService.transfer({
       amount: params.amount,
-      currency: "GHS",
-      status: "SUCCESSFUL",
-      zeroPinVerified: true,
-      createdAt: new Date().toISOString(),
+      payeePhone: params.recipientPhone,
+      payerMessage: params.payerMessage,
+      payeeNote: params.payeeNote,
+      externalId: params.referenceId,
     });
-    return { referenceId: ref, status: "SUCCESSFUL" };
+    return {
+      referenceId: transaction.referenceId,
+      status: transaction.status === "SUCCESSFUL" ? "SUCCESSFUL" : "PENDING",
+    };
   }
 
   async getStatus(referenceId: string): Promise<TransactionStatusResult> {
-    const entry = sandboxLedger.find((l) => l.referenceId === referenceId);
-    if (!entry) {
-      return {
-        referenceId,
-        amount: 0,
-        currency: "GHS",
-        status: "FAILED",
-        reason: "Reference not found in ledger",
-        timestamp: new Date().toISOString(),
-      };
+    const transaction = await this.momoService.getTransactionStatus(referenceId);
+    if (!transaction) {
+      throw new Error(`MTN MoMo transaction ${referenceId} was not found.`);
     }
+
     return {
-      referenceId: entry.referenceId,
-      externalId: `FIN-${entry.referenceId}`,
-      amount: entry.amount,
-      currency: entry.currency,
-      status: entry.status,
-      financialTransactionId: `FTX-${Math.floor(10000000 + Math.random() * 90000000)}`,
-      payerPhone: entry.phoneNumber,
-      recipientPhone: entry.phoneNumber,
-      timestamp: entry.createdAt,
+      referenceId: transaction.referenceId,
+      externalId: transaction.externalId,
+      amount: transaction.amount,
+      currency: transaction.currency,
+      status: transaction.status === "SUCCESSFUL"
+        ? "SUCCESSFUL"
+        : transaction.status === "PENDING"
+          ? "PENDING"
+          : "FAILED",
+      financialTransactionId: transaction.financialTransactionId,
+      payerPhone: transaction.msisdn,
+      recipientPhone: transaction.msisdn,
+      timestamp: transaction.updatedAt,
     };
   }
 }

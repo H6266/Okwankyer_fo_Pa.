@@ -65,14 +65,12 @@ export interface SessionRecord {
 export interface LedgerItem {
   id: string;
   referenceId: string;
-  type: "COLLECTION" | "DISBURSEMENT";
-  provider: "MTN" | "Telecel" | "AT";
-  phoneNumber: string;
+  type: "COLLECTION_REQUEST_TO_PAY" | "DISBURSEMENT_TRANSFER";
+  msisdn: string;
   recipientName?: string;
   amount: number;
-  currency: "GHS";
-  status: "SUCCESSFUL" | "PENDING" | "FAILED";
-  zeroPinVerified: boolean;
+  currency: string;
+  status: "SUCCESSFUL" | "PENDING" | "FAILED" | "REJECTED" | "TIMEOUT";
   createdAt: string;
 }
 

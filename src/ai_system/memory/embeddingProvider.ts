@@ -60,7 +60,7 @@ export class GeminiEmbeddingProvider implements IEmbeddingProvider {
         contents: clean,
       });
 
-      const values = response.embedding?.values;
+      const values = response.embeddings?.[0]?.values;
       if (values && Array.isArray(values) && values.length > 0) {
         return {
           vector: values,

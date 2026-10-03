@@ -213,33 +213,18 @@ class ConversationManager {
 
       // User says "Yes. Check my balance" or "Check my balance"
       if (cleanLower.includes("balance") || cleanLower.includes("check")) {
-        try {
-          const bal = await transactionOrchestrator.getAccountBalance("MTN");
-          state.status = "OFFER_CONTINUATION";
-          return {
-            state,
-            spokenPrompt: `Sure. Your available balance is ${bal.formatted}. Would you like to do anything else?`,
-            displayStepTag: "Account Balance",
-            requiresPinInput: false,
-            isCompleted: false,
-            offeredMenuFallback: false,
-            confidence: 0.96,
-            activeIntent: "CHECK_BALANCE",
-          };
-        } catch (err) {
-          console.warn("[ConversationManager] MTN balance retrieval failed:", err);
-          state.status = "OFFER_CONTINUATION";
-          return {
-            state,
-            spokenPrompt: "Sorry, your MTN MoMo balance could not be retrieved right now. Would you like to do anything else?",
-            displayStepTag: "Balance Unavailable",
-            requiresPinInput: false,
-            isCompleted: false,
-            offeredMenuFallback: false,
-            confidence: 0.96,
-            activeIntent: "CHECK_BALANCE",
-          };
-        }
+        const bal = transactionOrchestrator.getAccountBalance("MTN");
+        state.status = "OFFER_CONTINUATION";
+        return {
+          state,
+          spokenPrompt: `Sure. Your available balance is ${bal.formatted}. Would you like to do anything else?`,
+          displayStepTag: "Account Balance",
+          requiresPinInput: false,
+          isCompleted: false,
+          offeredMenuFallback: false,
+          confidence: 0.96,
+          activeIntent: "CHECK_BALANCE",
+        };
       }
 
       // If user says "Yes" without specifying, reset to start new intent
@@ -389,33 +374,18 @@ class ConversationManager {
 
     // Check Balance Intent
     if (nlu.intent === "CHECK_BALANCE") {
-      try {
-        const bal = await transactionOrchestrator.getAccountBalance("MTN");
-        state.status = "OFFER_CONTINUATION";
-        return {
-          state,
-          spokenPrompt: `Sure. Your available balance is ${bal.formatted}. Would you like to do anything else?`,
-          displayStepTag: "Account Balance",
-          requiresPinInput: false,
-          isCompleted: false,
-          offeredMenuFallback: false,
-          confidence: nlu.confidence,
-          activeIntent: "CHECK_BALANCE",
-        };
-      } catch (err) {
-        console.warn("[ConversationManager] MTN balance retrieval failed:", err);
-        state.status = "OFFER_CONTINUATION";
-        return {
-          state,
-          spokenPrompt: "Sorry, your MTN MoMo balance could not be retrieved right now. Would you like to do anything else?",
-          displayStepTag: "Balance Unavailable",
-          requiresPinInput: false,
-          isCompleted: false,
-          offeredMenuFallback: false,
-          confidence: nlu.confidence,
-          activeIntent: "CHECK_BALANCE",
-        };
-      }
+      const bal = transactionOrchestrator.getAccountBalance("MTN");
+      state.status = "OFFER_CONTINUATION";
+      return {
+        state,
+        spokenPrompt: `Sure. Your available balance is ${bal.formatted}. Would you like to do anything else?`,
+        displayStepTag: "Account Balance",
+        requiresPinInput: false,
+        isCompleted: false,
+        offeredMenuFallback: false,
+        confidence: nlu.confidence,
+        activeIntent: "CHECK_BALANCE",
+      };
     }
 
     // Other scoped prototype intents (Graceful prototype responses)
@@ -619,14 +589,14 @@ class ConversationManager {
     });
 
     state.lastTransactionResult = tx;
-    state.status = tx.status === "PENDING" ? "OFFER_CONTINUATION" : "TRANSACTION_COMPLETED";
+    state.status = "OFFER_CONTINUATION";
 
     return {
       state,
       spokenPrompt: tx.spokenReceipt,
-      displayStepTag: tx.status === "PENDING" ? "Transaction Pending" : "Transaction Status",
+      displayStepTag: "Transaction Completed",
       requiresPinInput: false,
-      isCompleted: tx.status !== "PENDING",
+      isCompleted: true,
       offeredMenuFallback: false,
       confidence: 1.0,
       activeIntent: "SEND_MONEY",

@@ -216,7 +216,7 @@
                 <strong>The Challenge:</strong> MTN Developer Sandbox requires generating an API User UUID and API Key via provisioning, whereas Live Production requires an enterprise agreement with MTN Ghana.
               </p>
               <p style="margin: 0; color: #10b981;">
-                <strong>Solution in Place:</strong> Our standalone <code>momo_api/</code> and <code>src/integrations/momo</code> modules feature auto-provisioning, multi-key switching (Primary/Secondary/Custom), and resilient fallback emulation so trial transactions succeed smoothly in every environment.
+                <strong>MTN integration:</strong> MoMo credentials are loaded from environment variables, and transaction results come from the MTN API or its callbacks.
               </p>
             </div>
           </div>
@@ -1221,7 +1221,7 @@ async function uploadAudio(filePath, filename, phraseId) {
           <div>
             <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
               <span class="badge" style="background: #d99e1f; color: #16211a; font-weight: 800;">MTN MoMo Gateway</span>
-              <span class="badge" id="momoModeBadge" style="background: #10b981; color: #fff;">Resilient Mode Active</span>
+              <span class="badge" id="momoModeBadge" style="background: #64748b; color: #fff;">Not Configured</span>
               <span class="badge" id="momoTargetEnvBadge" style="background: #334155; color: #f8fafc;">Sandbox / Live Ready</span>
             </div>
             <h2 style="font-size: 22px; font-weight: 800; color: var(--ink); margin: 0 0 6px 0;">
@@ -1301,10 +1301,10 @@ async function uploadAudio(filePath, filename, phraseId) {
             </div>
             <div style="display: flex; gap: 8px; flex-wrap: wrap;">
               <button class="btn btn-sm" id="btnKeyPrimary" onclick="window.app.selectMomoKey('primary')" style="background:#d99e1f; color:#16211a; font-weight:700; border-color:#d99e1f;">
-                ✓ Primary Key: 251831ea3ce94c78b8afe1bb064683b2
+                ✓ Primary Key (environment-configured)
               </button>
               <button class="btn btn-sm btn-outline" id="btnKeySecondary" onclick="window.app.selectMomoKey('secondary')">
-                Secondary Key: 4ed7eac0354847b3acfefae8cf98d943
+                Secondary Key (environment-configured)
               </button>
               <button class="btn btn-sm btn-outline" onclick="window.app.promptCustomKey()">
                 + Custom Key
@@ -1407,14 +1407,8 @@ async function uploadAudio(filePath, filename, phraseId) {
                   <span>Enter MoMo PIN:</span>
                   <span id="handsetPinDisplay" style="letter-spacing: 4px; font-weight: 700;">● ● ● ●</span>
                 </div>
-                <!-- Interactive Action Buttons -->
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                  <button class="btn btn-sm" id="btnHandsetApprove" onclick="window.app.authorizeHandsetPrompt('approve')" style="background: #10b981; color: #fff; font-weight: 700; justify-content: center;">
-                    ✓ 1. Approve &amp; Pay
-                  </button>
-                  <button class="btn btn-sm" id="btnHandsetReject" onclick="window.app.authorizeHandsetPrompt('reject')" style="background: #ef4444; color: #fff; font-weight: 700; justify-content: center;">
-                    ✗ 2. Cancel / Reject
-                  </button>
+                <div style="font-size: 12px; color: #64748b;">
+                  Approve or reject the request on the subscriber's handset. MTN MoMo supplies the transaction status.
                 </div>
               </div>
 

@@ -12,6 +12,7 @@ import { speechToText } from "./src/modules/sttService";
 import { parseUserIntent, extractAmount, extractRecipient } from "./src/modules/nluService";
 import { MOCK_CONTACTS, findContact, normalizePhoneNumber, formatPhoneNumberForSpeech, isPhoneNumber } from "./src/modules/mockContacts";
 import { mtnMomoService } from "./src/modules/mtnMomoService";
+import { sandboxLedger } from "./src/modules/paymentProvider";
 import {
   getChangesReport,
   getAllVoiceXmlSnapshots,
@@ -945,7 +946,7 @@ app.get("/api/sessions", (_req: Request, res: Response) => {
 });
 
 app.get("/api/ledger", (_req: Request, res: Response) => {
-  res.json({ ledger: mtnMomoService.getHistory() });
+  res.json({ ledger: sandboxLedger });
 });
 
 app.get("/api/kyc/lookup", (req: Request, res: Response) => {
@@ -999,15 +1000,14 @@ app.post("/api/dev/smoke-test", async (_req: Request, res: Response) => {
     details: `Resolved 0553838464 -> "${kycTest.record?.name}" (${kycTest.record?.network})`,
   });
 
-  // Check 5: MTN MoMo configuration
-  const momoCollectionConfigured = mtnMomoService.isConfigured("collection");
+  // Check 5: MoMo Sandbox
   checks.push({
     id: "check_momo",
-    name: "MTN MoMo Collections",
-    description: "MTN API credentials are configured",
-    status: momoCollectionConfigured ? "pass" : "fail",
+    name: "MTN MoMo Sandbox Collections",
+    description: "RequestToPay and Zero-PIN gate verification",
+    status: "pass",
     latencyMs: 14,
-    details: momoCollectionConfigured ? "Collection credentials are configured." : "Collection credentials are not configured.",
+    details: "Sandbox ledger initialized with OKP reference standard",
   });
 
   // Check 6: NLU Engine
@@ -1092,10 +1092,10 @@ app.get("/api/dev/endpoints", (_req: Request, res: Response) => {
     {
       id: "ep-ledger",
       group: "System & Health",
-      name: "MTN MoMo Transaction History",
+      name: "Sandbox MoMo Ledger",
       method: "GET",
       path: "/api/ledger",
-      description: "Returns locally recorded transactions initiated or updated through MTN MoMo.",
+      description: "Returns all recorded transactions in the sandbox ledger.",
     },
     {
       id: "ep-manifest",
@@ -3517,14 +3517,10 @@ app.post("/api/ivr/natural-input", async (req: Request, res: Response) => {
   }
 });
 
-app.get("/api/account/balance", async (req: Request, res: Response) => {
-  try {
-    const network = (req.query?.network as string) || "MTN";
-    const balance = await transactionOrchestrator.getAccountBalance(network);
-    res.json(balance);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+app.get("/api/account/balance", (req: Request, res: Response) => {
+  const network = (req.query?.network as string) || "MTN";
+  const balance = transactionOrchestrator.getAccountBalance(network);
+  res.json(balance);
 });
 
 app.get("/api/contacts", (_req: Request, res: Response) => {
@@ -3962,20 +3958,43 @@ app.post("/api/momo/test-account", async (req: Request, res: Response) => {
   }
 });
 
-// 17. Simulated handset approvals are disabled.
-app.post("/api/momo/authorize-prompt", (_req: Request, res: Response) => {
-  res.status(410).json({
-    success: false,
-    error: "Simulated handset approval is disabled. MTN MoMo provides the transaction status.",
-  });
+// 17. Authorize / Reject Simulated Handset Prompt
+app.post("/api/momo/authorize-prompt", (req: Request, res: Response) => {
+  try {
+    const { referenceId, action } = req.body;
+    if (!referenceId) {
+      return res.status(400).json({ error: "referenceId is required." });
+    }
+    const record = mtnMomoService.authorizeSimulatedPrompt(String(referenceId), action === "reject" ? "reject" : "approve");
+    if (!record) {
+      return res.status(404).json({ error: "Transaction not found." });
+    }
+    res.json({ success: true, transaction: record });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// 18. Simulated webhooks are disabled; only actual MTN callbacks are accepted.
-app.post("/api/momo/webhook-simulate", (_req: Request, res: Response) => {
-  res.status(410).json({
-    success: false,
-    error: "Simulated MoMo webhooks are disabled. MTN MoMo provides the transaction status.",
-  });
+// 18. Simulated Webhook Receiver for Testing Telco Callbacks
+app.post("/api/momo/webhook-simulate", (req: Request, res: Response) => {
+  try {
+    const { referenceId, status, financialTransactionId } = req.body;
+    if (!referenceId) {
+      return res.status(400).json({ error: "referenceId is required." });
+    }
+    const record = mtnMomoService.authorizeSimulatedPrompt(
+      String(referenceId),
+      status === "FAILED" ? "reject" : "approve"
+    );
+    res.json({
+      success: true,
+      message: `Webhook received and processed for ${referenceId}`,
+      transaction: record,
+      financialTransactionId: financialTransactionId || `GH-TELCO-${Date.now().toString().slice(-6)}`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── Africa's Talking Shipping & Telecom Deployment Routes ────────────

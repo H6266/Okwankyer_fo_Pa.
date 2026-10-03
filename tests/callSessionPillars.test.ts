@@ -1,7 +1,53 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { parseUserIntent } from "../src/modules/nluService";
-import { paymentProviders } from "../src/modules/paymentProvider";
+import { MtnPaymentProvider } from "../src/modules/paymentProvider";
+import { MoMoEngine } from "../src/integrations/momo/momoEngine";
 import { MOCK_CONTACTS } from "../src/modules/mockContacts";
+
+function createMtnProviderWithMockApi(): MtnPaymentProvider {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith("/token/")) {
+      return Response.json({ access_token: "test-access-token", expires_in: 3600 });
+    }
+    if (url.endsWith("/active")) {
+      return Response.json({ result: true });
+    }
+    if (url.endsWith("/basicuserinfo")) {
+      const msisdn = url.match(/\/msisdn\/(\d+)\/basicuserinfo$/)?.[1];
+      const names: Record<string, { given_name: string; family_name: string }> = {
+        "233553838464": { given_name: "Kwame", family_name: "Nyamebere" },
+        "233241234567": { given_name: "Kwame", family_name: "Nyameba" },
+        "233543546010": { given_name: "Hannes", family_name: "Aboagye" },
+      };
+      return Response.json(names[msisdn || ""] || {});
+    }
+    if (url.endsWith("/requesttopay")) {
+      return new Response(null, { status: 202 });
+    }
+    return new Response(null, { status: 404 });
+  }));
+
+  return new MtnPaymentProvider(new MoMoEngine({
+    baseUrl: "https://mtn.test",
+    targetEnv: "sandbox",
+    currency: "EUR",
+    collection: {
+      subscriptionKey: "test-collection-subscription",
+      apiUserId: "test-collection-user",
+      apiKey: "test-collection-key",
+    },
+    disbursement: {
+      subscriptionKey: "test-disbursement-subscription",
+      apiUserId: "test-disbursement-user",
+      apiKey: "test-disbursement-key",
+    },
+  }));
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("Pillar 1: Dual-Track Language Isolation & Grammar", () => {
   it("recognizes universal keypad grammar intents (# submit, * decimal, 8 back, 0 exit)", async () => {
@@ -39,7 +85,7 @@ describe("Pillar 1: Dual-Track Language Isolation & Grammar", () => {
 
 describe("Pillar 2: Spoken KYC Name Readback Before Money Moves", () => {
   it("resolves registered subscribers to human-readable full names via MTN provider", async () => {
-    const mtn = paymentProviders.MTN;
+    const mtn = createMtnProviderWithMockApi();
     const kyc1 = await mtn.lookupKyc("0553838464");
     expect(kyc1.verified).toBe(true);
     expect(kyc1.name).toBe("Kwame Nyamebere");
@@ -55,7 +101,7 @@ describe("Pillar 2: Spoken KYC Name Readback Before Money Moves", () => {
   });
 
   it("handles unindexed numbers gracefully with spoken-friendly digits format", async () => {
-    const mtn = paymentProviders.MTN;
+    const mtn = createMtnProviderWithMockApi();
     const unknown = await mtn.lookupKyc("0249991234");
     expect(unknown.verified).toBe(true);
     expect(unknown.name).toContain("Subscriber ending in");
@@ -78,8 +124,8 @@ describe("Pillar 3: Zero-PIN Security Gate", () => {
     expect(zeroPinPrompt).toContain("phone screen");
   });
 
-  it("initiates RequestToPay collection push with external reference ID", async () => {
-    const mtn = paymentProviders.MTN;
+  it("keeps an accepted RequestToPay pending and returns the MTN reference ID", async () => {
+    const mtn = createMtnProviderWithMockApi();
     const result = await mtn.requestToPay({
       amount: 150.0,
       currency: "GHS",
@@ -88,7 +134,7 @@ describe("Pillar 3: Zero-PIN Security Gate", () => {
       payeeNote: "Paid via Ɔkwankyerɛfo Pa",
     });
 
-    expect(result.status).toBe("SUCCESSFUL");
-    expect(result.referenceId).toMatch(/^OKP-\d+$/);
+    expect(result.status).toBe("PENDING");
+    expect(result.referenceId).toMatch(/^[0-9a-f]{8}-[0-9a-f-]{27}$/i);
   });
 });

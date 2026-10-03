@@ -339,6 +339,8 @@ describe("Ɔkwankyerɛfo Pa - Production Voice AI Architecture Verification", ()
       currentStep: "welcome",
       audioChunks: [],
       lastVADTimestamp: Date.now(),
+      voiceProfileId: "default",
+      turnCount: 0,
     };
 
     liveVoiceGateway.handleBargeIn(mockSession, "User speech detected");

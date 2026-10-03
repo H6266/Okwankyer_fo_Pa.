@@ -4827,8 +4827,8 @@
             badge.innerText = '● SANDBOX API';
             badge.style.background = '#3b82f6';
           } else {
-            badge.innerText = '● RESILIENT EMULATOR (100% Active)';
-            badge.style.background = '#d99e1f';
+            badge.innerText = '● NOT CONFIGURED';
+            badge.style.background = '#64748b';
           }
         }
 
@@ -4839,7 +4839,7 @@
 
         const statGateway = document.getElementById('momoStatGateway');
         if (statGateway) {
-          statGateway.innerText = data.activeMode === 'LIVE_PRODUCTION' ? 'Live MTN Gateway' : data.activeMode === 'SANDBOX_API' ? 'Sandbox API Active' : 'Resilient Zero-Fail';
+          statGateway.innerText = data.activeMode === 'LIVE_PRODUCTION' ? 'Live MTN Gateway' : data.activeMode === 'SANDBOX_API' ? 'Sandbox API Active' : 'Not Configured';
         }
 
         const statEnv = document.getElementById('momoStatEnv');
@@ -5036,7 +5036,7 @@
             ? '<span class="badge" style="background:#059669; color:#fff; font-size:10px;">LIVE_API</span>'
             : tx.mode === 'SANDBOX_API'
             ? '<span class="badge" style="background:#2563eb; color:#fff; font-size:10px;">SANDBOX_API</span>'
-            : '<span class="badge" style="background:#d99e1f; color:#16211a; font-weight:700; font-size:10px;">EMULATOR</span>';
+            : '<span class="badge" style="background:#64748b; color:#fff; font-size:10px;">NOT CONFIGURED</span>';
 
           const typeLabel = tx.type === 'COLLECTION_REQUEST_TO_PAY' ? '📲 RequestToPay' : '💸 Transfer';
           const dateStr = new Date(tx.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -5044,7 +5044,7 @@
           return `<tr style="border-bottom: 1px solid var(--border);">
             <td style="padding:10px; font-family:monospace; font-weight:700; color:var(--ink);">${tx.externalId || tx.referenceId.slice(0, 10)}</td>
             <td style="padding:10px; font-weight:600;">${typeLabel}</td>
-            <td style="padding:10px; font-weight:700; color:#10b981;">GH₵ ${Number(tx.amount).toFixed(2)}</td>
+            <td style="padding:10px; font-weight:700; color:#10b981;">${tx.currency} ${Number(tx.amount).toFixed(2)}</td>
             <td style="padding:10px;">${tx.recipientName || 'Subscriber'} <span style="font-family:monospace; color:var(--ink-muted); font-size:11px;">(${tx.msisdn})</span></td>
             <td style="padding:10px;">${statusBadge} <button class="btn btn-sm btn-outline" onclick="window.app.syncMomoTx('${tx.referenceId}')" title="Synchronize status with MTN MoMo API" style="padding:2px 6px; font-size:10px; margin-left:4px;">🔄</button></td>
             <td style="padding:10px;">${modeBadge}</td>
@@ -5367,11 +5367,6 @@
           refDisplay.innerText = `Ref: ${tx.externalId} (${tx.mode})`;
         }
 
-        const btnApprove = document.getElementById('btnHandsetApprove');
-        const btnReject = document.getElementById('btnHandsetReject');
-        if (btnApprove) btnApprove.disabled = false;
-        if (btnReject) btnReject.disabled = false;
-
         // Display Audit Steps
         if (data.auditSteps) {
           this.renderAuditTrail(data.auditSteps, `DISPATCHED: ${tx.status} (${tx.mode})`);
@@ -5387,60 +5382,8 @@
       }
     },
 
-    async authorizeHandsetPrompt(action) {
-      if (!this.currentPendingRef) {
-        alert('No pending MoMo prompt to authorize. Please dispatch a push transaction first.');
-        return;
-      }
-
-      const btnApprove = document.getElementById('btnHandsetApprove');
-      const btnReject = document.getElementById('btnHandsetReject');
-      if (btnApprove) btnApprove.disabled = true;
-      if (btnReject) btnReject.disabled = true;
-
-      try {
-        const res = await fetch('/api/momo/authorize-prompt', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            referenceId: this.currentPendingRef,
-            action: action === 'reject' ? 'reject' : 'approve'
-          })
-        });
-
-        const data = await res.json();
-        if (data.success && data.transaction) {
-          const tx = data.transaction;
-          const promptBadge = document.getElementById('handsetPromptBadge');
-          const promptText = document.getElementById('handsetPromptText');
-
-          if (tx.status === 'SUCCESSFUL') {
-            if (promptBadge) {
-              promptBadge.innerText = 'APPROVED & PAID';
-              promptBadge.style.background = '#10b981';
-              promptBadge.style.color = '#fff';
-            }
-            if (promptText) {
-              promptText.innerHTML = `✅ Payment of <strong style="color:#10b981;">GH₵ ${Number(tx.amount).toFixed(2)}</strong> authorized successfully!<br><span style="font-size:11.5px; color:#94a3b8;">Financial Transaction ID: <strong style="color:#38bdf8;">${tx.financialTransactionId}</strong></span>`;
-            }
-          } else {
-            if (promptBadge) {
-              promptBadge.innerText = 'REJECTED / DECLINED';
-              promptBadge.style.background = '#ef4444';
-              promptBadge.style.color = '#fff';
-            }
-            if (promptText) {
-              promptText.innerHTML = `❌ Transaction declined by subscriber on handset.`;
-            }
-          }
-
-          this.loadMomoTransactions();
-          this.loadMomoStatus();
-          this.showMomoConsole(`Handset ${action.toUpperCase()} Result`, data);
-        }
-      } catch (err) {
-        alert('Authorization action failed: ' + (err && err.message ? err.message : err));
-      }
+    authorizeHandsetPrompt() {
+      alert('Simulated handset approval is disabled. MTN MoMo provides the transaction status.');
     },
 
     async runFullRealMoMoTest() {

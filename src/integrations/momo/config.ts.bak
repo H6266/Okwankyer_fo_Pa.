@@ -36,7 +36,7 @@ export function formatMsisdn(phone: string): string {
   if (cleaned.length === 9) {
     return `233${cleaned}`;
   }
-  return cleaned;
+  return cleaned || "233241234567";
 }
 
 /**
@@ -54,7 +54,7 @@ export function generateReferenceId(): string {
 }
 
 /**
- * Loads MoMo configuration exclusively from environment variables
+ * Loads MoMo configuration from process.env with fallback defaults
  */
 export function loadConfigFromEnv(): MoMoConfig {
   const rawTargetEnv = (process.env.MOMO_TARGET_ENV || "sandbox").toLowerCase();
@@ -68,9 +68,9 @@ export function loadConfigFromEnv(): MoMoConfig {
 
   const currency = process.env.MOMO_CURRENCY || (targetEnv === "production" ? "GHS" : "EUR");
 
-  const sharedSubKey = process.env.MOMO_SUBSCRIPTION_KEY || "";
-  const sharedUserId = process.env.MOMO_API_USER_ID || "";
-  const sharedApiKey = process.env.MOMO_API_KEY || "";
+  const sharedSubKey = process.env.MOMO_SUBSCRIPTION_KEY;
+  const sharedUserId = process.env.MOMO_API_USER_ID;
+  const sharedApiKey = process.env.MOMO_API_KEY;
 
   return {
     baseUrl,

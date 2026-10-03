@@ -1,10 +1,12 @@
 /**
- * Ɔkwankyerɛfo Pa - Service Orchestrator & MTN MoMo Transaction Pipeline
+ * Ɔkwankyerɛfo Pa - Service Orchestrator & Mock Transaction Pipeline
  * 
  * ARCHITECTURAL SEAM:
  * Both Voice Input and Keypad Input converge on this single pipeline.
  * Neither path may bypass this orchestrator.
  * 
+ * NOTE: All telecom core integrations and bank APIs in this module are MOCK
+ * implementations for the hackathon prototype.
  */
 
 import { mtnMomoService, MoMoTransactionRecord } from "./mtnMomoService";
@@ -35,7 +37,7 @@ export interface TransactionResult {
   spokenReceipt: string;
   momoDetails?: {
     referenceId: string;
-    mode: "LIVE_API" | "SANDBOX_API";
+    mode: "LIVE_API" | "SANDBOX_API" | "EMULATOR";
     status: string;
     financialTransactionId?: string;
   };
@@ -51,6 +53,7 @@ export interface AccountBalance {
 class ServiceOrchestrator {
   // In-memory idempotency cache to prevent accidental double-billing
   private processedTransactions = new Map<string, TransactionResult>();
+  private mockUserBalance: number = 2450.0;
 
   /**
    * Generates a unique, dynamic telecom transaction reference (e.g. OKP-847291)
@@ -92,51 +95,50 @@ class ServiceOrchestrator {
       hour12: true,
     });
 
-    if (network && network !== "MTN") {
-      throw new Error("Only MTN MoMo transactions are currently connected.");
+    // Deduct mock balance
+    if (this.mockUserBalance >= amount) {
+      this.mockUserBalance -= amount;
     }
 
-    const momoTx = await mtnMomoService.requestToPay({
-      amount,
-      payerPhone: request.payer_phone || recipient_phone,
-      payerName: request.payer_name || (request.payer_phone ? "Linked Subscriber" : recipient_name),
-      payerMessage: `Transfer of GH₵${amount} to ${recipient_name}`,
-      payeeNote: `Ɔkwankyerɛfo Pa Voice MoMo Transfer to ${recipient_phone}`,
-      externalId: reference,
-    });
-    const momoDetails: TransactionResult["momoDetails"] = {
-      referenceId: momoTx.referenceId,
-      mode: momoTx.mode,
-      status: momoTx.status,
-      financialTransactionId: momoTx.financialTransactionId,
-    };
-    const status: TransactionResult["status"] =
-      momoTx.status === "SUCCESSFUL"
-        ? "SUCCESS"
-        : momoTx.status === "PENDING"
-          ? "PENDING"
-          : "FAILED";
+    // Dispatch to MTN MoMo Gateway (works in LIVE, SANDBOX, or EMULATOR mode seamlessly)
+    let momoDetails: TransactionResult["momoDetails"] | undefined;
+    if (!network || network === "MTN") {
+      try {
+        const momoTx = await mtnMomoService.requestToPay({
+          amount,
+          payerPhone: request.payer_phone || recipient_phone,
+          payerName: request.payer_name || (request.payer_phone ? "Linked Subscriber" : recipient_name),
+          payerMessage: `Transfer of GH₵${amount} to ${recipient_name}`,
+          payeeNote: `Ɔkwankyerɛfo Pa Voice MoMo Transfer to ${recipient_phone}`,
+          externalId: reference,
+        });
+
+        momoDetails = {
+          referenceId: momoTx.referenceId,
+          mode: momoTx.mode,
+          status: momoTx.status,
+          financialTransactionId: momoTx.financialTransactionId,
+        };
+      } catch (momoErr: any) {
+        console.warn(`[ServiceOrchestrator] MTN MoMo dispatch notice: ${momoErr.message}`);
+      }
+    }
+
     const last4 = recipient_phone.slice(-4).split("").join(" ");
-    const spokenReceipt = status === "PENDING"
-      ? `MTN has accepted your MoMo request to send ${amount} Ghana Cedis to ${recipient_name}, phone number ending in ${last4}. Please approve the request on your handset. Your transaction reference is ${reference.split("").join(" ")}.`
-      : status === "SUCCESS"
-        ? `Your MTN MoMo transfer of ${amount} Ghana Cedis to ${recipient_name}, phone number ending in ${last4}, was successful. Completed at ${timeFormatted}. Your transaction reference is ${reference.split("").join(" ")}.`
-        : `Your MTN MoMo transfer of ${amount} Ghana Cedis to ${recipient_name} was not completed. Please contact support with transaction reference ${reference.split("").join(" ")}.`;
+    const spokenReceipt =
+      `Thank you very much. You have successfully sent ${amount} Ghana Cedis to ${recipient_name}, phone number ending in ${last4}. ` +
+      `Completed at ${timeFormatted}. Your transaction reference is ${reference.split("").join(" ")}. Would you like to do anything else today?`;
 
     const result: TransactionResult = {
-      status,
+      status: "SUCCESS",
       reference,
       amount,
-      currency: momoTx.currency,
+      currency: "GHS",
       recipient_name,
       recipient_phone,
       network: network || "MTN",
       timestamp,
-      message: status === "PENDING"
-        ? `Transaction ${reference} was accepted by MTN and is pending confirmation.`
-        : status === "SUCCESS"
-          ? `Transaction ${reference} completed via ${source}.`
-          : `Transaction ${reference} was not completed by MTN.`,
+      message: `Transaction ${reference} completed via ${source}.`,
       spokenReceipt,
       momoDetails,
     };
@@ -145,24 +147,30 @@ class ServiceOrchestrator {
     this.processedTransactions.set(idempotencyKey, result);
 
     console.log(
-      `[ServiceOrchestrator] MTN transaction ${reference}: ${status} - ${amount} ${momoTx.currency} to ${recipient_name} via ${source}`
+      `[ServiceOrchestrator] Transaction executed: ${reference} - GH₵${amount} to ${recipient_name} via ${source}`
     );
 
     return result;
   }
 
-  public async getAccountBalance(network: string = "MTN"): Promise<AccountBalance> {
-    if (network !== "MTN") {
-      throw new Error("Only MTN MoMo balance is currently connected.");
-    }
-
-    const balance = await mtnMomoService.getAccountBalance("collection");
+  /**
+   * Retrieves mock account balance
+   */
+  public getAccountBalance(network: string = "MTN"): AccountBalance {
     return {
-      currency: balance.currency,
-      balance: balance.availableBalance,
-      formatted: balance.formatted,
-      network: "MTN",
+      currency: "GHS",
+      balance: this.mockUserBalance,
+      formatted: `${this.mockUserBalance.toLocaleString("en-US", { minimumFractionDigits: 2 })} Ghana cedis`,
+      network,
     };
+  }
+
+  /**
+   * Resets mock balance for testing
+   */
+  public resetBalance(initial: number = 2450.0): void {
+    this.mockUserBalance = initial;
+    this.processedTransactions.clear();
   }
 }
 

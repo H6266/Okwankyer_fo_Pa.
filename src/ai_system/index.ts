@@ -96,7 +96,9 @@ export * from "./speech/voiceProfiles/ghanaProfile";
 export * from "./speech/tts/ttsProvider";
 export * from "./speech/tts/ttsAdapter";
 export * from "./speech/tts/ttsService";
-export * from "./speech/interruptionEngine";
+export {
+  InterruptionEngine,
+} from "./speech/interruptionEngine";
 
 // Providers & Compatibility Adapter
 export * from "./providers/aiProvider";

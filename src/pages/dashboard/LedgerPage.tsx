@@ -27,7 +27,7 @@ export const LedgerPage: React.FC = () => {
   const filtered = ledger.filter((item) => {
     const matchesSearch =
       item.referenceId.toLowerCase().includes(search.toLowerCase()) ||
-      item.phoneNumber.includes(search) ||
+      item.msisdn.includes(search) ||
       (item.recipientName && item.recipientName.toLowerCase().includes(search.toLowerCase()));
     const matchesStatus = statusFilter === "ALL" || item.status === statusFilter;
     return matchesSearch && matchesStatus;
@@ -38,22 +38,20 @@ export const LedgerPage: React.FC = () => {
       "Reference ID",
       "Type",
       "Carrier",
-      "Phone",
+      "MSISDN",
       "Recipient",
-      "Amount GHS",
+      "Amount",
       "Status",
-      "Zero-PIN",
       "Timestamp",
     ];
     const rows = filtered.map((l) => [
       l.referenceId,
       l.type,
-      l.provider,
-      l.phoneNumber,
+      "MTN",
+      l.msisdn,
       `"${l.recipientName || ""}"`,
       l.amount.toFixed(2),
       l.status,
-      l.zeroPinVerified ? "VERIFIED" : "NO",
       l.createdAt,
     ]);
 
@@ -68,7 +66,10 @@ export const LedgerPage: React.FC = () => {
     document.body.removeChild(link);
   };
 
-  const totalVolumeGhs = filtered.reduce((acc, curr) => acc + curr.amount, 0);
+  const volumeByCurrency = filtered.reduce<Record<string, number>>((totals, item) => {
+    totals[item.currency] = (totals[item.currency] || 0) + item.amount;
+    return totals;
+  }, {});
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto font-sans">
@@ -76,10 +77,10 @@ export const LedgerPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
         <div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-            Transaction Ledger &amp; OKP Reference Store
+            MTN MoMo Transaction Ledger
           </h1>
           <p className="text-xs text-slate-500 mt-1 max-w-2xl">
-            Audit collection and disbursement transactions generated through voice and API calls with Zero-PIN verification tags.
+            Collection and disbursement records returned by the MTN MoMo integration.
           </p>
         </div>
 
@@ -100,17 +101,19 @@ export const LedgerPage: React.FC = () => {
         </div>
 
         <div className="p-5 bg-white rounded-2xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-mono text-slate-500 uppercase font-semibold">Total Volume Authorized</span>
-          <div className="text-2xl font-black font-mono mt-1 text-emerald-700">
-            GH₵ {totalVolumeGhs.toFixed(2)}
+          <span className="text-[10px] font-mono text-slate-500 uppercase font-semibold">Volume by Currency</span>
+          <div className="text-xl font-black font-mono mt-1 text-emerald-700">
+            {Object.keys(volumeByCurrency).length
+              ? Object.entries(volumeByCurrency).map(([currency, amount]) => `${currency} ${amount.toFixed(2)}`).join(" · ")
+              : "—"}
           </div>
         </div>
 
         <div className="p-5 bg-white rounded-2xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-mono text-slate-500 uppercase font-semibold">Zero-PIN Compliance</span>
+          <span className="text-[10px] font-mono text-slate-500 uppercase font-semibold">Status Source</span>
           <div className="text-2xl font-black font-mono mt-1 text-emerald-700 flex items-center gap-1.5">
             <ShieldCheck className="w-5 h-5 text-emerald-600" />
-            <span>100% Gated</span>
+            <span>MTN MoMo</span>
           </div>
         </div>
       </div>
@@ -139,6 +142,8 @@ export const LedgerPage: React.FC = () => {
             <option value="SUCCESSFUL">SUCCESSFUL</option>
             <option value="PENDING">PENDING</option>
             <option value="FAILED">FAILED</option>
+            <option value="REJECTED">REJECTED</option>
+            <option value="TIMEOUT">TIMEOUT</option>
           </select>
         </div>
       </div>
@@ -160,7 +165,7 @@ export const LedgerPage: React.FC = () => {
                   <th className="px-5 py-3.5">Phone &amp; Name</th>
                   <th className="px-5 py-3.5">Amount (GHS)</th>
                   <th className="px-5 py-3.5">Status</th>
-                  <th className="px-5 py-3.5">Security Gate</th>
+                  <th className="px-5 py-3.5">Status Source</th>
                   <th className="px-5 py-3.5">Timestamp</th>
                 </tr>
               </thead>
@@ -171,23 +176,23 @@ export const LedgerPage: React.FC = () => {
                     <td className="px-5 py-3.5">
                       <span
                         className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold ${
-                          item.type === "COLLECTION"
+                          item.type === "COLLECTION_REQUEST_TO_PAY"
                             ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
                             : "bg-blue-50 text-blue-800 border border-blue-200"
                         }`}
                       >
-                        {item.type}
+                        {item.type === "COLLECTION_REQUEST_TO_PAY" ? "COLLECTION" : "DISBURSEMENT"}
                       </span>
                     </td>
-                    <td className="px-5 py-3.5 font-bold text-slate-800">{item.provider}</td>
+                    <td className="px-5 py-3.5 font-bold text-slate-800">MTN</td>
                     <td className="px-5 py-3.5">
-                      <div className="font-mono text-slate-900 font-bold">{item.phoneNumber}</div>
+                      <div className="font-mono text-slate-900 font-bold">{item.msisdn}</div>
                       {item.recipientName && (
                         <div className="text-[11px] text-slate-500">{item.recipientName}</div>
                       )}
                     </td>
                     <td className="px-5 py-3.5 font-mono font-bold text-slate-900">
-                      GH₵ {item.amount.toFixed(2)}
+                      {item.currency} {item.amount.toFixed(2)}
                     </td>
                     <td className="px-5 py-3.5">
                       <span
@@ -201,13 +206,13 @@ export const LedgerPage: React.FC = () => {
                       >
                         {item.status === "SUCCESSFUL" && <CheckCircle2 className="w-3 h-3 text-emerald-600" />}
                         {item.status === "PENDING" && <Clock className="w-3 h-3 text-amber-600" />}
-                        {item.status === "FAILED" && <XCircle className="w-3 h-3 text-rose-600" />}
+                        {["FAILED", "REJECTED", "TIMEOUT"].includes(item.status) && <XCircle className="w-3 h-3 text-rose-600" />}
                         <span>{item.status}</span>
                       </span>
                     </td>
                     <td className="px-5 py-3.5">
                       <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded font-bold">
-                        Zero-PIN
+                        MTN status
                       </span>
                     </td>
                     <td className="px-5 py-3.5 font-mono text-[11px] text-slate-400">
