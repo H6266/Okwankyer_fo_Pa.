@@ -494,7 +494,7 @@ export class AiUnderstanding {
 
     // 3. Phone correction: "No, the number is 055..."
     const phoneMatch = lower.match(/\b(0(?:24|54|55|59|20|50|27|57|26|56|28)\d{7})\b/);
-    if (phoneMatch && (lower.includes("no") || lower.includes("actually") || lower.includes("mistake") || lower.includes("wrong"))) {
+    if (phoneMatch && /\b(no|nope|dabi|actually|mistake|wrong|sesa)\b/i.test(lower)) {
       return {
         isCorrection: true,
         correctionDetail: {

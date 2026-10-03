@@ -1,6 +1,6 @@
 /**
  * Ɔkwankyerɛfo Pa - AI System Core Types
- * Complete type definitions for the deterministic 10-system cognitive architecture.
+ * Complete type definitions for the production voice-first cognitive system.
  */
 
 export type AiChannel = "VOICE" | "DTMF" | "TEXT" | "SIMULATOR";
@@ -8,6 +8,22 @@ export type AiChannel = "VOICE" | "DTMF" | "TEXT" | "SIMULATOR";
 export type AiLanguage = "en" | "ak" | "tw" | "en-ak" | "unknown";
 
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+
+export type CognitiveState =
+  | "IDLE"
+  | "LISTENING"
+  | "TRANSCRIBING"
+  | "UNDERSTANDING"
+  | "CLARIFYING"
+  | "COLLECTING"
+  | "CONFIRMING"
+  | "AUTH_HANDOFF"
+  | "EXECUTING"
+  | "SUCCESS"
+  | "FAILED"
+  | "CANCELLED"
+  | "INTERRUPTED"
+  | "RECOVERING";
 
 export type IntentName =
   | "SEND_MONEY"
@@ -85,7 +101,9 @@ export interface ConversationTurnRecord {
   screen: string;
   step: string;
   vectorHash?: number[];
+  embeddingVector?: number[];
   semanticSummary?: string;
+  latencyMs?: number;
 }
 
 export interface CorrectionRecord {
@@ -93,8 +111,24 @@ export interface CorrectionRecord {
   field: string;
   oldValue: any;
   newValue: any;
-  reason: string; // e.g. "User corrected amount from 50 to 100 cedis"
+  reason: string;
   turnIndex: number;
+}
+
+export interface TransactionDraft {
+  draftId: string;
+  version: number;
+  sessionId: string;
+  operation: "TRANSFER" | "AIRTIME" | "BILL_PAYMENT" | "CASH_OUT";
+  recipientName?: string;
+  recipientPhone?: string;
+  amount?: number;
+  network?: MobileNetwork;
+  currency: "GHS";
+  confirmationState: "UNCONFIRMED" | "CONFIRMATION_REQUESTED" | "CONFIRMED" | "REJECTED" | "EXPIRED";
+  confirmationPrompt?: string;
+  createdAt: number;
+  expiresAt: number;
 }
 
 export interface TransactionalMemoryRecord {
@@ -106,8 +140,9 @@ export interface TransactionalMemoryRecord {
   recipientPhoneMasked: string;
   recipientName: string;
   network: MobileNetwork;
-  status: "PENDING" | "CONFIRMED" | "CANCELLED" | "COMPLETED" | "BLOCKED";
+  status: "PENDING" | "CONFIRMED" | "CANCELLED" | "COMPLETED" | "BLOCKED" | "FAILED";
   encryptedSlotData?: string;
+  source?: "real_provider" | "mock_sandbox" | "demo_simulator";
 }
 
 export interface TaskState {
@@ -123,12 +158,108 @@ export interface TaskState {
   };
   createdAt: number;
   updatedAt: number;
+  draft?: TransactionDraft;
 }
 
+// ── Discriminated Union for Typed AI Commands ────────────────────────
+export interface NavigateCommand {
+  kind: "NAVIGATE";
+  targetScreen: string;
+  targetStep?: string;
+  reason: string;
+}
+
+export interface TransferCommand {
+  kind: "TRANSFER";
+  recipientPhone: string;
+  recipientName?: string;
+  amount: number;
+  network: MobileNetwork;
+  currency: "GHS";
+  referenceId: string;
+}
+
+export interface BalanceCommand {
+  kind: "BALANCE";
+  accountPhone?: string;
+}
+
+export interface AirtimeCommand {
+  kind: "AIRTIME";
+  phoneNumber: string;
+  amount: number;
+  network: MobileNetwork;
+}
+
+export interface BillPaymentCommand {
+  kind: "BILL_PAYMENT";
+  biller: string;
+  accountNumber: string;
+  amount: number;
+}
+
+export interface CancelCommand {
+  kind: "CANCEL";
+  reason: string;
+}
+
+export interface RepeatCommand {
+  kind: "REPEAT";
+}
+
+export interface HelpCommand {
+  kind: "HELP";
+  topic?: string;
+}
+
+export type AICommand =
+  | NavigateCommand
+  | TransferCommand
+  | BalanceCommand
+  | AirtimeCommand
+  | BillPaymentCommand
+  | CancelCommand
+  | RepeatCommand
+  | HelpCommand;
+
+// ── Structured Model Reasoning Response ──────────────────────────────
+export interface StructuredReasoningResponse {
+  intent: IntentName;
+  confidence: number;
+  language: AiLanguage;
+  entities: EntitySlotMap;
+  conversationAct: "INFORM" | "REQUEST" | "CONFIRM" | "DENY" | "CORRECT" | "INTERRUPT" | "CHITCHAT" | "UNKNOWN";
+  correction: {
+    isCorrection: boolean;
+    field?: string;
+    oldValue?: any;
+    newValue?: any;
+    reason?: string;
+  } | null;
+  referenceResolution: {
+    hasReference: boolean;
+    referenceType?: "SAME_RECIPIENT" | "SAME_AMOUNT" | "PREVIOUS_TARGET";
+    resolvedField?: string;
+    resolvedValue?: any;
+  } | null;
+  ambiguity: {
+    isAmbiguous: boolean;
+    candidates: IntentName[];
+  };
+  requestedAction: {
+    type: string;
+    tool: string | null;
+    arguments: Record<string, any>;
+  };
+  requiresConfirmation: boolean;
+  safetyFlags: string[];
+}
+
+// ── Process Input & Outputs ──────────────────────────────────────────
 export interface AiProcessInput {
   sessionId: string;
   channel: AiChannel;
-  input: string; // Utterance text, DTMF string, or transcription
+  input: string;
   audioBuffer?: Buffer | string;
   mimeType?: string;
   language?: AiLanguage;
@@ -173,7 +304,7 @@ export interface DialogueOutput {
 }
 
 export interface NavigationOutput {
-  action: string; // e.g. "NAVIGATE_SEND_MONEY", "NAVIGATE_HOME", "NAVIGATE_BACK", "STAY"
+  action: string;
   targetScreen?: string;
   targetStep?: string;
   breadcrumb: string[];
@@ -190,6 +321,12 @@ export interface ActionOutput {
   isExecutable?: boolean;
   predictedFailureModes?: string[];
   clarifyingQuestions?: string[];
+  executedResult?: {
+    success: boolean;
+    source: "real_provider" | "mock_sandbox" | "demo_simulator";
+    data?: any;
+    error?: string;
+  };
 }
 
 export interface SafetyOutput {
@@ -215,6 +352,8 @@ export interface SpeechOutput {
   phoneticHints?: Record<string, string>;
   speedMultiplier: number;
   pitch: number;
+  audioBase64?: string;
+  audioMimeType?: string;
 }
 
 export interface PerformanceBreakdown {
@@ -227,11 +366,13 @@ export interface PerformanceBreakdown {
   safetyCheckLatencyMs: number;
   dialogueLatencyMs: number;
   speechPlanningLatencyMs: number;
+  ttsSynthesisLatencyMs?: number;
   memoryConsolidationLatencyMs?: number;
 }
 
 export interface AiProcessResult {
   sessionId: string;
+  state: CognitiveState;
   intent: IntentName;
   confidence: number;
   language: AiLanguage;
@@ -249,3 +390,17 @@ export interface AiProcessResult {
     suspendedTasksCount: number;
   };
 }
+
+// ── Security Invariants ──────────────────────────────────────────────
+export const SECURITY_INVARIANTS = {
+  INVARIANT_001: "PIN never reaches tool execution.",
+  INVARIANT_002: "PIN never reaches persistent memory.",
+  INVARIANT_003: "Unknown tools never execute.",
+  INVARIANT_004: "High-risk transaction cannot execute without valid confirmation.",
+  INVARIANT_005: "Expired confirmation cannot execute.",
+  INVARIANT_006: "Transaction amount cannot be modified after authorization without new confirmation.",
+  INVARIANT_007: "Tool execution must be idempotent where required.",
+  INVARIANT_008: "Model cannot directly authorize its own financial transaction.",
+  INVARIANT_009: "Mock provider cannot execute in production mode.",
+  INVARIANT_010: "Failed tool execution cannot be reported as success.",
+} as const;

@@ -149,7 +149,7 @@ export class AiAction {
       }
 
       case "CONFIRM": {
-        if (currentStep === "confirm" && slots.amount && (slots.recipientPhone || slots.recipientName)) {
+        if ((currentStep === "confirm" || currentStep === "execution") && slots.amount && (slots.recipientPhone || slots.recipientName)) {
           type = "EXECUTE_TRANSFER";
           tool = "momo_execute_transfer";
           params = {

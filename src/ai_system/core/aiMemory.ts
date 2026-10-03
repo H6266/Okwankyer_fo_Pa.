@@ -410,6 +410,7 @@ export class AiMemory {
       network: transaction.network,
       status: transaction.status,
       encryptedSlotData,
+      source: "demo_simulator",
     };
 
     ledger.push(record);

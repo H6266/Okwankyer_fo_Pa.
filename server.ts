@@ -1,7 +1,9 @@
 import express, { Request, Response } from "express";
+import http from "http";
 import path from "path";
 import fs from "fs";
 import { execSync } from "child_process";
+import { WebSocketServer } from "ws";
 import { initialize, VoiceService } from "./africastalking";
 import { transactionOrchestrator } from "./src/modules/transactionOrchestrator";
 import { conversationManager } from "./src/modules/conversationManager";
@@ -24,6 +26,7 @@ import {
 } from "./src/modules/devServices";
 import { PRESET_SCENARIOS } from "./src/modules/scenarioRecorder";
 import { aiSystem, diagnosticsEngine } from "./ai_system";
+import { liveVoiceGateway } from "./src/ai_system/voice/liveVoiceGateway";
 
 const app = express();
 const PORT = 3000;
@@ -4753,8 +4756,12 @@ async function startServer() {
     }
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Ɔkwankyerɛfo Pa server running on http://0.0.0.0:${PORT}`);
+  const server = http.createServer(app);
+  const wss = new WebSocketServer({ server });
+  liveVoiceGateway.attachServer(wss);
+
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log(`Ɔkwankyerɛfo Pa server running on http://0.0.0.0:${PORT} (WebSocket live voice on /api/ai/live)`);
 
     // Self keep-alive ping for Render free instances to prevent cold sleep & AT busy timeouts
     const externalUrl = process.env.RENDER_EXTERNAL_URL || process.env.BASE_URL;
