@@ -1,0 +1,1870 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ɔkwankyerɛfo Pa</title>
+  <meta name="description" content="A Voice Accessibility Layer for Ghana's Digital Services (MoMo Pilot) by Team Anidasoɔ">
+  <meta property="og:title" content="Ɔkwankyerɛfo Pa">
+  <meta property="og:description" content="A Voice Accessibility Layer for Ghana's Digital Services (MoMo Pilot) by Team Anidasoɔ">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Top Header Navigation -->
+    <header class="top-nav" id="topNav">
+      <div class="brand-group">
+        <div class="logo-mark" id="logoMark">
+          <span class="logo-icon">🔊</span>
+        </div>
+        <div class="brand-text">
+          <div class="brand-headline">
+            <h1 class="brand-title" id="appTitle">Ɔkwankyerɛfo Pa</h1>
+            <span class="brand-badge-trans">"The Good Guide"</span>
+            <span class="brand-pill team-pill" id="teamBadge">Team Anidasoɔ (Hope)</span>
+          </div>
+          <p class="brand-tagline" id="appTagline">Voice Accessibility Layer for Ghana's Digital Services &bull; Mobile Money Pilot</p>
+        </div>
+      </div>
+
+      <div class="header-status-group" id="headerStatusGroup">
+        <div class="gateway-indicator" id="gatewayIndicator">
+          <span class="pulse-dot"></span>
+          <span class="gateway-label">AT Voice Gateway Active</span>
+          <span class="gateway-number" id="headerVoiceNumber">+233 30 804 8098</span>
+        </div>
+        <button class="btn btn-sm btn-primary" id="btnPipelineHeader" onclick="window.app.switchTab('pipeline')" style="display:flex; align-items:center; gap:6px;">
+          <span>🚀</span> Pipeline: Live &amp; Hosted
+        </button>
+        <button class="btn btn-sm btn-outline" id="btnQuickDial" onclick="window.app.quickTriggerCall()">
+          <span>📞</span> Dial Test Phone
+        </button>
+      </div>
+    </header>
+
+    <!-- Architecture & Project Overview Banner -->
+    <section class="overview-banner" id="overviewBanner">
+      <div class="overview-content">
+        <div class="overview-text">
+          <div class="overview-badge">Mission &amp; Architecture Overview</div>
+          <h2 class="overview-title">Empowering Every Ghanaian with Voice-First Digital Services</h2>
+          <p class="overview-desc">
+            <strong>Ɔkwankyerɛfo Pa</strong> acts as an independent voice accessibility layer sitting between Ghanaian citizens (especially visually impaired, non-literate, and elderly users) and digital services like Mobile Money. Instead of replacing existing telcos (MTN, Telecel, AT), it introduces <strong>Bilingual Voice Guidance (Akan Twi &amp; English)</strong>, a <strong>Universal Navigation Grammar</strong>, <strong>Smart KYC Name Verification</strong>, and a strict <strong>Zero-PIN Voice Security Gate</strong>.
+          </p>
+        </div>
+        <div class="overview-metrics-grid">
+          <div class="metric-card" id="metricCardCoverage">
+            <div class="metric-num" id="statCoverage">94%</div>
+            <div class="metric-label">Voice Prompt Coverage</div>
+            <div class="metric-sub" id="statCoverageSub">Native Audio + TTS Fallback</div>
+          </div>
+          <div class="metric-card" id="metricCardDialects">
+            <div class="metric-num" id="statDialects">3</div>
+            <div class="metric-label">Ghanaian Dialects</div>
+            <div class="metric-sub">Asante Twi, Akuapem, EN-GH</div>
+          </div>
+          <div class="metric-card" id="metricCardSecurity">
+            <div class="metric-num metric-secure" id="statSecurity">Zero-PIN</div>
+            <div class="metric-label">Security Protocol</div>
+            <div class="metric-sub">No PIN over voice calls</div>
+          </div>
+          <div class="metric-card" id="metricCardDataset">
+            <div class="metric-num" id="statDatasetSamples">18</div>
+            <div class="metric-label">Dataset Phrases</div>
+            <div class="metric-sub">Ready for batch ingest</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Navigation Tabs -->
+    <nav class="tab-bar" id="mainTabBar" role="tablist">
+      <button class="tab-btn active" id="tabBtnSimulator" role="tab" aria-selected="true" onclick="window.app.switchTab('simulator')">
+        <span class="tab-icon">📱</span> Interactive Call Simulator
+      </button>
+      <button class="tab-btn" id="tabBtnStudio" role="tab" aria-selected="false" onclick="window.app.switchTab('studio')">
+        <span class="tab-icon">🎙️</span> Voice Dataset &amp; Audio Studio
+      </button>
+      <button class="tab-btn" id="tabBtnKyc" role="tab" aria-selected="false" onclick="window.app.switchTab('kyc')">
+        <span class="tab-icon">👥</span> Smart KYC &amp; Recipient Resolver
+      </button>
+      <button class="tab-btn" id="tabBtnNavGrammar" role="tab" aria-selected="false" onclick="window.app.switchTab('grammar')">
+        <span class="tab-icon">🛡️</span> Universal Grammar &amp; Security
+      </button>
+      <button class="tab-btn" id="tabBtnApi" role="tab" aria-selected="false" onclick="window.app.switchTab('api')">
+        <span class="tab-icon">⚡</span> Africa's Talking API &amp; Webhooks
+      </button>
+      <button class="tab-btn" id="tabBtnMomo" role="tab" aria-selected="false" onclick="window.app.switchTab('momo')">
+        <span class="tab-icon">🟡</span> MTN MoMo Open API
+      </button>
+      <button class="tab-btn" id="tabBtnPipeline" role="tab" aria-selected="false" onclick="window.app.switchTab('pipeline')">
+        <span class="tab-icon">🚀</span> One-Click Deployment Pipeline
+      </button>
+    </nav>
+
+    <!-- TAB 1: Interactive Call Simulator -->
+    <section class="tab-panel active" id="panelSimulator" role="tabpanel">
+      <!-- Voice Engine Source Switcher -->
+      <div class="voice-mode-selector-bar" id="voiceModeBar">
+        <div class="voice-mode-label">
+          <span>🎧 Voice Audio Track:</span>
+          <span style="font-weight:normal; font-size:11.5px; color:var(--ink-muted);">Strict Language Audio Guarantee</span>
+        </div>
+        <div class="voice-mode-toggles">
+          <button class="voice-mode-btn active" id="btnVoiceModeTwi" onclick="window.app.setVoiceMode('twi')">
+            🇬🇭 Akan Twi Track (Twi Audio Only)
+          </button>
+          <button class="voice-mode-btn" id="btnVoiceModeEn" onclick="window.app.setVoiceMode('en')">
+            🇬🇧 English Track (English Audio Only)
+          </button>
+          <button class="voice-mode-btn" id="btnVoiceModeAuto" onclick="window.app.setVoiceMode('auto')">
+            🌐 Interactive IVR (1: EN, 2: Twi)
+          </button>
+        </div>
+      </div>
+
+      <!-- Real MoMo Account Linker & Live Sync Box -->
+      <div class="panel-card" style="margin-bottom: 20px; border: 2px solid #d99e1f; box-shadow: 0 4px 20px rgba(217, 158, 31, 0.12); background: linear-gradient(135deg, rgba(217, 158, 31, 0.08) 0%, rgba(16, 185, 129, 0.05) 100%);">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+          <div>
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px; flex-wrap:wrap;">
+              <span class="badge" style="background:#d99e1f; color:#16211a; font-weight:800;">LIVE MOMO TRIAL</span>
+              <span class="badge" id="simMomoStatusBadge" style="background:#10b981; color:#fff; font-weight:700;">🟢 Linked &amp; Synced</span>
+              <span class="badge" style="background:rgba(2,132,199,0.15); color:#0284c7; border:1px solid rgba(2,132,199,0.3); font-size:11px; font-weight:600;">Zero Cellular Tokens Burned</span>
+            </div>
+            <h3 style="font-size:17px; font-weight:700; color:var(--ink); margin:0;">
+              <span>📲</span> Connect &amp; Synchronize Real Phone Number for MoMo Transactions
+            </h3>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btn btn-sm btn-outline" onclick="window.app.switchTab('momo')" style="font-weight:600;">
+              <span>⚙️</span> View MoMo Keys
+            </button>
+            <button class="btn btn-sm" onclick="window.app.triggerSimPayout()" style="background:#0284c7; color:#fff; font-weight:700;">
+              <span>💸</span> 1-Click Payout (Disburse)
+            </button>
+            <button class="btn btn-sm" onclick="window.app.triggerSimLivePush()" style="background:#d99e1f; color:#16211a; font-weight:700;">
+              <span>⚡</span> 1-Click Live MoMo Push (Collect)
+            </button>
+          </div>
+        </div>
+
+        <p style="font-size:12px; color:var(--ink-secondary); margin-bottom:14px; line-height:1.5;">
+          Connect your real phone number (e.g. <code>0543546010</code> or <code>0553838464</code>). When you start a call simulation below, this phone number automatically synchronizes as your trial transaction target, triggering the genuine MTN MoMo collection/transfer engine and live status sync.
+        </p>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px; align-items:end;">
+          <div>
+            <label class="form-label" style="font-size:11.5px; font-weight:700; display:flex; justify-content:space-between;">
+              <span>Your Mobile Money Phone Number:</span>
+              <span id="simLinkedMsisdnBadge" style="color:#10b981; font-family:monospace; font-weight:700;">+233 54 354 6010</span>
+            </label>
+            <input type="text" class="form-input font-mono" id="simLinkedPhoneInput" value="0543546010" placeholder="e.g. 0543546010" oninput="window.app.updateLinkedPhoneFromInput()">
+          </div>
+
+          <div>
+            <label class="form-label" style="font-size:11.5px; font-weight:700;">Subscriber Name / Account Label:</label>
+            <input type="text" class="form-input" id="simLinkedNameInput" value="Hannes Aboagye (My Real Phone)" placeholder="e.g. Kwame Nyamebere" oninput="window.app.updateLinkedPhoneFromInput()">
+          </div>
+
+          <div>
+            <label class="form-label" style="font-size:11.5px; font-weight:700;">Trial Amount (GHS):</label>
+            <div style="display:flex; gap:6px;">
+              <input type="number" class="form-input font-mono" id="simLinkedAmountInput" value="5.00" step="1" min="1" max="1000" style="max-width:110px;" oninput="window.app.updateLinkedPhoneFromInput()">
+              <button class="btn btn-sm btn-primary" style="flex:1;" onclick="window.app.syncLinkedPhoneToCall()">
+                <span>🔗</span> Sync to Call
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Switcher Chips -->
+        <div style="display:flex; align-items:center; gap:8px; margin-top:12px; flex-wrap:wrap; padding-top:10px; border-top:1px solid rgba(0,0,0,0.06);">
+          <span style="font-size:11px; color:var(--ink-muted); font-weight:600;">Quick Select:</span>
+          <button type="button" class="btn btn-xs btn-outline" onclick="window.app.setLinkedPhonePreset('0543546010', 'Hannes Aboagye', 5)">
+            👤 0543546010 (My Real Phone)
+          </button>
+          <button type="button" class="btn btn-xs btn-outline" onclick="window.app.setLinkedPhonePreset('0553838464', 'Kwame Nyamebere', 50)">
+            👤 0553838464 (Kwame)
+          </button>
+          <button type="button" class="btn btn-xs btn-outline" onclick="window.app.setLinkedPhonePreset('0241234567', 'Ama Mensah', 20)">
+            👤 0241234567 (Ama)
+          </button>
+          <span style="margin-left:auto; font-size:11px; color:#10b981; font-weight:600;">
+            ✓ Active MTN Keys Loaded (Collections &amp; Disbursements)
+          </span>
+        </div>
+
+        <!-- Roadmap & Challenges Resolution Accordion -->
+        <details style="margin-top: 14px; background: rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.08); border-radius: 6px; padding: 8px 12px;">
+          <summary style="font-size: 12px; font-weight: 700; color: var(--ink); cursor: pointer; display: flex; align-items: center; gap: 6px;">
+            <span>🚀</span> <strong>Moving from Prototype to Functional Product: Roadmap &amp; Resolution of Current Challenges</strong>
+          </summary>
+          <div style="margin-top: 10px; font-size: 11.5px; color: var(--ink-secondary); line-height: 1.6; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
+            <div style="background: var(--surface); padding: 10px; border-radius: 6px; border: 1px solid var(--border);">
+              <div style="font-weight: 700; color: #d97706; margin-bottom: 4px;">📞 1. Africa's Talking Cellular Voice Tokens</div>
+              <p style="margin: 0 0 6px 0;">
+                <strong>The Challenge:</strong> Real outbound cellular phone calls consume AT Voice airtime credits per second and require an active prepaid voice balance and assigned Ghana SIP trunk number.
+              </p>
+              <p style="margin: 0; color: #10b981;">
+                <strong>Solution in Place:</strong> The browser Interactive Call Simulator below replicates the <em>exact</em> VoiceXML protocol, authentic Akan Twi audio prompts, 40s/30s timers, and Zero-PIN security with <strong>zero token burn</strong>! For production, simply fund the AT Voice wallet and assign a live shortcode.
+              </p>
+            </div>
+            <div style="background: var(--surface); padding: 10px; border-radius: 6px; border: 1px solid var(--border);">
+              <div style="font-weight: 700; color: #2563eb; margin-bottom: 4px;">🟡 2. MTN MoMo API: Sandbox to Live Production</div>
+              <p style="margin: 0 0 6px 0;">
+                <strong>The Challenge:</strong> MTN Developer Sandbox requires generating an API User UUID and API Key via provisioning, whereas Live Production requires an enterprise agreement with MTN Ghana.
+              </p>
+              <p style="margin: 0; color: #10b981;">
+                <strong>Solution in Place:</strong> Our standalone <code>momo_api/</code> and <code>src/integrations/momo</code> modules feature auto-provisioning, multi-key switching (Primary/Secondary/Custom), and resilient fallback emulation so trial transactions succeed smoothly in every environment.
+              </p>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div class="simulator-layout">
+        <!-- Phone Handset Frame -->
+        <div class="phone-frame" id="phoneFrame">
+          <div class="phone-speaker-ear"></div>
+          <div class="phone-screen" id="phoneScreen">
+            <div class="phone-status-bar">
+              <span class="phone-carrier" id="phoneCarrier">MTN MoMo 4G</span>
+              <span class="phone-time" id="phoneClock">12:00</span>
+              <span class="phone-icons">📶 🔋 98%</span>
+            </div>
+
+            <!-- Call State Banner -->
+            <div class="call-header-display">
+              <div class="call-avatar" id="callAvatar">🔊</div>
+              <div class="call-caller-name" id="callCallerName">Ɔkwankyerɛfo Pa</div>
+              <div class="call-caller-sub" id="callCallerSub">+233 30 804 8098 &bull; Voice Layer</div>
+              <div class="call-timer" id="callTimer">00:00</div>
+              <div class="call-badge-chip" id="callStatusBadge">Call Idle</div>
+            </div>
+
+            <!-- Sound Wave Canvas Visualizer -->
+            <div class="waveform-container" id="waveformContainer">
+              <canvas id="waveformCanvas" width="280" height="40"></canvas>
+              <div class="audio-source-indicator" id="audioSourceIndicator">Source: Hybrid Native Audio</div>
+            </div>
+
+            <!-- Current Spoken Prompt Box -->
+            <div class="prompt-box" id="promptBox">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:4px;">
+                <div class="prompt-step-tag" id="currentStepTag">Simulation Ready</div>
+                <div class="prompt-lang-badge" id="currentLangBadge" style="font-size:11px; font-weight:700; padding:2px 8px; border-radius:12px; background:rgba(16,185,129,0.15); color:var(--emerald-accent); border:1px solid rgba(16,185,129,0.3);">
+                  🇬🇭 Akan Twi Active
+                </div>
+              </div>
+              <div class="prompt-primary-block" id="primaryPromptBlock">
+                <div class="prompt-header-label" id="primaryPromptLabel" style="font-size:10px; text-transform:uppercase; letter-spacing:0.5px; color:var(--emerald-accent); margin-bottom:3px; font-weight:700;">Spoken Prompt (Akan Twi)</div>
+                <div class="prompt-text-twi" id="currentPromptTwi">"Mia 'Start Call Simulation' anaa 'Place New Call' sɛ wobɛhyɛ aseɛ."</div>
+              </div>
+              <div class="prompt-secondary-block" id="secondaryPromptBlock" style="margin-top:6px; padding-top:6px; border-top:1px dashed rgba(255,255,255,0.12);">
+                <div class="prompt-header-label" id="secondaryPromptLabel" style="font-size:10px; text-transform:uppercase; letter-spacing:0.5px; color:var(--ink-muted); margin-bottom:2px;">English Translation</div>
+                <div class="prompt-text-en" id="currentPromptEn">"Simulation idle. Click 'Start Call Simulation' or 'Place New Call' to begin."</div>
+              </div>
+              <div class="prompt-audio-file-tag" id="currentAudioFileTag" style="margin-top:7px; font-size:11px; color:var(--sky-accent); display:flex; align-items:center; gap:4px; font-family:monospace; background:rgba(15,23,42,0.6); padding:3px 8px; border-radius:4px; border:1px solid rgba(56,189,248,0.2);">
+                <span>🎵 Playing:</span> <span id="currentAudioFileName" style="color:#38bdf8; font-weight:600;">No audio loaded</span>
+              </div>
+            </div>
+
+            <!-- In-Phone Audio Player Component -->
+            <div class="phone-audio-player" id="phoneAudioPlayerContainer">
+              <audio id="phoneAudioElement" preload="auto" playsinline></audio>
+              <div class="audio-controls-row">
+                <button class="btn-audio-action" id="btnPlayVoicePrompt" title="Play Pre-Recorded Audio Prompt" onclick="window.app.forcePlayAudio()">
+                  <span id="playPromptLabel">▶️ Play Voice</span>
+                </button>
+                <button class="btn-audio-action" id="btnReplayAudio" title="Replay Spoken Audio" onclick="window.app.replayCurrentAudio()">
+                  <span>🔄 Replay (9)</span>
+                </button>
+                <button class="btn-audio-action" id="btnToggleAudioMute" title="Toggle Sound Tones" onclick="window.app.toggleDtmfSound()">
+                  <span id="muteLabel">🔊 DTMF Sound On</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Simultaneous Voice & Natural Language Listening Service Bar -->
+            <div class="simultaneous-listening-bar" id="simultaneousListeningBar">
+              <div class="listening-header">
+                <div class="listening-status-indicator">
+                  <span class="listening-pulse-dot paused" id="listeningPulseDot"></span>
+                  <span class="listening-status-text" id="listeningStatusText">
+                    <strong>Call Idle:</strong> Click "Start Call Simulation" or "Place New Call" to begin
+                  </span>
+                </div>
+                <button class="btn-mic-pill muted" id="btnToggleListeningMic" onclick="window.app.toggleListeningService()" title="Toggle live microphone listening">
+                  <span id="listeningMicIcon">🔇 Mic Inactive</span>
+                </button>
+              </div>
+
+              <!-- Real-time transcript feedback -->
+              <div class="listening-transcript-preview" id="listeningTranscriptPreview">
+                <span class="transcript-tag">🗣️ Live Voice:</span>
+                <span class="transcript-text" id="transcriptText">Waiting to place call...</span>
+                <span class="transcript-speed-badge" id="speedMetricBadge" title="Ultra-low latency client-side instant voice response">⚡ Fast Voice</span>
+              </div>
+
+              <!-- Quick voice input & phrase shortcuts -->
+              <div class="voice-natural-input-row">
+                <input type="text" id="voiceNaturalInput" class="voice-natural-input" placeholder="Speak aloud or type phrase (e.g. 'English', 'MTN', 'Send money')..." onkeydown="if(event.key==='Enter') window.app.submitNaturalVoiceInput()" />
+                <button class="btn-voice-send" id="btnSendVoiceInput" onclick="window.app.submitNaturalVoiceInput()">Say</button>
+              </div>
+              <div class="voice-suggestions-chips" id="voiceSuggestionsChips">
+                <!-- Dynamically populated per current prompt -->
+              </div>
+            </div>
+
+            <!-- Step Specific Interactive Action Panel inside Screen -->
+            <div class="step-controls-viewport" id="stepControlsViewport">
+              <div style="padding: 14px 8px; text-align: center;">
+                <div style="font-size: 26px; margin-bottom: 6px;">📞</div>
+                <div style="font-weight: 700; font-size: 14px; margin-bottom: 3px; color: var(--ink);">Ready to Test Ɔkwankyerɛfo Pa</div>
+                <p style="font-size: 11.5px; color: var(--ink-secondary); margin-bottom: 10px; line-height: 1.4;">
+                  Interactive Voice Simulation &bull; Akan Twi &amp; English
+                </p>
+
+                <!-- Linked MoMo Account Badge inside Handset -->
+                <div style="background: rgba(217, 158, 31, 0.12); border: 1px solid #d99e1f; border-radius: 8px; padding: 10px; margin-bottom: 12px; text-align: left;">
+                  <div style="font-size: 10px; text-transform: uppercase; font-weight: 700; color: #d99e1f; letter-spacing: 0.5px;">Linked MoMo Target:</div>
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 3px;">
+                    <span style="font-size: 13.5px; font-weight: 800; color: var(--ink); font-family: monospace;" id="viewportLinkedPhone">0543546010</span>
+                    <span style="font-size: 12px; font-weight: 800; color: #10b981;">GH₵ <span id="viewportLinkedAmount">5.00</span></span>
+                  </div>
+                  <div style="font-size: 10.5px; color: var(--ink-muted); margin-top: 2px;">
+                    <span id="viewportLinkedName">Hannes Aboagye</span> &bull; MTN Mobile Money
+                  </div>
+                </div>
+
+                <button class="btn btn-call-start" style="width: 100%; justify-content: center; font-size: 13.5px; padding: 10px 16px;" onclick="window.app.startCall()">
+                  <span>📞</span> Start Call (with Linked Number)
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Realistic Physical DTMF Keypad with Dual Tones & Voice Substitution -->
+          <div class="phone-keypad-container" id="phoneKeypadContainer">
+            <div class="keypad-title-bar">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span>🎙️ Universal Voice Keypad</span>
+                <span class="badge" style="font-size: 9.5px; background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 1px 6px; border-radius: 9999px;">Voice Substitute Active</span>
+              </div>
+              <span class="keypad-hint">Say 0-9 aloud or punch</span>
+            </div>
+
+            <!-- Voice Keypad Quick Substitution Bar -->
+            <div class="voice-keypad-strip" id="voiceKeypadStrip" style="margin-bottom: 10px; padding: 7px 8px; background: rgba(15, 23, 42, 0.65); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08);">
+              <div style="font-size: 10.5px; color: #34d399; font-weight: 700; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center;">
+                <span>🗣️ Voice Substitution (Say or Tap):</span>
+                <span style="color: rgba(246, 248, 243, 0.6); font-weight: 400; font-size: 9.5px;">Replaces punching on phone</span>
+              </div>
+              <div class="voice-digits-row" style="display: flex; flex-wrap: wrap; gap: 4px;">
+                <button type="button" class="btn-voice-digit" onclick="window.app.speakVoiceDigit('1', 'Baako / One')" title="Say '1' or 'Baako'">🗣️ "1" Baako</button>
+                <button type="button" class="btn-voice-digit" onclick="window.app.speakVoiceDigit('2', 'Mmienu / Two')" title="Say '2' or 'Mmienu'">🗣️ "2" Mmienu</button>
+                <button type="button" class="btn-voice-digit" onclick="window.app.speakVoiceDigit('3', 'Mmiɛnsa / Three')" title="Say '3' or 'Mmiɛnsa'">🗣️ "3" Mmiɛnsa</button>
+                <button type="button" class="btn-voice-digit" onclick="window.app.speakVoiceDigit('4', 'Anan / Four')" title="Say '4' or 'Anan'">🗣️ "4" Anan</button>
+                <button type="button" class="btn-voice-digit" onclick="window.app.speakVoiceDigit('5', 'Enum / Five')" title="Say '5' or 'Enum'">🗣️ "5" Enum</button>
+                <button type="button" class="btn-voice-digit" onclick="window.app.speakVoiceDigit('8', 'Nwɔtwe / Back')" title="Say '8' or 'Back'">🗣️ "8" Back</button>
+                <button type="button" class="btn-voice-digit" onclick="window.app.speakVoiceDigit('9', 'Nkron / Replay')" title="Say '9' or 'Replay'">🗣️ "9" Replay</button>
+                <button type="button" class="btn-voice-digit" onclick="window.app.speakVoiceDigit('0', 'Hwee / Exit')" title="Say '0' or 'Exit'">🗣️ "0" Exit</button>
+              </div>
+            </div>
+
+            <div class="keypad-grid" id="keypadGrid">
+              <button class="key-btn" id="key1" onclick="window.app.pressKey('1')">
+                <span class="key-digit">1</span>
+                <span class="key-sub">Baako / One</span>
+              </button>
+              <button class="key-btn" id="key2" onclick="window.app.pressKey('2')">
+                <span class="key-digit">2</span>
+                <span class="key-sub">Mmienu / Two</span>
+              </button>
+              <button class="key-btn" id="key3" onclick="window.app.pressKey('3')">
+                <span class="key-digit">3</span>
+                <span class="key-sub">Mmiɛnsa / Three</span>
+              </button>
+              <button class="key-btn" id="key4" onclick="window.app.pressKey('4')">
+                <span class="key-digit">4</span>
+                <span class="key-sub">Anan / Four</span>
+              </button>
+              <button class="key-btn" id="key5" onclick="window.app.pressKey('5')">
+                <span class="key-digit">5</span>
+                <span class="key-sub">Enum / Five</span>
+              </button>
+              <button class="key-btn" id="key6" onclick="window.app.pressKey('6')">
+                <span class="key-digit">6</span>
+                <span class="key-sub">Nsia / Six</span>
+              </button>
+              <button class="key-btn" id="key7" onclick="window.app.pressKey('7')">
+                <span class="key-digit">7</span>
+                <span class="key-sub">Nson / Seven</span>
+              </button>
+              <button class="key-btn key-nav" id="key8" onclick="window.app.pressKey('8')">
+                <span class="key-digit">8</span>
+                <span class="key-sub nav-highlight">&larr; Nwɔtwe / Back</span>
+              </button>
+              <button class="key-btn key-nav" id="key9" onclick="window.app.pressKey('9')">
+                <span class="key-digit">9</span>
+                <span class="key-sub nav-highlight">&#8635; Nkron / Replay</span>
+              </button>
+              <button class="key-btn" id="keyStar" onclick="window.app.pressKey('*')">
+                <span class="key-digit">*</span>
+                <span class="key-sub">Nsoroma / Dot (*)</span>
+              </button>
+              <button class="key-btn key-cancel" id="key0" onclick="window.app.pressKey('0')">
+                <span class="key-digit">0</span>
+                <span class="key-sub cancel-highlight">&#10005; Hwee / Exit (0)</span>
+              </button>
+              <button class="key-btn key-submit" id="keyHash" onclick="window.app.pressKey('#')">
+                <span class="key-digit">#</span>
+                <span class="key-sub submit-highlight">&#10003; Submit / Gye Tum</span>
+              </button>
+            </div>
+
+            <!-- Call Action Controls -->
+            <div class="call-bar-actions">
+              <button class="btn btn-call-start" id="btnStartSimCall" onclick="window.app.startCall()">
+                <span>📞</span> Start Call Simulation
+              </button>
+              <button class="btn btn-call-end" id="btnEndSimCall" onclick="window.app.endCall()">
+                <span>🔴</span> Hang Up / Reset
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Side: Flow Debugger & VoiceXML Inspector -->
+        <div class="sim-sidebar">
+          <!-- Flow Roadmap Card -->
+          <div class="panel-card" id="flowRoadmapCard">
+            <div class="panel-header">
+              <h3 class="panel-title"><span>🧭</span> Accessibility Call Pipeline</h3>
+              <span class="badge" id="flowStepBadge">Ready</span>
+            </div>
+            <div class="flow-stepper" id="flowStepper">
+              <div class="flow-step" id="stepIndicatorWelcome">
+                <div class="step-num">1</div>
+                <div class="step-info">
+                  <div class="step-title">Welcome &amp; Language Choice</div>
+                  <div class="step-desc">English (1) or Twi (2) selection</div>
+                </div>
+              </div>
+              <div class="flow-step" id="stepIndicatorService">
+                <div class="step-num">2</div>
+                <div class="step-info">
+                  <div class="step-title">Service Selection</div>
+                  <div class="step-desc">Telecom / MoMo (1) vs Banking (2)</div>
+                </div>
+              </div>
+              <div class="flow-step" id="stepIndicatorProvider">
+                <div class="step-num">3</div>
+                <div class="step-info">
+                  <div class="step-title">Network Provider</div>
+                  <div class="step-desc">MTN (1), Telecel (2), or AT (3)</div>
+                </div>
+              </div>
+              <div class="flow-step" id="stepIndicatorAction">
+                <div class="step-num">4</div>
+                <div class="step-info">
+                  <div class="step-title">Action Menu</div>
+                  <div class="step-desc">Send Money (1) or Balance (2)</div>
+                </div>
+              </div>
+              <div class="flow-step" id="stepIndicatorRecipient">
+                <div class="step-num">5</div>
+                <div class="step-info">
+                  <div class="step-title">Recipient &amp; KYC Resolver</div>
+                  <div class="step-desc">10-digit number &bull; KYC Name Lookup</div>
+                </div>
+              </div>
+              <div class="flow-step" id="stepIndicatorAmount">
+                <div class="step-num">6</div>
+                <div class="step-info">
+                  <div class="step-title">Amount Input</div>
+                  <div class="step-desc">Cedis &bull; Star (*) for pesewas &bull; Finish #</div>
+                </div>
+              </div>
+              <div class="flow-step" id="stepIndicatorConfirm">
+                <div class="step-num">7</div>
+                <div class="step-info">
+                  <div class="step-title">Safe Confirmation Innovation</div>
+                  <div class="step-desc">Full human name &amp; amount read-back</div>
+                </div>
+              </div>
+              <div class="flow-step" id="stepIndicatorDone">
+                <div class="step-num">8</div>
+                <div class="step-info">
+                  <div class="step-title">Zero-PIN Security Handoff</div>
+                  <div class="step-desc">Private screen prompt notification</div>
+                </div>
+              </div>
+              <div class="flow-step" id="stepIndicatorReceipt">
+                <div class="step-num">9</div>
+                <div class="step-info">
+                  <div class="step-title">Transaction Receipt &amp; Summary</div>
+                  <div class="step-desc">Ref: OKP-847291 &bull; Post-transaction prompt</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- AI Conversational State & Security Monitor Card -->
+          <div class="panel-card" id="convStateCard" style="border: 1px solid var(--emerald-accent); background: var(--surface);">
+            <div class="panel-header" style="border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px;">
+              <h3 class="panel-title" style="color: var(--emerald-accent);"><span>🤖</span> AI Conversational Layer</h3>
+              <span class="badge" id="convConfidenceBadge" style="background: var(--emerald-subtle); color: var(--emerald-accent); font-weight: bold;">Ready</span>
+            </div>
+            <div style="padding: 10px 0; font-size: 13px;">
+              <div style="display:flex; justify-content:space-between; margin-bottom: 6px;">
+                <span style="color: var(--ink-muted);">Active Intent:</span>
+                <span id="convIntentBadge" style="font-weight: 700; color: var(--ink);">OPEN_CONVERSATION</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; margin-bottom: 6px;">
+                <span style="color: var(--ink-muted);">State Machine:</span>
+                <span id="convStatusBadge" style="font-weight: 600; color: var(--sky-accent);">COLLECTING_INFORMATION</span>
+              </div>
+              <div style="background: var(--surface-sunken); border-radius: 8px; padding: 8px 10px; margin-top: 8px;">
+                <div style="font-size: 11.5px; font-weight: 700; text-transform: uppercase; color: var(--ink-muted); margin-bottom: 4px;">
+                  Extracted Slots (Converged Transaction State)
+                </div>
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 12px;">
+                  <div><span style="color:var(--ink-muted);">Network:</span> <strong id="slotNetwork">--</strong></div>
+                  <div><span style="color:var(--ink-muted);">Amount:</span> <strong id="slotAmount">--</strong></div>
+                  <div style="grid-column: 1 / -1;"><span style="color:var(--ink-muted);">Recipient:</span> <strong id="slotRecipient">--</strong></div>
+                </div>
+              </div>
+              <div style="margin-top: 8px; display:flex; align-items:center; gap: 6px; font-size: 11.5px; color: var(--emerald-accent);">
+                <span>🔒</span>
+                <span><strong>Zero-PIN Security Boundary:</strong> Handset simulated prompt. PIN never reaches AI.</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Live VoiceXML Response Inspector -->
+          <div class="panel-card" id="xmlInspectorCard">
+            <div class="panel-header">
+              <h3 class="panel-title"><span>📄</span> Africa's Talking VoiceXML Response</h3>
+              <button class="btn btn-sm btn-ghost" id="btnCopyXml" onclick="window.app.copyCurrentXml()">Copy XML</button>
+            </div>
+            <p class="panel-desc">Exact XML generated by the backend server for the Africa's Talking telephony engine at this step:</p>
+            <div class="code-container">
+              <pre><code id="liveXmlCode">&lt;!-- Call not started. Click 'Start Call Simulation' to stream VoiceXML --&gt;</code></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: Voice Dataset & Audio Studio -->
+    <section class="tab-panel" id="panelStudio" role="tabpanel">
+      <!-- Dataset Header & Integration Readiness -->
+      <div class="dataset-intro-box">
+        <div class="intro-main">
+          <div class="badge badge-accent">Voice Dataset Integration Hub</div>
+          <h2 class="dataset-title">Dataset Management &amp; Ingestion Architecture</h2>
+          <p class="dataset-p">
+            This module is specifically engineered to <strong>ease the integration of large voice datasets</strong> into Ɔkwankyerɛfo Pa. You can preview existing IVR phrases, inspect audio coverage across Ghanaian dialects (Asante Twi, Akuapem Twi, Fante, Ga, Ewe), record new phrases directly from your microphone, upload batch WAV/MP3 files, and trigger automated dataset ingestion through our REST API.
+          </p>
+        </div>
+        <div class="dataset-quick-actions">
+          <button class="btn btn-primary" id="btnOpenRecordModal" onclick="window.app.openRecordModal()">
+            <span>🎙️</span> Record Voice Phrase
+          </button>
+          <button class="btn btn-secondary" id="btnOpenUploadModal" onclick="window.app.openUploadModal()">
+            <span>📤</span> Upload Audio Files
+          </button>
+        </div>
+      </div>
+
+      <!-- Dataset Statistics Matrix -->
+      <div class="dataset-stats-grid">
+        <div class="stat-card" id="cardTotalPhrases">
+          <div class="stat-icon">📑</div>
+          <div class="stat-body">
+            <div class="stat-val" id="dsTotalPhrases">18</div>
+            <div class="stat-name">Total Core Phrases</div>
+            <div class="stat-footnote">Full coverage of MoMo IVR tree</div>
+          </div>
+        </div>
+        <div class="stat-card" id="cardNativeAudio">
+          <div class="stat-icon">🎙️</div>
+          <div class="stat-body">
+            <div class="stat-val" id="dsNativeAudioCount">6</div>
+            <div class="stat-name">Recorded Native Clips</div>
+            <div class="stat-footnote" id="dsNativeAudioSub">Studio MP3/WAV files</div>
+          </div>
+        </div>
+        <div class="stat-card" id="cardFallbackTts">
+          <div class="stat-icon">🤖</div>
+          <div class="stat-body">
+            <div class="stat-val" id="dsTtsFallbackCount">12</div>
+            <div class="stat-name">Dynamic TTS Fallbacks</div>
+            <div class="stat-footnote">Fallback when clip missing</div>
+          </div>
+        </div>
+        <div class="stat-card" id="cardStorageSize">
+          <div class="stat-icon">💾</div>
+          <div class="stat-body">
+            <div class="stat-val" id="dsStorageSize">342 KB</div>
+            <div class="stat-name">Audio Repository Size</div>
+            <div class="stat-footnote">HTTP 206 streaming enabled</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- English Audio Suite (/audio/English/) -->
+      <div class="prototype-audio-card" id="cardPrototypeAudio">
+        <div class="prototype-header-row">
+          <div class="prototype-header-info">
+            <h3><span>🇬🇧</span> English Voice Audio Suite</h3>
+            <p style="font-size:12.5px; color:var(--ink-secondary); margin:4px 0 0 0;">
+              Dedicated English voice prompts in <code>/audio/English/</code> (with shared welcome prompt in <code>/audio/</code>). Built for Ghana's Digital Financial IVR flow with HTTP 206 streaming and instant simulated playback.
+            </p>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <span class="prototype-folder-badge">📁 audio/English/</span>
+            <button class="btn btn-sm btn-secondary" onclick="window.app.playAllPrototypeSequence()">
+              <span>▶ Play Sequence</span>
+            </button>
+            <button class="btn btn-sm btn-outline" onclick="window.app.openUploadModal('prot_01')">
+              <span>📤 Upload / Replace</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="prototype-grid" id="prototypePromptsGrid">
+          <!-- Populated dynamically via /api/prototype-audio -->
+          <div style="padding:20px; text-align:center; color:var(--ink-muted); grid-column:1/-1;">
+            Loading English audio clips...
+          </div>
+        </div>
+      </div>
+
+      <!-- Twi Prompt Recordings Suite (/audio/Twi/) -->
+      <div class="prototype-audio-card" id="cardTwiAudio" style="margin-top:20px;">
+        <div class="prototype-header-row">
+          <div class="prototype-header-info">
+            <h3><span>🇬🇭</span> Twi Prompt Recordings Suite</h3>
+            <p style="font-size:12.5px; color:var(--ink-secondary); margin:4px 0 0 0;">
+              Authentic Twi (Akan) audio prompts in <code>/audio/Twi/</code> (with shared welcome prompt in <code>/audio/</code>). Active when users select Twi (Press 2) in the simulator.
+            </p>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <span class="prototype-folder-badge" style="background:#e8f5e9; color:#2e7d32; border-color:#c8e6c9;">📁 audio/Twi/</span>
+            <button class="btn btn-sm btn-secondary" onclick="window.app.playAllTwiSequence()">
+              <span>▶ Play Twi Sequence</span>
+            </button>
+            <button class="btn btn-sm btn-outline" onclick="window.app.openUploadModal('twi_01')">
+              <span>📤 Upload / Replace</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="prototype-grid" id="twiPromptsGrid">
+          <!-- Populated dynamically via /api/twi-audio -->
+          <div style="padding:20px; text-align:center; color:var(--ink-muted); grid-column:1/-1;">
+            Loading Twi recording audio clips...
+          </div>
+        </div>
+      </div>
+
+      <!-- In-Browser Voice Recording Studio (Embedded) -->
+      <div class="panel-card record-card" id="embeddedRecorderCard">
+        <div class="panel-header">
+          <h3 class="panel-title"><span>🎙️</span> In-Browser Voice Recorder for Dataset Contributors</h3>
+          <span class="badge" id="recordingStatusBadge">Mic Ready</span>
+        </div>
+        <p class="panel-desc">Record a native voice prompt for any phrase in the system. The recording is saved to the server's <code>/audio</code> store and immediately bound to Africa's Talking IVR and the simulator.</p>
+
+        <div class="recorder-grid">
+          <div class="form-group">
+            <label class="form-label" for="selectRecordPhrase">Select IVR Phrase to Record</label>
+            <select class="form-select" id="selectRecordPhrase" onchange="window.app.onPhraseSelectionChange()">
+              <!-- Populated by JS -->
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="selectRecordDialect">Target Dialect / Language</label>
+            <select class="form-select" id="selectRecordDialect">
+              <option value="asante_twi">Asante Twi (Kumasi standard)</option>
+              <option value="akuapem_twi">Akuapem Twi</option>
+              <option value="fante">Fante</option>
+              <option value="gh_english">Ghanaian English (Natural)</option>
+              <option value="ga">Ga</option>
+              <option value="ewe">Ewe</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="prompt-script-card" id="promptScriptCard">
+          <div class="script-label">Spoken Script Reference:</div>
+          <div class="script-content" id="selectedPhraseScript">Select a phrase above to view spoken text</div>
+        </div>
+
+        <!-- Live Audio Meter & Visualizer during recording -->
+        <div class="mic-visualizer-box" id="micVisualizerBox">
+          <canvas id="micWaveformCanvas" width="600" height="60"></canvas>
+          <div class="record-time" id="recordDuration">00:00</div>
+        </div>
+
+        <!-- Recorder Controls -->
+        <div class="recorder-actions">
+          <button class="btn btn-record" id="btnStartRecord" onclick="window.app.startRecording()">
+            <span>🔴</span> Start Recording
+          </button>
+          <button class="btn btn-record-stop" id="btnStopRecord" disabled onclick="window.app.stopRecording()">
+            <span>⏹</span> Stop Recording
+          </button>
+          <audio id="recordedAudioPreview" controls style="display:none;"></audio>
+          <button class="btn btn-primary" id="btnUploadRecorded" disabled onclick="window.app.uploadRecordedAudio()">
+            <span>☁️</span> Save to Voice Dataset
+          </button>
+        </div>
+      </div>
+
+      <!-- Phrase Bank & Audio Asset Catalog -->
+      <div class="panel-card" id="phraseCatalogCard">
+        <div class="panel-header">
+          <div class="header-left">
+            <h3 class="panel-title"><span>🎧</span> Complete Voice Phrase Catalog &amp; Audio Mapping</h3>
+            <span class="badge" id="phraseFilterCount">18 Prompts</span>
+          </div>
+          <div class="filter-group">
+            <input type="text" class="input-search" id="inputFilterPhrases" placeholder="Filter phrases..." oninput="window.app.filterPhraseCatalog()">
+            <select class="form-select select-sm" id="selectCategoryFilter" onchange="window.app.filterPhraseCatalog()">
+              <option value="all">All Categories</option>
+              <option value="welcome">Welcome &amp; Intro</option>
+              <option value="service">Service &amp; Provider</option>
+              <option value="transfer">Recipient &amp; Amount</option>
+              <option value="confirm">Safe Confirmation</option>
+              <option value="auth">Authorization &amp; PIN</option>
+              <option value="nav">Universal Navigation</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Phrase Table -->
+        <div class="table-responsive">
+          <table class="data-table" id="tablePhrases">
+            <thead>
+              <tr>
+                <th>Phrase ID / Stage</th>
+                <th>Category</th>
+                <th>Language / Dialect</th>
+                <th>Spoken Prompt Script</th>
+                <th>Audio Status</th>
+                <th>Listen &amp; Actions</th>
+              </tr>
+            </thead>
+            <tbody id="phraseTableBody">
+              <!-- Populated by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Batch Dataset Ingestion API & Developer Integration Guide -->
+      <div class="panel-card" id="batchApiGuideCard">
+        <div class="panel-header">
+          <h3 class="panel-title"><span>🚀</span> Automated Large Dataset Ingestion (REST API)</h3>
+          <span class="badge badge-accent">Batch Pipeline Ready</span>
+        </div>
+        <p class="panel-desc">
+          When integrating with a large voice dataset (e.g. Common Voice, Hugging Face, or bulk studio WAV files), use these script templates to programmatically ingest thousands of audio files with automatic metadata tagging.
+        </p>
+
+        <div class="code-tab-bar">
+          <button class="code-tab-btn active" id="codeTabPython" onclick="window.app.switchCodeTab('python')">Python (Batch Ingest)</button>
+          <button class="code-tab-btn" id="codeTabCurl" onclick="window.app.switchCodeTab('curl')">cURL (Single Sample)</button>
+          <button class="code-tab-btn" id="codeTabNode" onclick="window.app.switchCodeTab('node')">Node.js (Streaming)</button>
+        </div>
+
+        <div class="code-tab-content active" id="codeContentPython">
+          <pre><code>import requests
+import base64
+import os
+
+API_ENDPOINT = "https://your-applet-url.run.app/api/upload-audio"
+
+def ingest_voice_sample(filepath, target_filename, dialect="asante_twi", phrase_id="confirm_twi"):
+    with open(filepath, "rb") as audio_file:
+        encoded_audio = base64.b64encode(audio_file.read()).decode("utf-8")
+
+    payload = {
+        "filename": target_filename,
+        "base64Data": f"data:audio/mp3;base64,{encoded_audio}",
+        "phraseId": phrase_id,
+        "dialect": dialect,
+        "quality": "studio_master"
+    }
+
+    res = requests.post(API_ENDPOINT, json=payload)
+    print(f"Ingested {target_filename}: {res.status_code} - {res.json()}")
+
+# Example batch ingest directory:
+# for root, _, files in os.walk("./ghana_voice_dataset"):
+#     for f in files:
+#         if f.endswith(".mp3") or f.endswith(".wav"):
+#             ingest_voice_sample(os.path.join(root, f), f)</code></pre>
+        </div>
+
+        <div class="code-tab-content" id="codeContentCurl">
+          <pre><code># Upload an audio prompt file via cURL
+curl -X POST "https://your-applet-url.run.app/api/upload-audio" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filename": "confirm_twi.mp3",
+    "phraseId": "confirm_twi",
+    "dialect": "asante_twi",
+    "base64Data": "data:audio/mp3;base64,...base64_data_here..."
+  }'</code></pre>
+        </div>
+
+        <div class="code-tab-content" id="codeContentNode">
+          <pre><code>import fs from 'fs';
+import axios from 'axios';
+
+async function uploadAudio(filePath, filename, phraseId) {
+  const fileBuffer = fs.readFileSync(filePath);
+  const base64 = fileBuffer.toString('base64');
+
+  const res = await axios.post('https://your-applet-url.run.app/api/upload-audio', {
+    filename,
+    phraseId,
+    base64Data: `data:audio/mp3;base64,${base64}`,
+  });
+
+  console.log('Voice file indexed:', res.data);
+}</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: Smart KYC & Recipient Resolver -->
+    <section class="tab-panel" id="panelKyc" role="tabpanel">
+      <div class="grid-layout-2">
+        <!-- Live Lookup Card -->
+        <div class="panel-card" id="kycLookupCard">
+          <div class="panel-header">
+            <h3 class="panel-title"><span>🔍</span> Live Telco KYC &amp; Recipient Resolver</h3>
+            <span class="badge">Ghanaian Mobile Networks</span>
+          </div>
+          <p class="panel-desc">
+            Test any Ghanaian phone number. The engine validates length, normalizes country code (+233 &rarr; 0), detects telecom network prefix, and retrieves verified KYC names to prevent sending money to the wrong recipient.
+          </p>
+
+          <div class="form-group" style="margin-top:16px;">
+            <label class="form-label" for="inputKycTestPhone">Enter Phone Number to Test</label>
+            <div class="input-with-btn">
+              <input type="text" class="form-input" id="inputKycTestPhone" value="0241234567" placeholder="e.g. 0241234567 or +233543546010">
+              <button class="btn btn-primary" id="btnRunKycLookup" onclick="window.app.testKycLookup()">Lookup KYC</button>
+            </div>
+            <div class="quick-tags">
+              <span>Quick Test:</span>
+              <button class="tag-btn" onclick="window.app.fillKycPhone('0241234567')">0241234567 (Kofi Annan - MTN)</button>
+              <button class="tag-btn" onclick="window.app.fillKycPhone('0543546010')">0543546010 (Hannes Aboagye - MTN)</button>
+              <button class="tag-btn" onclick="window.app.fillKycPhone('0201234567')">0201234567 (Ama Serwaa - Telecel)</button>
+              <button class="tag-btn" onclick="window.app.fillKycPhone('0271234567')">0271234567 (Yaw Osei - AT)</button>
+            </div>
+          </div>
+
+          <!-- Result Display Box -->
+          <div class="kyc-result-box" id="kycResultBox" style="display:none;">
+            <div class="result-row">
+              <span class="result-label">Verified KYC Full Name:</span>
+              <span class="result-value highlight-name" id="kycResultName">-</span>
+            </div>
+            <div class="result-row">
+              <span class="result-label">Normalized Phone Number:</span>
+              <span class="result-value font-mono" id="kycResultPhone">-</span>
+            </div>
+            <div class="result-row">
+              <span class="result-label">Telecommunications Network:</span>
+              <span class="result-value" id="kycResultNetwork">-</span>
+            </div>
+            <div class="result-row">
+              <span class="result-label">Voice Safe Read-back Script:</span>
+              <span class="result-value script-quote" id="kycResultSpeech">-</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Add Custom Subscriber Card -->
+        <div class="panel-card" id="kycRegisterCard">
+          <div class="panel-header">
+            <h3 class="panel-title"><span>➕</span> Register Custom Test Subscriber</h3>
+            <span class="badge badge-accent">In-Memory Directory</span>
+          </div>
+          <p class="panel-desc">Register your own name and phone number to test voice confirmation read-back during calls:</p>
+
+          <form id="formAddSubscriber" onsubmit="window.app.submitNewSubscriber(event)">
+            <div class="form-group">
+              <label class="form-label" for="inputNewPhone">10-Digit Phone Number</label>
+              <input type="text" class="form-input" id="inputNewPhone" required placeholder="e.g. 0551234567" maxlength="10">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="inputNewName">Verified Full Name</label>
+              <input type="text" class="form-input" id="inputNewName" required placeholder="e.g. Abena Mansa">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="selectNewNetwork">Telecom Network</label>
+              <select class="form-select" id="selectNewNetwork">
+                <option value="MTN">MTN MoMo (024, 054, 055, 059, 053)</option>
+                <option value="Telecel">Telecel Cash (020, 050)</option>
+                <option value="AT">AT Money (027, 057, 026, 056)</option>
+              </select>
+            </div>
+            <button type="submit" class="btn btn-primary" id="btnAddSubscriberSubmit">Save Test Subscriber</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Subscribers Directory Table -->
+      <div class="panel-card" id="kycDirectoryCard" style="margin-top:20px;">
+        <div class="panel-header">
+          <h3 class="panel-title"><span>📋</span> Registered Verified Subscribers Directory</h3>
+          <span class="badge" id="subscriberCountBadge">6 Verified Records</span>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table" id="tableSubscribers">
+            <thead>
+              <tr>
+                <th>Phone Number</th>
+                <th>Verified Full Name</th>
+                <th>Network</th>
+                <th>Voice Confirmation Preview</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="subscriberTableBody">
+              <!-- Populated by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: Universal Grammar & Security -->
+    <section class="tab-panel" id="panelGrammar" role="tabpanel">
+      <div class="grid-layout-2">
+        <!-- Grammar Specification -->
+        <div class="panel-card" id="navGrammarSpecCard">
+          <div class="panel-header">
+            <h3 class="panel-title"><span>📐</span> Universal Navigation Grammar</h3>
+            <span class="badge badge-accent">Consistent Across All Menus</span>
+          </div>
+          <p class="panel-desc">
+            A key usability innovation of Ɔkwankyerɛfo Pa: standardizing key meanings across every screen so non-literate callers never feel trapped.
+          </p>
+
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Key</th>
+                <th>Standard Action</th>
+                <th>Twi Prompt Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><kbd class="key-tag">#</kbd></td>
+                <td><strong>Submit / Enter</strong></td>
+                <td>Finishes entering phone number or amount.</td>
+              </tr>
+              <tr>
+                <td><kbd class="key-tag key-tag-cancel">0</kbd></td>
+                <td><strong>Cancel / Exit</strong></td>
+                <td>Aborts transaction immediately, speaks reassurance, and terminates call safely.</td>
+              </tr>
+              <tr>
+                <td><kbd class="key-tag key-tag-nav">8</kbd></td>
+                <td><strong>Back / Return</strong></td>
+                <td>Returns caller to previous menu stage without losing progress.</td>
+              </tr>
+              <tr>
+                <td><kbd class="key-tag key-tag-nav">9</kbd></td>
+                <td><strong>Repeat Prompt</strong></td>
+                <td>Replays current spoken instructions in chosen language.</td>
+              </tr>
+              <tr>
+                <td><kbd class="key-tag">*</kbd></td>
+                <td><strong>Pesewa Decimal</strong></td>
+                <td>Acts as decimal point for Pesewas (e.g., 50*10 = GH₵50.10).</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Zero-PIN Security Protocol -->
+        <div class="panel-card" id="zeroPinSecurityCard">
+          <div class="panel-header">
+            <h3 class="panel-title"><span>🛡️</span> The Zero-PIN Voice Security Gate</h3>
+            <span class="badge metric-secure">Security Pillar</span>
+          </div>
+          <p class="panel-desc">
+            Standard MoMo users in Ghana are vulnerable to voice fraud and eavesdropping. Ɔkwankyerɛfo Pa enforces a strict <strong>Zero-PIN Voice Rule</strong>:
+          </p>
+
+          <div class="security-steps-box">
+            <div class="sec-step">
+              <div class="sec-step-icon">🚫</div>
+              <div class="sec-step-body">
+                <strong>No PIN Ever Keyed over Phone Line</strong>
+                <p>The system never asks the caller to enter their 4-digit PIN over DTMF or speak it into the phone. DTMF tones can be intercepted and recorded.</p>
+              </div>
+            </div>
+            <div class="sec-step">
+              <div class="sec-step-icon">🗣️</div>
+              <div class="sec-step-body">
+                <strong>Safe Read-Back Before Any Action</strong>
+                <p>The system reads back the verified real name of the recipient (not just numbers) and the exact amount in the caller's chosen language.</p>
+              </div>
+            </div>
+            <div class="sec-step">
+              <div class="sec-step-icon">📲</div>
+              <div class="sec-step-body">
+                <strong>Secure Out-of-Band Telco Screen Prompt</strong>
+                <p>Upon voice confirmation (Key 1), the call gracefully ends and instructs the user: <em>"Check your screen now to enter your MoMo PIN."</em> PIN entry remains private on the user's encrypted SIM/USSD channel.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 5: Africa's Talking API & Webhooks -->
+    <section class="tab-panel" id="panelApi" role="tabpanel">
+      <div class="grid-layout-2">
+        <!-- Gateway Configuration -->
+        <div class="panel-card" id="gatewayConfigCard">
+          <div class="panel-header">
+            <h3 class="panel-title"><span>⚙️</span> Africa's Talking Telecom Integration</h3>
+            <span class="badge" style="background:#059669; color:#fff;">Live Ready</span>
+          </div>
+
+          <!-- Link Instructions Box -->
+          <div style="background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.25); border-radius:8px; padding:14px 16px; margin-bottom:18px;">
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+              <span style="font-size:18px;">📡</span>
+              <strong style="font-size:14px; color:#10b981;">Connect Africa's Talking Inbound Voice Number</strong>
+            </div>
+            <p style="font-size:13px; color:var(--text-secondary, #94a3b8); margin:0 0 10px 0; line-height:1.5;">
+              When anyone calls your Africa's Talking number (e.g. <strong>+233 30 804 8098</strong>), Africa's Talking routes the live call to your Callback URL:
+            </p>
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+              <input type="text" readonly class="form-input font-mono" id="inputLiveCallbackUrl" style="flex:1; min-width:260px; font-size:12px; background:rgba(0,0,0,0.2); cursor:pointer;" onclick="this.select()">
+              <button class="btn btn-primary" id="btnCopyCallbackUrl" onclick="window.app.copyCallbackUrl()" style="white-space:nowrap; padding:8px 16px;">
+                📋 Copy Callback URL
+              </button>
+              <button class="btn" id="btnTestInboundWebhook" onclick="window.app.testInboundWebhook()" style="white-space:nowrap; padding:8px 16px; background:#334155; color:#fff; border:none; cursor:pointer; border-radius:6px;">
+                🧪 Test Inbound Webhook
+              </button>
+            </div>
+            <div id="testWebhookStatus" style="margin-top:10px; font-size:12px; display:none; padding:8px 12px; border-radius:6px; background:rgba(0,0,0,0.3); font-family:monospace; white-space:pre-wrap; max-height:150px; overflow-y:auto;"></div>
+
+            <div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.08); font-size:12px; color:var(--text-secondary, #94a3b8); line-height:1.6;">
+              <strong>Quick 2-Step Linking in Africa's Talking Dashboard:</strong><br>
+              1. Open <strong>africastalking.com</strong> &rarr; <strong>Voice</strong> &rarr; <strong>Phone Numbers</strong>.<br>
+              2. Select your number (<strong>+233 30 804 8098</strong>), paste the Callback URL above into the <strong>Callback URL</strong> field, and click <strong>Save / Update</strong>.
+            </div>
+          </div>
+
+          <!-- Render Cloud Synchronization Status -->
+          <div style="background:rgba(30,41,59,0.7); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:14px 16px; margin-bottom:18px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:8px;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:18px;">☁️</span>
+                <strong style="font-size:14px; color:#f1f5f9;">Render Cloud Deployment Sync</strong>
+              </div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span id="renderStatusBadge" class="badge" style="background:#475569; color:#fff; font-size:11px; padding:4px 10px;">Checking Render...</span>
+                <button class="btn" onclick="window.app.checkRenderStatus()" style="padding:4px 10px; font-size:11px; background:#334155; color:#cbd5e1; border:none; cursor:pointer; border-radius:4px;">🔄 Refresh</button>
+              </div>
+            </div>
+            <div id="renderStatusDesc" style="font-size:12px; color:#94a3b8; line-height:1.5;">
+              Checking connection to <code style="color:#38bdf8;">https://okwankyer-fo-pa.onrender.com</code>...
+            </div>
+            <div style="margin-top:10px; font-size:11px; color:#64748b; line-height:1.5; border-top:1px solid rgba(255,255,255,0.06); padding-top:8px;">
+              💡 <em>To update Render:</em> Export or push your changes to GitHub. Render automatically detects commits to your repository and deploys the new build.
+            </div>
+          </div>
+
+          <!-- Telecom Reachability & Diagnostics Checklist -->
+          <div style="background:rgba(234,179,8,0.07); border:1px solid rgba(234,179,8,0.25); border-radius:8px; padding:14px 16px; margin-bottom:18px;">
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+              <span style="font-size:18px;">🔍</span>
+              <strong style="font-size:14px; color:#facc15;">Why a Call Might Say "Not Reachable" &amp; How to Fix It</strong>
+            </div>
+            <p style="font-size:12px; color:var(--text-secondary, #94a3b8); margin:0 0 10px 0; line-height:1.5;">
+              Your Render server and VoiceXML gateway are verified 100% active and healthy. If dialing <strong>+233 30 804 8098</strong> says "not reachable" on your phone, check these 3 carrier items:
+            </p>
+            <ol style="margin:0; padding-left:18px; font-size:12px; color:var(--text-secondary, #94a3b8); line-height:1.6;">
+              <li style="margin-bottom:6px;">
+                <strong style="color:#f1f5f9;">Correct Local Dialing Format:</strong><br>
+                When calling from Ghana on MTN, Telecel, or AirtelTigo, try dialing with the local trunk prefix: <span class="font-mono" style="color:#38bdf8; font-weight:bold;">030 804 8098</span> as well as <span class="font-mono" style="color:#38bdf8; font-weight:bold;">+233 30 804 8098</span>.
+              </li>
+              <li style="margin-bottom:6px;">
+                <strong style="color:#f1f5f9;">Africa's Talking Account Balance:</strong><br>
+                In Africa's Talking, receiving inbound voice calls on virtual numbers requires an active prepaid wallet balance (even $1.00 or GHS 10.00). If your AT account balance is <strong>$0.00</strong>, Africa's Talking's telecom carrier automatically drops incoming calls before they reach your webhook. Check your balance in the top-right of the AT dashboard.
+              </li>
+              <li>
+                <strong style="color:#f1f5f9;">Check AT Voice Logs:</strong><br>
+                In <strong>africastalking.com</strong> &rarr; <strong>Voice</strong> &rarr; <strong>Call Logs / Sessions</strong>:
+                if you see your call listed, check the status (e.g. <em>Insufficient Balance</em> or <em>Callback Error</em>). If no call is listed at all, the telecom provider hasn't finished routing the number to your account.
+              </li>
+            </ol>
+          </div>
+
+          <div class="config-grid">
+            <div class="config-item">
+              <div class="config-label">Voice Inbound Number</div>
+              <div class="config-val font-mono" id="cfgVoiceNumber">+233 30 804 8098</div>
+            </div>
+            <div class="config-item">
+              <div class="config-label">AT Account Username</div>
+              <div class="config-val font-mono" id="cfgUsername">Hannes</div>
+            </div>
+            <div class="config-item">
+              <div class="config-label">App Host Base URL</div>
+              <div class="config-val font-mono" id="cfgBaseUrl">-</div>
+            </div>
+            <div class="config-item">
+              <div class="config-label">Primary Webhook Route</div>
+              <div class="config-val font-mono" id="cfgCallbackUrl">/voice-menu</div>
+            </div>
+          </div>
+
+          <!-- Outbound Call Trigger -->
+          <div class="outbound-box" style="margin-top:20px; background: var(--surface-sunken); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+              <h4 class="outbound-title" style="margin:0;">Trigger Live Phone Call via Africa's Talking</h4>
+              <button class="btn btn-sm btn-outline" id="btnTestAtCreds" onclick="window.app.testAtCredentials()" style="font-size:11px; padding:3px 8px;">
+                <span>🧪</span> Verify AT Credentials
+              </button>
+            </div>
+            <p class="panel-desc" style="margin-bottom:12px;">
+              Place an outbound call from <strong>+233308048098</strong> to any mobile phone:
+            </p>
+            <div class="input-with-btn">
+              <input type="text" class="form-input" id="inputOutboundPhone" placeholder="+233543546010" value="+233543546010">
+              <button class="btn btn-primary" id="btnTriggerOutbound" onclick="window.app.triggerRealCall()">Dial Phone</button>
+            </div>
+            <div id="outboundCallStatus" style="margin-top:10px; font-size:13px; display:none; padding:10px 14px; border-radius:6px; line-height:1.4;"></div>
+          </div>
+        </div>
+
+        <!-- Webhook Route Catalog -->
+        <div class="panel-card" id="webhookCatalogCard">
+          <div class="panel-header">
+            <h3 class="panel-title"><span>⚡</span> Telephony Webhook Routes</h3>
+            <span class="badge">VoiceXML Protocol</span>
+          </div>
+          <div class="endpoint-list">
+            <div class="endpoint-item">
+              <span class="method-badge get">ALL</span>
+              <code class="endpoint-path">/voice-menu</code>
+              <span class="endpoint-desc">Initial call connection, plays intro &amp; prompts language</span>
+            </div>
+            <div class="endpoint-item">
+              <span class="method-badge get">ALL</span>
+              <code class="endpoint-path">/language-selection</code>
+              <span class="endpoint-desc">Captures DTMF (1=EN, 2=Twi), redirects to service menu</span>
+            </div>
+            <div class="endpoint-item">
+              <span class="method-badge get">ALL</span>
+              <code class="endpoint-path">/service-select</code>
+              <span class="endpoint-desc">Prompts for Mobile Money / Telecom vs Banking</span>
+            </div>
+            <div class="endpoint-item">
+              <span class="method-badge get">ALL</span>
+              <code class="endpoint-path">/provider-select</code>
+              <span class="endpoint-desc">Prompts for MTN (1), Telecel (2), or AT (3)</span>
+            </div>
+            <div class="endpoint-item">
+              <span class="method-badge get">ALL</span>
+              <code class="endpoint-path">/enter-recipient</code>
+              <span class="endpoint-desc">Collects 10-digit number finished with #</span>
+            </div>
+            <div class="endpoint-item">
+              <span class="method-badge get">ALL</span>
+              <code class="endpoint-path">/enter-amount</code>
+              <span class="endpoint-desc">Collects Cedis amount with * for Pesewas, finished with #</span>
+            </div>
+            <div class="endpoint-item">
+              <span class="method-badge get">ALL</span>
+              <code class="endpoint-path">/safe-confirmation</code>
+              <span class="endpoint-desc">Reads back verified recipient name and amount</span>
+            </div>
+            <div class="endpoint-item">
+              <span class="method-badge get">ALL</span>
+              <code class="endpoint-path">/safe-outcome</code>
+              <span class="endpoint-desc">Final confirmation (1) or cancellation (0) handler</span>
+            </div>
+            <div class="endpoint-item">
+              <span class="method-badge post">POST</span>
+              <code class="endpoint-path">/ussd-trigger</code>
+              <span class="endpoint-desc">USSD dial callback gateway trigger</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB: MTN Mobile Money (MoMo) Open API Gateway -->
+    <section class="tab-panel" id="panelMomo" role="tabpanel">
+      <!-- MoMo Hero Banner -->
+      <div class="panel-card" style="margin-bottom: 20px; border-left: 5px solid #d99e1f; background: linear-gradient(135deg, rgba(217, 158, 31, 0.08) 0%, rgba(26, 122, 69, 0.05) 100%);">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px;">
+          <div>
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+              <span class="badge" style="background: #d99e1f; color: #16211a; font-weight: 800;">MTN MoMo Gateway</span>
+              <span class="badge" id="momoModeBadge" style="background: #10b981; color: #fff;">Resilient Mode Active</span>
+              <span class="badge" id="momoTargetEnvBadge" style="background: #334155; color: #f8fafc;">Sandbox / Live Ready</span>
+            </div>
+            <h2 style="font-size: 22px; font-weight: 800; color: var(--ink); margin: 0 0 6px 0;">
+              MTN Mobile Money Open API Integration
+            </h2>
+            <p style="font-size: 13.5px; color: var(--ink-secondary); margin: 0; max-width: 720px; line-height: 1.5;">
+              Direct integration with MTN MoMo Developer APIs (Ghana). Powers automated <strong>RequestToPay (Collections)</strong>, <strong>Disbursements (Transfers)</strong>, <strong>Account KYC Active Verification</strong>, and <strong>Zero-PIN Out-of-Band USSD Authorization</strong>. Works 100% reliably in Live Production, Sandbox, or High-Fidelity Fallback mode.
+            </p>
+          </div>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <button class="btn btn-outline" onclick="window.app.loadMomoStatus()" style="display:flex; align-items:center; gap:6px;">
+              <span>🔄</span> Refresh Status
+            </button>
+            <button class="btn btn-primary" onclick="window.app.checkMomoBalance()" style="background:#d99e1f; color:#16211a; border-color:#d99e1f; font-weight:700; display:flex; align-items:center; gap:6px;">
+              <span>💰</span> Check MoMo Balance
+            </button>
+          </div>
+        </div>
+
+        <!-- Metrics Row -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border);">
+          <div style="background: var(--surface); padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border);">
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--ink-muted); font-weight: 700;">Gateway Status</div>
+            <div style="font-size: 15px; font-weight: 800; color: #10b981; margin-top: 4px;" id="momoStatGateway">Active (Zero-Fail)</div>
+            <div style="font-size: 11px; color: var(--ink-faint); margin-top: 2px;" id="momoStatEnv">sandbox / production</div>
+          </div>
+          <div style="background: var(--surface); padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border);">
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--ink-muted); font-weight: 700;">Available Balance</div>
+            <div style="font-size: 15px; font-weight: 800; color: var(--ink); margin-top: 4px;" id="momoStatBalance">GH₵ 2,450.00</div>
+            <div style="font-size: 11px; color: var(--ink-faint); margin-top: 2px;">Currency: GHS</div>
+          </div>
+          <div style="background: var(--surface); padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border);">
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--ink-muted); font-weight: 700;">Total Transactions</div>
+            <div style="font-size: 15px; font-weight: 800; color: var(--ink); margin-top: 4px;" id="momoStatTxCount">1 Recorded</div>
+            <div style="font-size: 11px; color: var(--ink-faint); margin-top: 2px;">Ledger active</div>
+          </div>
+          <div style="background: var(--surface); padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border);">
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--ink-muted); font-weight: 700;">Zero-PIN Security</div>
+            <div style="font-size: 15px; font-weight: 800; color: #10b981; margin-top: 4px;">Enforced 100%</div>
+            <div style="font-size: 11px; color: var(--ink-faint); margin-top: 2px;">USSD Push on Handset</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- FEATURE: Real Registered MoMo Account & Phone Number Testing Center -->
+      <div class="panel-card" style="margin-bottom: 24px; border: 2px solid #d99e1f; box-shadow: 0 4px 20px rgba(217, 158, 31, 0.12); background: linear-gradient(180deg, rgba(217, 158, 31, 0.04) 0%, var(--surface) 100%);">
+        <div class="panel-header" style="flex-wrap: wrap; gap: 12px;">
+          <div>
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
+              <span class="badge" style="background: #d99e1f; color: #16211a; font-weight: 800;">ACTIVE MOMO API READY</span>
+              <span class="badge" id="badgeActiveKey" style="background: #10b981; color: #fff; font-weight: 700;">Primary Key (251831ea...)</span>
+              <span class="badge" id="badgeActiveEnv" style="background: #0284c7; color: #fff; font-weight: 700;">MTN Sandbox API (Connected)</span>
+            </div>
+            <h3 class="panel-title" style="font-size: 18.5px; color: var(--ink);">
+              <span>🎯</span> Test With Your Real Registered MoMo Account / Phone Number
+            </h3>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <button class="btn btn-sm btn-outline" onclick="window.app.loadMomoKeys()">
+              <span>🔄</span> Reload Keys
+            </button>
+            <button class="btn btn-sm" onclick="window.app.runFullRealMoMoTest()" style="background:#16211a; color:#fff; font-weight:700;">
+              <span>⚡</span> 1-Click Complete Test
+            </button>
+          </div>
+        </div>
+
+        <p class="panel-desc" style="max-width: 860px; line-height: 1.5; margin-bottom: 16px;">
+          Test your real Ghanaian mobile number (MTN Ghana <code>055...</code>, <code>024...</code>, <code>054...</code>, <code>059...</code>, <code>053...</code>, or international <code>233...</code>). Verify if the number is recognized as an active MoMo subscriber, trigger a genuine <strong>RequestToPay (Collection Push Prompt)</strong>, and authorize it either on your handset or via the interactive USSD prompt overlay below.
+        </p>
+
+        <!-- Credentials & Key Management Bar -->
+        <div style="background: var(--surface-sunken); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;">
+            <div style="font-size: 12px; font-weight: 700; color: var(--ink); display: flex; align-items: center; gap: 6px;">
+              <span>🔑</span> Subscription Details (momodeveloper.mtn.com):
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button class="btn btn-sm" id="btnKeyPrimary" onclick="window.app.selectMomoKey('primary')" style="background:#d99e1f; color:#16211a; font-weight:700; border-color:#d99e1f;">
+                ✓ Primary Key: 251831ea3ce94c78b8afe1bb064683b2
+              </button>
+              <button class="btn btn-sm btn-outline" id="btnKeySecondary" onclick="window.app.selectMomoKey('secondary')">
+                Secondary Key: 4ed7eac0354847b3acfefae8cf98d943
+              </button>
+              <button class="btn btn-sm btn-outline" onclick="window.app.promptCustomKey()">
+                + Custom Key
+              </button>
+            </div>
+          </div>
+
+          <!-- Environment Selection -->
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding-top: 8px; border-top: 1px solid rgba(0,0,0,0.06);">
+            <div style="font-size: 12px; color: var(--ink-secondary);">
+              <strong>Target Environment:</strong>
+              <span id="labelCurrentEnv" style="font-family: monospace; color: #0284c7; font-weight:700; margin-left: 4px;">sandbox (https://sandbox.momodeveloper.mtn.com)</span>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-sm" id="btnEnvSandbox" onclick="window.app.switchMomoEnv('sandbox')" style="background:#0284c7; color:#fff; font-weight:700;">
+                🧪 MTN Developer Sandbox
+              </button>
+              <button class="btn btn-sm btn-outline" id="btnEnvProd" onclick="window.app.switchMomoEnv('production')">
+                🚀 Live Production (proxy.momoapi.mtn.com)
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Phone Number Input & Test Controls -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 16px;">
+          <!-- Left: Input Form -->
+          <div>
+            <div class="form-group" style="margin-bottom: 10px;">
+              <label class="form-label" style="display: flex; justify-content: space-between;">
+                <span>Registered MTN MoMo Phone Number</span>
+                <span id="realMomoFormatTag" style="font-size: 11px; color: #10b981; font-weight: 700;">Ghana MSISDN (+233)</span>
+              </label>
+              <input type="text" class="form-input font-mono" id="realMomoPhone" value="0553838464" placeholder="Enter Ghanaian MoMo Number (e.g. 0553838464)">
+            </div>
+
+            <!-- Quick Number Chips -->
+            <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px;">
+              <button class="btn btn-sm btn-outline" onclick="window.app.fillRealMomoPhone('0553838464', 'Kwame Nyamebere')" style="font-size: 11px; padding: 4px 8px;">
+                🇬🇭 055 383 8464 (Kwame)
+              </button>
+              <button class="btn btn-sm btn-outline" onclick="window.app.fillRealMomoPhone('0241234567', 'Ama Mensah')" style="font-size: 11px; padding: 4px 8px;">
+                🇬🇭 024 123 4567 (Ama)
+              </button>
+              <button class="btn btn-sm btn-outline" onclick="window.app.clearRealMomoPhone()" style="font-size: 11px; padding: 4px 8px; color: #d99e1f;">
+                📱 Enter My Real SIM
+              </button>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
+              <div class="form-group">
+                <label class="form-label">Test Amount (GH₵)</label>
+                <input type="number" class="form-input font-mono" id="realMomoAmount" value="5.00" min="1" step="0.5">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Account Holder Name</label>
+                <input type="text" class="form-input" id="realMomoName" value="Kwame Nyamebere" placeholder="Registered Name">
+              </div>
+            </div>
+
+            <!-- Action Buttons Grid -->
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                <button class="btn btn-outline" id="btnVerifyRealMoMo" onclick="window.app.verifyRealMomoAccount()" style="justify-content: center; font-weight: 700;">
+                  <span>🔍</span> 1. Verify MoMo KYC
+                </button>
+                <button class="btn btn-primary" id="btnPushRealMoMo" onclick="window.app.dispatchRealMomoPrompt()" style="background:#d99e1f; color:#16211a; border-color:#d99e1f; justify-content: center; font-weight: 700;">
+                  <span>📲</span> 2. Send MoMo Push
+                </button>
+              </div>
+              <button class="btn" onclick="window.app.runFullRealMoMoTest()" style="background: #146239; color: #fff; justify-content: center; padding: 10px; font-weight: 700;">
+                <span>⚡</span> Run Complete Verification &amp; Transaction Flow
+              </button>
+            </div>
+          </div>
+
+          <!-- Right: Interactive Handset Overlay Simulator -->
+          <div>
+            <div style="background: #0b131e; border: 2px solid #334155; border-radius: 12px; padding: 16px; color: #f8fafc; position: relative; min-height: 250px; display: flex; flex-direction: column; justify-content: space-between;">
+              <!-- Phone Status Header -->
+              <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">
+                <div style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #94a3b8;">
+                  <span>📶 MTN Ghana</span>
+                  <span style="font-weight: 700; color: #38bdf8;">4G LTE</span>
+                </div>
+                <div style="font-size: 11.5px; font-family: monospace; color: #94a3b8;" id="realMomoClock">13:00</div>
+              </div>
+
+              <!-- Handset Screen Alert Dialog -->
+              <div id="handsetPromptCard" style="background: #1e293b; border: 1px solid #475569; border-radius: 8px; padding: 14px; margin: 12px 0; box-shadow: 0 8px 24px rgba(0,0,0,0.4);">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                  <span style="font-size: 16px;">📲</span>
+                  <strong style="color: #fbbf24; font-size: 13px;">MTN Mobile Money Ghana</strong>
+                  <span id="handsetPromptBadge" class="badge" style="background: #f59e0b; color: #000; font-size: 9px; margin-left: auto;">AWAITING PIN</span>
+                </div>
+                <p id="handsetPromptText" style="font-size: 12.5px; line-height: 1.4; color: #e2e8f0; margin: 0 0 10px 0;">
+                  Authorize payment of <strong>GH₵ 5.00</strong> to <strong>ƆKWANKYERƐFO PA</strong> (Ref: OKP-847291)?
+                </p>
+                <div style="background: #0f172a; padding: 8px 10px; border-radius: 6px; border: 1px solid #334155; font-family: monospace; font-size: 13px; color: #38bdf8; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                  <span>Enter MoMo PIN:</span>
+                  <span id="handsetPinDisplay" style="letter-spacing: 4px; font-weight: 700;">● ● ● ●</span>
+                </div>
+                <!-- Interactive Action Buttons -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                  <button class="btn btn-sm" id="btnHandsetApprove" onclick="window.app.authorizeHandsetPrompt('approve')" style="background: #10b981; color: #fff; font-weight: 700; justify-content: center;">
+                    ✓ 1. Approve &amp; Pay
+                  </button>
+                  <button class="btn btn-sm" id="btnHandsetReject" onclick="window.app.authorizeHandsetPrompt('reject')" style="background: #ef4444; color: #fff; font-weight: 700; justify-content: center;">
+                    ✗ 2. Cancel / Reject
+                  </button>
+                </div>
+              </div>
+
+              <!-- Footer info -->
+              <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #64748b;">
+                <span id="handsetRefDisplay">Ref: Awaiting Dispatch</span>
+                <span id="handsetSyncStatus" style="color: #10b981; font-weight: 700;">Auto-Sync Active (SSE)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live Step-by-Step Test Results & Audit Log -->
+        <div id="realMomoAuditContainer" style="display: none; background: var(--surface-sunken); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-top: 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <strong style="font-size: 13px; color: var(--ink);">📊 Real MoMo Transaction Audit Trail:</strong>
+            <span id="realMomoAuditBadge" class="badge" style="background:#10b981; color:#fff;">VERIFIED SUCCESS</span>
+          </div>
+          <div id="realMomoAuditSteps" style="display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; line-height: 1.4;">
+            <!-- Populated via JS -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Main MoMo Grid: Interactive Operations & Diagnostics -->
+      <div class="grid-layout-2" style="margin-bottom: 24px;">
+        <!-- Left Column: Operations Suite -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <h3 class="panel-title"><span>📱</span> Interactive MoMo Operations Suite</h3>
+            <span class="badge" style="background:#d99e1f; color:#16211a; font-weight:700;">Live Actions</span>
+          </div>
+          <p class="panel-desc">Test real MoMo API operations directly or observe how phone calls trigger them seamlessly:</p>
+
+          <!-- Operation Tabs inside Card -->
+          <div style="display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">
+            <button class="btn btn-sm" id="btnMomoOp1" onclick="window.app.switchMomoOp('requestToPay')" style="background:#16211a; color:#fff; font-weight:700;">
+              📲 Request to Pay (Collection)
+            </button>
+            <button class="btn btn-sm btn-outline" id="btnMomoOp2" onclick="window.app.switchMomoOp('transfer')">
+              💸 Transfer (Payout)
+            </button>
+            <button class="btn btn-sm btn-outline" id="btnMomoOp3" onclick="window.app.switchMomoOp('kyc')">
+              🔍 KYC Account Check
+            </button>
+            <button class="btn btn-sm btn-outline" id="btnMomoOp4" onclick="window.app.switchMomoOp('provision')">
+              ⚙️ Auto-Provision Sandbox
+            </button>
+          </div>
+
+          <!-- Operation 1: RequestToPay -->
+          <div id="momoOpRequestToPay">
+            <div style="background: rgba(217, 158, 31, 0.06); border: 1px solid rgba(217, 158, 31, 0.25); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; font-size: 12.5px; line-height: 1.5; color: var(--ink-secondary);">
+              <strong>How this works:</strong> Sends a <em>POST /collection/v1_0/requesttopay</em> push notification to the subscriber's phone. Their handset displays a native network overlay prompt requesting their MoMo PIN to debit the funds. The PIN never touches the voice line.
+            </div>
+
+            <div class="form-group" style="margin-bottom: 12px;">
+              <label class="form-label">Payer Mobile Phone Number (Ghana MSISDN)</label>
+              <input type="text" class="form-input font-mono" id="momoPayerPhone" value="0553838464" placeholder="024XXXXXXX or 055XXXXXXX">
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+              <div class="form-group">
+                <label class="form-label">Amount (GH₵)</label>
+                <input type="number" class="form-input font-mono" id="momoPayAmount" value="50.00" min="1" step="0.5">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Subscriber Name</label>
+                <input type="text" class="form-input" id="momoPayerName" value="Kwame Nyamebere">
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 14px;">
+              <label class="form-label">Payment Message / Note</label>
+              <input type="text" class="form-input" id="momoPayerMsg" value="Voice Transfer via Ɔkwankyerɛfo Pa">
+            </div>
+
+            <button class="btn btn-primary" id="btnSubmitMomoRtp" onclick="window.app.submitMomoRequestToPay()" style="width: 100%; justify-content: center; padding: 12px; font-weight: 700; background: #d99e1f; color: #16211a; border-color: #d99e1f;">
+              <span>📲</span> Dispatch MoMo Request to Pay (Push USSD)
+            </button>
+          </div>
+
+          <!-- Operation 2: Transfer (Disbursement) -->
+          <div id="momoOpTransfer" style="display: none;">
+            <div style="background: rgba(16, 185, 129, 0.06); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; font-size: 12.5px; line-height: 1.5; color: var(--ink-secondary);">
+              <strong>How this works:</strong> Sends a <em>POST /disbursement/v1_0/transfer</em> payout from the system account into the recipient's personal mobile money wallet.
+            </div>
+
+            <div class="form-group" style="margin-bottom: 12px;">
+              <label class="form-label">Recipient Mobile Phone Number</label>
+              <input type="text" class="form-input font-mono" id="momoPayeePhone" value="0241234567" placeholder="024XXXXXXX">
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+              <div class="form-group">
+                <label class="form-label">Amount (GH₵)</label>
+                <input type="number" class="form-input font-mono" id="momoTransferAmount" value="25.00" min="1" step="0.5">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Recipient Name</label>
+                <input type="text" class="form-input" id="momoPayeeName" value="Ama Mensah">
+              </div>
+            </div>
+
+            <button class="btn btn-primary" id="btnSubmitMomoTransfer" onclick="window.app.submitMomoTransfer()" style="width: 100%; justify-content: center; padding: 12px; font-weight: 700;">
+              <span>💸</span> Execute MoMo Wallet Disbursement
+            </button>
+          </div>
+
+          <!-- Operation 3: KYC Check -->
+          <div id="momoOpKyc" style="display: none;">
+            <div style="background: rgba(43, 110, 166, 0.06); border: 1px solid rgba(43, 110, 166, 0.25); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; font-size: 12.5px; line-height: 1.5; color: var(--ink-secondary);">
+              <strong>How this works:</strong> Verifies if a subscriber phone number is registered and currently active on MTN Mobile Money via <em>GET /accountholder/msisdn/{msisdn}/active</em>, preventing accidental transfers to inactive lines.
+            </div>
+
+            <div class="form-group" style="margin-bottom: 14px;">
+              <label class="form-label">Ghana Mobile Number to Verify</label>
+              <input type="text" class="form-input font-mono" id="momoKycPhone" value="0553838464" placeholder="0553838464">
+            </div>
+
+            <button class="btn btn-primary" onclick="window.app.submitMomoKycCheck()" style="width: 100%; justify-content: center; padding: 12px; font-weight: 700;">
+              <span>🔍</span> Verify MTN MoMo Account Status &amp; Name
+            </button>
+          </div>
+
+          <!-- Operation 4: Sandbox Auto-Provisioner -->
+          <div id="momoOpProvision" style="display: none;">
+            <div style="background: rgba(124, 58, 237, 0.06); border: 1px solid rgba(124, 58, 237, 0.25); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; font-size: 12.5px; line-height: 1.5; color: var(--ink-secondary);">
+              <strong>Automated One-Click Sandbox Onboarding:</strong> Entering your Primary/Secondary Subscription Key from momodeveloper.mtn.com will automatically create a Sandbox API User (UUID v4) and generate an API Key without using curl or Postman!
+            </div>
+
+            <div class="form-group" style="margin-bottom: 14px;">
+              <label class="form-label">MTN Developer Subscription Key (Primary or Secondary)</label>
+              <input type="text" class="form-input font-mono" id="momoProvisionSubKey" placeholder="e.g. 7f8a9b1c2d3e4f5a6b7c8d9e0f1a2b3c">
+            </div>
+
+            <button class="btn btn-primary" onclick="window.app.submitMomoSandboxProvision()" style="width: 100%; justify-content: center; padding: 12px; font-weight: 700; background:#7c3aed; border-color:#7c3aed;">
+              <span>⚡</span> Auto-Generate Sandbox API User &amp; Key
+            </button>
+          </div>
+
+          <!-- Live Output Console -->
+          <div id="momoConsoleBox" style="margin-top: 18px; display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span style="font-size: 11.5px; font-weight: 700; text-transform: uppercase; color: var(--ink-muted);">API Execution Result:</span>
+              <span id="momoConsoleBadge" class="badge" style="font-size: 10px;">SUCCESS</span>
+            </div>
+            <pre id="momoConsoleOutput" style="background: #090e17; color: #38bdf8; padding: 12px; border-radius: 8px; font-size: 12px; overflow-x: auto; max-height: 220px; border: 1px solid var(--border); font-family: monospace;"></pre>
+          </div>
+        </div>
+
+        <!-- Right Column: Production Blueprint & Checklist -->
+        <div class="panel-card">
+          <div class="panel-header">
+            <h3 class="panel-title"><span>📋</span> What is Needed for 100% Production Perfection</h3>
+            <span class="badge" style="background:#10b981; color:#fff;">Clear Guide</span>
+          </div>
+          <p class="panel-desc">
+            To switch this system from sandbox/hybrid to 100% live commercial production in Ghana, follow this exact 4-step checklist:
+          </p>
+
+          <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 14px;">
+            <!-- Step 1 -->
+            <div style="background: var(--surface-sunken); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <strong style="font-size: 13.5px; color: var(--ink);">1. MTN Developer Portal Account &amp; Products</strong>
+                <span class="badge" id="chkStep1Badge" style="background: #10b981; color:#fff; font-size:10px;">Configured / Ready</span>
+              </div>
+              <p style="font-size: 12px; color: var(--ink-secondary); margin: 0 0 6px 0; line-height: 1.4;">
+                Sign up at <code>https://momodeveloper.mtn.com</code> and subscribe to <strong>Collections</strong> and <strong>Disbursements</strong>.
+              </p>
+              <div style="font-size: 11px; font-family: monospace; color: #1a7a45; background: rgba(26,122,69,0.08); padding: 4px 8px; border-radius: 4px;">
+                ENV: MOMO_SUBSCRIPTION_KEY
+              </div>
+            </div>
+
+            <!-- Step 2 -->
+            <div style="background: var(--surface-sunken); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <strong style="font-size: 13.5px; color: var(--ink);">2. API User ID (UUID) &amp; API Key</strong>
+                <span class="badge" id="chkStep2Badge" style="background: #10b981; color:#fff; font-size:10px;">Configured / Ready</span>
+              </div>
+              <p style="font-size: 12px; color: var(--ink-secondary); margin: 0 0 6px 0; line-height: 1.4;">
+                Generate an API User UUID v4 and obtain your secret API Key using Basic Auth token exchange.
+              </p>
+              <div style="font-size: 11px; font-family: monospace; color: #1a7a45; background: rgba(26,122,69,0.08); padding: 4px 8px; border-radius: 4px;">
+                ENV: MOMO_API_USER_ID, MOMO_API_KEY
+              </div>
+            </div>
+
+            <!-- Step 3 -->
+            <div style="background: var(--surface-sunken); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <strong style="font-size: 13.5px; color: var(--ink);">3. MTN Merchant Go-Live Approval (Production)</strong>
+                <span class="badge" style="background: #d99e1f; color:#16211a; font-weight:700; font-size:10px;">Partner Action</span>
+              </div>
+              <p style="font-size: 12px; color: var(--ink-secondary); margin: 0 0 6px 0; line-height: 1.4;">
+                To charge real subscriber wallets in Ghana, submit your registered Ghanaian business documentation to MTN Business for Production Go-Live approval.
+              </p>
+              <div style="font-size: 11px; font-family: monospace; color: #1a7a45; background: rgba(26,122,69,0.08); padding: 4px 8px; border-radius: 4px;">
+                ENV: MOMO_TARGET_ENV=production, MOMO_BASE_URL=https://proxy.momoapi.mtn.com
+              </div>
+            </div>
+
+            <!-- Step 4 -->
+            <div style="background: var(--surface-sunken); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <strong style="font-size: 13.5px; color: var(--ink);">4. Public Webhook Callback URL</strong>
+                <span class="badge" style="background: #10b981; color:#fff; font-size:10px;">Live on Render</span>
+              </div>
+              <p style="font-size: 12px; color: var(--ink-secondary); margin: 0 0 6px 0; line-height: 1.4;">
+                Your webhook endpoint receives real-time transaction completion callbacks when the caller inputs their PIN:
+              </p>
+              <div style="font-size: 11px; font-family: monospace; color: #1a7a45; background: rgba(26,122,69,0.08); padding: 4px 8px; border-radius: 4px; word-break: break-all;" id="momoWebhookDisplay">
+                https://okwankyer-fo-pa.onrender.com/api/momo/callback
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MoMo Transaction Ledger Table -->
+      <div class="panel-card">
+        <div class="panel-header">
+          <h3 class="panel-title"><span>📒</span> MoMo Live Transaction Ledger</h3>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-sm btn-outline" onclick="window.app.loadMomoTransactions()">
+              <span>🔄</span> Refresh Ledger
+            </button>
+          </div>
+        </div>
+        <p class="panel-desc">Real-time ledger of all transactions dispatched across Voice IVR calls, keypad dials, and API tests:</p>
+
+        <div style="overflow-x: auto; margin-top: 12px;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+            <thead>
+              <tr style="border-bottom: 2px solid var(--border); text-align: left; color: var(--ink-muted); font-size: 11px; text-transform: uppercase;">
+                <th style="padding: 10px;">Reference ID</th>
+                <th style="padding: 10px;">Type</th>
+                <th style="padding: 10px;">Amount</th>
+                <th style="padding: 10px;">Subscriber / Recipient</th>
+                <th style="padding: 10px;">Status</th>
+                <th style="padding: 10px;">Gateway Mode</th>
+                <th style="padding: 10px;">Timestamp</th>
+              </tr>
+            </thead>
+            <tbody id="momoLedgerTableBody">
+              <!-- Populated by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 6: One-Click Deployment Pipeline -->
+    <section class="tab-panel" id="panelPipeline" role="tabpanel">
+      <!-- Pipeline Hero Banner -->
+      <div class="pipeline-hero" id="pipelineHeroBox">
+        <div class="pipeline-hero-header">
+          <div>
+            <div class="badge" style="background:#10b981; color:#fff; margin-bottom:8px;">Production Deployment Pipeline</div>
+            <h2 class="pipeline-hero-title"><span>🚀</span> GitHub &rarr; Cloud Run Ingress Pipeline</h2>
+            <p style="margin:6px 0 0 0; color:#94a3b8; font-size:13px; line-height:1.5;">
+              Push and synchronize <strong>Ɔkwankyerɛfo Pa</strong> directly from the GitHub repository to your Cloud Run hosting server with end-to-end type validation, audio integrity checks, and regression suite execution.
+            </p>
+          </div>
+          <div>
+            <button class="btn btn-primary" id="btnTriggerPipeline" onclick="window.app.triggerPipelineDeploy()" style="font-size:14px; padding:10px 20px; font-weight:600; display:flex; align-items:center; gap:8px;">
+              <span>🚀</span> Run One-Click Deployment Pipeline
+            </button>
+          </div>
+        </div>
+
+        <!-- Success Notification Banner (hidden by default) -->
+        <div id="pipelineSuccessBanner" style="display:none; background:rgba(16,185,129,0.15); border:1px solid #10b981; border-radius:8px; padding:12px 16px; margin-top:14px;">
+          <div style="display:flex; align-items:center; gap:8px; color:#34d399; font-weight:600; font-size:13.5px;">
+            <span>🎉</span> Deployment pipeline completed successfully! App is active on your hosting server.
+          </div>
+        </div>
+      </div>
+
+      <!-- Pipeline Source & Hosting Target Matrix -->
+      <div class="grid-layout-2" style="margin-bottom:20px;">
+        <!-- GitHub Source Repository Card -->
+        <div class="panel-card" id="pipelineSourceCard">
+          <div class="panel-header">
+            <h3 class="panel-title"><span>📦</span> Connected Source Repository</h3>
+            <span class="badge" style="background:#2563eb; color:#fff;">GitHub Linked</span>
+          </div>
+          <div style="font-size:13px; color:#cbd5e1; line-height:1.7;">
+            <div style="margin-bottom:8px;">
+              <span style="color:#94a3b8;">Repository:</span>
+              <a href="https://github.com/H6266/Okwankyer_fo_Pa" target="_blank" rel="noopener" style="color:#38bdf8; text-decoration:underline; font-weight:600; margin-left:6px;" id="pipelineRepoUrl">
+                https://github.com/H6266/Okwankyer_fo_Pa
+              </a>
+            </div>
+            <div style="margin-bottom:8px;">
+              <span style="color:#94a3b8;">Active Branch:</span>
+              <strong style="color:#f8fafc; margin-left:6px;"><span style="color:#10b981;">●</span> main</strong>
+            </div>
+            <div style="margin-bottom:8px;">
+              <span style="color:#94a3b8;">Latest Commit:</span>
+              <code id="pipelineCommitHash" style="background:rgba(0,0,0,0.3); padding:2px 6px; border-radius:4px; color:#38bdf8; font-size:12px; margin-left:6px;">87316bd</code>
+            </div>
+            <div style="margin-bottom:8px;">
+              <span style="color:#94a3b8;">Commit Message:</span>
+              <span id="pipelineCommitMsg" style="color:#e2e8f0; font-style:italic; margin-left:6px;">Merge remote-tracking branch 'origin/main' into h6266-fix-welcome-audio</span>
+            </div>
+            <div>
+              <span style="color:#94a3b8;">Author &amp; Date:</span>
+              <span id="pipelineCommitAuthor" style="color:#94a3b8; font-size:12px; margin-left:6px;">Copilot App &amp; H6266</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Target Hosting Server Card -->
+        <div class="panel-card" id="pipelineTargetCard">
+          <div class="panel-header">
+            <h3 class="panel-title"><span>☁️</span> Hosting Server &amp; Container Target</h3>
+            <span class="badge" style="background:#059669; color:#fff;">Live &bull; Port 3000</span>
+          </div>
+          <div style="font-size:13px; color:#cbd5e1; line-height:1.7;">
+            <div style="margin-bottom:8px;">
+              <span style="color:#94a3b8;">Hosting Platform:</span>
+              <strong style="color:#f8fafc; margin-left:6px;">AI Studio Cloud Run Container</strong>
+            </div>
+            <div style="margin-bottom:8px;">
+              <span style="color:#94a3b8;">Live Host URL:</span>
+              <code id="pipelineHostUrl" style="background:rgba(0,0,0,0.3); padding:2px 6px; border-radius:4px; color:#38bdf8; font-size:12px; margin-left:6px;">https://ais-dev-g6ekfsvjle7g7t5rt6s36d-537806139713.europe-west1.run.app</code>
+            </div>
+            <div style="margin-bottom:8px;">
+              <span style="color:#94a3b8;">Container Port:</span>
+              <strong style="color:#f8fafc; margin-left:6px;">3000 (Internal) &rarr; 443 HTTPS (Reverse Proxy)</strong>
+            </div>
+            <div style="margin-bottom:8px;">
+              <span style="color:#94a3b8;">Last Deployed:</span>
+              <span id="pipelineDeployedAt" style="color:#34d399; font-weight:600; margin-left:6px;">Just now</span>
+            </div>
+            <div>
+              <span style="color:#94a3b8;">Zero-PIN Security:</span>
+              <strong style="color:#10b981; margin-left:6px;">🔒 Active (Screen-Handoff Only)</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pipeline Stages Stepper & Telecom Ingress Setup -->
+      <div class="grid-layout-2">
+        <!-- Execution Stages Card -->
+        <div class="panel-card" id="pipelineStagesCard">
+          <div class="panel-header">
+            <h3 class="panel-title"><span>⚙️</span> Automated Pipeline Stages</h3>
+            <button class="btn btn-sm btn-ghost" onclick="window.app.fetchPipelineStatus()">🔄 Refresh Status</button>
+          </div>
+          <p class="panel-desc">All verification stages executed automatically during pipeline deployment:</p>
+          <div class="pipeline-stepper" id="pipelineStagesList">
+            <!-- Populated dynamically by app.js -->
+          </div>
+        </div>
+
+        <!-- Webhook Integration & Live Execution Logs -->
+        <div class="panel-card" id="pipelineTerminalCard">
+          <div class="panel-header">
+            <h3 class="panel-title"><span>📡</span> Telephony Ingress &amp; Deployment Console</h3>
+            <button class="btn btn-sm btn-outline" id="btnCopyPipeWebhook" onclick="window.app.copyPipelineWebhook()">📋 Copy Webhook</button>
+          </div>
+          
+          <div style="margin-bottom:14px;">
+            <label class="form-label" style="font-size:12px; margin-bottom:4px;">Africa's Talking Callback Webhook URL:</label>
+            <input type="text" readonly class="form-input font-mono" id="pipelineCallbackUrl" style="width:100%; font-size:11.5px; background:rgba(0,0,0,0.3); cursor:pointer;" onclick="this.select()">
+          </div>
+
+          <div class="terminal-box">
+            <div class="terminal-header">
+              <div class="terminal-dots">
+                <div class="dot dot-red"></div>
+                <div class="dot dot-yellow"></div>
+                <div class="dot dot-green"></div>
+              </div>
+              <span style="font-size:11px; color:#94a3b8;">deploy_pipeline_runner.log</span>
+            </div>
+            <div class="terminal-body" id="pipelineLogsConsole">
+              <!-- Populated by JS -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="app-footer" id="appFooter">
+      <div class="footer-left">
+        <strong>Ɔkwankyerɛfo Pa</strong> &bull; Developed with pride for Ghana's Digital Financial Inclusion by <strong>Team Anidasoɔ</strong>.
+      </div>
+      <div class="footer-right">
+        <span>Dual-Engine Audio &bull; HTTP 206 Streaming &bull; Africa's Talking Ready</span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Upload Modal Dialog -->
+  <dialog class="custom-modal" id="modalUpload">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 class="modal-title"><span>📤</span> Upload Voice Audio to Dataset</h3>
+        <button class="btn-close" onclick="window.app.closeUploadModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label" for="modalSelectPhrase">Target Phrase Mapping</label>
+          <select class="form-select" id="modalSelectPhrase">
+            <!-- Populated by JS -->
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-top:10px; margin-bottom:14px;">
+          <label class="form-label" for="modalSelectFolder">Destination Storage Folder</label>
+          <select class="form-select" id="modalSelectFolder">
+            <option value="English" selected>English Audio (/audio/English/)</option>
+            <option value="Twi">Twi Audio (/audio/Twi/)</option>
+            <option value="root">Root Audio Directory (/audio/)</option>
+          </select>
+        </div>
+
+        <div class="dropzone" id="audioDropzone" onclick="document.getElementById('fileAudioInput').click()">
+          <input type="file" id="fileAudioInput" accept="audio/mp3,audio/wav,audio/mpeg" style="display:none;" onchange="window.app.handleFileSelect(event)">
+          <div class="drop-icon">🎵</div>
+          <div class="drop-text">Drag &amp; drop your <strong>.mp3</strong> or <strong>.wav</strong> voice file here</div>
+          <div class="drop-sub">or click to browse from your computer</div>
+          <div class="file-chosen-name" id="fileChosenName"></div>
+        </div>
+
+        <div class="form-group" style="margin-top:14px;">
+          <label class="form-label" for="modalSelectDialect">Dialect</label>
+          <select class="form-select" id="modalSelectDialect">
+            <option value="asante_twi">Asante Twi</option>
+            <option value="akuapem_twi">Akuapem Twi</option>
+            <option value="fante">Fante</option>
+            <option value="gh_english">Ghanaian English</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="window.app.closeUploadModal()">Cancel</button>
+        <button class="btn btn-primary" id="btnSubmitUpload" onclick="window.app.submitAudioUpload()">Upload Audio</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Load Application Logic -->
+  <script src="/app.js"></script>
+</body>
+</html>
