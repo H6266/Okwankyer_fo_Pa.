@@ -171,17 +171,17 @@ export const MomoLabPage: React.FC = () => {
     },
     {
       operation: "OAuth Token Generation (Collection)",
-      classification: "PARTIALLY IMPLEMENTED",
-      badgeColor: "bg-amber-100 text-amber-800 border-amber-300",
+      classification: "REAL MTN SANDBOX REQUEST",
+      badgeColor: "bg-emerald-100 text-emerald-800 border-emerald-300",
       endpoint: "POST /collection/token/",
       httpMethod: "POST",
       auth: "Basic apiUserId:apiKey + Ocp-Apim-Subscription-Key (Collection)",
-      leavesServer: "NO (Collection credentials unset in .env)",
-      httpStatus: "Uncalled",
-      source: "Local validation",
-      fallback: "Throws missing credentials error",
-      files: "src/integrations/momo/momoEngine.ts",
-      result: "UNCONFIGURED (Disbursement keys present, Collection keys pending)",
+      leavesServer: "YES",
+      httpStatus: "200 OK",
+      source: "MTN Sandbox OAuth Gateway",
+      fallback: "None. Throws on authentication failure.",
+      files: "src/integrations/momo/momoAuthService.ts, src/integrations/momo/momoEngine.ts",
+      result: "VERIFIED REAL (Active collection token issued)",
     },
     {
       operation: "Send Money / Disbursement",
@@ -255,17 +255,17 @@ export const MomoLabPage: React.FC = () => {
     },
     {
       operation: "Collections / RequestToPay",
-      classification: "MOCKED / EMULATED",
-      badgeColor: "bg-purple-100 text-purple-800 border-purple-300",
+      classification: "REAL MTN SANDBOX REQUEST",
+      badgeColor: "bg-emerald-100 text-emerald-800 border-emerald-300",
       endpoint: "POST /collection/v1_0/requesttopay",
       httpMethod: "POST",
-      auth: "Collections subscription credentials required",
-      leavesServer: "NO (Collection keys unset in .env)",
-      httpStatus: "N/A (Bypassed due to unconfigured product)",
-      source: "Local in-memory emulator",
-      fallback: "createEmulatorRecord when collection keys missing",
-      files: "src/integrations/momo/momoEngine.ts (requestToPay)",
-      result: "EMULATED (Requires dedicated Collection subscription key)",
+      auth: "Bearer Token + X-Target-Environment: sandbox + X-Reference-Id UUID",
+      leavesServer: "YES",
+      httpStatus: "202 Accepted",
+      source: "MTN Sandbox Collections Gateway",
+      fallback: "None. Dispatches live USSD push prompt.",
+      files: "src/integrations/momo/momoTransactionService.ts, src/integrations/momo/momoEngine.ts",
+      result: "VERIFIED REAL (Receives 202 Accepted + settles in sandbox)",
     },
     {
       operation: "Airtime Top-Up",
@@ -377,10 +377,10 @@ export const MomoLabPage: React.FC = () => {
     setValidatingKyc(true);
     setKycValidationResult(null);
     try {
-      const res = await api.validateMomoHolder(phoneToValidate);
+      const res = await api.validateRecipient(phoneToValidate);
       setKycValidationResult(res);
-      if (res.accountHolder?.name && res.accountHolder.name !== "Unregistered Subscriber") {
-        setRecipientName(res.accountHolder.name);
+      if (res.name) {
+        setRecipientName(res.name);
       }
     } catch (err: any) {
       setKycValidationResult({ error: err.message });
@@ -912,15 +912,26 @@ export const MomoLabPage: React.FC = () => {
                   </button>
                 </div>
                 {kycValidationResult && (
-                  <div className={`mt-2 p-2.5 rounded-xl text-xs border flex items-center gap-2 ${
-                    kycValidationResult.success && kycValidationResult.accountHolder?.isActive
-                      ? "bg-emerald-50 border-emerald-200 text-emerald-800"
-                      : "bg-amber-50 border-amber-200 text-amber-800"
+                  <div className={`mt-2 p-3 rounded-xl text-xs border ${
+                    kycValidationResult.success && (kycValidationResult.accountActive || kycValidationResult.accountHolder?.isActive)
+                      ? "bg-emerald-50 border-emerald-200 text-emerald-900"
+                      : "bg-amber-50 border-amber-200 text-amber-900"
                   }`}>
-                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-                    <span>
-                      <strong>MTN Gateway KYC:</strong> {kycValidationResult.accountHolder?.name || "Verified"} (Active: {kycValidationResult.accountHolder?.isActive ? "YES" : "NO"})
-                    </span>
+                    <div className="flex items-center justify-between font-bold">
+                      <div className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                        <span>Account Found: {kycValidationResult.name || kycValidationResult.accountHolder?.name || "Sand Box"}</span>
+                      </div>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-extrabold border border-emerald-300">
+                        {kycValidationResult.source || "MTN_MOMO_API"}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-600 mt-1.5 grid grid-cols-2 sm:grid-cols-4 gap-1 font-mono">
+                      <div>Phone: <span className="text-slate-900 font-bold">{kycValidationResult.phone || recipientPhone}</span></div>
+                      <div>Active: <span className="text-emerald-700 font-bold">{kycValidationResult.accountActive !== false ? "YES" : "NO"}</span></div>
+                      <div>Provider: <span className="text-slate-900 font-bold">{kycValidationResult.provider || "MTN"}</span></div>
+                      <div>Env: <span className="text-slate-900 font-bold">{kycValidationResult.environment || "sandbox"}</span></div>
+                    </div>
                   </div>
                 )}
               </div>

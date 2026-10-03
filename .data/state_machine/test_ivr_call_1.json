@@ -1,0 +1,16 @@
+{
+  "sessionId": "test_ivr_call_1",
+  "idempotencyKey": "idemp_test_ivr_call_1_OKP-146757",
+  "source": "VOICE",
+  "language": "en",
+  "network": "MTN",
+  "recipientPhone": "0553838464",
+  "recipientName": "Sand Box",
+  "isRecipientVerified": true,
+  "amount": null,
+  "state": "RECIPIENT_VERIFIED",
+  "referenceId": "OKP-146757",
+  "createdAt": 1791064041514,
+  "updatedAt": 1791064042149,
+  "retryCount": 0
+}

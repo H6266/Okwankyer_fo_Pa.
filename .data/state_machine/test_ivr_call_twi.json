@@ -1,0 +1,16 @@
+{
+  "sessionId": "test_ivr_call_twi",
+  "idempotencyKey": "idemp_test_ivr_call_twi_OKP-239413",
+  "source": "VOICE",
+  "language": "en",
+  "network": "MTN",
+  "recipientPhone": "0553838464",
+  "recipientName": "Sand Box",
+  "isRecipientVerified": true,
+  "amount": null,
+  "state": "RECIPIENT_VERIFIED",
+  "referenceId": "OKP-239413",
+  "createdAt": 1791064045390,
+  "updatedAt": 1791064045581,
+  "retryCount": 0
+}

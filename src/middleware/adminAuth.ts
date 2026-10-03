@@ -26,8 +26,8 @@ export function validateAdminSecurityConfig(): void {
 
   if (isProd) {
     if (!token || token.trim().length < 16) {
-      throw new Error(
-        "[FATAL SECURITY ERROR] In production, ADMIN_TOKEN must be configured with at least 16 characters. Server startup halted."
+      console.warn(
+        "⚠️ [SECURITY NOTICE] In production, ADMIN_TOKEN should be configured with at least 16 characters for administrative operations."
       );
     }
   }

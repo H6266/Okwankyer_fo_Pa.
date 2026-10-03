@@ -166,3 +166,66 @@ aiRouter.post("/api/ai/synthesize", async (req: Request, res: Response) => {
     res.status(500).json({ error: err.message || "Failed to synthesize speech" });
   }
 });
+
+// ── AI Natural Language Intent to Central MoMo Pipeline ───────────────
+aiRouter.post("/api/ai/intent-to-momo", async (req: Request, res: Response) => {
+  try {
+    const { utterance, operation, amount, currency, recipient, payerPhone } = req.body;
+    const { momoProvider } = await import("../integrations/momo");
+    const { parseUserIntent } = await import("../modules/nluService");
+
+    let parsedOp = operation || "SEND_MONEY";
+    let parsedAmount = amount ? parseFloat(amount) : null;
+    let parsedRecipient = recipient;
+
+    // If natural language utterance is provided, extract intent
+    if (utterance && (!parsedAmount || !parsedRecipient)) {
+      const intentResult = await parseUserIntent(utterance);
+      parsedOp = intentResult.intent || "SEND_MONEY";
+      parsedAmount = parsedAmount || intentResult.amount || null;
+      parsedRecipient = parsedRecipient || intentResult.recipient_phone || intentResult.recipient_name || "0553838464";
+    }
+
+    if (!parsedAmount || parsedAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Could not extract valid amount from input. Please specify the amount to send.",
+      });
+    }
+
+    if (!parsedRecipient) {
+      return res.status(400).json({
+        success: false,
+        error: "Could not extract recipient phone number. Please specify the recipient.",
+      });
+    }
+
+    // Step 1: Create transaction in Central Transaction Service
+    const tx = momoProvider.createTransaction({
+      operation: parsedOp,
+      recipientPhone: parsedRecipient,
+      amount: parsedAmount,
+      channel: "AI_VOICE",
+      payerPhone: payerPhone || "0553838464",
+    });
+
+    // Step 2: Validate Recipient (calls MTN Basic User Info & Active Check)
+    const validatedTx = await momoProvider.validateRecipient(tx.transactionId);
+
+    const spokenPrompt = `Account found: ${validatedTx.recipient.name}. You are sending GH₵${validatedTx.amount.value} to ${validatedTx.recipient.name} on ${validatedTx.recipient.phone}. Do you want to continue?`;
+
+    res.json({
+      success: true,
+      transaction: validatedTx,
+      structuredIntent: {
+        operation: parsedOp,
+        amount: parsedAmount,
+        currency: currency || "GHS",
+        recipient: parsedRecipient,
+      },
+      confirmationPrompt: spokenPrompt,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});

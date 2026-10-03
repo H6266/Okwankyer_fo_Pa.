@@ -12,8 +12,128 @@ import { requireAdminAuth } from "../middleware/adminAuth";
 import { adminRateLimiter } from "../middleware/rateLimiter";
 import { validateGhanaPhoneNumber } from "../domain/validation";
 import { momoSagaOrchestrator } from "../services/momoSagaOrchestrator";
+import { momoProvider } from "../integrations/momo";
 
 export const momoRouter = Router();
+
+// ── Centralized Recipient Lookup Service ──────────────────────────────
+momoRouter.post("/api/momo/validate-recipient", async (req: Request, res: Response) => {
+  try {
+    const rawPhone = req.body?.phone || req.body?.msisdn || req.body?.phoneNumber;
+    if (!rawPhone || typeof rawPhone !== "string") {
+      return res.status(400).json({ success: false, error: "Missing required 'phone' or 'msisdn' parameter." });
+    }
+
+    const validation = validateGhanaPhoneNumber(rawPhone);
+    if (!validation.valid || !validation.normalized) {
+      return res.status(400).json({ success: false, error: validation.error || "Invalid phone number format." });
+    }
+
+    const lookup = await momoProvider.lookupRecipient(validation.normalized);
+    res.json({
+      success: true,
+      phone: lookup.phone,
+      name: lookup.name,
+      accountActive: lookup.accountActive,
+      provider: lookup.provider,
+      environment: lookup.environment,
+      source: lookup.source,
+      rawUserInfo: lookup.rawUserInfo,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── Centralized Transaction Engine Endpoints ──────────────────────────
+
+// Step 1: Create Transaction
+momoRouter.post("/api/momo/transaction/create", async (req: Request, res: Response) => {
+  try {
+    const { operation, recipientPhone, amount, channel, payerPhone, payerName, payerMessage, payeeNote, sessionId } = req.body;
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      return res.status(400).json({ success: false, error: "Positive amount is required." });
+    }
+    if (!recipientPhone) {
+      return res.status(400).json({ success: false, error: "recipientPhone is required." });
+    }
+
+    const tx = momoProvider.createTransaction({
+      operation: operation || "SEND_MONEY",
+      recipientPhone,
+      amount: parsedAmount,
+      channel: channel || "WEB",
+      payerPhone,
+      payerName,
+      payerMessage,
+      payeeNote,
+      sessionId,
+    });
+
+    res.status(201).json({ success: true, transaction: tx });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Step 2: Validate Recipient for Transaction
+momoRouter.post("/api/momo/transaction/validate", async (req: Request, res: Response) => {
+  try {
+    const { transactionId, phone } = req.body;
+    if (!transactionId) {
+      return res.status(400).json({ success: false, error: "transactionId is required." });
+    }
+
+    const tx = await momoProvider.validateRecipient(transactionId, phone);
+    res.json({ success: true, transaction: tx });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Step 3: Confirm Transaction
+momoRouter.post("/api/momo/transaction/confirm", (req: Request, res: Response) => {
+  try {
+    const { transactionId, confirmed } = req.body;
+    if (!transactionId) {
+      return res.status(400).json({ success: false, error: "transactionId is required." });
+    }
+
+    const tx = momoProvider.confirmTransaction(transactionId, confirmed !== false);
+    res.json({ success: true, transaction: tx });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Step 4: Submit Transaction to MTN
+momoRouter.post("/api/momo/transaction/submit", async (req: Request, res: Response) => {
+  try {
+    const { transactionId, mode, payerPhone } = req.body;
+    if (!transactionId) {
+      return res.status(400).json({ success: false, error: "transactionId is required." });
+    }
+
+    const tx = await momoProvider.submitTransaction(transactionId, { mode, payerPhone });
+    res.status(tx.status === "PENDING" ? 202 : 200).json({
+      success: tx.status !== "FAILED" && tx.status !== "SUBMISSION_FAILED",
+      transaction: tx,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Step 5: Get Transaction by ID or Reference
+momoRouter.get("/api/momo/transaction/:id", (req: Request, res: Response) => {
+  const { id } = req.params;
+  const tx = momoProvider.getTransaction(id);
+  if (!tx) {
+    return res.status(404).json({ success: false, error: `Transaction ${id} not found.` });
+  }
+  res.json({ success: true, transaction: tx });
+});
 
 // ── Diagnostics & Capability Matrix ──────────────────────────────────
 momoRouter.get("/api/momo/status", adminRateLimiter, requireAdminAuth, (_req: Request, res: Response) => {

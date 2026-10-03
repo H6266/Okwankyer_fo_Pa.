@@ -323,9 +323,11 @@ export class MoMoEngine {
       headers: {
         "Authorization": `Basic ${authHeader}`,
         "Ocp-Apim-Subscription-Key": p.subscriptionKey,
-        "Content-Type": "application/x-www-form-urlencoded",
+        "Content-Type": "application/json",
+        "User-Agent": "curl/7.88.1",
+        "Accept": "application/json",
       },
-      body: "grant_type=client_credentials",
+      body: "",
     });
 
     if (!response.ok) {
@@ -389,6 +391,7 @@ export class MoMoEngine {
       "X-Target-Environment": this.config.targetEnv,
       "Ocp-Apim-Subscription-Key": this.config.collection.subscriptionKey!,
       "Content-Type": "application/json",
+      "User-Agent": "curl/7.88.1",
     };
 
     if (this.config.targetEnv === "production" && this.config.callbackHost) {
@@ -397,7 +400,7 @@ export class MoMoEngine {
 
     const body = {
       amount: amount.toFixed(1),
-      currency: this.config.targetEnv === "production" ? "GHS" : this.config.currency,
+      currency: this.config.targetEnv === "production" ? "GHS" : "EUR",
       externalId: extId,
       payer: {
         partyIdType: "MSISDN",
@@ -472,11 +475,12 @@ export class MoMoEngine {
       "X-Target-Environment": this.config.targetEnv,
       "Ocp-Apim-Subscription-Key": this.config.disbursement.subscriptionKey!,
       "Content-Type": "application/json",
+      "User-Agent": "curl/7.88.1",
     };
 
     const body = {
       amount: amount.toFixed(2),
-      currency: this.config.currency,
+      currency: this.config.targetEnv === "production" ? "GHS" : "EUR",
       externalId: extId,
       transferType: "CUSTOM_PAYMENT",
       payee: {

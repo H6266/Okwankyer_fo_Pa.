@@ -380,6 +380,63 @@ export const api = {
     return res.json();
   },
 
+  // ── Centralized Transaction Engine Pipeline ────────────────────────
+  async validateRecipient(phone: string): Promise<any> {
+    const res = await fetch("/api/momo/validate-recipient", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone }),
+    });
+    return res.json();
+  },
+
+  async createCentralTransaction(params: {
+    operation?: string;
+    recipientPhone: string;
+    amount: number;
+    channel?: string;
+    payerPhone?: string;
+  }): Promise<any> {
+    const res = await fetch("/api/momo/transaction/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async validateCentralTransactionRecipient(transactionId: string, phone?: string): Promise<any> {
+    const res = await fetch("/api/momo/transaction/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transactionId, phone }),
+    });
+    return res.json();
+  },
+
+  async confirmCentralTransaction(transactionId: string, confirmed: boolean = true): Promise<any> {
+    const res = await fetch("/api/momo/transaction/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transactionId, confirmed }),
+    });
+    return res.json();
+  },
+
+  async submitCentralTransaction(transactionId: string, options?: { mode?: string; payerPhone?: string }): Promise<any> {
+    const res = await fetch("/api/momo/transaction/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transactionId, ...options }),
+    });
+    return res.json();
+  },
+
+  async getCentralTransaction(id: string): Promise<any> {
+    const res = await fetch(`/api/momo/transaction/${encodeURIComponent(id)}`);
+    return res.json();
+  },
+
   async buyAirtime(params: {
     phone: string;
     amount: number;

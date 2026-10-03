@@ -27,11 +27,7 @@ const commonRateLimitOptions = {
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: getClientIp,
-  validate: {
-    trustProxy: false,
-    xForwardedForHeader: false,
-    forwardedHeader: false,
-  },
+  validate: false,
 };
 
 export const telephonyRateLimiter = rateLimit({

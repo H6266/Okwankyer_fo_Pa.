@@ -9,7 +9,7 @@
 
 import { validateGhanaPhoneNumber, GhanaianNetwork } from "../../domain/validation";
 import { SANDBOX_RECIPIENT_FIXTURES } from "../../demo/recipientFixtures";
-import { mtnMomoService } from "../../modules/mtnMomoService";
+import { momoProvider } from "../../integrations/momo";
 import { config } from "../../config/env";
 
 export interface RecipientResolutionResult {
@@ -30,8 +30,7 @@ export interface RecipientResolver {
 }
 
 /**
- * Sandbox implementation: uses clearly labeled test fixtures in src/demo/.
- * When a number is not in the fixtures, it explicitly flags verified: false and name: null.
+ * Sandbox fallback implementation: uses clearly labeled test fixtures in src/demo/.
  */
 export class SandboxRecipientResolver implements RecipientResolver {
   readonly id = "SANDBOX";
@@ -79,12 +78,10 @@ export class SandboxRecipientResolver implements RecipientResolver {
 }
 
 /**
- * Production implementation: queries MTN MoMo Basic User Info API when credentials exist.
+ * MTN MoMo implementation: queries MTN MoMo Basic User Info and Active Check APIs.
  */
 export class MtnRecipientResolver implements RecipientResolver {
-  readonly id = "MTN_MOMO_LIVE";
-
-  constructor(private readonly momoEngine = mtnMomoService) {}
+  readonly id = "MTN_MOMO_API";
 
   async resolve(rawPhoneNumber: string): Promise<RecipientResolutionResult> {
     const val = validateGhanaPhoneNumber(rawPhoneNumber);
@@ -101,17 +98,31 @@ export class MtnRecipientResolver implements RecipientResolver {
       };
     }
 
+    // Non-MTN numbers cannot be verified via MTN MoMo directory
+    if (val.network !== "MTN") {
+      return {
+        valid: true,
+        phoneNumber: rawPhoneNumber,
+        normalizedPhone: val.normalized,
+        name: null,
+        network: val.network,
+        verified: false,
+        source: "UNRESOLVED",
+        warning: `${val.network} subscribers cannot be verified via MTN MoMo directory.`,
+      };
+    }
+
     try {
-      const holder = await this.momoEngine.validateAccountHolder(val.normalized);
-      if (holder && holder.isActive && holder.name) {
+      const lookup = await momoProvider.lookupRecipient(val.normalized);
+      if (lookup && lookup.name && lookup.accountActive) {
         return {
           valid: true,
           phoneNumber: rawPhoneNumber,
           normalizedPhone: val.normalized,
-          name: holder.name,
+          name: lookup.name,
           network: val.network,
-          verified: true,
-          source: "MTN_MOMO_API",
+          verified: lookup.accountActive,
+          source: lookup.source === "MTN_MOMO_API" ? "MTN_MOMO_API" : "SANDBOX_FIXTURE",
         };
       }
     } catch (err: any) {
@@ -136,7 +147,7 @@ export class MtnRecipientResolver implements RecipientResolver {
  * Factory returning active resolver based on environment credentials
  */
 export function getRecipientResolver(): RecipientResolver {
-  if (config.momo.configured && config.nodeEnv === "production") {
+  if (config.momo.configured || config.momo.disbursementConfigured || config.momo.collectionConfigured) {
     return new MtnRecipientResolver();
   }
   return new SandboxRecipientResolver();
