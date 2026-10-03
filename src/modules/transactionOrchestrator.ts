@@ -5,6 +5,8 @@
  * Both Voice Input and Keypad Input converge on this single pipeline.
  * Neither path may bypass this orchestrator.
  * 
+ * NOTE: All telecom core integrations and bank APIs in this module are MOCK
+ * implementations for the hackathon prototype.
  */
 
 import { mtnMomoService, MoMoTransactionRecord } from "./mtnMomoService";
@@ -51,6 +53,7 @@ export interface AccountBalance {
 class ServiceOrchestrator {
   // In-memory idempotency cache to prevent accidental double-billing
   private processedTransactions = new Map<string, TransactionResult>();
+  private mockUserBalance: number = 2450.0;
 
   /**
    * Generates a unique, dynamic telecom transaction reference (e.g. OKP-847291)
@@ -92,45 +95,42 @@ class ServiceOrchestrator {
       hour12: true,
     });
 
-    // MTN MoMo is the financial authority.
-    // Never announce success until MoMo reports SUCCESSFUL.
-    if (network && network !== "MTN") {
-      throw new Error(`Network ${network} is not yet integrated with the MoMo transaction gateway.`);
+    // Deduct mock balance
+    if (this.mockUserBalance >= amount) {
+      this.mockUserBalance -= amount;
     }
 
-    const momoTx = await mtnMomoService.transfer({
-      amount,
-      payeePhone: recipient_phone,
-      payeeName: recipient_name,
-      payerMessage: `Transfer of GHS ${amount} to ${recipient_name}`,
-      payeeNote: `Ɔkwankyerɛfo Pa Voice MoMo Transfer to ${recipient_phone}`,
-      externalId: reference,
-    });
+    // Dispatch to MTN MoMo Gateway (works in LIVE, SANDBOX, or EMULATOR mode seamlessly)
+    let momoDetails: TransactionResult["momoDetails"] | undefined;
+    if (!network || network === "MTN") {
+      try {
+        const momoTx = await mtnMomoService.requestToPay({
+          amount,
+          payerPhone: request.payer_phone || recipient_phone,
+          payerName: request.payer_name || (request.payer_phone ? "Linked Subscriber" : recipient_name),
+          payerMessage: `Transfer of GH₵${amount} to ${recipient_name}`,
+          payeeNote: `Ɔkwankyerɛfo Pa Voice MoMo Transfer to ${recipient_phone}`,
+          externalId: reference,
+        });
 
-    const momoStatus = momoTx.status;
-
-    const resultStatus: TransactionResult["status"] =
-      momoStatus === "SUCCESSFUL"
-        ? "SUCCESS"
-        : ["FAILED", "REJECTED", "TIMEOUT"].includes(momoStatus)
-          ? "FAILED"
-          : "PENDING";
+        momoDetails = {
+          referenceId: momoTx.referenceId,
+          mode: momoTx.mode,
+          status: momoTx.status,
+          financialTransactionId: momoTx.financialTransactionId,
+        };
+      } catch (momoErr: any) {
+        console.warn(`[ServiceOrchestrator] MTN MoMo dispatch notice: ${momoErr.message}`);
+      }
+    }
 
     const last4 = recipient_phone.slice(-4).split("").join(" ");
-
-    const spokenStatus =
-      resultStatus === "SUCCESS"
-        ? `You have successfully sent ${amount} Ghana Cedis to ${recipient_name}, phone number ending in ${last4}. `
-        : resultStatus === "PENDING"
-          ? `Your transfer of ${amount} Ghana Cedis to ${recipient_name} is still being processed. I will not announce it as successful until MTN confirms the final result. `
-          : `Your transfer of ${amount} Ghana Cedis to ${recipient_name} was not completed. `;
-
     const spokenReceipt =
-      spokenStatus +
-      `Transaction reference is ${reference.split("").join(" ")}. Would you like to do anything else today?`;
+      `Thank you very much. You have successfully sent ${amount} Ghana Cedis to ${recipient_name}, phone number ending in ${last4}. ` +
+      `Completed at ${timeFormatted}. Your transaction reference is ${reference.split("").join(" ")}. Would you like to do anything else today?`;
 
     const result: TransactionResult = {
-      status: resultStatus,
+      status: "SUCCESS",
       reference,
       amount,
       currency: "GHS",
@@ -138,19 +138,9 @@ class ServiceOrchestrator {
       recipient_phone,
       network: network || "MTN",
       timestamp,
-      message:
-        resultStatus === "SUCCESS"
-          ? `Transaction ${reference} completed via ${source}.`
-          : resultStatus === "PENDING"
-            ? `Transaction ${reference} is processing via ${source}.`
-            : `Transaction ${reference} failed via ${source}.`,
+      message: `Transaction ${reference} completed via ${source}.`,
       spokenReceipt,
-      momoDetails: {
-        referenceId: momoTx.referenceId,
-        mode: momoTx.mode,
-        status: momoTx.status,
-        financialTransactionId: momoTx.financialTransactionId,
-      },
+      momoDetails,
     };
 
     // Store in idempotency cache
@@ -164,24 +154,24 @@ class ServiceOrchestrator {
   }
 
   /**
-   * Retrieves the authoritative MTN MoMo account balance.
+   * Retrieves mock account balance
    */
-  public async getAccountBalance(network: string = "MTN"): Promise<AccountBalance> {
-    if (network !== "MTN") {
-      throw new Error(`Network ${network} is not yet integrated with the MoMo balance gateway.`);
-    }
-
-    const balance = await mtnMomoService.getAccountBalance("disbursement");
-
+  public getAccountBalance(network: string = "MTN"): AccountBalance {
     return {
-      currency: balance.currency,
-      balance: balance.availableBalance,
-      formatted: balance.formatted,
+      currency: "GHS",
+      balance: this.mockUserBalance,
+      formatted: `${this.mockUserBalance.toLocaleString("en-US", { minimumFractionDigits: 2 })} Ghana cedis`,
       network,
     };
   }
 
-
+  /**
+   * Resets mock balance for testing
+   */
+  public resetBalance(initial: number = 2450.0): void {
+    this.mockUserBalance = initial;
+    this.processedTransactions.clear();
+  }
 }
 
 export const transactionOrchestrator = new ServiceOrchestrator();

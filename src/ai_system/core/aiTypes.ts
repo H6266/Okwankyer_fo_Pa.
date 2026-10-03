@@ -1,16 +1,13 @@
 /**
  * Ɔkwankyerɛfo Pa - AI System Core Types
- * Defines the strict structured schemas for inputs, outputs, intents, entities,
- * dialogue, navigation, actions, safety, and speech.
+ * Complete type definitions for the deterministic 10-system cognitive architecture.
  */
 
 export type AiChannel = "VOICE" | "DTMF" | "TEXT" | "SIMULATOR";
 
 export type AiLanguage = "en" | "ak" | "tw" | "en-ak" | "unknown";
 
-export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
-
-export type TelcoNetwork = "MTN" | "Telecel" | "AT";
+export type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 
 export type IntentName =
   | "SEND_MONEY"
@@ -30,18 +27,31 @@ export type IntentName =
   | "DENY"
   | "UNKNOWN";
 
+export type MobileNetwork = "MTN" | "Telecel" | "AT" | "G-Money";
+export type TelcoNetwork = MobileNetwork;
+
 export interface EntitySlotMap {
   amount?: number | null;
   currency?: "GHS";
   recipientName?: string | null;
   recipientPhone?: string | null;
-  network?: "MTN" | "Telecel" | "AT" | "G-Money" | null;
+  network?: MobileNetwork | null;
   biller?: string | null;
   accountNumber?: string | null;
   service?: string | null;
   location?: string | null;
-  correctionField?: "amount" | "recipientName" | "recipientPhone" | "network" | null;
+  correctionField?: "amount" | "recipientName" | "recipientPhone" | "network" | string | null;
+  previousValue?: any;
+  correctionReason?: string | null;
   [key: string]: any;
+}
+
+export interface UserAccessibilityNeeds {
+  isVisuallyImpaired?: boolean;
+  isElderly?: boolean;
+  prefersSlowerSpeech?: boolean;
+  highContrast?: boolean;
+  repeatConfirmationRequired?: boolean;
 }
 
 export interface UserProfileData {
@@ -51,12 +61,68 @@ export interface UserProfileData {
   displayName?: string;
   preferredSpokenName?: string;
   pronunciationPreference?: string;
-  accessibilityNeeds?: {
-    isVisuallyImpaired?: boolean;
-    isElderly?: boolean;
-    prefersSlowerSpeech?: boolean;
-    highContrast?: boolean;
+  knownContacts?: Array<{
+    name: string;
+    phone: string;
+    network?: MobileNetwork;
+    frequentAmount?: number;
+  }>;
+  accessibilityNeeds?: UserAccessibilityNeeds;
+  registeredDate?: string;
+  trustedRecipients?: string[];
+}
+
+export interface ConversationTurnRecord {
+  turnId: string;
+  timestamp: number;
+  role: "user" | "assistant" | "system";
+  rawInput: string;
+  sanitizedInput: string;
+  detectedLanguage: AiLanguage;
+  intent: IntentName;
+  slots: EntitySlotMap;
+  response: string;
+  screen: string;
+  step: string;
+  vectorHash?: number[];
+  semanticSummary?: string;
+}
+
+export interface CorrectionRecord {
+  timestamp: number;
+  field: string;
+  oldValue: any;
+  newValue: any;
+  reason: string; // e.g. "User corrected amount from 50 to 100 cedis"
+  turnIndex: number;
+}
+
+export interface TransactionalMemoryRecord {
+  referenceId: string;
+  timestamp: number;
+  type: string;
+  amount: number;
+  currency: "GHS";
+  recipientPhoneMasked: string;
+  recipientName: string;
+  network: MobileNetwork;
+  status: "PENDING" | "CONFIRMED" | "CANCELLED" | "COMPLETED" | "BLOCKED";
+  encryptedSlotData?: string;
+}
+
+export interface TaskState {
+  taskId: string;
+  intent: IntentName;
+  slots: EntitySlotMap;
+  currentStep: string;
+  resumptionStep?: string;
+  interruptedBy?: IntentName;
+  resumptionPrompt?: {
+    en: string;
+    twi: string;
   };
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface AiProcessInput {
@@ -79,7 +145,7 @@ export interface AiProcessInput {
     amount?: number | null;
     recipientPhone?: string | null;
     recipientName?: string | null;
-    network?: string | null;
+    network?: MobileNetwork | string | null;
     isConfirmed?: boolean;
     referenceId?: string;
     step?: string;
@@ -90,12 +156,20 @@ export interface AiProcessInput {
 }
 
 export interface DialogueOutput {
-  type: "CONTINUE_TRANSACTION" | "ASK_SLOT" | "CONFIRM_ACTION" | "INFORM_AND_EXIT" | "ERROR_RECOVERY";
+  type:
+    | "CONTINUE_TRANSACTION"
+    | "ASK_SLOT"
+    | "CONFIRM_ACTION"
+    | "INFORM_AND_EXIT"
+    | "ERROR_RECOVERY"
+    | "ZERO_PIN_SECURITY_ALERT";
   response: string;
   promptLanguage: AiLanguage;
   audioPromptUrl?: string;
   needsClarification: boolean;
   clarificationOptions?: string[];
+  targetedSlot?: string;
+  includesCorrectionAcknowledgement?: boolean;
 }
 
 export interface NavigationOutput {
@@ -103,14 +177,19 @@ export interface NavigationOutput {
   targetScreen?: string;
   targetStep?: string;
   breadcrumb: string[];
+  predictedNextIntent?: IntentName;
+  preStagedData?: Record<string, any>;
 }
 
 export interface ActionOutput {
-  type: string; // e.g. "SET_AMOUNT", "SET_RECIPIENT", "REQUEST_CONFIRMATION", "EXECUTE_TRANSACTION"
+  type: string;
   tool: string;
   params: Record<string, any>;
   riskLevel: RiskLevel;
   requiresClientConfirmation: boolean;
+  isExecutable?: boolean;
+  predictedFailureModes?: string[];
+  clarifyingQuestions?: string[];
 }
 
 export interface SafetyOutput {
@@ -120,6 +199,13 @@ export interface SafetyOutput {
   blockedReason?: string;
   sanitized: boolean;
   piiMaskedInput: string;
+  rateLimitExceeded?: boolean;
+  failedAttemptsCount?: number;
+  socialEngineeringAlert?: {
+    detected: boolean;
+    reasons: string[];
+    riskScore: number;
+  };
 }
 
 export interface SpeechOutput {
@@ -129,6 +215,19 @@ export interface SpeechOutput {
   phoneticHints?: Record<string, string>;
   speedMultiplier: number;
   pitch: number;
+}
+
+export interface PerformanceBreakdown {
+  totalLatencyMs: number;
+  normalizationLatencyMs: number;
+  memoryRetrievalLatencyMs: number;
+  understandingLatencyMs: number;
+  navigationLatencyMs: number;
+  actionPlanningLatencyMs: number;
+  safetyCheckLatencyMs: number;
+  dialogueLatencyMs: number;
+  speechPlanningLatencyMs: number;
+  memoryConsolidationLatencyMs?: number;
 }
 
 export interface AiProcessResult {
@@ -142,10 +241,11 @@ export interface AiProcessResult {
   action: ActionOutput;
   safety: SafetyOutput;
   speech: SpeechOutput;
-  performance: {
-    totalLatencyMs: number;
-    understandingLatencyMs?: number;
-    planningLatencyMs?: number;
-    safetyCheckLatencyMs?: number;
+  performance: PerformanceBreakdown;
+  sessionState?: {
+    breadcrumb: string[];
+    turnCount: number;
+    activeTask?: string;
+    suspendedTasksCount: number;
   };
 }

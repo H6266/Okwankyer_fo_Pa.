@@ -1,24 +1,32 @@
 /**
  * Ɔkwankyerɛfo Pa - AI System Master Package Entry
  *
- * Canonical architecture:
- * - core/        -> aiEngine, aiTypes, aiConfig, aiErrors
+ * Deterministic Central Orchestration Architecture:
+ * - core/        -> aiEngine, aiMemory, aiUnderstanding, aiNavigation, aiAction, aiSafety, aiDialogue, aiSpeech, aiBootstrap, aiTypes, aiConfig, aiErrors
  * - perception/  -> inputProcessor, languageDetector, inputNormalizer, speechContext
  * - understanding/ -> intentEngine, entityEngine, correctionEngine, ambiguityEngine, confidenceEngine, coreferenceResolver, negationEngine
- * - memory/      -> workingMemory, sessionMemory, conversationMemory, contextManager, userProfile, taskMemory, episodicMemory, semanticMemory, preferenceMemory, pronunciationMemory, transactionMemory, memoryRetriever, memoryConsolidator, memoryPolicy, memoryManager
+ * - memory/      -> sessionMemoryBridge, workingMemory, sessionMemory, conversationMemory, contextManager, userProfile, taskMemory, episodicMemory, semanticMemory, preferenceMemory, pronunciationMemory, transactionMemory, memoryRetriever, memoryConsolidator, memoryPolicy, memoryManager
  * - dialogue/    -> dialogueManager, slotManager, clarificationEngine, responsePlanner
  * - navigation/  -> navigationGraph, navigationPlanner, routeResolver
  * - actions/     -> actionTypes, toolRegistry, actionValidator, actionPlanner
  * - safety/      -> transactionGuard, confirmationGuard, piiGuard, riskEngine
  * - speech/      -> speechNormalizer, pronunciation, voiceProfiles, tts, interruptionEngine
- * - providers/   -> aiProvider, modelAdapter
+ * - providers/   -> aiProvider, modelAdapter, aiProviderAdapter
  * - observability/ -> diagnosticsEngine, aiTrace
  */
 
-// Core
+// Core Deterministic 10-System Engine
 export * from "./core/aiTypes";
 export * from "./core/aiConfig";
 export * from "./core/aiErrors";
+export * from "./core/aiMemory";
+export * from "./core/aiUnderstanding";
+export * from "./core/aiNavigation";
+export * from "./core/aiAction";
+export * from "./core/aiSafety";
+export * from "./core/aiDialogue";
+export * from "./core/aiSpeech";
+export * from "./core/aiBootstrap";
 export * from "./core/aiEngine";
 
 // Perception
@@ -36,7 +44,8 @@ export * from "./understanding/negationEngine";
 export * from "./understanding/ambiguityEngine";
 export * from "./understanding/confidenceEngine";
 
-// Memory
+// Memory & Session Persistence Bridge
+export * from "./memory/sessionMemoryBridge";
 export * from "./memory/memoryPolicy";
 export * from "./memory/workingMemory";
 export * from "./memory/sessionMemory";
@@ -89,9 +98,10 @@ export * from "./speech/tts/ttsAdapter";
 export * from "./speech/tts/ttsService";
 export * from "./speech/interruptionEngine";
 
-// Providers
+// Providers & Compatibility Adapter
 export * from "./providers/aiProvider";
 export * from "./providers/modelAdapter";
+export * from "./providers/aiProviderAdapter";
 
 // Observability
 export * from "./observability/diagnosticsEngine";

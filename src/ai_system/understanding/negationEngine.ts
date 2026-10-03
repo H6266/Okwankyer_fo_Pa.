@@ -32,7 +32,21 @@ export class NegationEngine {
       };
     }
 
-    // 2. Check if utterance contains a negative marker
+    // 2. Check for explicit cancellation
+    if (
+      lower.startsWith("cancel") ||
+      lower.includes("cancel the transaction") ||
+      lower.includes("abort") ||
+      lower.includes("gyae") ||
+      lower.startsWith("stop")
+    ) {
+      return {
+        type: "PURE_CANCELLATION",
+        explanation: "Caller explicitly requested transaction cancellation.",
+      };
+    }
+
+    // 3. Check if utterance contains a negative marker
     const hasNo = /^(no|nope|dabi|not that|wrong|that's wrong|sesa)\b/i.test(lower);
 
     if (hasNo) {
