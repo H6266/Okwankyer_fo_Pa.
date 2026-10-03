@@ -213,7 +213,7 @@ class ConversationManager {
 
       // User says "Yes. Check my balance" or "Check my balance"
       if (cleanLower.includes("balance") || cleanLower.includes("check")) {
-        const bal = transactionOrchestrator.getAccountBalance("MTN");
+        const bal = await transactionOrchestrator.getAccountBalance("MTN");
         state.status = "OFFER_CONTINUATION";
         return {
           state,
@@ -374,7 +374,7 @@ class ConversationManager {
 
     // Check Balance Intent
     if (nlu.intent === "CHECK_BALANCE") {
-      const bal = transactionOrchestrator.getAccountBalance("MTN");
+      const bal = await transactionOrchestrator.getAccountBalance("MTN");
       state.status = "OFFER_CONTINUATION";
       return {
         state,
@@ -580,23 +580,33 @@ class ConversationManager {
     const tx = await transactionOrchestrator.executeSendMoney({
       source: "VOICE",
       network: state.network || "MTN",
-      recipient_phone: state.recipient_phone || "0553838464",
-      recipient_name: state.recipient_name || "Kwame Nyamebere",
-      amount: state.amount || 500,
+      recipient_phone: state.recipient_phone || "",
+      recipient_name: state.recipient_name || "",
+      amount: state.amount || 0,
       sessionId,
-      payer_phone: state.caller_phone || "0543546010",
-      payer_name: state.caller_name || "Account Subscriber",
+      payer_phone: state.caller_phone,
+      payer_name: state.caller_name,
     });
 
     state.lastTransactionResult = tx;
-    state.status = "OFFER_CONTINUATION";
+    state.status =
+      tx.status === "SUCCESS"
+        ? "OFFER_CONTINUATION"
+        : tx.status === "PENDING"
+          ? "AWAITING_SECURE_PIN"
+          : "TERMINATED";
 
     return {
       state,
       spokenPrompt: tx.spokenReceipt,
-      displayStepTag: "Transaction Completed",
+      displayStepTag:
+        tx.status === "SUCCESS"
+          ? "Transaction Completed"
+          : tx.status === "PENDING"
+            ? "Transaction Processing"
+            : "Transaction Failed",
       requiresPinInput: false,
-      isCompleted: true,
+      isCompleted: tx.status !== "PENDING",
       offeredMenuFallback: false,
       confidence: 1.0,
       activeIntent: "SEND_MONEY",
