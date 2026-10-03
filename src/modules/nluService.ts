@@ -243,10 +243,10 @@ export function classifyIntentLocally(text: string): ExtractedEntities {
     lower === "cancel" ||
     lower === "stop" ||
     lower === "abort" ||
-    lower === "no" ||
-    lower === "2" ||
+    lower === "gyae" ||
     lower.includes("cancel transaction") ||
-    lower.includes("cancel this")
+    lower.includes("cancel this") ||
+    lower.includes("stop stop")
   ) {
     return {
       intent: "CANCEL",
@@ -264,8 +264,11 @@ export function classifyIntentLocally(text: string): ExtractedEntities {
     lower === "8" ||
     lower === "back" ||
     lower === "go back" ||
+    lower === "kɔ akyi" ||
+    lower === "san akyi" ||
     lower.includes("previous") ||
-    lower.includes("return")
+    lower.includes("return") ||
+    lower.includes("go back")
   ) {
     return {
       intent: "GO_BACK",
@@ -279,7 +282,13 @@ export function classifyIntentLocally(text: string): ExtractedEntities {
     };
   }
 
-  if (lower === "help" || lower.includes("how does this work") || lower.includes("what can i say")) {
+  if (
+    lower === "help" ||
+    lower.includes("help me") ||
+    lower.includes("how does this work") ||
+    lower.includes("what can i say") ||
+    lower.includes("tie biom")
+  ) {
     return {
       intent: "HELP",
       confidence: 0.92,
@@ -296,8 +305,10 @@ export function classifyIntentLocally(text: string): ExtractedEntities {
   if (
     lower.includes("balance") ||
     lower.includes("how much do i have") ||
+    lower.includes("how much is in my account") ||
     lower.includes("check my balance") ||
-    lower.includes("account balance")
+    lower.includes("account balance") ||
+    lower.includes("sika a aka")
   ) {
     return {
       intent: "CHECK_BALANCE",
@@ -311,7 +322,7 @@ export function classifyIntentLocally(text: string): ExtractedEntities {
     };
   }
 
-  if (lower.includes("account") || lower.includes("statement")) {
+  if (lower.includes("account") || lower.includes("statement") || lower.includes("bue me account")) {
     return {
       intent: "CHECK_ACCOUNT",
       confidence: 0.88,
@@ -325,7 +336,7 @@ export function classifyIntentLocally(text: string): ExtractedEntities {
   }
 
   // Other secondary scoped intents
-  if (lower.includes("airtime") || lower.includes("top up") || lower.includes("credit")) {
+  if (lower.includes("airtime") || lower.includes("top up") || lower.includes("credit") || lower.includes("tɔ airtime")) {
     return {
       intent: "BUY_AIRTIME",
       confidence: 0.91,
@@ -364,7 +375,7 @@ export function classifyIntentLocally(text: string): ExtractedEntities {
     };
   }
 
-  if (lower.includes("cash out") || lower.includes("withdraw")) {
+  if (lower.includes("cash out") || lower.includes("withdraw") || lower.includes("gye sika")) {
     return {
       intent: "CASH_OUT",
       confidence: 0.94,
@@ -377,8 +388,11 @@ export function classifyIntentLocally(text: string): ExtractedEntities {
     };
   }
 
-  // Primary Intent: SEND_MONEY
+  // Primary Intent: SEND_MONEY (Option 1 in menu, Send money, Transfer, Mane sika, Baako)
   const isSendMoney =
+    lower === "1" ||
+    lower === "one" ||
+    lower === "baako" ||
     lower.includes("send") ||
     lower.includes("transfer") ||
     lower.includes("pay") ||

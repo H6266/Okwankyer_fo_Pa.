@@ -1,12 +1,12 @@
 # Ɔkwankyerɛfo Pa ("The Good Guide")
 ### A Voice Accessibility & Transaction Safety Layer for Ghana's Digital Financial Services
-**Built by Team Anidasoɔ ("Hope") | Africa's Talking Voice Hackathon**
+**Africa's Talking Voice Telephony | Node.js, Express, TypeScript, Vitest**
 
 ---
 
 ## 🌟 Executive Summary
 
-Digital financial services and Mobile Money (MoMo) are the lifeblood of Ghana's economy, transacting billions of Ghana Cedis monthly. Yet millions of citizens—particularly the visually impaired, the elderly, and individuals with low text literacy—remain systematically excluded or highly vulnerable to fraud, panic timeouts, and unrecoverable "wrong number" mistakes. 
+Digital financial services and Mobile Money (MoMo) are the lifeblood of Ghana's economy, transacting billions of Ghana Cedis monthly. Yet millions of citizens—particularly the visually impaired, the elderly, and individuals with low text literacy—remain systematically excluded or highly vulnerable to fraud, panic timeouts, and unrecoverable "wrong number" mistakes.
 
 Standard USSD interfaces (`*170#`) impose severe accessibility barriers:
 - **Strict Visual Reliance**: Callers must read fast-scrolling text menus.
@@ -18,137 +18,87 @@ Standard USSD interfaces (`*170#`) impose severe accessibility barriers:
 
 ---
 
-## 🏗️ System Architecture: The Independent Voice Bridge
+## 📊 Implementation & Status Matrix
 
-Rather than asking telcos or banks to overhaul their core infrastructure, **Ɔkwankyerɛfo Pa** functions as an intelligent middleware layer accessible via standard cellular voice calls (`+233 30 804 8098`).
-
-```
-                              TELCO & BANKING ECOSYSTEM
-       ┌────────────────────────────────────────────────────────────────────────┐
-       │   MTN MoMo API   │  Telecel Cash API  │  AT Money API  │  GhIPSS / GIP │
-       └───────────────────────────────────▲────────────────────────────────────┘
-                                           │
-                        REST / USSD Push Orchestration APIs
-                                           │
-              ┌────────────────────────────┴────────────────────────────┐
-              │             ƆKWANKYERƐFO PA CORE ENGINE                 │
-              │                                                         │
-              │  ┌─────────────────────────┐ ┌───────────────────────┐  │
-              │  │  Strict Language Engine │ │  KYC Identity Engine  │  │
-              │  │  - English Flow (11)    │ │  - Phone validation   │  │
-              │  │  - Akan Twi Flow (12)   │ │  - Name readback      │  │
-              │  └─────────────────────────┘ └───────────────────────┘  │
-              │  ┌─────────────────────────┐ ┌───────────────────────┐  │
-              │  │ VoiceXML & DTMF Router  │ │  Zero-PIN Security    │  │
-              │  │ - # Submit  - 8 Back    │ │  - Never speak PIN    │  │
-              │  │ - 9 Replay  - 0 Exit    │ │  - OS screen handoff  │  │
-              │  └─────────────────────────┘ └───────────────────────┘  │
-              │  ┌───────────────────────────────────────────────────┐  │
-              │  │      HTTP 206 Byte-Range Audio Streaming          │  │
-              │  │      (/audio/English/*.mp3 & /audio/Twi/*.mp3)    │  │
-              │  └───────────────────────────────────────────────────┘  │
-              └────────────────────────────▲────────────────────────────┘
-                                           │
-                         VoiceXML / HTTP Webhook Callbacks
-                                           │
-              ┌────────────────────────────┴────────────────────────────┐
-              │             AFRICA'S TALKING VOICE GATEWAY              │
-              │          Inbound Phone Number: +233 30 804 8098         │
-              └────────────────────────────▲────────────────────────────┘
-                                           │
-                                 Standard Cellular Call
-                                 (PSTN / 2G / 3G / 4G)
-                                           │
-                                  📞 CITIZEN HANDSET
-                             Any Feature Phone or Smartphone
-```
+| System Component | Status | Implementation Details |
+|---|:---:|---|
+| **Dynamic Safe Confirmation** | ✅ **Implemented** | Generates dynamic VoiceXML readback speaking caller's exact entered Cedis, Pesewas, verified recipient name, or explicit unverified warning with extra confirmation gate. |
+| **Recipient KYC Resolution** | ✅ **Implemented** | Modular `RecipientResolver` interface with isolated sandbox fixtures (`src/demo/`) and live MTN MoMo Basic User Info adapter when credentials exist. |
+| **Zero-PIN Handset Handoff** | ✅ **Implemented** | IVR never prompts or captures PINs. Out-of-band RequestToPay pushed to handset with explicit idempotent state machine (`INITIATED` → `COMPLETED`). |
+| **Bilingual Language Isolation** | ✅ **Implemented** | Strict separation between English and Akan Twi tracks. Replay (<kbd>9</kbd>), Back (<kbd>8</kbd>), and Cancel (<kbd>0</kbd>) active across all steps. |
+| **HTTP 206 Audio Streaming** | ✅ **Implemented** | Byte-range partial content streaming with cross-platform `path.resolve` directory traversal protection. |
+| **Speech Recognition & NLU** | ✅ **Implemented** | Telephony `<Record>` callbacks transcribed via Gemini ASR with strict confidence thresholds (≥0.75) and guaranteed DTMF fallback. |
+| **MTN MoMo Collections & Transfers** | 🟡 **Sandbox / Live Ready** | Live sandbox integration active; connects to live production telco gateway upon provisioning production API keys. |
+| **Telecel Cash & AT Money** | 🔵 **Roadmap** | Architecture and interfaces designed in `paymentProvider.ts`; awaiting telco partner API access. |
 
 ---
 
-## 🔀 Strict Language Separation Call Flows
-
-The system strictly enforces complete language isolation. Once a caller chooses their preferred language at the welcome greeting, **no cross-language audio contamination occurs**.
+## 🏗️ System Architecture
 
 ```
-                                  INCOMING CALL
-                                 +233 30 804 8098
-                                        │
-                                        ▼
-                           [ Step 1: Welcome Greeting ]
-                     "For English, press 1. For Twi, press 2."
-                                        │
-                  ┌─────────────────────┴─────────────────────┐
-                  │                                           │
-             PRESS [ 1 ]                                 PRESS [ 2 ]
-                  │                                           │
-                  ▼                                           ▼
-       ═════════════════════                       ═════════════════════
-       ENGLISH TRACK LOCKED                        AKAN TWI TRACK LOCKED
-       (100% English Audios)                       (100% Akan Twi Audios)
-       ═════════════════════                       ═════════════════════
-                  │                                           │
-                  ▼                                           ▼
-       [ Step 2: Service Selection ]               [ Step 2: Network Selection ]
-       "For Telecom MoMo, press 1..."              "Afei select-i wo network..."
-       (Audio_prompt_02.mp3)                       (Audio_prompt_twi_02.mp3)
-                  │                                           │
-                  ▼                                           ▼
-       [ Step 3: Network Selection ]               [ Step 3: Action Menu ]
-       "Select network: 1 MTN..."                  "Sɛ wopɛ sɛ wosend sika..."
-       (Audio_prompt_03.mp3)                       (Audio_prompt_twi_04.mp3)
-                  │                                           │
-                  ▼                                           ▼
-       [ Step 4: Action Menu ]                     [ Step 4: Recipient Entry ]
-       "1: Send Money, 2: Bills..."                "Bɔ nɔmba no a wopɛ... (#)"
-       (Audio_prompt_05.mp3)                       (Audio_prompt_twi_05.mp3)
-                  │                                           │
-                  ▼                                           ▼
-       [ Step 5: Recipient Entry ]                 [ Step 5: KYC Verification ]
-       "Enter 10 digit number + #"                 "Kwame Nyamebre (8464)..."
-       (Audio_prompt_06.mp3)                       (Audio_prompt_twi_06.mp3)
-                  │                                           │
-                  ▼                                           ▼
-       [ Step 6: KYC Verification ]                [ Step 6: Amount Entry ]
-       "Sending to Kwame Nyamebre..."              "Siidi amount a wopɛ... (#)"
-       (Audio_prompt_08.mp3)                       (Audio_prompt_twi_07.mp3)
-                  │                                           │
-                  ▼                                           ▼
-       [ Step 7: Amount Entry ]                    [ Step 7: Safe Confirmation ]
-       "Enter cedi amount + #"                     "500 Cedis kɔ Kwame Nyamebre"
-       (Audio_prompt_09.mp3)                       (Audio_prompt_twi_08.mp3)
-                  │                                           │
-                  ▼                                           ▼
-       [ Step 8: Safe Confirmation ]               [ Step 8: Zero-PIN Handoff ]
-       "Send 500 Cedis to Kwame..."                "Hwɛ wo phone screen so..."
-       (Audio_prompt_10.mp3)                       (Audio_prompt_twi_09.mp3)
-                  │                                           │
-                  ▼                                           ▼
-       [ Step 9: Zero-PIN Handoff ]                [ Step 9: Receipt & Exit ]
-       "Check screen to enter PIN..."              "Congratulations... OKP847291"
-       (Audio_prompt_11.mp3)                       (Audio_prompt_twi_10.mp3)
-                  │                                           │
-                  ▼                                           ▼
-       [ Step 10: Receipt & Exit ]                 [ Complete / End Call ]
-       "500 Cedis successfully sent..."
-       (Audio_prompt_12.mp3)
+                    CITIZEN CELLULAR HANDSET (Feature Phone or Smartphone)
+                                             │
+                                   PSTN / 2G / 3G / 4G Voice Call
+                                             ▼
+                             AFRICA'S TALKING TELEPHONY TRUNK
+                                  (+233 30 804 8098)
+                                             │
+                                HTTP Webhooks / VoiceXML
+                                             ▼
+       ┌────────────────────────────────────────────────────────────────────────┐
+       │                 ƆKWANKYERƐFO PA CORE APPLICATION                       │
+       │                                                                        │
+       │  ┌─────────────────────────┐  ┌─────────────────────────────────────┐  │
+       │  │  Inbound Webhook Router │  │  Webhook Security Guard             │  │
+       │  │  (/voice-menu)          │  │  - SessionID validation             │  │
+       │  └────────────┬────────────┘  │  - Optional shared secret           │  │
+       │               │               └─────────────────────────────────────┘  │
+       │               ▼                                                        │
+       │  ┌─────────────────────────┐  ┌─────────────────────────────────────┐  │
+       │  │ Transaction State Mach. │  │ Recipient KYC Resolver              │  │
+       │  │ (INITIATED → COMPLETED) │  │ - Sandbox fixtures (src/demo/)      │  │
+       │  │ Idempotency Cache       │  │ - MTN MoMo API (live)               │  │
+       │  └────────────┬────────────┘  └─────────────────────────────────────┘  │
+       │               │                                                        │
+       │               ▼                                                        │
+       │  ┌─────────────────────────┐  ┌─────────────────────────────────────┐  │
+       │  │ Dynamic Safe Readback   │  │ Dual-Track Speech / NLU Engine      │  │
+       │  │ - Spoken exact Cedis    │  │ - Gemini ASR (English & Twi)        │  │
+       │  │ - Spoken recipient/warn │  │ - Confidence threshold (≥ 0.75)     │  │
+       │  │ - Unique per-tx Ref     │  │ - Guaranteed DTMF Keypad Fallback   │  │
+       │  └────────────┬────────────┘  └─────────────────────────────────────┘  │
+       │               │                                                        │
+       │               ▼                                                        │
+       │  ┌─────────────────────────┐  ┌─────────────────────────────────────┐  │
+       │  │ Zero-PIN Handoff Gate   │  │ HTTP 206 Streaming Engine           │  │
+       │  │ - Handset screen prompt │  │ - Byte ranges for telco channel     │  │
+       │  │ - Never speaks/logs PIN │  │ - Path traversal protection         │  │
+       │  └────────────┬────────────┘  └─────────────────────────────────────┘  │
+       └───────────────┼────────────────────────────────────────────────────────┘
+                       │
+                       ▼ Out-of-band RequestToPay
+        ┌──────────────────────────────────────────────┐
+        │        MTN MOBILE MONEY PARTNER API          │
+        │   (Dispatches USSD PIN prompt to caller)     │
+        └──────────────────────────────────────────────┘
 ```
 
 ---
 
 ## 🛡️ Core Innovation Pillars
 
-### 1. The "Safe Confirmation" Verification Gate
-In traditional USSD menus, once an amount is entered, users are immediately pushed for a PIN with minimal visual confirmation. Ɔkwankyerɛfo Pa introduces an **audible verification checkpoint**:
-- **Name Resolution**: The system queries the subscriber registry and speaks the recipient's verified legal name.
-- **Amount Readback**: Confirms both the Cedis and Pesewas.
-- **Explicit Consent**: <kbd>1</kbd> to proceed, <kbd>2</kbd> to re-enter, <kbd>0</kbd> to abort.
+### 1. Dynamic Safe Confirmation
+In traditional USSD menus, once an amount is entered, callers are immediately prompted for a PIN without clear auditory feedback. Ɔkwankyerɛfo Pa introduces an **audible verification checkpoint**:
+- **Dynamic Recipient Readback**: Speaks the recipient's verified legal name. If the recipient cannot be verified, an explicit warning is given and extra confirmation is required.
+- **Dynamic Amount Readback**: Speaks the exact Cedis and Pesewas entered by the caller.
+- **Unique Per-Transaction Reference**: Generates a fresh transaction reference and speaks real date/time on completion.
 
-### 2. The Zero-PIN Voice Security Protocol
-*Security Rule:* **Ɔkwankyerɛfo Pa NEVER records, prompts, or transmits a user's secret Mobile Money PIN over the voice audio stream.**
-- Spoken PINs in public transport, markets, or homes expose citizens to eavesdropping, shoulder surfing, and fraudulent call recordings.
+### 2. Zero-PIN Voice Security Gate
+*Security Invariant:* **Ɔkwankyerɛfo Pa NEVER records, prompts, or transmits a user's secret Mobile Money PIN over the voice audio stream.**
+- Spoken PINs in public transport or markets expose citizens to acoustic eavesdropping.
 - Instead, once voice authorization is granted, the IVR server triggers a carrier-grade USSD screen push modal:
   > *"Confirmed. Now, please check your phone's screen and enter your Mobile Money PIN accurately."*
-- Speech recognition is **strictly terminated** during the PIN phase to eliminate acoustic leakage.
+- Speech recognition is strictly terminated during the PIN phase to eliminate acoustic leakage.
 
 ### 3. Universal Voice Interaction Grammar
 A standardized, intuitive keypad grammar is active across all menus:
@@ -163,49 +113,25 @@ A standardized, intuitive keypad grammar is active across all menus:
 
 ---
 
-## 📂 Audio Asset Suite & Inventory
+## 📂 Audio Asset Inventory
 
-The project includes **11 studio audio recordings for English** and **12 studio audio recordings for Akan Twi**, located under `/audio/English/` and `/audio/Twi/`.
+The repository contains **24 recorded studio audio prompts** plus dynamic speech synthesis:
+- **1 Shared Bilingual Welcome Prompt**: `/audio/Welcome_prompt_01.mp3`
+- **11 English Studio Prompts**: `/audio/English/` (`Audio_prompt_02.mp3` through `Audio_prompt_12.mp3`)
+- **12 Akan Twi Studio Prompts**: `/audio/Twi/` (`Audio_prompt_twi_02.mp3` through `Audio_prompt_twi_12.mp3`)
+- **Dynamic TTS Readbacks**: Dynamic VoiceXML `<Say>` prompts synthesized on-the-fly for caller-specific amounts, unverified warnings, references, and timestamps.
 
-### English Suite (`/audio/English/`)
-1. `Welcome_prompt_01.mp3` - Welcome to Ɔkwankyerɛfo Pa & Language Choice
-2. `Audio_prompt_02.mp3` - Telecom MoMo vs Banking Services Selection
-3. `Audio_prompt_03.mp3` - Network Selection (MTN, Telecel, AirtelTigo)
-4. `Audio_prompt_04.mp3` - Network Selection (Alternative repeat menu)
-5. `Audio_prompt_05.mp3` - MTN Main MoMo Services Menu (Send, Pay, Airtime, Cashout, Account)
-6. `Audio_prompt_06.mp3` - Recipient 10-digit Phone Number Entry + Hash
-7. `Audio_prompt_07.mp3` - Phone Number Entry Demo (`0241234567#`)
-8. `Audio_prompt_08.mp3` - Recipient Verification & KYC Name Confirmation
-9. `Audio_prompt_09.mp3` - Amount Entry in Ghana Cedis + Hash
-10. `Audio_prompt_10.mp3` - Safe Confirmation (Send 500 GHS to Kwame Nyamebre)
-11. `Audio_prompt_11.mp3` - Zero-PIN Handoff (Check phone screen for PIN prompt)
-12. `Audio_prompt_12.mp3` - Final Transaction Success Receipt (Reference: OKP847291)
-
-### Akan Twi Suite (`/audio/Twi/`)
-1. `Welcome_prompt_01.mp3` - Welcome & Language Selection (Mia 2 ma Twi)
-2. `Audio_prompt_twi_02.mp3` - Network Selection (MTN, Telecel, AirtelTigo)
-3. `Audio_prompt_twi_03.mp3` - MoMo Action Options (Extended dialect)
-4. `Audio_prompt_twi_04.mp3` - MoMo Services Menu (Send, Bosea, Airtime, Cashout, Account)
-5. `Audio_prompt_twi_05.mp3` - Recipient Phone Number Entry + Hash
-6. `Audio_prompt_twi_06.mp3` - Recipient Verification (Kwame Nyamebre ending in 8464)
-7. `Audio_prompt_twi_07.mp3` - Cedi Amount Entry + Hash (* ma pesewas)
-8. `Audio_prompt_twi_08.mp3` - Safe Confirmation (500 Cedis kɔ Kwame Nyamebre)
-9. `Audio_prompt_twi_09.mp3` - Zero-PIN Screen Prompt Notice
-10. `Audio_prompt_twi_10.mp3` - Transaction Success Receipt (OKP847291)
-11. `Audio_prompt_twi_11.mp3` - Cancellation & Polite Sign-off
-12. `Audio_prompt_twi_12.mp3` - Calibration & Reference Prompt
-
-*See [`IVR_SCRIPT.md`](./IVR_SCRIPT.md) for the full verbatim transcripts, phonetic guides, and system responses.*
+*See [`docs/TWI_REVIEW.md`](./docs/TWI_REVIEW.md) for verbatim Akan transcripts and linguistic dialect notes.*
 
 ---
 
-## 💻 Tech Stack & Standards
+## 💻 Tech Stack
 
-- **Runtime & Backend**: Node.js, Express, TypeScript
+- **Runtime & Backend**: Node.js 22, Express, TypeScript
 - **Telephony & IVR Gateway**: Africa's Talking Voice API (VoiceXML / HTTP Callbacks)
-- **Audio Streaming Protocol**: HTTP 206 Byte-Range streaming (`Accept-Ranges: bytes`) for smooth playback on cellular channels
-- **Speech Recognition**: Dual-track Web Speech API with Echo Cancellation (`echoCancellation: true`) & Noise Suppression
-- **Frontend & Simulator**: Responsive HTML5, CSS3, Vanilla JavaScript with interactive handset emulator and live VoiceXML inspector
+- **Speech Recognition**: Google Gemini API (`@google/genai`) for spoken English and Akan Twi ASR
+- **Security & Integrity**: Helmet, rate-limiting, PII redaction, path-traversal protection, and state machine idempotency
+- **Testing**: Vitest, Supertest (119 automated unit, integration, and security tests)
 
 ---
 
@@ -214,64 +140,52 @@ The project includes **11 studio audio recordings for English** and **12 studio 
 ### 1. Installation
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/okwankyer-fo-pa.git
-cd okwankyer-fo-pa
+git clone https://github.com/H6266/Okwankyer_fo_Pa.git
+cd Okwankyer_fo_Pa
 
 # Install dependencies
 npm install
 ```
 
-### 2. Configure Environment Variables
+### 2. Environment Configuration
 Copy `.env.example` to `.env`:
 ```bash
 cp .env.example .env
 ```
-Populate the variables:
+Populate the configuration:
 ```env
-AT_USERNAME=sandbox
-AT_API_KEY=atsk_your_africas_talking_key_here
-AT_VOICE_NUMBER=+233308048098
-BASE_URL=https://your-domain.ngrok-free.app
 PORT=3000
+NODE_ENV=development
+BASE_URL=http://localhost:3000
+DEMO_MODE=true
+ADMIN_TOKEN=your_secure_admin_token_here
+CORS_ORIGINS=*
+AT_USERNAME=sandbox
+AT_API_KEY=atsk_your_key_here
+AT_VOICE_NUMBER=+233308048098
+GEMINI_API_KEY=your_gemini_api_key_here
+MOMO_SUBSCRIPTION_KEY=your_momo_subscription_key
+MOMO_API_USER_ID=your_momo_user_id
+MOMO_API_KEY=your_momo_api_key
+MOMO_TARGET_ENV=sandbox
+MOMO_CURRENCY=GHS
 ```
 
-### 3. Run the Development Server
+### 3. Run Development Server
 ```bash
 npm run dev
 ```
-Open your browser to `http://localhost:3000` to interact with the **Ghana MoMo Handset Simulator**.
 
----
-
-## 🧪 Testing the Simulator
-
-1. Click **"Place New Call"** on the simulated handset.
-2. The welcome audio begins playing: *"Welcome to Okwanchofapa... For English, press 1. For Twi, press 2."*
-3. **To test English**: Press <kbd>1</kbd>.
-   - Step through Service Menu (<kbd>1</kbd>), Network (<kbd>1</kbd>), MoMo Menu (<kbd>1</kbd>), Recipient (`0553838464#`), KYC Confirmation (<kbd>1</kbd>), Amount (`500#`), and Safe Confirmation (<kbd>1</kbd>).
-   - Verify that **only English audio files** are loaded and played.
-4. **To test Akan Twi**: Click "Place New Call" and press <kbd>2</kbd>.
-   - Step through Network (<kbd>1</kbd>), MoMo Menu (<kbd>1</kbd>), Recipient (`0553838464#`), KYC Confirmation (<kbd>1</kbd>), Amount (`500#`), and Safe Confirmation (<kbd>1</kbd>).
-   - Verify that **only Akan Twi audio files** are loaded and played.
-5. In the handset display, notice:
-   - **🎵 Playing**: Displays the exact audio file path being streamed.
-   - **Live VoiceXML**: Displays the dynamic Africa's Talking XML generated for the current step.
-   - **Zero-PIN Card**: Appears upon confirmation, prompting the user to enter their secret PIN securely on their screen.
+### 4. Run Test Suite
+```bash
+npm test
+```
 
 ---
 
 ## 🌐 Production Deployment (Render)
 
-This repository is configured for one-click deployment via `render.yaml`:
-1. Push changes to GitHub.
-2. Connect your repository to [Render](https://render.com).
-3. Render automatically reads `render.yaml`:
-   - **Build Command**: `npm install && npm run build`
-   - **Start Command**: `npm start`
-4. Set the **Callback URL** in the Africa's Talking Dashboard under **Voice ➔ Phone Numbers ➔ `+233 30 804 8098`**:
-   ```
-   https://your-service.onrender.com/voice-menu
-   ```
+This repository is configured for one-click deployment via `render.yaml`. See [`docs/RENDER_RUNBOOK.md`](./docs/RENDER_RUNBOOK.md) for full deployment instructions and Africa's Talking webhook configuration.
 
 ---
 
