@@ -4668,12 +4668,215 @@ app.all("/legacy-console", (req: Request, res: Response) => {
       goToStep('confirm');
     }
 
-    function finishTransaction(confirmed) {
-      if (confirmed) {
-        goToStep('done');
-      } else {
+    async function finishTransaction(confirmed) {
+      if (!confirmed) {
         cancelCall();
+        return;
       }
+
+      const phone = simState.phone;
+      const amount = Number(simState.amount);
+
+      if (!phone || !amount || amount <= 0) {
+        alert('Missing recipient or amount.');
+        return;
+      }
+
+      const isTwi = simState.lang === 'twi';
+
+      document.getElementById('simStepBadge').innerText =
+        'Step 8: Contacting MTN MoMo';
+
+      document.getElementById('simSpokenText').innerHTML = isTwi
+        ? '🗣️ <strong>Yɛregye wo MoMo transfer no ho nsɛm afi MTN hɔ...</strong>'
+        : '🗣️ <strong>Sending the transfer request to MTN MoMo. Please wait...</strong>';
+
+      document.getElementById('simAudioBox').style.display = 'none';
+
+      document.getElementById('simInputArea').innerHTML = \`
+        <div style="text-align:center;">
+          <div style="font-size:28px;">⏳</div>
+          <p>Contacting MTN MoMo...</p>
+          <p style="font-size:12px;color:var(--muted);">
+            Waiting for MTN to process the transaction.
+          </p>
+        </div>
+      \`;
+
+      try {
+        const response = await fetch('/api/momo/transfer', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            amount,
+            payeePhone: phone,
+            payeeName: simState.name,
+            payerMessage: 'Transfer via Okwankyerɛfo Pa',
+            payeeNote: 'Voice Transfer'
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success || !data.transaction) {
+          throw new Error(data.error || 'MTN MoMo rejected the transfer request.');
+        }
+
+        const transaction = data.transaction;
+        const referenceId = transaction.referenceId;
+
+        if (!referenceId) {
+          throw new Error('MTN accepted the request but no transaction reference was returned.');
+        }
+
+        pollMomoTransaction(referenceId);
+
+      } catch (error) {
+        showMomoFailure(error.message || 'The MoMo transaction could not be started.');
+      }
+    }
+
+    async function pollMomoTransaction(referenceId) {
+      let attempts = 0;
+      const maxAttempts = 30;
+
+      const poll = async () => {
+        attempts++;
+
+        try {
+          const response = await fetch(
+            '/api/momo/transfer/' + encodeURIComponent(referenceId)
+          );
+
+          const data = await response.json();
+
+          if (!response.ok || !data.success || !data.transaction) {
+            throw new Error(
+              data.error || 'Unable to retrieve transaction status.'
+            );
+          }
+
+          const tx = data.transaction;
+
+          console.log('[MoMo Simulator]', tx);
+
+          if (tx.status === 'SUCCESSFUL') {
+            showMomoSuccess(tx);
+            return;
+          }
+
+          if (
+            tx.status === 'FAILED' ||
+            tx.status === 'REJECTED' ||
+            tx.status === 'TIMEOUT'
+          ) {
+            showMomoFailure(
+              tx.reason || 'MTN MoMo reported that the transaction failed.'
+            );
+            return;
+          }
+
+          if (attempts >= maxAttempts) {
+            showMomoPending(tx);
+            return;
+          }
+
+          setTimeout(poll, 2000);
+
+        } catch (error) {
+          showMomoFailure(
+            error.message || 'Unable to check the MTN MoMo transaction.'
+          );
+        }
+      };
+
+      await poll();
+    }
+
+    function showMomoSuccess(tx) {
+      const isTwi = simState.lang === 'twi';
+
+      document.getElementById('simStepBadge').innerText =
+        'Step 9: MTN MoMo Transaction Successful';
+
+      document.getElementById('simSpokenText').innerHTML = isTwi
+        ? '✅ <strong>MoMo transfer no ayɛ yie. Yɛde ' +
+          simState.amount +
+          ' kɔmaa ' +
+          simState.name +
+          '.</strong>'
+        : '✅ <strong>MTN MoMo confirms the transfer was successful. ' +
+          simState.amount +
+          ' has been sent to ' +
+          simState.name +
+          '.</strong>';
+
+      document.getElementById('simAudioBox').style.display = 'none';
+
+      document.getElementById('simInputArea').innerHTML = \`
+        <div style="text-align:center;">
+          <p style="font-size:14px;color:var(--success);">
+            ✅ MTN MoMo Status: SUCCESSFUL
+          </p>
+          <p style="font-size:12px;color:var(--muted);">
+            Reference: \${tx.referenceId}
+          </p>
+          <p style="font-size:12px;color:var(--muted);">
+            Mode: \${tx.mode}
+          </p>
+          <button class="btn btn-secondary" onclick="startSim()">
+            Restart Flow
+          </button>
+        </div>
+      \`;
+    }
+
+    function showMomoFailure(reason) {
+      document.getElementById('simStepBadge').innerText =
+        'MoMo Transaction Failed';
+
+      document.getElementById('simSpokenText').innerHTML =
+        '❌ <strong>The MTN MoMo transaction was not successful.</strong>';
+
+      document.getElementById('simAudioBox').style.display = 'none';
+
+      document.getElementById('simInputArea').innerHTML = \`
+        <div style="text-align:center;">
+          <p style="color:var(--danger);">
+            ❌ Transaction failed
+          </p>
+          <p style="font-size:12px;color:var(--muted);">
+            \${reason}
+          </p>
+          <button class="btn btn-secondary" onclick="startSim()">
+            Restart Flow
+          </button>
+        </div>
+      \`;
+    }
+
+    function showMomoPending(tx) {
+      document.getElementById('simStepBadge').innerText =
+        'MoMo Transaction Still Processing';
+
+      document.getElementById('simSpokenText').innerHTML =
+        '⏳ <strong>MTN MoMo has accepted the transaction, but the final result is still pending.</strong>';
+
+      document.getElementById('simAudioBox').style.display = 'none';
+
+      document.getElementById('simInputArea').innerHTML = \`
+        <div style="text-align:center;">
+          <p>⏳ Transaction still processing.</p>
+          <p style="font-size:12px;color:var(--muted);">
+            Reference: \${tx.referenceId}
+          </p>
+          <button class="btn btn-secondary" onclick="startSim()">
+            Restart Flow
+          </button>
+        </div>
+      \`;
     }
 
     function cancelCall() {

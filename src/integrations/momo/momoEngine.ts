@@ -515,6 +515,7 @@ export class MoMoEngine {
           amount: amount.toFixed(2),
           currency: this.config.currency,
           externalId: extId,
+          transferType: "CUSTOM_PAYMENT",
           payee: {
             partyIdType: "MSISDN",
             partyId: msisdn,
