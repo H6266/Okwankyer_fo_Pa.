@@ -7,8 +7,15 @@
 
 export type MoMoTargetEnvironment = "sandbox" | "production" | "live";
 export type MoMoProductType = "collection" | "disbursement";
-export type MoMoMode = "LIVE_API" | "SANDBOX_API";
+export type MoMoMode = "LIVE_API" | "SANDBOX_API" | "EMULATOR";
 export type MoMoTransactionStatus = "PENDING" | "SUCCESSFUL" | "FAILED" | "REJECTED" | "TIMEOUT";
+export type MoMoTransactionType =
+  | "COLLECTION_REQUEST_TO_PAY"
+  | "DISBURSEMENT_TRANSFER"
+  | "AIRTIME"
+  | "DATA_BUNDLE"
+  | "BILL_PAYMENT"
+  | "CASH_OUT";
 
 export interface MoMoProductCredentials {
   subscriptionKey?: string;
@@ -29,7 +36,7 @@ export interface MoMoTransactionRecord {
   id: string; // Internal ID or external reference
   referenceId: string; // UUID v4 used with MTN MoMo API (X-Reference-Id)
   externalId: string; // e.g. OKP-847291
-  type: "COLLECTION_REQUEST_TO_PAY" | "DISBURSEMENT_TRANSFER";
+  type: MoMoTransactionType;
   status: MoMoTransactionStatus;
   amount: number;
   currency: string;
@@ -42,6 +49,10 @@ export interface MoMoTransactionRecord {
   updatedAt: string;
   reason?: string;
   rawPayload?: any;
+  network?: string;
+  biller?: string;
+  accountNumber?: string;
+  bundle?: string;
 }
 
 export interface RequestToPayParams {
@@ -59,6 +70,38 @@ export interface TransferParams {
   payeeName?: string;
   payerMessage?: string;
   payeeNote?: string;
+  externalId?: string;
+}
+
+export interface BuyAirtimeParams {
+  phone: string;
+  amount: number;
+  network?: string;
+  payerPhone?: string;
+  externalId?: string;
+}
+
+export interface BuyDataParams {
+  phone: string;
+  bundle: string;
+  amount?: number;
+  network?: string;
+  payerPhone?: string;
+  externalId?: string;
+}
+
+export interface PayBillParams {
+  biller: string;
+  accountNumber: string;
+  amount: number;
+  payerPhone?: string;
+  externalId?: string;
+}
+
+export interface CashOutParams {
+  amount: number;
+  phone?: string;
+  agentNumber?: string;
   externalId?: string;
 }
 
@@ -115,7 +158,7 @@ export interface RealAccountTestResult {
 }
 
 export interface MoMoDiagnostics {
-  activeMode: "LIVE_PRODUCTION" | "SANDBOX_API" | "NOT_CONFIGURED";
+  activeMode: "LIVE_PRODUCTION" | "SANDBOX_API" | "EMULATOR" | "NOT_CONFIGURED";
   targetEnvironment: "sandbox" | "production";
   baseUrl: string;
   currency: string;

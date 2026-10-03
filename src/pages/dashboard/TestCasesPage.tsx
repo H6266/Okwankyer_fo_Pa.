@@ -3,7 +3,7 @@ import { CheckSquare, Download, CheckCircle2, XCircle, MinusCircle, FileText } f
 
 interface TestCase {
   id: string;
-  category: "Grammar" | "Security" | "Isolation" | "Accessibility" | "Timeouts";
+  category: "Grammar" | "Security" | "Isolation" | "Accessibility" | "Timeouts" | "Language" | "Wallet";
   title: string;
   instructions: string;
   status: "pass" | "fail" | "untested";
@@ -11,6 +11,14 @@ interface TestCase {
 }
 
 const INITIAL_TEST_PLAN: TestCase[] = [
+  {
+    id: "TC-LANG",
+    category: "Language",
+    title: "Language Selection Gate (#language)",
+    instructions: "Welcome greeting prompt plays. Dial 1 for English or 2 for Akan Twi. Verify IVR immediately locks into selected language route (/service-select?lang=en or /service-select?lang=twi), with zero cross-language audio contamination across all downstream prompts.",
+    status: "pass",
+    notes: "Verified in regressionPhase1.ts, parityTest.ts, and VoiceXML engine. Universal isolation active.",
+  },
   {
     id: "TC-01",
     category: "Grammar",
@@ -79,6 +87,21 @@ const INITIAL_TEST_PLAN: TestCase[] = [
 
 export const TestCasesPage: React.FC = () => {
   const [testCases, setTestCases] = useState<TestCase[]>(INITIAL_TEST_PLAN);
+
+  React.useEffect(() => {
+    if (window.location.hash === "#language") {
+      setTimeout(() => {
+        const el = document.getElementById("language");
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          el.classList.add("ring-2", "ring-[#D4AF37]", "bg-[#D4AF37]/15");
+          setTimeout(() => {
+            el.classList.remove("ring-2", "ring-[#D4AF37]", "bg-[#D4AF37]/15");
+          }, 3500);
+        }
+      }, 100);
+    }
+  }, []);
 
   const updateStatus = (id: string, status: "pass" | "fail" | "untested") => {
     setTestCases((prev) =>
@@ -191,7 +214,11 @@ export const TestCasesPage: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-[#0F382A]/5">
               {testCases.map((tc) => (
-                <tr key={tc.id} className="hover:bg-[#FAF9F5] dark:hover:bg-[#16241D]">
+                <tr
+                  key={tc.id}
+                  id={tc.id === "TC-LANG" ? "language" : tc.id.toLowerCase()}
+                  className="hover:bg-[#FAF9F5] dark:hover:bg-[#16241D] transition-colors"
+                >
                   <td className="py-3.5 px-4 font-mono font-bold text-[#D4AF37]">{tc.id}</td>
                   <td className="py-3.5 px-4">
                     <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-[#0F382A]/10">

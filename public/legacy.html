@@ -1272,7 +1272,7 @@ async function uploadAudio(filePath, filename, phraseId) {
           <div>
             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
               <span class="badge" style="background: #d99e1f; color: #16211a; font-weight: 800;">ACTIVE MOMO API READY</span>
-              <span class="badge" id="badgeActiveKey" style="background: #10b981; color: #fff; font-weight: 700;">Primary Key (251831ea...)</span>
+              <span class="badge" id="badgeActiveKey" style="background: #10b981; color: #fff; font-weight: 700;">Primary Key (Active)</span>
               <span class="badge" id="badgeActiveEnv" style="background: #0284c7; color: #fff; font-weight: 700;">MTN Sandbox API (Connected)</span>
             </div>
             <h3 class="panel-title" style="font-size: 18.5px; color: var(--ink);">
@@ -1383,39 +1383,38 @@ async function uploadAudio(filePath, filename, phraseId) {
 
           <!-- Right: Interactive Handset Overlay Simulator -->
           <div>
-            <div style="background: #0b131e; border: 2px solid #334155; border-radius: 12px; padding: 16px; color: #f8fafc; position: relative; min-height: 250px; display: flex; flex-direction: column; justify-content: space-between;">
+            <div style="background: var(--surface); border: 2px solid var(--green-700); border-radius: 12px; padding: 16px; color: var(--ink); position: relative; min-height: 250px; display: flex; flex-direction: column; justify-content: space-between;">
               <!-- Phone Status Header -->
-              <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">
-                <div style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #94a3b8;">
+              <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 8px;">
+                <div style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--green-700); font-weight: 700;">
                   <span>📶 MTN Ghana</span>
-                  <span style="font-weight: 700; color: #38bdf8;">4G LTE</span>
+                  <span style="font-weight: 700; color: var(--green-600);">4G LTE</span>
                 </div>
-                <div style="font-size: 11.5px; font-family: monospace; color: #94a3b8;" id="realMomoClock">13:00</div>
+                <div style="font-size: 11.5px; font-family: monospace; color: var(--ink-muted);" id="realMomoClock">13:00</div>
               </div>
 
               <!-- Handset Screen Alert Dialog -->
-              <div id="handsetPromptCard" style="background: #1e293b; border: 1px solid #475569; border-radius: 8px; padding: 14px; margin: 12px 0; box-shadow: 0 8px 24px rgba(0,0,0,0.4);">
+              <div id="handsetPromptCard" style="background: var(--surface-sunken); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin: 12px 0;">
                 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                  <span style="font-size: 16px;">📲</span>
-                  <strong style="color: #fbbf24; font-size: 13px;">MTN Mobile Money Ghana</strong>
-                  <span id="handsetPromptBadge" class="badge" style="background: #f59e0b; color: #000; font-size: 9px; margin-left: auto;">AWAITING PIN</span>
+                  <strong style="color: var(--green-800); font-size: 13px;">MTN Mobile Money Ghana</strong>
+                  <span id="handsetPromptBadge" class="badge" style="background: var(--green-100); color: var(--green-900); font-size: 9px; margin-left: auto;">AWAITING PIN</span>
                 </div>
-                <p id="handsetPromptText" style="font-size: 12.5px; line-height: 1.4; color: #e2e8f0; margin: 0 0 10px 0;">
+                <p id="handsetPromptText" style="font-size: 12.5px; line-height: 1.4; color: var(--ink); margin: 0 0 10px 0;">
                   Authorize payment of <strong>GH₵ 5.00</strong> to <strong>ƆKWANKYERƐFO PA</strong> (Ref: OKP-847291)?
                 </p>
-                <div style="background: #0f172a; padding: 8px 10px; border-radius: 6px; border: 1px solid #334155; font-family: monospace; font-size: 13px; color: #38bdf8; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <div style="background: var(--surface); padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); font-family: monospace; font-size: 13px; color: var(--green-800); display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                   <span>Enter MoMo PIN:</span>
                   <span id="handsetPinDisplay" style="letter-spacing: 4px; font-weight: 700;">● ● ● ●</span>
                 </div>
-                <div style="font-size: 12px; color: #64748b;">
+                <div style="font-size: 12px; color: var(--ink-secondary);">
                   Approve or reject the request on the subscriber's handset. MTN MoMo supplies the transaction status.
                 </div>
               </div>
 
               <!-- Footer info -->
-              <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #64748b;">
+              <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--ink-muted);">
                 <span id="handsetRefDisplay">Ref: Awaiting Dispatch</span>
-                <span id="handsetSyncStatus" style="color: #10b981; font-weight: 700;">Auto-Sync Active (SSE)</span>
+                <span id="handsetSyncStatus" style="color: var(--green-700); font-weight: 700;">Auto-Sync Active (SSE)</span>
               </div>
             </div>
           </div>

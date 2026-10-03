@@ -5119,7 +5119,7 @@
         const badgeKey = document.getElementById('badgeActiveKey');
         if (badgeKey) {
           const isPrimary = data.activeKeyType === 'primary';
-          badgeKey.innerText = isPrimary ? 'Primary Key (251831ea...)' : data.activeKeyType === 'secondary' ? 'Secondary Key (4ed7eac0...)' : 'Custom Key Active';
+          badgeKey.innerText = isPrimary ? 'Primary Key (Active)' : data.activeKeyType === 'secondary' ? 'Secondary Key (Active)' : 'Custom Key Active';
           badgeKey.style.background = isPrimary ? '#10b981' : '#8b5cf6';
         }
 
@@ -5440,11 +5440,258 @@
     }
   };
 
+  const walletTester = {
+    async runAllTests() {
+      const btn = document.getElementById('btnRunAllWalletTests');
+      const resContainer = document.getElementById('runAllResults');
+      const tableBody = document.getElementById('allTestsTableBody');
+      if (btn) btn.disabled = true;
+      if (resContainer) resContainer.style.display = 'block';
+      if (tableBody) tableBody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:12px; color:var(--ink-muted);">Running suite...</td></tr>';
+      try {
+        const res = await fetch('/api/momo/test-all', { method: 'POST' });
+        const data = await res.json();
+        if (tableBody && data.results) {
+          tableBody.innerHTML = data.results.map(r => `
+            <tr>
+              <td style="font-weight:600;">${r.functionName}</td>
+              <td style="color:${r.passed ? 'var(--green-700)' : 'var(--danger-accent)'}; font-weight:700;">${r.passed ? 'PASS' : 'FAIL'}</td>
+              <td>${r.mode || '-'}</td>
+              <td style="font-family:var(--font-mono); font-size:12px;">${r.reference || '-'}</td>
+              <td style="font-size:12px; color:var(--ink-secondary);">${r.details || ''}</td>
+            </tr>
+          `).join('');
+        }
+        await walletTester.checkBalance();
+        await walletTester.refreshLedger();
+      } catch (err) {
+        if (tableBody) tableBody.innerHTML = `<tr><td colspan="5" style="color:var(--danger-accent);">Error: ${err.message}</td></tr>`;
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    },
+
+    async sendMoney() {
+      const phone = document.getElementById('sendMoneyPhone')?.value.trim();
+      const name = document.getElementById('sendMoneyName')?.value.trim();
+      const amount = parseFloat(document.getElementById('sendMoneyAmount')?.value);
+      const out = document.getElementById('sendMoneyResult');
+      if (out) out.innerText = 'Processing transfer...';
+      try {
+        const res = await fetch('/api/momo/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recipient_phone: phone, recipient_name: name, amount })
+        });
+        const data = await res.json();
+        if (out) {
+          if (data.success && data.transaction) {
+            const tx = data.transaction;
+            out.innerHTML = `Status: <strong>${tx.status}</strong> | Ref: <span style="font-family:var(--font-mono);">${tx.reference}</span> | Mode: <strong>${tx.momoDetails?.mode || 'EMULATOR'}</strong><br><span style="font-size:12px; color:var(--ink-secondary);">${tx.message}</span>`;
+            walletTester.updateHandsetOverlay(tx.reference, tx.amount, tx.recipient_name);
+          } else {
+            out.innerHTML = `<span style="color:var(--danger-accent);">${data.error || 'Failed'}</span>`;
+          }
+        }
+        await walletTester.checkBalance();
+        await walletTester.refreshLedger();
+      } catch (err) {
+        if (out) out.innerHTML = `<span style="color:var(--danger-accent);">${err.message}</span>`;
+      }
+    },
+
+    async checkBalance() {
+      const out = document.getElementById('balanceResult');
+      try {
+        const res = await fetch('/api/momo/balance');
+        const data = await res.json();
+        if (out && data.success) {
+          out.innerHTML = `Balance: <strong>${data.balance.formatted}</strong> | Currency: <strong>${data.balance.currency}</strong> | Mode: <strong>${data.balance.mode}</strong>`;
+        }
+      } catch (err) {
+        if (out) out.innerText = err.message;
+      }
+    },
+
+    async buyAirtime() {
+      const phone = document.getElementById('airtimePhone')?.value.trim();
+      const amount = parseFloat(document.getElementById('airtimeAmount')?.value);
+      const network = document.getElementById('airtimeNetwork')?.value;
+      const out = document.getElementById('airtimeResult');
+      if (out) out.innerText = 'Processing airtime purchase...';
+      try {
+        const res = await fetch('/api/momo/airtime', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone, amount, network })
+        });
+        const data = await res.json();
+        if (out) {
+          if (data.success && data.transaction) {
+            const tx = data.transaction;
+            out.innerHTML = `Status: <strong>${tx.status}</strong> | Ref: <span style="font-family:var(--font-mono);">${tx.reference}</span> | Mode: <strong>${tx.momoDetails?.mode || 'EMULATOR'}</strong><br><span style="font-size:12px; color:var(--ink-secondary);">${tx.message}</span>`;
+          } else {
+            out.innerHTML = `<span style="color:var(--danger-accent);">${data.error || 'Failed'}</span>`;
+          }
+        }
+        await walletTester.checkBalance();
+        await walletTester.refreshLedger();
+      } catch (err) {
+        if (out) out.innerHTML = `<span style="color:var(--danger-accent);">${err.message}</span>`;
+      }
+    },
+
+    async buyData() {
+      const phone = document.getElementById('dataPhone')?.value.trim();
+      const bundle = document.getElementById('dataBundle')?.value;
+      const network = document.getElementById('dataNetwork')?.value;
+      const out = document.getElementById('dataResult');
+      if (out) out.innerText = 'Processing data bundle purchase...';
+      try {
+        const res = await fetch('/api/momo/data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone, bundle, network })
+        });
+        const data = await res.json();
+        if (out) {
+          if (data.success && data.transaction) {
+            const tx = data.transaction;
+            out.innerHTML = `Status: <strong>${tx.status}</strong> | Ref: <span style="font-family:var(--font-mono);">${tx.reference}</span> | Mode: <strong>${tx.momoDetails?.mode || 'EMULATOR'}</strong><br><span style="font-size:12px; color:var(--ink-secondary);">${tx.message}</span>`;
+          } else {
+            out.innerHTML = `<span style="color:var(--danger-accent);">${data.error || 'Failed'}</span>`;
+          }
+        }
+        await walletTester.checkBalance();
+        await walletTester.refreshLedger();
+      } catch (err) {
+        if (out) out.innerHTML = `<span style="color:var(--danger-accent);">${err.message}</span>`;
+      }
+    },
+
+    async payBill() {
+      const biller = document.getElementById('billerName')?.value;
+      const accountNumber = document.getElementById('billerAccount')?.value.trim();
+      const amount = parseFloat(document.getElementById('billerAmount')?.value);
+      const out = document.getElementById('billsResult');
+      if (out) out.innerText = 'Processing bill payment...';
+      try {
+        const res = await fetch('/api/momo/bills', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ biller, accountNumber, amount })
+        });
+        const data = await res.json();
+        if (out) {
+          if (data.success && data.transaction) {
+            const tx = data.transaction;
+            out.innerHTML = `Status: <strong>${tx.status}</strong> | Ref: <span style="font-family:var(--font-mono);">${tx.reference}</span> | Mode: <strong>${tx.momoDetails?.mode || 'EMULATOR'}</strong><br><span style="font-size:12px; color:var(--ink-secondary);">${tx.message}</span>`;
+          } else {
+            out.innerHTML = `<span style="color:var(--danger-accent);">${data.error || 'Failed'}</span>`;
+          }
+        }
+        await walletTester.checkBalance();
+        await walletTester.refreshLedger();
+      } catch (err) {
+        if (out) out.innerHTML = `<span style="color:var(--danger-accent);">${err.message}</span>`;
+      }
+    },
+
+    async cashOut() {
+      const phone = document.getElementById('cashOutPhone')?.value.trim();
+      const amount = parseFloat(document.getElementById('cashOutAmount')?.value);
+      const out = document.getElementById('cashOutResult');
+      if (out) out.innerText = 'Authorizing cash out...';
+      try {
+        const res = await fetch('/api/momo/cashout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone, amount })
+        });
+        const data = await res.json();
+        if (out) {
+          if (data.success && data.transaction) {
+            const tx = data.transaction;
+            out.innerHTML = `Status: <strong>${tx.status}</strong> | Ref: <span style="font-family:var(--font-mono);">${tx.reference}</span> | Mode: <strong>${tx.momoDetails?.mode || 'EMULATOR'}</strong><br><span style="font-size:12px; color:var(--ink-secondary);">${tx.message}</span>`;
+          } else {
+            out.innerHTML = `<span style="color:var(--danger-accent);">${data.error || 'Failed'}</span>`;
+          }
+        }
+        await walletTester.checkBalance();
+        await walletTester.refreshLedger();
+      } catch (err) {
+        if (out) out.innerHTML = `<span style="color:var(--danger-accent);">${err.message}</span>`;
+      }
+    },
+
+    async lookupKyc() {
+      const phone = document.getElementById('kycPhone')?.value.trim();
+      const out = document.getElementById('kycResult');
+      if (out) out.innerText = 'Looking up subscriber...';
+      try {
+        const res = await fetch(`/api/momo/account/holder/${encodeURIComponent(phone)}`);
+        const data = await res.json();
+        if (out) {
+          if (data.success && data.accountHolder) {
+            const holder = data.accountHolder;
+            out.innerHTML = `Subscriber: <strong>${holder.name || 'Verified Customer'}</strong> | Status: <strong>${holder.isActive ? 'ACTIVE' : 'INACTIVE'}</strong> | MSISDN: <span style="font-family:var(--font-mono);">${holder.msisdn}</span> | Mode: <strong>${holder.mode}</strong>`;
+          } else {
+            out.innerHTML = `<span style="color:var(--danger-accent);">${data.error || 'Subscriber not found'}</span>`;
+          }
+        }
+      } catch (err) {
+        if (out) out.innerHTML = `<span style="color:var(--danger-accent);">${err.message}</span>`;
+      }
+    },
+
+    async refreshLedger() {
+      const tableBody = document.getElementById('ledgerTableBody');
+      try {
+        const res = await fetch('/api/momo/transactions');
+        const data = await res.json();
+        if (tableBody && data.success && Array.isArray(data.transactions)) {
+          if (data.transactions.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:12px; color:var(--ink-muted);">No records in ledger</td></tr>';
+            return;
+          }
+          tableBody.innerHTML = data.transactions.slice(0, 15).map(tx => `
+            <tr>
+              <td style="font-family:var(--font-mono); font-size:12px;">${tx.externalId || tx.id || tx.referenceId}</td>
+              <td style="font-size:12px;">${tx.type}</td>
+              <td style="font-weight:600;">${tx.currency} ${Number(tx.amount).toFixed(2)}</td>
+              <td style="color:${tx.status === 'SUCCESSFUL' ? 'var(--green-700)' : 'var(--ink-secondary)'}; font-weight:700; font-size:12px;">${tx.status}</td>
+              <td style="font-size:12px;">${tx.mode}</td>
+              <td style="font-size:11px; color:var(--ink-muted);">${tx.createdAt ? new Date(tx.createdAt).toLocaleTimeString('en-GB') : '-'}</td>
+            </tr>
+          `).join('');
+        }
+      } catch (err) {
+        console.warn('Ledger refresh notice:', err);
+      }
+    },
+
+    updateHandsetOverlay(ref, amount, name) {
+      const text = document.getElementById('handsetPromptText');
+      const refEl = document.getElementById('handsetRefDisplay');
+      if (text) {
+        text.innerHTML = `Authorize payment of <strong>GH₵ ${Number(amount).toFixed(2)}</strong> to <strong>${name || 'ƆKWANKYERƐFO PA'}</strong> (Ref: ${ref})?`;
+      }
+      if (refEl) {
+        refEl.innerText = `Ref: ${ref}`;
+      }
+    }
+  };
+
   // Expose to window for inline event handlers
   window.app = app;
+  window.walletTester = walletTester;
 
   // Run upon DOM ready
   document.addEventListener('DOMContentLoaded', () => {
     app.init();
+    if (document.getElementById('balanceResult')) {
+      walletTester.checkBalance();
+      walletTester.refreshLedger();
+    }
   });
 })();

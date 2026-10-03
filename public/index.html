@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MTN MoMo Wallet Tester</title>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    body {
+      background: var(--canvas);
+      color: var(--ink);
+      font-family: var(--font-sans);
+      margin: 0;
+      padding: 16px;
+    }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    .header-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .page-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--ink);
+      margin: 0;
+    }
+    .status-pill {
+      font-size: 13px;
+      color: var(--green-700);
+      font-weight: 600;
+    }
+    .panel-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+    .card-title {
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      color: var(--ink);
+    }
+    .form-grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .form-grid-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+    }
+    @media (max-width: 640px) {
+      .form-grid-2, .form-grid-3 {
+        grid-template-columns: 1fr;
+      }
+    }
+    .form-group {
+      margin-bottom: 12px;
+    }
+    .form-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink-secondary);
+      margin-bottom: 6px;
+    }
+    .form-input, .form-select {
+      width: 100%;
+      padding: 8px 10px;
+      font-size: 13px;
+      color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      outline: none;
+      box-sizing: border-box;
+    }
+    .form-input:focus, .form-select:focus {
+      border-color: var(--green-600);
+    }
+    .result-box {
+      margin-top: 10px;
+      padding: 10px 12px;
+      font-size: 13px;
+      background: var(--surface-sunken);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--ink);
+      line-height: 1.5;
+    }
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .data-table th, .data-table td {
+      padding: 8px 10px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    .data-table th {
+      background: var(--surface-sunken);
+      font-weight: 600;
+      color: var(--ink-secondary);
+    }
+    /* Restyled Handset Mock in White & Green */
+    .handset-mock {
+      background: var(--surface);
+      border: 2px solid var(--green-700);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      margin-top: 8px;
+    }
+    .handset-header {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--green-700);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 6px;
+      margin-bottom: 10px;
+    }
+    .handset-body {
+      font-size: 13px;
+      line-height: 1.4;
+      color: var(--ink);
+      margin-bottom: 10px;
+    }
+    .handset-pin-indicator {
+      background: var(--surface-sunken);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      font-size: 12px;
+      font-family: var(--font-mono);
+      color: var(--green-800);
+    }
+    .handset-footer {
+      font-size: 11px;
+      color: var(--ink-muted);
+      margin-top: 8px;
+    }
+  </style>
+  <script>
+    if (window.location.hash === '#language') {
+      window.location.replace('/dashboard/tests#language');
+    }
+  </script>
+</head>
+<body>
+  <div class="container">
+    <!-- Top Reroute to Dashboard & Language Test Case Banner -->
+    <div style="background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--green-700); padding: 12px 16px; border-radius: var(--radius-sm); margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+      <div>
+        <div style="font-size: 13px; font-weight: 700; color: var(--ink);">
+          Dashboard &amp; Language Test Case (#language)
+        </div>
+        <div style="font-size: 11.5px; color: var(--ink-secondary);">
+          View the test suite matrix, live call simulator, and dual-language IVR verification in the Dashboard.
+        </div>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <a href="/dashboard/tests#language" class="btn btn-sm btn-primary" style="text-decoration: none;">
+          View #language in Dashboard &rarr;
+        </a>
+        <a href="/dashboard/api" class="btn btn-sm btn-outline" style="text-decoration: none;">
+          Dashboard MoMo Suite
+        </a>
+      </div>
+    </div>
+
+    <div class="header-bar">
+      <div>
+        <h1 class="page-title">MTN MoMo Open API Tester</h1>
+      </div>
+      <div class="status-pill">
+        Single Ledger Active
+      </div>
+    </div>
+
+    <!-- Section 0: Run All Wallet Tests -->
+    <div class="panel-card">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+        <h2 class="card-title" style="margin: 0;">Automated Test Suite</h2>
+        <button id="btnRunAllWalletTests" class="btn btn-primary" onclick="window.walletTester.runAllTests()">
+          Run all wallet tests
+        </button>
+      </div>
+      <div id="runAllResults" style="display: none; margin-top: 14px;">
+        <div style="overflow-x: auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Function</th>
+                <th>Status</th>
+                <th>Mode</th>
+                <th>Reference</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody id="allTestsTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 1: Check Balance -->
+    <div class="panel-card">
+      <h2 class="card-title">Check Balance</h2>
+      <button class="btn btn-outline" onclick="window.walletTester.checkBalance()">
+        Check balance
+      </button>
+      <div id="balanceResult" class="result-box">
+        Balance not checked yet.
+      </div>
+    </div>
+
+    <!-- Section 2: Send Money -->
+    <div class="panel-card">
+      <h2 class="card-title">Send Money</h2>
+      <div class="form-grid-3">
+        <div class="form-group">
+          <label class="form-label" for="sendMoneyPhone">Recipient Phone</label>
+          <input type="text" id="sendMoneyPhone" class="form-input" value="0553838464">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="sendMoneyName">Recipient Name</label>
+          <input type="text" id="sendMoneyName" class="form-input" value="Kwame Nyamebere">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="sendMoneyAmount">Amount (GH₵)</label>
+          <input type="number" id="sendMoneyAmount" class="form-input" value="15.00" min="1" step="0.5">
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="window.walletTester.sendMoney()">
+        Send money
+      </button>
+      <div id="sendMoneyResult" class="result-box">
+        Ready to test transfer.
+      </div>
+    </div>
+
+    <!-- Section 3: Buy Airtime -->
+    <div class="panel-card">
+      <h2 class="card-title">Buy Airtime</h2>
+      <div class="form-grid-3">
+        <div class="form-group">
+          <label class="form-label" for="airtimePhone">Phone Number</label>
+          <input type="text" id="airtimePhone" class="form-input" value="0553838464">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="airtimeAmount">Amount (GH₵)</label>
+          <input type="number" id="airtimeAmount" class="form-input" value="5.00" min="1">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="airtimeNetwork">Network</label>
+          <select id="airtimeNetwork" class="form-select">
+            <option value="MTN">MTN</option>
+            <option value="Telecel">Telecel</option>
+            <option value="AT">AT</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="window.walletTester.buyAirtime()">
+        Buy airtime
+      </button>
+      <div id="airtimeResult" class="result-box">
+        Ready to test airtime.
+      </div>
+    </div>
+
+    <!-- Section 4: Buy Data Bundle -->
+    <div class="panel-card">
+      <h2 class="card-title">Buy Data Bundle</h2>
+      <div class="form-grid-3">
+        <div class="form-group">
+          <label class="form-label" for="dataPhone">Phone Number</label>
+          <input type="text" id="dataPhone" class="form-input" value="0553838464">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="dataBundle">Package</label>
+          <select id="dataBundle" class="form-select">
+            <option value="1GB">1GB (GH₵ 12.00)</option>
+            <option value="2.5GB">2.5GB (GH₵ 25.00)</option>
+            <option value="5GB">5GB (GH₵ 45.00)</option>
+            <option value="10GB">10GB (GH₵ 80.00)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="dataNetwork">Network</label>
+          <select id="dataNetwork" class="form-select">
+            <option value="MTN">MTN</option>
+            <option value="Telecel">Telecel</option>
+            <option value="AT">AT</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="window.walletTester.buyData()">
+        Buy data
+      </button>
+      <div id="dataResult" class="result-box">
+        Ready to test data bundle.
+      </div>
+    </div>
+
+    <!-- Section 5: Pay Bills -->
+    <div class="panel-card">
+      <h2 class="card-title">Pay Bills</h2>
+      <div class="form-grid-3">
+        <div class="form-group">
+          <label class="form-label" for="billerName">Biller</label>
+          <select id="billerName" class="form-select">
+            <option value="ECG">ECG Electricity</option>
+            <option value="Ghana Water">Ghana Water</option>
+            <option value="DSTV">DSTV</option>
+            <option value="GOTV">GOTV</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="billerAccount">Account Number</label>
+          <input type="text" id="billerAccount" class="form-input" value="ECG-83721">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="billerAmount">Amount (GH₵)</label>
+          <input type="number" id="billerAmount" class="form-input" value="30.00" min="1">
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="window.walletTester.payBill()">
+        Pay bill
+      </button>
+      <div id="billsResult" class="result-box">
+        Ready to test bill payment.
+      </div>
+    </div>
+
+    <!-- Section 6: Cash Out -->
+    <div class="panel-card">
+      <h2 class="card-title">Cash Out</h2>
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label class="form-label" for="cashOutPhone">Subscriber Phone</label>
+          <input type="text" id="cashOutPhone" class="form-input" value="0553838464">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="cashOutAmount">Amount (GH₵)</label>
+          <input type="number" id="cashOutAmount" class="form-input" value="50.00" min="1">
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="window.walletTester.cashOut()">
+        Authorize cash out
+      </button>
+      <div id="cashOutResult" class="result-box">
+        Ready to test cash out.
+      </div>
+    </div>
+
+    <!-- Section 7: Recipient KYC Name Lookup -->
+    <div class="panel-card">
+      <h2 class="card-title">Recipient KYC Lookup</h2>
+      <div class="form-group" style="max-width: 320px;">
+        <label class="form-label" for="kycPhone">Phone Number</label>
+        <input type="text" id="kycPhone" class="form-input" value="0553838464">
+      </div>
+      <button class="btn btn-outline" onclick="window.walletTester.lookupKyc()">
+        Lookup recipient
+      </button>
+      <div id="kycResult" class="result-box">
+        Ready for KYC verification.
+      </div>
+    </div>
+
+    <!-- Section 8: Handset Overlay (Restyled to White & Green) -->
+    <div class="panel-card">
+      <h2 class="card-title">Subscriber Handset Prompt</h2>
+      <div class="handset-mock">
+        <div class="handset-header">
+          MTN Mobile Money Handset Push
+        </div>
+        <div id="handsetPromptText" class="handset-body">
+          Authorize payment of <strong>GH₵ 15.00</strong> to <strong>Kwame Nyamebere</strong> (Ref: OKP-847291)?
+        </div>
+        <div class="handset-pin-indicator">
+          PIN Prompt: Handset Screen Only (Zero-PIN)
+        </div>
+        <div class="handset-footer">
+          <span id="handsetRefDisplay">Ref: OKP-847291</span> | Handset Overlay Synchronized
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 9: Transaction Status & Ledger -->
+    <div class="panel-card">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h2 class="card-title" style="margin: 0;">Transaction Ledger</h2>
+        <button class="btn btn-sm btn-outline" onclick="window.walletTester.refreshLedger()">
+          Refresh ledger
+        </button>
+      </div>
+      <div style="overflow-x: auto;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Reference</th>
+              <th>Type</th>
+              <th>Amount</th>
+              <th>Status</th>
+              <th>Mode</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody id="ledgerTableBody">
+            <tr>
+              <td colspan="6" style="text-align: center; color: var(--ink-muted); padding: 12px;">Loading records...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

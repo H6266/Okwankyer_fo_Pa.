@@ -116,5 +116,61 @@
     "language": "Akan Twi",
     "options": "[phone number]# to specify recipient, 0 to go back",
     "step": "Enter recipient phone number"
+  },
+  "audio/English/Audio_prompt_bills_01.mp3": {
+    "verbatim": "Enter your utility account number or bill reference followed by hash. Press 0 to exit.",
+    "language": "English",
+    "step": "Pay Bills Entry",
+    "recordingStatus": "RECORDING_NEEDED",
+    "flag": "FLAG: Professional recording needed - using phrase bank fallback"
+  },
+  "audio/Twi/Audio_prompt_twi_bills_01.mp3": {
+    "verbatim": "Bɔ w'akaonto nɔmba anaa gye tum krataa nɔmba a hash ka ho. Mia zero na si ha.",
+    "language": "Akan Twi",
+    "step": "Pay Bills Entry Twi",
+    "recordingStatus": "RECORDING_NEEDED",
+    "flag": "FLAG: Professional recording needed - using phrase bank fallback"
+  },
+  "audio/English/Audio_prompt_airtime_01.mp3": {
+    "verbatim": "Enter the mobile number to top up followed by hash. Press 0 to exit.",
+    "language": "English",
+    "step": "Airtime Recipient Entry",
+    "recordingStatus": "RECORDING_NEEDED",
+    "flag": "FLAG: Professional recording needed - using phrase bank fallback"
+  },
+  "audio/Twi/Audio_prompt_twi_airtime_01.mp3": {
+    "verbatim": "Bɔ nɔmba a wopɛ sɛ wotɔ airtime ma no a hash ka ho. Mia zero na si ha.",
+    "language": "Akan Twi",
+    "step": "Airtime Recipient Entry Twi",
+    "recordingStatus": "RECORDING_NEEDED",
+    "flag": "FLAG: Professional recording needed - using phrase bank fallback"
+  },
+  "audio/English/Audio_prompt_cashout_01.mp3": {
+    "verbatim": "Enter the cash out amount in Ghana Cedis followed by hash. Press 0 to exit.",
+    "language": "English",
+    "step": "Cash Out Amount Entry",
+    "recordingStatus": "RECORDING_NEEDED",
+    "flag": "FLAG: Professional recording needed - using phrase bank fallback"
+  },
+  "audio/Twi/Audio_prompt_twi_cashout_01.mp3": {
+    "verbatim": "Bɔ sika dodoɔ a wopɛ sɛ woyi no Ghana Cedis mu a hash ka ho. Mia zero na si ha.",
+    "language": "Akan Twi",
+    "step": "Cash Out Amount Entry Twi",
+    "recordingStatus": "RECORDING_NEEDED",
+    "flag": "FLAG: Professional recording needed - using phrase bank fallback"
+  },
+  "audio/English/Audio_prompt_balance_01.mp3": {
+    "verbatim": "Your available MTN Mobile Money wallet balance is being fetched.",
+    "language": "English",
+    "step": "Balance Readback",
+    "recordingStatus": "RECORDING_NEEDED",
+    "flag": "FLAG: Professional recording needed - using dynamic balance readback"
+  },
+  "audio/Twi/Audio_prompt_twi_balance_01.mp3": {
+    "verbatim": "Wo MTN MoMo sika a aka wɔ wo akaonto mu na yɛrebɔ din yi.",
+    "language": "Akan Twi",
+    "step": "Balance Readback Twi",
+    "recordingStatus": "RECORDING_NEEDED",
+    "flag": "FLAG: Professional recording needed - using dynamic balance readback"
   }
 }
