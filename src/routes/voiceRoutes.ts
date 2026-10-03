@@ -538,19 +538,33 @@ voiceRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   // Transcribe spoken audio
   let transcript = "";
   let confidence = 0;
+  let pinDiscarded = false;
   if (recordingUrl) {
     try {
       const stt = await speechToText(recordingUrl);
       transcript = stt.text;
       confidence = stt.confidence;
+      pinDiscarded = Boolean(stt.pinDiscarded);
     } catch (err: any) {
       auditLogger.log("warn", "NLU", `STT error: ${err.message}`, sessionId);
     }
   }
 
-  // Confidence check: Low confidence speech falls back to DTMF re-prompt, never guesses
+  // Rule 4: If PIN was spoken, discard instantly and return directly to DTMF re-prompt
+  if (pinDiscarded) {
+    auditLogger.log("warn", "SECURITY", "Spoken PIN pattern intercepted in speech callback. Discarded immediately.", sessionId);
+    if (step === "enter-recipient") {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+    }
+    if (step === "enter-amount") {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+    }
+    return xmlResponse(res, `    <Redirect>${baseUrl}/voice-menu?sessionId=${sessionId}</Redirect>`);
+  }
+
+  // Confidence check: Low confidence speech (<0.75) falls back closed to DTMF re-prompt, never guesses
   if (!transcript || transcript === "empty" || confidence < 0.75) {
-    auditLogger.log("info", "NLU", `Low-confidence speech (${confidence}), falling back to DTMF keypad`, sessionId);
+    auditLogger.log("info", "NLU", `Low-confidence speech (${confidence}), falling back closed to DTMF keypad`, sessionId);
     if (step === "language-selection") {
       return xmlResponse(res, `    <Redirect>${baseUrl}/language-selection?sessionId=${sessionId}</Redirect>`);
     }
@@ -573,6 +587,23 @@ voiceRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   if (clean.includes("cancel") || clean.includes("gyae") || clean.includes("stop")) {
     transactionStateMachine.transition(sessionId, "CANCELLED");
     return xmlResponse(res, `    <Say voice="female">${lang === "twi" ? "Yɛatwa mu. Nante yie." : "Transaction cancelled. Goodbye."}</Say>\n    <Reject/>`);
+  }
+
+  // Rule 2: Spoken recipients and amounts are NEVER accepted silently; routed to verification step
+  if (step === "enter-recipient") {
+    const digitsOnly = clean.replace(/[^0-9]/g, "");
+    if (digitsOnly.length === 10) {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${digitsOnly}</Redirect>`);
+    }
+    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  }
+
+  if (step === "enter-amount") {
+    const digitsOnly = clean.replace(/[^0-9]/g, "");
+    if (digitsOnly.length > 0 && digitsOnly.length <= 5) {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${digitsOnly}</Redirect>`);
+    }
+    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
   }
 
   xmlResponse(res, `    <Redirect>${baseUrl}/voice-menu?sessionId=${sessionId}</Redirect>`);

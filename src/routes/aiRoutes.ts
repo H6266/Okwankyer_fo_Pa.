@@ -8,6 +8,8 @@
 import { Router, Request, Response } from "express";
 import { aiSystem } from "../ai_system";
 import { config } from "../config/env";
+import { runEvaluationHarness, runAudioEvaluationHarness } from "../ai_eval/evalHarness";
+import { aiBootstrap } from "../ai_system/core/aiBootstrap";
 
 export const aiRouter = Router();
 
@@ -19,6 +21,31 @@ aiRouter.get("/api/ai/status", (_req: Request, res: Response) => {
     languages: ["en", "twi"],
     zeroPinEnforced: true,
   });
+});
+
+aiRouter.get("/api/ai/diagnostics", (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    diagnostics: aiBootstrap.getDiagnostics(),
+  });
+});
+
+aiRouter.get("/api/ai/eval", async (_req: Request, res: Response) => {
+  try {
+    const report = await runEvaluationHarness();
+    res.json({ success: true, report });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to execute NLU evaluation harness" });
+  }
+});
+
+aiRouter.get("/api/ai/eval-audio", async (_req: Request, res: Response) => {
+  try {
+    const report = await runAudioEvaluationHarness();
+    res.json({ success: true, report });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to execute audio evaluation harness" });
+  }
 });
 
 aiRouter.post("/api/ai/process", async (req: Request, res: Response) => {

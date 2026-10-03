@@ -107,9 +107,16 @@ export async function runRealSmokeTests(): Promise<SmokeTestReport> {
     });
   } else {
     try {
-      const ai = new GoogleGenAI({ apiKey: config.gemini.apiKey });
+      const ai = new GoogleGenAI({
+        apiKey: config.gemini.apiKey,
+        httpOptions: {
+          headers: {
+            "User-Agent": "aistudio-build",
+          },
+        },
+      });
       const pingResponse = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3.8-flash",
         contents: "Respond with the word 'READY' if this system check is working.",
       });
       const geminiLatency = Date.now() - startGemini;

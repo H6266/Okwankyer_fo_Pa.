@@ -123,17 +123,7 @@ export class AudioIngestor {
       throw new Error(validated.error || "Audio validation failed");
     }
 
-    // Deterministic fallback for test environments without network
-    if (process.env.VITEST && process.env.ENABLE_REMOTE_AI_TESTS !== "true") {
-      return {
-        text: "send 100 to Kwame",
-        confidence: 0.95,
-        isFinal: true,
-        language: "en",
-        timestamp: Date.now(),
-      };
-    }
-
+    // When offline or unconfigured, return honest empty result (Rule 7: No fake results)
     if (!this.ai || !process.env.GEMINI_API_KEY) {
       return {
         text: "",
