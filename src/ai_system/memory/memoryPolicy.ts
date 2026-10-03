@@ -58,7 +58,7 @@ export class MemoryPolicy {
     if (incoming.source === "USER_EXPLICIT") {
       return incoming;
     }
-    if (existing.source === "USER_EXPLICIT" && incoming.source !== "USER_EXPLICIT") {
+    if (existing.source === "USER_EXPLICIT") {
       return existing;
     }
     return incoming.confidence >= existing.confidence ? incoming : existing;

@@ -846,6 +846,6 @@ export class MoMoEngine {
     }
     return list.reverse();
   }
-
+}
 
 export const momoEngine = new MoMoEngine();

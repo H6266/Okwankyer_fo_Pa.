@@ -584,8 +584,8 @@ class ConversationManager {
       recipient_name: state.recipient_name || "",
       amount: state.amount || 0,
       sessionId,
-      payer_phone: state.caller_phone,
-      payer_name: state.caller_name,
+      payer_phone: state.caller_phone ?? undefined,
+      payer_name: state.caller_name ?? undefined,
     });
 
     state.lastTransactionResult = tx;

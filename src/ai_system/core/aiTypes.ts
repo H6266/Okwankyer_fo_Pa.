@@ -10,6 +10,8 @@ export type AiLanguage = "en" | "ak" | "tw" | "en-ak" | "unknown";
 
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
 
+export type TelcoNetwork = "MTN" | "Telecel" | "AT";
+
 export type IntentName =
   | "SEND_MONEY"
   | "PAY_BILL"
