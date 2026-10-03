@@ -1,17 +1,23 @@
 /**
  * Ɔkwankyerɛfo Pa - Real-Time Voice Gateway & Interruption Engine (liveVoiceGateway.ts)
  *
- * Implements low-latency WebSocket voice streaming, Gemini Live API bridge,
- * Voice Activity Detection (VAD), barge-in handling, client playback cancellation,
- * and structured state emission.
+ * Implements:
+ * 1. Single Cognitive Authority: All conversational turns, decisions, actions, and speech
+ *    flow through the canonical aiEngine.process() pipeline. No secondary brain.
+ * 2. Gemini Live Session Integration: Low-latency live speech event streaming and transcription.
+ * 3. Dynamic Ghanaian Voice Profiles: Voice name selected from configurable profiles, not hard-coded.
+ * 4. Immediate Barge-in / Interruption: AI playback cancels immediately upon user speech.
+ * 5. Full Audio-First Protocol: Supports binary PCM, WAV, base64 audio frames, VAD events, and DTMF.
  */
 
 import { WebSocket, WebSocketServer } from "ws";
 import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
 import { AI_CONFIG } from "../core/aiConfig";
 import { aiEngine } from "../core/aiEngine";
-import { unifiedSafetyEngine } from "../safety/unifiedSafetyEngine";
+import { GHANA_VOICE_PROFILES } from "../speech/voiceProfiles/ghanaProfile";
 import { ttsService } from "../speech/tts/ttsService";
+import { audioIngestor } from "../perception/audioIngestor";
+import { AudioFrame, InterruptionEvent, TranscriptFinal, TranscriptPartial, VoiceSessionState } from "../core/aiTypes";
 
 export interface LiveVoiceSession {
   sessionId: string;
@@ -23,6 +29,8 @@ export interface LiveVoiceSession {
   currentStep: string;
   audioChunks: Buffer[];
   lastVADTimestamp: number;
+  voiceProfileId: string;
+  turnCount: number;
 }
 
 export class LiveVoiceGateway {
@@ -55,6 +63,8 @@ export class LiveVoiceGateway {
       if (url.pathname !== "/api/ai/live") return;
 
       const sessionId = url.searchParams.get("sessionId") || `live_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const voiceProfileId = url.searchParams.get("voiceProfile") || "ghanaian-warm";
+
       const session: LiveVoiceSession = {
         sessionId,
         ws,
@@ -63,12 +73,19 @@ export class LiveVoiceGateway {
         currentStep: "welcome",
         audioChunks: [],
         lastVADTimestamp: Date.now(),
+        voiceProfileId,
+        turnCount: 0,
       };
 
       this.sessions.set(sessionId, session);
-      this.emitEvent(session, { type: "STATE_CHANGE", state: "IDLE", sessionId });
+      this.emitEvent(session, {
+        type: "STATE_CHANGE",
+        state: "IDLE",
+        sessionId,
+        voiceProfile: session.voiceProfileId,
+      });
 
-      // Initialize Gemini Live API if key is present
+      // Connect Live API bridge for real-time speech event ingestion
       this.setupLiveConnection(session).catch(err => {
         console.warn("[LiveVoiceGateway] Gemini Live API fallback mode:", err.message);
       });
@@ -95,30 +112,45 @@ export class LiveVoiceGateway {
   private async setupLiveConnection(session: LiveVoiceSession): Promise<void> {
     if (!this.ai || !process.env.GEMINI_API_KEY) return;
 
+    // Resolve voice name from dynamic profile architecture (never hard-coded!)
+    const profile = GHANA_VOICE_PROFILES[session.voiceProfileId] || GHANA_VOICE_PROFILES["ghanaian-warm"];
+    const voiceName = profile?.providerVoiceName || "Kore";
+
     try {
       const liveSession = await this.ai.live.connect({
         model: AI_CONFIG.liveModel,
         config: {
-          responseModalities: [Modality.AUDIO],
+          responseModalities: [Modality.TEXT], // Live session used for transcription events; canonical engine is the sole voice authority
           speechConfig: {
-            voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } },
+            voiceConfig: { prebuiltVoiceConfig: { voiceName } },
           },
-          systemInstruction: "You are Ɔkwankyerɛfo Pa, an empathetic Ghanaian mobile money voice assistant fluent in English and Akan/Twi. Never ask for or accept a MoMo PIN.",
+          systemInstruction: "You are an automated speech recognition and transcription assistant for Ɔkwankyerɛfo Pa. You transcribe user utterances in English or Akan/Twi accurately.",
         },
         callbacks: {
-          onmessage: (message: LiveServerMessage) => {
-            const audioData = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-            if (audioData) {
-              session.isAiSpeaking = true;
+          onmessage: async (message: LiveServerMessage) => {
+            // Forward partial transcripts to client for zero-latency feedback
+            const textPart = message.serverContent?.modelTurn?.parts?.[0]?.text;
+            if (textPart) {
               this.emitEvent(session, {
-                type: "AUDIO_CHUNK",
-                audioBase64: audioData,
-                mimeType: "audio/pcm;rate=24000",
+                type: "TRANSCRIPT_PARTIAL",
+                text: textPart,
+                timestamp: Date.now(),
               });
             }
 
+            // User speech barge-in detected by Gemini Live
             if (message.serverContent?.interrupted) {
               this.handleBargeIn(session, "Gemini Live detected user barge-in");
+            }
+
+            // End-of-turn boundary from user speech
+            if (message.serverContent?.turnComplete && textPart) {
+              this.emitEvent(session, {
+                type: "TRANSCRIPT_FINAL",
+                text: textPart,
+                timestamp: Date.now(),
+              });
+              await this.processTurn(session, textPart);
             }
           },
         },
@@ -133,38 +165,50 @@ export class LiveVoiceGateway {
   private async handleClientMessage(session: LiveVoiceSession, rawData: Buffer | string): Promise<void> {
     try {
       let parsed: any;
-      if (typeof rawData === "string" || Buffer.isBuffer(rawData)) {
+      if (typeof rawData === "string") {
         try {
-          parsed = JSON.parse(rawData.toString());
+          parsed = JSON.parse(rawData);
         } catch {
-          // If binary PCM audio buffer, treat directly as audio frame
+          parsed = { type: "USER_UTTERANCE", text: rawData };
+        }
+      } else if (Buffer.isBuffer(rawData)) {
+        try {
+          parsed = JSON.parse(rawData.toString("utf-8"));
+        } catch {
+          // Binary audio frame
           parsed = { type: "AUDIO_FRAME", buffer: rawData };
         }
       }
 
       switch (parsed.type) {
-        // User is speaking (Audio frame or VAD activity)
+        // User speech audio frame or streaming audio input
         case "AUDIO_FRAME":
         case "AUDIO_INPUT": {
-          this.handleIncomingAudio(session, parsed.audioBase64 || parsed.buffer);
+          this.handleIncomingAudio(session, parsed.audioBase64 || parsed.buffer, parsed.mimeType);
           break;
         }
 
         // Explicit barge-in event from client VAD
         case "BARGE_IN":
         case "INTERRUPT": {
-          this.handleBargeIn(session, "Client-side VAD barge-in detected");
+          this.handleBargeIn(session, parsed.reason || "Client-side VAD barge-in detected");
           break;
         }
 
-        // Finalized utterance (spoken speech transcribed on client or text message)
+        // Finalized utterance (from client speech recognition or text)
         case "USER_UTTERANCE": {
+          if (session.isAiSpeaking) {
+            this.handleBargeIn(session, "User utterance arrived during AI playback");
+          }
           await this.processTurn(session, parsed.text || "", parsed.language);
           break;
         }
 
         // DTMF keypress (1, 2, 3, #, etc.)
         case "DTMF": {
+          if (session.isAiSpeaking) {
+            this.handleBargeIn(session, "User DTMF keypress during AI playback");
+          }
           await this.processTurn(session, parsed.digit, parsed.language, "DTMF");
           break;
         }
@@ -179,45 +223,53 @@ export class LiveVoiceGateway {
   }
 
   /**
-   * Low-latency Barge-in / Interruption handler
-   * Cancels client playback immediately and flags turn.
+   * Immediate Barge-in / Interruption Handler
+   * Stops audio playback, cancels synthesis, and frees turn.
    */
   public handleBargeIn(session: LiveVoiceSession, reason: string): void {
     if (session.isAiSpeaking) {
+      const interruptedTurnId = session.activePlaybackTurnId || `turn_${Date.now()}`;
       session.isAiSpeaking = false;
       session.activePlaybackTurnId = undefined;
+
+      const interruptionEvent: InterruptionEvent = {
+        turnId: interruptedTurnId,
+        interruptedAtTimestamp: Date.now(),
+        reason,
+        playbackCancelled: true,
+      };
 
       // Discard buffered playback and instruct client to stop audio output immediately
       this.emitEvent(session, {
         type: "INTERRUPTED",
-        reason,
-        timestamp: Date.now(),
+        ...interruptionEvent,
       });
       this.emitEvent(session, { type: "STATE_CHANGE", state: "INTERRUPTED" });
     }
   }
 
-  private handleIncomingAudio(session: LiveVoiceSession, chunk: string | Buffer): void {
-    // If AI is currently speaking and user speaks, trigger barge-in!
+  private handleIncomingAudio(session: LiveVoiceSession, chunk: string | Buffer, mimeType?: string): void {
+    // If AI is currently speaking and user speaks, trigger barge-in immediately!
     if (session.isAiSpeaking) {
       this.handleBargeIn(session, "User speech detected during AI playback");
     }
 
-    // Buffer audio for batch transcription if not using Live API
+    let buf: Buffer;
     if (typeof chunk === "string") {
-      session.audioChunks.push(Buffer.from(chunk, "base64"));
+      buf = Buffer.from(chunk.replace(/^data:audio\/[a-z0-9]+;base64,/, ""), "base64");
     } else {
-      session.audioChunks.push(chunk);
+      buf = chunk;
     }
 
+    session.audioChunks.push(buf);
     session.lastVADTimestamp = Date.now();
     this.emitEvent(session, { type: "STATE_CHANGE", state: "LISTENING" });
 
-    // Forward to Gemini Live API if connected
+    // Stream real-time input to Live API if session exists
     if (session.geminiLiveSession) {
-      const base64Data = typeof chunk === "string" ? chunk : chunk.toString("base64");
+      const base64Data = buf.toString("base64");
       session.geminiLiveSession.sendRealtimeInput({
-        audio: { data: base64Data, mimeType: "audio/pcm;rate=16000" },
+        audio: { data: base64Data, mimeType: mimeType || "audio/pcm;rate=16000" },
       });
     }
   }
@@ -229,19 +281,25 @@ export class LiveVoiceGateway {
     session: LiveVoiceSession,
     input: string,
     languageHint?: string,
-    channel: "VOICE" | "DTMF" | "TEXT" = "VOICE"
+    channel: "VOICE" | "DTMF" | "TEXT" = "VOICE",
+    audioBuffer?: Buffer
   ): Promise<void> {
     this.emitEvent(session, { type: "STATE_CHANGE", state: "UNDERSTANDING" });
+    session.turnCount++;
 
-    // Run through central canonical orchestrator
+    // Run through central canonical orchestrator (Sole Cognitive Authority)
     const result = await aiEngine.process({
       sessionId: session.sessionId,
       channel,
       input,
+      audioBuffer: audioBuffer || (session.audioChunks.length > 0 ? Buffer.concat(session.audioChunks) : undefined),
       language: (languageHint as any) || "tw",
       currentScreen: session.currentScreen,
       currentStep: session.currentStep,
     });
+
+    // Clear buffered chunks for next turn
+    session.audioChunks = [];
 
     // Update session state
     session.currentScreen = result.navigation.targetScreen || session.currentScreen;
@@ -265,7 +323,7 @@ export class LiveVoiceGateway {
       });
     }
 
-    // Synthesize audio response via TTS
+    // Synthesize audio response via canonical TTS
     this.emitEvent(session, { type: "STATE_CHANGE", state: "SPEAKING" });
     session.isAiSpeaking = true;
     const turnId = `turn_${Date.now()}`;
@@ -278,6 +336,7 @@ export class LiveVoiceGateway {
         result.speech.voiceProfile
       );
 
+      // Only send audio if this turn was NOT interrupted during synthesis
       if (ttsResult.audioBase64 && session.activePlaybackTurnId === turnId) {
         this.emitEvent(session, {
           type: "AUDIO_RESPONSE",

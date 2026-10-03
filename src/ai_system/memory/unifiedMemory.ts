@@ -49,6 +49,8 @@ import {
   DurableFileTransactionRepository,
 } from "./durableFileRepositories";
 import { AI_CONFIG } from "../core/aiConfig";
+import { fieldEncryption } from "../security/fieldEncryption";
+import { embeddingProvider } from "./embeddingProvider";
 
 export class UnifiedMemory {
   // Working memory (transient during active session)
@@ -125,14 +127,17 @@ export class UnifiedMemory {
 
     await this.conversationRepo.append(sessionId, turnRecord);
 
-    // Generate lexical bag-of-words pseudo-embedding if full embedding is omitted
-    const embedding = turn.embeddingVector || this.generateFallbackEmbedding(turn.sanitizedInput);
+    // Generate embedding via EmbeddingProvider (or use supplied vector)
+    const embeddingRes = turn.embeddingVector
+      ? { vector: turn.embeddingVector, source: "GEMINI_EMBEDDING" as const }
+      : await embeddingProvider.embed(turn.sanitizedInput);
+
     await this.semanticRepo.storeVector({
       id: turnRecord.turnId,
       sessionId,
       turnIndex: history.length,
       text: turn.sanitizedInput,
-      embedding,
+      embedding: embeddingRes.vector,
       timestamp: turnRecord.timestamp,
     });
 
@@ -148,27 +153,11 @@ export class UnifiedMemory {
   // =========================================================================
 
   public async searchSemanticMemory(sessionId: string, query: string, topK: number = 3): Promise<ConversationTurnRecord[]> {
-    const queryEmbedding = this.generateFallbackEmbedding(query);
-    const matches = await this.semanticRepo.searchSimilar(sessionId, queryEmbedding, topK);
+    const queryEmbedding = await embeddingProvider.embed(query);
+    const matches = await this.semanticRepo.searchSimilar(sessionId, queryEmbedding.vector, topK);
     const history = await this.conversationRepo.getHistory(sessionId);
 
     return matches.map(m => history[m.turnIndex]).filter(Boolean);
-  }
-
-  private generateFallbackEmbedding(text: string): number[] {
-    // 32-dimensional deterministic hash embedding based on character 3-grams
-    const vector = new Array(32).fill(0);
-    const clean = text.toLowerCase().replace(/[^a-z0-9ɛɔ]/g, "");
-    if (clean.length < 2) return vector;
-
-    for (let i = 0; i < clean.length - 2; i++) {
-      const code = (clean.charCodeAt(i) * 31 + clean.charCodeAt(i + 1) * 7 + clean.charCodeAt(i + 2)) % 32;
-      vector[code] += 1;
-    }
-
-    // L2 normalize
-    const norm = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
-    return norm > 0 ? vector.map(v => v / norm) : vector;
   }
 
   // =========================================================================
@@ -340,7 +329,7 @@ export class UnifiedMemory {
       network: transaction.network,
       status: transaction.status,
       source: transaction.source,
-      encryptedSlotData: Buffer.from(JSON.stringify({ ref: transaction.referenceId, amt: transaction.amount, ph: maskedPhone })).toString("base64"),
+      encryptedSlotData: fieldEncryption.encryptSensitiveJson({ ref: transaction.referenceId, amt: transaction.amount, ph: maskedPhone }),
     };
 
     await this.transactionRepo.record(sessionId, record);

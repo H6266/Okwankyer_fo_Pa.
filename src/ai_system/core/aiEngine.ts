@@ -45,6 +45,7 @@ import { unifiedToolRegistry } from "../actions/unifiedToolRegistry";
 import { aiDialogue } from "./aiDialogue";
 import { aiSpeech } from "./aiSpeech";
 import { aiUnderstanding } from "./aiUnderstanding";
+import { audioIngestor } from "../perception/audioIngestor";
 import { aiTrace } from "../observability/aiTrace";
 
 export interface ExecutionContext {
@@ -74,7 +75,17 @@ export class AiEngine {
     // STAGE 1: PREPARE CONTEXT & NORMALIZATION
     // ─────────────────────────────────────────────────────────────────────────
     const stage1Start = performance.now();
-    const rawUtterance = input.input || "";
+    let rawUtterance = input.input || "";
+
+    // Stage 1 Audio Ingestion: If audio buffer supplied and text is empty, transcribe audio
+    if (!rawUtterance.trim() && input.audioBuffer) {
+      try {
+        const transcript = await audioIngestor.transcribe(input.audioBuffer, input.mimeType || "audio/wav");
+        rawUtterance = transcript.text;
+      } catch (err: any) {
+        console.warn("[AiEngine] Audio ingestion/transcription notice:", err.message);
+      }
+    }
 
     // Zero-PIN Pre-Masking: Mask credentials before anything else
     const piiMaskedInput = unifiedSafetyEngine.maskCredentials(rawUtterance);
@@ -282,8 +293,13 @@ export class AiEngine {
 
       action.executedResult = toolResult;
 
+      // Update working balance if balance inquiry tool returned data
+      if ((action.tool === "get_balance" || action.tool === "momo_get_balance") && toolResult.success && toolResult.data) {
+        ctx.workingSlots.availableBalance = toolResult.data.availableBalance;
+      }
+
       // If financial transfer succeeded, record to durable transactional ledger
-      if (action.tool === "momo_execute_transfer" && toolResult.success) {
+      if ((action.tool === "execute_transfer" || action.tool === "momo_execute_transfer") && toolResult.success) {
         await unifiedMemory.recordTransaction(ctx.sessionId, {
           referenceId: action.params.referenceId || `TX_${Date.now()}`,
           type: "TRANSFER",

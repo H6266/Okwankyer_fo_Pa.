@@ -107,5 +107,69 @@ export * from "./providers/aiProviderAdapter";
 export * from "./observability/diagnosticsEngine";
 export * from "./observability/aiTrace";
 
+// Services, Audio & Security
+export * from "./services/financialServices";
+export * from "./perception/audioIngestor";
+export * from "./security/fieldEncryption";
+export * from "./voice/liveVoiceGateway";
+
 import { aiEngine } from "./core/aiEngine";
+import { reasoningEngine } from "./understanding/reasoningEngine";
+import { ttsService } from "./speech/tts/ttsService";
+import { audioIngestor } from "./perception/audioIngestor";
+
+export const aiSystem = {
+  process: aiEngine.process.bind(aiEngine),
+
+  analyzeUtterance: async (utterance: string, languageHint: any = "bilingual") => {
+    const res = await reasoningEngine.reason({
+      utterance,
+      languageHint,
+    });
+    return {
+      intent: res.intent,
+      confidence: res.confidence,
+      amount: res.entities.amount,
+      recipientPhone: res.entities.recipientPhone,
+      recipientName: res.entities.recipientName,
+      network: res.entities.network,
+      detectedLanguage: res.language,
+      isAffirmation: res.conversationAct === "CONFIRM",
+      isDenial: res.conversationAct === "DENY",
+      requiresConfirmation: res.requiresConfirmation,
+    };
+  },
+
+  transcribe: async (params: { audioBuffer: string | Buffer; mimeType?: string; expectedLanguage?: string }) => {
+    const res = await audioIngestor.transcribe(params.audioBuffer, params.mimeType);
+    return {
+      text: res.text,
+      confidence: res.confidence,
+      languageDetected: res.language,
+      provider: "gemini-3.5-transcribe",
+    };
+  },
+
+  synthesizeSpeech: async (text: string, language: any = "en", style?: string) => {
+    const res = await ttsService.speak(text, language, style || "ghanaian-warm");
+    return {
+      audioBuffer: res.audioBuffer,
+      audioBase64: res.audioBase64,
+      audioMimeType: res.audioMimeType,
+      providerUsed: res.providerUsed,
+    };
+  },
+
+  handleTurn: async (sessionId: string, input: { text?: string; audioBuffer?: string; mimeType?: string }) => {
+    const result = await aiEngine.process({
+      sessionId,
+      channel: "VOICE",
+      input: input.text || "",
+      audioBuffer: input.audioBuffer,
+      mimeType: input.mimeType,
+    });
+    return result;
+  },
+};
+
 export default aiEngine;

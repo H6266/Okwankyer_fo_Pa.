@@ -46,6 +46,116 @@ export type IntentName =
 export type MobileNetwork = "MTN" | "Telecel" | "AT" | "G-Money";
 export type TelcoNetwork = MobileNetwork;
 
+export type CanonicalToolName =
+  | "navigate_home"
+  | "navigate_back"
+  | "get_balance"
+  | "momo_get_balance"
+  | "lookup_recipient"
+  | "momo_lookup_recipient_kyc"
+  | "prepare_transfer"
+  | "execute_transfer"
+  | "momo_execute_transfer"
+  | "cancel_transaction"
+  | "cash_out"
+  | "momo_cash_out"
+  | "buy_airtime"
+  | "momo_buy_airtime"
+  | "buy_data"
+  | "pay_bill"
+  | "none";
+
+export type VerificationStatus =
+  | "VALID_NUMBER"
+  | "NETWORK_INFERRED"
+  | "IDENTITY_VERIFIED"
+  | "IDENTITY_UNVERIFIED";
+
+export type TransactionStatus =
+  | "DRAFT"
+  | "CONFIRMATION_REQUESTED"
+  | "CONFIRMED"
+  | "SUBMITTED"
+  | "PENDING"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELLED"
+  | "EXPIRED"
+  | "RECONCILIATION_REQUIRED";
+
+// Voice-first streaming & real-time audio interaction types
+export interface AudioFrame {
+  data: Buffer | Uint8Array | string;
+  mimeType: string;
+  sampleRate: number;
+  channels: number;
+  timestamp: number;
+}
+
+export interface TranscriptPartial {
+  text: string;
+  confidence: number;
+  isFinal: false;
+  timestamp: number;
+}
+
+export interface TranscriptFinal {
+  text: string;
+  confidence: number;
+  isFinal: true;
+  language?: AiLanguage;
+  timestamp: number;
+}
+
+export interface VoiceTurn {
+  turnId: string;
+  speaker: "user" | "assistant";
+  audioBase64?: string;
+  transcript: string;
+  timestamp: number;
+  interrupted?: boolean;
+}
+
+export interface VoiceSessionState {
+  sessionId: string;
+  state: CognitiveState;
+  isAiSpeaking: boolean;
+  activePlaybackTurnId?: string;
+  currentScreen: string;
+  currentStep: string;
+  language: AiLanguage;
+  turnCount: number;
+  lastActivityTimestamp: number;
+}
+
+export interface InterruptionEvent {
+  turnId: string;
+  interruptedAtTimestamp: number;
+  reason: string;
+  playbackCancelled: boolean;
+}
+
+export interface SpeechResponse {
+  audioBuffer: Buffer;
+  audioBase64: string;
+  mimeType: string;
+  durationMs?: number;
+  sampleRate: number;
+  voiceName: string;
+}
+
+export interface ActionPlan {
+  actionType: string;
+  toolName: CanonicalToolName;
+  params: Record<string, any>;
+  riskLevel: RiskLevel;
+  requiresConfirmation: boolean;
+  confidence: number;
+  reason: string;
+  idempotencyKey?: string;
+  isExecutable?: boolean;
+}
+
 export interface EntitySlotMap {
   amount?: number | null;
   currency?: "GHS";

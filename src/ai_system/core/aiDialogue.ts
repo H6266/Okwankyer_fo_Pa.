@@ -132,11 +132,17 @@ export class AiDialogue {
       }
 
       case "CHECK_BALANCE": {
+        const bal = typeof slots.availableBalance === "number"
+          ? slots.availableBalance.toFixed(2)
+          : typeof slots.balance === "number"
+          ? slots.balance.toFixed(2)
+          : "250.00";
+
         const response = isTwi
-          ? "Wo balance yɛ GHS 420.50. Wobɛpɛ sɛ yɛmane sika anaa yɛbɔ airtime?"
+          ? `Wo balance a aka yɛ GHS ${bal}. Wobɛpɛ sɛ yɛmane sika anaa yɛbɔ airtime?`
           : isCodeSwitch
-          ? "Your MoMo balance is GHS 420.50. Would you like to send money or buy airtime?"
-          : "Your current mobile money balance is GHS 420.50. Would you like to send money or buy airtime?";
+          ? `Your MoMo balance is GHS ${bal}. Would you like to send money or buy airtime?`
+          : `Your current mobile money balance is GHS ${bal}. Would you like to send money or buy airtime?`;
 
         return {
           type: "CONTINUE_TRANSACTION",

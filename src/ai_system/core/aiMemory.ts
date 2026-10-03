@@ -24,6 +24,7 @@ import {
   TransactionalMemoryRecord,
   UserProfileData,
 } from "./aiTypes";
+import { fieldEncryption } from "../security/fieldEncryption";
 
 export interface SemanticVector {
   id: string;
@@ -389,15 +390,13 @@ export class AiMemory {
       ? `${transaction.recipientPhone.substring(0, 3)}****${transaction.recipientPhone.substring(transaction.recipientPhone.length - 3)}`
       : transaction.recipientPhone;
 
-    // Deterministic pseudo-encryption hash for slot audit
-    const encryptedSlotData = Buffer.from(
-      JSON.stringify({
-        ref: transaction.referenceId,
-        amount: transaction.amount,
-        phone: maskedPhone,
-        ts: Date.now(),
-      })
-    ).toString("base64");
+    // Authenticated AES-256-GCM encryption for slot audit ledger
+    const encryptedSlotData = fieldEncryption.encryptSensitiveJson({
+      ref: transaction.referenceId,
+      amount: transaction.amount,
+      phone: maskedPhone,
+      ts: Date.now(),
+    });
 
     const record: TransactionalMemoryRecord = {
       referenceId: transaction.referenceId,

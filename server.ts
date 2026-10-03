@@ -24,8 +24,7 @@ import {
   generateVoiceXmlStep,
   redactSensitiveData,
 } from "./src/modules/devServices";
-import { PRESET_SCENARIOS } from "./src/modules/scenarioRecorder";
-import { aiSystem, diagnosticsEngine } from "./ai_system";
+import { aiSystem, diagnosticsEngine } from "./src/ai_system";
 import { liveVoiceGateway } from "./src/ai_system/voice/liveVoiceGateway";
 
 const app = express();
