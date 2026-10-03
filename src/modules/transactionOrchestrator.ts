@@ -5,24 +5,18 @@
  * Both Voice Input and Keypad Input converge on this single pipeline.
  * Neither path may bypass this orchestrator.
  * 
- * Functions orchestrated:
- * - executeSendMoney: Transfer funds to another MoMo user
- * - buyAirtime: Purchase telecom airtime
- * - buyData: Purchase internet data bundle
- * - payBill: Pay utility and merchant bills
- * - cashOut: Allow and authorize cash out withdrawals
- * - getAccountBalance: Single source of truth wallet balance inquiry
  */
 
 import { mtnMomoService, MoMoTransactionRecord } from "./mtnMomoService";
+import { durableTransactionStore, DurableTransactionStore } from "../services/durableTransactionStore";
 
 export interface TransactionRequest {
-  source: "VOICE" | "KEYPAD" | "API";
-  network: "MTN" | "Telecel" | "AT" | string;
+  source: "VOICE" | "KEYPAD";
+  network: "MTN" | "Telecel" | "AT";
   recipient_phone: string;
   recipient_name: string;
   amount: number;
-  currency?: "GHS" | string;
+  currency?: "GHS";
   sessionId?: string;
   idempotencyKey?: string;
   payer_phone?: string;
@@ -40,10 +34,9 @@ export interface TransactionResult {
   timestamp: string;
   message: string;
   spokenReceipt: string;
-  type?: string;
   momoDetails?: {
     referenceId: string;
-    mode: "LIVE_API" | "SANDBOX_API" | "EMULATOR";
+    mode: "LIVE_API" | "SANDBOX_API";
     status: string;
     financialTransactionId?: string;
   };
@@ -54,41 +47,62 @@ export interface AccountBalance {
   balance: number;
   formatted: string;
   network: string;
-  mode?: "LIVE_API" | "SANDBOX_API" | "EMULATOR";
 }
 
-class ServiceOrchestrator {
-  // In-memory idempotency cache to prevent accidental double-billing
-  private processedTransactions = new Map<string, TransactionResult>();
+export class ServiceOrchestrator {
+  private store: DurableTransactionStore;
+
+  constructor(customStore?: DurableTransactionStore) {
+    this.store = customStore || durableTransactionStore;
+  }
 
   /**
    * Generates a unique, dynamic telecom transaction reference (e.g. OKP-847291)
    */
-  public generateReference(): string {
+  private generateReference(): string {
     const randomDigits = Math.floor(100000 + Math.random() * 900000);
     return `OKP-${randomDigits}`;
   }
 
   /**
-   * 1. SEND MONEY (Disbursement / Transfer to Recipient)
+   * Executes SEND_MONEY transaction
+   * Converged execution point for both voice and keypad
    */
   public async executeSendMoney(request: TransactionRequest): Promise<TransactionResult> {
     const { network, recipient_phone, recipient_name, amount, source } = request;
 
+    // Strict Payer Validation: Payer cannot be undefined, empty, or fallback to recipient!
+    if (!request.payer_phone || !request.payer_phone.trim()) {
+      throw new Error("Missing payer phone number. Transaction aborted: Payer phone must be verified from telephony caller ID.");
+    }
+    const payerPhone = request.payer_phone.trim();
+
+    // Strict Recipient and Amount Validation
+    if (!recipient_phone || !recipient_name || !amount || amount <= 0) {
+      throw new Error("Invalid transaction request: verified recipient and valid positive amount are strictly required.");
+    }
+
+    // Velocity & Limits Check
+    const velocityCheck = this.store.checkVelocityLimits(payerPhone, recipient_phone, amount);
+    if (!velocityCheck.allowed) {
+      throw new Error(`Transaction rejected by safety policy: ${velocityCheck.reason}`);
+    }
+
+    // Idempotency check: hash of session + phone + amount
     const idempotencyKey =
       request.idempotencyKey ||
       `${request.sessionId || "global"}_${recipient_phone}_${amount}`;
 
-    if (this.processedTransactions.has(idempotencyKey)) {
-      const cached = this.processedTransactions.get(idempotencyKey)!;
+    const cached = this.store.getIdempotencyResult(idempotencyKey);
+    if (cached) {
       console.log(`[ServiceOrchestrator] Idempotent replay detected for ${idempotencyKey}`);
       return cached;
     }
 
-    if (!recipient_phone || !recipient_name || !amount || amount <= 0) {
-      throw new Error("Invalid transaction request: amount and recipient are required.");
-    }
+    // Record velocity attempt before outbound dispatch
+    this.store.recordVelocityAttempt(payerPhone, recipient_phone, amount);
 
+    // Create real-time dynamic timestamp
     const timestamp = new Date().toISOString();
     const reference = this.generateReference();
     const timeFormatted = new Date().toLocaleTimeString("en-GB", {
@@ -97,34 +111,30 @@ class ServiceOrchestrator {
       hour12: true,
     });
 
-    if (network && network !== "MTN" && !["MTN", "Telecel", "AT"].includes(network)) {
-      throw new Error("Invalid network specified.");
+    if (network && network !== "MTN") {
+      throw new Error("Only MTN MoMo transactions are currently connected.");
     }
 
-    // Use Transfer (disbursement) path for Send Money
-    const momoTx = await mtnMomoService.transfer({
+    const momoTx = await mtnMomoService.requestToPay({
       amount,
-      payeePhone: recipient_phone,
-      payeeName: recipient_name,
+      payerPhone,
+      payerName: request.payer_name || "Verified Subscriber",
       payerMessage: `Transfer of GH₵${amount} to ${recipient_name}`,
       payeeNote: `Ɔkwankyerɛfo Pa Voice MoMo Transfer to ${recipient_phone}`,
       externalId: reference,
     });
-
     const momoDetails: TransactionResult["momoDetails"] = {
       referenceId: momoTx.referenceId,
       mode: momoTx.mode,
       status: momoTx.status,
       financialTransactionId: momoTx.financialTransactionId,
     };
-
     const status: TransactionResult["status"] =
       momoTx.status === "SUCCESSFUL"
         ? "SUCCESS"
         : momoTx.status === "PENDING"
           ? "PENDING"
           : "FAILED";
-
     const last4 = recipient_phone.slice(-4).split("").join(" ");
     const spokenReceipt = status === "PENDING"
       ? `MTN has accepted your MoMo request to send ${amount} Ghana Cedis to ${recipient_name}, phone number ending in ${last4}. Please approve the request on your handset. Your transaction reference is ${reference.split("").join(" ")}.`
@@ -148,233 +158,31 @@ class ServiceOrchestrator {
           : `Transaction ${reference} was not completed by MTN.`,
       spokenReceipt,
       momoDetails,
-      type: "DISBURSEMENT_TRANSFER",
     };
 
-    this.processedTransactions.set(idempotencyKey, result);
+    // Store in durable idempotency cache
+    this.store.saveIdempotencyResult(idempotencyKey, result);
+
+    console.log(
+      `[ServiceOrchestrator] MTN transaction ${reference}: ${status} - ${amount} ${momoTx.currency} to ${recipient_name} via ${source}`
+    );
+
     return result;
   }
 
-  /**
-   * 2. BUY AIRTIME
-   */
-  public async buyAirtime(params: {
-    phone: string;
-    amount: number;
-    network?: string;
-    source?: "VOICE" | "KEYPAD" | "API";
-  }): Promise<TransactionResult> {
-    const { phone, amount, network = "MTN", source = "API" } = params;
-    if (!phone || !amount || amount <= 0) {
-      throw new Error("Invalid airtime request: phone and valid amount are required.");
-    }
-
-    const reference = this.generateReference();
-    const momoTx = await mtnMomoService.buyAirtime({
-      phone,
-      amount,
-      network,
-      externalId: reference,
-    });
-
-    const status: TransactionResult["status"] =
-      momoTx.status === "SUCCESSFUL" ? "SUCCESS" : momoTx.status === "PENDING" ? "PENDING" : "FAILED";
-
-    const last4 = phone.slice(-4).split("").join(" ");
-    const spokenReceipt = `Your airtime purchase of ${amount} Ghana Cedis for ${phone}, ending in ${last4}, was successful. Transaction reference is ${reference.split("").join(" ")}.`;
-
-    return {
-      status,
-      reference,
-      amount,
-      currency: momoTx.currency,
-      recipient_name: `${network} Airtime`,
-      recipient_phone: phone,
-      network,
-      timestamp: momoTx.createdAt,
-      message: `Airtime of GH₵ ${amount} sent to ${phone} via ${source}.`,
-      spokenReceipt,
-      type: "AIRTIME",
-      momoDetails: {
-        referenceId: momoTx.referenceId,
-        mode: momoTx.mode,
-        status: momoTx.status,
-        financialTransactionId: momoTx.financialTransactionId,
-      },
-    };
-  }
-
-  /**
-   * 3. BUY DATA BUNDLE
-   */
-  public async buyData(params: {
-    phone: string;
-    bundle: string;
-    amount?: number;
-    network?: string;
-    source?: "VOICE" | "KEYPAD" | "API";
-  }): Promise<TransactionResult> {
-    const { phone, bundle, network = "MTN", source = "API" } = params;
-    if (!phone || !bundle) {
-      throw new Error("Invalid data bundle request: phone and bundle type are required.");
-    }
-
-    // Default bundle costs if not provided
-    const defaultAmounts: Record<string, number> = {
-      "1GB": 12.0,
-      "2.5GB": 25.0,
-      "5GB": 45.0,
-      "10GB": 80.0,
-    };
-    const finalAmount = params.amount && params.amount > 0 ? params.amount : (defaultAmounts[bundle] || 15.0);
-
-    const reference = this.generateReference();
-    const momoTx = await mtnMomoService.buyData({
-      phone,
-      bundle,
-      amount: finalAmount,
-      network,
-      externalId: reference,
-    });
-
-    const status: TransactionResult["status"] =
-      momoTx.status === "SUCCESSFUL" ? "SUCCESS" : momoTx.status === "PENDING" ? "PENDING" : "FAILED";
-
-    const spokenReceipt = `Your ${bundle} data bundle purchase of ${finalAmount} Ghana Cedis for ${phone} was successful. Transaction reference is ${reference.split("").join(" ")}.`;
-
-    return {
-      status,
-      reference,
-      amount: finalAmount,
-      currency: momoTx.currency,
-      recipient_name: `${network} Data (${bundle})`,
-      recipient_phone: phone,
-      network,
-      timestamp: momoTx.createdAt,
-      message: `Data bundle ${bundle} activated for ${phone} via ${source}.`,
-      spokenReceipt,
-      type: "DATA_BUNDLE",
-      momoDetails: {
-        referenceId: momoTx.referenceId,
-        mode: momoTx.mode,
-        status: momoTx.status,
-        financialTransactionId: momoTx.financialTransactionId,
-      },
-    };
-  }
-
-  /**
-   * 4. PAY BILLS
-   */
-  public async payBill(params: {
-    biller: string;
-    accountNumber: string;
-    amount: number;
-    source?: "VOICE" | "KEYPAD" | "API";
-  }): Promise<TransactionResult> {
-    const { biller, accountNumber, amount, source = "API" } = params;
-    if (!biller || !accountNumber || !amount || amount <= 0) {
-      throw new Error("Invalid bill payment: biller, account number, and amount are required.");
-    }
-
-    const reference = this.generateReference();
-    const momoTx = await mtnMomoService.payBill({
-      biller,
-      accountNumber,
-      amount,
-      externalId: reference,
-    });
-
-    const status: TransactionResult["status"] =
-      momoTx.status === "SUCCESSFUL" ? "SUCCESS" : momoTx.status === "PENDING" ? "PENDING" : "FAILED";
-
-    const spokenReceipt = `Your bill payment of ${amount} Ghana Cedis to ${biller} for account ${accountNumber} was successful. Transaction reference is ${reference.split("").join(" ")}.`;
-
-    return {
-      status,
-      reference,
-      amount,
-      currency: momoTx.currency,
-      recipient_name: `${biller} Settlement`,
-      recipient_phone: accountNumber,
-      network: "MTN",
-      timestamp: momoTx.createdAt,
-      message: `Bill of GH₵ ${amount} paid to ${biller} (Account: ${accountNumber}) via ${source}.`,
-      spokenReceipt,
-      type: "BILL_PAYMENT",
-      momoDetails: {
-        referenceId: momoTx.referenceId,
-        mode: momoTx.mode,
-        status: momoTx.status,
-        financialTransactionId: momoTx.financialTransactionId,
-      },
-    };
-  }
-
-  /**
-   * 5. CASH OUT
-   */
-  public async cashOut(params: {
-    amount: number;
-    phone?: string;
-    source?: "VOICE" | "KEYPAD" | "API";
-  }): Promise<TransactionResult> {
-    const { amount, phone = "0553838464", source = "API" } = params;
-    if (!amount || amount <= 0) {
-      throw new Error("Invalid cash out request: valid amount is required.");
-    }
-
-    const reference = this.generateReference();
-    const momoTx = await mtnMomoService.cashOut({
-      amount,
-      phone,
-      externalId: reference,
-    });
-
-    const status: TransactionResult["status"] =
-      momoTx.status === "SUCCESSFUL" ? "SUCCESS" : momoTx.status === "PENDING" ? "PENDING" : "FAILED";
-
-    const spokenReceipt = `Your cash out authorization of ${amount} Ghana Cedis was successful. Please collect your cash from the agent. Reference is ${reference.split("").join(" ")}.`;
-
-    return {
-      status,
-      reference,
-      amount,
-      currency: momoTx.currency,
-      recipient_name: "Cash Out Agent",
-      recipient_phone: phone,
-      network: "MTN",
-      timestamp: momoTx.createdAt,
-      message: `Cash out of GH₵ ${amount} authorized via ${source}.`,
-      spokenReceipt,
-      type: "CASH_OUT",
-      momoDetails: {
-        referenceId: momoTx.referenceId,
-        mode: momoTx.mode,
-        status: momoTx.status,
-        financialTransactionId: momoTx.financialTransactionId,
-      },
-    };
-  }
-
-  /**
-   * 6. GET SINGLE-SOURCE ACCOUNT BALANCE
-   */
   public async getAccountBalance(network: string = "MTN"): Promise<AccountBalance> {
-    if (network !== "MTN" && !["MTN", "Telecel", "AT"].includes(network)) {
-      throw new Error("Only supported telecom balances can be queried.");
+    if (network !== "MTN") {
+      throw new Error("Only MTN MoMo balance is currently connected.");
     }
 
-    const balance = await mtnMomoService.getBalance();
+    const balance = await mtnMomoService.getAccountBalance("collection");
     return {
       currency: balance.currency,
       balance: balance.availableBalance,
       formatted: balance.formatted,
-      network,
-      mode: balance.mode,
+      network: "MTN",
     };
   }
 }
 
 export const transactionOrchestrator = new ServiceOrchestrator();
-export default transactionOrchestrator;

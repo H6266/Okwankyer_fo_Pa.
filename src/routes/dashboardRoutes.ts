@@ -14,8 +14,14 @@ import { conversationManager } from "../modules/conversationManager";
 import { transactionOrchestrator } from "../modules/transactionOrchestrator";
 import { PRESET_SCENARIOS } from "../modules/scenarioRecorder";
 import { getAllVoiceXmlSnapshots, getReleases, getLatestRelease, createRelease, rollbackRelease } from "../modules/devServices";
+import { requireAdminAuth } from "../middleware/adminAuth";
+import { adminRateLimiter } from "../middleware/rateLimiter";
 
 export const dashboardRouter = Router();
+
+// Apply admin rate limiting and authentication across developer dashboard endpoints
+dashboardRouter.use(adminRateLimiter);
+dashboardRouter.use(requireAdminAuth);
 
 // ── Audio Phrase Bank ─────────────────────────────────────────────────
 dashboardRouter.get("/api/phrase-bank", (_req: Request, res: Response) => {

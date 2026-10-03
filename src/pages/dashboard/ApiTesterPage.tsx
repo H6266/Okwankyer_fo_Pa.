@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
 import {
   Send,
   Copy,
@@ -439,30 +438,6 @@ export const ApiTesterPage: React.FC = () => {
             📡 Webhooks
           </button>
         </div>
-      </div>
-
-      {/* ── #language Test Case Notice Banner ──────────────────────────── */}
-      <div className="bg-emerald-50 border border-emerald-200/80 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
-        <div className="flex items-center gap-3">
-          <span className="px-2.5 py-1 rounded-xl bg-emerald-100 text-emerald-800 text-xs font-black font-mono">
-            #language
-          </span>
-          <div>
-            <div className="text-xs font-bold text-emerald-950">
-              Language Selection Gate Test Case Active
-            </div>
-            <div className="text-[11px] text-emerald-800/80 mt-0.5">
-              Dial 1 for English or 2 for Akan Twi with guaranteed dual-track audio isolation across all IVR flows.
-            </div>
-          </div>
-        </div>
-        <Link
-          to="/dashboard/tests#language"
-          className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-800 hover:text-emerald-950 bg-white border border-emerald-300 px-3.5 py-1.5 rounded-xl shadow-2xs hover:bg-emerald-50/50 transition-all shrink-0"
-        >
-          <span>View in Test Cases</span>
-          <ArrowRight className="w-3.5 h-3.5" />
-        </Link>
       </div>
 
       {/* ── TAB 1: Quick Live Tester & Handset Simulator ────────────────── */}

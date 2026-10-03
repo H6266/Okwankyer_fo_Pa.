@@ -15,6 +15,9 @@ import { AUDIO_CATALOG, audioFileExists } from "../audio/catalog";
 import { callSessionRepository } from "../services/callSessionRepository";
 import { auditLogger } from "../services/auditLogger";
 import { runEvaluationHarness } from "../ai_eval/evalHarness";
+import { requireAdminAuth } from "../middleware/adminAuth";
+import { kycLookupRateLimiter, adminRateLimiter } from "../middleware/rateLimiter";
+import { validateGhanaPhoneNumber } from "../domain/validation";
 
 export const apiRouter = Router();
 
@@ -52,8 +55,8 @@ const handleHealth = (req: Request, res: Response) => {
 apiRouter.get("/health", handleHealth);
 apiRouter.get("/api/health", handleHealth);
 
-// ── Smoke Test Suite (Real Probes) ────────────────────────────────────
-apiRouter.post("/api/dev/smoke-test", async (_req: Request, res: Response) => {
+// ── Smoke Test Suite (Real Probes - Admin Protected) ──────────────────
+apiRouter.post("/api/dev/smoke-test", adminRateLimiter, requireAdminAuth, async (_req: Request, res: Response) => {
   try {
     const report = await runRealSmokeTests();
     res.json(report);
@@ -99,10 +102,25 @@ apiRouter.get("/api/audio/manifest", (_req: Request, res: Response) => {
   });
 });
 
-// ── KYC Lookup (Provider-backed) ──────────────────────────────────────
-apiRouter.get("/api/kyc/lookup", async (req: Request, res: Response) => {
-  const phone = (req.query.phone as string) || "0553838464";
-  const result = await recipientResolver.resolve(phone);
+// ── KYC Lookup (Admin Protected Oracle Guard) ─────────────────────────
+apiRouter.get("/api/kyc/lookup", kycLookupRateLimiter, requireAdminAuth, async (req: Request, res: Response) => {
+  const phone = typeof req.query.phone === "string" ? req.query.phone.trim() : "";
+  if (!phone) {
+    return res.status(400).json({
+      valid: false,
+      error: "Missing required query parameter: 'phone'. Please provide a valid phone number.",
+    });
+  }
+
+  const phoneValidation = validateGhanaPhoneNumber(phone);
+  if (!phoneValidation.valid || !phoneValidation.normalized) {
+    return res.status(400).json({
+      valid: false,
+      error: phoneValidation.error || "Invalid Ghanaian phone number format.",
+    });
+  }
+
+  const result = await recipientResolver.resolve(phoneValidation.normalized);
   res.json({
     valid: result.valid,
     record: result.valid
@@ -119,15 +137,15 @@ apiRouter.get("/api/kyc/lookup", async (req: Request, res: Response) => {
   });
 });
 
-// ── Call Sessions & Ledger ────────────────────────────────────────────
-apiRouter.get("/api/sessions", (_req: Request, res: Response) => {
+// ── Call Sessions & Ledger (Admin Protected) ──────────────────────────
+apiRouter.get("/api/sessions", adminRateLimiter, requireAdminAuth, (_req: Request, res: Response) => {
   res.json({
     sessions: callSessionRepository.getAllSessions(),
     demoModeActive: config.demoMode,
   });
 });
 
-apiRouter.get("/api/ledger", (_req: Request, res: Response) => {
+apiRouter.get("/api/ledger", adminRateLimiter, requireAdminAuth, (_req: Request, res: Response) => {
   res.json({ ledger: callSessionRepository.getLedger() });
 });
 

@@ -22,6 +22,9 @@ import { aiRouter } from "./src/routes/aiRoutes";
 import { adminRouter } from "./src/routes/adminRoutes";
 import { liveVoiceGateway } from "./src/ai_system/voice/liveVoiceGateway";
 import { initialize as initAtClient } from "./africastalking";
+import { requireAdminAuth } from "./src/middleware/adminAuth";
+import { adminRateLimiter } from "./src/middleware/rateLimiter";
+import { validateGhanaPhoneNumber } from "./src/domain/validation";
 
 const app = express();
 
@@ -75,15 +78,20 @@ app.all("/audio/*", (req: Request, res: Response) => {
   }
 });
 
-// ── Telephony Outbound Callback Helper ────────────────────────────────
-app.post("/ussd-trigger", async (req: Request, res: Response) => {
+// ── Telephony Outbound Callback Helper (Admin Protected) ──────────────
+app.post("/ussd-trigger", adminRateLimiter, requireAdminAuth, async (req: Request, res: Response) => {
   const { phoneNumber } = req.body;
-  if (!phoneNumber) {
-    return res.status(400).json({ error: "Missing phoneNumber" });
+  if (!phoneNumber || typeof phoneNumber !== "string") {
+    return res.status(400).json({ error: "Missing required 'phoneNumber' field." });
+  }
+
+  const phoneValidation = validateGhanaPhoneNumber(phoneNumber);
+  if (!phoneValidation.valid || !phoneValidation.normalized) {
+    return res.status(400).json({ error: phoneValidation.error || "Invalid Ghanaian phone number format." });
   }
 
   if (!config.at.configured) {
-    auditLogger.log("info", "TELEPHONY", `Outbound call simulated for ${phoneNumber}`);
+    auditLogger.log("info", "TELEPHONY", `Outbound call simulated for ${phoneValidation.normalized}`);
     return res.json({ success: true, simulated: true, message: "Outbound call simulated (no live AT credentials)." });
   }
 
@@ -91,9 +99,9 @@ app.post("/ussd-trigger", async (req: Request, res: Response) => {
     const at = initAtClient(config.at.username, config.at.apiKey);
     const result = await at.Voice.call({
       callFrom: config.at.voiceNumber,
-      callTo: [phoneNumber],
+      callTo: [phoneValidation.normalized],
     });
-    auditLogger.log("info", "TELEPHONY", `Outbound call triggered to ${phoneNumber}`);
+    auditLogger.log("info", "TELEPHONY", `Outbound call triggered to ${phoneValidation.normalized}`);
     res.json({ success: true, result });
   } catch (err: any) {
     auditLogger.log("error", "TELEPHONY", `Outbound call failed: ${err.message}`);

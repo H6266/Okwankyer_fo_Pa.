@@ -2,22 +2,38 @@
  * Ɔkwankyerɛfo Pa - MTN MoMo API Routes
  * 
  * Supports collections, transfers, status polling, balances, and webhook callbacks.
+ * Protected by admin authorization and strict validation.
  */
 
 import { Router, Request, Response } from "express";
 import { mtnMomoService } from "../modules/mtnMomoService";
-import { config } from "../config/env";
+import { requireAdminAuth } from "../middleware/adminAuth";
+import { adminRateLimiter } from "../middleware/rateLimiter";
+import { validateGhanaPhoneNumber } from "../domain/validation";
+import { momoSagaOrchestrator } from "../services/momoSagaOrchestrator";
 
 export const momoRouter = Router();
 
-// Collections RequestToPay
-momoRouter.post("/api/momo/collection", async (req: Request, res: Response) => {
+// Collections RequestToPay (Admin only)
+momoRouter.post("/api/momo/collection", adminRateLimiter, requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const { amount, payerPhone, payerMessage, payeeNote, externalId } = req.body;
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      return res.status(400).json({ error: "Missing or invalid positive 'amount' field." });
+    }
+    if (!payerPhone || typeof payerPhone !== "string") {
+      return res.status(400).json({ error: "Missing required 'payerPhone' field." });
+    }
+    const validatedPhone = validateGhanaPhoneNumber(payerPhone);
+    if (!validatedPhone.valid || !validatedPhone.normalized) {
+      return res.status(400).json({ error: validatedPhone.error || "Invalid payer phone number." });
+    }
+
     const tx = await mtnMomoService.requestToPay({
-      amount: parseFloat(amount) || 5.0,
-      payerPhone: payerPhone || "0553838464",
-      payerMessage: payerMessage || "Payment for goods",
+      amount: parsedAmount,
+      payerPhone: validatedPhone.normalized,
+      payerMessage: payerMessage || "Payment for services",
       payeeNote: payeeNote || "Payment received",
       externalId,
     });
@@ -27,8 +43,8 @@ momoRouter.post("/api/momo/collection", async (req: Request, res: Response) => {
   }
 });
 
-// Collection Status Check
-momoRouter.get("/api/momo/collection/:referenceId", async (req: Request, res: Response) => {
+// Collection Status Check (Admin only)
+momoRouter.get("/api/momo/collection/:referenceId", adminRateLimiter, requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const { referenceId } = req.params;
     const tx = await mtnMomoService.getTransactionStatus(referenceId);
@@ -41,15 +57,27 @@ momoRouter.get("/api/momo/collection/:referenceId", async (req: Request, res: Re
   }
 });
 
-// Transfer / Disbursement
-momoRouter.post("/api/momo/transfer", async (req: Request, res: Response) => {
+// Transfer / Disbursement (Admin only)
+momoRouter.post("/api/momo/transfer", adminRateLimiter, requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const { amount, payeePhone, payerMessage, payeeNote, externalId } = req.body;
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      return res.status(400).json({ error: "Missing or invalid positive 'amount' field." });
+    }
+    if (!payeePhone || typeof payeePhone !== "string") {
+      return res.status(400).json({ error: "Missing required 'payeePhone' field." });
+    }
+    const validatedPhone = validateGhanaPhoneNumber(payeePhone);
+    if (!validatedPhone.valid || !validatedPhone.normalized) {
+      return res.status(400).json({ error: validatedPhone.error || "Invalid payee phone number." });
+    }
+
     const tx = await mtnMomoService.transfer({
-      amount: parseFloat(amount) || 5.0,
-      payeePhone: payeePhone || "0553838464",
-      payerMessage: payerMessage || "Transfer",
-      payeeNote: payeeNote || "Funds transferred",
+      amount: parsedAmount,
+      payeePhone: validatedPhone.normalized,
+      payerMessage: payerMessage || "Disbursement Transfer",
+      payeeNote: payeeNote || "Funds received",
       externalId,
     });
     res.status(202).json({ success: true, transaction: tx });
@@ -58,8 +86,8 @@ momoRouter.post("/api/momo/transfer", async (req: Request, res: Response) => {
   }
 });
 
-// Transfer Status Check
-momoRouter.get("/api/momo/transfer/:referenceId", async (req: Request, res: Response) => {
+// Transfer Status Check (Admin only)
+momoRouter.get("/api/momo/transfer/:referenceId", adminRateLimiter, requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const { referenceId } = req.params;
     const tx = await mtnMomoService.getTransactionStatus(referenceId);
@@ -72,8 +100,8 @@ momoRouter.get("/api/momo/transfer/:referenceId", async (req: Request, res: Resp
   }
 });
 
-// Account Balance
-momoRouter.get("/api/momo/account/balance", async (req: Request, res: Response) => {
+// Account Balance (Admin only)
+momoRouter.get("/api/momo/account/balance", adminRateLimiter, requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const product = (req.query.product === "disbursement" ? "disbursement" : "collection") as "collection" | "disbursement";
     const balance = await mtnMomoService.getAccountBalance(product);
@@ -83,42 +111,47 @@ momoRouter.get("/api/momo/account/balance", async (req: Request, res: Response) 
   }
 });
 
-// Validate Account Holder & KYC
-momoRouter.get("/api/momo/account/holder/:phone", async (req: Request, res: Response) => {
+// Validate Account Holder & KYC (Admin only)
+momoRouter.get("/api/momo/account/holder/:phone", adminRateLimiter, requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const { phone } = req.params;
-    const holder = await mtnMomoService.validateAccountHolder(phone);
+    const validatedPhone = validateGhanaPhoneNumber(phone);
+    if (!validatedPhone.valid || !validatedPhone.normalized) {
+      return res.status(400).json({ error: validatedPhone.error || "Invalid Ghanaian phone number format." });
+    }
+    const holder = await mtnMomoService.validateAccountHolder(validatedPhone.normalized);
     res.json({ success: true, accountHolder: holder });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Webhook Callback
-momoRouter.post("/api/momo/callback", (req: Request, res: Response) => {
+// Webhook Callback (Callback endpoint with reference header verification)
+momoRouter.post("/api/momo/callback", async (req: Request, res: Response) => {
   const refHeader = (req.headers["x-reference-id"] || req.headers["x-reference_id"]) as string;
   const updated = mtnMomoService.handleWebhook(req.body, refHeader);
+  await momoSagaOrchestrator.handleWebhookCallback({ ...req.body, referenceId: refHeader });
   res.status(200).json({ success: true, recorded: Boolean(updated) });
 });
 
-// Transaction Ledger History
-momoRouter.get("/api/momo/transactions", (_req: Request, res: Response) => {
+// Transaction Ledger History (Admin only)
+momoRouter.get("/api/momo/transactions", adminRateLimiter, requireAdminAuth, (_req: Request, res: Response) => {
   res.json({
     success: true,
     transactions: mtnMomoService.getHistory(),
   });
 });
 
-// Keys & Configuration
-momoRouter.get("/api/momo/keys", (_req: Request, res: Response) => {
+// Keys & Configuration (Admin only)
+momoRouter.get("/api/momo/keys", adminRateLimiter, requireAdminAuth, (_req: Request, res: Response) => {
   res.json({
     success: true,
     ...mtnMomoService.getKeys(),
   });
 });
 
-// Switch Target Environment
-momoRouter.post("/api/momo/switch-env", (req: Request, res: Response) => {
+// Switch Target Environment (Admin only)
+momoRouter.post("/api/momo/switch-env", adminRateLimiter, requireAdminAuth, (req: Request, res: Response) => {
   try {
     const { targetEnv } = req.body;
     if (targetEnv !== "sandbox" && targetEnv !== "production") {

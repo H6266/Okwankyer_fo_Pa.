@@ -12,6 +12,7 @@
 
 import { GhanaianNetwork } from "./validation";
 import { generateTransactionReference } from "../audio/dynamicPromptBuilder";
+import { durableTransactionStore, DurableTransactionStore } from "../services/durableTransactionStore";
 
 export type TransactionState =
   | "INITIATED"
@@ -46,9 +47,9 @@ export interface TransactionSession {
 }
 
 const VALID_TRANSITIONS: Record<TransactionState, TransactionState[]> = {
-  INITIATED: ["RECIPIENT_VERIFIED", "CANCELLED", "TIMEOUT"],
-  RECIPIENT_VERIFIED: ["AMOUNT_ENTERED", "RECIPIENT_VERIFIED", "CANCELLED", "TIMEOUT"],
-  AMOUNT_ENTERED: ["CONFIRMED", "AMOUNT_ENTERED", "RECIPIENT_VERIFIED", "CANCELLED", "TIMEOUT"],
+  INITIATED: ["RECIPIENT_VERIFIED", "FAILED", "CANCELLED", "TIMEOUT"],
+  RECIPIENT_VERIFIED: ["AMOUNT_ENTERED", "RECIPIENT_VERIFIED", "FAILED", "CANCELLED", "TIMEOUT"],
+  AMOUNT_ENTERED: ["CONFIRMED", "AMOUNT_ENTERED", "RECIPIENT_VERIFIED", "FAILED", "CANCELLED", "TIMEOUT"],
   CONFIRMED: ["PIN_PENDING", "FAILED", "CANCELLED", "TIMEOUT"],
   PIN_PENDING: ["COMPLETED", "FAILED", "CANCELLED", "TIMEOUT"],
   COMPLETED: [], // Terminal
@@ -58,17 +59,21 @@ const VALID_TRANSITIONS: Record<TransactionState, TransactionState[]> = {
 };
 
 export class TransactionStateMachine {
-  private sessions = new Map<string, TransactionSession>();
-  private idempotencyIndex = new Map<string, string>(); // idempotencyKey -> sessionId
+  private store: DurableTransactionStore;
+
+  constructor(customStore?: DurableTransactionStore) {
+    this.store = customStore || durableTransactionStore;
+  }
 
   public getOrCreateSession(
     sessionId: string,
     language: "en" | "twi" = "en",
     source: "VOICE" | "KEYPAD" = "VOICE"
   ): TransactionSession {
-    const existing = this.sessions.get(sessionId);
+    const existing = this.store.getSession(sessionId);
     if (existing) {
       existing.updatedAt = Date.now();
+      this.store.saveSession(existing);
       return existing;
     }
 
@@ -92,18 +97,16 @@ export class TransactionStateMachine {
       retryCount: 0,
     };
 
-    this.sessions.set(sessionId, newSession);
-    this.idempotencyIndex.set(idempotencyKey, sessionId);
+    this.store.saveSession(newSession);
     return newSession;
   }
 
   public getSession(sessionId: string): TransactionSession | undefined {
-    return this.sessions.get(sessionId);
+    return this.store.getSession(sessionId);
   }
 
   public getSessionByIdempotencyKey(key: string): TransactionSession | undefined {
-    const sessionId = this.idempotencyIndex.get(key);
-    return sessionId ? this.sessions.get(sessionId) : undefined;
+    return this.store.getSessionByIdempotencyKey(key);
   }
 
   public transition(
@@ -111,7 +114,7 @@ export class TransactionStateMachine {
     targetState: TransactionState,
     payload?: Partial<TransactionSession>
   ): TransactionSession {
-    const session = this.sessions.get(sessionId);
+    const session = this.store.getSession(sessionId);
     if (!session) {
       throw new Error(`Session ${sessionId} not found`);
     }
@@ -151,12 +154,17 @@ export class TransactionStateMachine {
       session.completedAt = Date.now();
     }
 
+    this.store.saveSession(session);
     console.log(`[StateMachine] Session ${sessionId} [Ref: ${session.referenceId}] -> ${targetState}`);
     return session;
   }
 
   public getAllSessions(): TransactionSession[] {
-    return Array.from(this.sessions.values()).sort((a, b) => b.createdAt - a.createdAt);
+    return this.store.getAllSessions();
+  }
+
+  public deleteSession(sessionId: string): void {
+    this.store.deleteSession(sessionId);
   }
 }
 

@@ -1,13 +1,18 @@
 /**
  * Ɔkwankyerɛfo Pa - Real-Time Voice Gateway & Interruption Engine (liveVoiceGateway.ts)
+ * 
+ * [BROWSER-SIMULATOR-ONLY]
+ * IMPORTANT ARCHITECTURAL DISTINCTION:
+ * This WebSocket gateway is exclusively for developer browser UI simulation and local testing.
+ * The production telephony voice line runs 100% via Africa's Talking VoiceXML HTTP webhooks
+ * (src/routes/voiceRoutes.ts). Telephony calls NEVER traverse this WebSocket gateway.
  *
  * Implements:
- * 1. Single Cognitive Authority: All conversational turns, decisions, actions, and speech
- *    flow through the canonical aiEngine.process() pipeline. No secondary brain.
- * 2. Gemini Live Session Integration: Low-latency live speech event streaming and transcription.
- * 3. Dynamic Ghanaian Voice Profiles: Voice name selected from configurable profiles, not hard-coded.
+ * 1. Single Cognitive Authority: All conversational turns flow through aiEngine.process().
+ * 2. Gemini Live Session Integration: Low-latency live speech event streaming.
+ * 3. Dynamic Ghanaian Voice Profiles: Voice name selected from configurable profiles.
  * 4. Immediate Barge-in / Interruption: AI playback cancels immediately upon user speech.
- * 5. Full Audio-First Protocol: Supports binary PCM, WAV, base64 audio frames, VAD events, and DTMF.
+ * 5. Full Audio-First Protocol: Supports binary PCM, WAV, base64 audio frames, and DTMF.
  */
 
 import { WebSocket, WebSocketServer } from "ws";

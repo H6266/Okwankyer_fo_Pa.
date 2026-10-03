@@ -11,7 +11,7 @@
  * 7. AI Evaluation Benchmark Harness (Task 4)
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   validateGhanaPhoneNumber,
   normalizeGhanaPhoneNumber,
@@ -26,6 +26,7 @@ import {
   generateTransactionReference,
 } from "../src/audio/dynamicPromptBuilder";
 import { TransactionStateMachine } from "../src/domain/stateMachine";
+import { durableTransactionStore } from "../src/services/durableTransactionStore";
 import { resolveSafeAudioPath, PathTraversalError } from "../src/audio/streaming";
 import { runEvaluationHarness } from "../src/ai_eval/evalHarness";
 
@@ -182,6 +183,10 @@ describe("Task 2: Real Recipient Resolution & Input Validation", () => {
 });
 
 describe("Task 3: Zero-PIN Handset Handoff & State Machine", () => {
+  beforeEach(() => {
+    durableTransactionStore.clearAllForTesting();
+  });
+
   it("transitions sequentially through formal state machine", () => {
     const sm = new TransactionStateMachine();
     const session = sm.getOrCreateSession("test-sess-1", "en");

@@ -47,10 +47,6 @@ export interface ConversationState {
   lastUpdated: number;
   history: Array<Omit<ConversationState, "history">>;
   lastTransactionResult?: TransactionResult;
-  awaiting?: string | null;
-  recipientPhone?: string | null;
-  recipientNetwork?: string | null;
-  recipientName?: string | null;
 }
 
 export interface ConversationTurnResult {
@@ -264,48 +260,10 @@ class ConversationManager {
     }
 
     // ── State-specific Slot Filling (Bare Follow-up Turns) ──────────────
-    if (state.status === "AWAITING_RECIPIENT" || state.awaiting === "RECIPIENT_PHONE") {
-      const digits = text.replace(/\D/g, "");
-      if (digits.length >= 9) {
-        const canonical = digits.length === 9 ? `0${digits}` : digits.startsWith("233") ? `0${digits.slice(3)}` : digits;
-        if (canonical.startsWith("020") || canonical.startsWith("050") || canonical.startsWith("027") || canonical.startsWith("057") || canonical.startsWith("026")) {
-          state.status = "AWAITING_RECIPIENT";
-          state.awaiting = "RECIPIENT_PHONE";
-          return {
-            state,
-            spokenPrompt: "Only MTN Mobile Money is supported for this pilot. Please provide an MTN number.",
-            displayStepTag: "Non-MTN Network Blocked",
-            requiresPinInput: false,
-            isCompleted: false,
-            offeredMenuFallback: false,
-            confidence: 0.95,
-            activeIntent: "SEND_MONEY",
-          };
-        }
-        state.recipient_phone = canonical;
-        state.recipientPhone = canonical;
-        state.network = "MTN";
-        state.recipientNetwork = "MTN";
-        state.consecutiveFailures = 0;
-        return this.progressSendMoney(state);
-      }
-
-      const recip = extractRecipient(text);
-      if (recip.name || recip.phone) {
-        const contact = findContact(recip.phone || recip.name || text);
-        if (contact) {
-          state.recipient_name = contact.name;
-          state.recipientName = contact.name;
-          state.recipient_phone = contact.phoneNumber;
-          state.recipientPhone = contact.phoneNumber;
-          state.network = "MTN";
-          state.recipientNetwork = "MTN";
-        } else {
-          state.recipient_name = recip.name || text;
-          state.recipientName = state.recipient_name;
-          state.recipient_phone = recip.phone;
-          state.recipientPhone = recip.phone;
-        }
+    if (state.status === "AWAITING_NETWORK") {
+      const net = extractNetwork(text);
+      if (net || cleanLower.includes("mtn") || cleanLower.includes("telecel") || cleanLower.includes("at")) {
+        state.network = net || (cleanLower.includes("telecel") ? "Telecel" : cleanLower.includes("at") ? "AT" : "MTN");
         state.consecutiveFailures = 0;
         return this.progressSendMoney(state);
       }
@@ -320,7 +278,23 @@ class ConversationManager {
       }
     }
 
-    if (state.status === "AWAITING_CONFIRMATION" || state.awaiting === "CONFIRMATION") {
+    if (state.status === "AWAITING_RECIPIENT") {
+      const recip = extractRecipient(text);
+      if (recip.name || recip.phone) {
+        const contact = findContact(recip.phone || recip.name || text);
+        if (contact) {
+          state.recipient_name = contact.name;
+          state.recipient_phone = contact.phoneNumber;
+        } else {
+          state.recipient_name = recip.name || text;
+          state.recipient_phone = recip.phone;
+        }
+        state.consecutiveFailures = 0;
+        return this.progressSendMoney(state);
+      }
+    }
+
+    if (state.status === "AWAITING_CONFIRMATION") {
       const isConfirmed =
         cleanLower === "1" ||
         cleanLower === "yes" ||
@@ -329,7 +303,6 @@ class ConversationManager {
         cleanLower.startsWith("yeah") ||
         cleanLower === "confirm" ||
         cleanLower === "proceed" ||
-        cleanLower.includes("proceed") ||
         cleanLower === "correct" ||
         cleanLower === "thats right" ||
         cleanLower === "yep" ||
@@ -339,32 +312,20 @@ class ConversationManager {
       const isTwi = state.language === "twi";
 
       if (isConfirmed) {
-        state.status = "TRANSACTION_COMPLETED";
+        state.status = "AWAITING_SECURE_PIN";
         state.confirmation = true;
-        state.awaiting = null;
-        try {
-          const tx = await transactionOrchestrator.executeSendMoney({
-            source: "VOICE",
-            network: state.network || "MTN",
-            recipient_phone: state.recipient_phone || "0553838464",
-            recipient_name: state.recipient_name || "Kwame Nyamebere",
-            amount: state.amount || 500,
-            sessionId: state.sessionId,
-          });
-          state.lastTransactionResult = tx;
-          return {
-            state,
-            spokenPrompt: tx.spokenReceipt,
-            displayStepTag: "Step 8: Transaction Complete",
-            requiresPinInput: false,
-            isCompleted: true,
-            offeredMenuFallback: false,
-            confidence: 0.98,
-            activeIntent: "SEND_MONEY",
-          };
-        } catch (err: any) {
-          console.error("Execution error:", err);
-        }
+        return {
+          state,
+          spokenPrompt: isTwi
+            ? "Medaase, woapene so pɛpɛɛpɛ. Me pa wo kyɛw, hwɛ wo fon so sesei ara na fa wo MoMo PIN bɔ mu ahobammbɔ mu."
+            : "Thank you, confirmed. Please check your phone screen now and enter your MoMo PIN securely on the network prompt.",
+          displayStepTag: "Step 8: Zero-PIN Security Handoff",
+          requiresPinInput: true,
+          isCompleted: false,
+          offeredMenuFallback: false,
+          confidence: 0.98,
+          activeIntent: "SEND_MONEY",
+        };
       }
 
       const isChange =
@@ -494,36 +455,15 @@ class ConversationManager {
       if (nlu.amount !== null) state.amount = nlu.amount;
       if (nlu.network !== null) state.network = nlu.network;
 
-      const digitsInInput = userInputText.replace(/\D/g, "");
-      if (nlu.recipient_phone && digitsInInput.length >= 9) {
-        const contact = findContact(nlu.recipient_phone);
-        state.recipient_phone = nlu.recipient_phone;
-        state.recipient_name = contact ? contact.name : (nlu.recipient_name || "Subscriber");
-      } else if (nlu.recipient_name) {
-        state.recipient_name = nlu.recipient_name;
-        state.recipient_phone = null;
-      } else if (nlu.recipient_phone) {
-        state.recipient_phone = nlu.recipient_phone;
-      }
-
-      // Check for non-MTN phone number in initial turn
-      if (state.recipient_phone) {
-        const canonical = state.recipient_phone.replace(/\D/g, "");
-        if (canonical.startsWith("020") || canonical.startsWith("050") || canonical.startsWith("027") || canonical.startsWith("057") || canonical.startsWith("026")) {
-          state.status = "AWAITING_RECIPIENT";
-          state.awaiting = "RECIPIENT_PHONE";
-          return {
-            state,
-            spokenPrompt: "Only MTN Mobile Money is supported for this pilot. Please provide an MTN number.",
-            displayStepTag: "Non-MTN Network Blocked",
-            requiresPinInput: false,
-            isCompleted: false,
-            offeredMenuFallback: false,
-            confidence: 0.95,
-            activeIntent: "SEND_MONEY",
-          };
+      if (nlu.recipient_phone || nlu.recipient_name) {
+        const contact = findContact(nlu.recipient_phone || nlu.recipient_name || "");
+        if (contact) {
+          state.recipient_name = contact.name;
+          state.recipient_phone = contact.phoneNumber;
+        } else {
+          state.recipient_name = nlu.recipient_name;
+          state.recipient_phone = nlu.recipient_phone;
         }
-        state.network = "MTN";
       }
 
       return this.progressSendMoney(state);
@@ -539,17 +479,31 @@ class ConversationManager {
   private progressSendMoney(state: ConversationState): ConversationTurnResult {
     const isTwi = state.language === "twi";
 
-    // 1. Check recipient phone
-    if (!state.recipient_phone) {
-      state.status = "AWAITING_RECIPIENT";
-      state.awaiting = "RECIPIENT_PHONE";
-      state.recipientPhone = null;
-      state.recipientName = state.recipient_name;
+    // 1. Check network
+    if (!state.network) {
+      state.status = "AWAITING_NETWORK";
       return {
         state,
         spokenPrompt: isTwi
-          ? "Me pa wo kyɛw, bɔ nɔmba du (10) a wopɛ sɛ womane sika no kɔ ma no."
-          : `Please provide the recipient's phone number.`,
+          ? "Me pa wo kyɛw, network bɛn na worepɛ de adi dwuma? MTN, Telecel, anaa AT?"
+          : "Certainly, please. Which network provider would you like to use? MTN, Telecel, or AirtelTigo?",
+        displayStepTag: "Network Selection",
+        requiresPinInput: false,
+        isCompleted: false,
+        offeredMenuFallback: false,
+        confidence: 0.95,
+        activeIntent: "SEND_MONEY",
+      };
+    }
+
+    // 2. Check recipient (Strict number entry parity across English and Twi)
+    if (!state.recipient_name && !state.recipient_phone) {
+      state.status = "AWAITING_RECIPIENT";
+      return {
+        state,
+        spokenPrompt: isTwi
+          ? "Afei, bɔ nɔmba du (10) a wopɛ sɛ womane sika no kɔ ma no a hash ka ho. Mia zero na si ha."
+          : "Enter the 10 digit number you want to send money to followed by hash. Press 0 to exit.",
         displayStepTag: "Step 5: Recipient Number Entry",
         requiresPinInput: false,
         isCompleted: false,
@@ -559,32 +513,18 @@ class ConversationManager {
       };
     }
 
-    // 2. Validate phone network (Pilot restriction: MTN only)
-    const digits = state.recipient_phone.replace(/\D/g, "");
-    if (digits.startsWith("020") || digits.startsWith("050") || digits.startsWith("027") || digits.startsWith("057") || digits.startsWith("026")) {
-      state.status = "AWAITING_RECIPIENT";
-      state.awaiting = "RECIPIENT_PHONE";
-      return {
-        state,
-        spokenPrompt: "Only MTN Mobile Money is supported for this pilot. Please provide an MTN number.",
-        displayStepTag: "Non-MTN Network Blocked",
-        requiresPinInput: false,
-        isCompleted: false,
-        offeredMenuFallback: false,
-        confidence: 0.95,
-        activeIntent: "SEND_MONEY",
-      };
+    // Ensure recipient contact is resolved
+    if (!state.recipient_phone && state.recipient_name) {
+      const contact = findContact(state.recipient_name);
+      if (contact) {
+        state.recipient_name = contact.name;
+        state.recipient_phone = contact.phoneNumber;
+      }
     }
-
-    state.network = "MTN";
-    state.recipientNetwork = "MTN";
-    state.recipientPhone = state.recipient_phone;
-    state.recipientName = state.recipient_name || "Subscriber";
 
     // 3. Check amount
     if (!state.amount || state.amount <= 0) {
       state.status = "AWAITING_AMOUNT";
-      state.awaiting = "AMOUNT";
       return {
         state,
         spokenPrompt: isTwi
@@ -601,7 +541,6 @@ class ConversationManager {
 
     // All slots present! Skip straight to confirmation
     state.status = "AWAITING_CONFIRMATION";
-    state.awaiting = "CONFIRMATION";
     return this.generateConfirmationPrompt(state);
   }
 

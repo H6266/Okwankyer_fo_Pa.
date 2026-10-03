@@ -16,6 +16,8 @@ import request from "supertest";
 import { voiceRouter } from "../src/routes/voiceRoutes";
 import { transactionStateMachine } from "../src/domain/stateMachine";
 
+import { durableTransactionStore } from "../src/services/durableTransactionStore";
+
 function createTestApp() {
   const app = express();
   app.use(express.urlencoded({ extended: true }));
@@ -28,6 +30,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
   let app: express.Express;
 
   beforeEach(() => {
+    durableTransactionStore.clearAllForTesting();
     app = createTestApp();
   });
 
@@ -94,18 +97,19 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(safeConfRes.text).toContain("8 4 6 4");
     expect(safeConfRes.text).not.toContain("500 Ghana cedis"); // Mismatch check!
 
-    // 10. Confirm Transfer (1) -> Handoff & Dynamic Spoken Receipt
+    // 10. Confirm Transfer (1) -> Handoff to USSD Prompt & Zero-PIN Safety Gate (Item 1.1)
     const outcomeRes = await request(app)
       .post("/safe-outcome")
       .send({ sessionId, lang: "en", dtmfDigits: "1" });
     expect(outcomeRes.text).toContain("check your phone screen");
-    expect(outcomeRes.text).toContain("Congratulations");
-    expect(outcomeRes.text).toContain("75 Cedis");
+    expect(outcomeRes.text).not.toContain("Congratulations");
+    expect(outcomeRes.text).not.toContain("<Record");
+    expect(outcomeRes.text).not.toContain("<GetDigits");
     expect(outcomeRes.text).toContain("<Reject/>");
 
-    // Verify final state machine status
+    // Verify session remains PIN_PENDING (never false COMPLETED before MoMo callback)
     const finalSession = transactionStateMachine.getSession(sessionId);
-    expect(finalSession?.state).toBe("COMPLETED");
+    expect(finalSession?.state).toBe("PIN_PENDING");
     expect(finalSession?.amount).toBe(75);
     expect(finalSession?.recipientName).toBe("Kwame Boateng");
   });

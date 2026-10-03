@@ -6,6 +6,7 @@
  */
 
 import { GoogleGenAI, Type } from "@google/genai";
+import { z } from "zod";
 import {
   AiLanguage,
   EntitySlotMap,
@@ -16,6 +17,43 @@ import { AI_CONFIG } from "../core/aiConfig";
 import { inputNormalizer } from "../perception/inputNormalizer";
 import { languageDetector } from "../perception/languageDetector";
 import { aiUnderstanding } from "../core/aiUnderstanding";
+import { geminiClient } from "../../services/geminiClient";
+
+const ModelReasoningSchema = z.object({
+  intent: z.string().default("UNKNOWN"),
+  confidence: z.number().min(0).max(1).default(0.5),
+  language: z.string().default("en"),
+  entities: z.object({
+    amount: z.number().optional().nullable(),
+    recipientPhone: z.string().optional().nullable(),
+    recipientName: z.string().optional().nullable(),
+    network: z.string().optional().nullable(),
+  }).optional(),
+  conversationAct: z.string().optional(),
+  correction: z.object({
+    isCorrection: z.boolean().optional(),
+    field: z.string().optional(),
+    oldValue: z.string().optional(),
+    newValue: z.string().optional(),
+    reason: z.string().optional(),
+  }).optional(),
+  referenceResolution: z.object({
+    hasReference: z.boolean().optional(),
+    referenceType: z.string().optional(),
+    resolvedField: z.string().optional(),
+    resolvedValue: z.string().optional(),
+  }).optional(),
+  ambiguity: z.object({
+    isAmbiguous: z.boolean().optional(),
+    candidates: z.array(z.string()).optional(),
+  }).optional(),
+  requestedAction: z.object({
+    type: z.string().optional(),
+    tool: z.string().optional(),
+  }).optional(),
+  requiresConfirmation: z.boolean().optional(),
+  safetyFlags: z.array(z.string()).optional(),
+});
 
 export class ReasoningEngine {
   private ai: GoogleGenAI | null = null;
@@ -56,24 +94,17 @@ export class ReasoningEngine {
       return this.deterministicReasoning(params);
     }
 
-    // In automated unit tests without live internet connectivity, execute deterministic path
-    if (process.env.VITEST && process.env.ENABLE_REMOTE_AI_TESTS !== "true") {
-      return this.deterministicReasoning(params);
-    }
-
-    if (!this.ai) {
-      this.initClient();
-    }
-
-    if (!this.ai || !process.env.GEMINI_API_KEY) {
+    if (!geminiClient.isAvailable()) {
       return this.deterministicReasoning(params);
     }
 
     try {
+      // Delimit caller utterance to prevent prompt injection (Item 3.8)
+      const sanitizedUtterance = cleanUtterance.slice(0, 500).replace(/<{3,}|>{3,}/g, "");
       const prompt = `You are the natural language reasoning layer for Ɔkwankyerɛfo Pa (Ghana Voice Mobile Money).
 Analyze this caller's utterance in English, Akan/Twi, or Ghanaian code-switching.
 
-Caller utterance: "${cleanUtterance}"
+Caller utterance: <<<${sanitizedUtterance}>>>
 Current screen: "${params.currentScreen || "HOME"}"
 Current step: "${params.currentStep || "welcome"}"
 Existing transaction slots: ${JSON.stringify(params.existingSlots || {})}
@@ -88,78 +119,29 @@ Rules:
 6. If the user spoke a PIN or passcode, set safetyFlags: ["SPOKEN_PIN"].
 7. Output valid JSON adhering strictly to the schema.`;
 
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Gemini reasoning timeout (2500ms)")), 2500)
+      const rawJson = await geminiClient.executeWithTimeout(
+        "REASONING",
+        async (ai, signal) => {
+          const resp = await ai.models.generateContent({
+            model: AI_CONFIG.model,
+            contents: prompt,
+            config: {
+              systemInstruction: "You are an expert Ghanaian mobile financial voice cognitive engine. Analyze spoken English, Twi, and code-switched inputs accurately into structured JSON.",
+              responseMimeType: "application/json",
+              temperature: 0.1,
+            },
+          });
+          return resp.text || "{}";
+        },
+        2500,
+        1
       );
 
-      const generatePromise = this.ai.models.generateContent({
-        model: AI_CONFIG.model,
-        contents: prompt,
-        config: {
-          systemInstruction: "You are an expert Ghanaian mobile financial voice cognitive engine. Analyze spoken English, Twi, and code-switched inputs accurately into structured JSON.",
-          responseMimeType: "application/json",
-          temperature: 0.1,
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              intent: { type: Type.STRING },
-              confidence: { type: Type.NUMBER },
-              language: { type: Type.STRING },
-              entities: {
-                type: Type.OBJECT,
-                properties: {
-                  amount: { type: Type.NUMBER },
-                  recipientPhone: { type: Type.STRING },
-                  recipientName: { type: Type.STRING },
-                  network: { type: Type.STRING },
-                },
-              },
-              conversationAct: { type: Type.STRING },
-              correction: {
-                type: Type.OBJECT,
-                properties: {
-                  isCorrection: { type: Type.BOOLEAN },
-                  field: { type: Type.STRING },
-                  oldValue: { type: Type.STRING },
-                  newValue: { type: Type.STRING },
-                  reason: { type: Type.STRING },
-                },
-              },
-              referenceResolution: {
-                type: Type.OBJECT,
-                properties: {
-                  hasReference: { type: Type.BOOLEAN },
-                  referenceType: { type: Type.STRING },
-                  resolvedField: { type: Type.STRING },
-                  resolvedValue: { type: Type.STRING },
-                },
-              },
-              ambiguity: {
-                type: Type.OBJECT,
-                properties: {
-                  isAmbiguous: { type: Type.BOOLEAN },
-                  candidates: { type: Type.ARRAY, items: { type: Type.STRING } },
-                },
-              },
-              requestedAction: {
-                type: Type.OBJECT,
-                properties: {
-                  type: { type: Type.STRING },
-                  tool: { type: Type.STRING },
-                },
-              },
-              requiresConfirmation: { type: Type.BOOLEAN },
-              safetyFlags: { type: Type.ARRAY, items: { type: Type.STRING } },
-            },
-            required: ["intent", "confidence", "language"],
-          },
-        },
-      });
+      const parsed = JSON.parse(rawJson);
+      const validated = ModelReasoningSchema.safeParse(parsed);
+      const data = validated.success ? validated.data : parsed;
 
-      const response = await Promise.race([generatePromise, timeoutPromise]);
-      const parsed = JSON.parse(response.text || "{}");
-
-      return this.normalizeModelResponse(parsed, cleanUtterance, params.existingSlots);
+      return this.normalizeModelResponse(data, cleanUtterance, params.existingSlots);
     } catch (err: any) {
       console.warn("[ReasoningEngine] Gemini API unavailable or timed out; falling back to deterministic reasoning:", err.message);
       return this.deterministicReasoning(params);

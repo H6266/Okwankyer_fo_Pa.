@@ -18,8 +18,14 @@ import { buildSafeConfirmationPrompt, buildReceiptPrompt } from "../audio/dynami
 import { speechToText } from "../modules/sttService";
 import { mtnMomoService } from "../modules/mtnMomoService";
 import { auditLogger } from "../services/auditLogger";
+import { verifyAtWebhook } from "../providers/telephony/webhookGuard";
+import { momoSagaOrchestrator } from "../services/momoSagaOrchestrator";
+import { durableTransactionStore } from "../services/durableTransactionStore";
 
 export const voiceRouter = Router();
+
+// Apply Africa's Talking webhook verification to all telephony routes
+voiceRouter.use(verifyAtWebhook);
 
 function xmlResponse(res: Response, content: string): void {
   res.set("Content-Type", "application/xml; charset=utf-8");
@@ -442,62 +448,84 @@ voiceRouter.all("/safe-outcome", async (req: Request, res: Response) => {
 
   // 1 = CONFIRMED: initiate real Zero-PIN handoff to handset
   try {
-    transactionStateMachine.transition(sessionId, "CONFIRMED");
-
-    // Initiate RequestToPay through payment provider (or sandbox if unconfigured)
-    let rtpResult: { referenceId: string; mode: string };
-    if (mtnMomoService.isConfigured("collection")) {
-      rtpResult = await mtnMomoService.requestToPay({
-        amount: session.amount || 50,
-        payerPhone: session.callerPhone || session.recipientPhone || "0543546010",
-        payerMessage: `Transfer of GH₵${session.amount} to ${session.recipientName || 'Subscriber'}`,
-        payeeNote: `Ɔkwankyerɛfo Pa Voice MoMo Transfer to ${session.recipientPhone}`,
-        externalId: session.referenceId,
+    // 1. Strict validation of required financial parameters (Item 1.3 - no defaults!)
+    if (!session.amount || session.amount <= 0) {
+      transactionStateMachine.transition(sessionId, "FAILED", {
+        failureReason: "Missing or invalid amount entered.",
       });
-    } else {
-      const sandboxRef = `sandbox-ref-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
-      auditLogger.log(
-        "info",
-        "MOMO",
-        `[SANDBOX MODE] Live MTN MoMo credentials unavailable. Using Sandbox Payment Provider for Ref ${session.referenceId}`,
-        sessionId
-      );
-      rtpResult = {
-        referenceId: sandboxRef,
-        mode: "SANDBOX_SIMULATOR",
-      };
+      const errorMsg = lang === "twi"
+        ? "Yɛantumi anhu sika dodow a wobɔe no. Yɛtwa mu. Nante yie."
+        : "Missing transaction amount. The transaction has been cancelled. Goodbye.";
+      return xmlResponse(res, `    <Say voice="female">${errorMsg}</Say>\n    <Reject/>`);
     }
 
+    if (!session.callerPhone || !session.callerPhone.trim()) {
+      transactionStateMachine.transition(sessionId, "FAILED", {
+        failureReason: "Missing verified caller phone number from telephony webhook.",
+      });
+      const errorMsg = lang === "twi"
+        ? "Yɛantumi anhu wo fon nɔmba a wode frɛe no. Yɛtwa mu. Nante yie."
+        : "Unverified caller phone number. The transaction has been cancelled for security. Goodbye.";
+      return xmlResponse(res, `    <Say voice="female">${errorMsg}</Say>\n    <Reject/>`);
+    }
+
+    if (!session.recipientPhone || !session.recipientPhone.trim()) {
+      transactionStateMachine.transition(sessionId, "FAILED", {
+        failureReason: "Missing recipient phone number.",
+      });
+      const errorMsg = lang === "twi"
+        ? "Yɛantumi anhu obi a woremane no sika no fon nɔmba. Yɛtwa mu. Nante yie."
+        : "Missing recipient phone number. The transaction has been cancelled. Goodbye.";
+      return xmlResponse(res, `    <Say voice="female">${errorMsg}</Say>\n    <Reject/>`);
+    }
+
+    // 2. Velocity and safety limits check (Item 1.5)
+    const velocityCheck = durableTransactionStore.checkVelocityLimits(
+      session.callerPhone,
+      session.recipientPhone,
+      session.amount
+    );
+    if (!velocityCheck.allowed) {
+      transactionStateMachine.transition(sessionId, "FAILED", {
+        failureReason: velocityCheck.reason,
+      });
+      const errorMsg = lang === "twi"
+        ? `Ntotoe ahobammbɔ kɔkɔbɔ: ${velocityCheck.reason || "Woaboro sika ano hyeɛ so."} Nante yie.`
+        : `Security limit reached: ${velocityCheck.reason || "Transaction limit exceeded."} Goodbye.`;
+      return xmlResponse(res, `    <Say voice="female">${errorMsg}</Say>\n    <Reject/>`);
+    }
+
+    // Record velocity attempt
+    durableTransactionStore.recordVelocityAttempt(
+      session.callerPhone,
+      session.recipientPhone,
+      session.amount
+    );
+
+    // 3. Transition state machine to CONFIRMED
+    transactionStateMachine.transition(sessionId, "CONFIRMED");
+
+    // 4. Start two-leg payment saga (Item 1.2)
+    const { collectionRef, mode } = await momoSagaOrchestrator.startSaga(session);
+
+    // 5. Transition to PIN_PENDING (Item 1.1: State remains PIN_PENDING, NEVER COMPLETED here!)
     transactionStateMachine.transition(sessionId, "PIN_PENDING", {
-      momoReferenceId: rtpResult.referenceId,
+      momoReferenceId: collectionRef,
     });
 
     auditLogger.log(
       "info",
       "MOMO",
-      `Payment handoff dispatched (Mode: ${rtpResult.mode}, Ref: ${session.referenceId}, MoMoRef: ${rtpResult.referenceId})`,
+      `Payment handoff dispatched (Mode: ${mode}, Ref: ${session.referenceId}, MoMoRef: ${collectionRef})`,
       sessionId
     );
 
-    // Speak Zero-PIN screen handoff and dynamic transaction receipt
+    // 6. Speak ONLY handset handoff instruction (Item 1.1: NO success wording, NO receipt, NO GetDigits, NO Record)
     const handoffNotice = lang === "twi"
-      ? "Yɛapene so. Sesei ara, hwɛ wo fon screen so na fa wo MoMo PIN bɔ mu ahobammbɔ mu."
-      : "Confirmed. Now, please check your phone screen and enter your Mobile Money PIN securely.";
+      ? "Yɛsrɛ wo, hwɛ wo fon screen so na fa wo MoMo PIN bɔ mu ahobammbɔ mu. Sɛ ɛwie pɛ a, yɛbɛmane wo SMS asɔ so. Nante yie."
+      : "Please check your phone screen and enter your Mobile Money PIN securely to authorize this transfer. We will send you an SMS confirmation once completed. Goodbye.";
 
-    const receipt = buildReceiptPrompt({
-      language: lang,
-      amount: session.amount || 50,
-      recipientPhone: session.recipientPhone || "",
-      recipientName: session.recipientName,
-      referenceId: session.referenceId,
-      timestamp: new Date(),
-    });
-
-    // Mark completed in our state machine
-    transactionStateMachine.transition(sessionId, "COMPLETED");
-
-    const xml = `    <Say voice="female">${handoffNotice}</Say>
-${receipt.voiceXml}`;
+    const xml = `    <Say voice="female">${handoffNotice}</Say>\n    <Reject/>`;
 
     xmlResponse(res, xml);
   } catch (err: any) {

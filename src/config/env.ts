@@ -51,10 +51,24 @@ export function loadConfig(): AppConfig {
   }
 
   const demoMode = process.env.DEMO_MODE === "true" || nodeEnv !== "production";
-  const adminToken = process.env.ADMIN_TOKEN || process.env.DASHBOARD_PASSWORD || "";
+  const adminToken = (process.env.ADMIN_TOKEN || "").trim();
 
-  const corsRaw = process.env.CORS_ORIGINS || "*";
+  if (nodeEnv === "production" && (!adminToken || adminToken.length < 16)) {
+    throw new Error(
+      "[FATAL SECURITY ERROR] In production, ADMIN_TOKEN must be configured with at least 16 characters. Server startup halted."
+    );
+  }
+
+  const corsRaw = (process.env.CORS_ORIGINS || (nodeEnv === "production" ? "" : "*")).trim();
   const corsOrigins = corsRaw === "*" ? ["*"] : corsRaw.split(",").map((s) => s.trim()).filter(Boolean);
+
+  if (nodeEnv === "production") {
+    if (!corsRaw || corsRaw === "*" || corsOrigins.includes("*") || corsOrigins.length === 0) {
+      throw new Error(
+        "[FATAL SECURITY ERROR] In production, CORS_ORIGINS must be configured to explicit trusted domains (wildcard '*' is forbidden). Server startup halted."
+      );
+    }
+  }
 
   const atApiKey = (process.env.AT_API_KEY || "").trim();
   let atUsername = (process.env.AT_USERNAME || "sandbox").trim();

@@ -55,6 +55,7 @@ export type IntentType =
 export interface ExtractedEntities {
   intent: IntentType;
   confidence: number;
+  matchClass?: MatchClass;
   amount: number | null;
   currency: "GHS";
   recipient_name: string | null;
@@ -62,6 +63,24 @@ export interface ExtractedEntities {
   network: "MTN" | "Telecel" | "AT" | null;
   rawText: string;
 }
+
+export type MatchClass = "EXACT_GRAMMAR" | "FUZZY_PATTERN" | "AMBIGUOUS" | "NO_MATCH";
+
+export const CONFIDENCE_CALIBRATION_TABLE: Record<MatchClass, number> = {
+  EXACT_GRAMMAR: 0.95,
+  FUZZY_PATTERN: 0.85,
+  AMBIGUOUS: 0.45,
+  NO_MATCH: 0.10,
+};
+
+export const FINANCIAL_SLOT_THRESHOLDS = {
+  amount: 0.85,
+  phone: 0.85,
+  menu: 0.70,
+  yes_no: 0.75,
+  calibrationStatus: "UNCALIBRATED" as const,
+  requiresSpokenReadback: true,
+};
 
 // Lazy Gemini client helper
 let geminiClient: GoogleGenAI | null = null;
@@ -237,92 +256,55 @@ export function extractNetwork(text: string): "MTN" | "Telecel" | "AT" | null {
 }
 
 /**
- * Deterministic NLU classifier with precision confidence scoring
+ * Deterministic NLU classifier with precision confidence scoring and match-class calibration
  */
 export function classifyIntentLocally(text: string): ExtractedEntities {
   const lower = text.toLowerCase().trim();
 
+  const makeResult = (
+    intent: IntentType,
+    matchClass: MatchClass,
+    extra: Partial<ExtractedEntities> = {}
+  ): ExtractedEntities => ({
+    intent,
+    matchClass,
+    confidence: CONFIDENCE_CALIBRATION_TABLE[matchClass],
+    amount: null,
+    currency: "GHS",
+    recipient_name: null,
+    recipient_phone: null,
+    network: null,
+    rawText: text,
+    ...extra,
+  });
+
   // Navigation & Control Intents
-  if (
-    lower === "0" ||
-    lower === "exit" ||
-    lower === "quit" ||
-    lower === "close" ||
-    lower.includes("hang up") ||
-    lower.includes("goodbye")
-  ) {
-    return {
-      intent: "EXIT",
-      confidence: 0.98,
-      amount: null,
-      currency: "GHS",
-      recipient_name: null,
-      recipient_phone: null,
-      network: null,
-      rawText: text,
-    };
+  if (lower === "0" || lower === "exit" || lower === "quit" || lower === "close") {
+    return makeResult("EXIT", "EXACT_GRAMMAR");
+  }
+  if (lower.includes("hang up") || lower.includes("goodbye")) {
+    return makeResult("EXIT", "FUZZY_PATTERN");
   }
 
-  if (
-    lower === "cancel" ||
-    lower === "stop" ||
-    lower === "abort" ||
-    lower === "gyae" ||
-    lower.includes("cancel transaction") ||
-    lower.includes("cancel this") ||
-    lower.includes("stop stop")
-  ) {
-    return {
-      intent: "CANCEL",
-      confidence: 0.95,
-      amount: null,
-      currency: "GHS",
-      recipient_name: null,
-      recipient_phone: null,
-      network: null,
-      rawText: text,
-    };
+  if (lower === "cancel" || lower === "stop" || lower === "abort" || lower === "gyae") {
+    return makeResult("CANCEL", "EXACT_GRAMMAR");
+  }
+  if (lower.includes("cancel transaction") || lower.includes("cancel this") || lower.includes("stop stop")) {
+    return makeResult("CANCEL", "FUZZY_PATTERN");
   }
 
-  if (
-    lower === "8" ||
-    lower === "back" ||
-    lower === "go back" ||
-    lower === "kɔ akyi" ||
-    lower === "san akyi" ||
-    lower.includes("previous") ||
-    lower.includes("return") ||
-    lower.includes("go back")
-  ) {
-    return {
-      intent: "GO_BACK",
-      confidence: 0.96,
-      amount: null,
-      currency: "GHS",
-      recipient_name: null,
-      recipient_phone: null,
-      network: null,
-      rawText: text,
-    };
+  if (lower === "8" || lower === "back") {
+    return makeResult("GO_BACK", "EXACT_GRAMMAR");
+  }
+  if (lower.includes("go back") || lower === "kɔ akyi" || lower === "san akyi" || lower.includes("previous") || lower.includes("return")) {
+    return makeResult("GO_BACK", "FUZZY_PATTERN");
   }
 
-  if (
-    lower === "help" ||
-    lower.includes("help me") ||
-    lower.includes("how does this work") ||
-    lower.includes("what can i say") ||
-    lower.includes("tie biom")
-  ) {
-    return {
-      intent: "HELP",
-      confidence: 0.92,
-      amount: null,
-      currency: "GHS",
-      recipient_name: null,
-      recipient_phone: null,
-      network: null,
-      rawText: text,
-    };
+  if (lower === "help") {
+    return makeResult("HELP", "EXACT_GRAMMAR");
+  }
+  if (lower.includes("help me") || lower.includes("how does this work") || lower.includes("what can i say") || lower.includes("tie biom")) {
+    return makeResult("HELP", "FUZZY_PATTERN");
   }
 
   // Account / Balance
@@ -334,89 +316,49 @@ export function classifyIntentLocally(text: string): ExtractedEntities {
     lower.includes("account balance") ||
     lower.includes("sika a aka")
   ) {
-    return {
-      intent: "CHECK_BALANCE",
-      confidence: 0.96,
-      amount: null,
-      currency: "GHS",
-      recipient_name: null,
-      recipient_phone: null,
+    return makeResult("CHECK_BALANCE", "FUZZY_PATTERN", {
       network: extractNetwork(text),
-      rawText: text,
-    };
+    });
   }
 
   if (lower.includes("account") || lower.includes("statement") || lower.includes("bue me account")) {
-    return {
-      intent: "CHECK_ACCOUNT",
-      confidence: 0.88,
-      amount: null,
-      currency: "GHS",
-      recipient_name: null,
-      recipient_phone: null,
+    return makeResult("CHECK_ACCOUNT", "FUZZY_PATTERN", {
       network: extractNetwork(text),
-      rawText: text,
-    };
+    });
   }
 
   // Other secondary scoped intents
   if (lower.includes("airtime") || lower.includes("top up") || lower.includes("credit") || lower.includes("tɔ airtime")) {
-    return {
-      intent: "BUY_AIRTIME",
-      confidence: 0.91,
+    return makeResult("BUY_AIRTIME", "FUZZY_PATTERN", {
       amount: extractAmount(text),
-      currency: "GHS",
-      recipient_name: null,
-      recipient_phone: null,
       network: extractNetwork(text),
-      rawText: text,
-    };
+    });
   }
 
   if (lower.includes("data") || lower.includes("bundle") || lower.includes("internet")) {
-    return {
-      intent: "BUY_DATA",
-      confidence: 0.90,
+    return makeResult("BUY_DATA", "FUZZY_PATTERN", {
       amount: extractAmount(text),
-      currency: "GHS",
-      recipient_name: null,
-      recipient_phone: null,
       network: extractNetwork(text),
-      rawText: text,
-    };
+    });
   }
 
   if (lower.includes("bill") || lower.includes("ecg") || lower.includes("water") || lower.includes("dstv")) {
-    return {
-      intent: "PAY_BILL",
-      confidence: 0.95,
+    return makeResult("PAY_BILL", "FUZZY_PATTERN", {
       amount: extractAmount(text),
-      currency: "GHS",
-      recipient_name: null,
-      recipient_phone: null,
       network: extractNetwork(text),
-      rawText: text,
-    };
+    });
   }
 
   if (lower.includes("cash out") || lower.includes("withdraw") || lower.includes("gye sika")) {
-    return {
-      intent: "CASH_OUT",
-      confidence: 0.94,
+    return makeResult("CASH_OUT", "FUZZY_PATTERN", {
       amount: extractAmount(text),
-      currency: "GHS",
-      recipient_name: null,
-      recipient_phone: null,
       network: extractNetwork(text),
-      rawText: text,
-    };
+    });
   }
 
   // Primary Intent: SEND_MONEY (Option 1 in menu, Send money, Transfer, Mane sika, Baako)
-  const isSendMoney =
-    lower === "1" ||
-    lower === "one" ||
-    lower === "baako" ||
+  const isExactSendMoney = lower === "1" || lower === "one" || lower === "baako";
+  const isFuzzySendMoney =
     lower.includes("send") ||
     lower.includes("transfer") ||
     lower.includes("pay") ||
@@ -425,21 +367,17 @@ export function classifyIntentLocally(text: string): ExtractedEntities {
     lower.includes("remit") ||
     lower.includes("mane");
 
-  if (isSendMoney) {
+  if (isExactSendMoney || isFuzzySendMoney) {
     const amount = extractAmount(text);
     const recipient = extractRecipient(text);
     const network = extractNetwork(text);
 
-    return {
-      intent: "SEND_MONEY",
-      confidence: 0.94,
+    return makeResult("SEND_MONEY", isExactSendMoney ? "EXACT_GRAMMAR" : "FUZZY_PATTERN", {
       amount,
-      currency: "GHS",
       recipient_name: recipient.name,
       recipient_phone: recipient.phone,
       network,
-      rawText: text,
-    };
+    });
   }
 
   // If text is a bare amount or recipient while no intent, let conversation manager handle as slot filling
@@ -447,29 +385,16 @@ export function classifyIntentLocally(text: string): ExtractedEntities {
   const possibleRecipient = extractRecipient(text);
 
   if (possibleAmount !== null || possibleRecipient.name !== null || possibleRecipient.phone !== null) {
-    return {
-      intent: "SEND_MONEY",
-      confidence: 0.80,
+    return makeResult("SEND_MONEY", "FUZZY_PATTERN", {
       amount: possibleAmount,
-      currency: "GHS",
       recipient_name: possibleRecipient.name,
       recipient_phone: possibleRecipient.phone,
       network: extractNetwork(text),
-      rawText: text,
-    };
+    });
   }
 
   // Unknown fallback
-  return {
-    intent: "UNKNOWN",
-    confidence: 0.25,
-    amount: null,
-    currency: "GHS",
-    recipient_name: null,
-    recipient_phone: null,
-    network: null,
-    rawText: text,
-  };
+  return makeResult("UNKNOWN", "NO_MATCH");
 }
 
 /**
@@ -559,12 +484,20 @@ Respond strictly in valid JSON adhering to this schema:
 
         const validData = parseResult.data;
 
-        // Rule 1: Fail closed if confidence is below threshold (< 0.75)
-        const finalConfidence = validData.confidence;
-        if (finalConfidence < 0.75 && validData.intent !== "UNKNOWN" && validData.intent !== "CANCEL" && validData.intent !== "EXIT") {
+        // Item 3.3: Calibrate confidence using matchClass and model score
+        const modelConf = validData.confidence;
+        const ruleClassConf = localResult.matchClass ? CONFIDENCE_CALIBRATION_TABLE[localResult.matchClass] : 0.6;
+        const calibratedConfidence = Math.min(1.0, Math.max(0.0, modelConf * 0.4 + ruleClassConf * 0.6));
+
+        // Enforce per-slot threshold on financial slots (Item 3.3)
+        const isFinancial = validData.intent === "SEND_MONEY" || validData.amount !== null || validData.recipient_phone !== null;
+        const requiredThreshold = isFinancial ? FINANCIAL_SLOT_THRESHOLDS.amount : 0.70;
+
+        if (calibratedConfidence < requiredThreshold && validData.intent !== "UNKNOWN" && validData.intent !== "CANCEL" && validData.intent !== "EXIT") {
           return {
             intent: "UNKNOWN",
-            confidence: finalConfidence,
+            confidence: calibratedConfidence,
+            matchClass: "AMBIGUOUS",
             amount: null,
             currency: "GHS",
             recipient_name: null,
@@ -576,7 +509,8 @@ Respond strictly in valid JSON adhering to this schema:
 
         return {
           intent: validData.intent,
-          confidence: finalConfidence,
+          confidence: calibratedConfidence,
+          matchClass: localResult.matchClass || "FUZZY_PATTERN",
           amount: validData.amount ?? localResult.amount,
           currency: "GHS",
           recipient_name: validData.recipient_name ?? localResult.recipient_name,

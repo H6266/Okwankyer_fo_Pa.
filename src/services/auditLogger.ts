@@ -9,11 +9,26 @@
 
 import { redactPii, containsPinPattern } from "../domain/validation";
 
+export type AuditCategory =
+  | "TELEPHONY"
+  | "MOMO"
+  | "NLU"
+  | "SECURITY"
+  | "SYSTEM"
+  | "MOMO_SAGA"
+  | "SMS"
+  | "SMS_SIMULATED"
+  | "STT"
+  | "PIN_SAFETY"
+  | "AI_CIRCUIT_BREAKER"
+  | "RECONCILIATION_REQUIRED"
+  | string;
+
 export interface LogEntry {
   id: string;
   timestamp: string;
   level: "info" | "warn" | "error";
-  category: "TELEPHONY" | "MOMO" | "NLU" | "SECURITY" | "SYSTEM";
+  category: AuditCategory;
   message: string;
   correlationId?: string;
 }
@@ -24,7 +39,7 @@ class AuditLogger {
 
   public log(
     level: LogEntry["level"],
-    category: LogEntry["category"],
+    category: AuditCategory,
     rawMessage: string,
     correlationId?: string
   ): void {

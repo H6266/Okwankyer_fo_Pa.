@@ -184,11 +184,80 @@ export class VoiceService {
   }
 }
 
-export function initialize(username: string, apiKey: string): { Voice: VoiceService } {
+export interface SmsSendOptions {
+  to: string[];
+  message: string;
+  from?: string;
+}
+
+export class SmsService {
+  private username: string;
+  private apiKey: string;
+  private baseUrl: string;
+
+  constructor(username: string, apiKey: string) {
+    this.username = (username || "").trim();
+    this.apiKey = (apiKey || "").trim();
+    const isSandbox = this.username.toLowerCase() === "sandbox" || this.apiKey.startsWith("atsk_");
+    this.baseUrl = isSandbox
+      ? "https://api.sandbox.africastalking.com/version1/messaging"
+      : "https://api.africastalking.com/version1/messaging";
+  }
+
+  async send(options: SmsSendOptions): Promise<any> {
+    const normalizedRecipients: string[] = [];
+    for (const raw of options.to) {
+      const norm = normalizeAtPhone(raw);
+      if (validatePhone(norm)) {
+        normalizedRecipients.push(norm);
+      }
+    }
+
+    if (normalizedRecipients.length === 0) {
+      throw new Error("No valid recipient phone numbers provided for SMS dispatch.");
+    }
+
+    let effectiveUsername = this.username;
+    if (this.apiKey.startsWith("atsk_") && effectiveUsername.toLowerCase() !== "sandbox") {
+      effectiveUsername = "sandbox";
+    }
+
+    const formParams = new URLSearchParams({
+      username: effectiveUsername,
+      to: normalizedRecipients.join(","),
+      message: options.message,
+    });
+    if (options.from) {
+      formParams.append("from", options.from);
+    }
+
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
+      apiKey: this.apiKey,
+      "User-Agent": "africastalking-node/2.0.0",
+    };
+
+    const res = await fetch(this.baseUrl, {
+      method: "POST",
+      headers,
+      body: formParams.toString(),
+    });
+
+    const data = await res.json().catch(async () => ({ raw: await res.text() }));
+    if (!res.ok) {
+      throw new Error(`Africa's Talking SMS API failed with HTTP ${res.status}: ${JSON.stringify(data)}`);
+    }
+    return data;
+  }
+}
+
+export function initialize(username: string, apiKey: string): { Voice: VoiceService; SMS: SmsService } {
   if (!username || !apiKey) {
     throw new Error("Please check if your username and api key have been set.");
   }
   return {
     Voice: new VoiceService(username, apiKey),
+    SMS: new SmsService(username, apiKey),
   };
 }

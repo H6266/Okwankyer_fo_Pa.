@@ -10,6 +10,8 @@ import { aiSystem } from "../ai_system";
 import { config } from "../config/env";
 import { runEvaluationHarness, runAudioEvaluationHarness } from "../ai_eval/evalHarness";
 import { aiBootstrap } from "../ai_system/core/aiBootstrap";
+import { requireAdminAuth } from "../middleware/adminAuth";
+import { adminRateLimiter } from "../middleware/rateLimiter";
 
 export const aiRouter = Router();
 
@@ -23,14 +25,31 @@ aiRouter.get("/api/ai/status", (_req: Request, res: Response) => {
   });
 });
 
-aiRouter.get("/api/ai/diagnostics", (_req: Request, res: Response) => {
+// Item 3.4: Production AI health probe
+aiRouter.get("/api/ai/health", async (_req: Request, res: Response) => {
+  const start = performance.now();
+  const diag = aiBootstrap.getDiagnostics();
+  const latencyMs = performance.now() - start;
+  res.json({
+    status: diag.models.reasoning.valid ? "HEALTHY" : "DEGRADED",
+    models: diag.models,
+    modelsVerifiedAgainstSdk: diag.modelsVerifiedAgainstSdk,
+    sdkVerifiedModels: diag.sdkVerifiedModels,
+    providers: diag.providers,
+    security: diag.security,
+    memory: diag.memory,
+    latencyMs,
+  });
+});
+
+aiRouter.get("/api/ai/diagnostics", adminRateLimiter, requireAdminAuth, (_req: Request, res: Response) => {
   res.json({
     success: true,
     diagnostics: aiBootstrap.getDiagnostics(),
   });
 });
 
-aiRouter.get("/api/ai/eval", async (_req: Request, res: Response) => {
+aiRouter.get("/api/ai/eval", adminRateLimiter, requireAdminAuth, async (_req: Request, res: Response) => {
   try {
     const report = await runEvaluationHarness();
     res.json({ success: true, report });
@@ -39,7 +58,7 @@ aiRouter.get("/api/ai/eval", async (_req: Request, res: Response) => {
   }
 });
 
-aiRouter.get("/api/ai/eval-audio", async (_req: Request, res: Response) => {
+aiRouter.get("/api/ai/eval-audio", adminRateLimiter, requireAdminAuth, async (_req: Request, res: Response) => {
   try {
     const report = await runAudioEvaluationHarness();
     res.json({ success: true, report });

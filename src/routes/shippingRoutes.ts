@@ -8,10 +8,12 @@ import { Router, Request, Response } from "express";
 import { config } from "../config/env";
 import { VoiceService } from "../../africastalking";
 import { audioFileExists } from "../audio/catalog";
+import { requireAdminAuth } from "../middleware/adminAuth";
+import { adminRateLimiter } from "../middleware/rateLimiter";
 
 export const shippingRouter = Router();
 
-shippingRouter.get("/api/shipping/status", async (req: Request, res: Response) => {
+shippingRouter.get("/api/shipping/status", adminRateLimiter, requireAdminAuth, async (req: Request, res: Response) => {
   const host = req.get("host") || `localhost:${config.port}`;
   const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "http";
   const baseUrl = config.baseUrl || `${proto}://${host}`.replace(/\/+$/, "");

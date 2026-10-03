@@ -36,6 +36,13 @@ export class SessionMemoryBridge {
   private cache = new Map<string, CachedSessionData>();
 
   /**
+   * Initializes or refreshes the session memory bridge store.
+   */
+  public initialize(): void {
+    // Ready memory cache
+  }
+
+  /**
    * Retrieves or recovers an active session, refreshing its LRU rank.
    */
   public getSession(sessionId: string): CachedSessionData | null {

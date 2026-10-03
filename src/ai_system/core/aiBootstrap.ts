@@ -1,13 +1,12 @@
 /**
  * Ɔkwankyerɛfo Pa - AI System Bootstrap & Diagnostics (aiBootstrap.ts)
  *
- * Bootstraps the deterministic canonical cognitive architecture:
- * 1. Validates configured Gemini model identifiers against official supported models
- * 2. Enforces fail-closed rules in production mode
- * 3. Preloads phonetic and pronunciation lexicons into intelligent memory
- * 4. Initializes durable session and memory systems
- * 5. Runs automated latency & safety integrity checks
- * 6. Exposes runtime configuration diagnostics
+ * Bootstraps the cognitive architecture:
+ * 1. Live model verification against GoogleGenAI SDK catalog at startup (Item 3.4).
+ * 2. Fail-closed production enforcement on missing models.
+ * 3. Prohibits deprecated legacy models.
+ * 4. Preloads phonetic and pronunciation lexicons into intelligent memory.
+ * 5. Exposes runtime configuration diagnostics.
  */
 
 import { GoogleGenAI } from "@google/genai";
@@ -16,31 +15,6 @@ import { aiMemory } from "./aiMemory";
 import { sessionMemoryBridge } from "../memory/sessionMemoryBridge";
 import { aiSafety } from "./aiSafety";
 import { AI_CONFIG } from "./aiConfig";
-
-const VALID_REASONING_MODELS = new Set([
-  "gemini-3.8-flash",
-  "gemini-3.1-pro-preview",
-  "gemini-flash-latest",
-]);
-
-const VALID_LIVE_MODELS = new Set([
-  "gemini-3.8-live",
-  "gemini-3.8-live-extended-thinking",
-  "gemini-3.5-transcribe-live",
-]);
-
-const VALID_TRANSCRIBE_MODELS = new Set([
-  "gemini-3.5-transcribe",
-]);
-
-const VALID_TTS_MODELS = new Set([
-  "gemini-3.8-flash-lite-tts",
-  "gemini-3.8-flash-tts",
-]);
-
-const VALID_EMBEDDING_MODELS = new Set([
-  "gemini-embedding-2-preview",
-]);
 
 const PROHIBITED_DEPRECATED_MODELS = new Set([
   "gemini-1.5-flash",
@@ -112,15 +86,21 @@ export class AiBootstrap {
   }
 
   /**
-   * Rule 8: Call the SDK's model listing at boot, verify each configured model exists.
+   * Item 3.4: Live model verification against Gemini SDK catalog at startup.
+   * In production, fails loudly if a configured model does not exist.
    */
   public async verifyModelsAgainstSdk(): Promise<{ verified: boolean; modelsFound: string[]; errors: string[] }> {
     const apiKey = process.env.GEMINI_API_KEY;
+    const isProd = process.env.NODE_ENV === "production";
+
     if (!apiKey) {
+      if (isProd) {
+        throw new Error("[FATAL ERROR] In production, GEMINI_API_KEY must be configured for AI voice operations.");
+      }
       return {
         verified: false,
         modelsFound: [],
-        errors: ["GEMINI_API_KEY not configured; SDK live model verification skipped (running in deterministic fallback mode)."],
+        errors: ["GEMINI_API_KEY not configured; SDK live model verification skipped in development."],
       };
     }
 
@@ -147,24 +127,22 @@ export class AiBootstrap {
       this.verifiedModelList = discovered;
       const errors: string[] = [];
 
-      // Check required reasoning model
+      // Check reasoning model
       if (!discovered.includes(AI_CONFIG.model)) {
-        // Look for safe fallback in discovered list
-        const fallbackReasoning = discovered.find(m => m === "gemini-3.8-flash" || m === "gemini-flash-latest");
-        if (fallbackReasoning) {
-          console.warn(`[AiBootstrap] Configured reasoning model '${AI_CONFIG.model}' not in SDK list. Failing over to '${fallbackReasoning}'.`);
-          AI_CONFIG.model = fallbackReasoning;
-        } else {
-          errors.push(`Configured reasoning model '${AI_CONFIG.model}' was not found in Gemini API model catalog.`);
-        }
-      }
+        const explicitFallbacks = (process.env.GEMINI_FALLBACK_MODELS || "")
+          .split(",")
+          .map((m) => m.trim())
+          .filter(Boolean);
+        const validFallback = explicitFallbacks.find((fb) => discovered.includes(fb));
 
-      // Check transcription model
-      if (!discovered.includes(AI_CONFIG.transcriptionModel)) {
-        const fallbackTranscribe = discovered.find(m => m === "gemini-3.5-transcribe" || m === "gemini-3.8-flash" || m === "gemini-flash-latest");
-        if (fallbackTranscribe) {
-          console.warn(`[AiBootstrap] Configured transcribe model '${AI_CONFIG.transcriptionModel}' not in SDK list. Failing over to '${fallbackTranscribe}'.`);
-          AI_CONFIG.transcriptionModel = fallbackTranscribe;
+        if (validFallback) {
+          console.warn(`[AiBootstrap] Configured reasoning model '${AI_CONFIG.model}' not in SDK list. Using explicit fallback '${validFallback}'.`);
+          AI_CONFIG.model = validFallback;
+        } else if (isProd) {
+          const msg = `[FATAL BOOT ERROR] Configured reasoning model '${AI_CONFIG.model}' was NOT found in the live Gemini catalog (${discovered.slice(0, 5).join(", ")}...).`;
+          throw new Error(msg);
+        } else {
+          errors.push(`Configured model '${AI_CONFIG.model}' not found in live catalog.`);
         }
       }
 
@@ -175,7 +153,10 @@ export class AiBootstrap {
         errors,
       };
     } catch (err: any) {
-      console.warn(`[AiBootstrap] SDK model listing check encountered network/quota notice: ${err.message}. Relying on static validation.`);
+      if (isProd) {
+        throw err;
+      }
+      console.warn(`[AiBootstrap] SDK live model catalog verification notice: ${err.message}`);
       return {
         verified: false,
         modelsFound: [],
@@ -185,12 +166,10 @@ export class AiBootstrap {
   }
 
   /**
-   * Validates configured model identifiers and throws on deprecated or invalid models.
+   * Validates configured models to prohibit deprecated models.
    */
   public validateModelConfiguration(): { valid: boolean; errors: string[] } {
     const errors: string[] = [];
-
-    // Check deprecated models
     const configured = [
       AI_CONFIG.model,
       AI_CONFIG.liveModel,
@@ -203,26 +182,6 @@ export class AiBootstrap {
       if (PROHIBITED_DEPRECATED_MODELS.has(m)) {
         errors.push(`DEPRECATED_MODEL_FORBIDDEN: Model '${m}' is deprecated and prohibited.`);
       }
-    }
-
-    if (!VALID_REASONING_MODELS.has(AI_CONFIG.model)) {
-      errors.push(`INVALID_MODEL: Reasoning model '${AI_CONFIG.model}' is not a recognized model.`);
-    }
-
-    if (!VALID_LIVE_MODELS.has(AI_CONFIG.liveModel)) {
-      errors.push(`INVALID_MODEL: Live model '${AI_CONFIG.liveModel}' is not a recognized live model.`);
-    }
-
-    if (!VALID_TRANSCRIBE_MODELS.has(AI_CONFIG.transcriptionModel)) {
-      errors.push(`INVALID_MODEL: Transcription model '${AI_CONFIG.transcriptionModel}' is not recognized.`);
-    }
-
-    if (!VALID_TTS_MODELS.has(AI_CONFIG.ttsModel)) {
-      errors.push(`INVALID_MODEL: TTS model '${AI_CONFIG.ttsModel}' is not recognized.`);
-    }
-
-    if (!VALID_EMBEDDING_MODELS.has(AI_CONFIG.embeddingModel)) {
-      errors.push(`INVALID_MODEL: Embedding model '${AI_CONFIG.embeddingModel}' is not recognized.`);
     }
 
     return {
@@ -239,11 +198,11 @@ export class AiBootstrap {
       appMode,
       isProduction: AI_CONFIG.isProduction,
       models: {
-        reasoning: { id: AI_CONFIG.model, valid: VALID_REASONING_MODELS.has(AI_CONFIG.model) },
-        live: { id: AI_CONFIG.liveModel, valid: VALID_LIVE_MODELS.has(AI_CONFIG.liveModel) },
-        transcribe: { id: AI_CONFIG.transcriptionModel, valid: VALID_TRANSCRIBE_MODELS.has(AI_CONFIG.transcriptionModel) },
-        tts: { id: AI_CONFIG.ttsModel, valid: VALID_TTS_MODELS.has(AI_CONFIG.ttsModel) },
-        embedding: { id: AI_CONFIG.embeddingModel, valid: VALID_EMBEDDING_MODELS.has(AI_CONFIG.embeddingModel) },
+        reasoning: { id: AI_CONFIG.model, valid: !PROHIBITED_DEPRECATED_MODELS.has(AI_CONFIG.model) },
+        live: { id: AI_CONFIG.liveModel, valid: !PROHIBITED_DEPRECATED_MODELS.has(AI_CONFIG.liveModel) },
+        transcribe: { id: AI_CONFIG.transcriptionModel, valid: !PROHIBITED_DEPRECATED_MODELS.has(AI_CONFIG.transcriptionModel) },
+        tts: { id: AI_CONFIG.ttsModel, valid: !PROHIBITED_DEPRECATED_MODELS.has(AI_CONFIG.ttsModel) },
+        embedding: { id: AI_CONFIG.embeddingModel, valid: !PROHIBITED_DEPRECATED_MODELS.has(AI_CONFIG.embeddingModel) },
       },
       modelsVerifiedAgainstSdk: this.sdkVerified,
       sdkVerifiedModels: this.verifiedModelList,
@@ -274,8 +233,7 @@ export class AiBootstrap {
         throw new Error(modelCheck.errors.join("; "));
       }
 
-      // Rule 8: If API key exists, verify model availability against SDK catalog
-      if (process.env.GEMINI_API_KEY && !process.env.VITEST) {
+      if (process.env.GEMINI_API_KEY) {
         await this.verifyModelsAgainstSdk();
       }
 
@@ -288,22 +246,14 @@ export class AiBootstrap {
       // 2. Verify Zero-PIN safety integrity
       const pinTest = aiSafety.detectSpokenPin("my pin is 1234");
       if (!pinTest) {
-        throw new Error("Zero-PIN safety policy check failed during bootstrap");
+        throw new Error("Zero-PIN safety gate sanity check failed: Expected 'my pin is 1234' to be intercepted.");
       }
 
-      // 3. Warm-up test query on central orchestrator (<80ms check)
-      await aiEngine.process({
-        sessionId: "bootstrap_warmup",
-        channel: "SIMULATOR",
-        input: "Akwaaba",
-        currentStep: "welcome",
-      });
+      // 3. Bind session repository bridge
+      sessionMemoryBridge.initialize();
 
-      aiMemory.clearSession("bootstrap_warmup");
-      sessionMemoryBridge.terminateSession("bootstrap_warmup");
-
-      const elapsed = Math.round(performance.now() - start);
       this.isInitialized = true;
+      const duration = performance.now() - start;
 
       return {
         status: "INITIALIZED",
@@ -319,11 +269,11 @@ export class AiBootstrap {
           sessionCache: true,
         },
         zeroPinPolicyVerified: true,
-        bootstrapLatencyMs: elapsed,
+        bootstrapLatencyMs: duration,
         diagnostics: this.getDiagnostics(),
       };
     } catch (err: any) {
-      console.error("[AiBootstrap] Initialization failed:", err);
+      const duration = performance.now() - start;
       return {
         status: "FAILED",
         timestamp: Date.now(),
@@ -338,15 +288,11 @@ export class AiBootstrap {
           sessionCache: false,
         },
         zeroPinPolicyVerified: false,
-        bootstrapLatencyMs: Math.round(performance.now() - start),
+        bootstrapLatencyMs: duration,
         diagnostics: this.getDiagnostics(),
         errors: [err.message],
       };
     }
-  }
-
-  public get ready(): boolean {
-    return this.isInitialized;
   }
 }
 

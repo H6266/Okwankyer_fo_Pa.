@@ -45,11 +45,6 @@ export class GeminiEmbeddingProvider implements IEmbeddingProvider {
       return this.fallbackProvider.embed(text);
     }
 
-    // In unit tests without live internet, use deterministic fallback
-    if (process.env.VITEST && process.env.ENABLE_REMOTE_AI_TESTS !== "true") {
-      return this.fallbackProvider.embed(text);
-    }
-
     if (!this.ai || !process.env.GEMINI_API_KEY) {
       return this.fallbackProvider.embed(text);
     }
