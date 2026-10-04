@@ -214,11 +214,45 @@ export class VoicePaymentService {
       "User-Agent": "okwankyerefo-pa/0.1",
     };
 
-    const callRes = await this.executeMtnGatewayCall({
+    let callRes = await this.executeMtnGatewayCall({
       method: "POST",
       url: tokenUrl,
       headers,
     });
+
+    // In Sandbox, if API Key was rotated or expired ("invalid_client" 401),
+    // self-heal by requesting the active API key directly from MTN sandbox
+    if (callRes.status === 401 && this.getEnv() === "sandbox" && subscriptionKey && apiUserId) {
+      try {
+        console.log("[VoicePaymentService] Token 401 on collection. Synchronizing active API Key from MTN Sandbox...");
+        const refreshRes = await fetch(`${this.config.baseUrl}/v1_0/apiuser/${apiUserId}/apikey`, {
+          method: "POST",
+          headers: {
+            "Ocp-Apim-Subscription-Key": subscriptionKey,
+            "Content-Length": "0",
+          },
+          body: "",
+        });
+        if (refreshRes.ok) {
+          const keyData = await refreshRes.json();
+          if (keyData.apiKey) {
+            this.config.collection.apiKey = keyData.apiKey;
+            process.env.MOMO_COLLECTION_API_KEY = keyData.apiKey;
+            process.env.MTN_COLLECTION_API_KEY = keyData.apiKey;
+            console.log("[VoicePaymentService] Synchronized active collection API Key with MTN Sandbox.");
+            const refreshedAuthHeader = `Basic ${Buffer.from(`${apiUserId}:${keyData.apiKey}`).toString("base64")}`;
+            headers["Authorization"] = refreshedAuthHeader;
+            callRes = await this.executeMtnGatewayCall({
+              method: "POST",
+              url: tokenUrl,
+              headers,
+            });
+          }
+        }
+      } catch (syncErr: any) {
+        console.warn("[VoicePaymentService] Key sync notice:", syncErr.message);
+      }
+    }
 
     if (callRes.status !== 200) {
       const err = new Error(`Failed to obtain collection token (HTTP ${callRes.status}): ${typeof callRes.data === "string" ? callRes.data : JSON.stringify(callRes.data)}`);

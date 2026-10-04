@@ -84,12 +84,9 @@ export function loadConfigFromEnv(): MoMoConfig {
   const disbSubKey = (
     process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY ||
     process.env.MTN_DISBURSEMENT_SUBSCRIPTION_KEY ||
-    process.env.MOMO_PRIMARY_KEY ||
-    process.env.MOMO_SECONDARY_KEY ||
-    process.env.MTN_API_SECONDARY_KEY ||
-    process.env.mtn_api_secondary_key ||
-    process.env.MOMO_SUBSCRIPTION_KEY_SECONDARY ||
-    collSubKey
+    process.env.MOMO_DISBURSEMENT_PRIMARY_KEY ||
+    process.env.MOMO_DISBURSEMENT_SECONDARY_KEY ||
+    ""
   ).trim();
 
   const collUserId = (
@@ -110,15 +107,13 @@ export function loadConfigFromEnv(): MoMoConfig {
   const disbUserId = (
     process.env.MOMO_DISBURSEMENT_API_USER_ID ||
     process.env.MTN_DISBURSEMENT_API_USER_ID ||
-    process.env.MOMO_API_USER_ID ||
-    collUserId
+    ""
   ).trim();
 
   const disbApiKey = (
     process.env.MOMO_DISBURSEMENT_API_KEY ||
     process.env.MTN_DISBURSEMENT_API_KEY ||
-    process.env.MOMO_API_KEY ||
-    collApiKey
+    ""
   ).trim();
 
   return {
