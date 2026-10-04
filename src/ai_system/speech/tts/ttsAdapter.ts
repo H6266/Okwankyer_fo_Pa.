@@ -150,3 +150,4 @@ export class GeminiTtsAdapter implements TTSProvider {
 }
 
 export const geminiTtsAdapter = new GeminiTtsAdapter();
+export const ttsAdapter = geminiTtsAdapter;

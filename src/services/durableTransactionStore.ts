@@ -8,7 +8,7 @@
 import fs from "fs";
 import path from "path";
 import { TransactionSession } from "../domain/stateMachine";
-import { TransactionResult } from "../integrations/momo/types";
+import { TransactionResult, SagaTransaction } from "../integrations/momo/types";
 
 export interface VelocityAttempt {
   timestamp: number;
@@ -40,24 +40,27 @@ export class DurableTransactionStore {
   private sessionsDir: string;
   private idempotencyDir: string;
   private velocityDir: string;
+  private sagasDir: string;
 
   private sessions = new Map<string, TransactionSession>();
   private idempotencyIndex = new Map<string, string>(); // idempotencyKey -> sessionId
   private processedTransactions = new Map<string, TransactionResult>(); // idempotencyKey -> result
   private velocityMap = new Map<string, VelocityAttempt[]>(); // callerPhone -> attempts
+  private sagas = new Map<string, SagaTransaction>(); // sagaId -> SagaTransaction
 
   constructor(customBaseDir?: string) {
     this.baseDir = customBaseDir || path.resolve(process.cwd(), ".data");
     this.sessionsDir = path.join(this.baseDir, "state_machine");
     this.idempotencyDir = path.join(this.baseDir, "idempotency");
     this.velocityDir = path.join(this.baseDir, "velocity");
+    this.sagasDir = path.join(this.baseDir, "sagas");
 
     this.initDirectories();
     this.hydrateFromDisk();
   }
 
   private initDirectories(): void {
-    for (const dir of [this.baseDir, this.sessionsDir, this.idempotencyDir, this.velocityDir]) {
+    for (const dir of [this.baseDir, this.sessionsDir, this.idempotencyDir, this.velocityDir, this.sagasDir]) {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
@@ -107,6 +110,18 @@ export class DurableTransactionStore {
             const record: VelocityRecord = JSON.parse(raw);
             const valid = record.attempts.filter((a) => a.timestamp >= cutoff);
             this.velocityMap.set(record.callerPhone, valid);
+          } catch {}
+        }
+      }
+
+      // 4. Hydrate sagas
+      if (fs.existsSync(this.sagasDir)) {
+        const files = fs.readdirSync(this.sagasDir).filter((f) => f.endsWith(".json"));
+        for (const file of files) {
+          try {
+            const raw = fs.readFileSync(path.join(this.sagasDir, file), "utf-8");
+            const saga: SagaTransaction = JSON.parse(raw);
+            this.sagas.set(saga.sagaId, saga);
           } catch {}
         }
       }
@@ -269,12 +284,44 @@ export class DurableTransactionStore {
     }
   }
 
+  // ── Saga Persistence Operations ───────────────────────────────────────
+  public getSaga(sagaId: string): SagaTransaction | undefined {
+    return this.sagas.get(sagaId);
+  }
+
+  public getAllSagas(): SagaTransaction[] {
+    return Array.from(this.sagas.values()).sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  public saveSaga(saga: SagaTransaction): void {
+    this.sagas.set(saga.sagaId, saga);
+    try {
+      const sanitizedId = saga.sagaId.replace(/[^a-zA-Z0-9_\-]/g, "_");
+      const filePath = path.join(this.sagasDir, `${sanitizedId}.json`);
+      this.atomicWriteFileSync(filePath, JSON.stringify(saga, null, 2));
+    } catch (err) {
+      console.error(`[DurableTransactionStore] Failed to write saga ${saga.sagaId} to disk:`, err);
+    }
+  }
+
+  public deleteSaga(sagaId: string): void {
+    this.sagas.delete(sagaId);
+    try {
+      const sanitizedId = sagaId.replace(/[^a-zA-Z0-9_\-]/g, "_");
+      const filePath = path.join(this.sagasDir, `${sanitizedId}.json`);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    } catch {}
+  }
+
   // ── Testing / Maintenance Utilities ───────────────────────────────────
   public clearAllForTesting(): void {
     this.sessions.clear();
     this.idempotencyIndex.clear();
     this.processedTransactions.clear();
     this.velocityMap.clear();
+    this.sagas.clear();
 
     const cleanDir = (d: string) => {
       if (fs.existsSync(d)) {
@@ -289,6 +336,7 @@ export class DurableTransactionStore {
     cleanDir(this.sessionsDir);
     cleanDir(this.idempotencyDir);
     cleanDir(this.velocityDir);
+    cleanDir(this.sagasDir);
   }
 }
 

@@ -1,0 +1,15 @@
+{
+  "sagaId": "SAGA_1791146843456_bf885335",
+  "idempotencyKey": "a29c5861a9ddbe0865e9cacae2922658f8fb06f3f5684dbc37103643539d2877",
+  "senderPhone": "0559990001",
+  "recipientPhone": "0558880002",
+  "recipientName": "Test User",
+  "amount": 15,
+  "network": "MTN",
+  "state": "COMPLETED",
+  "createdAt": 1791146843457,
+  "updatedAt": 1791146843459,
+  "collectionReference": "REF_COLLECTION_TEST",
+  "disbursementReference": "REF_DISBURSE_TEST",
+  "providerFinancialTransactionId": "MTN_FIN_REAL_8833"
+}

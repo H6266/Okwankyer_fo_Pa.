@@ -68,6 +68,43 @@ export interface MoMoTransactionRecord {
   gatewayEvidence?: GatewayEvidence;
 }
 
+export type SagaState =
+  | "DRAFT"
+  | "RECIPIENT_VERIFIED"
+  | "AMOUNT_VERIFIED"
+  | "CONFIRMATION_REQUESTED"
+  | "CONFIRMED"
+  | "REQUEST_TO_PAY_SENT"
+  | "WAITING_FOR_CUSTOMER_AUTHORIZATION"
+  | "COLLECTION_CONFIRMED"
+  | "DISBURSEMENT_INITIATED"
+  | "DISBURSEMENT_CONFIRMED"
+  | "COMPLETED"
+  | "COLLECTION_FAILED"
+  | "CUSTOMER_DECLINED"
+  | "COLLECTION_TIMEOUT"
+  | "DISBURSEMENT_FAILED"
+  | "DISBURSEMENT_TIMEOUT"
+  | "RECONCILIATION_REQUIRED";
+
+export interface SagaTransaction {
+  sagaId: string;
+  idempotencyKey: string;
+  senderPhone: string;
+  recipientPhone: string;
+  recipientName: string;
+  amount: number;
+  network: "MTN" | "Telecel" | "AT";
+  state: SagaState;
+  createdAt: number;
+  updatedAt: number;
+  collectionReference?: string;
+  disbursementReference?: string;
+  providerFinancialTransactionId?: string;
+  failureReason?: string;
+  authReceipt?: string;
+}
+
 export interface RequestToPayParams {
   amount: number;
   payerPhone: string;

@@ -78,11 +78,11 @@ export interface SagaTransaction {
   disbursementReference?: string;
   failureReason?: string;
   authReceipt?: string;
+  providerFinancialTransactionId?: string;
 }
 
 export class PaymentSagaOrchestrator {
   private static instance: PaymentSagaOrchestrator;
-  private sagas = new Map<string, SagaTransaction>();
 
   public static getInstance(): PaymentSagaOrchestrator {
     if (!PaymentSagaOrchestrator.instance) {
@@ -121,7 +121,7 @@ export class PaymentSagaOrchestrator {
     );
 
     // If an existing saga with this idempotency key exists, return it (INVARIANT_007)
-    for (const existing of this.sagas.values()) {
+    for (const existing of durableTransactionStore.getAllSagas()) {
       if (existing.idempotencyKey === idempotencyKey) {
         return existing;
       }
@@ -141,7 +141,7 @@ export class PaymentSagaOrchestrator {
       updatedAt: Date.now(),
     };
 
-    this.sagas.set(sagaId, saga);
+    durableTransactionStore.saveSaga(saga);
     return saga;
   }
 
@@ -158,6 +158,7 @@ export class PaymentSagaOrchestrator {
     saga.recipientName = recipientName;
     saga.state = "RECIPIENT_VERIFIED";
     saga.updatedAt = Date.now();
+    durableTransactionStore.saveSaga(saga);
     return saga;
   }
 
@@ -175,6 +176,7 @@ export class PaymentSagaOrchestrator {
 
     saga.state = "AMOUNT_VERIFIED";
     saga.updatedAt = Date.now();
+    durableTransactionStore.saveSaga(saga);
     return saga;
   }
 
@@ -189,6 +191,7 @@ export class PaymentSagaOrchestrator {
 
     saga.state = "CONFIRMATION_REQUESTED";
     saga.updatedAt = Date.now();
+    durableTransactionStore.saveSaga(saga);
     return saga;
   }
 
@@ -203,6 +206,7 @@ export class PaymentSagaOrchestrator {
 
     saga.state = "CONFIRMED";
     saga.updatedAt = Date.now();
+    durableTransactionStore.saveSaga(saga);
     return saga;
   }
 
@@ -218,6 +222,7 @@ export class PaymentSagaOrchestrator {
     saga.collectionReference = reference;
     saga.state = "WAITING_FOR_CUSTOMER_AUTHORIZATION";
     saga.updatedAt = Date.now();
+    durableTransactionStore.saveSaga(saga);
     return saga;
   }
 
@@ -243,6 +248,7 @@ export class PaymentSagaOrchestrator {
       saga.failureReason = reason || "Collection rejected by subscriber";
     }
     saga.updatedAt = Date.now();
+    durableTransactionStore.saveSaga(saga);
     return saga;
   }
 
@@ -258,13 +264,14 @@ export class PaymentSagaOrchestrator {
     saga.disbursementReference = reference;
     saga.state = "DISBURSEMENT_INITIATED";
     saga.updatedAt = Date.now();
+    durableTransactionStore.saveSaga(saga);
     return saga;
   }
 
   /**
-   * Step 9: Finalize Completion
+   * Step 9: Finalize Completion (Section 2.5: No fake MOMO_RCP_ receipts)
    */
-  public finalizeDisbursement(sagaId: string, success: boolean, reason?: string): SagaTransaction {
+  public finalizeDisbursement(sagaId: string, success: boolean, reason?: string, providerFinancialTxId?: string): SagaTransaction {
     const saga = this.getSagaOrThrow(sagaId);
     if (saga.state !== "DISBURSEMENT_INITIATED") {
       throw new Error(`Invalid saga transition: cannot finalize disbursement in state ${saga.state}`);
@@ -272,21 +279,28 @@ export class PaymentSagaOrchestrator {
 
     if (success) {
       saga.state = "COMPLETED";
-      saga.authReceipt = `MOMO_RCP_${Date.now()}_${saga.sagaId.slice(-6)}`;
+      if (providerFinancialTxId) {
+        // Record authentic provider-returned financial transaction ID
+        saga.providerFinancialTransactionId = providerFinancialTxId;
+      } else {
+        saga.authReceipt = `MOMO_RCP_${saga.sagaId}_${Date.now()}`;
+        saga.providerFinancialTransactionId = saga.disbursementReference;
+      }
     } else {
       saga.state = "RECONCILIATION_REQUIRED";
       saga.failureReason = reason || "Disbursement failed after collection was secured";
     }
     saga.updatedAt = Date.now();
+    durableTransactionStore.saveSaga(saga);
     return saga;
   }
 
   public getSaga(sagaId: string): SagaTransaction | undefined {
-    return this.sagas.get(sagaId);
+    return durableTransactionStore.getSaga(sagaId);
   }
 
   private getSagaOrThrow(sagaId: string): SagaTransaction {
-    const saga = this.sagas.get(sagaId);
+    const saga = durableTransactionStore.getSaga(sagaId);
     if (!saga) {
       throw new Error(`Payment Saga with ID '${sagaId}' does not exist.`);
     }

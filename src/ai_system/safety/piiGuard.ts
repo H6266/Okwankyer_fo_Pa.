@@ -4,6 +4,12 @@
  */
 
 export class PiiGuard {
+  public sanitize(text: string): string {
+    return text
+      .replace(/\b(0[25]\d{8})\b/g, (phone) => `${phone.slice(0, 3)}****${phone.slice(-3)}`)
+      .replace(/\b(pin|password|secret|momoPin)\s*(is|:)?\s*(\d{4,6})\b/gi, "$1 [REDACTED_PIN]");
+  }
+
   public sanitizeLogData<T extends Record<string, any>>(data: T): T {
     const serialized = JSON.stringify(data);
     const sanitized = serialized

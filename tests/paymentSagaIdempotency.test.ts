@@ -1,7 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { paymentSaga } from "../src/integrations/momo/paymentSaga";
+import { durableTransactionStore } from "../src/services/durableTransactionStore";
 
 describe("Payment Saga & Idempotency Orchestration (Section 25 & 26)", () => {
+  beforeEach(() => {
+    durableTransactionStore.clearAllForTesting();
+  });
   it("executes the canonical payment saga from Draft to Completed", () => {
     // 1. Create Draft
     const saga = paymentSaga.createDraft({

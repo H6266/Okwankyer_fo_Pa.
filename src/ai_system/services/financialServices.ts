@@ -98,15 +98,10 @@ export interface IBillPaymentService {
 
 // ── Real Provider Implementations ────────────────────────────────────
 export class RealBalanceService implements IBalanceService {
-  public async getBalance(phone: string): Promise<BalanceResult> {
-    // MTN Collections balance is the merchant/business account balance, NOT the caller's wallet balance.
-    // Subscriber wallet balances cannot be queried via API.
-    return {
-      availableBalance: 0,
-      currency: "GHS",
-      accountPhone: phone,
-      source: "real_provider",
-    };
+  public async getBalance(_phone: string): Promise<BalanceResult> {
+    // Enforce INVARIANT_008 & Section 2.6: Subscriber wallet balances are not available via 3rd-party API
+    // Never return 0 or a fabricated amount as if the caller's balance was retrieved.
+    throw new Error("CAPABILITY_RESTRICTION: BALANCE_NOT_AVAILABLE_VIA_API - Subscriber wallet balance cannot be retrieved via third-party developer API. Dial *170# directly on handset.");
   }
 }
 

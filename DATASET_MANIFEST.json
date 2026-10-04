@@ -113,7 +113,7 @@
       "speaker_metadata": "Disjoint speaker sets partitioned across urban and rural Ghanaian demographic profiles",
       "notes": "Curated by Team Anidasoɔ. Contains verified financial intents, zero-PIN boundaries, and Ghanaian telephone numbers.",
       "provenance": "Team Anidasoɔ field research & Ghanaian mobile money audio transcripts",
-      "checksum": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "checksum": "sha256:a34e02187e463bb8671571243fa272b8a2ad3247d4b69a23eef6a18c734abcfa",
       "approved_for_training": true
     }
   ]

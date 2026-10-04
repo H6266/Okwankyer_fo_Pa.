@@ -1,0 +1,12 @@
+{
+  "sagaId": "SAGA_1791146809419_500c7b7f",
+  "idempotencyKey": "5d4ffae3d01124ffeaf029612e3a674018f996fdc5aa51d47fc6d9c108f95c8d",
+  "senderPhone": "0551110001",
+  "recipientPhone": "0552220002",
+  "recipientName": "Unverified",
+  "amount": 75,
+  "network": "MTN",
+  "state": "DRAFT",
+  "createdAt": 1791146809419,
+  "updatedAt": 1791146809419
+}
