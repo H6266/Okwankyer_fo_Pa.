@@ -66,10 +66,12 @@ export function loadConfig(): AppConfig {
   }
 
   const demoMode = process.env.DEMO_MODE === "true" || nodeEnv !== "production";
-  const adminToken = (process.env.ADMIN_TOKEN || "").trim() || "production_admin_default_token_secret_123";
+  // Development uses the intentional admin-auth bypass when no token is configured.
+  // Production must provide ADMIN_TOKEN explicitly; never use a hard-coded fallback.
+  const adminToken = (process.env.ADMIN_TOKEN || "").trim();
 
   if (nodeEnv === "production" && !process.env.ADMIN_TOKEN) {
-    console.warn("⚠️ [SECURITY NOTICE] ADMIN_TOKEN not configured via environment. Using secure internal default.");
+    console.warn("⚠️ [SECURITY NOTICE] ADMIN_TOKEN is not configured. Admin endpoints are available only through the development bypass.");
   }
 
   const corsRaw = (process.env.CORS_ORIGINS || "*").trim();
