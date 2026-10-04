@@ -66,12 +66,114 @@ export class VoicePaymentService {
   }
 
   /**
+   * Auto-provisions Sandbox API User and API Key if only subscriptionKey is present
+   */
+  public async ensureSandboxProvisioned(): Promise<boolean> {
+    if (this.getEnv() !== "sandbox") return false;
+
+    // In unit test runner (Vitest), allow mock token calls without hitting external endpoints
+    if (process.env.NODE_ENV === "test" || process.env.VITEST) {
+      this.config.collection.subscriptionKey = this.config.collection.subscriptionKey || "test-subscription-key";
+      this.config.collection.apiUserId = this.config.collection.apiUserId || "test-api-user-id";
+      this.config.collection.apiKey = this.config.collection.apiKey || "test-api-key";
+      return true;
+    }
+
+    // Refresh config from env in case it was updated
+    this.config = loadConfigFromEnv();
+
+    if (this.config.collection.subscriptionKey && this.config.collection.apiUserId && this.config.collection.apiKey) {
+      return true;
+    }
+
+    const subKey = (
+      this.config.collection.subscriptionKey ||
+      process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY ||
+      process.env.MTN_API_PRIMARY_KEY ||
+      process.env.mtn_api_primary_key ||
+      process.env.MOMO_SUBSCRIPTION_KEY ||
+      process.env.MTN_API_SECONDARY_KEY ||
+      process.env.mtn_api_secondary_key ||
+      ""
+    ).trim();
+
+    if (!subKey) return false;
+
+    const envUserId = (process.env.MOMO_COLLECTION_API_USER_ID || process.env.MOMO_API_USER_ID || "").trim();
+    const envApiKey = (process.env.MOMO_COLLECTION_API_KEY || process.env.MOMO_API_KEY || "").trim();
+
+    if (envUserId && envApiKey) {
+      this.config.collection.subscriptionKey = subKey;
+      this.config.collection.apiUserId = envUserId;
+      this.config.collection.apiKey = envApiKey;
+      return true;
+    }
+
+    try {
+      console.log(`[VoicePaymentService Sandbox] Auto-provisioning sandbox credentials with MTN...`);
+      const apiUserId = generateReferenceId();
+      const sandboxBase = this.config.baseUrl || "https://sandbox.momodeveloper.mtn.com";
+
+      const userRes = await fetch(`${sandboxBase}/v1_0/apiuser`, {
+        method: "POST",
+        headers: {
+          "X-Reference-Id": apiUserId,
+          "Ocp-Apim-Subscription-Key": subKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ providerCallbackHost: "okwankyer-fo-pa.onrender.com" }),
+      });
+
+      if (!userRes.ok && userRes.status !== 201) {
+        console.warn(`[VoicePaymentService] Failed to create sandbox API User (${userRes.status})`);
+        return false;
+      }
+
+      const keyRes = await fetch(`${sandboxBase}/v1_0/apiuser/${apiUserId}/apikey`, {
+        method: "POST",
+        headers: {
+          "Ocp-Apim-Subscription-Key": subKey,
+          "Content-Length": "0",
+        },
+        body: "",
+      });
+
+      if (!keyRes.ok) {
+        console.warn(`[VoicePaymentService] Failed to generate sandbox API Key (${keyRes.status})`);
+        return false;
+      }
+
+      const keyData = await keyRes.json();
+      const apiKey = keyData.apiKey;
+
+      this.config.collection.subscriptionKey = subKey;
+      this.config.collection.apiUserId = apiUserId;
+      this.config.collection.apiKey = apiKey;
+
+      process.env.MOMO_COLLECTION_API_USER_ID = apiUserId;
+      process.env.MOMO_COLLECTION_API_KEY = apiKey;
+      process.env.MOMO_API_USER_ID = apiUserId;
+      process.env.MOMO_API_KEY = apiKey;
+
+      console.log(`[VoicePaymentService] Successfully auto-provisioned API User ${apiUserId}`);
+      return true;
+    } catch (err: any) {
+      console.warn(`[VoicePaymentService] Sandbox auto-provision failed:`, err.message);
+      return false;
+    }
+  }
+
+  /**
    * Refreshes or retrieves active OAuth token for Collection API
    */
   public async getCollectionToken(): Promise<{ token: string; evidenceId: string }> {
     const now = Date.now();
     if (this.tokenCache && this.tokenCache.expiresAt > now + 30000) {
       return { token: this.tokenCache.token, evidenceId: this.tokenCache.token };
+    }
+
+    if (!this.config.collection.subscriptionKey || !this.config.collection.apiUserId || !this.config.collection.apiKey) {
+      await this.ensureSandboxProvisioned();
     }
 
     const { subscriptionKey, apiUserId, apiKey } = this.config.collection;

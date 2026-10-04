@@ -748,6 +748,23 @@ export class MoMoEngine {
   }
 
   /**
+   * Retrieves an in-memory transaction record by reference ID or external ID
+   */
+  public getTransactionRecord(referenceId: string): MoMoTransactionRecord | undefined {
+    return this.transactionHistory.get(referenceId);
+  }
+
+  /**
+   * Saves or updates an in-memory transaction record
+   */
+  public recordTransaction(record: MoMoTransactionRecord): void {
+    if (record.referenceId) this.transactionHistory.set(record.referenceId, record);
+    if (record.externalId) this.transactionHistory.set(record.externalId, record);
+    if (record.id) this.transactionHistory.set(record.id, record);
+    this.notifyListeners(record);
+  }
+
+  /**
    * 4. CHECK ACCOUNT BALANCE
    * Queries real MTN balance from live gateway.
    */

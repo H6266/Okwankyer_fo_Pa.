@@ -54,6 +54,10 @@ export interface MoMoTransactionRecord {
   currency: string;
   msisdn: string; // Ghanaian MSISDN e.g. 233553838464
   recipientName?: string;
+  payerPhone?: string;
+  recipientPhone?: string;
+  requestedCurrency?: string;
+  requestedAmount?: number;
   payerMessage?: string;
   financialTransactionId?: string;
   mode: MoMoMode;

@@ -423,6 +423,9 @@ export const MomoLabPage: React.FC = () => {
                 transaction: {
                   ...prev.transaction,
                   status: pollRes.transaction.status,
+                  recipient_phone: pollRes.transaction?.recipient_phone || prev.transaction?.recipient_phone || recipientPhone,
+                  recipient_name: pollRes.transaction?.recipient_name || prev.transaction?.recipient_name || recipientName,
+                  payer_phone: pollRes.transaction?.payer_phone || prev.transaction?.payer_phone || senderPhone,
                   momoDetails: {
                     ...prev.transaction?.momoDetails,
                     status: pollRes.transaction.status,
@@ -935,6 +938,9 @@ export const MomoLabPage: React.FC = () => {
                       <div>Active: <span className="text-emerald-700 font-bold">{kycValidationResult.accountActive !== false ? "YES" : "NO"}</span></div>
                       <div>Provider: <span className="text-slate-900 font-bold">{kycValidationResult.provider || "MTN"}</span></div>
                       <div>Env: <span className="text-slate-900 font-bold">{kycValidationResult.environment || "sandbox"}</span></div>
+                    </div>
+                    <div className="mt-2 pt-2 border-t border-emerald-200/60 text-[10px] text-emerald-800/90 leading-tight">
+                      ℹ️ <strong>MTN Sandbox Note:</strong> In the MTN Developer Sandbox, all phone numbers return the mock subscriber name <em>"Sand Box"</em>. In production, this queries the live telecom registry and returns the subscriber's real registered KYC name.
                     </div>
                   </div>
                 )}

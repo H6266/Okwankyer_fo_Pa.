@@ -162,10 +162,10 @@ momoRouter.get("/api/momo/capability-matrix", (_req: Request, res: Response) => 
 
 // ── Centralized Transaction Service Endpoints ─────────────────────────
 
-// Send Money (Repointed to VoicePaymentService)
+// Send Money (Supports both Consumer P2P RequestToPay and Direct Float Disbursement)
 momoRouter.post("/api/momo/send", adminRateLimiter, requireAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { recipient_phone, recipient_name, amount, payer_phone } = req.body;
+    const { recipient_phone, recipient_name, amount, payer_phone, mode } = req.body;
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
       return res.status(400).json({ error: "Missing or invalid positive 'amount' field." });
@@ -187,6 +187,50 @@ momoRouter.post("/api/momo/send", adminRateLimiter, requireAdminAuth, async (req
       ? validatedRecipient.normalized
       : recipient;
 
+    // Handle Direct Float Disbursement
+    if (mode === "DISBURSEMENT_TRANSFER") {
+      const tx = await mtnMomoService.transfer({
+        amount: parsedAmount,
+        payeePhone: finalRecipientPhone,
+        payeeName: recipient_name || "Recipient Subscriber",
+        payerMessage: "Direct Float Disbursement",
+        payeeNote: "Okwankyerɛfo Pa MoMo",
+      });
+
+      tx.payerPhone = "FLOAT (Business Float)";
+      tx.recipientPhone = finalRecipientPhone;
+      tx.recipientName = recipient_name || "Recipient Subscriber";
+      tx.requestedAmount = parsedAmount;
+      tx.requestedCurrency = "GHS";
+      mtnMomoService.recordTransaction(tx);
+
+      return res.status(202).json({
+        success: tx.status !== "FAILED",
+        transaction: {
+          status: tx.status,
+          reference: tx.referenceId,
+          amount: parsedAmount,
+          requestedAmount: parsedAmount,
+          requestedCurrency: "GHS",
+          currency: tx.currency,
+          executionCurrency: tx.currency,
+          currencyNotice: tx.currency === "EUR" ? "MTN Developer Sandbox executes in EUR; live Ghana production executes in GHS" : undefined,
+          payer_phone: "FLOAT (Business Float)",
+          recipient_name: recipient_name || "Recipient Subscriber",
+          recipient_phone: finalRecipientPhone,
+          momoDetails: {
+            referenceId: tx.referenceId,
+            externalId: tx.externalId,
+            financialTransactionId: tx.financialTransactionId,
+          },
+          reason: tx.reason,
+        },
+        gatewayEvidence: tx.gatewayEvidence,
+        evidenceId: tx.referenceId,
+      });
+    }
+
+    // Default: Consumer P2P / Handset Authorization (Collection RequestToPay)
     const result = await voicePaymentService.initiatePayment(validatedPayer.normalized, parsedAmount);
     const evidence = evidenceStore.get(result.evidenceId);
 
@@ -196,16 +240,42 @@ momoRouter.post("/api/momo/send", adminRateLimiter, requireAdminAuth, async (req
       result.fields.recipient_name = recipient_name;
     }
 
+    const refId = result.fields.referenceId || result.evidenceId;
+    const extId = result.fields.externalId || `OKP-${Date.now().toString().slice(-6)}`;
+    mtnMomoService.recordTransaction({
+      id: extId,
+      referenceId: refId,
+      externalId: extId,
+      type: "COLLECTION_REQUEST_TO_PAY",
+      status: (result.mtnStatus as any) || (result.ok ? "PENDING" : "FAILED"),
+      amount: parsedAmount,
+      requestedAmount: parsedAmount,
+      requestedCurrency: "GHS",
+      currency: result.fields.currency || "EUR",
+      msisdn: validatedPayer.normalized,
+      payerPhone: validatedPayer.normalized,
+      recipientPhone: finalRecipientPhone,
+      recipientName: recipient_name || "Sand Box",
+      mode: "SANDBOX_API",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      gatewayEvidence: evidence as any,
+    });
+
     const httpStatus = result.mtnHttpStatus === 202 ? 202 : (result.mtnHttpStatus || 400);
     res.status(httpStatus).json({
       success: result.ok,
       transaction: {
-        status: result.mtnStatus, // Undefined on 202 Accepted
+        status: result.mtnStatus || "PENDING",
         reference: result.fields.referenceId,
         amount: parsedAmount,
-        currency: result.fields.currency,
+        requestedAmount: parsedAmount,
+        requestedCurrency: "GHS",
+        currency: result.fields.currency || "EUR",
+        executionCurrency: result.fields.currency || "EUR",
+        currencyNotice: result.fields.currency === "EUR" ? "MTN Developer Sandbox executes in EUR; live Ghana production executes in GHS" : undefined,
         payer_phone: validatedPayer.normalized,
-        recipient_name: recipient_name || "Subscriber",
+        recipient_name: recipient_name || "Sand Box",
         recipient_phone: finalRecipientPhone,
         momoDetails: {
           referenceId: result.fields.referenceId,
@@ -558,23 +628,63 @@ momoRouter.post("/api/momo/transfer", adminRateLimiter, requireAdminAuth, async 
   }
 });
 
-// Transfer Status Check (Repointed to VoicePaymentService single-poll)
+// Transfer / RequestToPay Status Check
 momoRouter.get("/api/momo/transfer/:referenceId", adminRateLimiter, requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const { referenceId } = req.params;
-    const voiceStatus = await voicePaymentService.checkStatus(referenceId, { singlePoll: true });
-    const evidence = evidenceStore.get(voiceStatus.evidenceId);
+    const localTx = mtnMomoService.getTransactionRecord(referenceId);
+
+    let status = "PENDING";
+    let financialTransactionId: string | undefined = localTx?.financialTransactionId;
+    let reason: string | undefined = localTx?.reason;
+    let evidence: any = localTx?.gatewayEvidence;
+    let normalizedResult: any = undefined;
+
+    if (localTx?.type === "DISBURSEMENT_TRANSFER") {
+      const polled = await mtnMomoService.getTransactionStatus(referenceId);
+      if (polled) {
+        status = polled.status;
+        financialTransactionId = polled.financialTransactionId || financialTransactionId;
+        evidence = polled.gatewayEvidence || evidence;
+      }
+    } else {
+      const voiceStatus = await voicePaymentService.checkStatus(referenceId, { singlePoll: true });
+      evidence = evidenceStore.get(voiceStatus.evidenceId) || evidence;
+      status = voiceStatus.mtnStatus || (voiceStatus.ok ? "SUCCESSFUL" : "PENDING");
+      financialTransactionId = voiceStatus.fields.financialTransactionId || financialTransactionId;
+      reason = voiceStatus.mtnReason || reason;
+      normalizedResult = voiceStatus;
+    }
+
+    if (localTx && status) {
+      localTx.status = status as any;
+      if (financialTransactionId) localTx.financialTransactionId = financialTransactionId;
+    }
+
     res.json({
-      success: voiceStatus.ok || voiceStatus.mtnStatus === "SUCCESSFUL",
+      success: status === "SUCCESSFUL" || status === "SUCCESS",
       transaction: {
-        status: voiceStatus.mtnStatus,
-        financialTransactionId: voiceStatus.fields.financialTransactionId,
-        reason: voiceStatus.mtnReason,
-        amount: voiceStatus.fields.amount,
-        currency: voiceStatus.fields.currency,
+        status,
+        financialTransactionId,
+        reason,
+        amount: localTx?.amount || 5,
+        requestedAmount: localTx?.requestedAmount || localTx?.amount || 5,
+        currency: localTx?.currency || "EUR",
+        requestedCurrency: "GHS",
+        executionCurrency: localTx?.currency || "EUR",
+        currencyNotice: (localTx?.currency || "EUR") === "EUR" ? "MTN Developer Sandbox executes in EUR; live Ghana production executes in GHS" : undefined,
         referenceId,
+        recipient_phone: localTx?.recipientPhone || localTx?.msisdn,
+        recipient_name: localTx?.recipientName || "Sand Box",
+        payer_phone: localTx?.payerPhone,
+        momoDetails: {
+          referenceId,
+          externalId: localTx?.externalId || referenceId,
+          status,
+          financialTransactionId,
+        },
       },
-      normalizedResult: voiceStatus,
+      normalizedResult,
       gatewayEvidence: evidence,
     });
   } catch (err: any) {
