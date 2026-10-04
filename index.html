@@ -15,6 +15,30 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400;1,700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Guard against unhandled third-party browser extension errors (e.g. MetaMask / Web3 injected scripts in iframe) -->
+    <script>
+      (function() {
+        function isExtensionError(err) {
+          var str = String(err && (err.message || err.reason || err) || "").toLowerCase();
+          return str.includes("metamask") || str.includes("ethereum") || str.includes("web3") || str.includes("chrome-extension");
+        }
+        window.addEventListener("error", function(e) {
+          if (isExtensionError(e.error || e.message)) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return true;
+          }
+        }, true);
+        window.addEventListener("unhandledrejection", function(e) {
+          if (isExtensionError(e.reason)) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return true;
+          }
+        }, true);
+      })();
+    </script>
   </head>
   <body class="bg-white text-slate-900 antialiased selection:bg-emerald-100">
     <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-[#0F382A] focus:text-white focus:rounded-md focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#D4AF37]">
