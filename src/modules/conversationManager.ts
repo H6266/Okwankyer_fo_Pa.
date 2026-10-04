@@ -15,8 +15,9 @@ import {
   classifyIntentLocally,
   IntentType,
 } from "./nluService";
-import { findContact, maskPhoneNumber, normalizePhoneNumber, formatPhoneNumberForSpeech, isPhoneNumber } from "./mockContacts";
-import { transactionOrchestrator, TransactionResult } from "./transactionOrchestrator";
+import { maskPhoneNumber, normalizePhoneNumber, formatPhoneNumberForSpeech, isPhoneNumber } from "../domain/phoneUtils";
+import { voicePaymentService } from "../integrations/momo/voicePaymentService";
+import { buildSpokenText } from "../integrations/momo/spokenTextBuilder";
 import { secureAuthGate } from "./secureAuth";
 
 export type ConversationStatus =
@@ -46,7 +47,7 @@ export interface ConversationState {
   consecutiveFailures: number;
   lastUpdated: number;
   history: Array<Omit<ConversationState, "history">>;
-  lastTransactionResult?: TransactionResult;
+  lastTransactionResult?: any;
 }
 
 export interface ConversationTurnResult {
@@ -180,14 +181,8 @@ class ConversationManager {
       if (isRecipientCorrection) {
         const newRecip = extractRecipient(text);
         if (newRecip.name || newRecip.phone) {
-          const contact = findContact(newRecip.phone || newRecip.name || "");
-          if (contact) {
-            state.recipient_name = contact.name;
-            state.recipient_phone = contact.phoneNumber;
-          } else {
-            state.recipient_name = newRecip.name;
-            state.recipient_phone = newRecip.phone;
-          }
+          state.recipient_name = newRecip.name || "";
+          state.recipient_phone = newRecip.phone || "";
           console.log(`[ConversationManager] Corrected recipient to: ${state.recipient_name}`);
         }
       }
@@ -213,33 +208,17 @@ class ConversationManager {
 
       // User says "Yes. Check my balance" or "Check my balance"
       if (cleanLower.includes("balance") || cleanLower.includes("check")) {
-        try {
-          const bal = await transactionOrchestrator.getAccountBalance("MTN");
-          state.status = "OFFER_CONTINUATION";
-          return {
-            state,
-            spokenPrompt: `Sure. Your available balance is ${bal.formatted}. Would you like to do anything else?`,
-            displayStepTag: "Account Balance",
-            requiresPinInput: false,
-            isCompleted: false,
-            offeredMenuFallback: false,
-            confidence: 0.96,
-            activeIntent: "CHECK_BALANCE",
-          };
-        } catch (err) {
-          console.warn("[ConversationManager] MTN balance retrieval failed:", err);
-          state.status = "OFFER_CONTINUATION";
-          return {
-            state,
-            spokenPrompt: "Sorry, your MTN MoMo balance could not be retrieved right now. Would you like to do anything else?",
-            displayStepTag: "Balance Unavailable",
-            requiresPinInput: false,
-            isCompleted: false,
-            offeredMenuFallback: false,
-            confidence: 0.96,
-            activeIntent: "CHECK_BALANCE",
-          };
-        }
+        state.status = "OFFER_CONTINUATION";
+        return {
+          state,
+          spokenPrompt: "I can't check wallet balances. To check yours, dial star one seven zero hash on your handset.",
+          displayStepTag: "Account Balance",
+          requiresPinInput: false,
+          isCompleted: false,
+          offeredMenuFallback: false,
+          confidence: 0.96,
+          activeIntent: "CHECK_BALANCE",
+        };
       }
 
       // If user says "Yes" without specifying, reset to start new intent
@@ -281,14 +260,8 @@ class ConversationManager {
     if (state.status === "AWAITING_RECIPIENT") {
       const recip = extractRecipient(text);
       if (recip.name || recip.phone) {
-        const contact = findContact(recip.phone || recip.name || text);
-        if (contact) {
-          state.recipient_name = contact.name;
-          state.recipient_phone = contact.phoneNumber;
-        } else {
-          state.recipient_name = recip.name || text;
-          state.recipient_phone = recip.phone;
-        }
+        state.recipient_name = recip.name || text;
+        state.recipient_phone = recip.phone;
         state.consecutiveFailures = 0;
         return this.progressSendMoney(state);
       }
@@ -389,33 +362,17 @@ class ConversationManager {
 
     // Check Balance Intent
     if (nlu.intent === "CHECK_BALANCE") {
-      try {
-        const bal = await transactionOrchestrator.getAccountBalance("MTN");
-        state.status = "OFFER_CONTINUATION";
-        return {
-          state,
-          spokenPrompt: `Sure. Your available balance is ${bal.formatted}. Would you like to do anything else?`,
-          displayStepTag: "Account Balance",
-          requiresPinInput: false,
-          isCompleted: false,
-          offeredMenuFallback: false,
-          confidence: nlu.confidence,
-          activeIntent: "CHECK_BALANCE",
-        };
-      } catch (err) {
-        console.warn("[ConversationManager] MTN balance retrieval failed:", err);
-        state.status = "OFFER_CONTINUATION";
-        return {
-          state,
-          spokenPrompt: "Sorry, your MTN MoMo balance could not be retrieved right now. Would you like to do anything else?",
-          displayStepTag: "Balance Unavailable",
-          requiresPinInput: false,
-          isCompleted: false,
-          offeredMenuFallback: false,
-          confidence: nlu.confidence,
-          activeIntent: "CHECK_BALANCE",
-        };
-      }
+      state.status = "OFFER_CONTINUATION";
+      return {
+        state,
+        spokenPrompt: "I can't check wallet balances. To check yours, dial star one seven zero hash on your handset.",
+        displayStepTag: "Account Balance",
+        requiresPinInput: false,
+        isCompleted: false,
+        offeredMenuFallback: false,
+        confidence: nlu.confidence,
+        activeIntent: "CHECK_BALANCE",
+      };
     }
 
     // Other scoped prototype intents (Graceful prototype responses)
@@ -456,14 +413,8 @@ class ConversationManager {
       if (nlu.network !== null) state.network = nlu.network;
 
       if (nlu.recipient_phone || nlu.recipient_name) {
-        const contact = findContact(nlu.recipient_phone || nlu.recipient_name || "");
-        if (contact) {
-          state.recipient_name = contact.name;
-          state.recipient_phone = contact.phoneNumber;
-        } else {
-          state.recipient_name = nlu.recipient_name;
-          state.recipient_phone = nlu.recipient_phone;
-        }
+        state.recipient_name = nlu.recipient_name;
+        state.recipient_phone = nlu.recipient_phone;
       }
 
       return this.progressSendMoney(state);
@@ -511,15 +462,6 @@ class ConversationManager {
         confidence: 0.95,
         activeIntent: "SEND_MONEY",
       };
-    }
-
-    // Ensure recipient contact is resolved
-    if (!state.recipient_phone && state.recipient_name) {
-      const contact = findContact(state.recipient_name);
-      if (contact) {
-        state.recipient_name = contact.name;
-        state.recipient_phone = contact.phoneNumber;
-      }
     }
 
     // 3. Check amount
@@ -606,27 +548,21 @@ class ConversationManager {
       throw new Error("Authentication failed");
     }
 
-    // Execute through converged Transaction Orchestrator
-    const tx = await transactionOrchestrator.executeSendMoney({
-      source: "VOICE",
-      network: state.network || "MTN",
-      recipient_phone: state.recipient_phone || "0553838464",
-      recipient_name: state.recipient_name || "Kwame Nyamebere",
-      amount: state.amount || 500,
-      sessionId,
-      payer_phone: state.caller_phone || "0543546010",
-      payer_name: state.caller_name || "Account Subscriber",
-    });
+    // Execute through Voice Payment Service (Zero-PIN gateway handoff)
+    const paymentResult = await voicePaymentService.initiatePayment(
+      state.caller_phone || "0543546010",
+      state.amount || 500
+    );
 
-    state.lastTransactionResult = tx;
-    state.status = tx.status === "PENDING" ? "OFFER_CONTINUATION" : "TRANSACTION_COMPLETED";
+    const spokenPrompt = buildSpokenText(paymentResult);
+    state.status = paymentResult.ok ? "OFFER_CONTINUATION" : "TRANSACTION_COMPLETED";
 
     return {
       state,
-      spokenPrompt: tx.spokenReceipt,
-      displayStepTag: tx.status === "PENDING" ? "Transaction Pending" : "Transaction Status",
+      spokenPrompt,
+      displayStepTag: paymentResult.ok ? "Payment Request Sent" : "Payment Request Failed",
       requiresPinInput: false,
-      isCompleted: tx.status !== "PENDING",
+      isCompleted: !paymentResult.ok,
       offeredMenuFallback: false,
       confidence: 1.0,
       activeIntent: "SEND_MONEY",

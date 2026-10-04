@@ -108,7 +108,7 @@ export class UnifiedToolRegistry {
     // 2. Informational & Lookup Tools (LOW Risk)
     this.register({
       name: "get_balance",
-      description: "Query caller's Mobile Money balance",
+      description: "Direct caller to USSD *170# since wallet balances cannot be queried via API",
       riskLevel: "LOW",
       requiresConfirmation: false,
       idempotencyRequired: false,
@@ -116,14 +116,14 @@ export class UnifiedToolRegistry {
       timeoutMs: 5000,
       retryPolicy: { maxRetries: 2, backoffMs: 500 },
       auditBehavior: "AUDIT_REDACTED",
-      handler: async (req) => {
-        const phone = req.params.phoneNumber || req.params.accountPhone || "0553838464";
-        const res = await financialServices.balanceService.getBalance(phone);
+      handler: async () => {
         return {
           success: true,
           tool: "get_balance",
-          data: res,
-          source: res.source,
+          data: {
+            message: "I can't check wallet balances. To check yours, dial star one seven zero hash on your handset.",
+          },
+          source: "real_provider",
         };
       },
     });

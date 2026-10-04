@@ -5,7 +5,7 @@
 
 import { EntitySlotMap } from "../core/aiTypes";
 import { inputNormalizer } from "../perception/inputNormalizer";
-import { findContact, normalizePhoneNumber, isPhoneNumber } from "../../modules/mockContacts";
+import { normalizePhoneNumber, isPhoneNumber } from "../../domain/phoneUtils";
 
 export class EntityEngine {
   public extract(text: string): EntitySlotMap {
@@ -24,11 +24,6 @@ export class EntityEngine {
     if (phoneMatch) {
       const normalized = normalizePhoneNumber(phoneMatch[0]);
       slots.recipientPhone = normalized;
-      const contact = findContact(normalized);
-      if (contact) {
-        slots.recipientName = contact.name;
-        slots.network = contact.network;
-      }
     }
 
     // 3. Extract Recipient Name if not found via phone
@@ -36,11 +31,6 @@ export class EntityEngine {
       const name = this.extractRecipientName(text);
       if (name) {
         slots.recipientName = name;
-        const contact = findContact(name);
-        if (contact) {
-          slots.recipientPhone = contact.phoneNumber;
-          slots.network = contact.network;
-        }
       }
     }
 

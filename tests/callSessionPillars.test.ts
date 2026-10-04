@@ -1,20 +1,19 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { parseUserIntent } from "../src/modules/nluService";
-import { MtnPaymentProvider } from "../src/modules/paymentProvider";
-import { MoMoEngine } from "../src/integrations/momo/momoEngine";
-import { MOCK_CONTACTS } from "../src/modules/mockContacts";
+import { voicePaymentService } from "../src/integrations/momo/voicePaymentService";
+import { buildSpokenText } from "../src/integrations/momo/spokenTextBuilder";
 
-function createMtnProviderWithMockApi(): MtnPaymentProvider {
+function setupMockMtnFetch() {
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
-    if (url.endsWith("/token/")) {
+    if (url.includes("/token/")) {
       return Response.json({ access_token: "test-access-token", expires_in: 3600 });
     }
-    if (url.endsWith("/active")) {
+    if (url.includes("/active")) {
       return Response.json({ result: true });
     }
-    if (url.endsWith("/basicuserinfo")) {
-      const msisdn = url.match(/\/msisdn\/(\d+)\/basicuserinfo$/)?.[1];
+    if (url.includes("/basicuserinfo")) {
+      const msisdn = url.match(/\/msisdn\/(\d+)\/basicuserinfo/)?.[1];
       const names: Record<string, { given_name: string; family_name: string }> = {
         "233553838464": { given_name: "Kwame", family_name: "Nyamebere" },
         "233241234567": { given_name: "Kwame", family_name: "Nyameba" },
@@ -22,26 +21,10 @@ function createMtnProviderWithMockApi(): MtnPaymentProvider {
       };
       return Response.json(names[msisdn || ""] || {});
     }
-    if (url.endsWith("/requesttopay")) {
+    if (url.includes("/requesttopay")) {
       return new Response(null, { status: 202 });
     }
     return new Response(null, { status: 404 });
-  }));
-
-  return new MtnPaymentProvider(new MoMoEngine({
-    baseUrl: "https://mtn.test",
-    targetEnv: "sandbox",
-    currency: "EUR",
-    collection: {
-      subscriptionKey: "test-collection-subscription",
-      apiUserId: "test-collection-user",
-      apiKey: "test-collection-key",
-    },
-    disbursement: {
-      subscriptionKey: "test-disbursement-subscription",
-      apiUserId: "test-disbursement-user",
-      apiKey: "test-disbursement-key",
-    },
   }));
 }
 
@@ -85,32 +68,36 @@ describe("Pillar 1: Dual-Track Language Isolation & Grammar", () => {
 
 describe("Pillar 2: Spoken KYC Name Readback Before Money Moves", () => {
   it("resolves registered subscribers to human-readable full names via MTN provider", async () => {
-    const mtn = createMtnProviderWithMockApi();
-    const kyc1 = await mtn.lookupKyc("0553838464");
-    expect(kyc1.verified).toBe(true);
-    expect(kyc1.name).toBe("Kwame Nyamebere");
-    expect(kyc1.network).toBe("MTN");
+    setupMockMtnFetch();
+    const kyc1 = await voicePaymentService.verifyNumber("0553838464");
+    expect(kyc1.ok).toBe(true);
+    expect(kyc1.fields.given_name).toBe("Kwame");
+    expect(kyc1.fields.family_name).toBe("Nyamebere");
 
-    const kyc2 = await mtn.lookupKyc("0241234567");
-    expect(kyc2.verified).toBe(true);
-    expect(kyc2.name).toBe("Kwame Nyameba");
+    const kyc2 = await voicePaymentService.verifyNumber("0241234567");
+    expect(kyc2.ok).toBe(true);
+    expect(kyc2.fields.given_name).toBe("Kwame");
+    expect(kyc2.fields.family_name).toBe("Nyameba");
 
-    const kyc3 = await mtn.lookupKyc("0543546010");
-    expect(kyc3.verified).toBe(true);
-    expect(kyc3.name).toBe("Hannes Aboagye");
+    const kyc3 = await voicePaymentService.verifyNumber("0543546010");
+    expect(kyc3.ok).toBe(true);
+    expect(kyc3.fields.given_name).toBe("Hannes");
+    expect(kyc3.fields.family_name).toBe("Aboagye");
   });
 
   it("handles unindexed numbers gracefully with spoken-friendly digits format", async () => {
-    const mtn = createMtnProviderWithMockApi();
-    const unknown = await mtn.lookupKyc("0249991234");
-    expect(unknown.verified).toBe(true);
-    expect(unknown.name).toContain("Subscriber ending in");
-  });
+    setupMockMtnFetch();
+    const unknown = await voicePaymentService.verifyNumber("0249991234");
+    expect(unknown.ok).toBe(true);
+    expect(unknown.fields.msisdn).toBe("233249991234");
+    expect(unknown.fields.result).toBe(true);
+    expect(unknown.fields.name).toBeUndefined();
+    expect(unknown.fields.given_name).toBeUndefined();
+    expect(unknown.fields.family_name).toBeUndefined();
+    expect(unknown.fields.basicUserInfoResponseBody).toEqual({});
 
-  it("verifies mock contact directory consistency", () => {
-    expect(MOCK_CONTACTS["0553838464"].name).toBe("Kwame Nyamebere");
-    expect(MOCK_CONTACTS["0241234567"].name).toBe("Ama Mensah");
-    expect(MOCK_CONTACTS["0201234567"].network).toBe("Telecel");
+    const spoken = buildSpokenText(unknown);
+    expect(spoken).toBe("The account is active on the network. Notice: Sandbox environment does not return real identity.");
   });
 });
 
@@ -125,16 +112,12 @@ describe("Pillar 3: Zero-PIN Security Gate", () => {
   });
 
   it("keeps an accepted RequestToPay pending and returns the MTN reference ID", async () => {
-    const mtn = createMtnProviderWithMockApi();
-    const result = await mtn.requestToPay({
-      amount: 150.0,
-      currency: "GHS",
-      payerPhone: "0553838464",
-      payerMessage: "Market purchase",
-      payeeNote: "Paid via Ɔkwankyerɛfo Pa",
-    });
+    setupMockMtnFetch();
+    const result = await voicePaymentService.initiatePayment("0553838464", 150, { currency: "EUR" });
 
-    expect(result.status).toBe("PENDING");
-    expect(result.referenceId).toMatch(/^[0-9a-f]{8}-[0-9a-f-]{27}$/i);
+    expect(result.ok).toBe(true);
+    expect(result.mtnHttpStatus).toBe(202);
+    expect(result.fields.referenceId).toMatch(/^[0-9a-f]{8}-[0-9a-f-]{27}$/i);
+    expect(result.mtnStatus).toBeUndefined();
   });
 });

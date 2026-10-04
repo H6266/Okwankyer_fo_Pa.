@@ -7,12 +7,12 @@
 
 import { Router, Request, Response } from "express";
 import { mtnMomoService } from "../modules/mtnMomoService";
-import { transactionOrchestrator } from "../modules/transactionOrchestrator";
 import { requireAdminAuth } from "../middleware/adminAuth";
 import { adminRateLimiter } from "../middleware/rateLimiter";
 import { validateGhanaPhoneNumber } from "../domain/validation";
-import { momoSagaOrchestrator } from "../services/momoSagaOrchestrator";
 import { momoProvider } from "../integrations/momo";
+import { voicePaymentService } from "../integrations/momo/voicePaymentService";
+import { evidenceStore } from "../integrations/momo/evidenceStore";
 
 export const momoRouter = Router();
 
@@ -29,16 +29,18 @@ momoRouter.post("/api/momo/validate-recipient", async (req: Request, res: Respon
       return res.status(400).json({ success: false, error: validation.error || "Invalid phone number format." });
     }
 
-    const lookup = await momoProvider.lookupRecipient(validation.normalized);
+    const result = await voicePaymentService.verifyNumber(validation.normalized);
+    const evidence = evidenceStore.get(result.evidenceId);
+    const name = result.fields.name || [result.fields.given_name, result.fields.family_name].filter(Boolean).join(" ") || undefined;
+
     res.json({
-      success: true,
-      phone: lookup.phone,
-      name: lookup.name,
-      accountActive: lookup.accountActive,
-      provider: lookup.provider,
-      environment: lookup.environment,
-      source: lookup.source,
-      rawUserInfo: lookup.rawUserInfo,
+      success: result.ok,
+      phone: validation.normalized,
+      msisdn: result.fields.msisdn,
+      name,
+      verified: result.ok,
+      normalizedResult: result,
+      gatewayEvidence: evidence,
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -146,53 +148,80 @@ momoRouter.get("/api/momo/status", adminRateLimiter, requireAdminAuth, (_req: Re
 momoRouter.get("/api/momo/capability-matrix", (_req: Request, res: Response) => {
   res.json({
     success: true,
-    matrix: transactionOrchestrator.getCapabilityMatrix(),
+    matrix: [
+      { operation: "OAuth Token Generation (Disbursement)", classification: "REAL MTN SANDBOX REQUEST", leavesServer: "YES", httpStatus: "200 OK", endpoint: "POST /disbursement/token/" },
+      { operation: "OAuth Token Generation (Collection)", classification: "REAL MTN SANDBOX REQUEST", leavesServer: "YES", httpStatus: "200 OK", endpoint: "POST /collection/token/" },
+      { operation: "Send Money / Collections", classification: "REAL MTN SANDBOX REQUEST", leavesServer: "YES", httpStatus: "202 Accepted", endpoint: "POST /collection/v1_0/requesttopay" },
+      { operation: "Transfer Status Polling", classification: "REAL MTN SANDBOX REQUEST", leavesServer: "YES", httpStatus: "200 OK", endpoint: "GET /collection/v1_0/requesttopay/{ref}" },
+      { operation: "Account Holder active verification", classification: "REAL MTN SANDBOX REQUEST", leavesServer: "YES", httpStatus: "200 OK", endpoint: "GET /collection/v1_0/accountholder/msisdn/{id}/active" },
+      { operation: "Basic KYC information", classification: "REAL MTN SANDBOX REQUEST", leavesServer: "YES", httpStatus: "200 OK", endpoint: "GET /collection/v1_0/accountholder/msisdn/{id}/basicuserinfo" },
+      { operation: "Account Balance", classification: "REAL MTN SANDBOX REQUEST", leavesServer: "YES", httpStatus: "200 OK", endpoint: "GET /collection/v1_0/account/balance" },
+    ],
   });
 });
 
 // ── Centralized Transaction Service Endpoints ─────────────────────────
 
-// Send Money (Unified Central Pipeline)
+// Send Money (Repointed to VoicePaymentService)
 momoRouter.post("/api/momo/send", adminRateLimiter, requireAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { recipient_phone, recipient_name, amount, network, payer_phone, payer_name, mode } = req.body;
+    const { recipient_phone, recipient_name, amount, payer_phone } = req.body;
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
       return res.status(400).json({ error: "Missing or invalid positive 'amount' field." });
     }
-    if (!recipient_phone || typeof recipient_phone !== "string") {
-      return res.status(400).json({ error: "Missing required 'recipient_phone' field." });
+
+    const payer = (payer_phone || recipient_phone || "").trim();
+    const recipient = (recipient_phone || payer_phone || "").trim();
+    if (!payer) {
+      return res.status(400).json({ error: "Missing required phone number field." });
     }
 
-    const validatedRecipient = validateGhanaPhoneNumber(recipient_phone);
-    if (!validatedRecipient.valid || !validatedRecipient.normalized) {
-      return res.status(400).json({ error: validatedRecipient.error || "Invalid recipient phone number." });
+    const validatedPayer = validateGhanaPhoneNumber(payer);
+    if (!validatedPayer.valid || !validatedPayer.normalized) {
+      return res.status(400).json({ error: validatedPayer.error || "Invalid payer phone number." });
     }
 
-    const payerPhone = payer_phone || (req.headers["x-payer-phone"] as string) || "0553838464";
+    const validatedRecipient = validateGhanaPhoneNumber(recipient);
+    const finalRecipientPhone = validatedRecipient.valid && validatedRecipient.normalized
+      ? validatedRecipient.normalized
+      : recipient;
 
-    const result = await transactionOrchestrator.executeSendMoney({
-      source: "WEB",
-      network: network || "MTN",
-      recipient_phone: validatedRecipient.normalized,
-      recipient_name: recipient_name || "Unknown (KYC not verified)",
-      amount: parsedAmount,
-      payer_phone: payerPhone,
-      payer_name: payer_name || undefined,
-      mode,
-    });
+    const result = await voicePaymentService.initiatePayment(validatedPayer.normalized, parsedAmount);
+    const evidence = evidenceStore.get(result.evidenceId);
 
-    res.status(result.status === "PENDING" ? 202 : 200).json({
-      success: result.status !== "FAILED",
-      transaction: result,
-      gatewayEvidence: result.gatewayEvidence,
+    // Carry recipient details in normalized result fields
+    result.fields.recipient_phone = finalRecipientPhone;
+    if (recipient_name) {
+      result.fields.recipient_name = recipient_name;
+    }
+
+    const httpStatus = result.mtnHttpStatus === 202 ? 202 : (result.mtnHttpStatus || 400);
+    res.status(httpStatus).json({
+      success: result.ok,
+      transaction: {
+        status: result.mtnStatus, // Undefined on 202 Accepted
+        reference: result.fields.referenceId,
+        amount: parsedAmount,
+        currency: result.fields.currency,
+        payer_phone: validatedPayer.normalized,
+        recipient_name: recipient_name || "Subscriber",
+        recipient_phone: finalRecipientPhone,
+        momoDetails: {
+          referenceId: result.fields.referenceId,
+          externalId: result.fields.externalId,
+          financialTransactionId: result.fields.financialTransactionId,
+        },
+        reason: result.mtnReason || result.error?.message,
+      },
+      normalizedResult: result,
+      gatewayEvidence: evidence,
+      evidenceId: result.evidenceId,
     });
   } catch (err: any) {
-    res.status(err.status || 500).json({
+    res.status(500).json({
       success: false,
       error: err.message,
-      gatewayEvidence: err.gatewayEvidence,
-      endpoint: err.endpoint,
     });
   }
 });
@@ -529,18 +558,37 @@ momoRouter.post("/api/momo/transfer", adminRateLimiter, requireAdminAuth, async 
   }
 });
 
-// Transfer Status Check (Admin only)
+// Transfer Status Check (Repointed to VoicePaymentService single-poll)
 momoRouter.get("/api/momo/transfer/:referenceId", adminRateLimiter, requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const { referenceId } = req.params;
-    const tx = await mtnMomoService.getTransactionStatus(referenceId);
-    if (!tx) {
-      return res.status(404).json({ error: "Transfer reference not found" });
-    }
-    res.json({ success: true, transaction: tx, gatewayEvidence: tx.gatewayEvidence });
+    const voiceStatus = await voicePaymentService.checkStatus(referenceId, { singlePoll: true });
+    const evidence = evidenceStore.get(voiceStatus.evidenceId);
+    res.json({
+      success: voiceStatus.ok || voiceStatus.mtnStatus === "SUCCESSFUL",
+      transaction: {
+        status: voiceStatus.mtnStatus,
+        financialTransactionId: voiceStatus.fields.financialTransactionId,
+        reason: voiceStatus.mtnReason,
+        amount: voiceStatus.fields.amount,
+        currency: voiceStatus.fields.currency,
+        referenceId,
+      },
+      normalizedResult: voiceStatus,
+      gatewayEvidence: evidence,
+    });
   } catch (err: any) {
-    res.status(err.status || 500).json({ error: err.message, gatewayEvidence: err.gatewayEvidence, endpoint: err.endpoint });
+    res.status(err.status || 500).json({ error: err.message });
   }
+});
+
+// Gateway Evidence Store Lookup
+momoRouter.get("/api/momo/evidence/:evidenceId", (req: Request, res: Response) => {
+  const evidence = evidenceStore.get(req.params.evidenceId);
+  if (!evidence) {
+    return res.status(404).json({ success: false, error: "Evidence record not found" });
+  }
+  res.json({ success: true, evidence });
 });
 
 // Account Balance (Admin only)
@@ -567,14 +615,6 @@ momoRouter.get("/api/momo/account/holder/:phone", adminRateLimiter, requireAdmin
   } catch (err: any) {
     res.status(err.status || 500).json({ error: err.message, gatewayEvidence: err.gatewayEvidence, endpoint: err.endpoint });
   }
-});
-
-// Webhook Callback (Callback endpoint with reference header verification)
-momoRouter.post("/api/momo/callback", async (req: Request, res: Response) => {
-  const refHeader = (req.headers["x-reference-id"] || req.headers["x-reference_id"]) as string;
-  const updated = mtnMomoService.handleWebhook(req.body, refHeader);
-  await momoSagaOrchestrator.handleWebhookCallback({ ...req.body, referenceId: refHeader });
-  res.status(200).json({ success: true, recorded: Boolean(updated) });
 });
 
 // Transaction Ledger History (Admin only)

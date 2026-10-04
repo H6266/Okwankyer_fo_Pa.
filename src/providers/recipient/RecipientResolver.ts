@@ -9,7 +9,7 @@
 
 import { validateGhanaPhoneNumber, GhanaianNetwork } from "../../domain/validation";
 import { SANDBOX_RECIPIENT_FIXTURES } from "../../demo/recipientFixtures";
-import { momoProvider } from "../../integrations/momo";
+import { voicePaymentService } from "../../integrations/momo/voicePaymentService";
 import { config } from "../../config/env";
 
 export interface RecipientResolutionResult {
@@ -113,16 +113,17 @@ export class MtnRecipientResolver implements RecipientResolver {
     }
 
     try {
-      const lookup = await momoProvider.lookupRecipient(val.normalized);
-      if (lookup && lookup.name && lookup.accountActive) {
+      const result = await voicePaymentService.verifyNumber(val.normalized);
+      if (result.ok) {
+        const name = result.fields.name || [result.fields.given_name, result.fields.family_name].filter(Boolean).join(" ") || "Sand Box";
         return {
           valid: true,
           phoneNumber: rawPhoneNumber,
           normalizedPhone: val.normalized,
-          name: lookup.name,
+          name,
           network: val.network,
-          verified: lookup.accountActive,
-          source: lookup.source === "MTN_MOMO_API" ? "MTN_MOMO_API" : "SANDBOX_FIXTURE",
+          verified: true,
+          source: "MTN_MOMO_API",
         };
       }
     } catch (err: any) {

@@ -4,7 +4,7 @@
 
 import crypto from "crypto";
 import dotenv from "dotenv";
-dotenv.config();
+dotenv.config({ override: true });
 
 import { MoMoConfig } from "./types";
 
@@ -33,7 +33,7 @@ export function formatMsisdn(phone: string): string {
   if (cleaned.startsWith("233") && cleaned.length >= 12) {
     return cleaned;
   }
-  if (cleaned.startsWith("0") && cleaned.length === 10) {
+  if (cleaned.startsWith("0") && (cleaned.length === 10 || cleaned.length === 11)) {
     return `233${cleaned.slice(1)}`;
   }
   if (cleaned.length === 9) {

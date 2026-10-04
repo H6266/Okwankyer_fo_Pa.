@@ -19,7 +19,7 @@ import { speechToText } from "../modules/sttService";
 import { mtnMomoService } from "../modules/mtnMomoService";
 import { auditLogger } from "../services/auditLogger";
 import { verifyAtWebhook } from "../providers/telephony/webhookGuard";
-import { momoSagaOrchestrator } from "../services/momoSagaOrchestrator";
+import { voicePaymentService } from "../integrations/momo/voicePaymentService";
 import { durableTransactionStore } from "../services/durableTransactionStore";
 
 export const voiceRouter = Router();
@@ -243,18 +243,10 @@ voiceRouter.all("/action-choice", async (req: Request, res: Response) => {
 
   // Balance query option
   if (dtmf === "5" || dtmf === "2") {
-    try {
-      const bal = await mtnMomoService.getAccountBalance("collection");
-      const spoken = lang === "twi"
-        ? `Wo MoMo balance a ɛwɔ hɔ sesei ara ne Ghana Cedis ${bal.availableBalance}. Yɛdaase.`
-        : `Your current available balance is ${bal.formatted}. Thank you for using Ɔkwankyerɛfo Pa. Goodbye.`;
-      return xmlResponse(res, `    <Say voice="female">${spoken}</Say>\n    <Reject/>`);
-    } catch {
-      const spoken = lang === "twi"
-        ? "Yɛantumi annye wo balance sesei. Yɛsrɛ wo, bɔ mmɔden biom akyire yi."
-        : "Sorry, your balance could not be retrieved right now. Please try again later.";
-      return xmlResponse(res, `    <Say voice="female">${spoken}</Say>\n    <Reject/>`);
-    }
+    const spoken = lang === "twi"
+      ? "Mentumi nhwɛ wo wallet balance. Sɛ wopɛ sɛ wohwɛ wo deɛ a, bɔ star baako nson hwee hash wɔ wo fon so."
+      : "I can't check wallet balances. To check yours, dial star one seven zero hash on your handset.";
+    return xmlResponse(res, `    <Say voice="female">${spoken}</Say>\n    <Reject/>`);
   }
 
   xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
@@ -529,10 +521,12 @@ voiceRouter.all("/safe-outcome", async (req: Request, res: Response) => {
     // 3. Transition state machine to CONFIRMED
     transactionStateMachine.transition(sessionId, "CONFIRMED");
 
-    // 4. Start two-leg payment saga (Item 1.2)
-    const { collectionRef, mode } = await momoSagaOrchestrator.startSaga(session);
+    // 4. Initiate payment request via Voice Payment Service
+    const paymentResult = await voicePaymentService.initiatePayment(session.callerPhone, session.amount);
+    const collectionRef = paymentResult.fields.referenceId || session.referenceId;
+    const mode = paymentResult.momoEnv === "production" ? "LIVE" : "SANDBOX";
 
-    // 5. Transition to PIN_PENDING (Item 1.1: State remains PIN_PENDING, NEVER COMPLETED here!)
+    // 5. Transition to PIN_PENDING
     transactionStateMachine.transition(sessionId, "PIN_PENDING", {
       momoReferenceId: collectionRef,
     });

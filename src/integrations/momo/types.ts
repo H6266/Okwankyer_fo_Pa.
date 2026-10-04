@@ -171,3 +171,30 @@ export interface MoMoDiagnostics {
     envVar: string;
   }>;
 }
+
+export interface TransactionResult {
+  status: "SUCCESS" | "FAILED" | "PENDING" | "NOT_CONFIGURED" | "NOT_IMPLEMENTED" | "REQUIRES_VAS_AGGREGATOR" | "REQUIRES_BILLER_AGGREGATOR";
+  reference: string;
+  operationType: "SEND_MONEY" | "AIRTIME" | "DATA_BUNDLE" | "BILL_PAYMENT" | "CASH_OUT";
+  amount: number;
+  currency: string;
+  requestedCurrency: string;
+  executionCurrency: string;
+  currencyNotice?: string;
+  recipient_name: string;
+  recipient_phone: string;
+  network: string;
+  timestamp: string;
+  message: string;
+  spokenReceipt?: string;
+  authorizationModel: string;
+  momoDetails?: {
+    referenceId: string;
+    mode: "LIVE_API" | "SANDBOX_API" | "MOCKED" | "UNCONFIGURED";
+    status: string;
+    financialTransactionId?: string;
+  };
+  rawPayload?: any;
+  gatewayEvidence?: any;
+}
+

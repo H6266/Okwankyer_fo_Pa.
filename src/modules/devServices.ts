@@ -487,7 +487,7 @@ export function getChangesReport(baseUrl: string): {
       linesRemoved: 0,
     },
     {
-      path: "src/modules/paymentProvider.ts",
+      path: "src/integrations/momo/voicePaymentService.ts",
       category: "phone_line",
       status: "modified",
       linesAdded: 18,

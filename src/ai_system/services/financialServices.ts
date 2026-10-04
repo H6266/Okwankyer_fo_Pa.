@@ -99,30 +99,10 @@ export interface IBillPaymentService {
 // ── Real Provider Implementations ────────────────────────────────────
 export class RealBalanceService implements IBalanceService {
   public async getBalance(phone: string): Promise<BalanceResult> {
-    const momoKey = process.env.MOMO_API_KEY;
-    const momoUser = process.env.MOMO_API_USER_ID;
-    const momoSub = process.env.MOMO_SUBSCRIPTION_KEY;
-
-    if (!momoKey || !momoUser || !momoSub) {
-      throw new Error("REAL_PROVIDER_UNCONFIGURED: Live MTN MoMo credentials required for live balance inquiries.");
-    }
-
-    const baseUrl = process.env.MOMO_BASE_URL || "https://sandbox.momodeveloper.mtn.com";
-    const res = await fetch(`${baseUrl}/collection/v1_0/account/balance`, {
-      headers: {
-        "X-Target-Environment": process.env.MOMO_TARGET_ENV || "mtnghana",
-        "Ocp-Apim-Subscription-Key": momoSub,
-        Authorization: `Bearer ${momoKey}`,
-      },
-    });
-
-    if (!res.ok) {
-      throw new Error(`MoMo Balance API error: HTTP ${res.status}`);
-    }
-
-    const data = await res.json();
+    // MTN Collections balance is the merchant/business account balance, NOT the caller's wallet balance.
+    // Subscriber wallet balances cannot be queried via API.
     return {
-      availableBalance: parseFloat(data.availableBalance),
+      availableBalance: 0,
       currency: "GHS",
       accountPhone: phone,
       source: "real_provider",

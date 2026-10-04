@@ -327,7 +327,7 @@ export class MoMoEngine {
         "Authorization": `Basic ${authHeader}`,
         "Ocp-Apim-Subscription-Key": p.subscriptionKey,
         "Content-Type": "application/json",
-        "User-Agent": "curl/7.88.1",
+        "User-Agent": "okwankyerefo-pa/0.1",
         "Accept": "application/json",
       },
       body: "",
@@ -468,6 +468,12 @@ export class MoMoEngine {
     });
 
     const rawText = await res.text();
+    const actualByteLength = Buffer.byteLength(rawText, "utf8");
+    const contentLengthHeader = resHeaders["content-length"] ? parseInt(resHeaders["content-length"], 10) : undefined;
+    if (contentLengthHeader !== undefined && contentLengthHeader !== actualByteLength) {
+      console.warn(`[MTN Gateway Evidence] Warning: Content-Length mismatch on ${method} ${endpoint}: header=${contentLengthHeader}, bodyByteLength=${actualByteLength}`);
+    }
+
     let parsedBody: any;
     try {
       parsedBody = rawText ? JSON.parse(rawText) : {};
@@ -557,7 +563,7 @@ export class MoMoEngine {
       "X-Target-Environment": this.config.targetEnv,
       "Ocp-Apim-Subscription-Key": this.config.collection.subscriptionKey!,
       "Content-Type": "application/json",
-      "User-Agent": "curl/7.88.1",
+      "User-Agent": "okwankyerefo-pa/0.1",
     };
 
     if (this.config.targetEnv === "production" && this.config.callbackHost) {
@@ -642,7 +648,7 @@ export class MoMoEngine {
       "X-Target-Environment": this.config.targetEnv,
       "Ocp-Apim-Subscription-Key": this.config.disbursement.subscriptionKey!,
       "Content-Type": "application/json",
-      "User-Agent": "curl/7.88.1",
+      "User-Agent": "okwankyerefo-pa/0.1",
     };
 
     const body = {

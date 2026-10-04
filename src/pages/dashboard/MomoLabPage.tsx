@@ -194,7 +194,7 @@ export const MomoLabPage: React.FC = () => {
       httpStatus: "202 Accepted",
       source: "MTN Sandbox Gateway",
       fallback: "Isolated. Real HTTP failures throw explicit error.",
-      files: "src/integrations/momo/momoEngine.ts (transfer), src/modules/transactionOrchestrator.ts",
+      files: "src/integrations/momo/voicePaymentService.ts (initiatePayment), src/integrations/momo/momoEngine.ts",
       result: "VERIFIED REAL (Dispatches live transfer, receives 202)",
     },
     {
@@ -278,7 +278,7 @@ export const MomoLabPage: React.FC = () => {
       httpStatus: "202 Accepted",
       source: "MTN Sandbox Gateway (via Transfer pipeline)",
       fallback: "Routes through real transfer pipeline",
-      files: "src/modules/transactionOrchestrator.ts (buyAirtime)",
+      files: "src/integrations/momo/voicePaymentService.ts",
       result: "VERIFIED VIA TRANSFER (MTN has no native /airtime endpoint)",
     },
     {
@@ -292,7 +292,7 @@ export const MomoLabPage: React.FC = () => {
       httpStatus: "202 Accepted",
       source: "MTN Sandbox Gateway (via Transfer pipeline)",
       fallback: "Routes through real transfer pipeline",
-      files: "src/modules/transactionOrchestrator.ts (buyData)",
+      files: "src/integrations/momo/voicePaymentService.ts",
       result: "VERIFIED VIA TRANSFER (MTN has no native /data endpoint)",
     },
     {
@@ -306,7 +306,7 @@ export const MomoLabPage: React.FC = () => {
       httpStatus: "202 Accepted",
       source: "MTN Sandbox Gateway (via Transfer pipeline)",
       fallback: "Routes through real transfer pipeline",
-      files: "src/modules/transactionOrchestrator.ts (payBill)",
+      files: "src/integrations/momo/voicePaymentService.ts",
       result: "VERIFIED VIA TRANSFER (Settles biller account via Transfer)",
     },
     {
@@ -320,7 +320,7 @@ export const MomoLabPage: React.FC = () => {
       httpStatus: "N/A",
       source: "Local in-memory emulator",
       fallback: "Emulated record",
-      files: "src/modules/transactionOrchestrator.ts (cashOut)",
+      files: "src/integrations/momo/voicePaymentService.ts",
       result: "EMULATED (Pending Collection credentials)",
     },
   ];
@@ -409,33 +409,34 @@ export const MomoLabPage: React.FC = () => {
       fetchLedger();
       fetchBalance();
 
-      const refId = res.transaction?.momoDetails?.referenceId || res.transaction?.reference;
-      if (refId && res.transaction?.status === "PENDING") {
+      const refId = res.transaction?.momoDetails?.referenceId || res.transaction?.reference || res.normalizedResult?.fields?.referenceId;
+      if (refId && res.success) {
         setSendPollingActive(true);
         let attempts = 0;
         const interval = setInterval(async () => {
           attempts++;
           try {
             const pollRes = await api.getTransferStatus(refId);
-            if (pollRes?.transaction?.status && pollRes.transaction.status !== "PENDING") {
+            if (pollRes?.transaction?.status && pollRes.transaction.status !== "PENDING" && pollRes.transaction.status !== "CREATED") {
               setSendMoneyResult((prev: any) => ({
                 ...prev,
                 transaction: {
                   ...prev.transaction,
-                  status: pollRes.transaction.status === "SUCCESSFUL" ? "SUCCESS" : pollRes.transaction.status,
+                  status: pollRes.transaction.status,
                   momoDetails: {
-                    ...prev.transaction.momoDetails,
+                    ...prev.transaction?.momoDetails,
                     status: pollRes.transaction.status,
                     financialTransactionId: pollRes.transaction.financialTransactionId,
                   },
                 },
+                gatewayEvidence: pollRes.gatewayEvidence || prev.gatewayEvidence,
                 pollResult: pollRes.transaction,
               }));
               setSendPollingActive(false);
               clearInterval(interval);
               fetchLedger();
               fetchBalance();
-            } else if (attempts >= 6) {
+            } else if (attempts >= 10) {
               setSendPollingActive(false);
               clearInterval(interval);
             }
@@ -832,10 +833,10 @@ export const MomoLabPage: React.FC = () => {
                   >
                     <div className="text-xs font-extrabold flex items-center gap-1.5">
                       <Smartphone className="w-3.5 h-3.5 text-emerald-600" />
-                      Consumer P2P (Handset USSD)
+                      Consumer P2P (Handset Authorization)
                     </div>
                     <div className="text-[10px] text-slate-500 mt-1 leading-normal">
-                      Pulls funds from user&apos;s own wallet via USSD prompt. User enters PIN on their handset.
+                      Requests payment from customer wallet via MTN network. Customer authorizes on handset.
                     </div>
                   </button>
 
@@ -897,7 +898,10 @@ export const MomoLabPage: React.FC = () => {
                   <input
                     type="text"
                     value={recipientPhone}
-                    onChange={(e) => setRecipientPhone(e.target.value)}
+                    onChange={(e) => {
+                      setRecipientPhone(e.target.value);
+                      if (kycValidationResult) setKycValidationResult(null);
+                    }}
                     placeholder="0553838464"
                     className="flex-1 text-xs border border-slate-300 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 rounded-xl px-3.5 py-2.5 font-mono text-slate-900 outline-none"
                     required
@@ -999,20 +1003,29 @@ export const MomoLabPage: React.FC = () => {
                     <div className="p-3 bg-slate-800/80 rounded-xl border border-slate-700 space-y-1">
                       <div className="text-slate-400 text-[11px]">TRANSACTION STATUS:</div>
                       <div className="text-base font-extrabold flex items-center gap-2">
-                        {sendMoneyResult.transaction?.status === "SUCCESS" || sendMoneyResult.transaction?.status === "SUCCESSFUL" ? (
-                          <span className="text-emerald-400 flex items-center gap-1">
-                            <CheckCircle2 className="w-4 h-4" /> SUCCESSFUL (SETTLED)
+                        {!sendMoneyResult.transaction?.status ? (
+                          <span className="text-rose-500 flex items-center gap-1 font-bold">
+                            <XCircle className="w-4 h-4" /> No status returned
                           </span>
-                        ) : sendMoneyResult.transaction?.status === "PENDING" ? (
+                        ) : sendMoneyResult.transaction.status === "SUCCESS" || sendMoneyResult.transaction.status === "SUCCESSFUL" ? (
+                          <span className="text-emerald-400 flex items-center gap-1">
+                            <CheckCircle2 className="w-4 h-4" /> {sendMoneyResult.transaction.status}
+                          </span>
+                        ) : sendMoneyResult.transaction.status === "PENDING" || sendMoneyResult.transaction.status === "CREATED" ? (
                           <span className="text-amber-400 flex items-center gap-1">
-                            <Clock className="w-4 h-4 animate-spin" /> PENDING (Awaiting Settlement)
+                            <Clock className="w-4 h-4 animate-spin" /> {sendMoneyResult.transaction.status}
                           </span>
                         ) : (
                           <span className="text-rose-400 flex items-center gap-1">
-                            <XCircle className="w-4 h-4" /> {sendMoneyResult.error || sendMoneyResult.transaction?.status || "FAILED"}
+                            <XCircle className="w-4 h-4" /> {sendMoneyResult.transaction.status}
                           </span>
                         )}
                       </div>
+                      {sendMoneyResult.transaction?.reason && (
+                        <div className="text-[11px] text-rose-300 font-mono mt-1">
+                          <span className="text-slate-400">MTN Reason:</span> {sendMoneyResult.transaction.reason}
+                        </div>
+                      )}
                     </div>
 
                     <div className="text-[11px] text-slate-300 space-y-1.5">
@@ -1055,12 +1068,22 @@ export const MomoLabPage: React.FC = () => {
                           {sendMoneyResult.transaction.currencyNotice}
                         </div>
                       )}
-                      <div>
-                        <span className="text-slate-500">Authorization Model:</span>{" "}
-                        <span className="text-slate-300 text-[10px] leading-tight block mt-0.5">
-                          {sendMoneyResult.transaction?.authorizationModel || "Customer enters PIN on their own mobile handset via MTN network USSD prompt (Zero-PIN in app)"}
-                        </span>
-                      </div>
+                      {sendMoneyResult.transaction?.authorizationModel && (
+                        <div>
+                          <span className="text-slate-500">Authorization Model:</span>{" "}
+                          <span className="text-slate-300 text-[10px] leading-tight block mt-0.5">
+                            {sendMoneyResult.transaction.authorizationModel}
+                          </span>
+                        </div>
+                      )}
+                      {sendMoneyResult.transaction?.payer_phone && (
+                        <div>
+                          <span className="text-slate-500">Payer:</span>{" "}
+                          <span className="text-slate-200">
+                            {sendMoneyResult.transaction.payer_phone}
+                          </span>
+                        </div>
+                      )}
                       <div>
                         <span className="text-slate-500">Recipient:</span>{" "}
                         <span className="text-slate-200">
@@ -1069,8 +1092,28 @@ export const MomoLabPage: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="pt-2 border-t border-slate-800">
-                      <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Raw Gateway Payload:</div>
+                    <div className="pt-2 border-t border-slate-800 space-y-2">
+                      <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Gateway Evidence & Verification:</div>
+                      {sendMoneyResult.gatewayEvidence ? (
+                        <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1.5 text-[11px] font-mono">
+                          <div className="text-emerald-400 font-bold flex items-center justify-between">
+                            <span>Evidence ID: {sendMoneyResult.gatewayEvidence.evidenceId}</span>
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">STORED</span>
+                          </div>
+                          <div className="text-slate-300">
+                            Host: <span className="text-white font-bold">{sendMoneyResult.gatewayEvidence.host}</span> | Path: <span className="text-white font-bold">{sendMoneyResult.gatewayEvidence.endpoint}</span>
+                          </div>
+                          <div className="text-slate-300">
+                            Roundtrip: <span className="text-amber-300 font-bold">{sendMoneyResult.gatewayEvidence.roundTripMs} ms</span> | Status: <span className="text-emerald-400 font-bold">{sendMoneyResult.gatewayEvidence.response?.status} {sendMoneyResult.gatewayEvidence.response?.statusText}</span>
+                          </div>
+                          <div className="text-slate-400 text-[10px]">
+                            Content-Length Header: {sendMoneyResult.gatewayEvidence.response?.contentLengthHeader ?? "None"} | Body Bytes: {sendMoneyResult.gatewayEvidence.response?.actualBodyByteLength} | Matches: {String(sendMoneyResult.gatewayEvidence.response?.contentLengthMatches)}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-[10px] text-slate-500">No gateway evidence record captured.</div>
+                      )}
+                      <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Raw Result Payload:</div>
                       <pre className="text-[10px] bg-slate-950 p-2.5 rounded-lg overflow-x-auto text-emerald-300 border border-slate-800/80">
                         {JSON.stringify(sendMoneyResult, null, 2)}
                       </pre>
@@ -1424,8 +1467,8 @@ export const MomoLabPage: React.FC = () => {
               <div className="text-xs text-slate-500 space-y-1">
                 <div className="font-semibold text-slate-700">MTN MoMo Endpoints Tested:</div>
                 <div className="font-mono text-[11px] bg-slate-50 p-2 rounded-lg border border-slate-200 space-y-1">
-                  <div>GET /disbursement/v1_0/accountholder/msisdn/&#123;phone&#125;/active</div>
-                  <div>GET /disbursement/v1_0/accountholder/msisdn/&#123;phone&#125;/basicuserinfo</div>
+                  <div>GET /collection/v1_0/accountholder/msisdn/&#123;phone&#125;/active</div>
+                  <div>GET /collection/v1_0/accountholder/msisdn/&#123;phone&#125;/basicuserinfo</div>
                 </div>
               </div>
             </div>
@@ -1434,13 +1477,32 @@ export const MomoLabPage: React.FC = () => {
           <div className="lg:col-span-5 bg-slate-900 rounded-2xl border border-slate-800 p-5 text-white shadow-sm flex flex-col justify-between">
             <div>
               <div className="pb-3 border-b border-slate-800 text-xs font-mono text-slate-400">
-                KYC STATUS INSPECTION
+                KYC STATUS INSPECTION &amp; GATEWAY EVIDENCE
               </div>
-              <div className="mt-4">
+              <div className="mt-4 space-y-3 font-mono text-xs">
                 {kycValidationResult ? (
-                  <pre className="text-xs font-mono text-emerald-300 bg-slate-950 p-3 rounded-xl overflow-x-auto border border-slate-800">
-                    {JSON.stringify(kycValidationResult, null, 2)}
-                  </pre>
+                  <div className="space-y-3">
+                    {kycValidationResult.gatewayEvidence && (
+                      <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1.5 text-[11px]">
+                        <div className="text-emerald-400 font-bold flex items-center justify-between">
+                          <span>Evidence ID: {kycValidationResult.gatewayEvidence.evidenceId}</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">STORED</span>
+                        </div>
+                        <div className="text-slate-300">
+                          Host: <span className="text-white font-bold">{kycValidationResult.gatewayEvidence.host}</span> | Path: <span className="text-white font-bold">{kycValidationResult.gatewayEvidence.endpoint}</span>
+                        </div>
+                        <div className="text-slate-300">
+                          Roundtrip: <span className="text-amber-300 font-bold">{kycValidationResult.gatewayEvidence.roundTripMs} ms</span> | Status: <span className="text-emerald-400 font-bold">{kycValidationResult.gatewayEvidence.response?.status} {kycValidationResult.gatewayEvidence.response?.statusText}</span>
+                        </div>
+                        <div className="text-slate-400 text-[10px]">
+                          Content-Length: {kycValidationResult.gatewayEvidence.response?.contentLengthHeader ?? "None"} | Body Bytes: {kycValidationResult.gatewayEvidence.response?.actualBodyByteLength} | Matches: {String(kycValidationResult.gatewayEvidence.response?.contentLengthMatches)}
+                        </div>
+                      </div>
+                    )}
+                    <pre className="text-xs font-mono text-emerald-300 bg-slate-950 p-3 rounded-xl overflow-x-auto border border-slate-800">
+                      {JSON.stringify(kycValidationResult, null, 2)}
+                    </pre>
+                  </div>
                 ) : (
                   <div className="text-center py-12 text-slate-500 text-xs">
                     Subscriber KYC details from MTN will appear here.

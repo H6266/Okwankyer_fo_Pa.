@@ -90,7 +90,6 @@ export class GeminiTtsAdapter implements TTSProvider {
                 parts: [
                   {
                     text: request.text,
-                    speechMetadata: { style },
                   },
                 ],
               },

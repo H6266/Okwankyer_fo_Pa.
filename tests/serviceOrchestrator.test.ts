@@ -23,7 +23,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { transactionOrchestrator, ServiceOrchestrator } from "../src/modules/transactionOrchestrator";
+import { serviceOrchestrator, ServiceOrchestrator } from "../src/modules/serviceOrchestrator";
 import { mtnMomoService } from "../src/modules/mtnMomoService";
 import { MoMoEngine } from "../src/integrations/momo";
 import { DurableTransactionStore } from "../src/services/durableTransactionStore";
@@ -80,7 +80,7 @@ describe("Phase 1: Wallet Functions & Central Transaction Service Suite (18 Test
       network: "MTN",
     });
 
-    expect(voiceRes.reference).toMatch(/^OKP-\d{6}$/);
+    expect(voiceRes.reference).toMatch(/^OKP-[0-9A-F]{6}$/i);
     expect(voiceRes.operationType).toBe("SEND_MONEY");
     expect(voiceRes.status).toBe("PENDING");
   });
@@ -429,11 +429,11 @@ describe("Phase 1: Wallet Functions & Central Transaction Service Suite (18 Test
 
   // 18. Architectural Seam Invariant
   it("Test 18: Ensures both Keypad and Voice channels route to ServiceOrchestrator", async () => {
-    expect(typeof transactionOrchestrator.executeSendMoney).toBe("function");
-    expect(typeof transactionOrchestrator.executeAirtime).toBe("function");
-    expect(typeof transactionOrchestrator.executeDataBundle).toBe("function");
-    expect(typeof transactionOrchestrator.executeBillPayment).toBe("function");
-    expect(typeof transactionOrchestrator.executeCashOut).toBe("function");
-    expect(typeof transactionOrchestrator.getAccountBalance).toBe("function");
+    expect(typeof serviceOrchestrator.executeSendMoney).toBe("function");
+    expect(typeof serviceOrchestrator.executeAirtime).toBe("function");
+    expect(typeof serviceOrchestrator.executeDataBundle).toBe("function");
+    expect(typeof serviceOrchestrator.executeBillPayment).toBe("function");
+    expect(typeof serviceOrchestrator.executeCashOut).toBe("function");
+    expect(typeof serviceOrchestrator.getAccountBalance).toBe("function");
   });
 });

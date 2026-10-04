@@ -114,10 +114,20 @@ export function normalizeGhanaPhoneNumber(raw: string): string {
 export function validateGhanaPhoneNumber(raw: string): PhoneValidationResult {
   const normalized = normalizeGhanaPhoneNumber(raw);
 
-  if (normalized.length !== 10) {
+  // Support MTN sandbox test numbers (e.g. 46733123450)
+  if (normalized.startsWith("467") && normalized.length === 11) {
+    return {
+      valid: true,
+      normalized,
+      network: "MTN",
+      last4Spaced: normalized.slice(-4).split("").join(" "),
+    };
+  }
+
+  if (normalized.length !== 10 && normalized.length !== 11) {
     return {
       valid: false,
-      error: `Phone number must be exactly 10 digits (received ${normalized.length || 0}).`,
+      error: `Phone number must be 10 or 11 digits (received ${normalized.length || 0}).`,
     };
   }
 

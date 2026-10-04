@@ -8,7 +8,7 @@
 import fs from "fs";
 import path from "path";
 import { TransactionSession } from "../domain/stateMachine";
-import { TransactionResult } from "../modules/transactionOrchestrator";
+import { TransactionResult } from "../integrations/momo/types";
 
 export interface VelocityAttempt {
   timestamp: number;

@@ -13,7 +13,7 @@
 
 import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
-import { isPhoneNumber, normalizePhoneNumber, findContact } from "./mockContacts";
+import { isPhoneNumber, normalizePhoneNumber } from "../domain/phoneUtils";
 
 const NluModelOutputSchema = z.object({
   intent: z.enum([
@@ -199,10 +199,9 @@ export function extractRecipient(text: string): { name: string | null; phone: st
   if (phoneMatch) {
     const norm = normalizePhoneNumber(phoneMatch[0]);
     if (isPhoneNumber(norm)) {
-      const contact = findContact(norm);
       return {
         phone: norm,
-        name: contact ? contact.name : null,
+        name: null,
       };
     }
   }
@@ -210,10 +209,9 @@ export function extractRecipient(text: string): { name: string | null; phone: st
   // 2. Check for spoken digits (e.g. "zero five five three eight..." or Akan "hwee enum enum...")
   const normPhone = normalizePhoneNumber(text);
   if (isPhoneNumber(normPhone)) {
-    const contact = findContact(normPhone);
     return {
       phone: normPhone,
-      name: contact ? contact.name : null,
+      name: null,
     };
   }
 
@@ -224,21 +222,11 @@ export function extractRecipient(text: string): { name: string | null; phone: st
   for (const match of recipientMatches) {
     const candidateName = match[1].trim();
     if (!stopWords.has(candidateName.toLowerCase())) {
-      const contact = findContact(candidateName);
       return {
-        name: contact ? contact.name : candidateName,
-        phone: contact ? contact.phoneNumber : null,
+        name: candidateName,
+        phone: null,
       };
     }
-  }
-
-  // 4. Check known contact list names if explicitly referenced in the utterance
-  const knownContact = findContact(text);
-  if (knownContact) {
-    return {
-      name: knownContact.name,
-      phone: knownContact.phoneNumber,
-    };
   }
 
   return { name: null, phone: null };

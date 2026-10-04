@@ -1,42 +1,8 @@
 /**
- * Ɔkwankyerɛfo Pa - Mock Contact & Number Normalization Module
- * Isolated mock directory and telephony normalization rules.
- * 
- * NOTE: This is a prototype mock repository for the hackathon.
- * In production, this would query verified national telecom KYC databases.
+ * Ɔkwankyerɛfo Pa - Telephony Phone Number Normalization Utilities
+ * Pure string & telecom utility functions. Zero mock contacts or placeholder directories.
  */
 
-export interface ContactRecord {
-  phoneNumber: string;
-  name: string;
-  network: "MTN" | "Telecel" | "AT";
-  relationship?: string;
-}
-
-export const MOCK_CONTACTS: Record<string, ContactRecord> = {
-  "0553838464": {
-    phoneNumber: "0553838464",
-    name: "Kwame Nyamebere",
-    network: "MTN",
-    relationship: "Brother",
-  },
-  "0241234567": {
-    phoneNumber: "0241234567",
-    name: "Ama Mensah",
-    network: "MTN",
-    relationship: "Sister",
-  },
-  "0201234567": {
-    phoneNumber: "0201234567",
-    name: "Kojo Mensah",
-    network: "Telecel",
-    relationship: "Colleague",
-  },
-};
-
-/**
- * Spoken English digit words mapped to numerals
- */
 const WORD_TO_DIGIT: Record<string, string> = {
   zero: "0",
   oh: "0",
@@ -143,50 +109,4 @@ export function formatPhoneNumberForSpeech(phoneNumber: string): string {
     return `${p1}, ${p2}, ${p3}`;
   }
   return clean.split("").join(" ");
-}
-
-/**
- * Lookup contact by phone number or by name
- */
-export function findContact(query: string): ContactRecord | null {
-  if (!query) return null;
-  const trimmed = query.trim();
-
-  // 1. Direct phone lookup
-  const cleanPhone = normalizePhoneNumber(trimmed);
-  if (cleanPhone && MOCK_CONTACTS[cleanPhone]) {
-    return MOCK_CONTACTS[cleanPhone];
-  }
-
-  // 2. Name search (case-insensitive substring or first name match)
-  const queryLower = trimmed.toLowerCase();
-  for (const contact of Object.values(MOCK_CONTACTS)) {
-    const contactNameLower = contact.name.toLowerCase();
-    if (
-      contactNameLower === queryLower ||
-      contactNameLower.includes(queryLower) ||
-      queryLower.includes(contactNameLower.split(" ")[0].toLowerCase())
-    ) {
-      return contact;
-    }
-  }
-
-  // 3. Dynamic fallback if valid phone number but not in pre-seeded contact book
-  if (isPhoneNumber(trimmed)) {
-    const prefix = cleanPhone.slice(0, 3);
-    const network: "MTN" | "Telecel" | "AT" =
-      ["020", "050"].includes(prefix)
-        ? "Telecel"
-        : ["027", "057", "026", "056"].includes(prefix)
-        ? "AT"
-        : "MTN";
-
-    return {
-      phoneNumber: cleanPhone,
-      name: `Subscriber (${maskPhoneNumber(cleanPhone)})`,
-      network,
-    };
-  }
-
-  return null;
 }

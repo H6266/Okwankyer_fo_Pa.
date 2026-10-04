@@ -11,7 +11,8 @@ import { AUDIO_CATALOG, audioFileExists } from "../audio/catalog";
 import { recipientResolver } from "../providers/recipient/RecipientResolver";
 import { parseAndValidateAmount } from "../domain/validation";
 import { conversationManager } from "../modules/conversationManager";
-import { transactionOrchestrator } from "../modules/transactionOrchestrator";
+import { voicePaymentService } from "../integrations/momo/voicePaymentService";
+import { buildSpokenText } from "../integrations/momo/spokenTextBuilder";
 import { PRESET_SCENARIOS } from "../modules/scenarioRecorder";
 import { getAllVoiceXmlSnapshots, getReleases, getLatestRelease, createRelease, rollbackRelease } from "../modules/devServices";
 import { requireAdminAuth } from "../middleware/adminAuth";
@@ -206,21 +207,16 @@ dashboardRouter.post("/transactions/send", async (req: Request, res: Response) =
       return res.status(400).json({ error: amountVal.error || "Invalid amount" });
     }
 
-    const result = await transactionOrchestrator.executeSendMoney({
-      source: "VOICE",
-      network: network || "MTN",
-      recipient_phone: recipient_phone || "0553838464",
-      recipient_name: recipient_name || "Subscriber",
-      amount: amountVal.amount,
-    });
+    const payer = recipient_phone || "0553838464";
+    const payment = await voicePaymentService.initiatePayment(payer, amountVal.amount);
 
     res.status(200).json({
-      status: result.status,
-      reference: result.reference,
-      amount: result.amount,
-      recipient_name: result.recipient_name,
-      timestamp: result.timestamp,
-      spokenReceipt: result.spokenReceipt,
+      status: payment.ok ? "PENDING" : "FAILED",
+      reference: payment.fields.referenceId,
+      amount: amountVal.amount,
+      recipient_name: recipient_name || "Subscriber",
+      timestamp: new Date().toISOString(),
+      spokenReceipt: buildSpokenText(payment),
     });
   } catch (err: any) {
     res.status(400).json({ error: err.message || "Transaction failed" });
