@@ -4931,6 +4931,10 @@
     async loadMomoStatus() {
       try {
         const res = await fetch('/api/momo/status');
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.toLowerCase().includes('application/json')) {
+          throw new Error(`Expected JSON from /api/momo/status, received ${contentType || 'an unknown content type'} (HTTP ${res.status}). Restart the backend and ensure the simulator is using its API port.`);
+        }
         const data = await res.json();
         if (!data.success) return;
 

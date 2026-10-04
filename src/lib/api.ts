@@ -249,6 +249,36 @@ export function parseVoiceXml(xmlText: string): ParsedVoiceXml {
   return result;
 }
 
+async function parseJsonResponse<T = any>(
+  response: Response,
+  endpointName = "API endpoint",
+): Promise<T> {
+  const contentType = response.headers.get("content-type")?.toLowerCase() || "";
+  let endpoint = endpointName;
+
+  if (response.url) {
+    try {
+      endpoint = new URL(response.url).pathname;
+    } catch {
+      // Keep the supplied endpoint name when the URL cannot be parsed.
+    }
+  }
+
+  if (!contentType.includes("application/json") && !contentType.includes("+json")) {
+    throw new Error(
+      `Expected JSON from ${endpoint}, received ${contentType || "an unknown content type"} (HTTP ${response.status}). Check that the request is routed to the backend API.`,
+    );
+  }
+
+  try {
+    return await response.json() as T;
+  } catch {
+    throw new Error(
+      `The backend returned invalid JSON from ${endpoint} (HTTP ${response.status}).`,
+    );
+  }
+}
+
 export const api = {
   // ── Africa's Talking Telephony Webhook Dispatcher ───────────────────
   async dispatchAtVoiceWebhook(
@@ -312,26 +342,26 @@ export const api = {
   async getHealth(): Promise<HealthResponse> {
     const res = await fetch("/api/health");
     if (!res.ok) throw new Error(`Health check returned ${res.status}`);
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async getAudioManifest(): Promise<AudioManifestResponse> {
     const res = await fetch("/api/audio/manifest");
     if (!res.ok) throw new Error(`Audio manifest request failed: ${res.status}`);
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async getSessions(): Promise<SessionRecord[]> {
     const res = await fetch("/api/sessions");
     if (!res.ok) throw new Error(`Sessions fetch failed: ${res.status}`);
-    const data = await res.json();
+    const data = await parseJsonResponse(res);
     return data.sessions || [];
   },
 
   async getLedger(): Promise<LedgerItem[]> {
     const res = await fetch("/api/ledger");
     if (!res.ok) throw new Error(`Ledger fetch failed: ${res.status}`);
-    const data = await res.json();
+    const data = await parseJsonResponse(res);
     return data.ledger || [];
   },
 
@@ -341,20 +371,20 @@ export const api = {
       headers: { "Content-Type": "application/json" },
     });
     if (!res.ok) throw new Error(`Smoke test failed: ${res.status}`);
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async getEndpoints(): Promise<EndpointDoc[]> {
     const res = await fetch("/api/dev/endpoints");
     if (!res.ok) throw new Error(`Endpoints catalog fetch failed: ${res.status}`);
-    const data = await res.json();
+    const data = await parseJsonResponse(res);
     return data.endpoints || [];
   },
 
   async lookupKyc(phoneNumber: string): Promise<KycLookupResponse> {
     const res = await fetch(`/api/kyc/lookup?phone=${encodeURIComponent(phoneNumber)}`);
     if (!res.ok) throw new Error(`KYC lookup failed: ${res.status}`);
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async simulateVoiceMenu(payload: {
@@ -443,7 +473,7 @@ export const api = {
       credentials: "same-origin",
       headers: getAdminAuthHeaders(),
     });
-    return res.json();
+    return parseJsonResponse(res, "/api/momo/status");
   },
 
   async provisionMomoSandbox(subscriptionKey?: string): Promise<any> {
@@ -453,7 +483,7 @@ export const api = {
       headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ subscriptionKey }),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async getCapabilityMatrix(): Promise<any> {
@@ -461,7 +491,7 @@ export const api = {
       credentials: "same-origin",
       headers: getAdminAuthHeaders(),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async getMomoBalance(product: "collection" | "disbursement" = "collection"): Promise<any> {
@@ -469,7 +499,7 @@ export const api = {
       credentials: "same-origin",
       headers: getAdminAuthHeaders(),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async validateMomoHolder(phone: string): Promise<any> {
@@ -477,7 +507,7 @@ export const api = {
       credentials: "same-origin",
       headers: getAdminAuthHeaders(),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async requestToPay(params: {
@@ -494,7 +524,7 @@ export const api = {
       headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(params),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async getMomoTransactionStatus(referenceId: string): Promise<any> {
@@ -502,7 +532,7 @@ export const api = {
       credentials: "same-origin",
       headers: getAdminAuthHeaders(),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async transferFunds(params: {
@@ -519,7 +549,7 @@ export const api = {
       headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(params),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async getTransferStatus(referenceId: string): Promise<any> {
@@ -527,7 +557,7 @@ export const api = {
       credentials: "same-origin",
       headers: getAdminAuthHeaders(),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async authorizeMomoPrompt(referenceId: string, action: "approve" | "reject" = "approve"): Promise<any> {
@@ -537,7 +567,7 @@ export const api = {
       headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ referenceId, action }),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async testRealAccount(params: {
@@ -551,7 +581,7 @@ export const api = {
       headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(params),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async runMomoTestSuite(): Promise<any> {
@@ -560,7 +590,7 @@ export const api = {
       credentials: "same-origin",
       headers: getAdminAuthHeaders(),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async sendMoney(params: {
@@ -577,7 +607,7 @@ export const api = {
       headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(params),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   // ── Centralized Transaction Engine Pipeline ────────────────────────
@@ -587,7 +617,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phone }),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async createCentralTransaction(params: {
@@ -602,7 +632,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async validateCentralTransactionRecipient(transactionId: string, phone?: string): Promise<any> {
@@ -611,7 +641,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ transactionId, phone }),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async confirmCentralTransaction(transactionId: string, confirmed: boolean = true): Promise<any> {
@@ -620,7 +650,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ transactionId, confirmed }),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async submitCentralTransaction(transactionId: string, options?: { mode?: string; payerPhone?: string }): Promise<any> {
@@ -629,12 +659,12 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ transactionId, ...options }),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async getCentralTransaction(id: string): Promise<any> {
     const res = await fetch(`/api/momo/transaction/${encodeURIComponent(id)}`);
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async buyAirtime(params: {
@@ -647,7 +677,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async buyData(params: {
@@ -661,7 +691,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async payBills(params: {
@@ -674,7 +704,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async cashOut(params: {
@@ -686,19 +716,33 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async getMomoTransactions(): Promise<any> {
     const res = await fetch("/api/momo/transactions");
-    return res.json();
+    return parseJsonResponse(res);
+  },
+
+  async simulateMomoWebhook(params: {
+    referenceId: string;
+    status: "SUCCESSFUL" | "FAILED";
+    financialTransactionId?: string;
+  }): Promise<any> {
+    const res = await fetch("/api/momo/webhook-simulate", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    });
+    return parseJsonResponse(res);
   },
 
   // ── Africa's Talking Shipping & Deployment Methods ──────────────────
   async getShippingStatus(): Promise<any> {
     const res = await fetch("/api/shipping/status");
     if (!res.ok) throw new Error(`Shipping status fetch failed: ${res.status}`);
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async deployToAfricasTalking(): Promise<any> {
@@ -707,7 +751,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
     });
     if (!res.ok) throw new Error(`Deploy to Africa's Talking failed: ${res.status}`);
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async dispatchTestCall(phone: string): Promise<any> {
@@ -716,7 +760,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phone }),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async updateShippingConfig(config: { username?: string; apiKey?: string; voiceNumber?: string }): Promise<any> {
@@ -725,14 +769,14 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(config),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   // ── Team Tasks API (Asana-Style Agile Board) ────────────────────────
   async getTasks(): Promise<{ tasks: ProjectTask[]; members: TaskMember[]; stats: TaskStats }> {
     const res = await fetch("/api/tasks");
     if (!res.ok) throw new Error(`Tasks fetch failed: ${res.status}`);
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async createTask(task: {
@@ -751,7 +795,7 @@ export const api = {
       body: JSON.stringify(task),
     });
     if (!res.ok) throw new Error(`Task creation failed: ${res.status}`);
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async updateTask(id: string, updates: Partial<ProjectTask> & { assigneeId?: string }): Promise<{ success: boolean; task: ProjectTask }> {
@@ -761,7 +805,7 @@ export const api = {
       body: JSON.stringify(updates),
     });
     if (!res.ok) throw new Error(`Task update failed: ${res.status}`);
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async deleteTask(id: string): Promise<{ success: boolean }> {
@@ -769,7 +813,7 @@ export const api = {
       method: "DELETE",
     });
     if (!res.ok) throw new Error(`Task deletion failed: ${res.status}`);
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async getAdminSession(): Promise<{ authenticated: boolean; isDev?: boolean; hint?: string }> {
@@ -777,7 +821,7 @@ export const api = {
       credentials: "include",
       headers: getAdminAuthHeaders(),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async adminLogin(token: string): Promise<any> {
@@ -790,7 +834,7 @@ export const api = {
       body: JSON.stringify({ token }),
     });
 
-    const data = await res.json();
+    const data = await parseJsonResponse(res);
 
     if (!res.ok) {
       throw new Error(
@@ -821,7 +865,7 @@ export const api = {
       credentials: "include",
     });
 
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async processSimulatorTurn(payload: SimulatorTurnRequest): Promise<SimulatorTurnResponse> {
@@ -835,7 +879,7 @@ export const api = {
       body: JSON.stringify(payload),
     });
 
-    const data = await res.json();
+    const data = await parseJsonResponse(res);
     if (!res.ok) {
       throw new Error(data.error || "AI simulator request failed.");
     }
@@ -852,7 +896,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
+    const data = await parseJsonResponse(res);
     if (!res.ok) throw new Error(data.error || "Speech synthesis failed");
     return data;
   },
@@ -869,7 +913,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
+    const data = await parseJsonResponse(res);
     if (!res.ok) throw new Error(data.error || "Brain processing failed");
     return data;
   },
@@ -880,7 +924,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ utterance, languageHint }),
     });
-    const data = await res.json();
+    const data = await parseJsonResponse(res);
     if (!res.ok) throw new Error(data.error || "Utterance analysis failed");
     return data;
   },
@@ -897,7 +941,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ audioBase64, mimeType, language, step, hintText }),
     });
-    const data = await res.json();
+    const data = await parseJsonResponse(res);
     if (!res.ok) throw new Error(data.error || "Audio transcription failed");
     return data;
   },
@@ -952,14 +996,14 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async getSimulatorContacts(): Promise<any[]> {
     try {
       const res = await fetch("/api/ai/simulator/contacts");
       if (!res.ok) return [];
-      const data = await res.json();
+      const data = await parseJsonResponse(res);
       return data.contacts || [];
     } catch {
       return [];
@@ -970,7 +1014,7 @@ export const api = {
     try {
       const res = await fetch("/api/ai/simulator/sync-status");
       if (!res.ok) return null;
-      return res.json();
+      return parseJsonResponse(res);
     } catch {
       return null;
     }
@@ -980,7 +1024,7 @@ export const api = {
     try {
       const res = await fetch("/api/ai/ghananlp/health");
       if (!res.ok) return { configured: false };
-      return res.json();
+      return parseJsonResponse(res);
     } catch {
       return { configured: false };
     }
@@ -988,12 +1032,12 @@ export const api = {
 
   async getGhanaNlpLanguages(): Promise<any> {
     const res = await fetch("/api/ai/ghananlp/languages");
-    return res.json();
+    return parseJsonResponse(res);
   },
 
   async getGhanaNlpSpeakers(): Promise<any> {
     const res = await fetch("/api/ai/ghananlp/speakers");
-    return res.json();
+    return parseJsonResponse(res);
   },
 };
 
