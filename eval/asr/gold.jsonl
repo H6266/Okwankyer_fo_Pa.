@@ -1,0 +1,6 @@
+{"id":"tw-001","audio":"audio/Twi/Welcome_prompt_01.mp3","reference":"Akwaaba kɔ Ɔkwankyerɛfo Pa so","language":"tw","speakerId":"speaker_gh_01"}
+{"id":"tw-002","audio":"audio/Twi/Audio_prompt_twi_02.mp3","reference":"Sɛ worepɛ telecom anaa mobile money dwumadie a mia baako","language":"tw","speakerId":"speaker_gh_01"}
+{"id":"tw-003","audio":"audio/Twi/Audio_prompt_twi_07.mp3","reference":"Hyɛ sika dodoɔ a worepɛ sɛ womane no","language":"tw","speakerId":"speaker_gh_01"}
+{"id":"en-001","audio":"audio/Welcome_prompt_01.mp3","reference":"Welcome to Ɔkwankyerɛfo Pa an easy financial transaction service","language":"en","speakerId":"speaker_gh_02"}
+{"id":"en-002","audio":"audio/English/Audio_prompt_03.mp3","reference":"Select your network For MTN press 1 For Telecel press 2","language":"en","speakerId":"speaker_gh_02"}
+{"id":"en-003","audio":"audio/English/Audio_prompt_07.mp3","reference":"Enter the amount you wish to transfer","language":"en","speakerId":"speaker_gh_02"}

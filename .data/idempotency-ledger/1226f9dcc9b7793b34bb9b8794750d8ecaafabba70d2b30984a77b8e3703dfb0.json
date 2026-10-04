@@ -1,0 +1,10 @@
+{
+  "key": "payment-saga:a232d8497c977a11380ee8e87024b36edf9c8c08a07dd0943e1d9d77fa025693",
+  "fingerprint": "ff12384f966209a97f10c1db1c74d33b16fa54d9cfbbce559cecf55b3e096865",
+  "state": "PENDING",
+  "createdAt": 1791152010731,
+  "updatedAt": 1791152010732,
+  "ownerToken": "2066-97aca035-5f5e-4f39-9098-5635295888a0",
+  "resourceType": "PAYMENT_SAGA",
+  "resourceId": "SAGA_1791152010731_03e8710e"
+}

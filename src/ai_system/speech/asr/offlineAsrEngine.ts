@@ -1,28 +1,25 @@
 /**
- * Ɔkwankyerɛfo Pa - Genuine Offline Speech Recognizer (offlineAsrEngine.ts)
+ * Ɔkwankyerɛfo Pa - Signal-Processing Telephony Utilities (offlineAsrEngine.ts)
  * 
- * Provides local ASR capabilities without remote cloud APIs:
- * 1. 8 kHz telephony narrowband & 16 kHz wideband PCM audio ingestion
- * 2. Real frame-by-frame Voice Activity Detection (VAD) via RMS & Zero-Crossing Rate (ZCR)
- * 3. In-band telephony DTMF dual-tone frequency detection (Goertzel algorithm)
- * 4. Acoustic energy & spectral profile matching against Ghanaian IVR phrase lexicons
- * 5. Audio catalog cross-correlation against verified prompt audio fingerprints
- * 6. Dual-track Akan Twi and Ghanaian English phonetic decoding
- * 7. Zero placeholder transcripts — returns UNKNOWN_AUDIO or EMPTY on ambiguous speech
+ * Deliberately honest design:
+ * - VAD and Goertzel are signal-processing utilities.
+ * - They safely decode in-band DTMF digits with hardware-grade precision.
+ * - They detect speech activity (presence/absence of voice).
+ * - They do NOT guess or fabricate spoken words.
+ * - Spoken speech recognition is delegated to the neural ASR runtime.
  */
 
 import { AiLanguage } from "../../core/aiTypes";
-import { AUDIO_CATALOG } from "../../../audio/catalog";
-import fs from "fs";
-import path from "path";
 
 export interface AsrTranscriptionResult {
   text: string;
   confidence: number;
+  confidenceSource?: "MODEL_HEURISTIC" | "CALIBRATED_PROBABILITY" | "DTMF_HARDWARE" | "VAD_SILENCE";
   detectedLanguage: AiLanguage;
   speechActivityDetected: boolean;
   durationMs: number;
   provider: string;
+  decoder?: Record<string, unknown>;
 }
 
 export interface OfflineSpeechRecognizer {
@@ -43,239 +40,188 @@ const DTMF_KEY_MAP: Record<string, string> = {
 };
 
 export class LocalGhanaianAsrEngine implements OfflineSpeechRecognizer {
-  private knownPromptSignatures = new Map<string, { text: string; language: AiLanguage; sizeBytes: number }>();
+  /**
+   * Evaluates input audio for in-band DTMF tones or silence.
+   * If raw speech is detected, honestly indicates speech presence so
+   * neural ASR can transcribe it.
+   */
+  public async transcribe(
+    audioPayload: Buffer | string,
+    _mimeType: string = "audio/wav"
+  ): Promise<AsrTranscriptionResult> {
+    const rawBuffer = typeof audioPayload === "string"
+      ? Buffer.from(audioPayload.replace(/^data:audio\/[a-z0-9]+;base64,/, ""), "base64")
+      : audioPayload;
 
-  constructor() {
-    this.indexCatalogAudio();
-  }
-
-  private indexCatalogAudio(): void {
-    const cwd = process.cwd();
-    for (const item of AUDIO_CATALOG) {
-      const fullPath = path.resolve(cwd, "audio", item.filename);
-      if (fs.existsSync(fullPath)) {
-        try {
-          const stats = fs.statSync(fullPath);
-          this.knownPromptSignatures.set(item.filename.toLowerCase(), {
-            text: item.spokenText || item.title,
-            language: item.language === "twi" ? "tw" : "en",
-            sizeBytes: stats.size,
-          });
-        } catch {}
-      }
+    if (!rawBuffer || rawBuffer.length < 44) {
+      return {
+        text: "",
+        confidence: 0.0,
+        confidenceSource: "VAD_SILENCE",
+        detectedLanguage: "en",
+        speechActivityDetected: false,
+        durationMs: 0,
+        provider: "local-vad-silence",
+      };
     }
+
+    // 1. In-band DTMF tone detection (Goertzel Algorithm)
+    const dtmfDigit = this.detectDtmfTones(rawBuffer);
+    if (dtmfDigit) {
+      return {
+        text: dtmfDigit,
+        confidence: 0.99,
+        confidenceSource: "DTMF_HARDWARE",
+        detectedLanguage: "en",
+        speechActivityDetected: true,
+        durationMs: Math.round((rawBuffer.length / 32000) * 1000),
+        provider: "local-goertzel-dtmf",
+      };
+    }
+
+    // 2. Voice Activity Detection (RMS energy + Zero-Crossing Rate)
+    const vad = this.detectSpeechActivity(rawBuffer);
+    const durationMs = Math.max(10, Math.round((rawBuffer.length / 32000) * 1000));
+
+    if (!vad.active) {
+      return {
+        text: "",
+        confidence: 0.0,
+        confidenceSource: "VAD_SILENCE",
+        detectedLanguage: "en",
+        speechActivityDetected: false,
+        durationMs,
+        provider: "local-vad-silence",
+      };
+    }
+
+    // 3. Speech activity is detected, but Goertzel/VAD signal processor does NOT guess spoken words
+    return {
+      text: "",
+      confidence: 0.0,
+      confidenceSource: "MODEL_HEURISTIC",
+      detectedLanguage: "tw",
+      speechActivityDetected: true,
+      durationMs,
+      provider: "local-vad-signal-detector",
+    };
   }
 
   /**
-   * Evaluates audio energy and zero-crossing rate across 20ms frames to detect active voice.
+   * Energy and Zero-Crossing Rate (ZCR) based Voice Activity Detector (VAD).
    */
   public detectSpeechActivity(audioBuffer: Buffer): { active: boolean; energyDb: number; zcr: number } {
-    if (!audioBuffer || audioBuffer.length < 128) {
+    let pcmOffset = 0;
+    if (audioBuffer.length >= 44 && audioBuffer.toString("ascii", 0, 4) === "RIFF") {
+      pcmOffset = 44;
+    }
+
+    const numSamples = Math.floor((audioBuffer.length - pcmOffset) / 2);
+    if (numSamples < 80) {
       return { active: false, energyDb: -100, zcr: 0 };
     }
 
-    const offset = audioBuffer.toString("ascii", 0, 4) === "RIFF" ? 44 : 0;
     let sumSquares = 0;
-    let sampleCount = 0;
     let zeroCrossings = 0;
     let prevSign = 0;
 
-    for (let i = offset; i < audioBuffer.length - 1; i += 2) {
-      const sample = audioBuffer.readInt16LE(i);
+    for (let i = 0; i < numSamples; i++) {
+      const sample = audioBuffer.readInt16LE(pcmOffset + i * 2);
       sumSquares += sample * sample;
-      sampleCount++;
 
-      const sign = sample >= 0 ? 1 : -1;
-      if (prevSign !== 0 && sign !== prevSign) {
+      const currentSign = sample >= 0 ? 1 : -1;
+      if (i > 0 && currentSign !== prevSign) {
         zeroCrossings++;
       }
-      prevSign = sign;
+      prevSign = currentSign;
     }
 
-    if (sampleCount === 0) return { active: false, energyDb: -100, zcr: 0 };
-
-    const rms = Math.sqrt(sumSquares / sampleCount);
+    const rms = Math.sqrt(sumSquares / numSamples);
     const energyDb = rms > 0 ? 20 * Math.log10(rms / 32768) : -100;
-    const zcr = zeroCrossings / sampleCount;
+    const zcr = zeroCrossings / numSamples;
 
-    // Telephony voice activity: energy > -48dB and zero-crossing rate consistent with human speech
-    const active = energyDb > -48 && zcr > 0.01 && zcr < 0.65;
+    // Telephony active speech criteria: energy > -48 dBFS and non-trivial ZCR
+    const active = energyDb > -48 && zcr > 0.01;
 
-    return { active, energyDb: Math.round(energyDb), zcr: Math.round(zcr * 1000) / 1000 };
+    return { active, energyDb, zcr };
   }
 
   /**
-   * Goertzel algorithm implementation to detect in-band DTMF telephone keypad tones.
+   * Dual-Tone Multi-Frequency (DTMF) Goertzel filter.
    */
   public detectDtmfTones(audioBuffer: Buffer): string | null {
-    if (!audioBuffer || audioBuffer.length < 400) return null;
+    let pcmOffset = 0;
+    let sampleRate = 8000;
 
-    const offset = audioBuffer.toString("ascii", 0, 4) === "RIFF" ? 44 : 0;
-    const sampleRate = 8000; // Telephony narrowband standard
-    const numSamples = Math.min(800, Math.floor((audioBuffer.length - offset) / 2));
-    if (numSamples < 200) return null;
-
-    const samples: number[] = [];
-    for (let i = 0; i < numSamples; i++) {
-      samples.push(audioBuffer.readInt16LE(offset + i * 2) / 32768);
+    if (audioBuffer.length >= 44 && audioBuffer.toString("ascii", 0, 4) === "RIFF") {
+      sampleRate = audioBuffer.readUInt32LE(24) || 8000;
+      pcmOffset = 44;
     }
 
-    const goertzelPower = (targetFreq: number): number => {
-      const k = Math.round((numSamples * targetFreq) / sampleRate);
-      const omega = (2 * Math.PI * k) / numSamples;
-      const coeff = 2 * Math.cos(omega);
-      let q1 = 0;
-      let q2 = 0;
+    const numSamples = Math.floor((audioBuffer.length - pcmOffset) / 2);
+    if (numSamples < 160) return null;
 
-      for (let i = 0; i < numSamples; i++) {
-        const q0 = coeff * q1 - q2 + samples[i];
+    const samples: number[] = [];
+    for (let i = 0; i < Math.min(numSamples, 1600); i++) {
+      samples.push(audioBuffer.readInt16LE(pcmOffset + i * 2) / 32768.0);
+    }
+
+    const computeGoertzelEnergy = (targetFreq: number): number => {
+      const N = samples.length;
+      const k = Math.floor(0.5 + (N * targetFreq) / sampleRate);
+      const omega = (2.0 * Math.PI * k) / N;
+      const coeff = 2.0 * Math.cos(omega);
+
+      let q0 = 0.0;
+      let q1 = 0.0;
+      let q2 = 0.0;
+
+      for (let i = 0; i < N; i++) {
+        q0 = coeff * q1 - q2 + samples[i];
         q2 = q1;
         q1 = q0;
       }
+
       return q1 * q1 + q2 * q2 - q1 * q2 * coeff;
     };
 
-    let bestRowFreq: number | null = null;
-    let maxRowPower = 0.05; // threshold
-    for (const freq of DTMF_ROW_FREQS) {
-      const p = goertzelPower(freq);
-      if (p > maxRowPower) {
-        maxRowPower = p;
-        bestRowFreq = freq;
+    let bestRowFreq = -1;
+    let maxRowEnergy = 0;
+    for (const rf of DTMF_ROW_FREQS) {
+      const energy = computeGoertzelEnergy(rf);
+      if (energy > maxRowEnergy) {
+        maxRowEnergy = energy;
+        bestRowFreq = rf;
       }
     }
 
-    let bestColFreq: number | null = null;
-    let maxColPower = 0.05;
-    for (const freq of DTMF_COL_FREQS) {
-      const p = goertzelPower(freq);
-      if (p > maxColPower) {
-        maxColPower = p;
-        bestColFreq = freq;
+    let bestColFreq = -1;
+    let maxColEnergy = 0;
+    for (const cf of DTMF_COL_FREQS) {
+      const energy = computeGoertzelEnergy(cf);
+      if (energy > maxColEnergy) {
+        maxColEnergy = energy;
+        bestColFreq = cf;
       }
     }
 
-    if (bestRowFreq && bestColFreq) {
-      const key = `${bestRowFreq}:${bestColFreq}`;
-      return DTMF_KEY_MAP[key] || null;
+    // Energy threshold & twist check (ratio of col to row must be reasonable)
+    if (maxRowEnergy > 0.05 && maxColEnergy > 0.05) {
+      const twist = maxColEnergy / maxRowEnergy;
+      if (twist >= 0.25 && twist <= 4.0) {
+        const key = `${bestRowFreq}:${bestColFreq}`;
+        return DTMF_KEY_MAP[key] || null;
+      }
     }
 
     return null;
   }
 
-  /**
-   * Determines spoken language based on acoustic characteristics and phoneme markers.
-   */
-  public async detectLanguage(audioBuffer: Buffer, decodedText: string = ""): Promise<AiLanguage> {
-    const textLower = decodedText.toLowerCase();
-
-    // Check textual markers if decoded
-    if (/(\b(akwaaba|mepa|wo|kyɛw|sika|mane|baako|mmienu|aduasa|ɔha|gyae|kɔ|yoo|aane)\b)/i.test(textLower)) {
+  public async detectLanguage(_audioBuffer: Buffer, decodedText?: string): Promise<AiLanguage> {
+    if (decodedText && /[ɛɔ]/i.test(decodedText)) {
       return "tw";
     }
-    if (/(\b(send|money|transfer|balance|cedis|airtime|cancel|help|back|exit)\b)/i.test(textLower)) {
-      return "en";
-    }
-
-    // Default to en-tw code-switching for Ghana context when uncertain
     return "en";
-  }
-
-  /**
-   * Transcribes incoming audio without relying on cloud services.
-   * Processes DTMF, pre-recorded catalog signatures, and acoustic phoneme patterns.
-   * If speech cannot be deciphered, returns empty string or UNKNOWN_AUDIO with low confidence.
-   */
-  public async transcribe(
-    audioPayload: Buffer | string,
-    mimeType: string = "audio/wav"
-  ): Promise<AsrTranscriptionResult> {
-    const start = performance.now();
-    const buffer = typeof audioPayload === "string"
-      ? Buffer.from(audioPayload.replace(/^data:audio\/[a-z0-9]+;base64,/, ""), "base64")
-      : audioPayload;
-
-    const durationEstimate = Math.round((buffer.length / 32000) * 1000);
-
-    // 1. Voice Activity Detection
-    const vad = this.detectSpeechActivity(buffer);
-    if (!vad.active) {
-      return {
-        text: "",
-        confidence: 0.0,
-        detectedLanguage: "en",
-        speechActivityDetected: false,
-        durationMs: Math.round(performance.now() - start),
-        provider: "local-vad-silence-detector",
-      };
-    }
-
-    // 2. In-band Telephony DTMF Tone Detection
-    const dtmfDigit = this.detectDtmfTones(buffer);
-    if (dtmfDigit) {
-      return {
-        text: dtmfDigit,
-        confidence: 0.99,
-        detectedLanguage: "en",
-        speechActivityDetected: true,
-        durationMs: Math.round(performance.now() - start),
-        provider: "local-dtmf-inband-decoder",
-      };
-    }
-
-    // 3. Audio File Fingerprint Matching (exact match against repo catalog clips)
-    for (const [_name, sig] of this.knownPromptSignatures.entries()) {
-      if (Math.abs(buffer.length - sig.sizeBytes) <= 64) {
-        return {
-          text: sig.text,
-          confidence: 0.96,
-          detectedLanguage: sig.language,
-          speechActivityDetected: true,
-          durationMs: Math.round(performance.now() - start),
-          provider: "local-catalog-fingerprint-matcher",
-        };
-      }
-    }
-
-    // 4. Acoustic Energy & Syllabic Profile Analysis for Keypad / Menu Answers
-    // Short bursts with high energy often represent single menu answers ("1" / "2" / "yes" / "no" / "stop")
-    const durationMs = Math.round(performance.now() - start);
-
-    if (durationEstimate < 600) {
-      // Short command utterance
-      if (vad.zcr > 0.15) {
-        // High fricative content: "stop" / "six" / "seven" / "sika"
-        return {
-          text: "stop",
-          confidence: 0.65,
-          detectedLanguage: "en",
-          speechActivityDetected: true,
-          durationMs,
-          provider: "local-phonetic-acoustic-engine",
-        };
-      } else {
-        // Voiced vowel / nasal: "one" / "baako" / "two" / "no"
-        return {
-          text: "1",
-          confidence: 0.70,
-          detectedLanguage: "en",
-          speechActivityDetected: true,
-          durationMs,
-          provider: "local-phonetic-acoustic-engine",
-        };
-      }
-    }
-
-    // 5. If audio cannot be decoded with sufficient acoustic confidence:
-    // Fail gracefully: Return UNKNOWN_AUDIO so dialogue layer triggers clarification/keypad prompt
-    return {
-      text: "UNKNOWN_AUDIO",
-      confidence: 0.25,
-      detectedLanguage: await this.detectLanguage(buffer),
-      speechActivityDetected: true,
-      durationMs,
-      provider: "local-acoustic-fallback",
-    };
   }
 }
 

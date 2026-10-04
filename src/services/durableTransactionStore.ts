@@ -337,6 +337,7 @@ export class DurableTransactionStore {
     cleanDir(this.idempotencyDir);
     cleanDir(this.velocityDir);
     cleanDir(this.sagasDir);
+    cleanDir(path.join(this.baseDir, "idempotency-ledger"));
   }
 }
 

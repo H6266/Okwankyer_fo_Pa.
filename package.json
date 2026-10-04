@@ -24,6 +24,8 @@
     "ai:train:asr": "tsx scripts/train_local_asr.ts",
     "ai:train:tts": "tsx scripts/train_local_tts.ts",
     "ai:grade": "tsx scripts/grade_ai.ts",
+    "ai:speech:health": "tsx scripts/check_local_speech.ts",
+    "ai:asr:eval": "tsx scripts/run_asr_eval.ts",
     "predeploy": "npm run check:copy && npm run typecheck && npm run test"
   },
   "dependencies": {

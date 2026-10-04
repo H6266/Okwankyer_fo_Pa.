@@ -1,19 +1,22 @@
 /**
- * Ɔkwankyerɛfo Pa - TTS Router (ttsRouter.ts)
+ * Ɔkwankyerɛfo Pa - Honest Multi-Tier TTS Router (ttsRouter.ts)
  * 
- * Implements capability-aware multi-tier TTS routing:
- * 1. LOCAL_STUDIO_CATALOG: Verified human studio audio files for all canonical IVR steps
- * 2. LOCAL_GHANAIAN_TTS: Native phoneme formant acoustic synthesizer for dynamic speech
- * 3. OPTIONAL_REMOTE_TTS: Google Gemini audio modality if configured and active
- * 4. Fallback recovery with zero call drops
+ * Implements Batch 2 Honest Speech Synthesis Routing:
+ * 1. STUDIO_CATALOG: Verified human studio audio recordings for fixed IVR prompts.
+ * 2. LOCAL_NEURAL_PIPER: Genuine local Piper neural voice for dynamic speech (names, numbers, receipts).
+ * 3. REMOTE_GEMINI_TTS: Optional cloud accelerator if configured.
+ * 4. EXPERIMENTAL_FORMANT_TTS: Formant synthesis is explicitly disabled by default;
+ *    allowed only when ALLOW_EXPERIMENTAL_FORMANT_TTS=true for development experiments.
  */
 
 import { TTSProvider, TtsSynthesisRequest, TtsSynthesisResponse } from "./ttsProvider";
+import { studioCatalogProvider } from "./studioCatalogProvider";
+import { piperProvider } from "./localTtsProvider";
 import { localGhanaianTtsProvider } from "./localGhanaianTts";
 import { ttsAdapter } from "./ttsAdapter";
 import { geminiClient } from "../../../services/geminiClient";
 
-export type TtsTier = "STUDIO_CATALOG" | "LOCAL_PHONEME_TTS" | "REMOTE_GEMINI_TTS";
+export type TtsTier = "STUDIO_CATALOG" | "LOCAL_NEURAL_PIPER" | "REMOTE_GEMINI_TTS" | "EXPERIMENTAL_FORMANT_TTS";
 
 export interface TtsRouterReport {
   tier: TtsTier;
@@ -23,42 +26,57 @@ export interface TtsRouterReport {
 }
 
 export class TtsRouter implements TTSProvider {
-  /**
-   * Routes synthesis request through prioritized capability cascade:
-   * Local Studio Catalog / Phoneme Engine -> Optional Cloud TTS -> Deterministic fallback
-   */
   public async synthesize(request: TtsSynthesisRequest): Promise<TtsSynthesisResponse> {
-    // Tier 1 & 2: Local Ghanaian Studio Catalog or Phoneme Formant Synthesizer
-    try {
-      const localResult = await localGhanaianTtsProvider.synthesize(request);
-      if (localResult.audioBuffer && localResult.audioBuffer.length > 44) {
-        return localResult;
+    // Tier 1: Check authentic human studio recording catalog
+    if (studioCatalogProvider.hasMatch(request.text)) {
+      try {
+        return await studioCatalogProvider.synthesize(request);
+      } catch (err: any) {
+        console.warn("[TtsRouter] Studio catalog retrieval error:", err.message);
       }
-    } catch (err: any) {
-      console.warn("[TtsRouter] Local Ghanaian TTS notice:", err.message);
     }
 
-    // Tier 3: Optional Remote Gemini TTS (if cloud is configured and operational)
+    // Tier 2: Genuine Local Neural Piper TTS Runtime
+    try {
+      const piperResult = await piperProvider.synthesize(request);
+      if (piperResult.audioBuffer && piperResult.audioBuffer.length > 64) {
+        return piperResult;
+      }
+    } catch {
+      // Piper worker may be unstarted or offline
+    }
+
+    // Tier 3: Optional Remote Gemini TTS Accelerator
     if (geminiClient.isAvailable()) {
       try {
         const cloudResult = await ttsAdapter.synthesize(request);
-        if (cloudResult.audioBuffer) {
+        if (cloudResult.audioBuffer && cloudResult.audioBuffer.length > 44) {
           return cloudResult;
         }
       } catch (err: any) {
-        console.warn("[TtsRouter] Remote Gemini TTS failed; falling back to local PCM:", err.message);
+        console.warn("[TtsRouter] Remote Gemini TTS unavailable:", err.message);
       }
     }
 
-    // Fallback: Safe local PCM WAV generator
-    return localGhanaianTtsProvider.synthesize(request);
+    // Tier 4: Experimental Formant TTS (Strictly disabled by default)
+    const allowExperimentalFormants =
+      process.env.ALLOW_EXPERIMENTAL_FORMANT_TTS === "true";
+
+    if (allowExperimentalFormants) {
+      return localGhanaianTtsProvider.synthesize(request);
+    }
+
+    throw new Error(
+      "LOCAL_NEURAL_TTS_UNAVAILABLE: Genuine local Piper TTS runtime (http://127.0.0.1:8766) is offline. " +
+      "Start the worker with 'python ml/local_tts_server.py'. Set ALLOW_EXPERIMENTAL_FORMANT_TTS=true only for development experiments."
+    );
   }
 
   public getRouterReport(): TtsRouterReport {
     return {
-      tier: "LOCAL_PHONEME_TTS",
-      provider: "localGhanaianTtsProvider",
-      durationEstimateSec: 3.5,
+      tier: "LOCAL_NEURAL_PIPER",
+      provider: "piperProvider",
+      durationEstimateSec: 2,
       offlineReady: true,
     };
   }

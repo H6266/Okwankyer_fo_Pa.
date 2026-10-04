@@ -4,4 +4,4 @@
 
 export { LocalGhanaianTtsProvider, localGhanaianTtsProvider } from "./localGhanaianTts";
 export { GhanaianTtsProvider, ghanaianTtsProvider } from "./ghanaianTtsProvider";
-export { PiperTtsProvider, piperTtsProvider } from "./piperProvider";
+export { PiperTtsProvider, piperTtsProvider, piperTtsProvider as piperProvider } from "./piperProvider";

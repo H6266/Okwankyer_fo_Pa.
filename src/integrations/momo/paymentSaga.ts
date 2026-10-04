@@ -1,48 +1,30 @@
 /**
- * Ɔkwankyerɛfo Pa - Authoritative Payment Saga Orchestrator (paymentSaga.ts)
- * 
- * Implements a strict, multi-step financial transaction saga for consumer P2P transfers:
- * 
+ * Ɔkwankyerɛfo Pa - Authoritative Payment Saga Orchestrator
+ *
+ * This is the application-level state machine for:
+ *
  * DRAFT
- *   ↓
- * RECIPIENT_VERIFIED
- *   ↓
- * AMOUNT_VERIFIED
- *   ↓
- * CONFIRMATION_REQUESTED
- *   ↓
- * CONFIRMED
- *   ↓
- * REQUEST_TO_PAY_SENT
- *   ↓
- * WAITING_FOR_CUSTOMER_AUTHORIZATION
- *   ↓
- * COLLECTION_CONFIRMED
- *   ↓
- * DISBURSEMENT_INITIATED
- *   ↓
- * DISBURSEMENT_CONFIRMED
- *   ↓
- * COMPLETED
- * 
- * Failure states:
- * - COLLECTION_FAILED
- * - CUSTOMER_DECLINED
- * - COLLECTION_TIMEOUT
- * - DISBURSEMENT_FAILED
- * - DISBURSEMENT_TIMEOUT
- * - RECONCILIATION_REQUIRED
- * 
- * Enforces:
- * - INVARIANT_007: Authoritative persistent idempotency
- * - INVARIANT_010: Failed provider operations never reported as success
- * - INVARIANT_013: Provider acceptance (202) is NOT completion
- * - INVARIANT_015: Receipts only generated after COMPLETED state
+ *   -> RECIPIENT_VERIFIED
+ *   -> AMOUNT_VERIFIED
+ *   -> CONFIRMATION_REQUESTED
+ *   -> CONFIRMED
+ *   -> WAITING_FOR_CUSTOMER_AUTHORIZATION
+ *   -> COLLECTION_CONFIRMED
+ *   -> DISBURSEMENT_INITIATED
+ *   -> DISBURSEMENT_CONFIRMED
+ *   -> COMPLETED
+ *
+ * Every uncertain provider outcome becomes a non-success state.
+ *
+ * CRITICAL:
+ * No locally generated receipt is considered a provider receipt.
  */
 
 import crypto from "crypto";
 import { durableTransactionStore } from "../../services/durableTransactionStore";
+import { durableIdempotencyLedger } from "../../services/durableIdempotencyLedger";
 import { truthEngine } from "../../ai_system/core/truthEngine";
+import { financialPolicy } from "../../ai_system/core/financialPolicy";
 
 export type SagaState =
   | "DRAFT"
@@ -63,6 +45,21 @@ export type SagaState =
   | "DISBURSEMENT_TIMEOUT"
   | "RECONCILIATION_REQUIRED";
 
+export interface SagaProviderEvidence {
+  provider:
+    | "MTN"
+    | "Telecel"
+    | "AT"
+    | string;
+  referenceId?: string;
+  financialTransactionId?: string;
+  httpStatus?: number;
+  providerStatus?: string;
+  reason?: string;
+  evidenceId?: string;
+  observedAt: number;
+}
+
 export interface SagaTransaction {
   sagaId: string;
   idempotencyKey: string;
@@ -70,242 +67,926 @@ export interface SagaTransaction {
   recipientPhone: string;
   recipientName: string;
   amount: number;
-  network: "MTN" | "Telecel" | "AT";
+  network:
+    | "MTN"
+    | "Telecel"
+    | "AT";
   state: SagaState;
   createdAt: number;
   updatedAt: number;
+
   collectionReference?: string;
   disbursementReference?: string;
+
   failureReason?: string;
-  authReceipt?: string;
+
   providerFinancialTransactionId?: string;
+
+  providerEvidence?:
+    SagaProviderEvidence[];
+
+  lastProviderStatus?: string;
+}
+
+function requireProviderTransactionId(
+  value: unknown
+): string {
+  if (
+    typeof value !== "string" ||
+    value.trim() === ""
+  ) {
+    throw new Error(
+      "FINANCIAL_TRUTH_UNKNOWN: provider financial transaction ID is required for completion."
+    );
+  }
+
+  return value.trim();
 }
 
 export class PaymentSagaOrchestrator {
-  private static instance: PaymentSagaOrchestrator;
+  private static instance:
+    PaymentSagaOrchestrator;
 
-  public static getInstance(): PaymentSagaOrchestrator {
+  public static getInstance():
+    PaymentSagaOrchestrator {
     if (!PaymentSagaOrchestrator.instance) {
-      PaymentSagaOrchestrator.instance = new PaymentSagaOrchestrator();
+      PaymentSagaOrchestrator.instance =
+        new PaymentSagaOrchestrator();
     }
+
     return PaymentSagaOrchestrator.instance;
   }
 
-  /**
-   * Generates a deterministic idempotency key for the transaction parameters.
-   */
-  public generateIdempotencyKey(senderPhone: string, recipientPhone: string, amount: number, clientNonce?: string): string {
-    const data = `${senderPhone}:${recipientPhone}:${amount.toFixed(2)}:${clientNonce || ""}`;
-    return crypto.createHash("sha256").update(data).digest("hex");
+  public generateIdempotencyKey(
+    senderPhone: string,
+    recipientPhone: string,
+    amount: number,
+    network:
+      | "MTN"
+      | "Telecel"
+      | "AT",
+    clientNonce?: string
+  ): string {
+    const data = JSON.stringify({
+      senderPhone,
+      recipientPhone,
+      amount:
+        Number(amount.toFixed(2)),
+      network,
+      clientNonce:
+        clientNonce || null,
+    });
+
+    return crypto
+      .createHash("sha256")
+      .update(data)
+      .digest("hex");
   }
 
-  /**
-   * Step 1: Initialize Draft
-   */
   public createDraft(params: {
     senderPhone: string;
     recipientPhone: string;
     amount: number;
-    network?: "MTN" | "Telecel" | "AT";
+    network?:
+      | "MTN"
+      | "Telecel"
+      | "AT";
     clientNonce?: string;
   }): SagaTransaction {
-    truthEngine.assertKnown("senderPhone", params.senderPhone, "Sender Phone");
-    truthEngine.assertKnown("recipientPhone", params.recipientPhone, "Recipient Phone");
-    truthEngine.assertKnown("amount", params.amount, "Transaction Amount");
+    const network = params.network || "MTN";
+    const policy =
+      financialPolicy.validateExecution(
+        {
+          operation: "TRANSFER",
+          sessionId: "SAGA_DRAFT",
+          senderPhone:
+            params.senderPhone,
+          recipientPhone:
+            params.recipientPhone,
+          amount:
+            params.amount,
+          currency: "GHS",
+          network,
+        }
+      );
 
-    const idempotencyKey = this.generateIdempotencyKey(
-      params.senderPhone,
-      params.recipientPhone,
-      params.amount,
-      params.clientNonce
-    );
-
-    // If an existing saga with this idempotency key exists, return it (INVARIANT_007)
-    for (const existing of durableTransactionStore.getAllSagas()) {
-      if (existing.idempotencyKey === idempotencyKey) {
-        return existing;
-      }
+    if (!policy.allowed) {
+      throw new Error(
+        policy.reason
+      );
     }
 
-    const sagaId = `SAGA_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
+    truthEngine.assertKnown(
+      "senderPhone",
+      params.senderPhone,
+      "Sender Phone"
+    );
+
+    truthEngine.assertKnown(
+      "recipientPhone",
+      params.recipientPhone,
+      "Recipient Phone"
+    );
+
+    truthEngine.assertKnown(
+      "amount",
+      params.amount,
+      "Transaction Amount"
+    );
+
+    const idempotencyKey =
+      this.generateIdempotencyKey(
+        params.senderPhone,
+        params.recipientPhone,
+        params.amount,
+        network,
+        params.clientNonce
+      );
+
+    const fingerprint =
+      financialPolicy.fingerprint(
+        {
+          operation: "TRANSFER",
+          sessionId:
+            idempotencyKey,
+          senderPhone:
+            params.senderPhone,
+          recipientPhone:
+            params.recipientPhone,
+          amount:
+            params.amount,
+          currency: "GHS",
+          network,
+        }
+      );
+
+    const reservation =
+      durableIdempotencyLedger.reserve<
+        SagaTransaction
+      >(
+        {
+          key:
+            `payment-saga:${idempotencyKey}`,
+          fingerprint,
+          resourceType:
+            "PAYMENT_SAGA",
+        }
+      );
+
+    if (
+      reservation.kind ===
+      "CONFLICT"
+    ) {
+      throw new Error(
+        "DUPLICATE_TRANSACTION: idempotency key was previously used with different financial parameters."
+      );
+    }
+
+    if (
+      reservation.kind ===
+      "EXISTING"
+    ) {
+      if (
+        reservation.record.resourceId
+      ) {
+        const existing =
+          durableTransactionStore.getSaga(
+            reservation.record.resourceId
+          );
+
+        if (existing) {
+          return existing;
+        }
+      }
+
+      if (
+        reservation.record.state ===
+          "COMPLETED" &&
+        reservation.record.result
+      ) {
+        return reservation.record.result;
+      }
+
+      throw new Error(
+        "DUPLICATE_TRANSACTION: an earlier payment saga is already in progress for this idempotency key."
+      );
+    }
+
+    const now = Date.now();
+
+    const sagaId =
+      `SAGA_${now}_${crypto
+        .randomBytes(4)
+        .toString("hex")}`;
+
     const saga: SagaTransaction = {
       sagaId,
       idempotencyKey,
-      senderPhone: params.senderPhone,
-      recipientPhone: params.recipientPhone,
-      recipientName: "Unverified",
-      amount: params.amount,
-      network: params.network || "MTN",
+      senderPhone:
+        params.senderPhone,
+      recipientPhone:
+        params.recipientPhone,
+      recipientName:
+        "Unverified",
+      amount:
+        Number(
+          params.amount.toFixed(2)
+        ),
+      network,
       state: "DRAFT",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: now,
+      updatedAt: now,
+      providerEvidence: [],
     };
 
-    durableTransactionStore.saveSaga(saga);
-    return saga;
-  }
+    durableTransactionStore.saveSaga(
+      saga
+    );
 
-  /**
-   * Step 2: Mark Recipient Verified
-   */
-  public verifyRecipient(sagaId: string, recipientName: string): SagaTransaction {
-    const saga = this.getSagaOrThrow(sagaId);
-    if (saga.state !== "DRAFT") {
-      throw new Error(`Invalid saga transition: cannot verify recipient from state ${saga.state}`);
-    }
-    truthEngine.assertKnown("recipientName", recipientName, "Recipient Name");
-
-    saga.recipientName = recipientName;
-    saga.state = "RECIPIENT_VERIFIED";
-    saga.updatedAt = Date.now();
-    durableTransactionStore.saveSaga(saga);
-    return saga;
-  }
-
-  /**
-   * Step 3: Mark Amount Verified
-   */
-  public verifyAmount(sagaId: string): SagaTransaction {
-    const saga = this.getSagaOrThrow(sagaId);
-    if (saga.state !== "RECIPIENT_VERIFIED") {
-      throw new Error(`Invalid saga transition: cannot verify amount from state ${saga.state}`);
-    }
-    if (saga.amount < 1.0 || saga.amount > 5000.0) {
-      throw new Error(`Amount GHS ${saga.amount} exceeds limits (1.00 - 5,000.00 GHS)`);
-    }
-
-    saga.state = "AMOUNT_VERIFIED";
-    saga.updatedAt = Date.now();
-    durableTransactionStore.saveSaga(saga);
-    return saga;
-  }
-
-  /**
-   * Step 4: Request Customer Confirmation
-   */
-  public requestConfirmation(sagaId: string): SagaTransaction {
-    const saga = this.getSagaOrThrow(sagaId);
-    if (saga.state !== "AMOUNT_VERIFIED") {
-      throw new Error(`Invalid saga transition: cannot request confirmation from state ${saga.state}`);
-    }
-
-    saga.state = "CONFIRMATION_REQUESTED";
-    saga.updatedAt = Date.now();
-    durableTransactionStore.saveSaga(saga);
-    return saga;
-  }
-
-  /**
-   * Step 5: Mark Customer Confirmed
-   */
-  public confirm(sagaId: string): SagaTransaction {
-    const saga = this.getSagaOrThrow(sagaId);
-    if (saga.state !== "CONFIRMATION_REQUESTED") {
-      throw new Error(`Invalid saga transition: cannot confirm from state ${saga.state}`);
-    }
-
-    saga.state = "CONFIRMED";
-    saga.updatedAt = Date.now();
-    durableTransactionStore.saveSaga(saga);
-    return saga;
-  }
-
-  /**
-   * Step 6: Dispatch RequestToPay to Telco
-   */
-  public markRequestToPaySent(sagaId: string, reference: string): SagaTransaction {
-    const saga = this.getSagaOrThrow(sagaId);
-    if (saga.state !== "CONFIRMED") {
-      throw new Error(`Invalid saga transition: cannot send RequestToPay from state ${saga.state}`);
-    }
-
-    saga.collectionReference = reference;
-    saga.state = "WAITING_FOR_CUSTOMER_AUTHORIZATION";
-    saga.updatedAt = Date.now();
-    durableTransactionStore.saveSaga(saga);
-    return saga;
-  }
-
-  /**
-   * Step 7: Record Collection Result (Webhook / Poll)
-   */
-  public recordCollectionResult(sagaId: string, success: boolean, reason?: string): SagaTransaction {
-    const saga = this.getSagaOrThrow(sagaId);
-    if (saga.state !== "WAITING_FOR_CUSTOMER_AUTHORIZATION") {
-      throw new Error(`Invalid saga transition: collection received in unexpected state ${saga.state}`);
-    }
-
-    if (success) {
-      saga.state = "COLLECTION_CONFIRMED";
-    } else {
-      if (reason?.includes("DECLINED") || reason?.includes("REJECTED")) {
-        saga.state = "CUSTOMER_DECLINED";
-      } else if (reason?.includes("TIMEOUT")) {
-        saga.state = "COLLECTION_TIMEOUT";
-      } else {
-        saga.state = "COLLECTION_FAILED";
+    durableIdempotencyLedger.update(
+      `payment-saga:${idempotencyKey}`,
+      {
+        resourceId: sagaId,
       }
-      saga.failureReason = reason || "Collection rejected by subscriber";
-    }
-    saga.updatedAt = Date.now();
-    durableTransactionStore.saveSaga(saga);
+    );
+
     return saga;
   }
 
-  /**
-   * Step 8: Dispatch Disbursement to Recipient
-   */
-  public initiateDisbursement(sagaId: string, reference: string): SagaTransaction {
-    const saga = this.getSagaOrThrow(sagaId);
-    if (saga.state !== "COLLECTION_CONFIRMED") {
-      throw new Error(`Invalid saga transition: cannot disburse before collection confirmed. State: ${saga.state}`);
-    }
+  private getSagaOrThrow(
+    sagaId: string
+  ): SagaTransaction {
+    const saga =
+      durableTransactionStore.getSaga(
+        sagaId
+      );
 
-    saga.disbursementReference = reference;
-    saga.state = "DISBURSEMENT_INITIATED";
-    saga.updatedAt = Date.now();
-    durableTransactionStore.saveSaga(saga);
-    return saga;
-  }
-
-  /**
-   * Step 9: Finalize Completion (Section 2.5: No fake MOMO_RCP_ receipts)
-   */
-  public finalizeDisbursement(sagaId: string, success: boolean, reason?: string, providerFinancialTxId?: string): SagaTransaction {
-    const saga = this.getSagaOrThrow(sagaId);
-    if (saga.state !== "DISBURSEMENT_INITIATED") {
-      throw new Error(`Invalid saga transition: cannot finalize disbursement in state ${saga.state}`);
-    }
-
-    if (success) {
-      saga.state = "COMPLETED";
-      if (providerFinancialTxId) {
-        // Record authentic provider-returned financial transaction ID
-        saga.providerFinancialTransactionId = providerFinancialTxId;
-      } else {
-        saga.authReceipt = `MOMO_RCP_${saga.sagaId}_${Date.now()}`;
-        saga.providerFinancialTransactionId = saga.disbursementReference;
-      }
-    } else {
-      saga.state = "RECONCILIATION_REQUIRED";
-      saga.failureReason = reason || "Disbursement failed after collection was secured";
-    }
-    saga.updatedAt = Date.now();
-    durableTransactionStore.saveSaga(saga);
-    return saga;
-  }
-
-  public getSaga(sagaId: string): SagaTransaction | undefined {
-    return durableTransactionStore.getSaga(sagaId);
-  }
-
-  private getSagaOrThrow(sagaId: string): SagaTransaction {
-    const saga = durableTransactionStore.getSaga(sagaId);
     if (!saga) {
-      throw new Error(`Payment Saga with ID '${sagaId}' does not exist.`);
+      throw new Error(
+        `Payment Saga with ID '${sagaId}' does not exist.`
+      );
     }
+
     return saga;
+  }
+
+  private persist(
+    saga: SagaTransaction
+  ): SagaTransaction {
+    saga.updatedAt =
+      Date.now();
+
+    durableTransactionStore.saveSaga(
+      saga
+    );
+
+    return saga;
+  }
+
+  public verifyRecipient(
+    sagaId: string,
+    recipientName: string,
+    identityVerified = false
+  ): SagaTransaction {
+    const saga =
+      this.getSagaOrThrow(
+        sagaId
+      );
+
+    if (
+      saga.state !== "DRAFT"
+    ) {
+      throw new Error(
+        `Invalid saga transition from ${saga.state}.`
+      );
+    }
+
+    truthEngine.assertKnown(
+      "recipientName",
+      recipientName,
+      "Recipient Name"
+    );
+
+    saga.recipientName =
+      recipientName ||
+      "Unverified";
+
+    /*
+     * identityVerified is intentionally not silently inferred.
+     * The actual resolver must decide whether this is verified.
+     */
+    void identityVerified;
+
+    saga.state =
+      "RECIPIENT_VERIFIED";
+
+    return this.persist(
+      saga
+    );
+  }
+
+  public verifyAmount(
+    sagaId: string
+  ): SagaTransaction {
+    const saga =
+      this.getSagaOrThrow(
+        sagaId
+      );
+
+    if (
+      saga.state !==
+      "RECIPIENT_VERIFIED"
+    ) {
+      throw new Error(
+        `Invalid saga transition from ${saga.state}.`
+      );
+    }
+
+    const policy =
+      financialPolicy.validateExecution(
+        {
+          operation: "TRANSFER",
+          sessionId:
+            saga.sagaId,
+          senderPhone:
+            saga.senderPhone,
+          recipientPhone:
+            saga.recipientPhone,
+          amount:
+            saga.amount,
+          currency: "GHS",
+          network:
+            saga.network,
+        }
+      );
+
+    if (!policy.allowed) {
+      throw new Error(
+        policy.reason
+      );
+    }
+
+    saga.state =
+      "AMOUNT_VERIFIED";
+
+    return this.persist(
+      saga
+    );
+  }
+
+  public requestConfirmation(
+    sagaId: string
+  ): SagaTransaction {
+    const saga =
+      this.getSagaOrThrow(
+        sagaId
+      );
+
+    if (
+      saga.state !==
+      "AMOUNT_VERIFIED"
+    ) {
+      throw new Error(
+        `Invalid saga transition from ${saga.state}.`
+      );
+    }
+
+    saga.state =
+      "CONFIRMATION_REQUESTED";
+
+    return this.persist(
+      saga
+    );
+  }
+
+  public confirm(
+    sagaId: string
+  ): SagaTransaction {
+    const saga =
+      this.getSagaOrThrow(
+        sagaId
+      );
+
+    if (
+      saga.state !==
+      "CONFIRMATION_REQUESTED"
+    ) {
+      throw new Error(
+        `Invalid saga transition from ${saga.state}.`
+      );
+    }
+
+    saga.state =
+      "CONFIRMED";
+
+    return this.persist(
+      saga
+    );
+  }
+
+  public markRequestToPaySent(
+    sagaId: string,
+    reference: string,
+    evidence?: Partial<SagaProviderEvidence>
+  ): SagaTransaction {
+    const saga =
+      this.getSagaOrThrow(
+        sagaId
+      );
+
+    if (
+      saga.state !== "CONFIRMED"
+    ) {
+      throw new Error(
+        `Invalid saga transition from ${saga.state}.`
+      );
+    }
+
+    if (
+      !reference?.trim()
+    ) {
+      throw new Error(
+        "FINANCIAL_TRUTH_UNKNOWN: RequestToPay reference is required."
+      );
+    }
+
+    saga.collectionReference =
+      reference.trim();
+
+    saga.lastProviderStatus =
+      "PENDING";
+
+    saga.providerEvidence = [
+      ...(saga.providerEvidence ||
+        []),
+      {
+        provider:
+          evidence?.provider ||
+          "MTN",
+        referenceId:
+          reference.trim(),
+        httpStatus:
+          evidence?.httpStatus,
+        providerStatus:
+          evidence?.providerStatus ||
+          "PENDING",
+        evidenceId:
+          evidence?.evidenceId,
+        observedAt:
+          Date.now(),
+      },
+    ];
+
+    saga.state =
+      "WAITING_FOR_CUSTOMER_AUTHORIZATION";
+
+    return this.persist(
+      saga
+    );
+  }
+
+  public recordCollectionResult(
+    sagaId: string,
+    resultOrSuccess:
+      | boolean
+      | {
+          status:
+            | "SUCCESSFUL"
+            | "PENDING"
+            | "FAILED"
+            | "DECLINED"
+            | "TIMEOUT";
+          provider?: string;
+          referenceId?: string;
+          financialTransactionId?: string;
+          reason?: string;
+          httpStatus?: number;
+          evidenceId?: string;
+        },
+    legacyReason?: string
+  ): SagaTransaction {
+    const result: {
+      status:
+        | "SUCCESSFUL"
+        | "PENDING"
+        | "FAILED"
+        | "DECLINED"
+        | "TIMEOUT";
+      provider?: string;
+      referenceId?: string;
+      financialTransactionId?: string;
+      reason?: string;
+      httpStatus?: number;
+      evidenceId?: string;
+    } =
+      typeof resultOrSuccess === "boolean"
+        ? {
+            status: resultOrSuccess ? "SUCCESSFUL" : "DECLINED",
+            reason: legacyReason,
+          }
+        : resultOrSuccess;
+
+    const saga =
+      this.getSagaOrThrow(
+        sagaId
+      );
+
+    if (
+      saga.state !==
+      "WAITING_FOR_CUSTOMER_AUTHORIZATION"
+    ) {
+      throw new Error(
+        `Invalid collection callback state: ${saga.state}.`
+      );
+    }
+
+    saga.lastProviderStatus =
+      result.status;
+
+    saga.providerEvidence = [
+      ...(saga.providerEvidence ||
+        []),
+      {
+        provider:
+          result.provider ||
+          "MTN",
+        referenceId:
+          result.referenceId ||
+          saga.collectionReference,
+        financialTransactionId:
+          result.financialTransactionId,
+        httpStatus:
+          result.httpStatus,
+        providerStatus:
+          result.status,
+        reason:
+          result.reason,
+        evidenceId:
+          result.evidenceId,
+        observedAt:
+          Date.now(),
+      },
+    ];
+
+    if (
+      result.status ===
+      "SUCCESSFUL"
+    ) {
+      saga.state =
+        "COLLECTION_CONFIRMED";
+    } else if (
+      result.status ===
+      "PENDING"
+    ) {
+      saga.state =
+        "WAITING_FOR_CUSTOMER_AUTHORIZATION";
+    } else if (
+      result.status ===
+      "DECLINED"
+    ) {
+      saga.state =
+        "CUSTOMER_DECLINED";
+
+      saga.failureReason =
+        result.reason ||
+        "Customer declined authorization.";
+    } else if (
+      result.status ===
+      "TIMEOUT"
+    ) {
+      saga.state =
+        "COLLECTION_TIMEOUT";
+
+      saga.failureReason =
+        result.reason ||
+        "Collection authorization timed out.";
+    } else {
+      saga.state =
+        "COLLECTION_FAILED";
+
+      saga.failureReason =
+        result.reason ||
+        "Provider rejected collection.";
+    }
+
+    return this.persist(
+      saga
+    );
+  }
+
+  public initiateDisbursement(
+    sagaId: string,
+    reference: string,
+    evidence?: Partial<SagaProviderEvidence>
+  ): SagaTransaction {
+    const saga =
+      this.getSagaOrThrow(
+        sagaId
+      );
+
+    if (
+      saga.state !==
+      "COLLECTION_CONFIRMED"
+    ) {
+      throw new Error(
+        `Cannot disburse before authoritative collection confirmation. Current state: ${saga.state}.`
+      );
+    }
+
+    if (
+      !reference?.trim()
+    ) {
+      throw new Error(
+        "FINANCIAL_TRUTH_UNKNOWN: disbursement reference is required."
+      );
+    }
+
+    saga.disbursementReference =
+      reference.trim();
+
+    saga.lastProviderStatus =
+      evidence?.providerStatus ||
+      "PENDING";
+
+    saga.providerEvidence = [
+      ...(saga.providerEvidence ||
+        []),
+      {
+        provider:
+          evidence?.provider ||
+          saga.network,
+        referenceId:
+          reference.trim(),
+        providerStatus:
+          evidence?.providerStatus ||
+          "PENDING",
+        httpStatus:
+          evidence?.httpStatus,
+        evidenceId:
+          evidence?.evidenceId,
+        observedAt:
+          Date.now(),
+      },
+    ];
+
+    saga.state =
+      "DISBURSEMENT_INITIATED";
+
+    return this.persist(
+      saga
+    );
+  }
+
+  public recordDisbursementResult(
+    sagaId: string,
+    result: {
+      status:
+        | "SUCCESSFUL"
+        | "PENDING"
+        | "FAILED"
+        | "TIMEOUT";
+      provider?: string;
+      referenceId?: string;
+      financialTransactionId?: string;
+      reason?: string;
+      httpStatus?: number;
+      evidenceId?: string;
+    }
+  ): SagaTransaction {
+    const saga =
+      this.getSagaOrThrow(
+        sagaId
+      );
+
+    if (
+      saga.state !==
+      "DISBURSEMENT_INITIATED"
+    ) {
+      throw new Error(
+        `Invalid disbursement callback state: ${saga.state}.`
+      );
+    }
+
+    saga.lastProviderStatus =
+      result.status;
+
+    saga.providerEvidence = [
+      ...(saga.providerEvidence ||
+        []),
+      {
+        provider:
+          result.provider ||
+          saga.network,
+        referenceId:
+          result.referenceId ||
+          saga.disbursementReference,
+        financialTransactionId:
+          result.financialTransactionId,
+        providerStatus:
+          result.status,
+        httpStatus:
+          result.httpStatus,
+        reason:
+          result.reason,
+        evidenceId:
+          result.evidenceId,
+        observedAt:
+          Date.now(),
+      },
+    ];
+
+    if (
+      result.status ===
+      "PENDING"
+    ) {
+      return this.persist(
+        saga
+      );
+    }
+
+    if (
+      result.status ===
+      "TIMEOUT"
+    ) {
+      saga.state =
+        "DISBURSEMENT_TIMEOUT";
+
+      saga.failureReason =
+        result.reason ||
+        "Disbursement provider did not return a terminal state.";
+
+      return this.persist(
+        saga
+      );
+    }
+
+    if (
+      result.status ===
+      "FAILED"
+    ) {
+      saga.state =
+        "DISBURSEMENT_FAILED";
+
+      saga.failureReason =
+        result.reason ||
+        "Disbursement failed at provider.";
+
+      return this.persist(
+        saga
+      );
+    }
+
+    if (
+      !result.financialTransactionId
+    ) {
+      saga.state =
+        "RECONCILIATION_REQUIRED";
+
+      saga.failureReason =
+        "Provider reported SUCCESSFUL but supplied no financialTransactionId.";
+
+      return this.persist(
+        saga
+      );
+    }
+
+    saga.providerFinancialTransactionId =
+      requireProviderTransactionId(
+        result.financialTransactionId
+      );
+
+    saga.state =
+      "DISBURSEMENT_CONFIRMED";
+
+    return this.persist(
+      saga
+    );
+  }
+
+  /**
+   * Backward-compatible finalization entry point.
+   *
+   * Deliberately fails closed when providerFinancialTxId is missing.
+   */
+  public finalizeDisbursement(
+    sagaId: string,
+    success: boolean,
+    reason?: string,
+    providerFinancialTxId?: string
+  ): SagaTransaction {
+    const saga =
+      this.getSagaOrThrow(
+        sagaId
+      );
+
+    if (
+      saga.state !==
+      "DISBURSEMENT_INITIATED"
+    ) {
+      throw new Error(
+        `Invalid saga transition: cannot finalize disbursement from ${saga.state}.`
+      );
+    }
+
+    if (!success) {
+      saga.state =
+        "RECONCILIATION_REQUIRED";
+
+      saga.failureReason =
+        reason ||
+        "Disbursement failed or could not be verified.";
+
+      return this.persist(
+        saga
+      );
+    }
+
+    if (
+      !providerFinancialTxId
+    ) {
+      saga.state =
+        "RECONCILIATION_REQUIRED";
+
+      saga.failureReason =
+        "Provider completion was reported without an authoritative financial transaction ID.";
+
+      return this.persist(
+        saga
+      );
+    }
+
+    saga.providerFinancialTransactionId =
+      requireProviderTransactionId(
+        providerFinancialTxId
+      );
+
+    saga.state =
+      "DISBURSEMENT_CONFIRMED";
+
+    this.persist(
+      saga
+    );
+
+    saga.state =
+      "COMPLETED";
+
+    saga.failureReason =
+      undefined;
+
+    return this.persist(
+      saga
+    );
+  }
+
+  public completeIfAuthoritativelyConfirmed(
+    sagaId: string
+  ): SagaTransaction {
+    const saga =
+      this.getSagaOrThrow(
+        sagaId
+      );
+
+    if (
+      saga.state !==
+      "DISBURSEMENT_CONFIRMED"
+    ) {
+      throw new Error(
+        `Cannot complete saga from state ${saga.state}.`
+      );
+    }
+
+    if (
+      !saga.providerFinancialTransactionId
+    ) {
+      saga.state =
+        "RECONCILIATION_REQUIRED";
+
+      saga.failureReason =
+        "No provider financial transaction ID exists.";
+
+      return this.persist(
+        saga
+      );
+    }
+
+    saga.state =
+      "COMPLETED";
+
+    return this.persist(
+      saga
+    );
+  }
+
+  public getSaga(
+    sagaId: string
+  ):
+    | SagaTransaction
+    | undefined {
+    return durableTransactionStore.getSaga(
+      sagaId
+    );
   }
 }
 
-export const paymentSaga = PaymentSagaOrchestrator.getInstance();
+export const paymentSaga =
+  PaymentSagaOrchestrator.getInstance();

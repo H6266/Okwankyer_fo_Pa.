@@ -208,7 +208,7 @@ async function runFullSecurityAudit() {
   checks.push({
     id: "INVARIANT_011",
     name: "No Fake Provider Receipts Generated",
-    passed: finalized.state === "COMPLETED" && finalized.authReceipt === undefined && finalized.providerFinancialTransactionId === "MTN_FIN_REAL_8833",
+    passed: finalized.state === "COMPLETED" && (finalized as any).authReceipt === undefined && finalized.providerFinancialTransactionId === "MTN_FIN_REAL_8833",
     details: "Finalized saga records authentic provider ID without generating fabricated MOMO_RCP_ receipt.",
   });
 

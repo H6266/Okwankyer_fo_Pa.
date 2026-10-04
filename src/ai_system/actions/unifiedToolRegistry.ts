@@ -13,6 +13,7 @@
  * - INVARIANT_010: Failed tool execution cannot be reported as success.
  */
 
+import crypto from "crypto";
 import {
   CanonicalToolName,
   RiskLevel,
@@ -21,6 +22,7 @@ import {
 } from "../core/aiTypes";
 import { financialServices } from "../services/financialServices";
 import { unifiedSafetyEngine } from "../safety/unifiedSafetyEngine";
+import { durableIdempotencyLedger } from "../../services/durableIdempotencyLedger";
 
 export interface ToolExecutionRequest {
   tool: CanonicalToolName | string;
@@ -61,7 +63,6 @@ export class UnifiedToolRegistry {
     ["momo_buy_airtime", "buy_airtime"],
     ["set_transaction_slot", "prepare_transfer"],
   ]);
-  private processedIdempotencyKeys = new Set<string>();
 
   constructor() {
     this.registerCanonicalTools();
@@ -203,7 +204,7 @@ export class UnifiedToolRegistry {
       idempotencyRequired: true,
       requiredParams: ["amount", "recipientPhone"],
       timeoutMs: 10000,
-      retryPolicy: { maxRetries: 1, backoffMs: 1000 },
+      retryPolicy: { maxRetries: 0, backoffMs: 0 },
       auditBehavior: "AUDIT_REDACTED",
       handler: async (req) => {
         // Enforce INVARIANT_004: Cannot execute without explicit confirmation
@@ -432,6 +433,35 @@ export class UnifiedToolRegistry {
     return name as CanonicalToolName;
   }
 
+  public buildIdempotencyKey(toolName: string, req: ToolExecutionRequest): string {
+    if (req.params?.idempotencyKey) {
+      return String(req.params.idempotencyKey);
+    }
+    if (req.params?.referenceId) {
+      return String(req.params.referenceId);
+    }
+    if (req.draft?.draftId) {
+      return `draft:${req.draft.draftId}`;
+    }
+    const raw = `${toolName}:${req.sessionId}:${JSON.stringify(req.params || {})}`;
+    return crypto.createHash("sha256").update(raw).digest("hex");
+  }
+
+  public buildFingerprint(toolName: string, req: ToolExecutionRequest): string {
+    const params = req.params || {};
+    const canonical = {
+      tool: toolName,
+      sessionId: req.sessionId,
+      senderPhone: params.senderPhone || null,
+      recipientPhone: params.recipientPhone || null,
+      amount: params.amount !== undefined ? Number(Number(params.amount).toFixed(2)) : null,
+      network: params.network || null,
+      accountNumber: params.accountNumber || null,
+      biller: params.biller || null,
+    };
+    return crypto.createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+  }
+
   /**
    * Deterministic execution entry point with strict invariant validation.
    */
@@ -460,20 +490,6 @@ export class UnifiedToolRegistry {
       };
     }
 
-    // INVARIANT_007: Idempotency enforcement
-    const idempotencyKey = req.params.referenceId || req.params.idempotencyKey;
-    if (toolSchema.idempotencyRequired && idempotencyKey) {
-      if (this.processedIdempotencyKeys.has(idempotencyKey)) {
-        return {
-          success: false,
-          tool: canonicalName,
-          error: `SECURITY_VIOLATION: Duplicate submission blocked by idempotency key '${idempotencyKey}'.`,
-          source: "demo_simulator",
-        };
-      }
-      this.processedIdempotencyKeys.add(idempotencyKey);
-    }
-
     // Parameter validation
     for (const required of toolSchema.requiredParams) {
       if (req.params[required] === undefined || req.params[required] === null || req.params[required] === "") {
@@ -486,17 +502,81 @@ export class UnifiedToolRegistry {
       }
     }
 
+    const idempotencyKey =
+      toolSchema.idempotencyRequired
+        ? this.buildIdempotencyKey(canonicalName, req)
+        : undefined;
+
+    const fingerprint =
+      toolSchema.idempotencyRequired
+        ? this.buildFingerprint(canonicalName, req)
+        : undefined;
+
+    if (idempotencyKey && fingerprint) {
+      const reservation =
+        durableIdempotencyLedger.reserve({
+          key: idempotencyKey,
+          fingerprint,
+          resourceType: `TOOL:${canonicalName}`,
+        });
+
+      if (reservation.kind === "CONFLICT") {
+        return {
+          success: false,
+          tool: canonicalName,
+          error:
+            "DUPLICATE_TRANSACTION: idempotency key was reused with different parameters.",
+          source: "demo_simulator",
+        };
+      }
+
+      if (reservation.kind === "EXISTING") {
+        if (
+          reservation.record.state === "COMPLETED" &&
+          reservation.record.result
+        ) {
+          return reservation.record.result as ToolExecutionResponse;
+        }
+
+        if (
+          reservation.record.state === "PENDING" ||
+          reservation.record.state === "UNKNOWN"
+        ) {
+          return {
+            success: false,
+            tool: canonicalName,
+            error:
+              "DUPLICATE_TRANSACTION: an earlier attempt has already been accepted or may have reached the provider; reconciliation is required.",
+            source: "demo_simulator",
+          };
+        }
+      }
+    }
+
     try {
       const response = await toolSchema.handler({
         ...req,
         tool: canonicalName,
       });
+
+      if (idempotencyKey && fingerprint) {
+        if (response.success) {
+          durableIdempotencyLedger.complete(idempotencyKey, response);
+        } else {
+          durableIdempotencyLedger.fail(idempotencyKey, response.error || "Failed", response);
+        }
+      }
+
       return response;
     } catch (err: any) {
+      const errorMsg = err.message || "Tool execution encountered an unexpected exception.";
+      if (idempotencyKey && fingerprint) {
+        durableIdempotencyLedger.markUnknown(idempotencyKey, errorMsg);
+      }
       return {
         success: false,
         tool: canonicalName,
-        error: err.message || "Tool execution encountered an unexpected exception.",
+        error: errorMsg,
         source: "demo_simulator",
       };
     }
