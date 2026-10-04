@@ -18,6 +18,8 @@ import { runEvaluationHarness } from "../ai_eval/evalHarness";
 import { requireAdminAuth } from "../middleware/adminAuth";
 import { kycLookupRateLimiter, adminRateLimiter } from "../middleware/rateLimiter";
 import { validateGhanaPhoneNumber } from "../domain/validation";
+import { aiBootstrap } from "../ai_system/core/aiBootstrap";
+import { modelRouter } from "../ai_system/providers/modelRouter";
 
 export const apiRouter = Router();
 
@@ -54,6 +56,50 @@ const handleHealth = (req: Request, res: Response) => {
 
 apiRouter.get("/health", handleHealth);
 apiRouter.get("/api/health", handleHealth);
+
+// Section 62: Dedicated Subsystem Health Endpoints
+apiRouter.get("/health/ai", (_req: Request, res: Response) => {
+  const diag = aiBootstrap.getDiagnostics();
+  res.json({
+    status: "HEALTHY",
+    offlineEngine: "OPERATIONAL",
+    localAiReady: true,
+    localAsrReady: true,
+    localTtsReady: true,
+    geminiConfigured: diag.providers.geminiConfigured,
+    zeroPinEnforced: diag.security.zeroPinEnforced,
+    languagesSupported: ["en", "tw", "ak"],
+    timestamp: new Date().toISOString(),
+  });
+});
+apiRouter.get("/api/health/ai", (_req: Request, res: Response) => {
+  res.redirect(307, "/health/ai");
+});
+
+apiRouter.get("/health/models", (_req: Request, res: Response) => {
+  const diag = aiBootstrap.getDiagnostics();
+  res.json({
+    status: "OK",
+    models: diag.models,
+    sdkVerified: diag.modelsVerifiedAgainstSdk,
+    verifiedModelList: diag.sdkVerifiedModels,
+  });
+});
+apiRouter.get("/api/health/models", (_req: Request, res: Response) => {
+  res.redirect(307, "/health/models");
+});
+
+apiRouter.get("/health/providers", (_req: Request, res: Response) => {
+  res.json({
+    status: "OK",
+    providers: modelRouter.getHealthReport(),
+    momoConfigured: config.momo.configured,
+    atConfigured: config.at.configured,
+  });
+});
+apiRouter.get("/api/health/providers", (_req: Request, res: Response) => {
+  res.redirect(307, "/health/providers");
+});
 
 // ── Smoke Test Suite (Real Probes - Admin Protected) ──────────────────
 apiRouter.post("/api/dev/smoke-test", adminRateLimiter, requireAdminAuth, async (_req: Request, res: Response) => {

@@ -24,6 +24,7 @@ import { initialize as initAtClient } from "../africastalking";
 import { requireAdminAuth } from "./middleware/adminAuth";
 import { adminRateLimiter } from "./middleware/rateLimiter";
 import { validateGhanaPhoneNumber } from "./domain/validation";
+import { aiBootstrap } from "./ai_system/core/aiBootstrap";
 
 const app = express();
 
@@ -130,6 +131,15 @@ app.all("/api/*", (_req: Request, res: Response) => {
 
 // ── Server Bootstrap & Frontend Serving ───────────────────────────────
 export async function startServer() {
+  // Initialize AI Cognitive Core subsystem
+  try {
+    const bootReport = await aiBootstrap.initialize();
+    console.log(`🤖 AI Cognitive Core Initialized: ${bootReport.status}`);
+    auditLogger.log("info", "AI_BOOTSTRAP", `AI Core initialized with status: ${bootReport.status}`);
+  } catch (err: any) {
+    console.warn("⚠️ AI Core initialization warning:", err.message);
+  }
+
   const isDev = process.env.npm_lifecycle_event === "dev" || 
                 (process.env.NODE_ENV === "development" && !process.env.K_SERVICE && !process.env.PORT_FROM_RUNNER);
   const distClientDir = path.resolve(process.cwd(), "dist", "client");
@@ -152,7 +162,7 @@ export async function startServer() {
         req.path.startsWith("/safe") ||
         req.path.startsWith("/speech") ||
         req.path.startsWith("/momo") ||
-        req.path === "/health" ||
+        req.path.startsWith("/health") ||
         req.path === "/voice-menu"
       ) {
         return next();

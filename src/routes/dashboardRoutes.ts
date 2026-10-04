@@ -9,7 +9,7 @@ import { Router, Request, Response } from "express";
 import { config } from "../config/env";
 import { AUDIO_CATALOG, audioFileExists } from "../audio/catalog";
 import { recipientResolver } from "../providers/recipient/RecipientResolver";
-import { parseAndValidateAmount } from "../domain/validation";
+import { parseAndValidateAmount, validateGhanaPhoneNumber } from "../domain/validation";
 import { conversationManager } from "../modules/conversationManager";
 import { voicePaymentService } from "../integrations/momo/voicePaymentService";
 import { buildSpokenText } from "../integrations/momo/spokenTextBuilder";
@@ -207,7 +207,15 @@ dashboardRouter.post("/transactions/send", async (req: Request, res: Response) =
       return res.status(400).json({ error: amountVal.error || "Invalid amount" });
     }
 
-    const payer = recipient_phone || "0553838464";
+    if (!recipient_phone) {
+      return res.status(400).json({ error: "MISSING_REQUIRED_INFORMATION: Recipient phone number is required." });
+    }
+    const phoneVal = validateGhanaPhoneNumber(String(recipient_phone));
+    if (!phoneVal.valid || !phoneVal.normalized) {
+      return res.status(400).json({ error: phoneVal.error || "Invalid recipient phone number format." });
+    }
+
+    const payer = phoneVal.normalized;
     const payment = await voicePaymentService.initiatePayment(payer, amountVal.amount);
 
     res.status(200).json({

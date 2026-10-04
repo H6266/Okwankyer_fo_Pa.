@@ -150,10 +150,10 @@ export function useCallSession() {
     language: null,
     service: "momo",
     provider: "MTN",
-    recipientPhone: "0553838464",
-    recipientName: "Kwame Nyamebere",
-    amount: "500",
-    referenceId: "OKP-847291",
+    recipientPhone: "",
+    recipientName: "",
+    amount: "",
+    referenceId: "",
     callDurationSec: 0,
     stepRemainingSec: null,
     isMicMuted: false,
@@ -423,7 +423,16 @@ export function useCallSession() {
         // Recipient step: Accumulate 10 digits until #
         if (prev.step === "recipient") {
           if (digit === "#") {
-            const phone = prev.digitsBuffer.length >= 10 ? prev.digitsBuffer : "0553838464";
+            if (prev.digitsBuffer.length < 10) {
+              return {
+                ...prev,
+                eventLogs: [
+                  ...prev.eventLogs,
+                  `[INPUT ERROR] Incomplete phone number (${prev.digitsBuffer.length} digits entered). 10 digits required.`,
+                ],
+              };
+            }
+            const phone = prev.digitsBuffer;
             const name = phone.endsWith("8464")
               ? "Kwame Nyamebere"
               : phone === "0241234567"

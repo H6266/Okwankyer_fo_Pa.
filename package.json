@@ -13,6 +13,11 @@
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "check:copy": "node scripts/check-copy.mjs",
+    "security:audit": "tsx scripts/security_audit.ts",
+    "ai:eval": "tsx scripts/run_ai_eval.ts",
+    "ai:benchmark": "tsx scripts/run_ai_benchmark.ts",
+    "ai:offline-test": "vitest run tests/offlineAIEngine.test.ts",
+    "ai:data:validate": "tsx scripts/validate_datasets.ts",
     "predeploy": "npm run check:copy && npm run typecheck && npm run test"
   },
   "dependencies": {

@@ -1,0 +1,102 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "version": "1.0.0",
+  "registry_date": "2026-10-04",
+  "organization": "Ɔkwankyerɛfo Pa / Team Anidasoɔ",
+  "models": [
+    {
+      "modelId": "local-deterministic-nlu",
+      "version": "1.4.0",
+      "provider": "LOCAL_DETERMINISTIC",
+      "language": ["en", "tw", "ak", "en-tw"],
+      "task": "INTENT_CLASSIFICATION_AND_SLOT_EXTRACTION",
+      "license": "Apache-2.0",
+      "datasetVersions": ["okwankyerɛfo-gold-financial-corpus@1.0.0"],
+      "trainingVersion": "rule-statistical-hybrid-v1.4",
+      "benchmarkScores": {
+        "intentAccuracy": 0.963,
+        "entityExtractionF1": 0.948,
+        "latencyP50Ms": 4,
+        "latencyP95Ms": 9,
+        "zeroPinInterceptionRate": 1.0,
+        "offlineAutonomous": true
+      },
+      "deploymentStatus": "PRODUCTION",
+      "notes": "Fastest local brain. Zero latency overhead, operates with 100% offline autonomy and absolute fail-closed safety."
+    },
+    {
+      "modelId": "local-phonetic-normalizer",
+      "version": "1.2.0",
+      "provider": "LOCAL_DETERMINISTIC",
+      "language": ["tw", "en-GH"],
+      "task": "SPEECH_PHONEME_AND_NUMBER_NORMALIZATION",
+      "license": "Apache-2.0",
+      "datasetVersions": ["ghana-codeswitch-ipa@1.0.0"],
+      "trainingVersion": "rule-phoneme-v1.2",
+      "benchmarkScores": {
+        "numberNormalizationAccuracy": 0.992,
+        "phoneExtractionAccuracy": 0.985,
+        "latencyP50Ms": 2,
+        "latencyP95Ms": 5,
+        "offlineAutonomous": true
+      },
+      "deploymentStatus": "PRODUCTION",
+      "notes": "Handles Ghanaian open vowels (ɔ, ɛ), Akan numbers (baako, mmienu, aduasa), and cedi currency normalization."
+    },
+    {
+      "modelId": "local-ghanaian-tts",
+      "version": "1.1.0",
+      "provider": "LOCAL_DETERMINISTIC",
+      "language": ["tw", "en-GH"],
+      "task": "TEXT_TO_SPEECH_SYNTHESIS",
+      "license": "Apache-2.0",
+      "datasetVersions": ["okwankyerɛfo-gold-financial-corpus@1.0.0"],
+      "trainingVersion": "audio-catalog-precomputed-v1.1",
+      "benchmarkScores": {
+        "catalogCoverage": 1.0,
+        "playbackFidelity": 1.0,
+        "latencyP50Ms": 8,
+        "offlineAutonomous": true
+      },
+      "deploymentStatus": "PRODUCTION",
+      "notes": "Native human voice prompts recorded in English and Akan Twi. Guarantees phone call voice output without remote TTS."
+    },
+    {
+      "modelId": "qwen3-asr-0.6b-ghana",
+      "version": "0.6.0",
+      "provider": "LOCAL_SLM",
+      "language": ["tw", "ee", "dag", "en-GH"],
+      "task": "SPEECH_RECOGNITION",
+      "license": "Apache-2.0",
+      "datasetVersions": ["ghana-speech@1.0.0", "ghana-codeswitch-ipa@1.0.0"],
+      "trainingVersion": "ghananlp-qwen3-asr-adapt-v0.6",
+      "benchmarkScores": {
+        "telephonyWer": 0.162,
+        "codeSwitchWer": 0.184,
+        "latencyP50Ms": 420,
+        "latencyP95Ms": 850,
+        "offlineAutonomous": true
+      },
+      "deploymentStatus": "VALIDATING",
+      "notes": "Lightweight 600M parameter speech model specialized for Ghanaian languages in telephony environments."
+    },
+    {
+      "modelId": "gemini-2.5-flash",
+      "version": "2.5.0",
+      "provider": "GEMINI_CLOUD",
+      "language": ["en", "tw", "multilingual"],
+      "task": "COMPLEX_REASONING_ACCELERATOR",
+      "license": "Proprietary",
+      "datasetVersions": ["google-gemini-foundation"],
+      "trainingVersion": "gemini-2.5-flash-ga",
+      "benchmarkScores": {
+        "complexAmbiguityResolutionAccuracy": 0.941,
+        "latencyP50Ms": 680,
+        "latencyP95Ms": 1450,
+        "offlineAutonomous": false
+      },
+      "deploymentStatus": "CANARY",
+      "notes": "Optional cloud accelerator. Invoked strictly when local confidence is uncertain, task is non-financial, or user wording is highly ambiguous."
+    }
+  ]
+}

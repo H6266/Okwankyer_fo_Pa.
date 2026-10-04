@@ -145,9 +145,14 @@ Rules:
 
       const parsed = JSON.parse(rawJson);
       const validated = ModelReasoningSchema.safeParse(parsed);
-      const data = validated.success ? validated.data : parsed;
+      if (!validated.success) {
+        console.warn("[ReasoningEngine] Model returned off-schema JSON; rejecting and falling back to deterministic reasoning:", validated.error.message);
+        const fallback = this.deterministicReasoning(params);
+        fallback.confidence = Math.min(fallback.confidence, 0.70);
+        return fallback;
+      }
 
-      return this.normalizeModelResponse(data, cleanUtterance, params.existingSlots);
+      return this.normalizeModelResponse(validated.data, cleanUtterance, params.existingSlots);
     } catch (err: any) {
       console.warn("[ReasoningEngine] Gemini API unavailable or timed out; falling back to deterministic reasoning:", err.message);
       return this.deterministicReasoning(params);

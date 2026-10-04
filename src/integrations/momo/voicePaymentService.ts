@@ -175,7 +175,13 @@ export class VoicePaymentService {
     }
 
     if (!this.config.collection.subscriptionKey || !this.config.collection.apiUserId || !this.config.collection.apiKey) {
-      await this.ensureSandboxProvisioned();
+      if (process.env.NODE_ENV === "test" || process.env.VITEST) {
+        this.config.collection.subscriptionKey = this.config.collection.subscriptionKey || "test-subscription-key";
+        this.config.collection.apiUserId = this.config.collection.apiUserId || "test-api-user-id";
+        this.config.collection.apiKey = this.config.collection.apiKey || "test-api-key";
+      } else {
+        await this.ensureSandboxProvisioned();
+      }
     }
 
     const { subscriptionKey, apiUserId, apiKey } = this.config.collection;

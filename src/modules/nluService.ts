@@ -330,8 +330,8 @@ export function classifyIntentLocally(text: string): ExtractedEntities {
     });
   }
 
-  // Primary Intent: SEND_MONEY (Option 1 in menu, Send money, Transfer, Mane sika, Baako)
-  const isExactSendMoney = lower === "1" || lower === "one" || lower === "baako";
+  // Primary Intent: SEND_MONEY (Option 1/2 in menu, Send money, Transfer, Mane sika, Baako, Mmienu)
+  const isExactSendMoney = lower === "1" || lower === "one" || lower === "baako" || lower === "2" || lower === "two" || lower === "mmienu";
   const isFuzzySendMoney =
     lower.includes("send") ||
     lower.includes("transfer") ||
