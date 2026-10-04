@@ -140,8 +140,7 @@ export async function startServer() {
     console.warn("⚠️ AI Core initialization warning:", err.message);
   }
 
-  const isDev = process.env.npm_lifecycle_event === "dev" || 
-                (process.env.NODE_ENV === "development" && !process.env.K_SERVICE && !process.env.PORT_FROM_RUNNER);
+  const isDev = process.env.NODE_ENV !== "production" || process.env.npm_lifecycle_event === "dev";
   const distClientDir = path.resolve(process.cwd(), "dist", "client");
   const hasClientBundle = fs.existsSync(path.resolve(distClientDir, "index.html"));
 

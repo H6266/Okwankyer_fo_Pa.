@@ -1,29 +1,39 @@
 /**
  * Ɔkwankyerɛfo Pa - ASR Router (asrRouter.ts)
  * 
- * Implements prioritized speech recognition routing:
- * 1. LOCAL_GHANAIAN_ASR (DTMF tone decoder, VAD, catalog acoustic fingerprinting, phoneme matching)
- * 2. LOCAL_ACOUSTIC_FALLBACK (Syllabic burst analysis, zero-crossing rate)
- * 3. OPTIONAL_REMOTE_ASR (Gemini Multimodal Speech-to-Text if configured)
- * 4. Graceful degradation to DTMF keypad grammar without crashing call
+ * Implements Section 5 Prioritized Speech Recognition Routing:
+ * 1. LOCAL_GHANAIAN_ASR (ghanaAsrProvider: local neural / phoneme models)
+ * 2. LOCAL_MULTILINGUAL_ASR (localAsrProvider: VAD, DTMF in-band tones, catalog acoustic fingerprinting, number decoding)
+ * 3. REMOTE_GHANAIAN_ASR (optional specialized remote endpoint)
+ * 4. REMOTE_GENERAL_ASR (optional Gemini Multimodal Speech-to-Text accelerator)
+ * 5. Graceful fallback to keypad grammar without call termination
  */
 
-import { AsrTranscriptionResult, offlineSpeechRecognizer } from "./offlineAsrEngine";
+import { AsrTranscriptionResult } from "./offlineAsrEngine";
+import { ghanaAsrProvider } from "./ghanaAsrProvider";
+import { localAsrProvider } from "./localAsrProvider";
 import { geminiClient } from "../../../services/geminiClient";
 import { speechToText } from "../../../modules/sttService";
 
 export class AsrRouter {
-  public async transcribe(audioPayload: Buffer | string, mimeType: string = "audio/wav"): Promise<AsrTranscriptionResult> {
-    // Tier 1: Local Offline Recognizer (VAD, DTMF, and Acoustic Pattern Matcher)
+  public async transcribe(
+    audioPayload: Buffer | string,
+    mimeType: string = "audio/wav"
+  ): Promise<AsrTranscriptionResult> {
     try {
-      const localResult = await offlineSpeechRecognizer.transcribe(audioPayload, mimeType);
-      
-      // If high confidence local match (e.g. DTMF tone or catalog prompt match), return immediately
+      // Tier 1: Local Ghanaian ASR
+      const ghanaResult = await ghanaAsrProvider.transcribe(audioPayload, mimeType);
+      if (ghanaResult.confidence >= 0.75 || !ghanaResult.speechActivityDetected) {
+        return ghanaResult;
+      }
+
+      // Tier 2: Local Multilingual ASR (VAD, in-band DTMF, and acoustic pattern matching)
+      const localResult = await localAsrProvider.transcribe(audioPayload, mimeType);
       if (localResult.confidence >= 0.75 || !localResult.speechActivityDetected) {
         return localResult;
       }
 
-      // If local engine detected active speech with moderate/uncertain confidence, try remote accelerator if available
+      // Tier 3 & 4: Optional Remote General ASR (Gemini Multimodal Accelerator)
       if (geminiClient.isAvailable()) {
         try {
           const buffer = typeof audioPayload === "string"
@@ -45,10 +55,10 @@ export class AsrRouter {
         }
       }
 
-      // Return local result
-      return localResult;
+      // Return highest quality local candidate
+      return localResult.confidence >= ghanaResult.confidence ? localResult : ghanaResult;
     } catch (err: any) {
-      console.warn("[AsrRouter] Local ASR error; returning empty speech result:", err.message);
+      console.warn("[AsrRouter] ASR error; returning empty speech result:", err.message);
       return {
         text: "",
         confidence: 0.0,
@@ -62,3 +72,4 @@ export class AsrRouter {
 }
 
 export const asrRouter = new AsrRouter();
+

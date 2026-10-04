@@ -1,0 +1,14 @@
+{
+  "model": "Ɔkwankyerɛfo Pa Local Ghanaian ASR v1.0",
+  "engine": "local-vad-dtmf-acoustic-fingerprint",
+  "trainingDate": "2026-10-04T21:40:13.365Z",
+  "catalogSize": 24,
+  "languages": [
+    "tw",
+    "en",
+    "code-switched"
+  ],
+  "targetSampleRate": 16000,
+  "license": "Apache-2.0 (Code) / CC BY-NC 4.0 (Acoustic audio prompts - Non-Commercial Project Use)",
+  "status": "CALIBRATED_AND_ACTIVE"
+}

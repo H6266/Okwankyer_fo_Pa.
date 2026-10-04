@@ -1,5 +1,5 @@
 {
-  "sagaId": "SAGA_1791146799678_62dc5099",
+  "sagaId": "SAGA_1791149614513_ef9ee42d",
   "idempotencyKey": "470fc4163e1465c44dd01ff7af827913f09120f892a48a766e7fc956449fb3db",
   "senderPhone": "0201112233",
   "recipientPhone": "0278889900",
@@ -7,6 +7,6 @@
   "amount": 200,
   "network": "MTN",
   "state": "DRAFT",
-  "createdAt": 1791146799678,
-  "updatedAt": 1791146799678
+  "createdAt": 1791149614513,
+  "updatedAt": 1791149614513
 }

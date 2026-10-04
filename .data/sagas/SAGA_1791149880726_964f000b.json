@@ -1,14 +1,14 @@
 {
-  "sagaId": "SAGA_1791146809427_a90119a0",
-  "idempotencyKey": "9c60cfcfca55a27efb6c785c3c8965aebee94646692259395697a1a4917ccae7",
+  "sagaId": "SAGA_1791149880726_964f000b",
+  "idempotencyKey": "affc79baadff13310cc2fdff4e075bbd6fb2ac5e62790b222d0576da22ef5d66",
   "senderPhone": "0559990001",
   "recipientPhone": "0558880002",
   "recipientName": "Test User",
   "amount": 15,
   "network": "MTN",
   "state": "COMPLETED",
-  "createdAt": 1791146809427,
-  "updatedAt": 1791146809429,
+  "createdAt": 1791149880726,
+  "updatedAt": 1791149880728,
   "collectionReference": "REF_COLLECTION_TEST",
   "disbursementReference": "REF_DISBURSE_TEST",
   "providerFinancialTransactionId": "MTN_FIN_REAL_8833"

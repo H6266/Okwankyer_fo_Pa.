@@ -1,0 +1,41 @@
+{
+  "model": "Ɔkwankyerɛfo Pa Local Ghanaian Acoustic Formant Synthesizer v1.0",
+  "engine": "local-ghanaian-phoneme-tts",
+  "calibrationDate": "2026-10-04T21:40:16.792Z",
+  "vowelFormants": {
+    "a": [
+      750,
+      1200
+    ],
+    "e": [
+      500,
+      1800
+    ],
+    "ɛ": [
+      650,
+      1600
+    ],
+    "i": [
+      320,
+      2200
+    ],
+    "o": [
+      450,
+      950
+    ],
+    "ɔ": [
+      550,
+      1050
+    ],
+    "u": [
+      320,
+      800
+    ]
+  },
+  "sampleRate": 16000,
+  "languages": [
+    "tw",
+    "en"
+  ],
+  "status": "CALIBRATED_AND_ACTIVE"
+}

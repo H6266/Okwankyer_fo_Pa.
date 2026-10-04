@@ -14,10 +14,16 @@
     "lint": "tsc --noEmit",
     "check:copy": "node scripts/check-copy.mjs",
     "security:audit": "tsx scripts/security_audit.ts",
+    "ai:security-audit": "tsx scripts/security_audit.ts",
     "ai:eval": "tsx scripts/run_ai_eval.ts",
     "ai:benchmark": "tsx scripts/run_ai_benchmark.ts",
     "ai:offline-test": "vitest run tests/offlineAIEngine.test.ts",
     "ai:data:validate": "tsx scripts/validate_datasets.ts",
+    "ai:data:prepare": "python3 training/create_splits.py",
+    "ai:train:nlu": "python3 training/train_nlu.py",
+    "ai:train:asr": "tsx scripts/train_local_asr.ts",
+    "ai:train:tts": "tsx scripts/train_local_tts.ts",
+    "ai:grade": "tsx scripts/grade_ai.ts",
     "predeploy": "npm run check:copy && npm run typecheck && npm run test"
   },
   "dependencies": {
