@@ -1565,13 +1565,13 @@ export const MomoLabPage: React.FC = () => {
                 </div>
               </div>
 
-              {ledgerTransactions.length > 0 && (
+              {(ledgerTransactions || []).length > 0 && (
                 <div>
                   <div className="text-xs font-bold text-slate-600 mb-1.5">
                     Recent Reference IDs (Click to populate):
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    {ledgerTransactions.slice(0, 4).map((tx) => (
+                    {(ledgerTransactions || []).slice(0, 4).map((tx) => (
                       <button
                         key={tx.referenceId}
                         type="button"
@@ -1842,8 +1842,8 @@ export const MomoLabPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {ledgerTransactions.length > 0 ? (
-                  ledgerTransactions.map((tx, idx) => (
+                {(ledgerTransactions || []).length > 0 ? (
+                  (ledgerTransactions || []).map((tx, idx) => (
                     <tr key={tx.referenceId || tx.id || idx} className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-3 px-4 font-bold text-slate-900">
                         {tx.type || "TRANSFER"}
@@ -1935,15 +1935,26 @@ export const MomoLabPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {(backendMatrix.length > 0 ? backendMatrix : verificationMatrix.map(v => ({
-                  operation: v.operation,
-                  mtnProduct: v.source,
-                  endpoint: v.endpoint,
-                  status: v.classification.includes("REAL") ? "REAL" : v.classification.includes("PARTIAL") ? "REQUIRES_VAS_AGGREGATOR" : "NOT_CONFIGURED",
-                  authorization: "Handset USSD Push (Zero-PIN)",
-                  credentials: v.auth,
-                  notes: v.fallback,
-                }))).map((item: any, idx: number) => {
+                {((backendMatrix || []).length > 0
+                  ? (backendMatrix || []).map((b: any) => ({
+                      operation: b.operation,
+                      mtnProduct: b.mtnProduct || b.product || "MTN Sandbox Gateway",
+                      endpoint: b.endpoint,
+                      status: b.classification?.includes("REAL") ? "REAL" : b.status || "REAL",
+                      authorization: b.authorization || "Handset USSD Push (Zero-PIN)",
+                      credentials: b.credentials || b.auth || "OAuth 2.0 Bearer Token",
+                      notes: b.notes || b.fallback || b.httpStatus || "Direct Gateway Call",
+                    }))
+                  : (verificationMatrix || []).map((v) => ({
+                      operation: v.operation,
+                      mtnProduct: v.source,
+                      endpoint: v.endpoint,
+                      status: v.classification?.includes("REAL") ? "REAL" : v.classification?.includes("PARTIAL") ? "REQUIRES_VAS_AGGREGATOR" : "NOT_CONFIGURED",
+                      authorization: "Handset USSD Push (Zero-PIN)",
+                      credentials: v.auth,
+                      notes: v.fallback,
+                    }))
+                ).map((item: any, idx: number) => {
                   const isReal = item.status === "REAL" || item.status?.includes("REAL");
                   const isVas = item.status === "REQUIRES_VAS_AGGREGATOR" || item.status?.includes("VAS");
                   return (

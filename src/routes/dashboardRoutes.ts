@@ -257,6 +257,13 @@ dashboardRouter.post("/api/conversation/authorize", async (req: Request, res: Re
 });
 
 // ── Agile Tasks Management ───────────────────────────────────────────
+const inMemoryMembers = [
+  { id: "m1", name: "Hannes Aboagye", role: "Lead Systems Architect", initials: "HA", email: "hannes@okp.telecom", color: "amber" },
+  { id: "m2", name: "Theo Tetteh", role: "Voice & Telephony Engineer", initials: "TT", email: "theo@okp.telecom", color: "emerald" },
+  { id: "m3", name: "Ama Serwaa", role: "Financial Compliance Officer", initials: "AS", email: "ama@okp.telecom", color: "sky" },
+  { id: "m4", name: "Kwame Boateng", role: "Audio & Akan Linguist", initials: "KB", email: "kwame@okp.telecom", color: "purple" },
+];
+
 let inMemoryTasks: any[] = [
   {
     id: "task-1",
@@ -265,7 +272,7 @@ let inMemoryTasks: any[] = [
     status: "done",
     priority: "high",
     section: "Telephony Infrastructure",
-    assignee: { name: "Hannes Aboagye", initials: "HA", email: "hannes@okp.telecom", color: "amber" },
+    assignee: inMemoryMembers[0],
     dueDate: "2026-10-05",
     tags: ["Telephony", "AT", "SIP"],
     subtasks: [],
@@ -279,7 +286,7 @@ let inMemoryTasks: any[] = [
     status: "done",
     priority: "urgent",
     section: "Voice Quality",
-    assignee: { name: "Theo Tetteh", initials: "TT", email: "theo@okp.telecom", color: "emerald" },
+    assignee: inMemoryMembers[1],
     dueDate: "2026-10-04",
     tags: ["Security", "VoiceXML", "TTS"],
     subtasks: [],
@@ -289,7 +296,28 @@ let inMemoryTasks: any[] = [
 ];
 
 dashboardRouter.get("/api/tasks", (_req: Request, res: Response) => {
-  res.json({ tasks: inMemoryTasks, count: inMemoryTasks.length });
+  const total = inMemoryTasks.length;
+  const completed = inMemoryTasks.filter((t) => t.status === "done").length;
+  const inProgress = inMemoryTasks.filter((t) => t.status === "in_progress").length;
+  const inReview = inMemoryTasks.filter((t) => t.status === "in_review").length;
+  const todo = inMemoryTasks.filter((t) => t.status === "todo").length;
+  const completionRate = total > 0 ? Math.round((completed / total) * 100) : 100;
+
+  const stats = {
+    total,
+    completed,
+    inProgress,
+    inReview,
+    todo,
+    completionRate,
+  };
+
+  res.json({
+    tasks: inMemoryTasks,
+    members: inMemoryMembers,
+    stats,
+    count: inMemoryTasks.length,
+  });
 });
 
 dashboardRouter.post("/api/tasks", (req: Request, res: Response) => {

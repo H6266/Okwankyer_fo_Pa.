@@ -148,7 +148,7 @@ export const CallLogsPage: React.FC = () => {
               </div>
 
               <div className="space-y-3">
-                {selectedSession.voiceXmlTrace.map((trace, i) => (
+                {(selectedSession.voiceXmlTrace || []).map((trace, i) => (
                   <div key={i} className="p-3 bg-neutral-950 rounded-xl border border-neutral-800 space-y-1">
                     <div className="text-[#D4AF37] font-bold text-[10px]">
                       STAGE {i + 1}: {trace.step.toUpperCase()}

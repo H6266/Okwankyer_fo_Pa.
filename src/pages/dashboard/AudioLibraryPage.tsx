@@ -57,7 +57,7 @@ export const AudioLibraryPage: React.FC = () => {
   const testAllByteRanges = async () => {
     if (!manifest) return;
     setCheckingByteRange(true);
-    const allClips = [...manifest.englishPrompts, ...manifest.twiPrompts];
+    const allClips = [...(manifest.englishPrompts || []), ...(manifest.twiPrompts || [])];
     for (const clip of allClips) {
       await testByteRangeSupport(clip.url);
     }
@@ -66,10 +66,10 @@ export const AudioLibraryPage: React.FC = () => {
 
   const displayedClips = manifest
     ? selectedLang === "all"
-      ? [...manifest.englishPrompts, ...manifest.twiPrompts]
+      ? [...(manifest.englishPrompts || []), ...(manifest.twiPrompts || [])]
       : selectedLang === "en"
-      ? manifest.englishPrompts
-      : manifest.twiPrompts
+      ? (manifest.englishPrompts || [])
+      : (manifest.twiPrompts || [])
     : [];
 
   return (

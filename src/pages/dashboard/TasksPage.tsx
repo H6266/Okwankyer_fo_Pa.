@@ -104,9 +104,16 @@ const AVATAR_COLORS: Record<string, string> = {
   indigo: "bg-indigo-100 text-indigo-800 border-indigo-200",
 };
 
+const DEFAULT_MEMBERS: TaskMember[] = [
+  { id: "m1", name: "Hannes Aboagye", role: "Lead Systems Architect", initials: "HA", email: "hannes@okp.telecom", color: "amber" },
+  { id: "m2", name: "Theo Tetteh", role: "Voice & Telephony Engineer", initials: "TT", email: "theo@okp.telecom", color: "emerald" },
+  { id: "m3", name: "Ama Serwaa", role: "Financial Compliance Officer", initials: "AS", email: "ama@okp.telecom", color: "sky" },
+  { id: "m4", name: "Kwame Boateng", role: "Audio & Akan Linguist", initials: "KB", email: "kwame@okp.telecom", color: "purple" },
+];
+
 export const TasksPage: React.FC = () => {
   const [tasks, setTasks] = useState<ProjectTask[]>([]);
-  const [members, setMembers] = useState<TaskMember[]>([]);
+  const [members, setMembers] = useState<TaskMember[]>(DEFAULT_MEMBERS);
   const [stats, setStats] = useState<TaskStats | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -150,14 +157,24 @@ export const TasksPage: React.FC = () => {
   const loadTasks = async () => {
     try {
       const data = await api.getTasks();
-      setTasks(data.tasks);
-      setMembers(data.members);
-      setStats(data.stats);
-      if (data.members.length > 0 && !newAssigneeId) {
-        setNewAssigneeId(data.members[0].id);
+      const safeMembers = Array.isArray(data?.members) && data.members.length > 0 ? data.members : DEFAULT_MEMBERS;
+      const rawTasks = Array.isArray(data?.tasks) ? data.tasks : [];
+      const safeTasks: ProjectTask[] = rawTasks.map((t: any) => ({
+        ...t,
+        tags: Array.isArray(t.tags) ? t.tags : [],
+        subtasks: Array.isArray(t.subtasks) ? t.subtasks : [],
+        assignee: t.assignee || safeMembers[0],
+      }));
+      setTasks(safeTasks);
+      setMembers(safeMembers);
+      if (data?.stats) setStats(data.stats);
+      if (safeMembers.length > 0 && !newAssigneeId) {
+        setNewAssigneeId(safeMembers[0].id);
       }
     } catch (err) {
       console.warn("Tasks load failed:", err);
+      setTasks([]);
+      setMembers(DEFAULT_MEMBERS);
     } finally {
       setLoading(false);
     }
@@ -686,19 +703,19 @@ export const TasksPage: React.FC = () => {
                           )}
 
                           {/* Subtasks Progress */}
-                          {task.subtasks.length > 0 && (
+                          {(task.subtasks?.length ?? 0) > 0 && (
                             <div className="flex items-center gap-1.5 text-[10px] font-medium text-slate-500 mt-2.5">
                               <CheckSquare className="w-3 h-3 text-slate-400" />
                               <span>
-                                {completedCount}/{task.subtasks.length} subtasks
+                                {completedCount}/{(task.subtasks || []).length} subtasks
                               </span>
                             </div>
                           )}
 
                           {/* Tags */}
-                          {task.tags.length > 0 && (
+                          {(task.tags?.length ?? 0) > 0 && (
                             <div className="flex flex-wrap gap-1 mt-2.5">
-                              {task.tags.map((tg) => (
+                              {(task.tags || []).map((tg) => (
                                 <span
                                   key={tg}
                                   className="text-[9px] font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded"
@@ -871,7 +888,7 @@ export const TasksPage: React.FC = () => {
                         {/* Tags */}
                         <td className="py-3 px-3">
                           <div className="flex flex-wrap gap-1">
-                            {task.tags.map((tg) => (
+                            {(task.tags || []).map((tg) => (
                               <span
                                 key={tg}
                                 className="text-[9px] font-medium text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded"
@@ -1046,12 +1063,12 @@ export const TasksPage: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-700">Subtasks Checklist</span>
                   <span className="text-[11px] font-mono font-bold text-slate-500">
-                    {activeTask.subtasks.filter((s) => s.completed).length}/{activeTask.subtasks.length} Completed
+                    {(activeTask.subtasks || []).filter((s) => s.completed).length}/{(activeTask.subtasks || []).length} Completed
                   </span>
                 </div>
 
                 <div className="space-y-1.5">
-                  {activeTask.subtasks.map((st) => (
+                  {(activeTask.subtasks || []).map((st) => (
                     <div
                       key={st.id}
                       onClick={() => handleToggleSubtask(st.id)}
@@ -1095,7 +1112,7 @@ export const TasksPage: React.FC = () => {
               <div className="space-y-2">
                 <span className="text-xs font-bold text-slate-700">Project Tags</span>
                 <div className="flex flex-wrap gap-1.5">
-                  {activeTask.tags.map((tg) => (
+                  {(activeTask.tags || []).map((tg) => (
                     <span
                       key={tg}
                       className="px-2 py-1 bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold"
