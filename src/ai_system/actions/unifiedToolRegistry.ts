@@ -226,12 +226,21 @@ export class UnifiedToolRegistry {
           };
         }
 
+        if (!req.params.senderPhone || !req.params.recipientPhone || !req.params.amount) {
+          return {
+            success: false,
+            tool: "execute_transfer",
+            error: "SECURITY_INVARIANT_VIOLATION: INVARIANT_012 - Missing required transfer parameter (sender, recipient, or amount). Fails closed.",
+            source: "real_provider",
+          };
+        }
+
         const refId = req.params.referenceId || `TX_${Date.now()}`;
         unifiedSafetyEngine.markReferenceProcessed(refId);
 
         const res = await financialServices.transferService.executeTransfer({
           referenceId: refId,
-          senderPhone: req.params.senderPhone || "0553838464",
+          senderPhone: req.params.senderPhone,
           recipientPhone: req.params.recipientPhone,
           recipientName: req.params.recipientName || "Recipient",
           amount: Number(req.params.amount),
@@ -269,8 +278,16 @@ export class UnifiedToolRegistry {
             source: "demo_simulator",
           };
         }
+        if (!req.params.phoneNumber || !req.params.amount) {
+          return {
+            success: false,
+            tool: "buy_airtime",
+            error: "SECURITY_INVARIANT_VIOLATION: INVARIANT_012 - Missing required airtime parameter (phoneNumber or amount). Fails closed.",
+            source: "real_provider",
+          };
+        }
         const res = await financialServices.airtimeService.purchaseAirtime({
-          phoneNumber: req.params.phoneNumber || "0553838464",
+          phoneNumber: req.params.phoneNumber,
           amount: Number(req.params.amount),
           network: req.params.network || "MTN",
         });
@@ -302,6 +319,14 @@ export class UnifiedToolRegistry {
             source: "demo_simulator",
           };
         }
+        if (!req.params.phoneNumber || !req.params.amount) {
+          return {
+            success: false,
+            tool: "buy_data",
+            error: "SECURITY_INVARIANT_VIOLATION: INVARIANT_012 - Missing required data parameter (phoneNumber or amount). Fails closed.",
+            source: "real_provider",
+          };
+        }
         return {
           success: true,
           tool: "buy_data",
@@ -330,9 +355,17 @@ export class UnifiedToolRegistry {
             source: "demo_simulator",
           };
         }
+        if (!req.params.biller || !req.params.accountNumber || !req.params.amount) {
+          return {
+            success: false,
+            tool: "pay_bill",
+            error: "SECURITY_INVARIANT_VIOLATION: INVARIANT_012 - Missing required bill parameters (biller, accountNumber, or amount). Fails closed.",
+            source: "real_provider",
+          };
+        }
         const res = await financialServices.billPaymentService.payBill({
-          biller: req.params.biller || "ECG",
-          accountNumber: req.params.accountNumber || "ACC123456",
+          biller: req.params.biller,
+          accountNumber: req.params.accountNumber,
           amount: Number(req.params.amount),
         });
         return {

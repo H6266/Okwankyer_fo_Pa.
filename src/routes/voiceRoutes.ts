@@ -21,6 +21,7 @@ import { auditLogger } from "../services/auditLogger";
 import { verifyAtWebhook } from "../providers/telephony/webhookGuard";
 import { voicePaymentService } from "../integrations/momo/voicePaymentService";
 import { durableTransactionStore } from "../services/durableTransactionStore";
+import { telephonyRateLimiter } from "../middleware/rateLimiter";
 
 export const voiceRouter = Router();
 
@@ -43,10 +44,10 @@ const TELEPHONY_ROUTES = new Set([
   "/speech-fallback",
 ]);
 
-// Apply Africa's Talking webhook verification strictly to telephony routes
+// Apply rate limiting & Africa's Talking webhook verification strictly to telephony routes
 voiceRouter.use((req: Request, res: Response, next) => {
   if (TELEPHONY_ROUTES.has(req.path)) {
-    return verifyAtWebhook(req, res, next);
+    return telephonyRateLimiter(req, res, () => verifyAtWebhook(req, res, next));
   }
   return next();
 });
@@ -416,8 +417,15 @@ voiceRouter.all("/safe-confirmation", (req: Request, res: Response) => {
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getOrCreateSession(sessionId);
 
-  const amount = session.amount || 50;
-  const recipientPhone = session.recipientPhone || "0553838464";
+  if (!session.amount || !session.recipientPhone) {
+    const promptText = lang === "twi"
+      ? "Sika no ano anaa nipa no fon nɔma nni hɔ yie. Mepa wo kyɛw, san hyɛ aseɛ bio."
+      : "Transfer amount or recipient number is missing. Please restart.";
+    return xmlResponse(res, `<Say>${promptText}</Say><Redirect>${baseUrl}/voice-menu?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  }
+
+  const amount = session.amount;
+  const recipientPhone = session.recipientPhone;
   const recipientName = session.recipientName;
   const isVerified = session.isRecipientVerified;
 

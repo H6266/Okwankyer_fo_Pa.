@@ -227,9 +227,10 @@ export interface CorrectionRecord {
 
 export interface TransactionDraft {
   draftId: string;
-  version: number;
-  sessionId: string;
-  operation: "TRANSFER" | "AIRTIME" | "BILL_PAYMENT" | "CASH_OUT";
+  version?: number;
+  type?: "TRANSFER" | "AIRTIME" | "BILL_PAYMENT" | "CASH_OUT";
+  operation?: "TRANSFER" | "AIRTIME" | "BILL_PAYMENT" | "CASH_OUT";
+  sessionId?: string;
   recipientName?: string;
   recipientPhone?: string;
   amount?: number;
@@ -258,6 +259,7 @@ export interface TransactionalMemoryRecord {
 export interface TaskState {
   taskId: string;
   intent: IntentName;
+  type?: string;
   slots: EntitySlotMap;
   currentStep: string;
   resumptionStep?: string;
@@ -480,9 +482,26 @@ export interface PerformanceBreakdown {
   memoryConsolidationLatencyMs?: number;
 }
 
+export interface CognitiveSnapshot {
+  sessionId: string;
+  language: AiLanguage;
+  confidence: number;
+  currentScreen?: string;
+  currentStep?: string;
+  intent: IntentName;
+  workingSlots: EntitySlotMap;
+  activeTask: TaskState | null;
+  activeDraft: TransactionDraft | null;
+  turnCount: number;
+  lastInteractionTimestamp: number;
+}
+
 export interface AiProcessResult {
+  success?: boolean;
   sessionId: string;
   state: CognitiveState;
+  cognitiveState?: any;
+  cognitiveSnapshot?: CognitiveSnapshot;
   intent: IntentName;
   confidence: number;
   language: AiLanguage;
@@ -493,6 +512,8 @@ export interface AiProcessResult {
   safety: SafetyOutput;
   speech: SpeechOutput;
   performance: PerformanceBreakdown;
+  latencies?: any;
+  traceId?: string;
   sessionState?: {
     breadcrumb: string[];
     turnCount: number;

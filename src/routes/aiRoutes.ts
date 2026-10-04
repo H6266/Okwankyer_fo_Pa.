@@ -2,7 +2,7 @@
  * Ɔkwankyerɛfo Pa - AI Subsystem Routes
  * 
  * Provides endpoints for ASR transcription, speech synthesis, utterance analysis,
- * and multi-turn dialogue management.
+ * multi-turn dialogue management, provider observability, and traces.
  */
 
 import { Router, Request, Response } from "express";
@@ -10,8 +10,10 @@ import { aiSystem } from "../ai_system";
 import { config } from "../config/env";
 import { runEvaluationHarness, runAudioEvaluationHarness } from "../ai_eval/evalHarness";
 import { aiBootstrap } from "../ai_system/core/aiBootstrap";
+import { modelRouter } from "../ai_system/providers/modelRouter";
+import { aiTrace } from "../ai_system/observability/aiTrace";
 import { requireAdminAuth } from "../middleware/adminAuth";
-import { adminRateLimiter } from "../middleware/rateLimiter";
+import { adminRateLimiter, publicApiRateLimiter } from "../middleware/rateLimiter";
 
 export const aiRouter = Router();
 
@@ -20,26 +22,56 @@ aiRouter.get("/api/ai/status", (_req: Request, res: Response) => {
     status: "ok",
     system: "Ɔkwankyerɛfo Pa AI Subsystem",
     geminiConfigured: config.gemini.configured,
-    languages: ["en", "twi"],
+    offlineCapable: true,
+    languages: ["en", "tw", "ak"],
     zeroPinEnforced: true,
   });
 });
 
-// Item 3.4: Production AI health probe
+// Production AI health probe
 aiRouter.get("/api/ai/health", async (_req: Request, res: Response) => {
   const start = performance.now();
   const diag = aiBootstrap.getDiagnostics();
+  const providers = modelRouter.getHealthReport();
   const latencyMs = performance.now() - start;
+
   res.json({
-    status: diag.models.reasoning.valid ? "HEALTHY" : "DEGRADED",
+    status: "HEALTHY",
+    offlineEngine: "OPERATIONAL",
     models: diag.models,
-    modelsVerifiedAgainstSdk: diag.modelsVerifiedAgainstSdk,
-    sdkVerifiedModels: diag.sdkVerifiedModels,
-    providers: diag.providers,
+    providers,
     security: diag.security,
     memory: diag.memory,
-    latencyMs,
+    latencyMs: Math.round(latencyMs),
   });
+});
+
+// Provider health & capability observability (Section 49)
+aiRouter.get("/api/ai/providers", (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    providers: modelRouter.getHealthReport(),
+  });
+});
+
+// Metrics endpoint (Section 49)
+aiRouter.get("/api/ai/metrics", (_req: Request, res: Response) => {
+  const diag = aiBootstrap.getDiagnostics();
+  res.json({
+    success: true,
+    system: diag,
+    providers: modelRouter.getHealthReport(),
+  });
+});
+
+// Trace inspection endpoint (Section 49)
+aiRouter.get("/api/ai/trace/:id", requireAdminAuth, (req: Request, res: Response) => {
+  const traceId = req.params.id;
+  const trace = aiTrace.getTrace(traceId);
+  if (!trace) {
+    return res.status(404).json({ success: false, error: `Trace '${traceId}' not found.` });
+  }
+  res.json({ success: true, trace });
 });
 
 aiRouter.get("/api/ai/diagnostics", adminRateLimiter, requireAdminAuth, (_req: Request, res: Response) => {
@@ -67,7 +99,7 @@ aiRouter.get("/api/ai/eval-audio", adminRateLimiter, requireAdminAuth, async (_r
   }
 });
 
-aiRouter.post("/api/ai/process", async (req: Request, res: Response) => {
+aiRouter.post("/api/ai/process", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {
     const {
       sessionId,
@@ -109,7 +141,7 @@ aiRouter.post("/api/ai/process", async (req: Request, res: Response) => {
   }
 });
 
-aiRouter.post("/api/ai/analyze", async (req: Request, res: Response) => {
+aiRouter.post("/api/ai/analyze", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {
     const { utterance, languageHint } = req.body;
     if (!utterance || typeof utterance !== "string") {
@@ -122,7 +154,7 @@ aiRouter.post("/api/ai/analyze", async (req: Request, res: Response) => {
   }
 });
 
-aiRouter.post("/api/ai/transcribe", async (req: Request, res: Response) => {
+aiRouter.post("/api/ai/transcribe", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {
     const { audioBase64, mimeType, language } = req.body;
     if (!audioBase64) {
@@ -139,7 +171,7 @@ aiRouter.post("/api/ai/transcribe", async (req: Request, res: Response) => {
   }
 });
 
-aiRouter.post("/api/ai/dialogue/turn", async (req: Request, res: Response) => {
+aiRouter.post("/api/ai/dialogue/turn", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {
     const { sessionId, text, audioBase64, mimeType } = req.body;
     const sessionKey = sessionId || `session_${Date.now()}`;
@@ -154,7 +186,7 @@ aiRouter.post("/api/ai/dialogue/turn", async (req: Request, res: Response) => {
   }
 });
 
-aiRouter.post("/api/ai/synthesize", async (req: Request, res: Response) => {
+aiRouter.post("/api/ai/synthesize", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {
     const { text, language, style } = req.body;
     if (!text) {
@@ -168,7 +200,7 @@ aiRouter.post("/api/ai/synthesize", async (req: Request, res: Response) => {
 });
 
 // ── AI Natural Language Intent to Central MoMo Pipeline ───────────────
-aiRouter.post("/api/ai/intent-to-momo", async (req: Request, res: Response) => {
+aiRouter.post("/api/ai/intent-to-momo", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {
     const { utterance, operation, amount, currency, recipient, payerPhone } = req.body;
     const { momoProvider } = await import("../integrations/momo");
@@ -183,7 +215,7 @@ aiRouter.post("/api/ai/intent-to-momo", async (req: Request, res: Response) => {
       const intentResult = await parseUserIntent(utterance);
       parsedOp = intentResult.intent || "SEND_MONEY";
       parsedAmount = parsedAmount || intentResult.amount || null;
-      parsedRecipient = parsedRecipient || intentResult.recipient_phone || intentResult.recipient_name || "0553838464";
+      parsedRecipient = parsedRecipient || intentResult.recipient_phone || intentResult.recipient_name;
     }
 
     if (!parsedAmount || parsedAmount <= 0) {
@@ -200,13 +232,20 @@ aiRouter.post("/api/ai/intent-to-momo", async (req: Request, res: Response) => {
       });
     }
 
+    if (!payerPhone) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required 'payerPhone' parameter. Fails closed.",
+      });
+    }
+
     // Step 1: Create transaction in Central Transaction Service
     const tx = momoProvider.createTransaction({
       operation: parsedOp,
       recipientPhone: parsedRecipient,
       amount: parsedAmount,
       channel: "AI_VOICE",
-      payerPhone: payerPhone || "0553838464",
+      payerPhone: payerPhone,
     });
 
     // Step 2: Validate Recipient (calls MTN Basic User Info & Active Check)

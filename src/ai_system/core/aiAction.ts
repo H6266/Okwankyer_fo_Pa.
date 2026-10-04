@@ -106,27 +106,42 @@ export class AiActionPlanner {
       }
 
       case "CHECK_BALANCE": {
-        type = "FETCH_BALANCE";
-        tool = "get_balance";
-        params = { phoneNumber: slots.recipientPhone || "0553838464" };
-        riskLevel = "LOW";
-        requiresClientConfirmation = false;
-        isExecutable = true;
+        if (!slots.recipientPhone && !slots.callerPhone) {
+          type = "REQUEST_BALANCE_PHONE";
+          tool = "none";
+          riskLevel = "LOW";
+          requiresClientConfirmation = false;
+          isExecutable = false;
+        } else {
+          type = "FETCH_BALANCE";
+          tool = "get_balance";
+          params = { phoneNumber: (slots.recipientPhone || slots.callerPhone)! };
+          riskLevel = "LOW";
+          requiresClientConfirmation = false;
+          isExecutable = true;
+        }
         break;
       }
 
       case "BUY_AIRTIME": {
         if (!slots.amount) {
           type = "REQUEST_AIRTIME_AMOUNT";
-          tool = "buy_airtime";
+          tool = "none";
           riskLevel = "LOW";
           requiresClientConfirmation = false;
+          isExecutable = false;
+        } else if (!slots.recipientPhone && !slots.callerPhone) {
+          type = "REQUEST_AIRTIME_PHONE";
+          tool = "none";
+          riskLevel = "LOW";
+          requiresClientConfirmation = false;
+          isExecutable = false;
         } else {
           type = "EXECUTE_AIRTIME";
           tool = "buy_airtime";
           params = {
             amount: slots.amount,
-            phoneNumber: slots.recipientPhone || "0553838464",
+            phoneNumber: (slots.recipientPhone || slots.callerPhone)!,
             network: slots.network || "MTN",
           };
           riskLevel = "HIGH";
@@ -137,42 +152,67 @@ export class AiActionPlanner {
       }
 
       case "BUY_DATA": {
-        type = "EXECUTE_DATA";
-        tool = "buy_data";
-        params = {
-          amount: slots.amount || 10,
-          phoneNumber: slots.recipientPhone || "0553838464",
-        };
-        riskLevel = "HIGH";
-        requiresClientConfirmation = true;
-        isExecutable = currentStep === "confirm";
+        if (!slots.amount || (!slots.recipientPhone && !slots.callerPhone)) {
+          type = "REQUEST_DATA_PARAMS";
+          tool = "none";
+          riskLevel = "LOW";
+          requiresClientConfirmation = false;
+          isExecutable = false;
+        } else {
+          type = "EXECUTE_DATA";
+          tool = "buy_data";
+          params = {
+            amount: slots.amount,
+            phoneNumber: (slots.recipientPhone || slots.callerPhone)!,
+            network: slots.network || "MTN",
+          };
+          riskLevel = "HIGH";
+          requiresClientConfirmation = true;
+          isExecutable = currentStep === "confirm";
+        }
         break;
       }
 
       case "PAY_BILL": {
-        type = "EXECUTE_BILL";
-        tool = "pay_bill";
-        params = {
-          biller: slots.biller || "ECG",
-          accountNumber: slots.accountNumber || "ACC123456",
-          amount: slots.amount || 50,
-        };
-        riskLevel = "HIGH";
-        requiresClientConfirmation = true;
-        isExecutable = currentStep === "confirm";
+        if (!slots.biller || !slots.accountNumber || !slots.amount) {
+          type = "REQUEST_BILL_PARAMS";
+          tool = "none";
+          riskLevel = "LOW";
+          requiresClientConfirmation = false;
+          isExecutable = false;
+        } else {
+          type = "EXECUTE_BILL";
+          tool = "pay_bill";
+          params = {
+            biller: slots.biller,
+            accountNumber: slots.accountNumber,
+            amount: slots.amount,
+          };
+          riskLevel = "HIGH";
+          requiresClientConfirmation = true;
+          isExecutable = currentStep === "confirm";
+        }
         break;
       }
 
       case "CASH_OUT": {
-        type = "EXECUTE_CASH_OUT";
-        tool = "cash_out";
-        params = {
-          amount: slots.amount,
-          agentCode: slots.accountNumber || "AGENT_DEFAULT",
-        };
-        riskLevel = "CRITICAL";
-        requiresClientConfirmation = true;
-        isExecutable = currentStep === "confirm";
+        if (!slots.amount || !slots.accountNumber) {
+          type = "REQUEST_CASH_OUT_PARAMS";
+          tool = "none";
+          riskLevel = "LOW";
+          requiresClientConfirmation = false;
+          isExecutable = false;
+        } else {
+          type = "EXECUTE_CASH_OUT";
+          tool = "cash_out";
+          params = {
+            amount: slots.amount,
+            agentCode: slots.accountNumber,
+          };
+          riskLevel = "CRITICAL";
+          requiresClientConfirmation = true;
+          isExecutable = currentStep === "confirm";
+        }
         break;
       }
 

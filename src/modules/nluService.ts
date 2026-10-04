@@ -14,6 +14,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { isPhoneNumber, normalizePhoneNumber } from "../domain/phoneUtils";
+import { geminiClient as unifiedGeminiClient } from "../services/geminiClient";
 
 const NluModelOutputSchema = z.object({
   intent: z.enum([
@@ -82,25 +83,10 @@ export const FINANCIAL_SLOT_THRESHOLDS = {
   requiresSpokenReadback: true,
 };
 
-// Lazy Gemini client helper
-let geminiClient: GoogleGenAI | null = null;
+// Circuit breaker aware Gemini client helper
 function getGeminiClient(): GoogleGenAI | null {
-  if (!process.env.GEMINI_API_KEY) return null;
-  if (!geminiClient) {
-    try {
-      geminiClient = new GoogleGenAI({
-        apiKey: process.env.GEMINI_API_KEY,
-        httpOptions: {
-          headers: {
-            "User-Agent": "aistudio-build",
-          },
-        },
-      });
-    } catch (err) {
-      console.error("[NluService] Failed to initialize GoogleGenAI client:", err);
-    }
-  }
-  return geminiClient;
+  if (!unifiedGeminiClient.isAvailable()) return null;
+  return unifiedGeminiClient.getRawClient();
 }
 
 /**

@@ -202,14 +202,10 @@ export class RealTransferService implements ITransferService {
 
 // ── Explicit Mock / Sandbox Implementations ───────────────────────────
 export class MockBalanceService implements IBalanceService {
-  public async getBalance(phone: string): Promise<BalanceResult> {
+  public async getBalance(_phone: string): Promise<BalanceResult> {
     this.assertNotProduction();
-    return {
-      availableBalance: 250.00,
-      currency: "GHS",
-      accountPhone: phone,
-      source: "mock_sandbox",
-    };
+    // Enforce INVARIANT_014: Subscriber wallet balances are not available via 3rd-party API
+    throw new Error("CAPABILITY_RESTRICTION: BALANCE_NOT_AVAILABLE_VIA_API - Dial *170# directly on handset.");
   }
 
   private assertNotProduction(): void {
@@ -220,13 +216,15 @@ export class MockBalanceService implements IBalanceService {
 }
 
 export class MockRecipientLookupService implements IRecipientLookupService {
-  private directory: Record<string, { name: string; network: MobileNetwork }> = {
-    "0553838464": { name: "Kwame Boateng", network: "MTN" },
-    "0241234567": { name: "Kwame Nyamebere", network: "MTN" },
-    "0201234567": { name: "Ama Serwaa", network: "Telecel" },
-    "0271234567": { name: "Yaw Osei", network: "AT" },
-    "0543546010": { name: "Hannes Aboagye", network: "MTN" },
-  };
+  private directory: Record<string, { name: string; network: MobileNetwork }>;
+
+  constructor(customDirectory?: Record<string, { name: string; network: MobileNetwork }>) {
+    this.directory = customDirectory || {};
+  }
+
+  public registerFixture(phone: string, name: string, network: MobileNetwork = "MTN"): void {
+    this.directory[phone] = { name, network };
+  }
 
   public async lookup(phone: string): Promise<RecipientLookupResult | null> {
     this.assertNotProduction();

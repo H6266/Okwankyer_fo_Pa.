@@ -28,6 +28,15 @@ export * from "./core/aiDialogue";
 export * from "./core/aiSpeech";
 export * from "./core/aiBootstrap";
 export * from "./core/aiEngine";
+export * from "./core/truthEngine";
+export * from "./core/capabilityEngine";
+export * from "./core/offlineAIEngine";
+export * from "./providers/modelRouter";
+export * from "./understanding/contextualReasoningEngine";
+export * from "./dialogue/clarificationEngine";
+export * from "./speech/tts/localGhanaianTts";
+export * from "./speech/asr/offlineAsrEngine";
+export * from "../integrations/momo/paymentSaga";
 
 // Perception
 export * from "./perception/languageDetector";
@@ -119,9 +128,20 @@ import { aiEngine } from "./core/aiEngine";
 import { reasoningEngine } from "./understanding/reasoningEngine";
 import { ttsService } from "./speech/tts/ttsService";
 import { audioIngestor } from "./perception/audioIngestor";
+import { offlineAIEngine } from "./core/offlineAIEngine";
 
 export const aiSystem = {
-  process: aiEngine.process.bind(aiEngine),
+  process: async (input: any) => {
+    if (!process.env.GEMINI_API_KEY || process.env.OFFLINE_MODE === "true") {
+      return offlineAIEngine.process(input);
+    }
+    try {
+      return await aiEngine.process(input);
+    } catch (err) {
+      console.warn("[aiSystem] aiEngine failed, falling back to autonomous offline engine:", err);
+      return offlineAIEngine.process(input);
+    }
+  },
 
   analyzeUtterance: async (utterance: string, languageHint: any = "bilingual") => {
     const res = await reasoningEngine.reason({

@@ -45,7 +45,7 @@ export class GeminiEmbeddingProvider implements IEmbeddingProvider {
       return this.fallbackProvider.embed(text);
     }
 
-    if (!this.ai || !process.env.GEMINI_API_KEY || process.env.NODE_ENV === "test" || Boolean(process.env.VITEST)) {
+    if (!this.ai || !process.env.GEMINI_API_KEY) {
       return this.fallbackProvider.embed(text);
     }
 

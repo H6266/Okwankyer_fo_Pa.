@@ -133,29 +133,36 @@ export class UnifiedSafetyEngine {
     const lower = text.toLowerCase();
 
     // 1. Literal PIN keyword paired with 4-6 digits
-    const pinRegex = /\b(?:pin|p\.i\.n|password|secret|kokoam|koodi)\b.{0,15}\b\d{4,6}\b/i;
+    const pinRegex = /\b(?:pin|p\.i\.n|password|secret|kokoam|koodi)\b.{0,25}\b\d{4,6}\b/i;
     if (pinRegex.test(lower)) return true;
 
     // 2. Phrases stating PIN
-    if (/\b(?:my pin is|the pin is|pin no yɛ|me pin yɛ|code is)\s+\d{4,6}\b/i.test(lower)) return true;
+    if (/\b(?:my\s+(?:secret\s+)?pin\s+is|the\s+pin\s+is|pin\s+no\s+yɛ|me\s+pin\s+yɛ|code\s+is)\s+\d{4,6}\b/i.test(lower)) return true;
 
     // 3. Spoken word digits when preceded by PIN indicator:
     // e.g. "my pin is one two three four" or "pin baako mmienu mmiɛnsa anan"
-    const wordDigitPinPattern = /\b(?:my pin is|pin is|pin no yɛ|code is)\s+(?:zero|one|two|three|four|five|six|seven|eight|nine|oh|baako|mmienu|mmiɛnsa|mmiensa|anan|enum|nsia|nson|nwɔtwe|nwotwe|nkron|\d)(?:\s+(?:zero|one|two|three|four|five|six|seven|eight|nine|oh|baako|mmienu|mmiɛnsa|mmiensa|anan|enum|nsia|nson|nwɔtwe|nwotwe|nkron|\d)){3,5}\b/i;
+    const wordDigitPinPattern = /\b(?:my\s+(?:secret\s+)?pin\s+is|pin\s+is|pin\s+no\s+yɛ|code\s+is)\s+(?:zero|one|two|three|four|five|six|seven|eight|nine|oh|baako|mmienu|mmiɛnsa|mmiensa|anan|enum|nsia|nson|nwɔtwe|nwotwe|nkron|\d)(?:\s+(?:zero|one|two|three|four|five|six|seven|eight|nine|oh|baako|mmienu|mmiɛnsa|mmiensa|anan|enum|nsia|nson|nwɔtwe|nwotwe|nkron|\d)){3,5}\b/i;
     if (wordDigitPinPattern.test(lower)) return true;
 
-    // 4. Standalone 4-5 digit number when text contains "pin"
-    if (lower.includes("pin") && /\b\d{4,5}\b/.test(lower)) return true;
+    // 4. Standalone 4-5 digit number when text contains "pin" or "secret"
+    if ((lower.includes("pin") || lower.includes("secret")) && /\b\d{4,5}\b/.test(lower)) return true;
 
     return false;
   }
 
   public maskCredentials(text: string): string {
-    return text
-      .replace(/\b(?:pin|password|secret)\s*[:=]?\s*(\d{4,6})\b/gi, "[REDACTED_PIN]")
-      .replace(/\b(my pin is\s+)\d{4,6}\b/gi, "$1[REDACTED_PIN]")
+    let masked = text
+      .replace(/\b(?:pin|password)\s*[:=]?\s*(\d{4,6})\b/gi, "[REDACTED_PIN]")
+      .replace(/\b(my\s+(?:secret\s+)?pin\s+is\s+)\d{4,6}\b/gi, "$1[REDACTED_PIN]")
+      .replace(/\b(?:secret\s+pin\s+is\s+)\d{4,6}\b/gi, "secret PIN is [REDACTED_PIN]")
       .replace(/\b(\d{4,6})\s*(?:is my pin)\b/gi, "[REDACTED_PIN] is my pin")
-      .replace(/\b(my pin is\s+)(?:zero|one|two|three|four|five|six|seven|eight|nine|\w+)(?:\s+\w+){3,5}\b/gi, "$1[REDACTED_PIN]");
+      .replace(/\b(my\s+(?:secret\s+)?pin\s+is\s+)(?:zero|one|two|three|four|five|six|seven|eight|nine|\w+)(?:\s+\w+){3,5}\b/gi, "$1[REDACTED_PIN]");
+
+    // Safety fallback: if PIN is detected, ensure any 4-6 digit sequence is securely masked
+    if (this.detectSpokenPin(text) && !masked.includes("[REDACTED_PIN]")) {
+      masked = masked.replace(/\b\d{4,6}\b/g, "[REDACTED_PIN]");
+    }
+    return masked;
   }
 
   public detectSocialEngineering(text: string, slots: EntitySlotMap): { detected: boolean; reasons: string[]; riskScore: number } {

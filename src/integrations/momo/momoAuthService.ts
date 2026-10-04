@@ -51,7 +51,7 @@ export class MoMoAuthService {
     const authHeader = Buffer.from(`${creds.apiUserId}:${creds.apiKey}`).toString("base64");
     const tokenUrl = `${this.config.baseUrl}/${product}/token/`;
 
-    let response = await fetch(tokenUrl, {
+    const response = await fetch(tokenUrl, {
       method: "POST",
       headers: {
         "Authorization": `Basic ${authHeader}`,
@@ -62,47 +62,6 @@ export class MoMoAuthService {
       },
       body: "",
     });
-
-    if (response.status === 401 && this.config.targetEnv === "sandbox" && creds.subscriptionKey && creds.apiUserId) {
-      try {
-        console.log(`[MoMoAuthService] 401 on ${product}. Synchronizing active API Key from MTN Sandbox...`);
-        const refreshRes = await fetch(`${this.config.baseUrl}/v1_0/apiuser/${creds.apiUserId}/apikey`, {
-          method: "POST",
-          headers: {
-            "Ocp-Apim-Subscription-Key": creds.subscriptionKey,
-            "Content-Length": "0",
-          },
-          body: "",
-        });
-        if (refreshRes.ok) {
-          const keyData = await refreshRes.json();
-          if (keyData.apiKey) {
-            creds.apiKey = keyData.apiKey;
-            if (product === "collection") {
-              process.env.MOMO_COLLECTION_API_KEY = keyData.apiKey;
-              process.env.MTN_COLLECTION_API_KEY = keyData.apiKey;
-            } else {
-              process.env.MOMO_DISBURSEMENT_API_KEY = keyData.apiKey;
-              process.env.MTN_DISBURSEMENT_API_KEY = keyData.apiKey;
-            }
-            const refreshedAuth = Buffer.from(`${creds.apiUserId}:${keyData.apiKey}`).toString("base64");
-            response = await fetch(tokenUrl, {
-              method: "POST",
-              headers: {
-                "Authorization": `Basic ${refreshedAuth}`,
-                "Ocp-Apim-Subscription-Key": creds.subscriptionKey,
-                "Content-Type": "application/json",
-                "User-Agent": "curl/7.88.1",
-                "Accept": "application/json",
-              },
-              body: "",
-            });
-          }
-        }
-      } catch (syncErr: any) {
-        console.warn(`[MoMoAuthService] Key sync notice for ${product}:`, syncErr.message);
-      }
-    }
 
     if (!response.ok) {
       const errText = await response.text();

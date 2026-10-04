@@ -18,6 +18,7 @@ import {
   IntentName,
   UserProfileData,
 } from "./aiTypes";
+import { capabilityEngine } from "./capabilityEngine";
 
 export class AiDialogue {
   /**
@@ -132,20 +133,31 @@ export class AiDialogue {
       }
 
       case "CHECK_BALANCE": {
-        const bal = typeof slots.availableBalance === "number"
-          ? slots.availableBalance.toFixed(2)
-          : typeof slots.balance === "number"
-          ? slots.balance.toFixed(2)
-          : "250.00";
+        if (typeof slots.availableBalance === "number" && slots.balanceSource === "AUTHORITATIVE_PROVIDER") {
+          const bal = slots.availableBalance.toFixed(2);
+          const response = isTwi
+            ? `Wo balance a aka yɛ GHS ${bal}. Wobɛpɛ sɛ yɛmane sika anaa yɛbɔ airtime?`
+            : isCodeSwitch
+            ? `Your verified MoMo balance is GHS ${bal}. Would you like to send money or buy airtime?`
+            : `Your current verified mobile money balance is GHS ${bal}. Would you like to send money or buy airtime?`;
 
+          return {
+            type: "CONTINUE_TRANSACTION",
+            response,
+            promptLanguage: language,
+            needsClarification: false,
+          };
+        }
+
+        const cap = capabilityEngine.checkBalanceCapability(slots.recipientPhone || slots.callerPhone);
         const response = isTwi
-          ? `Wo balance a aka yɛ GHS ${bal}. Wobɛpɛ sɛ yɛmane sika anaa yɛbɔ airtime?`
+          ? cap.userExplanationTw
           : isCodeSwitch
-          ? `Your MoMo balance is GHS ${bal}. Would you like to send money or buy airtime?`
-          : `Your current mobile money balance is GHS ${bal}. Would you like to send money or buy airtime?`;
+          ? `For your security, wallet balance is not shared over the voice line. Dial *170# on your phone screen to check safely.`
+          : cap.userExplanationEn;
 
         return {
-          type: "CONTINUE_TRANSACTION",
+          type: "INFORM_AND_EXIT",
           response,
           promptLanguage: language,
           needsClarification: false,

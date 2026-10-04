@@ -215,7 +215,16 @@ export class MoMoTransactionService {
       tx.provider.currencyNotice = `MTN Sandbox settles in ${settlementCurrency}. Production operates in GHS.`;
     }
 
-    const payerPhone = options?.payerPhone || tx.metadata?.payerPhone || "0553838464";
+    const payerPhone = options?.payerPhone || tx.metadata?.payerPhone;
+    if (!payerPhone) {
+      tx.status = "FAILED";
+      tx.metadata = {
+        ...tx.metadata,
+        failureReason: "SECURITY_INVARIANT_VIOLATION: INVARIANT_012 - Payer phone number is required and cannot be defaulted. Fails closed.",
+      };
+      tx.updatedAt = new Date().toISOString();
+      return tx;
+    }
     const recipientPhone = tx.recipient.phone;
 
     try {

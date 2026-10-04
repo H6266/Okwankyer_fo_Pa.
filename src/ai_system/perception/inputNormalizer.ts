@@ -112,18 +112,24 @@ export class InputNormalizer {
    * Extracts numerical value from text including Akan words like 'aduonum' (50), 'ahanum' (500).
    */
   public extractNumber(text: string): number | null {
-    // 1. Direct digit match
-    const digitMatch = text.match(/\b\d+(\.\d{1,2})?\b/);
-    if (digitMatch) {
-      return parseFloat(digitMatch[0]);
-    }
-
-    // 2. Check Akan & English word numbers
+    // 1. First check Akan & English word numbers (e.g. aduonu = 20, aduonum = 50, fifty = 50)
     const words = text.toLowerCase().split(/\s+/);
     for (const w of words) {
       const cleanWord = w.replace(/[^a-zɛɔ]/g, "");
       if (SPOKEN_NUMBER_MAP[cleanWord] !== undefined) {
         return SPOKEN_NUMBER_MAP[cleanWord];
+      }
+    }
+
+    // 2. Direct digit match - exclude phone numbers (e.g. 024..., 055..., 10-digit numbers)
+    const digitMatches = text.match(/\b\d+(\.\d{1,2})?\b/g);
+    if (digitMatches) {
+      for (const valStr of digitMatches) {
+        if (valStr.length >= 9 || valStr.startsWith("0")) continue;
+        const num = parseFloat(valStr);
+        if (!isNaN(num) && num > 0) {
+          return num;
+        }
       }
     }
 

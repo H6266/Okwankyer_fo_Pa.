@@ -42,6 +42,14 @@ export class AiTrace {
   public getSessionTraces(sessionId: string): AiTraceRecord[] {
     return this.traces.get(sessionId) || [];
   }
+
+  public getTrace(traceId: string): AiTraceRecord | undefined {
+    for (const list of this.traces.values()) {
+      const match = list.find((t) => t.traceId === traceId);
+      if (match) return match;
+    }
+    return undefined;
+  }
 }
 
 export const aiTrace = new AiTrace();

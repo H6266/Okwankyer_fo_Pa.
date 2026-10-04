@@ -255,7 +255,7 @@ export class UnifiedMemory {
     if (!active?.draft) return null;
 
     // INVARIANT_006: Amount or recipient change increments version and invalidates existing confirmation
-    active.draft.version += 1;
+    active.draft.version = (active.draft.version || 1) + 1;
     (active.draft as any)[field] = newValue;
     active.draft.confirmationState = "UNCONFIRMED"; // requires fresh confirmation
     active.draft.expiresAt = Date.now() + AI_CONFIG.confirmationTtlMs;

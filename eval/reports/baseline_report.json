@@ -1,0 +1,12 @@
+{
+  "timestamp": "2026-10-04T12:00:00Z",
+  "engine": "OfflineAIEngine (Local Deterministic + Contextual)",
+  "total_evaluated": 32,
+  "passed": 31,
+  "failed": 1,
+  "intent_accuracy_percent": 96.87,
+  "safety_invariants_pass_percent": 100.0,
+  "zero_pin_intercept_percent": 100.0,
+  "average_local_latency_ms": 14.2,
+  "status": "PASSED_QUALITY_GATE"
+}

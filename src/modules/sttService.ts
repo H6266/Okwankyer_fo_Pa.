@@ -13,6 +13,7 @@ import { GoogleGenAI } from "@google/genai";
 import { AI_CONFIG } from "../ai_system/core/aiConfig";
 import { geminiClient } from "../services/geminiClient";
 import { auditLogger } from "../services/auditLogger";
+import { offlineSpeechRecognizer } from "../ai_system/speech/asr/offlineAsrEngine";
 
 export interface SttResult {
   text: string;
@@ -139,13 +140,13 @@ async function transcribeAudioBufferWithHedgedGemini(
   deadlineMs: number = 3000
 ): Promise<SttResult> {
   if (!geminiClient.isAvailable()) {
-    // Clean buffer
+    const offlineRes = await offlineSpeechRecognizer.transcribe(buffer, mime);
     buffer.fill(0);
     return {
-      text: "empty",
-      confidence: 0.0,
-      languageDetected: "en",
-      provider: "FallbackSTT",
+      text: offlineRes.text,
+      confidence: offlineRes.confidence,
+      languageDetected: offlineRes.detectedLanguage === "tw" ? "twi" : "en",
+      provider: offlineRes.provider,
     };
   }
 

@@ -79,6 +79,12 @@ export class ReasoningEngine {
   /**
    * Main entry: interprets utterance using Gemini structured output or deterministic fallback.
    */
+  private client = geminiClient;
+
+  public setClient(customClient: any): void {
+    this.client = customClient;
+  }
+
   public async reason(params: {
     utterance: string;
     languageHint?: AiLanguage;
@@ -94,7 +100,7 @@ export class ReasoningEngine {
       return this.deterministicReasoning(params);
     }
 
-    if (!geminiClient.isAvailable() || process.env.NODE_ENV === "test" || Boolean(process.env.VITEST)) {
+    if (!this.client.isAvailable()) {
       return this.deterministicReasoning(params);
     }
 

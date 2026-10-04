@@ -548,10 +548,14 @@ class ConversationManager {
       throw new Error("Authentication failed");
     }
 
+    if (!state.caller_phone || !state.amount) {
+      throw new Error("SECURITY_INVARIANT_VIOLATION: INVARIANT_012 - Missing required caller_phone or amount in transaction state. Fails closed.");
+    }
+
     // Execute through Voice Payment Service (Zero-PIN gateway handoff)
     const paymentResult = await voicePaymentService.initiatePayment(
-      state.caller_phone || "0543546010",
-      state.amount || 500
+      state.caller_phone,
+      state.amount
     );
 
     const spokenPrompt = buildSpokenText(paymentResult);
