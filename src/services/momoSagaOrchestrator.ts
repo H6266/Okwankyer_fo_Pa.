@@ -91,25 +91,19 @@ class MomoSagaOrchestrator {
     let collectionRef: string;
     let mode: string;
 
-    if (mtnMomoService.isConfigured("collection")) {
-      const momoTx = await mtnMomoService.requestToPay({
-        amount,
-        payerPhone,
-        payerMessage: `Transfer of GH₵${amount} to ${recipientName}`,
-        payeeNote: `Ɔkwankyerɛfo Pa Voice MoMo Transfer to ${recipientPhone}`,
-        externalId: session.referenceId,
-      });
-      collectionRef = momoTx.referenceId;
-      mode = momoTx.mode;
-    } else {
-      collectionRef = `sandbox-rtp-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
-      mode = "SANDBOX_SIMULATOR";
-      auditLogger.log(
-        "info",
-        "MOMO_SAGA",
-        `[SANDBOX MODE] Initiating Sandbox RTP for Ref ${session.referenceId}`
-      );
+    if (!mtnMomoService.isConfigured("collection")) {
+      throw new Error("MTN not configured: MTN MoMo Collections credentials required to initiate transaction saga.");
     }
+
+    const momoTx = await mtnMomoService.requestToPay({
+      amount,
+      payerPhone,
+      payerMessage: `Transfer of GH₵${amount} to ${recipientName}`,
+      payeeNote: `Ɔkwankyerɛfo Pa Voice MoMo Transfer to ${recipientPhone}`,
+      externalId: session.referenceId,
+    });
+    collectionRef = momoTx.referenceId;
+    mode = momoTx.mode;
 
     const saga: SagaState = {
       sessionId: session.sessionId,
@@ -131,10 +125,8 @@ class MomoSagaOrchestrator {
 
     this.activeSagas.set(session.sessionId, saga);
 
-    // In live mode with collection configured, poll for status with a deadline
-    if (mode !== "SANDBOX_SIMULATOR") {
-      this.pollLeg1Status(session.sessionId, collectionRef);
-    }
+    // Poll live MTN status for Leg 1
+    this.pollLeg1Status(session.sessionId, collectionRef);
 
     return { collectionRef, mode };
   }

@@ -24,6 +24,7 @@ import {
   RealAccountTestParams,
   RealAccountTestResult,
   MoMoDiagnostics,
+  GatewayEvidence,
 } from "./types";
 import {
   loadConfigFromEnv,
@@ -42,12 +43,14 @@ export class MoMoEngine {
 
   public readonly knownKeys = {
     primary:
+      process.env.MOMO_PRIMARY_KEY ||
       process.env.MTN_API_PRIMARY_KEY ||
       process.env.mtn_api_primary_key ||
       process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY ||
       process.env.MOMO_SUBSCRIPTION_KEY ||
       "",
     secondary:
+      process.env.MOMO_SECONDARY_KEY ||
       process.env.MTN_API_SECONDARY_KEY ||
       process.env.mtn_api_secondary_key ||
       process.env.MOMO_SUBSCRIPTION_KEY_SECONDARY ||
@@ -58,10 +61,12 @@ export class MoMoEngine {
 
   constructor(customConfig?: Partial<MoMoConfig>) {
     this.config = customConfig ? { ...loadConfigFromEnv(), ...customConfig } : loadConfigFromEnv();
-    if (this.config.targetEnv === "sandbox" && (this.knownKeys.primary || this.knownKeys.secondary)) {
-      this.ensureSandboxProvisioned("collection").catch((err) => {
-        console.warn("[MoMoEngine] Background auto-provision notice:", err.message);
-      });
+    if (this.config.targetEnv === "sandbox") {
+      if (!this.config.collection.apiKey && (process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY || process.env.MOMO_SUBSCRIPTION_KEY)) {
+        this.ensureSandboxProvisioned("collection").catch((err) => {
+          console.warn("[MoMoEngine] Collection auto-provision notice:", err.message);
+        });
+      }
     }
   }
 
@@ -143,7 +148,7 @@ export class MoMoEngine {
       details: {
         msisdn: kycResult.msisdn,
         isActive: kycResult.isActive,
-        name: kycResult.name || subscriberName || "MTN MoMo Subscriber",
+        name: kycResult.name || subscriberName || "Unknown (KYC not verified)",
         mode: kycResult.mode,
       },
     });
@@ -152,7 +157,7 @@ export class MoMoEngine {
     const tx = await this.requestToPay({
       amount,
       payerPhone: phone,
-      payerName: subscriberName || kycResult.name || "MTN MoMo Subscriber",
+      payerName: subscriberName || kycResult.name || "Unknown (KYC not verified)",
       payerMessage: `Test payment of GH₵ ${amount.toFixed(2)} on registered MoMo account`,
       payeeNote: "Okwankyerɛfo Pa Test",
     });
@@ -280,20 +285,18 @@ export class MoMoEngine {
 
     const subKey =
       p.subscriptionKey ||
-      this.knownKeys.primary ||
-      this.knownKeys.secondary ||
-      process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY ||
-      process.env.MOMO_SUBSCRIPTION_KEY ||
-      process.env.MOMO_SUBSCRIPTION_KEY_SECONDARY;
+      (product === "disbursement"
+        ? (process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY || process.env.MOMO_PRIMARY_KEY || process.env.MOMO_SECONDARY_KEY || this.knownKeys.secondary)
+        : (process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY || process.env.MOMO_SUBSCRIPTION_KEY || this.knownKeys.primary));
 
     if (!subKey) return false;
 
     try {
-      console.log(`[MTN MoMo Engine] Auto-provisioning sandbox credentials using subscription key (${subKey.slice(0, 6)}...)...`);
-      await this.autoProvisionSandbox(subKey);
+      console.log(`[MTN MoMo Engine] Auto-provisioning sandbox credentials for ${product} using key (${subKey.slice(0, 6)}...)...`);
+      await this.autoProvisionSandbox(subKey, undefined, product);
       return true;
     } catch (err: any) {
-      console.warn(`[MTN MoMo Engine] Sandbox auto-provision notice:`, err.message);
+      console.warn(`[MTN MoMo Engine] Sandbox auto-provision notice for ${product}:`, err.message);
       return false;
     }
   }
@@ -318,7 +321,7 @@ export class MoMoEngine {
     const authHeader = Buffer.from(`${p.apiUserId}:${p.apiKey}`).toString("base64");
     const tokenUrl = `${this.config.baseUrl}/${product}/token/`;
 
-    const response = await fetch(tokenUrl, {
+    let response = await fetch(tokenUrl, {
       method: "POST",
       headers: {
         "Authorization": `Basic ${authHeader}`,
@@ -329,6 +332,43 @@ export class MoMoEngine {
       },
       body: "",
     });
+
+    // In Sandbox, if API Key was rotated or expired ("invalid_client" 401),
+    // self-heal by requesting the active API key directly from MTN sandbox
+    if (response.status === 401 && this.config.targetEnv === "sandbox" && p.subscriptionKey && p.apiUserId) {
+      try {
+        console.log(`[MTN MoMo Engine] Token 401 on ${product}. Synchronizing active API Key from MTN Sandbox...`);
+        const refreshRes = await fetch(`${this.config.baseUrl}/v1_0/apiuser/${p.apiUserId}/apikey`, {
+          method: "POST",
+          headers: {
+            "Ocp-Apim-Subscription-Key": p.subscriptionKey,
+            "Content-Length": "0",
+          },
+          body: "",
+        });
+        if (refreshRes.ok) {
+          const keyData = await refreshRes.json();
+          if (keyData.apiKey) {
+            p.apiKey = keyData.apiKey;
+            console.log(`[MTN MoMo Engine] Synchronized active ${product} API Key with MTN.`);
+            const refreshedAuthHeader = Buffer.from(`${p.apiUserId}:${p.apiKey}`).toString("base64");
+            response = await fetch(tokenUrl, {
+              method: "POST",
+              headers: {
+                "Authorization": `Basic ${refreshedAuthHeader}`,
+                "Ocp-Apim-Subscription-Key": p.subscriptionKey,
+                "Content-Type": "application/json",
+                "User-Agent": "curl/7.88.1",
+                "Accept": "application/json",
+              },
+              body: "",
+            });
+          }
+        }
+      } catch (syncErr: any) {
+        console.warn(`[MTN MoMo Engine] Key sync notice:`, syncErr.message);
+      }
+    }
 
     if (!response.ok) {
       const errText = await response.text();
@@ -348,13 +388,137 @@ export class MoMoEngine {
   }
 
   /**
+   * Sanitizes request/response headers by redacting sensitive secrets (showing only last 4 chars)
+   */
+  public redactHeaders(headers: Record<string, string>): Record<string, string> {
+    const redacted: Record<string, string> = {};
+    for (const [k, v] of Object.entries(headers)) {
+      const lower = k.toLowerCase();
+      if (lower === "authorization") {
+        if (v.startsWith("Bearer ")) {
+          redacted[k] = `Bearer ••••${v.slice(-4)}`;
+        } else if (v.startsWith("Basic ")) {
+          redacted[k] = `Basic ••••${v.slice(-4)}`;
+        } else {
+          redacted[k] = `••••${v.slice(-4)}`;
+        }
+      } else if (lower.includes("key") || lower.includes("secret") || lower.includes("password")) {
+        redacted[k] = v.length > 4 ? `••••${v.slice(-4)}` : "••••";
+      } else {
+        redacted[k] = v;
+      }
+    }
+    return redacted;
+  }
+
+  /**
+   * Executes a real HTTP call against MTN MoMo Gateway and records full provenance GatewayEvidence
+   */
+  public async executeMtnCall(options: {
+    method: string;
+    url: string;
+    headers: Record<string, string>;
+    body?: any;
+    expectedStatus?: number[];
+  }): Promise<{ status: number; data: any; evidence: GatewayEvidence; responseHeaders: Record<string, string> }> {
+    const { method, url, headers, body, expectedStatus = [200, 201, 202] } = options;
+    const startTime = Date.now();
+    const parsedUrl = new URL(url);
+    const host = parsedUrl.host;
+    const endpoint = parsedUrl.pathname;
+
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method,
+        headers,
+        body: body ? (typeof body === "string" ? body : JSON.stringify(body)) : undefined,
+      });
+    } catch (netErr: any) {
+      const roundTripMs = Date.now() - startTime;
+      const evidence: GatewayEvidence = {
+        timestamp: new Date().toISOString(),
+        host,
+        roundTripMs,
+        endpoint,
+        request: {
+          method,
+          url,
+          headers: this.redactHeaders(headers),
+          body: typeof body === "string" ? (() => { try { return JSON.parse(body); } catch { return body; } })() : body,
+        },
+        response: {
+          status: 0,
+          statusText: netErr.message || "Network Error / Timeout",
+          headers: {},
+          body: { error: netErr.message, code: netErr.code || "NETWORK_ERROR" },
+        },
+      };
+      const err = new Error(`MTN gateway network failure (${netErr.message}) on ${method} ${endpoint}`);
+      (err as any).gatewayEvidence = evidence;
+      (err as any).status = 0;
+      (err as any).endpoint = endpoint;
+      throw err;
+    }
+
+    const roundTripMs = Date.now() - startTime;
+    const resHeaders: Record<string, string> = {};
+    res.headers.forEach((v, k) => {
+      resHeaders[k] = v;
+    });
+
+    const rawText = await res.text();
+    let parsedBody: any;
+    try {
+      parsedBody = rawText ? JSON.parse(rawText) : {};
+    } catch {
+      parsedBody = rawText;
+    }
+
+    const evidence: GatewayEvidence = {
+      timestamp: new Date().toISOString(),
+      host,
+      roundTripMs,
+      endpoint,
+      request: {
+        method,
+        url,
+        headers: this.redactHeaders(headers),
+        body: typeof body === "string" ? (() => { try { return JSON.parse(body); } catch { return body; } })() : body,
+      },
+      response: {
+        status: res.status,
+        statusText: res.statusText,
+        headers: resHeaders,
+        body: parsedBody,
+      },
+    };
+
+    if (!expectedStatus.includes(res.status)) {
+      const err = new Error(`MTN MoMo API rejected request (${res.status} on ${endpoint}): ${typeof parsedBody === "string" ? parsedBody : JSON.stringify(parsedBody)}`);
+      (err as any).gatewayEvidence = evidence;
+      (err as any).status = res.status;
+      (err as any).endpoint = endpoint;
+      (err as any).body = parsedBody;
+      throw err;
+    }
+
+    return {
+      status: res.status,
+      data: parsedBody,
+      evidence,
+      responseHeaders: resHeaders,
+    };
+  }
+
+  /**
    * 1. REQUEST TO PAY (COLLECTION)
    * Sends a USSD push authorization prompt to the payer's mobile phone handset.
    * Subscriber sees the network prompt on their phone and enters their Mobile Money PIN.
    * This aligns 100% with the Ɔkwankyerɛfo Pa Zero-PIN Voice Security Boundary.
    */
   public async requestToPay(params: RequestToPayParams): Promise<MoMoTransactionRecord> {
-    const { amount, payerPhone, payerName, payerMessage, payeeNote, externalId } = params;
+    const { amount, payerPhone, payerName, payerMessage, payeeNote, externalId, currency } = params;
     if (!this.isConfigured("collection")) {
       const autoProvisioned = await this.ensureSandboxProvisioned("collection");
       if (!autoProvisioned) {
@@ -362,9 +526,11 @@ export class MoMoEngine {
       }
     }
     const referenceId = this.generateReferenceId();
-    const extId = externalId || `OKP-${Math.floor(100000 + Math.random() * 900000)}`;
+    const extId = externalId || `OKP-${Date.now().toString().slice(-6)}`;
     const msisdn = this.formatMsisdn(payerPhone);
     const timestamp = new Date().toISOString();
+
+    const selectedCurrency = currency || (this.config.targetEnv === "production" ? "GHS" : "EUR");
 
     const initialRecord: MoMoTransactionRecord = {
       id: extId,
@@ -373,9 +539,9 @@ export class MoMoEngine {
       type: "COLLECTION_REQUEST_TO_PAY",
       status: "PENDING",
       amount,
-      currency: this.config.currency,
+      currency: selectedCurrency,
       msisdn,
-      recipientName: payerName || "MTN MoMo Subscriber",
+      recipientName: payerName || "Unknown (KYC not verified)",
       payerMessage: payerMessage || "Payment via Okwankyerɛfo Pa",
       mode: this.config.targetEnv === "production" ? "LIVE_API" : "SANDBOX_API",
       createdAt: timestamp,
@@ -400,7 +566,7 @@ export class MoMoEngine {
 
     const body = {
       amount: amount.toFixed(1),
-      currency: this.config.targetEnv === "production" ? "GHS" : "EUR",
+      currency: selectedCurrency,
       externalId: extId,
       payer: {
         partyIdType: "MSISDN",
@@ -411,26 +577,25 @@ export class MoMoEngine {
     };
     initialRecord.currency = body.currency;
 
-    const res = await fetch(url, {
+    const callRes = await this.executeMtnCall({
       method: "POST",
+      url,
       headers,
-      body: JSON.stringify(body),
+      body,
+      expectedStatus: [202],
     });
 
-    // MTN MoMo returns HTTP 202 Accepted for valid RequestToPay
-    if (res.status === 202) {
-      initialRecord.mode = this.config.targetEnv === "production" ? "LIVE_API" : "SANDBOX_API";
-      initialRecord.status = "PENDING";
-      this.transactionHistory.set(referenceId, initialRecord);
-      this.transactionHistory.set(extId, initialRecord);
-      this.notifyListeners(initialRecord);
-      this.startAutoSync(referenceId);
-      console.log(`[MTN MoMo Engine] RequestToPay dispatched (${initialRecord.mode}): Ref ${referenceId}, MSISDN ${msisdn}, Amount ${amount}`);
-      return initialRecord;
-    } else {
-      const errorText = await res.text();
-      throw new Error(`MTN RequestToPay failed (${res.status}): ${errorText}`);
-    }
+    initialRecord.mode = this.config.targetEnv === "production" ? "LIVE_API" : "SANDBOX_API";
+    initialRecord.status = "PENDING";
+    initialRecord.gatewayEvidence = callRes.evidence;
+    initialRecord.rawPayload = callRes.data;
+
+    this.transactionHistory.set(referenceId, initialRecord);
+    this.transactionHistory.set(extId, initialRecord);
+    this.notifyListeners(initialRecord);
+    this.startAutoSync(referenceId);
+    console.log(`[MTN MoMo Engine] RequestToPay dispatched (${initialRecord.mode}): Ref ${referenceId}, MSISDN ${msisdn}, Amount ${amount}`);
+    return initialRecord;
   }
 
   /**
@@ -438,7 +603,7 @@ export class MoMoEngine {
    * Sends funds from the platform/merchant wallet directly into a recipient's MTN MoMo wallet.
    */
   public async transfer(params: TransferParams): Promise<MoMoTransactionRecord> {
-    const { amount, payeePhone, payeeName, payerMessage, payeeNote, externalId } = params;
+    const { amount, payeePhone, payeeName, payerMessage, payeeNote, externalId, currency } = params;
     if (!this.isConfigured("disbursement")) {
       const autoProvisioned = await this.ensureSandboxProvisioned("disbursement");
       if (!autoProvisioned) {
@@ -446,9 +611,11 @@ export class MoMoEngine {
       }
     }
     const referenceId = this.generateReferenceId();
-    const extId = externalId || `OKP-${Math.floor(100000 + Math.random() * 900000)}`;
+    const extId = externalId || `OKP-${Date.now().toString().slice(-6)}`;
     const msisdn = this.formatMsisdn(payeePhone);
     const timestamp = new Date().toISOString();
+
+    const selectedCurrency = currency || (this.config.targetEnv === "production" ? "GHS" : "EUR");
 
     const initialRecord: MoMoTransactionRecord = {
       id: extId,
@@ -457,9 +624,9 @@ export class MoMoEngine {
       type: "DISBURSEMENT_TRANSFER",
       status: "PENDING",
       amount,
-      currency: this.config.currency,
+      currency: selectedCurrency,
       msisdn,
-      recipientName: payeeName || "Subscriber",
+      recipientName: payeeName || "Unknown (KYC not verified)",
       payerMessage: payerMessage || "Transfer via Okwankyerɛfo Pa",
       mode: this.config.targetEnv === "production" ? "LIVE_API" : "SANDBOX_API",
       createdAt: timestamp,
@@ -480,9 +647,8 @@ export class MoMoEngine {
 
     const body = {
       amount: amount.toFixed(2),
-      currency: this.config.targetEnv === "production" ? "GHS" : "EUR",
+      currency: selectedCurrency,
       externalId: extId,
-      transferType: "CUSTOM_PAYMENT",
       payee: {
         partyIdType: "MSISDN",
         partyId: msisdn,
@@ -491,70 +657,93 @@ export class MoMoEngine {
       payeeNote: cleanAscii(payeeNote || "Voice Transfer"),
     };
 
-    const res = await fetch(url, {
+    const callRes = await this.executeMtnCall({
       method: "POST",
+      url,
       headers,
-      body: JSON.stringify(body),
+      body,
+      expectedStatus: [202],
     });
 
-    if (res.status === 202) {
-      initialRecord.mode = this.config.targetEnv === "production" ? "LIVE_API" : "SANDBOX_API";
-      initialRecord.status = "PENDING";
-      this.transactionHistory.set(referenceId, initialRecord);
-      this.transactionHistory.set(extId, initialRecord);
-      this.notifyListeners(initialRecord);
-      this.startAutoSync(referenceId);
-      console.log(`[MTN MoMo Engine] Transfer dispatched (${initialRecord.mode}): Ref ${referenceId}, MSISDN ${msisdn}, Amount ${amount}`);
-      return initialRecord;
-    } else {
-      const errorText = await res.text();
-      throw new Error(`MTN Disbursement failed (${res.status}): ${errorText}`);
-    }
+    initialRecord.mode = this.config.targetEnv === "production" ? "LIVE_API" : "SANDBOX_API";
+    initialRecord.status = "PENDING";
+    initialRecord.gatewayEvidence = callRes.evidence;
+    initialRecord.rawPayload = callRes.data;
+
+    this.transactionHistory.set(referenceId, initialRecord);
+    this.transactionHistory.set(extId, initialRecord);
+    this.notifyListeners(initialRecord);
+    this.startAutoSync(referenceId);
+    console.log(`[MTN MoMo Engine] Transfer dispatched (${initialRecord.mode}): Ref ${referenceId}, MSISDN ${msisdn}, Amount ${amount}`);
+    return initialRecord;
   }
 
   /**
    * 3. CHECK TRANSACTION STATUS (RequestToPay or Transfer)
+   * Queries status directly from MTN and records full GatewayEvidence
    */
   public async getTransactionStatus(referenceId: string): Promise<MoMoTransactionRecord | null> {
     const local = this.transactionHistory.get(referenceId);
 
-    if (local && local.status === "PENDING") {
-      const isCollection = local.type === "COLLECTION_REQUEST_TO_PAY";
-      const product = isCollection ? "collection" : "disbursement";
-      const pathSegment = isCollection ? "requesttopay" : "transfer";
+    const isCollection = local?.type === "COLLECTION_REQUEST_TO_PAY";
+    const product = isCollection ? "collection" : "disbursement";
+    const pathSegment = isCollection ? "requesttopay" : "transfer";
 
-      try {
-        const token = await this.getAccessToken(product);
-        const url = `${this.config.baseUrl}/${product}/v1_0/${pathSegment}/${referenceId}`;
+    try {
+      const token = await this.getAccessToken(product);
+      const url = `${this.config.baseUrl}/${product}/v1_0/${pathSegment}/${referenceId}`;
+      const subKey = (isCollection ? this.config.collection.subscriptionKey : this.config.disbursement.subscriptionKey) || "";
 
-        const res = await fetch(url, {
-          method: "GET",
-          headers: {
-            "Authorization": `Bearer ${token}`,
-            "X-Target-Environment": this.config.targetEnv,
-            "Ocp-Apim-Subscription-Key": (isCollection ? this.config.collection.subscriptionKey : this.config.disbursement.subscriptionKey) || "",
-          },
-        });
+      const callRes = await this.executeMtnCall({
+        method: "GET",
+        url,
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "X-Target-Environment": this.config.targetEnv,
+          "Ocp-Apim-Subscription-Key": subKey,
+        },
+        expectedStatus: [200],
+      });
 
-        if (res.ok) {
-          const data = await res.json();
-          local.status = data.status || local.status;
-          local.financialTransactionId = data.financialTransactionId || local.financialTransactionId;
-          local.updatedAt = new Date().toISOString();
-          local.rawPayload = data;
-          this.transactionHistory.set(referenceId, local);
-          return local;
+      const data = callRes.data;
+      const record: MoMoTransactionRecord = local || {
+        id: referenceId,
+        referenceId,
+        externalId: data.externalId || referenceId,
+        type: isCollection ? "COLLECTION_REQUEST_TO_PAY" : "DISBURSEMENT_TRANSFER",
+        status: (data.status || "PENDING").toUpperCase(),
+        amount: parseFloat(data.amount) || 0,
+        currency: data.currency || (this.config.targetEnv === "production" ? "GHS" : "EUR"),
+        msisdn: data.payer?.partyId || data.payee?.partyId || "",
+        mode: this.config.targetEnv === "production" ? "LIVE_API" : "SANDBOX_API",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      // STATUS AND FINANCIAL TRANSACTION ID COME ONLY FROM MTN
+      record.status = (data.status || record.status).toUpperCase();
+      record.financialTransactionId = data.financialTransactionId || undefined;
+      record.updatedAt = new Date().toISOString();
+      record.rawPayload = data;
+      record.gatewayEvidence = callRes.evidence;
+
+      this.transactionHistory.set(referenceId, record);
+      return record;
+    } catch (err: any) {
+      console.error(`[MTN MoMo Engine] Error querying status for ${referenceId}:`, err);
+      if (local) {
+        if (err.gatewayEvidence) {
+          local.gatewayEvidence = err.gatewayEvidence;
         }
-      } catch (err) {
-        console.error(`[MTN MoMo Engine] Error querying status for ${referenceId}:`, err);
+        return local;
       }
+      throw err;
     }
-
-    return local || null;
   }
 
   /**
    * 4. CHECK ACCOUNT BALANCE
+   * Queries real MTN balance from live gateway.
    */
   public async getAccountBalance(product: "collection" | "disbursement" = "collection"): Promise<MoMoBalanceResult> {
     if (!this.isConfigured(product)) {
@@ -566,99 +755,106 @@ export class MoMoEngine {
 
     const token = await this.getAccessToken(product);
     const url = `${this.config.baseUrl}/${product}/v1_0/account/balance`;
+    const headers = {
+      "Authorization": `Bearer ${token}`,
+      "X-Target-Environment": this.config.targetEnv,
+      "Ocp-Apim-Subscription-Key": (product === "collection" ? this.config.collection.subscriptionKey : this.config.disbursement.subscriptionKey) || "",
+    };
 
-    const res = await fetch(url, {
+    const callRes = await this.executeMtnCall({
       method: "GET",
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "X-Target-Environment": this.config.targetEnv,
-        "Ocp-Apim-Subscription-Key": (product === "collection" ? this.config.collection.subscriptionKey : this.config.disbursement.subscriptionKey) || "",
-      },
+      url,
+      headers,
+      expectedStatus: [200],
     });
 
-    if (res.ok) {
-      const data = await res.json();
-      const balanceNum = parseFloat(data.availableBalance) || 0;
-      const curr = data.currency || this.config.currency;
-      return {
-        availableBalance: balanceNum,
-        currency: curr,
-        formatted: `${balanceNum.toLocaleString("en-US", { minimumFractionDigits: 2 })} ${curr}`,
-        mode: this.config.targetEnv === "production" ? "LIVE_API" : "SANDBOX_API",
-      };
-    } else {
-      const errText = await res.text();
-      throw new Error(`MTN ${product} balance inquiry failed (${res.status}): ${errText}`);
-    }
+    const data = callRes.data;
+    const balanceNum = parseFloat(data.availableBalance) || 0;
+    const curr = data.currency || (this.config.targetEnv === "production" ? "GHS" : "EUR");
+
+    return {
+      availableBalance: balanceNum,
+      currency: curr,
+      formatted: `${balanceNum.toLocaleString("en-US", { minimumFractionDigits: 2 })} ${curr}`,
+      mode: this.config.targetEnv === "production" ? "LIVE_API" : "SANDBOX_API",
+      gatewayEvidence: callRes.evidence,
+      rawPayload: data,
+    };
   }
 
   /**
    * 5. VALIDATE ACCOUNT HOLDER & KYC STATUS
+   * Zero fabrication: Recipient name comes ONLY from MTN's basicuserinfo call.
+   * If that call fails or is not returned, name is "Unknown (KYC not verified)".
    */
   public async validateAccountHolder(phone: string): Promise<MoMoAccountHolderResult> {
     const msisdn = this.formatMsisdn(phone);
-    if (!this.isConfigured("collection")) {
-      await this.ensureSandboxProvisioned("collection");
+
+    // Prefer disbursement if configured, otherwise collection
+    const preferredProduct: "collection" | "disbursement" = this.isConfigured("disbursement")
+      ? "disbursement"
+      : "collection";
+
+    if (!this.isConfigured(preferredProduct)) {
+      await this.ensureSandboxProvisioned(preferredProduct);
     }
-    if (!this.isConfigured("collection")) {
-      throw new Error("MTN MoMo Collections is not configured.");
+    if (!this.isConfigured(preferredProduct)) {
+      throw new Error(`MTN MoMo ${preferredProduct} is not configured.`);
     }
 
-    if (this.isConfigured("collection")) {
-      try {
-        const token = await this.getAccessToken("collection");
-        const url = `${this.config.baseUrl}/collection/v1_0/accountholder/msisdn/${msisdn}/active`;
+    const token = await this.getAccessToken(preferredProduct);
+    const subKey = (preferredProduct === "collection"
+      ? this.config.collection.subscriptionKey
+      : this.config.disbursement.subscriptionKey) || "";
 
-        const res = await fetch(url, {
-          method: "GET",
-          headers: {
-            "Authorization": `Bearer ${token}`,
-            "X-Target-Environment": this.config.targetEnv,
-            "Ocp-Apim-Subscription-Key": this.config.collection.subscriptionKey!,
-          },
-        });
+    const activeUrl = `${this.config.baseUrl}/${preferredProduct}/v1_0/accountholder/msisdn/${msisdn}/active`;
 
-        if (res.ok) {
-          const data = await res.json();
-          const isActive = Boolean(data.result);
+    const activeCall = await this.executeMtnCall({
+      method: "GET",
+      url: activeUrl,
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "X-Target-Environment": this.config.targetEnv,
+        "Ocp-Apim-Subscription-Key": subKey,
+      },
+      expectedStatus: [200],
+    });
 
-          let name: string | undefined;
-          try {
-            const infoRes = await fetch(`${this.config.baseUrl}/collection/v1_0/accountholder/msisdn/${msisdn}/basicuserinfo`, {
-              method: "GET",
-              headers: {
-                "Authorization": `Bearer ${token}`,
-                "X-Target-Environment": this.config.targetEnv,
-                "Ocp-Apim-Subscription-Key": this.config.collection.subscriptionKey!,
-              },
-            });
-            if (infoRes.ok) {
-              const info = await infoRes.json();
-              if (info.given_name || info.family_name) {
-                name = `${info.given_name || ""} ${info.family_name || ""}`.trim();
-              }
-            } else {
-              console.warn(`[MTN MoMo Engine] Basic user info lookup returned ${infoRes.status}.`);
-            }
-          } catch (err) {
-            console.warn("[MTN MoMo Engine] Basic user info lookup failed:", err);
-          }
+    const isActive = Boolean(activeCall.data?.result);
+    let verifiedName: string | undefined;
 
-          return {
-            isActive,
-            msisdn,
-            name,
-            mode: this.config.targetEnv === "production" ? "LIVE_API" : "SANDBOX_API",
-          };
+    try {
+      const infoUrl = `${this.config.baseUrl}/${preferredProduct}/v1_0/accountholder/msisdn/${msisdn}/basicuserinfo`;
+      const infoCall = await this.executeMtnCall({
+        method: "GET",
+        url: infoUrl,
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "X-Target-Environment": this.config.targetEnv,
+          "Ocp-Apim-Subscription-Key": subKey,
+        },
+        expectedStatus: [200],
+      });
+      if (infoCall.data) {
+        const given = (infoCall.data.given_name || "").trim();
+        const family = (infoCall.data.family_name || "").trim();
+        const full = `${given} ${family}`.trim() || (infoCall.data.name || "").trim();
+        if (full) {
+          verifiedName = full;
         }
-        const errorText = await res.text();
-        throw new Error(`MTN account holder lookup failed (${res.status}): ${errorText}`);
-      } catch (err: any) {
-        throw err;
       }
+    } catch (infoErr) {
+      console.warn(`[MTN MoMo Engine] Basic user info lookup not returned for ${msisdn}:`, infoErr);
     }
 
-    throw new Error("MTN MoMo Collections is not configured.");
+    return {
+      isActive,
+      msisdn,
+      name: verifiedName || "Unknown (KYC not verified)",
+      mode: this.config.targetEnv === "production" ? "LIVE_API" : "SANDBOX_API",
+      gatewayEvidence: activeCall.evidence,
+      rawPayload: activeCall.data,
+    };
   }
 
   /**
@@ -709,7 +905,11 @@ export class MoMoEngine {
   /**
    * 7. SANDBOX AUTO-PROVISIONER
    */
-  public async autoProvisionSandbox(subscriptionKey: string, callbackHost: string = "okwankyer-fo-pa.onrender.com"): Promise<{ apiUserId: string; apiKey: string }> {
+  public async autoProvisionSandbox(
+    subscriptionKey: string,
+    callbackHost: string = "okwankyer-fo-pa.onrender.com",
+    product: "collection" | "disbursement" = "collection"
+  ): Promise<{ apiUserId: string; apiKey: string }> {
     const apiUserId = this.generateReferenceId();
     const sandboxBase = MOMO_SANDBOX_BASE_URL;
 
@@ -749,15 +949,18 @@ export class MoMoEngine {
     const keyData = await keyRes.json();
     const apiKey = keyData.apiKey;
 
-    // Apply to current in-memory config
-    this.config.collection.subscriptionKey = subscriptionKey;
-    this.config.collection.apiUserId = apiUserId;
-    this.config.collection.apiKey = apiKey;
-    this.config.disbursement.subscriptionKey = subscriptionKey;
-    this.config.disbursement.apiUserId = apiUserId;
-    this.config.disbursement.apiKey = apiKey;
+    // Apply to current in-memory config for the specific product
+    if (product === "disbursement") {
+      this.config.disbursement.subscriptionKey = subscriptionKey;
+      this.config.disbursement.apiUserId = apiUserId;
+      this.config.disbursement.apiKey = apiKey;
+    } else {
+      this.config.collection.subscriptionKey = subscriptionKey;
+      this.config.collection.apiUserId = apiUserId;
+      this.config.collection.apiKey = apiKey;
+    }
 
-    console.log(`[MTN MoMo Engine Sandbox] Auto-provisioned API User: ${apiUserId}`);
+    console.log(`[MTN MoMo Engine Sandbox] Auto-provisioned API User for ${product}: ${apiUserId}`);
     return { apiUserId, apiKey };
   }
 
@@ -773,11 +976,11 @@ export class MoMoEngine {
     const hasDisbUser = Boolean(this.config.disbursement.apiUserId);
     const hasDisbApiKey = Boolean(this.config.disbursement.apiKey);
 
-    const isFullyLive = this.config.targetEnv === "production" &&
-      hasCollectionKey && hasCollectionUser && hasCollectionApiKey;
+    const hasCollectionConfigured = hasCollectionKey && hasCollectionUser && hasCollectionApiKey;
+    const hasDisbConfigured = hasDisbKey && hasDisbUser && hasDisbApiKey;
 
-    const isSandboxActive = this.config.targetEnv === "sandbox" &&
-      hasCollectionKey && hasCollectionUser && hasCollectionApiKey;
+    const isFullyLive = this.config.targetEnv === "production" && (hasCollectionConfigured || hasDisbConfigured);
+    const isSandboxActive = this.config.targetEnv === "sandbox" && (hasCollectionConfigured || hasDisbConfigured);
 
     return {
       activeMode: isFullyLive ? "LIVE_PRODUCTION" : isSandboxActive ? "SANDBOX_API" : "NOT_CONFIGURED",
@@ -806,16 +1009,16 @@ export class MoMoEngine {
         {
           step: 1,
           name: "MTN MoMo Developer Account",
-          status: hasCollectionKey ? "CONFIGURED" : "PENDING",
+          status: (hasCollectionKey || hasDisbKey) ? "CONFIGURED" : "PENDING",
           requirement: "Sign up at momodeveloper.mtn.com and subscribe to Collections and Disbursements products.",
-          envVar: "MOMO_SUBSCRIPTION_KEY or MOMO_COLLECTION_SUBSCRIPTION_KEY",
+          envVar: "MOMO_PRIMARY_KEY, MOMO_SECONDARY_KEY, or MOMO_DISBURSEMENT_SUBSCRIPTION_KEY",
         },
         {
           step: 2,
           name: "API User ID & API Key",
-          status: hasCollectionUser && hasCollectionApiKey ? "CONFIGURED" : "PENDING",
+          status: (hasCollectionConfigured || hasDisbConfigured) ? "CONFIGURED" : "PENDING",
           requirement: "Generate API User UUID and API Key via Sandbox Auto-Provisioner or MTN Portal.",
-          envVar: "MOMO_API_USER_ID, MOMO_API_KEY",
+          envVar: "MOMO_DISBURSEMENT_API_USER_ID, MOMO_DISBURSEMENT_API_KEY",
         },
         {
           step: 3,

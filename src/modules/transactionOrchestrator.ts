@@ -7,6 +7,7 @@
  * 
  */
 
+import crypto from "crypto";
 import { mtnMomoService, MoMoTransactionRecord } from "./mtnMomoService";
 import { durableTransactionStore, DurableTransactionStore } from "../services/durableTransactionStore";
 
@@ -67,7 +68,7 @@ export interface CashOutTransactionRequest {
 }
 
 export interface TransactionResult {
-  status: "SUCCESS" | "FAILED" | "PENDING" | "NOT_CONFIGURED" | "REQUIRES_VAS_AGGREGATOR" | "REQUIRES_BILLER_AGGREGATOR";
+  status: "SUCCESS" | "FAILED" | "PENDING" | "NOT_CONFIGURED" | "NOT_IMPLEMENTED" | "REQUIRES_VAS_AGGREGATOR" | "REQUIRES_BILLER_AGGREGATOR";
   reference: string;
   operationType: "SEND_MONEY" | "AIRTIME" | "DATA_BUNDLE" | "BILL_PAYMENT" | "CASH_OUT";
   amount: number;
@@ -80,7 +81,7 @@ export interface TransactionResult {
   network: string;
   timestamp: string;
   message: string;
-  spokenReceipt: string;
+  spokenReceipt?: string;
   authorizationModel: string;
   momoDetails?: {
     referenceId: string;
@@ -89,6 +90,7 @@ export interface TransactionResult {
     financialTransactionId?: string;
   };
   rawPayload?: any;
+  gatewayEvidence?: any;
 }
 
 export interface AccountBalance {
@@ -111,8 +113,8 @@ export class ServiceOrchestrator {
    * Generates a unique, dynamic telecom transaction reference (e.g. OKP-847291)
    */
   private generateReference(): string {
-    const randomDigits = Math.floor(100000 + Math.random() * 900000);
-    return `OKP-${randomDigits}`;
+    const randomHex = crypto.randomBytes(3).toString("hex").toUpperCase();
+    return `OKP-${randomHex}`;
   }
 
   /**
@@ -182,7 +184,7 @@ export class ServiceOrchestrator {
       momoTx = await mtnMomoService.requestToPay({
         amount,
         payerPhone,
-        payerName: request.payer_name || "Verified Subscriber",
+        payerName: request.payer_name || "Unknown (KYC not verified)",
         payerMessage: `Transfer of GH₵${amount} to ${recipient_name}`,
         payeeNote: `Ɔkwankyerɛfo Pa Voice MoMo Transfer to ${recipient_phone}`,
         externalId: reference,
@@ -201,16 +203,21 @@ export class ServiceOrchestrator {
         : momoTx.status === "PENDING"
           ? "PENDING"
           : "FAILED";
-    const last4 = recipient_phone.slice(-4).split("").join(" ");
-    const spokenReceipt = status === "PENDING"
-      ? `MTN has accepted your MoMo request to send ${amount} Ghana Cedis to ${recipient_name}, phone number ending in ${last4}. Please approve the request on your handset. Your transaction reference is ${reference.split("").join(" ")}.`
-      : status === "SUCCESS"
-        ? `Your MTN MoMo transfer of ${amount} Ghana Cedis to ${recipient_name}, phone number ending in ${last4}, was successful. Completed at ${timeFormatted}. Your transaction reference is ${reference.split("").join(" ")}.`
-        : `Your MTN MoMo transfer of ${amount} Ghana Cedis to ${recipient_name} was not completed. Please contact support with transaction reference ${reference.split("").join(" ")}.`;
+
+    // ONLY generate spoken receipt after MTN returns SUCCESSFUL, and build it only from verified MTN fields
+    const spokenReceipt = momoTx.status === "SUCCESSFUL"
+      ? `Your MTN MoMo transfer of ${momoTx.amount} ${momoTx.currency} was successful. Completed at ${timeFormatted}. Reference: ${reference}.`
+      : undefined;
 
     const currencyNotice = momoTx.currency !== "GHS"
       ? `Note: MTN MoMo Sandbox settles transactions in ${momoTx.currency} by default. Production environment operates in GHS.`
       : undefined;
+
+    const message = momoTx.status === "SUCCESSFUL"
+      ? `Transaction ${reference} completed successfully via MTN MoMo Gateway.`
+      : momoTx.status === "PENDING"
+        ? `Transaction ${reference} was accepted by MTN MoMo Gateway and is pending authorization.`
+        : `Transaction ${reference} failed or was rejected by MTN MoMo Gateway.`;
 
     const result: TransactionResult = {
       status,
@@ -225,17 +232,14 @@ export class ServiceOrchestrator {
       recipient_phone,
       network: network || "MTN",
       timestamp,
-      message: status === "PENDING"
-        ? `Transaction ${reference} was accepted by MTN and is pending customer handset PIN approval.`
-        : status === "SUCCESS"
-          ? `Transaction ${reference} completed via ${source || "API"}.`
-          : `Transaction ${reference} was not completed by MTN.`,
+      message,
       spokenReceipt,
       authorizationModel: mode === "COLLECTION_REQUEST_TO_PAY"
         ? "Customer enters PIN on their own mobile handset via MTN network USSD prompt (Zero-PIN in app)"
         : "Direct business disbursement float transfer (No subscriber PIN required)",
       momoDetails,
       rawPayload: momoTx.rawPayload,
+      gatewayEvidence: momoTx.gatewayEvidence,
     };
 
     // Store in durable idempotency cache

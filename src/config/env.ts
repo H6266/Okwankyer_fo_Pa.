@@ -87,75 +87,56 @@ export function loadConfig(): AppConfig {
     atUsername = "sandbox";
   }
 
-  const primaryMtnKey = (
+  const collSubKey = (
+    process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY ||
+    process.env.MTN_COLLECTION_SUBSCRIPTION_KEY ||
     process.env.MTN_API_PRIMARY_KEY ||
     process.env.mtn_api_primary_key ||
-    process.env.MTN_COLLECTION_SUBSCRIPTION_KEY ||
-    process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY ||
     process.env.MOMO_SUBSCRIPTION_KEY ||
-    ""
-  ).trim();
-
-  const secondaryMtnKey = (
-    process.env.MTN_API_SECONDARY_KEY ||
-    process.env.mtn_api_secondary_key ||
-    process.env.MTN_DISBURSEMENT_SUBSCRIPTION_KEY ||
-    process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY ||
-    process.env.MOMO_SUBSCRIPTION_KEY_SECONDARY ||
-    primaryMtnKey
-  ).trim();
-
-  const momoSubKey = (process.env.MOMO_SUBSCRIPTION_KEY || primaryMtnKey).trim();
-  const momoUserId = (
-    process.env.MOMO_API_USER_ID ||
-    process.env.MOMO_COLLECTION_API_USER_ID ||
-    process.env.MTN_COLLECTION_API_USER_ID ||
-    process.env.MOMO_DISBURSEMENT_API_USER_ID ||
-    process.env.MTN_DISBURSEMENT_API_USER_ID ||
-    ""
-  ).trim();
-  const momoApiKey = (
-    process.env.MOMO_API_KEY ||
-    process.env.MOMO_COLLECTION_API_KEY ||
-    process.env.MTN_COLLECTION_API_KEY ||
-    process.env.MOMO_DISBURSEMENT_API_KEY ||
-    process.env.MTN_DISBURSEMENT_API_KEY ||
     ""
   ).trim();
 
   const disbSubKey = (
     process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY ||
     process.env.MTN_DISBURSEMENT_SUBSCRIPTION_KEY ||
-    secondaryMtnKey ||
-    momoSubKey
-  ).trim();
-  const disbUserId = (
-    process.env.MOMO_DISBURSEMENT_API_USER_ID ||
-    process.env.MTN_DISBURSEMENT_API_USER_ID ||
-    momoUserId
-  ).trim();
-  const disbApiKey = (
-    process.env.MOMO_DISBURSEMENT_API_KEY ||
-    process.env.MTN_DISBURSEMENT_API_KEY ||
-    momoApiKey
+    process.env.MOMO_PRIMARY_KEY ||
+    process.env.MOMO_SECONDARY_KEY ||
+    process.env.MTN_API_SECONDARY_KEY ||
+    process.env.mtn_api_secondary_key ||
+    process.env.MOMO_SUBSCRIPTION_KEY_SECONDARY ||
+    collSubKey
   ).trim();
 
-  const collSubKey = (
-    process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY ||
-    process.env.MTN_COLLECTION_SUBSCRIPTION_KEY ||
-    primaryMtnKey
-  ).trim();
   const collUserId = (
     process.env.MOMO_COLLECTION_API_USER_ID ||
     process.env.MTN_COLLECTION_API_USER_ID ||
     process.env.MTN_COLLECTION_X_REFERENCE_ID ||
-    momoUserId
+    process.env.MOMO_API_USER_ID ||
+    ""
   ).trim();
   const collApiKey = (
     process.env.MOMO_COLLECTION_API_KEY ||
     process.env.MTN_COLLECTION_API_KEY ||
-    momoApiKey
+    process.env.MOMO_API_KEY ||
+    ""
   ).trim();
+
+  const disbUserId = (
+    process.env.MOMO_DISBURSEMENT_API_USER_ID ||
+    process.env.MTN_DISBURSEMENT_API_USER_ID ||
+    process.env.MOMO_API_USER_ID ||
+    collUserId
+  ).trim();
+  const disbApiKey = (
+    process.env.MOMO_DISBURSEMENT_API_KEY ||
+    process.env.MTN_DISBURSEMENT_API_KEY ||
+    process.env.MOMO_API_KEY ||
+    collApiKey
+  ).trim();
+
+  const momoSubKey = (disbSubKey || collSubKey).trim();
+  const momoUserId = (disbUserId || collUserId).trim();
+  const momoApiKey = (disbApiKey || collApiKey).trim();
 
   return {
     nodeEnv,

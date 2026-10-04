@@ -5440,6 +5440,214 @@
     }
   };
 
+  const walletTester = {
+    async runAllTests() {
+      const btn = document.getElementById('btnRunAllWalletTests');
+      const box = document.getElementById('runAllResults');
+      const tbody = document.getElementById('allTestsTableBody');
+      if (btn) { btn.disabled = true; btn.innerText = 'Running tests...'; }
+      if (box) box.style.display = 'block';
+      if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 16px;">Executing MoMo test pipeline against MTN API...</td></tr>';
+      try {
+        const res = await fetch('/api/momo/test-all', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        const data = await res.json();
+        if (tbody && data.results) {
+          tbody.innerHTML = data.results.map(r => `
+            <tr>
+              <td style="font-weight: 600;">${r.functionName}</td>
+              <td><span style="display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 700; background: ${r.passed ? '#d1fae5; color: #065f46;' : '#fee2e2; color: #991b1b;'}">${r.passed ? 'PASSED' : 'FAILED'}</span></td>
+              <td><code>${r.mode || 'SANDBOX_API'}</code></td>
+              <td><code>${r.reference || 'N/A'}</code></td>
+              <td style="font-size: 12px; color: var(--ink-secondary);">${r.details || ''}</td>
+            </tr>
+          `).join('');
+        }
+      } catch (err) {
+        if (tbody) tbody.innerHTML = `<tr><td colspan="5" style="color: #ef4444; padding: 12px;">Test run failed: ${err.message}</td></tr>`;
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerText = 'Run all wallet tests'; }
+      }
+    },
+
+    async checkBalance() {
+      const resEl = document.getElementById('balanceResult');
+      if (resEl) resEl.innerText = 'Querying MTN MoMo balance...';
+      try {
+        const res = await fetch('/api/momo/account/balance?product=disbursement');
+        const data = await res.json();
+        if (resEl) {
+          if (data.success && data.balance) {
+            resEl.innerHTML = `<strong>Available Balance:</strong> ${data.balance.formatted || data.balance.availableBalance + ' ' + (data.balance.currency || 'GHS')} <br><span style="font-size: 12px; color: var(--ink-muted);">Mode: ${data.balance.mode || 'SANDBOX_API'}</span>`;
+          } else {
+            resEl.innerText = data.error || 'Failed to query balance';
+          }
+        }
+      } catch (err) {
+        if (resEl) resEl.innerText = 'Error: ' + err.message;
+      }
+    },
+
+    async sendMoney() {
+      const phone = (document.getElementById('sendMoneyPhone')?.value || '').trim();
+      const name = (document.getElementById('sendMoneyName')?.value || '').trim();
+      const amount = parseFloat(document.getElementById('sendMoneyAmount')?.value || '15');
+      const resEl = document.getElementById('sendMoneyResult');
+      if (resEl) resEl.innerText = 'Dispatching transfer...';
+      try {
+        const res = await fetch('/api/momo/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recipient_phone: phone, recipient_name: name, amount })
+        });
+        const data = await res.json();
+        if (resEl) {
+          if (data.status === 'SUCCESS' || data.status === 'PENDING') {
+            resEl.innerHTML = `<strong>Status:</strong> ${data.status} | <strong>Ref:</strong> ${data.reference}<br><span style="font-size: 12px; color: var(--ink-muted);">${data.message || ''}</span>`;
+            const promptText = document.getElementById('handsetPromptText');
+            const refDisplay = document.getElementById('handsetRefDisplay');
+            if (promptText) promptText.innerHTML = `Authorize payment of <strong>GH₵ ${amount.toFixed(2)}</strong> to <strong>${name}</strong> (Ref: ${data.reference})?`;
+            if (refDisplay) refDisplay.innerText = `Ref: ${data.reference}`;
+          } else {
+            resEl.innerText = data.error || data.message || 'Transfer failed';
+          }
+        }
+        walletTester.refreshLedger();
+      } catch (err) {
+        if (resEl) resEl.innerText = 'Error: ' + err.message;
+      }
+    },
+
+    async buyAirtime() {
+      const phone = (document.getElementById('airtimePhone')?.value || '').trim();
+      const amount = parseFloat(document.getElementById('airtimeAmount')?.value || '5');
+      const network = document.getElementById('airtimeNetwork')?.value || 'MTN';
+      const resEl = document.getElementById('airtimeResult');
+      if (resEl) resEl.innerText = 'Submitting airtime purchase...';
+      try {
+        const res = await fetch('/api/momo/airtime', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone, amount, network })
+        });
+        const data = await res.json();
+        if (resEl) resEl.innerHTML = `<strong>Status:</strong> ${data.status || 'OK'} | <strong>Ref:</strong> ${data.reference || 'N/A'}<br><span style="font-size: 12px; color: var(--ink-muted);">${data.message || ''}</span>`;
+        walletTester.refreshLedger();
+      } catch (err) {
+        if (resEl) resEl.innerText = 'Error: ' + err.message;
+      }
+    },
+
+    async buyData() {
+      const phone = (document.getElementById('dataPhone')?.value || '').trim();
+      const bundle = document.getElementById('dataBundle')?.value || '1GB';
+      const network = document.getElementById('dataNetwork')?.value || 'MTN';
+      const resEl = document.getElementById('dataResult');
+      if (resEl) resEl.innerText = 'Submitting data bundle purchase...';
+      try {
+        const res = await fetch('/api/momo/data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone, bundle, network })
+        });
+        const data = await res.json();
+        if (resEl) resEl.innerHTML = `<strong>Status:</strong> ${data.status || 'OK'} | <strong>Ref:</strong> ${data.reference || 'N/A'}<br><span style="font-size: 12px; color: var(--ink-muted);">${data.message || ''}</span>`;
+        walletTester.refreshLedger();
+      } catch (err) {
+        if (resEl) resEl.innerText = 'Error: ' + err.message;
+      }
+    },
+
+    async payBill() {
+      const biller = document.getElementById('billerName')?.value || 'ECG';
+      const accountNumber = (document.getElementById('billerAccount')?.value || '').trim();
+      const amount = parseFloat(document.getElementById('billerAmount')?.value || '30');
+      const resEl = document.getElementById('billsResult');
+      if (resEl) resEl.innerText = 'Submitting bill payment...';
+      try {
+        const res = await fetch('/api/momo/bills', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ biller, accountNumber, amount })
+        });
+        const data = await res.json();
+        if (resEl) resEl.innerHTML = `<strong>Status:</strong> ${data.status || 'OK'} | <strong>Ref:</strong> ${data.reference || 'N/A'}<br><span style="font-size: 12px; color: var(--ink-muted);">${data.message || ''}</span>`;
+        walletTester.refreshLedger();
+      } catch (err) {
+        if (resEl) resEl.innerText = 'Error: ' + err.message;
+      }
+    },
+
+    async cashOut() {
+      const phone = (document.getElementById('cashOutPhone')?.value || '').trim();
+      const amount = parseFloat(document.getElementById('cashOutAmount')?.value || '50');
+      const resEl = document.getElementById('cashOutResult');
+      if (resEl) resEl.innerText = 'Authorizing cash out...';
+      try {
+        const res = await fetch('/api/momo/cashout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone, amount })
+        });
+        const data = await res.json();
+        if (resEl) resEl.innerHTML = `<strong>Status:</strong> ${data.status || 'OK'} | <strong>Ref:</strong> ${data.reference || 'N/A'}<br><span style="font-size: 12px; color: var(--ink-muted);">${data.message || ''}</span>`;
+        walletTester.refreshLedger();
+      } catch (err) {
+        if (resEl) resEl.innerText = 'Error: ' + err.message;
+      }
+    },
+
+    async lookupKyc() {
+      const phone = (document.getElementById('kycPhone')?.value || '').trim();
+      const resEl = document.getElementById('kycResult');
+      if (resEl) resEl.innerText = 'Verifying with MTN...';
+      try {
+        const res = await fetch('/api/momo/validate-recipient', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone })
+        });
+        const data = await res.json();
+        if (resEl) {
+          if (data.success) {
+            resEl.innerHTML = `<strong>Subscriber:</strong> ${data.name || 'MTN MoMo Subscriber'} <br><strong>Active:</strong> ${data.accountActive ? 'YES' : 'NO'} | <strong>Source:</strong> ${data.source || 'MTN_MOMO_API'}`;
+          } else {
+            resEl.innerText = data.error || 'KYC lookup failed';
+          }
+        }
+      } catch (err) {
+        if (resEl) resEl.innerText = 'Error: ' + err.message;
+      }
+    },
+
+    async refreshLedger() {
+      const tbody = document.getElementById('ledgerTableBody');
+      try {
+        const res = await fetch('/api/ledger');
+        const data = await res.json();
+        const records = (data.transactions || data.history || data) || [];
+        if (tbody && Array.isArray(records)) {
+          if (records.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--ink-muted); padding: 12px;">No transactions recorded yet.</td></tr>';
+            return;
+          }
+          tbody.innerHTML = records.slice(0, 15).map(tx => `
+            <tr>
+              <td><code>${tx.reference || tx.referenceId || tx.id || 'N/A'}</code></td>
+              <td>${tx.operationType || tx.type || 'TRANSFER'}</td>
+              <td>GH₵ ${Number(tx.amount || 0).toFixed(2)}</td>
+              <td><span style="font-weight: 700; color: ${tx.status === 'SUCCESS' || tx.status === 'SUCCESSFUL' ? '#059669' : tx.status === 'PENDING' ? '#d97706' : '#dc2626'}">${tx.status}</span></td>
+              <td><code>${tx.mode || 'SANDBOX_API'}</code></td>
+              <td style="font-size: 11px; color: var(--ink-muted);">${tx.timestamp ? new Date(tx.timestamp).toLocaleTimeString() : 'Recent'}</td>
+            </tr>
+          `).join('');
+        }
+      } catch (err) {
+        console.warn('Ledger refresh failed:', err);
+      }
+    }
+  };
+  window.walletTester = walletTester;
+
   // Expose to window for inline event handlers
   window.app = app;
 

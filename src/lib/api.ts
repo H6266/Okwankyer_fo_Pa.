@@ -494,19 +494,6 @@ export const api = {
     return res.json();
   },
 
-  async simulateMomoWebhook(params: {
-    referenceId: string;
-    status: "SUCCESSFUL" | "FAILED";
-    financialTransactionId?: string;
-  }): Promise<any> {
-    const res = await fetch("/api/momo/webhook-simulate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params),
-    });
-    return res.json();
-  },
-
   // ── Africa's Talking Shipping & Deployment Methods ──────────────────
   async getShippingStatus(): Promise<any> {
     const res = await fetch("/api/shipping/status");

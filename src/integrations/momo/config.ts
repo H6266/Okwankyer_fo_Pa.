@@ -49,11 +49,10 @@ export function generateReferenceId(): string {
   if (typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+  const bytes = crypto.randomBytes(16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  return bytes.toString("hex").replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
 }
 
 /**
@@ -73,49 +72,54 @@ export function loadConfigFromEnv(): MoMoConfig {
 
   // In MTN MoMo Open API, Collections and Disbursements are separate product subscriptions.
   // A Disbursement key is invalid for Collections endpoints and vice versa.
-  const primaryKey = (
+  const collSubKey = (
+    process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY ||
+    process.env.MTN_COLLECTION_SUBSCRIPTION_KEY ||
     process.env.MTN_API_PRIMARY_KEY ||
     process.env.mtn_api_primary_key ||
-    process.env.MTN_COLLECTION_SUBSCRIPTION_KEY ||
-    process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY ||
     process.env.MOMO_SUBSCRIPTION_KEY ||
     ""
   ).trim();
 
-  const secondaryKey = (
+  const disbSubKey = (
+    process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY ||
+    process.env.MTN_DISBURSEMENT_SUBSCRIPTION_KEY ||
+    process.env.MOMO_PRIMARY_KEY ||
+    process.env.MOMO_SECONDARY_KEY ||
     process.env.MTN_API_SECONDARY_KEY ||
     process.env.mtn_api_secondary_key ||
-    process.env.MTN_DISBURSEMENT_SUBSCRIPTION_KEY ||
-    process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY ||
     process.env.MOMO_SUBSCRIPTION_KEY_SECONDARY ||
-    primaryKey
+    collSubKey
   ).trim();
 
-  const momoSubKey = (process.env.MOMO_SUBSCRIPTION_KEY || primaryKey).trim();
-  const momoUserId = (
-    process.env.MOMO_API_USER_ID ||
+  const collUserId = (
     process.env.MOMO_COLLECTION_API_USER_ID ||
     process.env.MTN_COLLECTION_API_USER_ID ||
-    process.env.MOMO_DISBURSEMENT_API_USER_ID ||
-    process.env.MTN_DISBURSEMENT_API_USER_ID ||
+    process.env.MTN_COLLECTION_X_REFERENCE_ID ||
+    process.env.MOMO_API_USER_ID ||
     ""
   ).trim();
-  const momoApiKey = (
-    process.env.MOMO_API_KEY ||
+
+  const collApiKey = (
     process.env.MOMO_COLLECTION_API_KEY ||
     process.env.MTN_COLLECTION_API_KEY ||
-    process.env.MOMO_DISBURSEMENT_API_KEY ||
-    process.env.MTN_DISBURSEMENT_API_KEY ||
+    process.env.MOMO_API_KEY ||
     ""
   ).trim();
 
-  const collSubKey = (process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY || process.env.MTN_COLLECTION_SUBSCRIPTION_KEY || primaryKey).trim();
-  const collUserId = (process.env.MOMO_COLLECTION_API_USER_ID || process.env.MTN_COLLECTION_API_USER_ID || process.env.MTN_COLLECTION_X_REFERENCE_ID || momoUserId).trim();
-  const collApiKey = (process.env.MOMO_COLLECTION_API_KEY || process.env.MTN_COLLECTION_API_KEY || momoApiKey).trim();
+  const disbUserId = (
+    process.env.MOMO_DISBURSEMENT_API_USER_ID ||
+    process.env.MTN_DISBURSEMENT_API_USER_ID ||
+    process.env.MOMO_API_USER_ID ||
+    collUserId
+  ).trim();
 
-  const disbSubKey = (process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY || process.env.MTN_DISBURSEMENT_SUBSCRIPTION_KEY || secondaryKey || momoSubKey).trim();
-  const disbUserId = (process.env.MOMO_DISBURSEMENT_API_USER_ID || process.env.MTN_DISBURSEMENT_API_USER_ID || momoUserId).trim();
-  const disbApiKey = (process.env.MOMO_DISBURSEMENT_API_KEY || process.env.MTN_DISBURSEMENT_API_KEY || momoApiKey).trim();
+  const disbApiKey = (
+    process.env.MOMO_DISBURSEMENT_API_KEY ||
+    process.env.MTN_DISBURSEMENT_API_KEY ||
+    process.env.MOMO_API_KEY ||
+    collApiKey
+  ).trim();
 
   return {
     baseUrl,

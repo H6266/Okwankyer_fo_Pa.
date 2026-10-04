@@ -175,151 +175,62 @@ momoRouter.post("/api/momo/send", adminRateLimiter, requireAdminAuth, async (req
       source: "WEB",
       network: network || "MTN",
       recipient_phone: validatedRecipient.normalized,
-      recipient_name: recipient_name || "MTN Subscriber",
+      recipient_name: recipient_name || "Unknown (KYC not verified)",
       amount: parsedAmount,
       payer_phone: payerPhone,
-      payer_name: payer_name || "Web Dashboard User",
+      payer_name: payer_name || undefined,
       mode,
     });
 
     res.status(result.status === "PENDING" ? 202 : 200).json({
       success: result.status !== "FAILED",
       transaction: result,
+      gatewayEvidence: result.gatewayEvidence,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({
+      success: false,
+      error: err.message,
+      gatewayEvidence: err.gatewayEvidence,
+      endpoint: err.endpoint,
+    });
   }
 });
 
-// Buy Airtime (Central Transaction Service)
-momoRouter.post("/api/momo/airtime", adminRateLimiter, requireAdminAuth, async (req: Request, res: Response) => {
-  try {
-    const { phone, amount, network, payer_phone } = req.body;
-    const parsedAmount = parseFloat(amount);
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      return res.status(400).json({ error: "Missing or invalid positive 'amount' field." });
-    }
-    if (!phone || typeof phone !== "string") {
-      return res.status(400).json({ error: "Missing required 'phone' field." });
-    }
-
-    const validatedPhone = validateGhanaPhoneNumber(phone);
-    if (!validatedPhone.valid || !validatedPhone.normalized) {
-      return res.status(400).json({ error: validatedPhone.error || "Invalid phone number." });
-    }
-
-    const result = await transactionOrchestrator.executeAirtime({
-      source: "WEB",
-      phone: validatedPhone.normalized,
-      amount: parsedAmount,
-      network: network || "MTN",
-      payer_phone: payer_phone || "0553838464",
-    });
-
-    res.json({
-      success: result.status === "SUCCESS" || result.status === "PENDING",
-      transaction: result,
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+// Buy Airtime (Unimplemented in MTN MoMo Open API)
+momoRouter.post("/api/momo/airtime", adminRateLimiter, requireAdminAuth, (_req: Request, res: Response) => {
+  res.status(400).json({
+    success: false,
+    error: "Not implemented. MTN MoMo Open API does not offer native endpoints for Airtime Top-Up.",
+    implemented: false,
+  });
 });
 
-// Buy Data Bundle (Central Transaction Service)
-momoRouter.post("/api/momo/data", adminRateLimiter, requireAdminAuth, async (req: Request, res: Response) => {
-  try {
-    const { phone, bundle, amount, network, payer_phone } = req.body;
-    if (!phone || typeof phone !== "string") {
-      return res.status(400).json({ error: "Missing required 'phone' field." });
-    }
-    if (!bundle || typeof bundle !== "string") {
-      return res.status(400).json({ error: "Missing required 'bundle' field." });
-    }
-
-    const validatedPhone = validateGhanaPhoneNumber(phone);
-    if (!validatedPhone.valid || !validatedPhone.normalized) {
-      return res.status(400).json({ error: validatedPhone.error || "Invalid phone number." });
-    }
-
-    const result = await transactionOrchestrator.executeDataBundle({
-      source: "WEB",
-      phone: validatedPhone.normalized,
-      bundle,
-      amount: amount ? parseFloat(amount) : undefined,
-      network: network || "MTN",
-      payer_phone: payer_phone || "0553838464",
-    });
-
-    res.json({
-      success: result.status === "SUCCESS" || result.status === "PENDING",
-      transaction: result,
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+// Buy Data Bundle (Unimplemented in MTN MoMo Open API)
+momoRouter.post("/api/momo/data", adminRateLimiter, requireAdminAuth, (_req: Request, res: Response) => {
+  res.status(400).json({
+    success: false,
+    error: "Not implemented. MTN MoMo Open API does not offer native endpoints for Data Bundles.",
+    implemented: false,
+  });
 });
 
-// Pay Bills (Central Transaction Service)
-momoRouter.post("/api/momo/bills", adminRateLimiter, requireAdminAuth, async (req: Request, res: Response) => {
-  try {
-    const { biller, accountNumber, amount, payer_phone } = req.body;
-    const parsedAmount = parseFloat(amount);
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      return res.status(400).json({ error: "Missing or invalid positive 'amount' field." });
-    }
-    if (!biller || !accountNumber) {
-      return res.status(400).json({ error: "Missing 'biller' or 'accountNumber' field." });
-    }
-
-    const result = await transactionOrchestrator.executeBillPayment({
-      source: "WEB",
-      biller,
-      accountNumber,
-      amount: parsedAmount,
-      payer_phone: payer_phone || "0553838464",
-    });
-
-    res.json({
-      success: result.status === "SUCCESS" || result.status === "PENDING",
-      transaction: result,
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+// Pay Bills (Unimplemented in MTN MoMo Open API)
+momoRouter.post("/api/momo/bills", adminRateLimiter, requireAdminAuth, (_req: Request, res: Response) => {
+  res.status(400).json({
+    success: false,
+    error: "Not implemented. MTN MoMo Open API does not offer native endpoints for Utility & Bill Payment.",
+    implemented: false,
+  });
 });
 
-// Cash Out (Central Transaction Service)
-momoRouter.post("/api/momo/cashout", adminRateLimiter, requireAdminAuth, async (req: Request, res: Response) => {
-  try {
-    const { phone, amount, agentId, payer_phone } = req.body;
-    const parsedAmount = parseFloat(amount);
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      return res.status(400).json({ error: "Missing or invalid positive 'amount' field." });
-    }
-    if (!phone) {
-      return res.status(400).json({ error: "Missing required 'phone' field." });
-    }
-
-    const validatedPhone = validateGhanaPhoneNumber(phone);
-    if (!validatedPhone.valid || !validatedPhone.normalized) {
-      return res.status(400).json({ error: validatedPhone.error || "Invalid phone number." });
-    }
-
-    const result = await transactionOrchestrator.executeCashOut({
-      source: "WEB",
-      phone: validatedPhone.normalized,
-      amount: parsedAmount,
-      agentId,
-      payer_phone: payer_phone || validatedPhone.normalized,
-    });
-
-    res.json({
-      success: result.status === "SUCCESS" || result.status === "PENDING",
-      transaction: result,
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+// Cash Out (Unimplemented in MTN MoMo Open API)
+momoRouter.post("/api/momo/cashout", adminRateLimiter, requireAdminAuth, (_req: Request, res: Response) => {
+  res.status(400).json({
+    success: false,
+    error: "Not implemented. MTN MoMo Open API does not offer native endpoints for Cash Out.",
+    implemented: false,
+  });
 });
 
 // Collections RequestToPay
@@ -398,6 +309,127 @@ momoRouter.post("/api/momo/provision", adminRateLimiter, requireAdminAuth, async
 });
 
 // Automated Real Account / Sandbox Test Runner
+momoRouter.post("/api/momo/test-all", async (req: Request, res: Response) => {
+  const phone = (req.body?.phone || "0553838464").trim();
+  const results: Array<{
+    functionName: string;
+    passed: boolean;
+    mode: string;
+    reference: string;
+    details: string;
+    gatewayEvidence?: any;
+  }> = [];
+
+  // 1. Account Holder / KYC Validation
+  try {
+    const holder = await mtnMomoService.validateAccountHolder(phone);
+    results.push({
+      functionName: "Account Holder / KYC Lookup",
+      passed: true,
+      mode: holder.mode,
+      reference: holder.msisdn,
+      details: `Active: ${holder.isActive} | Name: ${holder.name || "Unknown (KYC not verified)"}`,
+      gatewayEvidence: holder.gatewayEvidence,
+    });
+  } catch (err: any) {
+    results.push({
+      functionName: "Account Holder / KYC Lookup",
+      passed: false,
+      mode: "ERROR",
+      reference: phone,
+      details: err.message,
+      gatewayEvidence: err.gatewayEvidence,
+    });
+  }
+
+  // 2. Check Account Balance (Disbursement)
+  try {
+    const bal = await mtnMomoService.getAccountBalance("disbursement");
+    results.push({
+      functionName: "Check Balance (Disbursement Float)",
+      passed: true,
+      mode: bal.mode,
+      reference: "FLOAT-ACC",
+      details: `Available: ${bal.formatted}`,
+      gatewayEvidence: bal.gatewayEvidence,
+    });
+  } catch (err: any) {
+    results.push({
+      functionName: "Check Balance (Disbursement Float)",
+      passed: false,
+      mode: "ERROR",
+      reference: "FLOAT-ACC",
+      details: err.message,
+      gatewayEvidence: err.gatewayEvidence,
+    });
+  }
+
+  // 3. Send Money / Disbursement Transfer
+  let transferRef = "";
+  try {
+    const tx = await mtnMomoService.transfer({
+      amount: 5.0,
+      payeePhone: phone,
+      payeeName: "Test Subscriber",
+      payerMessage: "Suite Payout Verification",
+      payeeNote: "Okwankyerɛfo Pa Test",
+    });
+    transferRef = tx.referenceId;
+    results.push({
+      functionName: "Send Money (Disbursement Transfer)",
+      passed: tx.status !== "FAILED",
+      mode: tx.mode,
+      reference: tx.referenceId,
+      details: `Dispatched ${tx.amount} ${tx.currency} (Status: ${tx.status}, FinID: ${tx.financialTransactionId || "Pending"})`,
+      gatewayEvidence: tx.gatewayEvidence,
+    });
+  } catch (err: any) {
+    results.push({
+      functionName: "Send Money (Disbursement Transfer)",
+      passed: false,
+      mode: "ERROR",
+      reference: "N/A",
+      details: err.message,
+      gatewayEvidence: err.gatewayEvidence,
+    });
+  }
+
+  // 4. Transfer Status Polling
+  if (transferRef) {
+    try {
+      await new Promise((r) => setTimeout(r, 1200));
+      const statusTx = await mtnMomoService.getTransactionStatus(transferRef);
+      results.push({
+        functionName: "Transfer Status Polling",
+        passed: Boolean(statusTx && statusTx.status !== "FAILED"),
+        mode: statusTx?.mode || "SANDBOX_API",
+        reference: transferRef,
+        details: `Polled state: ${statusTx?.status} (FinID: ${statusTx?.financialTransactionId || "N/A"})`,
+        gatewayEvidence: statusTx?.gatewayEvidence,
+      });
+    } catch (err: any) {
+      results.push({
+        functionName: "Transfer Status Polling",
+        passed: false,
+        mode: "ERROR",
+        reference: transferRef,
+        details: err.message,
+        gatewayEvidence: err.gatewayEvidence,
+      });
+    }
+  }
+
+  const allPassed = results.every((r) => r.passed);
+  res.json({
+    success: true,
+    allPassed,
+    totalTests: results.length,
+    results,
+    diagnostics: mtnMomoService.getDiagnostics(),
+  });
+});
+
+// Automated Real Account / Sandbox Test Runner
 momoRouter.post("/api/momo/test-account", adminRateLimiter, requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const { phone, amount, subscriberName, targetEnv } = req.body;
@@ -412,7 +444,7 @@ momoRouter.post("/api/momo/test-account", adminRateLimiter, requireAdminAuth, as
     });
     res.json(result);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message, gatewayEvidence: err.gatewayEvidence });
   }
 });
 
@@ -448,9 +480,9 @@ momoRouter.post("/api/momo/collection", adminRateLimiter, requireAdminAuth, asyn
       payeeNote: payeeNote || "Payment received",
       externalId,
     });
-    res.status(202).json({ success: true, transaction: tx });
+    res.status(202).json({ success: true, transaction: tx, gatewayEvidence: tx.gatewayEvidence });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message, gatewayEvidence: err.gatewayEvidence, endpoint: err.endpoint });
   }
 });
 
@@ -462,9 +494,9 @@ momoRouter.get("/api/momo/collection/:referenceId", adminRateLimiter, requireAdm
     if (!tx) {
       return res.status(404).json({ error: "Collection reference not found" });
     }
-    res.json({ success: true, transaction: tx });
+    res.json({ success: true, transaction: tx, gatewayEvidence: tx.gatewayEvidence });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message, gatewayEvidence: err.gatewayEvidence, endpoint: err.endpoint });
   }
 });
 
@@ -491,9 +523,9 @@ momoRouter.post("/api/momo/transfer", adminRateLimiter, requireAdminAuth, async 
       payeeNote: payeeNote || "Funds received",
       externalId,
     });
-    res.status(202).json({ success: true, transaction: tx });
+    res.status(202).json({ success: true, transaction: tx, gatewayEvidence: tx.gatewayEvidence });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message, gatewayEvidence: err.gatewayEvidence, endpoint: err.endpoint });
   }
 });
 
@@ -505,9 +537,9 @@ momoRouter.get("/api/momo/transfer/:referenceId", adminRateLimiter, requireAdmin
     if (!tx) {
       return res.status(404).json({ error: "Transfer reference not found" });
     }
-    res.json({ success: true, transaction: tx });
+    res.json({ success: true, transaction: tx, gatewayEvidence: tx.gatewayEvidence });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message, gatewayEvidence: err.gatewayEvidence, endpoint: err.endpoint });
   }
 });
 
@@ -516,9 +548,9 @@ momoRouter.get("/api/momo/account/balance", adminRateLimiter, requireAdminAuth, 
   try {
     const product = (req.query.product === "disbursement" ? "disbursement" : "collection") as "collection" | "disbursement";
     const balance = await mtnMomoService.getAccountBalance(product);
-    res.json({ success: true, balance });
+    res.json({ success: true, balance, gatewayEvidence: balance.gatewayEvidence });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message, gatewayEvidence: err.gatewayEvidence, endpoint: err.endpoint });
   }
 });
 
@@ -531,9 +563,9 @@ momoRouter.get("/api/momo/account/holder/:phone", adminRateLimiter, requireAdmin
       return res.status(400).json({ error: validatedPhone.error || "Invalid Ghanaian phone number format." });
     }
     const holder = await mtnMomoService.validateAccountHolder(validatedPhone.normalized);
-    res.json({ success: true, accountHolder: holder });
+    res.json({ success: true, accountHolder: holder, gatewayEvidence: holder.gatewayEvidence });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message, gatewayEvidence: err.gatewayEvidence, endpoint: err.endpoint });
   }
 });
 

@@ -77,9 +77,13 @@ export class MoMoAccountService {
     }
 
     const data = await res.json();
-    const givenName = data.given_name || "";
-    const familyName = data.family_name || "";
-    const fullName = `${givenName} ${familyName}`.trim() || data.name || "Sand Box";
+    const givenName = (data.given_name || "").trim();
+    const familyName = (data.family_name || "").trim();
+    const fullName = `${givenName} ${familyName}`.trim() || (data.name || "").trim();
+
+    if (!fullName) {
+      return null;
+    }
 
     return {
       given_name: givenName,
@@ -95,6 +99,7 @@ export class MoMoAccountService {
    * 2. Call MTN Account Holder Active check
    * 3. Call MTN Basic User Info to retrieve account holder's name
    * 4. Normalize result into internal RecipientLookupResult structure
+   * - ZERO FABRICATION: recipient name comes ONLY from MTN API or 'Unknown (KYC not verified)'.
    */
   public async lookupRecipient(phone: string): Promise<RecipientLookupResult> {
     const validation = validateGhanaPhoneNumber(phone);
@@ -106,36 +111,23 @@ export class MoMoAccountService {
       ? "disbursement"
       : "collection";
 
-    try {
-      // Step 1 & 2: Active check and Basic User Info from MTN API
-      const [active, userInfo] = await Promise.all([
-        this.isAccountActive(normalized, preferredProduct).catch(() => true), // Fallback true in sandbox if endpoint transient
-        this.getBasicUserInfo(normalized, preferredProduct).catch(() => null),
-      ]);
+    // Step 1 & 2: Active check and Basic User Info from MTN API
+    const [active, userInfo] = await Promise.all([
+      this.isAccountActive(normalized, preferredProduct),
+      this.getBasicUserInfo(normalized, preferredProduct),
+    ]);
 
-      const name = userInfo?.name || (targetEnv === "sandbox" ? "Sand Box" : "MTN Subscriber");
+    const name = userInfo?.name || "Unknown (KYC not verified)";
 
-      return {
-        phone: normalized,
-        name,
-        accountActive: active,
-        provider: "MTN",
-        environment: targetEnv,
-        source: "MTN_MOMO_API",
-        rawUserInfo: userInfo || undefined,
-      };
-    } catch (err: any) {
-      console.warn(`[MoMoAccountService] lookupRecipient fallback for ${normalized}:`, err.message);
-      return {
-        phone: normalized,
-        name: targetEnv === "sandbox" ? "Sand Box" : "MTN Subscriber",
-        accountActive: true,
-        provider: "MTN",
-        environment: targetEnv,
-        source: "FIXTURE_FALLBACK",
-        warning: `Lookup encountered notice: ${err.message}`,
-      };
-    }
+    return {
+      phone: normalized,
+      name,
+      accountActive: active,
+      provider: "MTN",
+      environment: targetEnv,
+      source: "MTN_MOMO_API",
+      rawUserInfo: userInfo || undefined,
+    };
   }
 
   /**
@@ -168,18 +160,6 @@ export class MoMoAccountService {
         currency: curr,
         formatted: `${balanceNum.toLocaleString("en-US", { minimumFractionDigits: 2 })} ${curr}`,
         mode: targetEnv === "production" ? "REAL" : "SANDBOX",
-        product,
-        timestamp: new Date().toISOString(),
-      };
-    }
-
-    if (res.status === 503) {
-      // MTN Sandbox frequently returns 503 SERVICE_UNAVAILABLE for balance inquiry
-      return {
-        availableBalance: 1000.0,
-        currency: targetEnv === "production" ? "GHS" : "EUR",
-        formatted: `1,000.00 ${targetEnv === "production" ? "GHS" : "EUR"} (Sandbox Float)`,
-        mode: "SANDBOX_LIMITATION",
         product,
         timestamp: new Date().toISOString(),
       };

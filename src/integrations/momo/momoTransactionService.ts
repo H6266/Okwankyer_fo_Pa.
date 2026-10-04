@@ -57,8 +57,8 @@ export class MoMoTransactionService {
    * Generates a unique internal transaction ID (e.g., TX-682941)
    */
   private generateInternalId(): string {
-    const random = Math.floor(100000 + Math.random() * 900000);
-    return `TX-${random}`;
+    const hex = crypto.randomBytes(3).toString("hex").toUpperCase();
+    return `TX-${hex}`;
   }
 
   /**
@@ -224,29 +224,38 @@ export class MoMoTransactionService {
         const token = await this.authService.getAccessToken("disbursement");
         const url = `${baseUrl}/disbursement/v1_0/transfer`;
 
+        const disbKey = this.authService.getSubscriptionKey("disbursement");
+        const startTime = Date.now();
+        const headers: Record<string, string> = {
+          "Authorization": `Bearer ${token}`,
+          "X-Reference-Id": mtnReferenceId,
+          "X-Target-Environment": targetEnv,
+          "Ocp-Apim-Subscription-Key": disbKey,
+          "Content-Type": "application/json",
+          "User-Agent": "curl/7.88.1",
+          "Accept": "application/json",
+        };
+        const reqBody = {
+          amount: tx.amount.value.toFixed(1),
+          currency: settlementCurrency,
+          externalId,
+          payee: {
+            partyIdType: "MSISDN",
+            partyId: formatMsisdn(recipientPhone),
+          },
+          payerMessage: cleanAscii(tx.metadata?.payerMessage || `Transfer of GHS ${tx.amount.value}`),
+          payeeNote: cleanAscii(tx.metadata?.payeeNote || "MoMo Transfer"),
+        };
+
         const res = await fetch(url, {
           method: "POST",
-          headers: {
-            "Authorization": `Bearer ${token}`,
-            "X-Reference-Id": mtnReferenceId,
-            "X-Target-Environment": targetEnv,
-            "Ocp-Apim-Subscription-Key": process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY || process.env.MTN_DISBURSEMENT_SUBSCRIPTION_KEY || "",
-            "Content-Type": "application/json",
-            "User-Agent": "curl/7.88.1",
-            "Accept": "application/json",
-          },
-          body: JSON.stringify({
-            amount: tx.amount.value.toFixed(1),
-            currency: settlementCurrency,
-            externalId,
-            payee: {
-              partyIdType: "MSISDN",
-              partyId: formatMsisdn(recipientPhone),
-            },
-            payerMessage: cleanAscii(tx.metadata?.payerMessage || `Transfer of GHS ${tx.amount.value}`),
-            payeeNote: cleanAscii(tx.metadata?.payeeNote || "MoMo Transfer"),
-          }),
+          headers,
+          body: JSON.stringify(reqBody),
         });
+
+        const roundTripMs = Date.now() - startTime;
+        const resHeaders: Record<string, string> = {};
+        res.headers.forEach((v, k) => { resHeaders[k] = v; });
 
         tx.provider.statusCode = res.status;
 
@@ -270,29 +279,33 @@ export class MoMoTransactionService {
         // Collection RequestToPay: sends USSD push to payer handset
         const token = await this.authService.getAccessToken("collection");
         const url = `${baseUrl}/collection/v1_0/requesttopay`;
+        const collKey = this.authService.getSubscriptionKey("collection");
+
+        const headers: Record<string, string> = {
+          "Authorization": `Bearer ${token}`,
+          "X-Reference-Id": mtnReferenceId,
+          "X-Target-Environment": targetEnv,
+          "Ocp-Apim-Subscription-Key": collKey,
+          "Content-Type": "application/json",
+          "User-Agent": "curl/7.88.1",
+          "Accept": "application/json",
+        };
+        const reqBody = {
+          amount: tx.amount.value.toFixed(1),
+          currency: settlementCurrency,
+          externalId,
+          payer: {
+            partyIdType: "MSISDN",
+            partyId: formatMsisdn(payerPhone),
+          },
+          payerMessage: cleanAscii(tx.metadata?.payerMessage || `Payment of GHS ${tx.amount.value}`),
+          payeeNote: cleanAscii(tx.metadata?.payeeNote || "MoMo Payment"),
+        };
 
         const res = await fetch(url, {
           method: "POST",
-          headers: {
-            "Authorization": `Bearer ${token}`,
-            "X-Reference-Id": mtnReferenceId,
-            "X-Target-Environment": targetEnv,
-            "Ocp-Apim-Subscription-Key": process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY || process.env.MTN_COLLECTION_SUBSCRIPTION_KEY || "",
-            "Content-Type": "application/json",
-            "User-Agent": "curl/7.88.1",
-            "Accept": "application/json",
-          },
-          body: JSON.stringify({
-            amount: tx.amount.value.toFixed(1),
-            currency: settlementCurrency,
-            externalId,
-            payer: {
-              partyIdType: "MSISDN",
-              partyId: formatMsisdn(payerPhone),
-            },
-            payerMessage: cleanAscii(tx.metadata?.payerMessage || `Payment of GHS ${tx.amount.value}`),
-            payeeNote: cleanAscii(tx.metadata?.payeeNote || "MoMo Payment"),
-          }),
+          headers,
+          body: JSON.stringify(reqBody),
         });
 
         tx.provider.statusCode = res.status;

@@ -117,8 +117,10 @@ dashboardRouter.get("/api/dev/env-check", (_req: Request, res: Response) => {
     { name: "AT_VOICE_NUMBER", required: false, present: Boolean(config.at.voiceNumber), description: "Virtual telephony voice trunk number (+233 30 804 8098)" },
     { name: "GEMINI_API_KEY", required: true, present: Boolean(config.gemini.apiKey), description: "Google Gemini API key for spoken ASR & intent parsing" },
     { name: "MOMO_SUBSCRIPTION_KEY", required: true, present: Boolean(config.momo.subscriptionKey), description: "MTN MoMo API Primary Subscription Key" },
-    { name: "MOMO_API_USER_ID", required: true, present: Boolean(config.momo.apiUserId), description: "MTN MoMo API User UUID" },
-    { name: "MOMO_API_KEY", required: true, present: Boolean(config.momo.apiKey), description: "MTN MoMo API Secret Key" },
+    { name: "MOMO_PRIMARY_KEY", required: false, present: Boolean(process.env.MOMO_PRIMARY_KEY), description: "MTN MoMo Disbursements Primary Key" },
+    { name: "MOMO_SECONDARY_KEY", required: false, present: Boolean(process.env.MOMO_SECONDARY_KEY), description: "MTN MoMo Disbursements Secondary Key" },
+    { name: "MOMO_DISBURSEMENT_API_USER_ID", required: true, present: Boolean(process.env.MOMO_DISBURSEMENT_API_USER_ID || config.momo.apiUserId), description: "MTN MoMo Disbursement API User UUID" },
+    { name: "MOMO_DISBURSEMENT_API_KEY", required: true, present: Boolean(process.env.MOMO_DISBURSEMENT_API_KEY || config.momo.apiKey), description: "MTN MoMo Disbursement API Key" },
   ];
   res.json({
     variables,

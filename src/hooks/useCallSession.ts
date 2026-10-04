@@ -485,7 +485,7 @@ export function useCallSession() {
       if (approved) {
         addLog("✅ Handset USSD PIN verified on private telco prompt (zero PIN captured by voice).");
         goToStep("receipt", {
-          referenceId: `OKP-${Math.floor(100000 + Math.random() * 900000)}`,
+          referenceId: `OKP-${Date.now().toString().slice(-6)}`,
         });
       } else {
         addLog("❌ Handset USSD PIN entry declined by user.");

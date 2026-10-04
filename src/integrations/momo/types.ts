@@ -25,6 +25,25 @@ export interface MoMoConfig {
   callbackHost?: string;
 }
 
+export interface GatewayEvidence {
+  timestamp: string;
+  host: string;
+  roundTripMs: number;
+  endpoint: string;
+  request: {
+    method: string;
+    url: string;
+    headers: Record<string, string>;
+    body?: any;
+  };
+  response: {
+    status: number;
+    statusText: string;
+    headers: Record<string, string>;
+    body: any;
+  };
+}
+
 export interface MoMoTransactionRecord {
   id: string; // Internal ID or external reference
   referenceId: string; // UUID v4 used with MTN MoMo API (X-Reference-Id)
@@ -42,6 +61,7 @@ export interface MoMoTransactionRecord {
   updatedAt: string;
   reason?: string;
   rawPayload?: any;
+  gatewayEvidence?: GatewayEvidence;
 }
 
 export interface RequestToPayParams {
@@ -51,6 +71,7 @@ export interface RequestToPayParams {
   payerMessage?: string;
   payeeNote?: string;
   externalId?: string;
+  currency?: string;
 }
 
 export interface TransferParams {
@@ -60,6 +81,7 @@ export interface TransferParams {
   payerMessage?: string;
   payeeNote?: string;
   externalId?: string;
+  currency?: string;
 }
 
 export interface MoMoBalanceResult {
@@ -67,6 +89,8 @@ export interface MoMoBalanceResult {
   currency: string;
   formatted: string;
   mode: MoMoMode;
+  gatewayEvidence?: GatewayEvidence;
+  rawPayload?: any;
 }
 
 export interface MoMoAccountHolderResult {
@@ -74,6 +98,8 @@ export interface MoMoAccountHolderResult {
   msisdn: string;
   name?: string;
   mode: MoMoMode;
+  gatewayEvidence?: GatewayEvidence;
+  rawPayload?: any;
 }
 
 export interface MoMoKeyConfig {
