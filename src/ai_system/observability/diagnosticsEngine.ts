@@ -7,6 +7,7 @@ import { NAVIGATION_GRAPH } from "../navigation/navigationGraph";
 import { APPROVED_TOOLS } from "../actions/actionTypes";
 import { GHANAIAN_NAMES } from "../speech/pronunciation/nameDictionary";
 import { GHANAIAN_PLACES, GHANAIAN_TERMS } from "../speech/pronunciation/placeDictionary";
+import { AI_CONFIG } from "../core/aiConfig";
 
 export interface SystemDiagnosticsReport {
   timestamp: string;
@@ -62,8 +63,8 @@ export class DiagnosticsEngine {
       },
       providers: {
         geminiApiKeyPresent: hasKey,
-        defaultModel: "gemini-3.8-flash",
-        ttsModel: "gemini-3.8-flash-lite-tts",
+        defaultModel: AI_CONFIG.model,
+        ttsModel: AI_CONFIG.ttsModel,
         fallbackActive: !hasKey,
       },
       resources: {

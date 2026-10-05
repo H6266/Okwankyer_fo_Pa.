@@ -41,6 +41,18 @@ export type IntentName =
   | "CHANGE_INFORMATION"
   | "CONFIRM"
   | "DENY"
+  | "GREETING"
+  | "THANKS"
+  | "GOODBYE"
+  | "QUESTION"
+  | "EXPLANATION"
+  | "CHITCHAT"
+  | "CONFUSION"
+  | "CLARIFICATION"
+  | "MULTI_INTENT"
+  | "OUT_OF_DOMAIN"
+  | "INTERRUPTION"
+  | "RECOVERY"
   | "UNKNOWN";
 
 export type MobileNetwork = "MTN" | "Telecel" | "AT" | "G-Money";
@@ -252,6 +264,7 @@ export interface TransactionalMemoryRecord {
   amount: number;
   currency: "GHS";
   recipientPhoneMasked: string;
+  recipientPhone?: string;
   recipientName: string;
   network: MobileNetwork;
   status: "PENDING" | "CONFIRMED" | "CANCELLED" | "COMPLETED" | "BLOCKED" | "FAILED";
@@ -343,7 +356,7 @@ export interface StructuredReasoningResponse {
   confidence: number;
   language: AiLanguage;
   entities: EntitySlotMap;
-  conversationAct: "INFORM" | "REQUEST" | "CONFIRM" | "DENY" | "CORRECT" | "INTERRUPT" | "CHITCHAT" | "UNKNOWN";
+  conversationAct: "INFORM" | "REQUEST" | "CONFIRM" | "DENY" | "CORRECT" | "INTERRUPT" | "CHITCHAT" | "GREETING" | "UNKNOWN";
   correction: {
     isCorrection: boolean;
     field?: string;
@@ -524,6 +537,22 @@ export interface AiProcessResult {
     activeTask?: string;
     suspendedTasksCount: number;
   };
+}
+
+// ── Context Packet for Memory-Driven Reasoning ──────────────────────
+export interface ContextPacket {
+  currentTask: string | null;
+  currentAmount: number | null;
+  currentRecipient: string | null;
+  currentRecipientPhone: string | null;
+  currentNetwork: MobileNetwork | null;
+  recentTurns: Array<{ role: string; text: string }>;
+  relevantPastTurns: Array<{ role: string; text: string; relevance?: string }>;
+  preferredLanguage: AiLanguage;
+  knownContacts: Array<{ name: string; phone: string; network?: MobileNetwork; lastUsed?: number }>;
+  recentTransactions: Array<{ type: string; amount: number; recipient: string; phone: string; network: string; timestamp: number }>;
+  interruptedTask: { task: string; slots: EntitySlotMap; suspendedAt: number } | null;
+  taskQueue: Array<{ intent: IntentName; slots: EntitySlotMap }>;
 }
 
 // ── Security Invariants ──────────────────────────────────────────────

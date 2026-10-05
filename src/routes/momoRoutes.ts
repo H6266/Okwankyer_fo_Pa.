@@ -247,7 +247,7 @@ momoRouter.post("/api/momo/send", adminRateLimiter, requireAdminAuth, async (req
     }
 
     const refId = result.fields.referenceId || result.evidenceId;
-    const extId = result.fields.externalId;
+    const extId = result.fields.externalId || refId;
     mtnMomoService.recordTransaction({
       id: extId || refId,
       referenceId: refId,

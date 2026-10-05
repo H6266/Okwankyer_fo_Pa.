@@ -18,6 +18,8 @@ import { inputNormalizer } from "../perception/inputNormalizer";
 import { languageDetector } from "../perception/languageDetector";
 import { aiUnderstanding } from "../core/aiUnderstanding";
 import { geminiClient } from "../../services/geminiClient";
+import { openAiClient } from "../../services/openAiClient";
+import { fastLocalReasoner } from "./fastLocalReasoner";
 
 const ModelReasoningSchema = z.object({
   intent: z.string().default("UNKNOWN"),
@@ -95,19 +97,58 @@ export class ReasoningEngine {
   }): Promise<StructuredReasoningResponse> {
     const cleanUtterance = params.utterance.trim();
 
+    // 1. Ultra-fast local deterministic evaluation (<2ms)
+    // Handles DTMF (0,1,2,8,9), yes/no, cancel, repeat, back, phone numbers, amounts,
+    // greetings, thanks, goodbyes, help, and simple corrections without waiting for cloud LLMs.
+    const fastResult = fastLocalReasoner.evaluate({
+      input: cleanUtterance,
+      currentStep: params.currentStep,
+      existingSlots: params.existingSlots,
+      languageHint: params.languageHint,
+    });
+
+    if (fastResult.canFastPath) {
+      return {
+        intent: fastResult.intent,
+        confidence: fastResult.confidence,
+        language: params.languageHint || "en",
+        entities: fastResult.entities,
+        conversationAct: fastResult.conversationAct || "UNKNOWN",
+        correction: fastResult.isCorrection
+          ? {
+              isCorrection: true,
+              field: fastResult.correctionField,
+              newValue: String(fastResult.correctionNewValue),
+            }
+          : null,
+        referenceResolution: null,
+        ambiguity: { isAmbiguous: false, candidates: [] },
+        requestedAction: {
+          type: fastResult.intent,
+          tool: null,
+          arguments: fastResult.entities,
+        },
+        requiresConfirmation: fastResult.intent === "SEND_MONEY" || fastResult.intent === "CONFIRM",
+        safetyFlags: [],
+      };
+    }
+
     // Fast-path: simple confirmations and cancellations (e.g. "yes", "aane", "cancel")
     if (this.isSimpleAffirmationOrDenial(cleanUtterance)) {
       return this.deterministicReasoning(params);
     }
 
-    if (!this.client.isAvailable()) {
+    // 2. Deliberative Cloud Reasoning (Gemini primary -> OpenAI secondary -> Deterministic fallback)
+    const canUseGemini = this.client.isAvailable();
+    const canUseOpenAi = openAiClient.isAvailable();
+
+    if (!canUseGemini && !canUseOpenAi) {
       return this.deterministicReasoning(params);
     }
 
-    try {
-      // Delimit caller utterance to prevent prompt injection (Item 3.8)
-      const sanitizedUtterance = cleanUtterance.slice(0, 500).replace(/<{3,}|>{3,}/g, "");
-      const prompt = `You are the natural language reasoning layer for Ɔkwankyerɛfo Pa (Ghana Voice Mobile Money).
+    // Delimit caller utterance to prevent prompt injection (Item 3.8)
+    const sanitizedUtterance = cleanUtterance.slice(0, 500).replace(/<{3,}|>{3,}/g, "");
+    const prompt = `You are the natural language reasoning layer for Ɔkwankyerɛfo Pa (Ghana Voice Mobile Money).
 Analyze this caller's utterance in English, Akan/Twi, or Ghanaian code-switching.
 
 Caller utterance: <<<${sanitizedUtterance}>>>
@@ -117,7 +158,7 @@ Existing transaction slots: ${JSON.stringify(params.existingSlots || {})}
 Recent conversation context: ${JSON.stringify(params.recentTurns || [])}
 
 Rules:
-1. Identify the caller's intent from [SEND_MONEY, PAY_BILL, BUY_AIRTIME, BUY_DATA, CASH_OUT, CHECK_BALANCE, CHECK_ACCOUNT, HELP, GO_BACK, GO_HOME, CANCEL, REPEAT, CHANGE_INFORMATION, CONFIRM, DENY, UNKNOWN].
+1. Identify the caller's intent from [SEND_MONEY, PAY_BILL, BUY_AIRTIME, BUY_DATA, CASH_OUT, CHECK_BALANCE, CHECK_ACCOUNT, HELP, GO_BACK, GO_HOME, CANCEL, REPEAT, CHANGE_INFORMATION, CONFIRM, DENY, GREETING, THANKS, GOODBYE, QUESTION, EXPLANATION, CHITCHAT, CONFUSION, CLARIFICATION, MULTI_INTENT, OUT_OF_DOMAIN, INTERRUPTION, RECOVERY, UNKNOWN].
 2. Extract financial entities: amount (number), recipientPhone (10 digits starting with 0), recipientName, network (MTN, Telecel, AT, G-Money).
 3. Do NOT treat phone numbers as amounts.
 4. Detect mid-turn corrections (e.g. "make it 200", "no send to Ama instead", "wrong number").
@@ -125,38 +166,75 @@ Rules:
 6. If the user spoke a PIN or passcode, set safetyFlags: ["SPOKEN_PIN"].
 7. Output valid JSON adhering strictly to the schema.`;
 
-      const rawJson = await geminiClient.executeWithTimeout(
-        "REASONING",
-        async (ai, signal) => {
-          const resp = await ai.models.generateContent({
-            model: AI_CONFIG.model,
-            contents: prompt,
-            config: {
-              systemInstruction: "You are an expert Ghanaian mobile financial voice cognitive engine. Analyze spoken English, Twi, and code-switched inputs accurately into structured JSON.",
-              responseMimeType: "application/json",
-              temperature: 0.1,
-            },
-          });
-          return resp.text || "{}";
-        },
-        2500,
-        1
-      );
+    let rawJson: string | null = null;
 
-      const parsed = JSON.parse(rawJson);
-      const validated = ModelReasoningSchema.safeParse(parsed);
-      if (!validated.success) {
-        console.warn("[ReasoningEngine] Model returned off-schema JSON; rejecting and falling back to deterministic reasoning:", validated.error.message);
-        const fallback = this.deterministicReasoning(params);
-        fallback.confidence = Math.min(fallback.confidence, 0.70);
-        return fallback;
+    // Try Gemini Primary
+    if (canUseGemini) {
+      try {
+        rawJson = await geminiClient.executeWithTimeout(
+          "REASONING",
+          async (ai, signal) => {
+            const resp = await ai.models.generateContent({
+              model: AI_CONFIG.model,
+              contents: prompt,
+              config: {
+                systemInstruction:
+                  "You are an expert Ghanaian mobile financial voice cognitive engine. Analyze spoken English, Twi, and code-switched inputs accurately into structured JSON.",
+                responseMimeType: "application/json",
+                temperature: 0.1,
+              },
+            });
+            return resp.text || "{}";
+          },
+          2000,
+          0
+        );
+      } catch (err: any) {
+        const errMessage = String(err.message || "");
+        const isQuota =
+          err.status === 429 ||
+          errMessage.includes("429") ||
+          errMessage.includes("RESOURCE_EXHAUSTED") ||
+          errMessage.includes("Quota exceeded") ||
+          errMessage.includes("quota");
+
+        if (isQuota) {
+          console.warn("[ReasoningEngine] Gemini API quota reached; attempting secondary cloud provider or local reasoning.");
+        } else {
+          console.warn("[ReasoningEngine] Gemini API unavailable or timed out:", err.message);
+        }
       }
-
-      return this.normalizeModelResponse(validated.data, cleanUtterance, params.existingSlots);
-    } catch (err: any) {
-      console.warn("[ReasoningEngine] Gemini API unavailable or timed out; falling back to deterministic reasoning:", err.message);
-      return this.deterministicReasoning(params);
     }
+
+    // Try OpenAI Secondary (if Gemini failed or unavailable)
+    if (!rawJson && canUseOpenAi) {
+      try {
+        rawJson = await openAiClient.generateStructuredReasoning(prompt, 2000);
+      } catch (err: any) {
+        console.warn("[ReasoningEngine] OpenAI secondary provider unavailable or exhausted:", err.message);
+      }
+    }
+
+    // Process structured model JSON if obtained
+    if (rawJson) {
+      try {
+        const parsed = JSON.parse(rawJson);
+        const validated = ModelReasoningSchema.safeParse(parsed);
+        if (validated.success) {
+          return this.normalizeModelResponse(validated.data, cleanUtterance, params.existingSlots);
+        } else {
+          console.warn(
+            "[ReasoningEngine] Model returned off-schema JSON; falling back to deterministic reasoning:",
+            validated.error.message
+          );
+        }
+      } catch (parseErr: any) {
+        console.warn("[ReasoningEngine] Failed to parse model response JSON; falling back:", parseErr.message);
+      }
+    }
+
+    // Resilient local deterministic reasoning fallback
+    return this.deterministicReasoning(params);
   }
 
   /**

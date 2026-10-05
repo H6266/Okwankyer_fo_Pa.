@@ -240,6 +240,125 @@ export class AiDialogue {
         };
       }
 
+      case "GREETING": {
+        const response = isTwi
+          ? "Akwaaba! Me din de Ɔkwankyerɛfo Pa. Metumi aboa wo ama woamane sika, ato airtime, anaa woatua bills. Dɛn na me nyɛ mma wo nnɛ?"
+          : "Hello and welcome to Ɔkwankyerɛfo Pa! I can help you send money, buy airtime, pay bills, or check your account. How can I help you today?";
+
+        return {
+          type: "CONTINUE_TRANSACTION",
+          response,
+          promptLanguage: language,
+          needsClarification: false,
+        };
+      }
+
+      case "THANKS": {
+        const response = isTwi
+          ? "Ɛnyɛ hwee koraa, me nso medaase! Biribi foforɔ wɔ hɔ a meboa wo wɔ ho?"
+          : "You're very welcome! Is there anything else I can help you with?";
+
+        return {
+          type: "CONTINUE_TRANSACTION",
+          response,
+          promptLanguage: language,
+          needsClarification: false,
+        };
+      }
+
+      case "GOODBYE": {
+        const response = isTwi
+          ? "Nante yie na ahobammbɔ nka wo! Medaase sɛ wowɔ Ɔkwankyerɛfo Pa so."
+          : "Goodbye and stay safe! Thank you for using Ɔkwankyerɛfo Pa.";
+
+        return {
+          type: "INFORM_AND_EXIT",
+          response,
+          promptLanguage: language,
+          needsClarification: false,
+        };
+      }
+
+      case "QUESTION":
+      case "EXPLANATION": {
+        const response = isTwi
+          ? "Ɔkwankyerɛfo Pa yɛ wo MoMo nne boafoɔ wɔ Ghana. Wotumi ka sɛ 'Mane sika aduasa kɔma Ama', 'Tɔ cedi du airtime', anaa 'Tua me ECG bill'. Kyerɛ me nea wopɛ."
+          : "Ɔkwankyerɛfo Pa is your voice assistant for mobile financial services in Ghana. You can say 'Send 50 cedis to Ama', 'Buy 10 cedis airtime', or 'Pay ECG bill'. What would you like to do?";
+
+        return {
+          type: "CONTINUE_TRANSACTION",
+          response,
+          promptLanguage: language,
+          needsClarification: false,
+        };
+      }
+
+      case "CHITCHAT": {
+        const response = isTwi
+          ? "Me ho yɛ papaapa, medaase! Mewɔ hɔ sɛ meboa wo wɔ wo sika ne MoMo ho. Wobɛpɛ sɛ yɛmane sika anaa yɛyɛ biribi foforɔ?"
+          : "I'm doing great, thank you! I'm ready to assist you with your mobile money and transfers. What can I do for you?";
+
+        return {
+          type: "CONTINUE_TRANSACTION",
+          response,
+          promptLanguage: language,
+          needsClarification: false,
+        };
+      }
+
+      case "CONFUSION": {
+        const response = isTwi
+          ? "Mepa wo kyɛw sɛ asɛm no mu anna hɔ yie. Wotumi ka nea wopɛ sɛ woyɛ—sɛ ebia 'mane sika', 'tɔ airtime', anaa 'boa me'."
+          : "I apologize if that was unclear. You can tell me what you want to do in simple words—like 'send money', 'buy airtime', or say 'help'.";
+
+        return {
+          type: "ERROR_RECOVERY",
+          response,
+          promptLanguage: language,
+          needsClarification: true,
+          clarificationOptions: ["Send Money", "Buy Airtime", "Help"],
+        };
+      }
+
+      case "INTERRUPTION": {
+        const response = isTwi
+          ? "Mateso, magyae ansa. Dɛn na wobɛpɛ sɛ yɛdi kan yɛ ansa na yɛakɔ so?"
+          : "Understood, I have paused. What would you like to take care of first?";
+
+        return {
+          type: "CONTINUE_TRANSACTION",
+          response,
+          promptLanguage: language,
+          needsClarification: false,
+        };
+      }
+
+      case "RECOVERY": {
+        const response = isTwi
+          ? "Yoo, yɛasan afiti aseɛ foforɔ. Kyerɛ me nea wobɛpɛ sɛ meboa wo wɔ ho."
+          : "Understood, let's start fresh. Please tell me what you would like to do.";
+
+        return {
+          type: "CONTINUE_TRANSACTION",
+          response,
+          promptLanguage: language,
+          needsClarification: false,
+        };
+      }
+
+      case "OUT_OF_DOMAIN": {
+        const response = isTwi
+          ? "Me dwuma titire ne sɛ meboa wo wɔ MoMo, sika mane, ne airtime ho wɔ Ghana. Mentumi mmoa wo wɔ asɛm yi ho, nanso metumi aboa wo ama woamane sika."
+          : "I specialize in Ghanaian mobile money transactions, airtime, and bill payments. I cannot assist with that topic, but I can help you send money or buy airtime.";
+
+        return {
+          type: "CONTINUE_TRANSACTION",
+          response,
+          promptLanguage: language,
+          needsClarification: false,
+        };
+      }
+
       default: {
         const response = isTwi
           ? "Mepa wo kyɛw, mante aseɛ yie. Wobɛpɛ sɛ womane sika anaa wobɛhwɛ wo balance?"

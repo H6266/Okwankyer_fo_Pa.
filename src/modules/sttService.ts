@@ -176,7 +176,7 @@ Instructions:
 3. Transcribe only what the caller actually spoke. Do not assume or hallucinate.`;
 
   const primaryModel = AI_CONFIG.transcriptionModel || "gemini-3.5-transcribe";
-  const secondaryModel = "gemini-3.8-flash";
+  const secondaryModel = "gemini-3.1-flash-lite";
 
   try {
     const rawJsonText = await geminiClient.executeHedged(

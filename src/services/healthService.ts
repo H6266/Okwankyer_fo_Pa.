@@ -115,8 +115,9 @@ export async function runRealSmokeTests(): Promise<SmokeTestReport> {
           },
         },
       });
+      const modelToPing = process.env.GEMINI_REASONING_MODEL || "gemini-3.1-flash-lite";
       const pingResponse = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
+        model: modelToPing,
         contents: "Respond with the word 'READY' if this system check is working.",
       });
       const geminiLatency = Date.now() - startGemini;

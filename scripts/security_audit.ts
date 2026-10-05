@@ -120,12 +120,14 @@ async function runFullSecurityAudit() {
     senderPhone: "0551110001",
     recipientPhone: "0552220002",
     amount: 75,
+    network: "MTN",
     clientNonce: "nonce_unique_7788",
   });
   const draft2 = paymentSaga.createDraft({
     senderPhone: "0551110001",
     recipientPhone: "0552220002",
     amount: 75,
+    network: "MTN",
     clientNonce: "nonce_unique_7788",
   });
   checks.push({
@@ -195,6 +197,7 @@ async function runFullSecurityAudit() {
     senderPhone: "0559990001",
     recipientPhone: "0558880002",
     amount: 15,
+    network: "MTN",
     clientNonce: `nonce_audit_rcp_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
   });
   paymentSaga.verifyRecipient(testSaga.sagaId, "Test User");

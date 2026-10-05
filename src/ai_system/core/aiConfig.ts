@@ -26,7 +26,7 @@ export interface AiSystemConfiguration {
 }
 
 export const AI_CONFIG: AiSystemConfiguration = {
-  model: process.env.GEMINI_REASONING_MODEL || "gemini-3.8-flash",
+  model: process.env.GEMINI_REASONING_MODEL || "gemini-3.1-flash-lite",
   liveModel: process.env.GEMINI_LIVE_MODEL || "gemini-3.8-live",
   transcriptionModel: process.env.GEMINI_TRANSCRIBE_MODEL || "gemini-3.5-transcribe",
   ttsModel: process.env.GEMINI_TTS_MODEL || "gemini-3.8-flash-lite-tts",

@@ -40,6 +40,8 @@ export class UnifiedGeminiClient {
 
   private readonly FAILURE_THRESHOLD = 4;
   private readonly RECOVERY_TIMEOUT_MS = 30 * 1000; // 30s
+  private readonly QUOTA_COOLDOWN_MS = 10 * 60 * 1000; // 10m on quota exhaustion
+  private isQuotaCooldown = false;
   private latencyHistory: { stage: string; durationMs: number; timestamp: number }[] = [];
 
   constructor() {
@@ -80,9 +82,11 @@ export class UnifiedGeminiClient {
 
   private checkCircuitBreaker(): boolean {
     const now = Date.now();
+    const timeout = this.isQuotaCooldown ? this.QUOTA_COOLDOWN_MS : this.RECOVERY_TIMEOUT_MS;
     if (this.circuitBreaker.state === "OPEN") {
-      if (now - this.circuitBreaker.lastFailureTime > this.RECOVERY_TIMEOUT_MS) {
+      if (now - this.circuitBreaker.lastFailureTime > timeout) {
         this.circuitBreaker.state = "HALF_OPEN";
+        this.isQuotaCooldown = false;
         return true;
       }
       return false;
@@ -90,9 +94,18 @@ export class UnifiedGeminiClient {
     return true;
   }
 
+  public recordQuotaExceeded(operationName?: string): void {
+    this.circuitBreaker.failureCount = this.FAILURE_THRESHOLD;
+    this.circuitBreaker.lastFailureTime = Date.now();
+    this.circuitBreaker.state = "OPEN";
+    this.isQuotaCooldown = true;
+    auditLogger.log("warn", "AI_CIRCUIT_BREAKER", `Gemini API quota exceeded for ${operationName || "operation"}. Fast-failing to local offline engine for 10 minutes.`);
+  }
+
   private recordSuccess(stage: string, durationMs: number): void {
     this.circuitBreaker.failureCount = 0;
     this.circuitBreaker.state = "CLOSED";
+    this.isQuotaCooldown = false;
     this.latencyHistory.push({ stage, durationMs, timestamp: Date.now() });
     if (this.latencyHistory.length > 500) {
       this.latencyHistory.shift();
@@ -143,13 +156,25 @@ export class UnifiedGeminiClient {
         return result;
       } catch (err: any) {
         clearTimeout(timeoutHandle);
+        const errMessage = String(err.message || "");
+        const isQuota =
+          err.status === 429 ||
+          errMessage.includes("429") ||
+          errMessage.includes("RESOURCE_EXHAUSTED") ||
+          errMessage.includes("Quota exceeded") ||
+          errMessage.includes("quota");
+
+        if (isQuota) {
+          this.recordQuotaExceeded(operationName);
+          throw err;
+        }
+
         const isAbort = controller.signal.aborted || err.name === "AbortError";
         const isRetriable =
           isAbort ||
-          err.status === 429 ||
           (err.status >= 500 && err.status < 600) ||
-          err.message?.includes("fetch failed") ||
-          err.message?.includes("network");
+          errMessage.includes("fetch failed") ||
+          errMessage.includes("network");
 
         if (attempt < maxRetries && isRetriable) {
           attempt++;
