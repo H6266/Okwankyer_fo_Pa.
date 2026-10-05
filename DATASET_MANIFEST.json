@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "version": "1.0.0",
   "organization": "Ɔkwankyerɛfo Pa / Team Anidasoɔ",
-  "manifest_date": "2026-10-04",
+  "manifest_date": "2026-10-05",
   "datasets": [
     {
       "id": "ghana-speech",
@@ -17,7 +17,7 @@
       "speaker_metadata": "Speaker-tagged across multiple regions in Ghana; requires speaker-disjoint splitting for evaluation",
       "notes": "Current dataset card declares CC BY-NC 4.0. Research and evaluation only; verify release contents and consent terms before acquisition.",
       "provenance": "GhanaNLP Community dataset card; underlying collection and consent terms require review",
-      "checksum": "sha256:d8a5e12f602be1b8a91a93e3d2ff903b41e8c0fa1a90d4529bce0b533e11f810",
+      "checksum": null,
       "approved_for_training": false
     },
     {
@@ -33,7 +33,7 @@
       "speaker_metadata": "Explicit speaker IDs with predefined train/validation/test partitions",
       "notes": "Dataset card declares Apache-2.0 and provides transcript and IPA fields with split metadata; independently validate data quality before treating it as a benchmark.",
       "provenance": "GhanaNLP Community dataset card",
-      "checksum": "sha256:4b9123fe55a90e3cd14fa1a3bb670df5522e8964099ceab1218a59ddfe90451a",
+      "checksum": null,
       "approved_for_training": true
     },
     {
@@ -49,7 +49,7 @@
       "speaker_metadata": "Written text corpus; no speaker audio",
       "notes": "CRITICAL HARD GATE: Non-commercial license (CC BY-NC 4.0). BANNED from commercial production weights.",
       "provenance": "GhanaNLP pristine Akan text archive",
-      "checksum": "sha256:88921a9c39031efb32aa012cf05d933bb1184fead89012a67bc45ee23a9034ff",
+      "checksum": null,
       "approved_for_training": false
     },
     {
@@ -65,7 +65,7 @@
       "speaker_metadata": "N/A (instruction text)",
       "notes": "Experimental reasoning mix with partial machine translation. Non-commercial license gate active.",
       "provenance": "Community instruction dataset mix",
-      "checksum": "sha256:77bc34190fa21e89bda2054cd0198ac34011efab89c021ee546700abfe129990",
+      "checksum": null,
       "approved_for_training": false
     },
     {
@@ -81,7 +81,7 @@
       "speaker_metadata": "N/A",
       "notes": "Weakly supervised machine-translated Twi. Never use as the gold Twi linguistic benchmark.",
       "provenance": "GhanaNLP community agriculture QA translations",
-      "checksum": "sha256:32901fabee99014522aabf091cde408990123ccfe89011de34190ba33ee0114a",
+      "checksum": null,
       "approved_for_training": false
     },
     {
@@ -97,7 +97,7 @@
       "speaker_metadata": "Multi-turn synthetic chat transcripts",
       "notes": "Synthetic conversational data; treated as bronze tier and processed through PII redaction pipeline.",
       "provenance": "Synthetic Ghanaian conversational dialogue generation",
-      "checksum": "sha256:9901a1cfaeb091bceef340112aa89710ccdafe9901a34bcda0129fe778901234",
+      "checksum": null,
       "approved_for_training": false
     },
     {
@@ -113,7 +113,7 @@
       "speaker_metadata": "Not verified",
       "notes": "Internal project data. Rights, provenance, consent, and quality claims have not been independently established; excluded from training and research use until documented and reviewed.",
       "provenance": "Unverified internal source",
-      "checksum": "sha256:a34e02187e463bb8671571243fa272b8a2ad3247d4b69a23eef6a18c734abcfa",
+      "checksum": null,
       "approved_for_training": false
     }
   ]

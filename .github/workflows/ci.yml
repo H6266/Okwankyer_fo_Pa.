@@ -20,6 +20,11 @@ jobs:
         with:
           node-version: 22
 
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Install Dependencies
         run: npm install --legacy-peer-deps
 
@@ -34,6 +39,12 @@ jobs:
 
       - name: Validate Dataset Licensing
         run: npm run ai:data:validate
+
+      - name: Compile Python AI and data tooling
+        run: python -m compileall -q ml training scripts
+
+      - name: Test speaker-disjoint data splitting
+        run: python -m unittest discover -s tests -p 'test_*.py'
 
       - name: Run Security Audit
         run: npm run security:audit

@@ -12,9 +12,16 @@ const IV_LENGTH = 12; // 96 bits for GCM
 const TAG_LENGTH = 16; // 128 bits auth tag
 
 function getEncryptionKey(): Buffer {
-  const envKey = process.env.ENCRYPTION_KEY || process.env.SESSION_SECRET || "okwankyerɛfo_pa_default_secure_vault_key_2026";
-  // Ensure 32 bytes via SHA-256
-  return crypto.createHash("sha256").update(envKey).digest();
+  const envKey = process.env.ENCRYPTION_KEY;
+  if (process.env.NODE_ENV === "production" && (!envKey || Buffer.byteLength(envKey, "utf8") < 32)) {
+    throw new Error("SECURITY_CONFIGURATION_ERROR: ENCRYPTION_KEY must be configured with at least 32 bytes in production.");
+  }
+  if (!envKey && process.env.NODE_ENV !== "production" && process.env.NODE_ENV !== "test") {
+    console.warn("[security] ENCRYPTION_KEY is unset; using an ephemeral development-only key.");
+  }
+  // Test/development encryption is process-local. Production requires an explicit secret.
+  const material = envKey || crypto.randomBytes(32).toString("hex");
+  return crypto.createHash("sha256").update(material).digest();
 }
 
 export class FieldEncryptionService {

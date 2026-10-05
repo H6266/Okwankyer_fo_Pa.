@@ -244,13 +244,13 @@ async function runFullSecurityAudit() {
   // INVARIANT_015: No unverified model benchmark presented as project performance
   const modelRegistryPath = path.resolve(process.cwd(), "MODEL_REGISTRY.json");
   const registryRaw = JSON.parse(fs.readFileSync(modelRegistryPath, "utf-8"));
-  const deterministicModel = registryRaw.models.find((m: any) => m.modelId === "local-deterministic-nlu");
-  const remoteModel = registryRaw.models.find((m: any) => m.modelId === "gemini-2.5-flash");
+  const deterministicModel = registryRaw.models.find((m: any) => m.modelId === "local-language-rules");
+  const remoteModel = registryRaw.models.find((m: any) => m.provider === "GEMINI_CLOUD");
   checks.push({
     id: "INVARIANT_015",
     name: "Model Registry Accurately Distinguishes Local vs Remote Models",
-    passed: Boolean(deterministicModel && remoteModel && remoteModel.benchmarkScores?.offlineAutonomous === false),
-    details: "MODEL_REGISTRY.json transparently marks local models vs external cloud accelerators.",
+    passed: Boolean(deterministicModel?.status === "UNVALIDATED" && remoteModel?.offlineCapable === false && remoteModel?.status === "OPTIONAL_NOT_VERIFIED" && remoteModel?.benchmarkArtifact === null),
+    details: "MODEL_REGISTRY.json marks local rules as unvalidated, remote Gemini as online-only, and includes no unsupported benchmark metrics.",
   });
 
   // Print Summary Table

@@ -49,7 +49,9 @@ class MomoSagaOrchestrator {
    */
   private async sendSms(to: string, message: string): Promise<void> {
     if (!config.at.configured) {
-      auditLogger.log("info", "SMS_SIMULATED", `[SMS SIMULATOR to ${to}] ${message}`);
+      if (config.nodeEnv !== "production") {
+        auditLogger.log("info", "SMS_SIMULATED", "SMS provider unavailable; notification not sent.");
+      }
       return;
     }
 
@@ -81,6 +83,10 @@ class MomoSagaOrchestrator {
     }
     if (!session.recipientPhone) {
       throw new Error("Cannot start saga: Missing recipient phone number.");
+    }
+    if (config.nodeEnv === "production" &&
+        (!mtnMomoService.isConfigured("collection") || !mtnMomoService.isConfigured("disbursement"))) {
+      throw new Error("Cannot start production transfer: collection and disbursement providers must both be configured.");
     }
 
     const payerPhone = session.callerPhone;
@@ -170,6 +176,10 @@ class MomoSagaOrchestrator {
   private async onLeg1Success(sessionId: string, financialTxId?: string): Promise<void> {
     const saga = this.activeSagas.get(sessionId);
     if (!saga || saga.leg1.status !== "PENDING") return;
+    if (!financialTxId?.trim()) {
+      auditLogger.log("error", "MOMO_SAGA", "Collection reported success without provider financial transaction evidence; payout blocked.", sessionId);
+      return;
+    }
 
     saga.leg1.status = "SUCCESSFUL";
     saga.leg1.completedAt = Date.now();
@@ -264,6 +274,9 @@ class MomoSagaOrchestrator {
           return;
         }
       } else {
+        if (config.nodeEnv === "production" || !config.demoMode) {
+          throw new Error("Disbursement provider is unavailable; transaction requires reconciliation.");
+        }
         transferRef = `sandbox-disburse-${Date.now()}`;
         // In sandbox simulator, complete disbursement successfully
         await this.onLeg2Success(sessionId, `fin-sandbox-${Date.now()}`);
@@ -280,6 +293,10 @@ class MomoSagaOrchestrator {
   private async onLeg2Success(sessionId: string, financialTxId?: string): Promise<void> {
     const saga = this.activeSagas.get(sessionId);
     if (!saga) return;
+    if (!financialTxId?.trim()) {
+      auditLogger.log("error", "MOMO_SAGA", "Disbursement reported success without provider financial transaction evidence; completion blocked.", sessionId);
+      return;
+    }
 
     saga.leg2.status = "SUCCESSFUL";
     saga.leg2.completedAt = Date.now();
@@ -325,8 +342,8 @@ class MomoSagaOrchestrator {
     );
 
     const smsText = saga.language === "twi"
-      ? `Ɔkwankyerɛfo Pa Kɔkɔbɔ: Yɛagye sika no nanso yɛantumi anmane ankɔma ${saga.recipientName}. Wo sika bɛsan aba wo account mu ntɛm ara. Ref: ${saga.referenceId}.`
-      : `Ɔkwankyerɛfo Pa Alert: Funds of GH₵${saga.amount} were deducted but payout to ${saga.recipientName} failed. An automatic reversal has been scheduled. Ref: ${saga.referenceId}. Contact support with this reference.`;
+      ? `Ɔkwankyerɛfo Pa Kɔkɔbɔ: Yɛagye sika no nanso yɛantumi anmane ankɔma ${saga.recipientName}. Yɛde asɛm no ama nhwehwɛmu. Ref: ${saga.referenceId}. Frɛ support.`
+      : `Ɔkwankyerɛfo Pa Alert: Collection was confirmed, but payout to ${saga.recipientName} failed. The transaction needs reconciliation; no automatic reversal is confirmed. Ref: ${saga.referenceId}. Contact support.`;
 
     await this.sendSms(saga.payerPhone, smsText);
   }

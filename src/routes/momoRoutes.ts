@@ -419,7 +419,11 @@ momoRouter.post(
   adminRateLimiter,
   requireAdminAuth,
   async (req: Request, res: Response) => {
-  const phone = (req.body?.phone || "0553838464").trim();
+  const phone = typeof req.body?.phone === "string" ? req.body.phone.trim() : "";
+  if (!/^0\d{9}$/.test(phone)) {
+    res.status(400).json({ success: false, error: "Provide an explicit Ghanaian phone number to run provider diagnostics." });
+    return;
+  }
   const results: Array<{
     functionName: string;
     passed: boolean;

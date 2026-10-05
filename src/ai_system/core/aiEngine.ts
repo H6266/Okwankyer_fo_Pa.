@@ -240,17 +240,13 @@ export class AiEngine {
       ctx.rawInput.trim() === "1"
     );
     const clientConfirmed = isAffirmative && ctx.activeDraft?.confirmationState === "CONFIRMATION_REQUESTED";
-    if (clientConfirmed) {
-      if (ctx.activeDraft) {
-        ctx.activeDraft.confirmationState = "CONFIRMED";
-      }
-    }
 
     // If this turn prepares a confirmation prompt for caller, mark draft as CONFIRMATION_REQUESTED
     if (ctx.activeDraft && (dialogueTypeIsConfirmation(intent, ctx.workingSlots) || navigation.targetStep === "confirm")) {
       if (ctx.activeDraft.confirmationState === "UNCONFIRMED") {
         ctx.activeDraft.confirmationState = "CONFIRMATION_REQUESTED";
       }
+      unifiedMemory.saveDraft(ctx.sessionId, ctx.activeDraft);
     }
 
     const safetyEvaluation = unifiedSafetyEngine.evaluate(
@@ -280,6 +276,9 @@ export class AiEngine {
       action.requiresClientConfirmation = true;
     } else if (action.requiresClientConfirmation && !clientConfirmed) {
       action.isExecutable = false;
+    } else if (clientConfirmed && ctx.activeDraft) {
+      ctx.activeDraft.confirmationState = "CONFIRMED";
+      unifiedMemory.saveDraft(ctx.sessionId, ctx.activeDraft);
     }
 
     latencies.safetyCheckLatencyMs = Math.round(performance.now() - stage4Start);

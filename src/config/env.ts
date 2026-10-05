@@ -72,15 +72,26 @@ export function loadConfig(): AppConfig {
   const adminToken = (process.env.ADMIN_TOKEN || "").trim();
   const sessionSecret = (process.env.SESSION_SECRET || "").trim();
 
-  if (nodeEnv === "production" && !process.env.ADMIN_TOKEN) {
-    console.warn("⚠️ [SECURITY NOTICE] ADMIN_TOKEN is not configured. Admin endpoints are available only through the development bypass.");
+  if (nodeEnv === "production") {
+    if (adminToken.length < 32) {
+      throw new Error("CONFIGURATION_ERROR: Production requires ADMIN_TOKEN with at least 32 characters.");
+    }
+    if (sessionSecret.length < 32) {
+      throw new Error("CONFIGURATION_ERROR: Production requires SESSION_SECRET with at least 32 characters.");
+    }
+    if ((process.env.ENCRYPTION_KEY || "").trim().length < 32) {
+      throw new Error("CONFIGURATION_ERROR: Production requires ENCRYPTION_KEY with at least 32 characters.");
+    }
+    if (process.env.DEMO_MODE === "true") {
+      throw new Error("CONFIGURATION_ERROR: DEMO_MODE cannot be enabled in production.");
+    }
   }
 
   const corsRaw = (process.env.CORS_ORIGINS || "*").trim();
   const corsOrigins = corsRaw === "*" ? ["*"] : corsRaw.split(",").map((s) => s.trim()).filter(Boolean);
 
   if (nodeEnv === "production" && corsRaw === "*") {
-    console.warn("⚠️ [CORS NOTICE] CORS_ORIGINS is using wildcard fallback. Configure explicit domains for production hardening.");
+    throw new Error("CONFIGURATION_ERROR: Production requires explicit CORS_ORIGINS; wildcard access is disabled.");
   }
 
   const atApiKey = (process.env.AT_API_KEY || "").trim();
@@ -139,7 +150,7 @@ export function loadConfig(): AppConfig {
     at: {
       username: atUsername,
       apiKey: atApiKey,
-      voiceNumber: process.env.AT_VOICE_NUMBER || "+233308048098",
+      voiceNumber: (process.env.AT_VOICE_NUMBER || "").trim(),
       configured: Boolean(atApiKey && atUsername),
     },
     gemini: {

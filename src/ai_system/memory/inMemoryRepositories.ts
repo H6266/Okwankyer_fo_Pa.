@@ -10,10 +10,11 @@ import {
   IPronunciationRepository,
   ISemanticMemoryRepository,
   ISessionRepository,
+  ITaskStateRepository,
   ITransactionRepository,
   VectorRecord,
 } from "./repositoryInterfaces";
-import { ConversationTurnRecord, TransactionalMemoryRecord, UserProfileData } from "../core/aiTypes";
+import { ConversationTurnRecord, TaskState, TransactionalMemoryRecord, UserProfileData } from "../core/aiTypes";
 
 export class InMemorySessionRepository implements ISessionRepository {
   private store = new Map<string, CachedSessionRecord>();
@@ -93,6 +94,10 @@ export class InMemoryTransactionRepository implements ITransactionRepository {
   public async list(sessionId: string): Promise<TransactionalMemoryRecord[]> {
     return [...(this.ledger.get(sessionId) || [])];
   }
+
+  public async clear(sessionId: string): Promise<void> {
+    this.ledger.delete(sessionId);
+  }
 }
 
 export class InMemoryPronunciationRepository implements IPronunciationRepository {
@@ -170,4 +175,11 @@ export class InMemorySemanticMemoryRepository implements ISemanticMemoryReposito
     if (normA === 0 || normB === 0) return 0;
     return dot / (Math.sqrt(normA) * Math.sqrt(normB));
   }
+}
+
+export class InMemoryTaskStateRepository implements ITaskStateRepository {
+  private tasks = new Map<string, TaskState[]>();
+  public get(sessionId: string): TaskState[] { return this.tasks.get(sessionId) || []; }
+  public set(sessionId: string, tasks: TaskState[]): void { this.tasks.set(sessionId, tasks); }
+  public delete(sessionId: string): void { this.tasks.delete(sessionId); }
 }

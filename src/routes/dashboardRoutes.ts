@@ -139,7 +139,7 @@ dashboardRouter.get("/api/dev/endpoints", (req: Request, res: Response) => {
     { id: "ep-health", group: "System", name: "Health Check", method: "GET", path: "/health", description: "System health and configuration overview" },
     { id: "ep-smoke-test", group: "System", name: "Smoke Tests", method: "POST", path: "/api/dev/smoke-test", description: "Real connectivity and asset probes" },
     { id: "ep-voice-menu", group: "Telephony", name: "Voice Menu Webhook", method: "POST", path: "/voice-menu", description: "Inbound Africa's Talking voice callback" },
-    { id: "ep-kyc-lookup", group: "Subscribers", name: "KYC Lookup", method: "GET", path: "/api/kyc/lookup?phone=0553838464", description: "Resolves phone number to verified subscriber name" },
+    { id: "ep-kyc-lookup", group: "Subscribers", name: "KYC Lookup", method: "GET", path: "/api/kyc/lookup?phone={phone}", description: "Resolves a supplied phone number to a provider-verified subscriber name when supported" },
     { id: "ep-manifest", group: "Audio", name: "Audio Manifest", method: "GET", path: "/api/audio/manifest", description: "Audio prompt catalogue and file availability" },
     { id: "ep-eval", group: "AI & NLU", name: "AI Evaluation Harness", method: "POST", path: "/api/eval/run", description: "Runs 40+ labeled English and Twi utterance benchmarks" },
     { id: "ep-ledger", group: "Transactions", name: "Transaction Ledger", method: "GET", path: "/api/ledger", description: "Transaction history and MoMo status records" },

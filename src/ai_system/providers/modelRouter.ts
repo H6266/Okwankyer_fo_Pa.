@@ -113,7 +113,7 @@ export class ModelRouter {
         const client = geminiClient.getRawClient();
         if (!client) throw new Error("Gemini client is not initialized.");
         const resp = await client.models.generateContent({
-          model: process.env.GEMINI_TTS_MODEL || "gemini-2.5-flash-preview-tts",
+          model: process.env.GEMINI_TTS_MODEL || "gemini-3.8-flash-lite-tts",
           contents: [{ parts: [{ text: payload.text }] }],
           config: {
             responseModalities: ["AUDIO"],
