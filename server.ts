@@ -11,7 +11,11 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const distServer = path.resolve(process.cwd(), "dist", "server.cjs");
-const isTsx = process.execArgv.some((a) => a.includes("tsx")) || "TSX" in process.env;
+const isTsx =
+  process.execArgv.some((a) => a.includes("tsx")) ||
+  process.argv.some((a) => a.includes("tsx")) ||
+  "TSX" in process.env ||
+  process.env.npm_lifecycle_event === "dev";
 
 if (isTsx) {
   // In development with tsx loader active
