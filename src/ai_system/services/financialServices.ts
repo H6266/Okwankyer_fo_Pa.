@@ -145,17 +145,25 @@ export class RealTransferService implements ITransferService {
       externalId: params.referenceId,
     });
 
-    const isPending = tx.status === "PENDING" || tx.status === "SUCCESSFUL";
+    const status: TransactionStatus = tx.status === "SUCCESSFUL"
+      ? "SUCCESSFUL"
+      : tx.status === "PENDING"
+      ? "PENDING"
+      : tx.status === "REJECTED"
+      ? "REJECTED"
+      : tx.status === "TIMEOUT"
+      ? "TIMEOUT"
+      : "FAILED";
 
     return {
-      transactionId: tx.financialTransactionId || `TX_${Date.now()}`,
+      transactionId: tx.financialTransactionId || tx.id || `TX_${Date.now()}`,
       referenceId: tx.referenceId || params.referenceId,
       amount: tx.amount,
       currency: "GHS",
       recipientPhone: params.recipientPhone,
       recipientName: params.recipientName,
       network: params.network,
-      status: isPending ? "PENDING" : "FAILED",
+      status,
       source: "real_provider",
     };
   }

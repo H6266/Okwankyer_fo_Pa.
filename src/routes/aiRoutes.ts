@@ -12,7 +12,7 @@ import { runEvaluationHarness, runAudioEvaluationHarness } from "../ai_eval/eval
 import { aiBootstrap } from "../ai_system/core/aiBootstrap";
 import { modelRouter } from "../ai_system/providers/modelRouter";
 import { aiTrace } from "../ai_system/observability/aiTrace";
-import { requireAdminAuth } from "../middleware/adminAuth";
+import { requireAdminAuth, isAdminAuthenticated } from "../middleware/adminAuth";
 import { adminRateLimiter, publicApiRateLimiter } from "../middleware/rateLimiter";
 
 export const aiRouter = Router();
@@ -138,6 +138,46 @@ aiRouter.post("/api/ai/process", publicApiRateLimiter, async (req: Request, res:
     res.json({ success: true, result });
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Failed to process AI input" });
+  }
+});
+
+// ── Dedicated Authoritative Phone Simulator Turn Endpoint ──────────────
+aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
+  try {
+    const {
+      sessionId,
+      channel,
+      input,
+      language,
+      currentScreen,
+      currentStep,
+      executionMode,
+      userProfile,
+    } = req.body;
+
+    // Mode B (MTN SANDBOX) guard: require authenticated admin session
+    if (executionMode === "MTN_SANDBOX" && !isAdminAuthenticated(req)) {
+      return res.status(403).json({
+        error: "Admin credentials required to engage real MTN Sandbox disbursement.",
+      });
+    }
+
+    const sessionKey = sessionId || `sim_${Date.now()}`;
+    const result = await aiSystem.process({
+      sessionId: sessionKey,
+      channel: channel || "SIMULATOR",
+      input: input !== undefined && input !== null ? String(input) : "",
+      language: language || "en",
+      currentScreen: currentScreen || "HOME",
+      currentStep: currentStep || "welcome",
+      executionMode: executionMode || "SIMULATION",
+      userProfile,
+    });
+
+    res.json({ success: true, result });
+  } catch (err: any) {
+    console.error("[POST /api/ai/simulator/turn] Error:", err);
+    res.status(500).json({ error: err.message || "Failed to process simulator turn" });
   }
 });
 

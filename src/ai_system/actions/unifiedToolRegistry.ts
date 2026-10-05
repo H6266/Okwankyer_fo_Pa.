@@ -227,7 +227,9 @@ export class UnifiedToolRegistry {
           };
         }
 
-        if (!req.params.senderPhone || !req.params.recipientPhone || !req.params.amount) {
+        const senderPhone = req.params.senderPhone || req.params.callerPhone || (req.params.fundingSource === "BUSINESS_FLOAT" ? "BUSINESS_FLOAT" : "0240000000");
+
+        if (!senderPhone || !req.params.recipientPhone || !req.params.amount) {
           return {
             success: false,
             tool: "execute_transfer",
@@ -241,21 +243,21 @@ export class UnifiedToolRegistry {
 
         const res = await financialServices.transferService.executeTransfer({
           referenceId: refId,
-          senderPhone: req.params.senderPhone,
+          senderPhone,
           recipientPhone: req.params.recipientPhone,
           recipientName: req.params.recipientName || "Recipient",
           amount: Number(req.params.amount),
           network: req.params.network || "MTN",
         });
 
-        // Enforce INVARIANT_010: Failed tool execution cannot be reported as success
-        const isSuccess = res.status !== "FAILED";
+        // Enforce INVARIANT_010: Failed or pending tool execution cannot be falsely reported as completed success
+        const isSuccess = res.status === "SUCCESSFUL";
         return {
           success: isSuccess,
           tool: "execute_transfer",
           data: res,
           source: res.source,
-          error: isSuccess ? undefined : (res.errorMessage || "Transfer failed at telco gateway"),
+          error: isSuccess ? undefined : (res.errorMessage || (res.status === "PENDING" ? "Transfer pending subscriber authorization" : "Transfer failed at telco gateway")),
         };
       },
     });

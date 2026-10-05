@@ -546,6 +546,7 @@ export class AiUnderstanding {
   // =========================================================================
   public checkConfirmation(text: string): boolean {
     const lower = text.toLowerCase().trim();
+    if (lower === "1") return true;
     const confirmTokens = [
       "yes", "yeah", "yep", "sure", "correct", "confirm", "proceed",
       "okay", "ok", "aane", "aane yoo", "ɛyɛ", "yɛ", "ampa", "kɔ so", "send it", "yoo"
@@ -555,6 +556,7 @@ export class AiUnderstanding {
 
   public checkDenial(text: string): boolean {
     const lower = text.toLowerCase().trim();
+    if (lower === "2" || lower === "0") return true;
     const denialTokens = [
       "no", "nope", "dabi", "wrong", "don't", "not that", "stop", "deny", "sesa", "gyae"
     ];

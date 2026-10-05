@@ -22,6 +22,7 @@ import { SettingsPage } from "./pages/dashboard/SettingsPage";
 import { DocsPage } from "./pages/dashboard/DocsPage";
 import { ShippingPage } from "./pages/dashboard/ShippingPage";
 import { TasksPage } from "./pages/dashboard/TasksPage";
+import { PhoneSimulatorPage } from "./pages/dashboard/PhoneSimulatorPage";
 
 export default function App() {
   return (
@@ -45,6 +46,7 @@ export default function App() {
             {/* Core Verification & Tools */}
             <Route path="tests" element={<TestCasesPage />} />
             <Route path="tasks" element={<TasksPage />} />
+            <Route path="phone" element={<PhoneSimulatorPage />} />
             <Route path="settings" element={<SettingsPage />} />
 
             {/* Backwards-compatible Secondary Routes */}

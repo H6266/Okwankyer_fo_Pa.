@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   XCircle,
 } from "lucide-react";
+import { api } from "../../lib/api";
 
 interface IntentResult {
   operation: "SEND_MONEY" | "BUY_AIRTIME" | "BUY_DATA" | "CHECK_BALANCE" | "REJECTED_PIN";
@@ -35,60 +36,50 @@ export const LlmLabPage: React.FC = () => {
     { text: "Send 100 cedis with PIN 1234", type: "SECURITY_TEST" },
   ];
 
-  const handleParseIntent = (textToParse: string = inputText) => {
+  const handleParseIntent = async (textToParse: string = inputText) => {
     setParsing(true);
     setIntentOutput(null);
 
-    setTimeout(() => {
+    const lower = textToParse.toLowerCase();
+
+    // STRICT ZERO-PIN INVARIANT CHECK
+    if (lower.includes("pin") || lower.includes("secret") || lower.includes("password")) {
       setParsing(false);
-      const lower = textToParse.toLowerCase();
+      setIntentOutput({
+        operation: "REJECTED_PIN",
+        securityViolation: true,
+        rawText: textToParse,
+      });
+      return;
+    }
 
-      // STRICT SECURITY CHECK
-      if (lower.includes("pin") || lower.includes("secret") || lower.includes("password")) {
-        setIntentOutput({
-          operation: "REJECTED_PIN",
-          securityViolation: true,
-          rawText: textToParse,
-        });
-        return;
-      }
-
-      // Check balance
-      if (lower.includes("balance") || lower.includes("how much")) {
-        setIntentOutput({
-          operation: "CHECK_BALANCE",
-          currency: "GHS",
-          rawText: textToParse,
-        });
-        return;
-      }
-
-      // Airtime
-      if (lower.includes("airtime") || lower.includes("credit") || lower.includes("top up")) {
-        const amountMatch = textToParse.match(/\b\d+(\.\d+)?\b/);
-        const phoneMatch = textToParse.match(/\b0\d{9}\b/);
-        setIntentOutput({
-          operation: "BUY_AIRTIME",
-          amount: amountMatch ? parseFloat(amountMatch[0]) : 10,
-          recipient: phoneMatch ? phoneMatch[0] : "0553838464",
-          currency: "GHS",
-          rawText: textToParse,
-        });
-        return;
-      }
-
-      // Send money default
-      const amountMatch = textToParse.match(/\b\d+(\.\d+)?\b/);
-      const phoneMatch = textToParse.match(/\b0\d{9}\b/);
+    try {
+      const resp = await api.analyzeUtterance(textToParse);
+      const res = resp.result;
+      const op = res.intent === "BUY_AIRTIME" ? "BUY_AIRTIME" : res.intent === "CHECK_BALANCE" ? "CHECK_BALANCE" : "SEND_MONEY";
 
       setIntentOutput({
-        operation: "SEND_MONEY",
-        amount: amountMatch ? parseFloat(amountMatch[0]) : 50,
-        recipient: phoneMatch ? phoneMatch[0] : "0241234567",
+        operation: op,
+        amount: res.amount ? Number(res.amount) : undefined,
+        recipient: res.recipientPhone || res.recipientName || undefined,
         currency: "GHS",
         rawText: textToParse,
       });
-    }, 600);
+    } catch {
+      // Deterministic client extraction without fabricated fallbacks
+      const phoneMatch = textToParse.match(/\b0\d{9}\b/);
+      const amountMatch = textToParse.replace(/\b0\d{9}\b/g, "").match(/\b\d+(\.\d+)?\b/);
+
+      setIntentOutput({
+        operation: lower.includes("airtime") || lower.includes("credit") ? "BUY_AIRTIME" : lower.includes("balance") ? "CHECK_BALANCE" : "SEND_MONEY",
+        amount: amountMatch ? parseFloat(amountMatch[0]) : undefined,
+        recipient: phoneMatch ? phoneMatch[0] : undefined,
+        currency: "GHS",
+        rawText: textToParse,
+      });
+    } finally {
+      setParsing(false);
+    }
   };
 
   return (

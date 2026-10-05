@@ -101,12 +101,22 @@ export class AiDialogue {
       case "CONFIRM": {
         const amountStr = slots.amount ? `GHS ${Number(slots.amount).toFixed(2)}` : "the money";
         const recipient = slots.recipientName || slots.recipientPhone || "your recipient";
+        const isDisbursement = slots.fundingSource === "BUSINESS_FLOAT" || slots.transactionMode === "DISBURSEMENT_TRANSFER";
 
-        const response = isTwi
-          ? `Mo! Yɛremane ${amountStr} kɔma ${recipient}. Hwɛ wo fon screen na bɔ wo MoMo PIN wɔ hɔ pɛpɛɛpɛ.`
-          : isCodeSwitch
-          ? `Well done! We are sending ${amountStr} to ${recipient}. Please check your phone screen to enter your MoMo PIN.`
-          : `Thank you! Sending ${amountStr} to ${recipient}. Please check your phone screen to enter your MoMo PIN securely.`;
+        let response: string;
+        if (isDisbursement) {
+          response = isTwi
+            ? `Mo! Yɛremane ${amountStr} afiri float kɔma ${recipient}. Yɛrebɔ amanneɛ sɛ ɛkɔ pɛpɛɛpɛ.`
+            : isCodeSwitch
+            ? `Transfer dispatched! Sending ${amountStr} to ${recipient} via business float. Notification will arrive shortly.`
+            : `Transfer dispatched. Sending ${amountStr} to ${recipient} directly via business float disbursement.`;
+        } else {
+          response = isTwi
+            ? `Mo! Yɛremane ${amountStr} kɔma ${recipient}. Hwɛ wo fon screen na bɔ wo MoMo PIN wɔ hɔ pɛpɛɛpɛ.`
+            : isCodeSwitch
+            ? `Well done! We are sending ${amountStr} to ${recipient}. Please check your phone screen to enter your MoMo PIN.`
+            : `Thank you! Sending ${amountStr} to ${recipient}. Please check your phone screen to enter your MoMo PIN securely.`;
+        }
 
         return {
           type: "CONTINUE_TRANSACTION",

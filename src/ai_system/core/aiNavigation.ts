@@ -228,8 +228,7 @@ export class AiNavigation {
       return {
         predictedNextIntent: "CONFIRM",
         preStagedData: {
-          requirePinScreen: true,
-          fee: 0.75, // 0.75% Ghana E-Levy threshold
+          requiresConfirmation: true,
         },
       };
     }

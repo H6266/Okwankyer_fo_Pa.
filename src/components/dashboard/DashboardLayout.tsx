@@ -22,6 +22,7 @@ import {
   ExternalLink,
   Zap,
   Rocket,
+  Smartphone,
 } from "lucide-react";
 import { useThemeLanguage } from "../../context/ThemeLanguageContext";
 import { api, HealthResponse } from "../../lib/api";
@@ -35,6 +36,12 @@ const NAV_ITEMS = [
   { path: "/dashboard/ivr", label: "📞 IVR / Africa's Talking", icon: PhoneCall, badge: "Phase 5" },
   { path: "/dashboard/tests", label: "🧪 Integration Tests", icon: ShieldCheck },
   { path: "/dashboard/tasks", label: "📋 Hackathon Tasks", icon: CheckSquare },
+  {
+    path: "/dashboard/phone",
+    label: "📱 Phone Simulator",
+    icon: Smartphone,
+    badge: "NEW",
+  },
   { path: "/dashboard/settings", label: "⚙ Settings", icon: Settings },
 ];
 

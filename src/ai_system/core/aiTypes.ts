@@ -78,8 +78,11 @@ export type TransactionStatus =
   | "SUBMITTED"
   | "PENDING"
   | "COMPLETED"
+  | "SUCCESSFUL"
   | "FAILED"
   | "CANCELLED"
+  | "REJECTED"
+  | "TIMEOUT"
   | "EXPIRED"
   | "RECONCILIATION_REQUIRED";
 
@@ -395,6 +398,7 @@ export interface AiProcessInput {
   };
   availableActions?: string[];
   userProfile?: UserProfileData;
+  executionMode?: "SIMULATION" | "MTN_SANDBOX";
   metadata?: Record<string, any>;
 }
 

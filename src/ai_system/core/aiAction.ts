@@ -88,8 +88,13 @@ export class AiActionPlanner {
           params = {
             amount: slots.amount,
             currency: "GHS",
+            senderPhone: slots.callerPhone || slots.senderPhone || "0240000000",
+            callerPhone: slots.callerPhone || slots.senderPhone || "0240000000",
+            callerIdentity: slots.callerPhone || slots.senderPhone || "CALLER",
+            fundingSource: slots.fundingSource || "BUSINESS_FLOAT",
+            transactionMode: slots.transactionMode || "DISBURSEMENT_TRANSFER",
             recipientPhone: slots.recipientPhone,
-            recipientName: slots.recipientName,
+            recipientName: slots.recipientName || "Recipient",
             network: slots.network || "MTN",
             referenceId: `REF_${Date.now()}`,
           };

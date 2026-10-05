@@ -654,6 +654,59 @@ export const api = {
 
     return res.json();
   },
+
+  async processSimulatorTurn(payload: {
+    sessionId: string;
+    input: string;
+    channel: "VOICE" | "DTMF" | "TEXT" | "SIMULATOR";
+    language?: "en" | "tw" | "ak" | "en-ak";
+    currentScreen?: string;
+    currentStep?: string;
+    executionMode?: "SIMULATION" | "MTN_SANDBOX";
+    userProfile?: any;
+  }): Promise<{ success: boolean; result: any }> {
+    const res = await fetch("/api/ai/simulator/turn", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        ...(activeAdminToken ? { Authorization: `Bearer ${activeAdminToken}` } : {}),
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || "AI simulator request failed.");
+    }
+    return data;
+  },
+
+  async synthesizeSpeech(payload: {
+    text: string;
+    language?: string;
+    style?: string;
+  }): Promise<{ success: boolean; result: { audioBase64?: string; audioMimeType?: string; providerUsed?: string } }> {
+    const res = await fetch("/api/ai/synthesize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Speech synthesis failed");
+    return data;
+  },
+
+  async analyzeUtterance(utterance: string, languageHint?: string): Promise<{ success: boolean; result: any }> {
+    const res = await fetch("/api/ai/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ utterance, languageHint }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Utterance analysis failed");
+    return data;
+  },
 };
 
 export type TaskStatus = "todo" | "in_progress" | "in_review" | "done";
