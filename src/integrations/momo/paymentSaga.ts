@@ -147,13 +147,13 @@ export class PaymentSagaOrchestrator {
     senderPhone: string;
     recipientPhone: string;
     amount: number;
-    network?:
+    network:
       | "MTN"
       | "Telecel"
       | "AT";
     clientNonce?: string;
   }): SagaTransaction {
-    const network = params.network || "MTN";
+    const network = params.network;
     const policy =
       financialPolicy.validateExecution(
         {

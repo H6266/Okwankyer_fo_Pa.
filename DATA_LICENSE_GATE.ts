@@ -12,6 +12,7 @@ export type LicenseType =
   | "CC-BY-4.0" 
   | "CC-BY-NC-4.0" 
   | "CC-BY-SA-4.0" 
+  | "Unverified"
   | "OpenRAIL" 
   | "Proprietary" 
   | "Custom-Permissive";
@@ -39,28 +40,28 @@ export const REGISTERED_DATASETS: Record<string, DatasetLicenseRecord> = {
     name: "Ghana Speech (GhanaNLP Community)",
     source: "huggingface.co/datasets/ghananlpcommunity/ghana-speech",
     url: "https://huggingface.co/datasets/ghananlpcommunity/ghana-speech",
-    license: "CC-BY-4.0",
-    commercialUseAllowed: true,
+    license: "CC-BY-NC-4.0",
+    commercialUseAllowed: false,
     tier: "SILVER", // 2,200+ hours across 40+ Ghanaian languages; great coverage, community reviewed
     language: ["tw", "ak", "ee", "dag", "en-GH"],
     modality: "speech",
-    approvedForProductionTraining: true,
+    approvedForProductionTraining: false,
     approvedForResearchAndEval: true,
-    notes: "Primary corpus for Ghanaian acoustic adaptation and multilingual ASR. Not treated as gold truth without speaker isolation.",
+    notes: "Current dataset card declares CC BY-NC 4.0. Research and evaluation only; verify release contents and consent terms before acquisition.",
   },
   "ghana-codeswitch-ipa": {
     id: "ghana-codeswitch-ipa",
     name: "Ghana English-Twi Code-Switching Speech IPA",
     source: "huggingface.co/datasets/ghananlpcommunity/Ghana_English-Twi_Code-switching_Speech-ipa",
     url: "https://huggingface.co/datasets/ghananlpcommunity/Ghana_English-Twi_Code-switching_Speech-ipa",
-    license: "CC-BY-4.0",
+    license: "Apache-2.0",
     commercialUseAllowed: true,
     tier: "GOLD", // Human verified, phonetically transcribed with IPA alignments and explicit speaker splits
     language: ["en-GH", "tw", "en-tw"],
     modality: "speech",
     approvedForProductionTraining: true,
     approvedForResearchAndEval: true,
-    notes: "Gold standard for English-Twi code-switching and pronunciation adaptation. Partitioned by speaker.",
+    notes: "Dataset card declares Apache-2.0 and provides transcript and IPA fields with split metadata; independently validate data quality before treating it as a benchmark.",
   },
   "pristine-twi": {
     id: "pristine-twi",
@@ -120,17 +121,17 @@ export const REGISTERED_DATASETS: Record<string, DatasetLicenseRecord> = {
   },
   "okwankyerɛfo-gold-financial-corpus": {
     id: "okwankyerɛfo-gold-financial-corpus",
-    name: "Ɔkwankyerɛfo Pa Gold Financial & IVR Corpus",
+    name: "Ɔkwankyerɛfo Pa Internal Financial & IVR Evaluation Data",
     source: "internal://data/okwankyerɛfo_pa/domain_corpus.json",
     url: "https://github.com/H6266/Okwankyer_fo_Pa",
-    license: "Apache-2.0",
-    commercialUseAllowed: true,
-    tier: "GOLD", // Project-specific curated Ghanaian MoMo financial voice and keypad intents
+    license: "Unverified",
+    commercialUseAllowed: false,
+    tier: "BRONZE", // Rights and quality claims have not been substantiated
     language: ["en-GH", "tw", "ak", "en-tw"],
     modality: "parallel",
-    approvedForProductionTraining: true,
-    approvedForResearchAndEval: true,
-    notes: "Project-specific benchmark for Ghanaian mobile money voice commands, corrections, zero-PIN guards, and phone numbers.",
+    approvedForProductionTraining: false,
+    approvedForResearchAndEval: false,
+    notes: "Internal project data. Rights, provenance, consent, and quality claims have not been independently established; excluded from training and research use until documented and reviewed.",
   },
 };
 
@@ -182,7 +183,7 @@ export class DataLicenseGate {
    */
   public static auditAllDatasets(): {
     totalDatasets: number;
-    commercialApprovedCount: number;
+    productionTrainingApprovedCount: number;
     nonCommercialRestrictedCount: number;
     goldTierCount: number;
     silverTierCount: number;
@@ -192,7 +193,7 @@ export class DataLicenseGate {
     const records = Object.values(REGISTERED_DATASETS);
     return {
       totalDatasets: records.length,
-      commercialApprovedCount: records.filter((r) => r.approvedForProductionTraining).length,
+      productionTrainingApprovedCount: records.filter((r) => r.approvedForProductionTraining).length,
       nonCommercialRestrictedCount: records.filter((r) => !r.commercialUseAllowed).length,
       goldTierCount: records.filter((r) => r.tier === "GOLD").length,
       silverTierCount: records.filter((r) => r.tier === "SILVER").length,

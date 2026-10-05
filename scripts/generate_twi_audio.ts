@@ -96,9 +96,8 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function generateWithRetry(text: string, maxAttempts = 5): Promise<Buffer> {
   const models = [
-    "gemini-2.5-flash-preview-tts",
-    "gemini-2.5-pro-preview-tts",
-    "gemini-3.1-flash-tts-preview"
+    "gemini-3.8-flash-lite-tts",
+    "gemini-3.8-flash-tts"
   ];
 
   for (const model of models) {

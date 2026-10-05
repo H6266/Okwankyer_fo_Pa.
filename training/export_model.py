@@ -30,9 +30,11 @@ def export(model_path: str, model_id: str, version: str, license_type: str, outp
         "sha256": checksum,
         "size_bytes": size_bytes,
         "size_mb": round(size_bytes / (1024 * 1024), 2),
-        "runtime": "CPU_INFERENCE_LOCAL",
-        "supported_dialects": ["asante_twi", "akuapem_twi", "ghanaian_english"],
-        "deployment_ready": True
+        "runtime": "UNSPECIFIED_REQUIRES_REVIEW",
+        "supported_dialects": [],
+        "deployment_ready": False,
+        "status": "STAGED_REQUIRES_LICENSE_RUNTIME_AND_EVALUATION_REVIEW",
+        "benchmark_artifact": None,
     }
 
     manifest = {}
@@ -40,7 +42,10 @@ def export(model_path: str, model_id: str, version: str, license_type: str, outp
         with open(output_manifest, "r", encoding="utf-8") as f:
             manifest = json.load(f)
 
-    manifest[model_id] = manifest_entry
+    if "models" in manifest and isinstance(manifest["models"], dict):
+        manifest["models"][model_id] = manifest_entry
+    else:
+        manifest[model_id] = manifest_entry
 
     with open(output_manifest, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2)
@@ -52,7 +57,7 @@ if __name__ == "__main__":
     parser.add_argument("--model-file", required=True)
     parser.add_argument("--model-id", required=True)
     parser.add_argument("--version", default="1.0.0")
-    parser.add_argument("--license", default="Apache-2.0")
+    parser.add_argument("--license", required=True, help="Verified license for this exact model artifact")
     parser.add_argument("--manifest-file", default="models/manifest.json")
     args = parser.parse_args()
 

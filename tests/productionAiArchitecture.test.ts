@@ -13,8 +13,8 @@ import { inputNormalizer } from "../src/ai_system/perception/inputNormalizer";
 import { SECURITY_INVARIANTS } from "../src/ai_system/core/aiTypes";
 
 describe("Ɔkwankyerɛfo Pa - Production Voice AI Architecture Verification", () => {
-  beforeEach(() => {
-    unifiedMemory.clearSession("prod_test_sess");
+  beforeEach(async () => {
+    await unifiedMemory.clearSession("prod_test_sess");
     unifiedSafetyEngine.resetFailureCount("prod_test_sess");
   });
 

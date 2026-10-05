@@ -27,7 +27,8 @@ export class AiActionPlanner {
   public plan(
     intent: IntentName,
     slots: EntitySlotMap,
-    currentStep: string = "welcome"
+    currentStep: string = "welcome",
+    hasConfirmableDraft: boolean = false,
   ): ActionOutput {
     let type = "NOOP";
     let tool: CanonicalToolName = "none";
@@ -40,9 +41,12 @@ export class AiActionPlanner {
 
     switch (intent) {
       case "SEND_MONEY": {
-        if (!slots.recipientPhone && !slots.recipientName) {
+        if (!slots.recipientPhone) {
           type = "REQUEST_RECIPIENT";
           tool = "prepare_transfer";
+          clarifyingQuestions.push(slots.recipientName
+            ? `Please provide ${slots.recipientName}'s mobile number.`
+            : "Who should receive the transfer? Please provide their mobile number.");
           riskLevel = "LOW";
           requiresClientConfirmation = false;
         } else if (!slots.amount) {
@@ -54,6 +58,12 @@ export class AiActionPlanner {
           };
           riskLevel = "LOW";
           requiresClientConfirmation = false;
+        } else if (!slots.network) {
+          type = "REQUEST_NETWORK";
+          tool = "none";
+          clarifyingQuestions.push("Which mobile money network should receive this transfer?");
+          riskLevel = "LOW";
+          requiresClientConfirmation = false;
         } else {
           type = "PREPARE_CONFIRMATION";
           tool = "lookup_recipient";
@@ -62,7 +72,7 @@ export class AiActionPlanner {
             recipientPhone: slots.recipientPhone,
             recipientName: slots.recipientName,
             phoneNumber: slots.recipientPhone,
-            network: slots.network || "MTN",
+            network: slots.network,
           };
           riskLevel = "HIGH";
           requiresClientConfirmation = true;
@@ -82,25 +92,37 @@ export class AiActionPlanner {
       }
 
       case "CONFIRM": {
-        if ((currentStep === "confirm" || currentStep === "execution") && slots.amount && (slots.recipientPhone || slots.recipientName)) {
+        if (!hasConfirmableDraft) {
+          type = "CONFIRM_INCOMPLETE";
+          tool = "none";
+          clarifyingQuestions.push("There is no transaction awaiting confirmation.");
+        } else if (!slots.recipientPhone || !slots.amount || !slots.network) {
+          type = "CONFIRM_INCOMPLETE";
+          tool = "none";
+          clarifyingQuestions.push(!slots.recipientPhone
+            ? "A recipient mobile number is required."
+            : !slots.amount
+            ? "A transfer amount is required."
+            : "A mobile money network must be selected.");
+        } else if (currentStep === "confirm" || currentStep === "execution") {
           type = "EXECUTE_TRANSFER";
           tool = "momo_execute_transfer";
           params = {
             amount: slots.amount,
             currency: "GHS",
-            senderPhone: slots.callerPhone || slots.senderPhone || "0240000000",
-            callerPhone: slots.callerPhone || slots.senderPhone || "0240000000",
-            callerIdentity: slots.callerPhone || slots.senderPhone || "CALLER",
-            fundingSource: slots.fundingSource || "BUSINESS_FLOAT",
-            transactionMode: slots.transactionMode || "DISBURSEMENT_TRANSFER",
+            senderPhone: slots.callerPhone || slots.senderPhone,
             recipientPhone: slots.recipientPhone,
-            recipientName: slots.recipientName || "Recipient",
-            network: slots.network || "MTN",
-            referenceId: `REF_${Date.now()}`,
+            recipientName: slots.recipientName,
+            network: slots.network,
           };
           riskLevel = "HIGH";
           requiresClientConfirmation = true;
-          isExecutable = true; // Permitted to execute if authorized by safety gate
+          isExecutable = Boolean(slots.callerPhone || slots.senderPhone); // Caller identity must come from the authenticated telephony context.
+          if (!isExecutable) {
+            type = "CALLER_ID_UNAVAILABLE";
+            tool = "none";
+            clarifyingQuestions.push("I could not verify the caller's mobile number for this transfer.");
+          }
         } else {
           type = "CONFIRM_INCOMPLETE";
           tool = "none";
@@ -141,13 +163,20 @@ export class AiActionPlanner {
           riskLevel = "LOW";
           requiresClientConfirmation = false;
           isExecutable = false;
+        } else if (!slots.network) {
+          type = "REQUEST_AIRTIME_NETWORK";
+          tool = "none";
+          clarifyingQuestions.push("Which mobile money network should receive this airtime top-up?");
+          riskLevel = "LOW";
+          requiresClientConfirmation = false;
+          isExecutable = false;
         } else {
           type = "EXECUTE_AIRTIME";
           tool = "buy_airtime";
           params = {
             amount: slots.amount,
             phoneNumber: (slots.recipientPhone || slots.callerPhone)!,
-            network: slots.network || "MTN",
+            network: slots.network,
           };
           riskLevel = "HIGH";
           requiresClientConfirmation = true;
@@ -157,19 +186,22 @@ export class AiActionPlanner {
       }
 
       case "BUY_DATA": {
-        if (!slots.amount || (!slots.recipientPhone && !slots.callerPhone)) {
+        if (!slots.amount || (!slots.recipientPhone && !slots.callerPhone) || !slots.network) {
           type = "REQUEST_DATA_PARAMS";
           tool = "none";
           riskLevel = "LOW";
           requiresClientConfirmation = false;
           isExecutable = false;
+          if (slots.amount && (slots.recipientPhone || slots.callerPhone) && !slots.network) {
+            clarifyingQuestions.push("Which mobile money network should receive this data bundle?");
+          }
         } else {
           type = "EXECUTE_DATA";
           tool = "buy_data";
           params = {
             amount: slots.amount,
             phoneNumber: (slots.recipientPhone || slots.callerPhone)!,
-            network: slots.network || "MTN",
+            network: slots.network,
           };
           riskLevel = "HIGH";
           requiresClientConfirmation = true;
@@ -304,7 +336,6 @@ export class AiActionPlanner {
       params: output.params,
       riskLevel: output.riskLevel,
       requiresConfirmation: output.requiresClientConfirmation,
-      confidence: 1.0,
       reason: `Action planned for intent ${intent} at step ${currentStep}`,
       idempotencyKey: output.params.referenceId,
       isExecutable: output.isExecutable,

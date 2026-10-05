@@ -21,7 +21,7 @@ export type TtsTier = "STUDIO_CATALOG" | "LOCAL_NEURAL_PIPER" | "REMOTE_GEMINI_T
 export interface TtsRouterReport {
   tier: TtsTier;
   provider: string;
-  durationEstimateSec: number;
+  durationEstimateSec?: number;
   offlineReady: boolean;
 }
 
@@ -72,12 +72,12 @@ export class TtsRouter implements TTSProvider {
     );
   }
 
-  public getRouterReport(): TtsRouterReport {
+  public async getRouterReport(): Promise<TtsRouterReport> {
+    const health = await piperProvider.checkHealth();
     return {
       tier: "LOCAL_NEURAL_PIPER",
-      provider: "piperProvider",
-      durationEstimateSec: 2,
-      offlineReady: true,
+      provider: health.provider,
+      offlineReady: health.ready,
     };
   }
 }

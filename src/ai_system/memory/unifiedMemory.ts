@@ -32,6 +32,7 @@ import {
   IPronunciationRepository,
   ISemanticMemoryRepository,
   ISessionRepository,
+  ITaskStateRepository,
   ITransactionRepository,
 } from "./repositoryInterfaces";
 import {
@@ -41,12 +42,16 @@ import {
   InMemorySemanticMemoryRepository,
   InMemorySessionRepository,
   InMemoryTransactionRepository,
+  InMemoryTaskStateRepository,
 } from "./inMemoryRepositories";
 import {
   DurableFileConversationRepository,
   DurableFilePreferenceRepository,
+  DurableFilePronunciationRepository,
+  DurableFileSemanticMemoryRepository,
   DurableFileSessionRepository,
   DurableFileTransactionRepository,
+  DurableFileTaskStateRepository,
 } from "./durableFileRepositories";
 import { AI_CONFIG } from "../core/aiConfig";
 import { fieldEncryption } from "../security/fieldEncryption";
@@ -56,8 +61,7 @@ export class UnifiedMemory {
   // Working memory (transient during active session)
   private workingSlots = new Map<string, EntitySlotMap>();
 
-  // Task memory stacks: sessionId -> TaskState[]
-  private taskStacks = new Map<string, TaskState[]>();
+  private taskRepo: ITaskStateRepository;
 
   // Correction ledger: sessionId -> CorrectionRecord[]
   private correctionLedger = new Map<string, CorrectionRecord[]>();
@@ -70,21 +74,24 @@ export class UnifiedMemory {
   public pronunciationRepo: IPronunciationRepository;
   public semanticRepo: ISemanticMemoryRepository;
 
-  constructor(isDurable: boolean = false) {
+  constructor(isDurable: boolean = process.env.NODE_ENV === "production") {
     if (isDurable) {
       this.sessionRepo = new DurableFileSessionRepository();
       this.conversationRepo = new DurableFileConversationRepository();
       this.preferenceRepo = new DurableFilePreferenceRepository();
       this.transactionRepo = new DurableFileTransactionRepository();
+      this.taskRepo = new DurableFileTaskStateRepository();
+      this.pronunciationRepo = new DurableFilePronunciationRepository();
+      this.semanticRepo = new DurableFileSemanticMemoryRepository();
     } else {
       this.sessionRepo = new InMemorySessionRepository();
       this.conversationRepo = new InMemoryConversationRepository();
       this.preferenceRepo = new InMemoryPreferenceRepository();
       this.transactionRepo = new InMemoryTransactionRepository();
+      this.taskRepo = new InMemoryTaskStateRepository();
+      this.pronunciationRepo = new InMemoryPronunciationRepository();
+      this.semanticRepo = new InMemorySemanticMemoryRepository();
     }
-
-    this.pronunciationRepo = new InMemoryPronunciationRepository();
-    this.semanticRepo = new InMemorySemanticMemoryRepository();
   }
 
   // =========================================================================
@@ -174,12 +181,12 @@ export class UnifiedMemory {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    this.taskStacks.set(sessionId, [task]);
+    this.taskRepo.set(sessionId, [task]);
     return task;
   }
 
   public interruptWithTask(sessionId: string, newIntent: IntentName): TaskState {
-    const stack = this.taskStacks.get(sessionId) || [];
+    const stack = this.taskRepo.get(sessionId);
     const current = stack[stack.length - 1];
 
     if (current) {
@@ -205,27 +212,28 @@ export class UnifiedMemory {
     };
 
     stack.push(subTask);
-    this.taskStacks.set(sessionId, stack);
+    this.taskRepo.set(sessionId, stack);
     return subTask;
   }
 
   public completeAndResume(sessionId: string): TaskState | null {
-    const stack = this.taskStacks.get(sessionId) || [];
+    const stack = this.taskRepo.get(sessionId);
     if (stack.length <= 1) return stack[0] || null;
 
     stack.pop(); // Pop finished sub-task
     const resumed = stack[stack.length - 1];
     if (resumed) resumed.updatedAt = Date.now();
+    this.taskRepo.set(sessionId, stack);
     return resumed || null;
   }
 
   public getActiveTask(sessionId: string): TaskState | null {
-    const stack = this.taskStacks.get(sessionId) || [];
+    const stack = this.taskRepo.get(sessionId);
     return stack.length > 0 ? stack[stack.length - 1] : null;
   }
 
   public getInterruptedTask(sessionId: string): TaskState | null {
-    const stack = this.taskStacks.get(sessionId) || [];
+    const stack = this.taskRepo.get(sessionId);
     return stack.length > 1 ? stack[stack.length - 2] : null;
   }
 
@@ -246,8 +254,20 @@ export class UnifiedMemory {
       expiresAt: Date.now() + AI_CONFIG.confirmationTtlMs,
     };
 
-    if (active) active.draft = draft;
+    if (active) {
+      active.draft = draft;
+      const stack = this.taskRepo.get(sessionId);
+      this.taskRepo.set(sessionId, stack);
+    }
     return draft;
+  }
+
+  public saveDraft(sessionId: string, draft: TransactionDraft): void {
+    const stack = this.taskRepo.get(sessionId);
+    const active = stack[stack.length - 1];
+    if (!active) return;
+    active.draft = draft;
+    this.taskRepo.set(sessionId, stack);
   }
 
   public updateDraftWithCorrection(sessionId: string, field: string, newValue: any): TransactionDraft | null {
@@ -259,6 +279,8 @@ export class UnifiedMemory {
     (active.draft as any)[field] = newValue;
     active.draft.confirmationState = "UNCONFIRMED"; // requires fresh confirmation
     active.draft.expiresAt = Date.now() + AI_CONFIG.confirmationTtlMs;
+    const stack = this.taskRepo.get(sessionId);
+    this.taskRepo.set(sessionId, stack);
 
     return active.draft;
   }
@@ -373,13 +395,16 @@ export class UnifiedMemory {
     }
   }
 
-  public clearSession(sessionId: string): void {
+  public async clearSession(sessionId: string): Promise<void> {
     this.workingSlots.delete(sessionId);
-    this.taskStacks.delete(sessionId);
+    this.taskRepo.delete(sessionId);
     this.correctionLedger.delete(sessionId);
-    this.sessionRepo.delete(sessionId);
-    this.conversationRepo.clear(sessionId);
-    this.semanticRepo.clear(sessionId);
+    await Promise.all([
+      this.sessionRepo.delete(sessionId),
+      this.conversationRepo.clear(sessionId),
+      this.transactionRepo.clear(sessionId),
+      this.semanticRepo.clear(sessionId),
+    ]);
   }
 }
 

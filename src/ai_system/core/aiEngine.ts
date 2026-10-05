@@ -47,6 +47,7 @@ import { aiSpeech } from "./aiSpeech";
 import { aiUnderstanding } from "./aiUnderstanding";
 import { audioIngestor } from "../perception/audioIngestor";
 import { aiTrace } from "../observability/aiTrace";
+import { financialPolicy } from "./financialPolicy";
 
 export interface ExecutionContext {
   sessionId: string;
@@ -194,9 +195,12 @@ export class AiEngine {
     // Handle Task Memory Interruption (e.g. check balance during transfer)
     if (intent === "CHECK_BALANCE" && (ctx.workingSlots.amount || ctx.workingSlots.recipientPhone) && ctx.currentStep !== "welcome") {
       unifiedMemory.interruptWithTask(ctx.sessionId, "CHECK_BALANCE");
-    } else if (intent === "SEND_MONEY" && !unifiedMemory.getActiveTask(ctx.sessionId)) {
-      unifiedMemory.setPrimaryTask(ctx.sessionId, "SEND_MONEY", ctx.workingSlots, ctx.currentStep);
-      unifiedMemory.createTransactionDraft(ctx.sessionId, "TRANSFER", ctx.workingSlots);
+    } else if (intent === "SEND_MONEY") {
+      if (!unifiedMemory.getActiveTask(ctx.sessionId)) {
+        unifiedMemory.setPrimaryTask(ctx.sessionId, "SEND_MONEY", ctx.workingSlots, ctx.currentStep);
+      }
+      ctx.activeDraft = unifiedMemory.getActiveTask(ctx.sessionId)?.draft ||
+        unifiedMemory.createTransactionDraft(ctx.sessionId, "TRANSFER", ctx.workingSlots);
     }
 
     latencies.understandingLatencyMs = Math.round(performance.now() - stage2Start);
@@ -217,7 +221,8 @@ export class AiEngine {
     const action: ActionOutput = aiAction.plan(
       intent,
       ctx.workingSlots,
-      navigation.targetStep || ctx.currentStep
+      navigation.targetStep || ctx.currentStep,
+      ctx.activeDraft?.confirmationState === "CONFIRMATION_REQUESTED",
     );
 
     latencies.navigationLatencyMs = Math.round(performance.now() - stage3Start);
@@ -227,33 +232,21 @@ export class AiEngine {
     // ─────────────────────────────────────────────────────────────────────────
     const stage4Start = performance.now();
 
-    // INVARIANT_008: Draft can only be confirmed if it was in CONFIRMATION_REQUESTED (or currentStep === 'confirm')
-    // and caller provides an explicit affirmative token (e.g. "yes", "aane", "proceed", "1")
+    // INVARIANT_008: A caller can confirm only a persisted draft awaiting confirmation.
     const isAffirmative = (
       aiUnderstanding.checkConfirmation(ctx.rawInput) ||
       ctx.rawInput.toLowerCase().trim() === "yes" ||
       ctx.rawInput.toLowerCase().trim() === "aane" ||
       ctx.rawInput.trim() === "1"
     );
-    const inConfirmStep = ctx.currentStep === "confirm" || ctx.activeDraft?.confirmationState === "CONFIRMATION_REQUESTED";
-    const clientConfirmed = isAffirmative && inConfirmStep;
-    if (clientConfirmed) {
-      if (!ctx.activeDraft) {
-        ctx.activeDraft = unifiedMemory.createTransactionDraft(ctx.sessionId, "TRANSFER", ctx.workingSlots);
-      }
-      if (ctx.activeDraft) {
-        ctx.activeDraft.confirmationState = "CONFIRMED";
-        ctx.activeDraft.amount = Number(ctx.workingSlots.amount || ctx.activeDraft.amount);
-        ctx.activeDraft.recipientPhone = ctx.workingSlots.recipientPhone || ctx.activeDraft.recipientPhone;
-      }
-    }
+    const clientConfirmed = isAffirmative && ctx.activeDraft?.confirmationState === "CONFIRMATION_REQUESTED";
 
     // If this turn prepares a confirmation prompt for caller, mark draft as CONFIRMATION_REQUESTED
     if (ctx.activeDraft && (dialogueTypeIsConfirmation(intent, ctx.workingSlots) || navigation.targetStep === "confirm")) {
       if (ctx.activeDraft.confirmationState === "UNCONFIRMED") {
-        ctx.activeDraft.confirmationState = "CONFIRMED"; // Or CONFIRMATION_REQUESTED
         ctx.activeDraft.confirmationState = "CONFIRMATION_REQUESTED";
       }
+      unifiedMemory.saveDraft(ctx.sessionId, ctx.activeDraft);
     }
 
     const safetyEvaluation = unifiedSafetyEngine.evaluate(
@@ -283,6 +276,9 @@ export class AiEngine {
       action.requiresClientConfirmation = true;
     } else if (action.requiresClientConfirmation && !clientConfirmed) {
       action.isExecutable = false;
+    } else if (clientConfirmed && ctx.activeDraft) {
+      ctx.activeDraft.confirmationState = "CONFIRMED";
+      unifiedMemory.saveDraft(ctx.sessionId, ctx.activeDraft);
     }
 
     latencies.safetyCheckLatencyMs = Math.round(performance.now() - stage4Start);
@@ -294,37 +290,29 @@ export class AiEngine {
 
     if (action.isExecutable && action.tool !== "none") {
       const isTransferTool = action.tool === "execute_transfer" || action.tool === "momo_execute_transfer";
-      const isSandboxMode = input.executionMode === "MTN_SANDBOX";
 
-      let toolResult;
-      // In default SIMULATION mode, perform high-fidelity dry-run without moving sandbox funds
-      if (isTransferTool && !isSandboxMode) {
-        const simRef = action.params.referenceId || `SIM_${Date.now()}`;
-        toolResult = {
-          success: true,
-          tool: action.tool,
-          data: {
-            transactionId: `SIM_TX_${Date.now()}`,
-            financialTransactionId: `SIM_FIN_${Date.now().toString().slice(-6)}`,
-            referenceId: simRef,
-            amount: Number(ctx.workingSlots.amount || 0),
-            currency: "GHS",
-            recipientPhone: ctx.workingSlots.recipientPhone || "",
-            recipientName: ctx.workingSlots.recipientName || "Recipient",
-            network: ctx.workingSlots.network || "MTN",
-            status: "SUCCESSFUL" as const,
-            executionMode: "SIMULATION",
-          },
-          source: "mock_sandbox" as const,
-        };
-      } else {
-        toolResult = await unifiedToolRegistry.execute({
-          tool: action.tool,
-          sessionId: ctx.sessionId,
-          params: action.params,
-          draft: ctx.activeDraft,
-          clientConfirmed,
+      let toolResult = await unifiedToolRegistry.execute({
+        tool: action.tool,
+        sessionId: ctx.sessionId,
+        params: action.params,
+        draft: ctx.activeDraft,
+        clientConfirmed,
+      });
+
+      if (isTransferTool && toolResult.success) {
+        const data = toolResult.data || {};
+        const authoritative = financialPolicy.isAuthoritativeCompletion({
+          status: data.status,
+          source: toolResult.source,
+          financialTransactionId: data.financialTransactionId,
         });
+        if (!authoritative) {
+          toolResult = {
+            ...toolResult,
+            success: false,
+            error: "FINANCIAL_TRUTH_UNKNOWN: transfer result lacks authoritative provider completion evidence.",
+          };
+        }
       }
 
       action.executedResult = toolResult;
@@ -334,40 +322,19 @@ export class AiEngine {
         ctx.workingSlots.availableBalance = toolResult.data.availableBalance;
       }
 
-      // If financial transfer succeeded, record to durable transactional ledger and central momoProvider
+      // Record only provider-evidenced completion in transactional memory.
       if (isTransferTool && toolResult.success) {
-        const txRef = action.params.referenceId || toolResult.data?.referenceId || `TX_${Date.now()}`;
+        const txRef = toolResult.data?.referenceId;
         await unifiedMemory.recordTransaction(ctx.sessionId, {
-          referenceId: txRef,
+          referenceId: txRef || toolResult.data.financialTransactionId,
           type: "TRANSFER",
           amount: Number(ctx.workingSlots.amount),
           recipientPhone: ctx.workingSlots.recipientPhone || "",
-          recipientName: ctx.workingSlots.recipientName || "Recipient",
-          network: ctx.workingSlots.network || "MTN",
-          status: "CONFIRMED",
+          recipientName: ctx.workingSlots.recipientName || "",
+          network: ctx.workingSlots.network!,
+          status: "COMPLETED",
           source: toolResult.source,
         });
-
-        // Sync with Central MoMo provider for instant ledger reflection
-        try {
-          const { momoProvider } = await import("../../integrations/momo");
-          const created = momoProvider.createTransaction({
-            operation: "SEND_MONEY",
-            recipientPhone: ctx.workingSlots.recipientPhone || "",
-            amount: Number(ctx.workingSlots.amount) || 0,
-            channel: "AI_VOICE",
-            payerPhone: action.params.senderPhone || "0240000000",
-          });
-          if (created && toolResult.data) {
-            created.status = "SUCCESSFUL";
-            if (created.provider) {
-              created.provider.financialTransactionId = toolResult.data.financialTransactionId || toolResult.data.transactionId;
-              created.provider.referenceId = txRef;
-            }
-          }
-        } catch (syncErr) {
-          console.warn("[AiEngine] Notice: central momo ledger sync non-critical:", syncErr);
-        }
       }
     }
 
@@ -386,6 +353,18 @@ export class AiEngine {
       input.userProfile,
       isCorrection
     );
+
+    const transferAttempted = action.tool === "execute_transfer" || action.tool === "momo_execute_transfer";
+    if (transferAttempted && action.executedResult && !action.executedResult.success) {
+      dialogue = {
+        type: "ERROR_RECOVERY",
+        response: ctx.detectedLanguage === "tw" || ctx.detectedLanguage === "ak"
+          ? "Mepa wo kyɛw, mantumi anhwɛ sɛ sika no akɔ. Hwɛ wo MoMo akontaabu anaa frɛ wo network no ansa na wosan sɔ bio."
+          : "I could not verify that the transfer completed. Please check your MoMo account or contact your provider before trying again.",
+        promptLanguage: ctx.detectedLanguage,
+        needsClarification: false,
+      };
+    }
 
     // Spoken PIN Educational Override
     if (safety.pinDetectedInVoice) {
@@ -546,7 +525,7 @@ export class AiEngine {
 }
 
 function dialogueTypeIsConfirmation(intent: IntentName, slots: EntitySlotMap): boolean {
-  return intent === "SEND_MONEY" && Boolean(slots.amount && (slots.recipientPhone || slots.recipientName));
+  return intent === "SEND_MONEY" && Boolean(slots.amount && slots.recipientPhone && slots.network);
 }
 
 export const aiEngine = new AiEngine();

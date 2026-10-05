@@ -139,7 +139,7 @@ dashboardRouter.get("/api/dev/endpoints", (req: Request, res: Response) => {
     { id: "ep-health", group: "System", name: "Health Check", method: "GET", path: "/health", description: "System health and configuration overview" },
     { id: "ep-smoke-test", group: "System", name: "Smoke Tests", method: "POST", path: "/api/dev/smoke-test", description: "Real connectivity and asset probes" },
     { id: "ep-voice-menu", group: "Telephony", name: "Voice Menu Webhook", method: "POST", path: "/voice-menu", description: "Inbound Africa's Talking voice callback" },
-    { id: "ep-kyc-lookup", group: "Subscribers", name: "KYC Lookup", method: "GET", path: "/api/kyc/lookup?phone=0553838464", description: "Resolves phone number to verified subscriber name" },
+    { id: "ep-kyc-lookup", group: "Subscribers", name: "KYC Lookup", method: "GET", path: "/api/kyc/lookup?phone={phone}", description: "Resolves a supplied phone number to a provider-verified subscriber name when supported" },
     { id: "ep-manifest", group: "Audio", name: "Audio Manifest", method: "GET", path: "/api/audio/manifest", description: "Audio prompt catalogue and file availability" },
     { id: "ep-eval", group: "AI & NLU", name: "AI Evaluation Harness", method: "POST", path: "/api/eval/run", description: "Runs 40+ labeled English and Twi utterance benchmarks" },
     { id: "ep-ledger", group: "Transactions", name: "Transaction Ledger", method: "GET", path: "/api/ledger", description: "Transaction history and MoMo status records" },
@@ -201,28 +201,34 @@ dashboardRouter.post("/api/dev/releases/:id/rollback", (req: Request, res: Respo
 // ── Transactions Direct Endpoint ──────────────────────────────────────
 dashboardRouter.post("/transactions/send", async (req: Request, res: Response) => {
   try {
-    const { network, recipient_phone, recipient_name, amount } = req.body;
+    const { network, payer_phone, recipient_phone, recipient_name, amount } = req.body;
     const amountVal = parseAndValidateAmount(String(amount));
     if (!amountVal.valid || !amountVal.amount) {
       return res.status(400).json({ error: amountVal.error || "Invalid amount" });
     }
 
-    if (!recipient_phone) {
-      return res.status(400).json({ error: "MISSING_REQUIRED_INFORMATION: Recipient phone number is required." });
+    if (!payer_phone || !recipient_phone) {
+      return res.status(400).json({ error: "MISSING_REQUIRED_INFORMATION: Explicit payer_phone and recipient_phone are required." });
     }
+    if (network !== "MTN") {
+      return res.status(400).json({ error: "This endpoint currently supports only an explicitly selected MTN network." });
+    }
+    const payerVal = validateGhanaPhoneNumber(String(payer_phone));
     const phoneVal = validateGhanaPhoneNumber(String(recipient_phone));
+    if (!payerVal.valid || !payerVal.normalized) {
+      return res.status(400).json({ error: payerVal.error || "Invalid payer phone number format." });
+    }
     if (!phoneVal.valid || !phoneVal.normalized) {
       return res.status(400).json({ error: phoneVal.error || "Invalid recipient phone number format." });
     }
 
-    const payer = phoneVal.normalized;
-    const payment = await voicePaymentService.initiatePayment(payer, amountVal.amount);
+    const payment = await voicePaymentService.initiatePayment(payerVal.normalized, amountVal.amount);
 
     res.status(200).json({
       status: payment.ok ? "PENDING" : "FAILED",
       reference: payment.fields.referenceId,
       amount: amountVal.amount,
-      recipient_name: recipient_name || "Subscriber",
+      recipient_name: typeof recipient_name === "string" ? recipient_name : undefined,
       timestamp: new Date().toISOString(),
       spokenReceipt: buildSpokenText(payment),
     });

@@ -4,22 +4,15 @@
  */
 
 import { TTSProvider, TtsSynthesisRequest, TtsSynthesisResponse } from "./ttsProvider";
-import { geminiTtsAdapter } from "./ttsAdapter";
-import { localGhanaianTtsProvider } from "./localGhanaianTts";
+import { ttsRouter } from "./ttsRouter";
 import { speechNormalizer } from "../speechNormalizer";
 import { pronunciationEngine } from "../pronunciation/pronunciationEngine";
-import { geminiClient } from "../../../services/geminiClient";
 
 export class TtsService {
   private primaryProvider: TTSProvider;
-  private fallbackProvider: TTSProvider;
 
-  constructor(
-    primary: TTSProvider = localGhanaianTtsProvider,
-    fallback: TTSProvider = geminiTtsAdapter
-  ) {
+  constructor(primary: TTSProvider = ttsRouter) {
     this.primaryProvider = primary;
-    this.fallbackProvider = fallback;
   }
 
   public setProvider(provider: TTSProvider): void {
@@ -45,25 +38,9 @@ export class TtsService {
       pronunciationHints: hints,
     };
 
-    // If Gemini is available and preferred, try it first, but gracefully fallback to local
-    if (geminiClient.isAvailable() && process.env.PREFER_GEMINI_TTS === "true") {
-      try {
-        const cloudResult = await this.fallbackProvider.synthesize(request);
-        if (cloudResult.audioBuffer || cloudResult.audioBase64) {
-          return cloudResult;
-        }
-      } catch (err) {
-        console.warn("[TtsService] Cloud TTS notice, continuing to local Ghanaian TTS:", err);
-      }
-    }
-
-    // Reliable Local Ghanaian TTS synthesis
-    try {
-      return await this.primaryProvider.synthesize(request);
-    } catch (err: any) {
-      // Guaranteed PCM WAV fallback
-      return localGhanaianTtsProvider.synthesize(request);
-    }
+    // The router tries verified recordings, actual Piper inference, and the
+    // configured remote backend. A formant experiment is never an implicit fallback.
+    return this.primaryProvider.synthesize(request);
   }
 }
 

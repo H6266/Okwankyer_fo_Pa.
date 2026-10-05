@@ -1,130 +1,53 @@
-# Ɔkwankyerɛfo Pa - Layered Cognitive Architecture (AI_ARCHITECTURE.md)
+# Ɔkwankyerɛfo Pa architecture
 
-## 1. High-Level Vision
-Ɔkwankyerɛfo Pa ("The Good Guide") is a voice-first cognitive accessibility system designed for Ghanaian Digital Financial Services (Mobile Money and IVR). It bridges digital literacy, vision, and language barriers by providing spoken conversational interactions in **Akan Twi** (Asante and Akuapem), **Ghanaian English**, and **bilingual code-switching**, with instant DTMF keypad fallback.
+**Status date:** 2026-10-05
+This document describes the current implemented seams and their limits. It is not a claim that the full target architecture has shipped.
 
-The architecture strictly rejects the "toy chatbot" paradigm. AI models are **untrusted advisors** that propose intents, extract slots, and formulate conversational dialogue. Deterministic, cryptographically verifiable policies, capability engines, and state machines serve as the **authoritative execution and safety gates**.
+## Current execution path
 
----
+The main text/audio entry point is `src/ai_system/core/aiEngine.ts`. It normalizes input, loads session/task state, calls `reasoningEngine`, plans navigation and actions, applies the safety engine, dispatches only through `unifiedToolRegistry`, generates a response, and stores the turn. Audio ingestion delegates through the ASR router. This architecture still has parallel/legacy NLU, payment, and speech paths; complete deduplication is work in progress.
 
-## 2. The 20-Stage Cognitive Processing Lifecycle
+For high-risk financial actions, the intended authority order is:
 
-Every voice, audio, DTMF, or text interaction executes across 20 distinct stages:
-
-```
- 1. PERCEPTION                  Audio ingest, 8kHz/16kHz resampling, VAD, DTMF detection
- 2. LANGUAGE IDENTIFICATION     Language classifier (English, Asante Twi, Akuapem Twi, Code-Switch)
- 3. SPEECH NORMALIZATION        Phone numbers, currency (GHS, cedis, pesewas), Akan number words
- 4. CONTEXT HYDRATION           Session state, working memory, profile, past turns
- 5. INTENT UNDERSTANDING        Local NLU classifier -> Local SLM -> Optional Gemini
- 6. ENTITY / SLOT EXTRACTION    Phone, amount, recipient name, carrier network, biller
- 7. COREFERENCE RESOLUTION      "him", "her", "that person", "same amount", "send to Kofi instead"
- 8. TASK REASONING              Fact vs Inference vs Assumption vs Unknown
- 9. DOMAIN RETRIEVAL            MoMo grammar, telco codes, carrier prefixes, KYC directory
-10. POLICY & SAFETY ANALYSIS    Zero-PIN Gate, Invariants INVARIANT_001..015, Rate Limits
-11. DECISION                    Determine Next Best Action (Clarify, Prompt, Route, Execute)
-12. ACTION PLANNING             Structured Action Proposal (strictly unexecuted)
-13. TOOL AUTHORIZATION          Verify draft expiration, material change check, user confirmation
-14. TOOL EXECUTION              Unified Tool Registry (authoritative provider calls)
-15. RESULT VERIFICATION         TruthEngine: verify provider receipt, assert not assumed
-16. DIALOGUE GENERATION         Generate concise single-slot prompt in caller's active dialect
-17. SPEECH GENERATION           Local Ghanaian TTS -> Generic Local TTS -> Optional Cloud TTS
-18. BARGE-IN & INTERRUPTION     Cancel speech if speech activity detected on incoming channel
-19. MEMORY UPDATE               Update Working, Session, Episodic, Task, and Transaction Memory
-20. SELF-EVALUATION             Internal truth and certainty reflection, trace logging
+```text
+utterance
+  -> normalized evidence and slots
+  -> persisted draft and confirmation fingerprint
+  -> deterministic policy and safety checks
+  -> canonical tool registry
+  -> provider adapter
+  -> authoritative provider transaction evidence
+  -> verified response
 ```
 
----
+The model may assist understanding. It does not authorize payment. A positive response requires a real provider result and a provider financial transaction ID. Internal IDs, HTTP acceptance, and customer confirmation alone do not establish completion.
 
-## 3. Cognitive State Representation
+## Memory and persistence
 
-The runtime cognitive state cleanly separates epistemic categories:
-```typescript
-export interface CognitiveState {
-  facts: Map<string, any>;          // Verified by authoritative provider or user affirmation
-  inferences: Map<string, any>;     // Deduced from conversation history with high confidence
-  assumptions: Map<string, any>;    // Tentative defaults; NEVER treated as facts
-  uncertainties: Map<string, any>;  // Ambiguous slots requiring targeted clarification
-  unknowns: Set<string>;            // Required slots that have not been provided
+In production, repository-backed sessions, turns, preferences, transaction records, semantic vectors, pronunciation entries, and task drafts use encrypted file storage under `.data`. Filenames use hashes of session/user identifiers, writes use temporary files plus rename, and records are encrypted with AES-256-GCM. This is a single-host persistence option, not a multi-instance database. A PostgreSQL adapter and shared atomic idempotency backend are not present. Some transient working/correction state remains process-local.
 
-  sessionId: string;
-  activeLanguage: "en" | "tw" | "en-tw";
-  activeTask: TaskState | null;
-  interruptedTasks: TaskState[];
-  currentScreen: string;
-  currentStep: string;
-  workingSlots: Record<string, any>;
-  confirmedSlots: Set<string>;
-  transactionDraft: TransactionDraft | null;
-  conversationHistory: TurnRecord[];
-}
-```
+Production startup requires `ADMIN_TOKEN`, `SESSION_SECRET`, `ENCRYPTION_KEY` (each at least 32 characters), and explicit `CORS_ORIGINS`. Keep the encryption key stable and protected; key rotation requires a data migration.
 
-### Invariant: Separation of Epistemic Levels
-**An assumption or inference must NEVER be converted into a fact.**
-- If a caller says "Send money", the recipient is `UNKNOWN`.
-- If a caller previously sent money to "Ama", `recipient = Ama` is an `INFERENCE` or `ASSUMPTION` only if explicitly requested ("same person").
-- A monetary balance is an `UNKNOWN` unless returned by an authoritative banking/telco provider.
+## Speech capabilities
 
----
+- DTMF decoding and voice activity detection are signal-processing utilities. They do not transcribe speech.
+- Local neural ASR is a separate worker and requires an explicitly configured model. Readiness must be checked against the running model worker.
+- Fixed recordings are human studio speech, not TTS.
+- Dynamic local neural speech uses the Piper worker when configured. TTS no longer silently falls back to formant synthesis. The experimental formant provider is behind an explicit development setting.
+- Local ASR/TTS model weights are not included in the repository. Their language coverage depends on the selected licensed model and has not been benchmarked for Ghanaian English/Twi here.
 
-## 4. Multi-Brain / Capability-Based Architecture
+## Understanding and confidence
 
-Rather than hardcoding calls to a single cloud provider, all cognitive operations are routed through the **ModelRouter**:
+`LocalLanguageBrain` is a lexical/slot evidence provider. It uses phrase cues and number parsing, proposes no direct execution, and does not provide a calibrated probability. The score is explicitly an uncalibrated lexical evidence score. Gemini output in `CognitiveRouter` is strictly schema-checked, constrained against literal utterance evidence for extracted values, and rejected when its intent conflicts with local interpretation. The main `AiEngine` is not yet fully integrated with one centralized model gateway or one NLU implementation.
 
-| Capability | Tier 1 (Primary) | Tier 2 (Secondary) | Tier 3 (Cloud Fallback) |
-|---|---|---|---|
-| **Speech-to-Text (ASR)** | Local Ghanaian Offline ASR (8/16kHz) | GhanaNLP Whisper Twi | Gemini Multimodal Audio |
-| **Language Detection** | Local N-Gram & Lexicon Classifier | Local FastText/Compact ML | Cloud Model |
-| **Intent & Slot NLU** | Deterministic Ghanaian NLU Engine | Local Compact SLM (1B/Q4) | Gemini Reasoning Model |
-| **Complex Dialogue** | Local Dialogue State Machine | Local Instruction SLM | Gemini Flash Reasoning |
-| **Text-to-Speech (TTS)**| Local Ghanaian Phoneme Synthesizer | Pre-recorded Studio Audio | Gemini Cloud TTS Voice |
-| **Financial Safety** | Deterministic Policy Engine | Invariant Validator | *External AI Prohibited* |
-| **Tool Execution** | Unified Tool Registry | *External AI Prohibited*| *External AI Prohibited* |
+## Provider and transaction boundaries
 
----
+`PaymentSaga` models transfer lifecycle transitions and requires provider financial evidence for completion. The MoMo integration still has direct route and provider paths that are not all routed through one saga, and some non-transfer services remain mock/unimplemented. Voice and dashboard routes have had obvious payer/recipient/network defaults removed, but telephony authentication, webhook replay protection, full reconciliation, and cross-instance idempotency still need completion.
 
-## 5. Truth Engine Architecture
+## Evaluation and delivery
 
-The `TruthEngine` acts as an independent verifier before any statement or execution is permitted:
-- `assertKnown(slotName, value)`: Verifies value is present and non-empty.
-- `assertProviderConfirmed(transactionId)`: Reconstructs state from durable storage and validates provider receipt.
-- `assertUserConfirmed(draft)`: Verifies user provided explicit affirmation after hearing exact recipient and amount.
-- `assertNoMaterialChanges(draft, currentSlots)`: Verifies amount and recipient did not mutate post-confirmation.
-- `assertNotExpired(draft)`: Verifies confirmation was given within the allowable time window (default 120s).
-- `assertBalanceAvailable(source)`: If subscriber balance is not exposed via telco API, returns `BALANCE_NOT_AVAILABLE_VIA_API` and directs user to USSD `*170#`.
+Historical unsupported metrics and file-existence grading were removed from the evaluation scripts. The current test additions cover provider truth, unbound confirmation, missing networks, safe local understanding, and durable encrypted memory. They were not runnable in this environment because the checkout has no installed `vitest`, `tsc`, `eslint`, or `tsx`; Python is also unavailable. No benchmark, accuracy, latency, or release score is claimed.
 
----
+## Production status
 
-## 6. Durable Payment Saga State Machine
-
-Financial operations strictly adhere to an asynchronous, idempotent saga:
-```
-DRAFT
-  ↓
-RECIPIENT_VERIFIED (via Telco KYC Lookup)
-  ↓
-AMOUNT_VERIFIED (validated against limits: min 1 GHS, max 5000 GHS)
-  ↓
-CONFIRMATION_REQUESTED (spoken safe readback: "Kwame Nyamebere ending in 8464")
-  ↓
-CONFIRMED (user presses 1 or speaks "aane" / "yes")
-  ↓
-REQUEST_TO_PAY_PENDING (telco collection push dispatched)
-  ↓
-WAITING_FOR_CUSTOMER_AUTHORIZATION (USSD prompt on customer phone)
-  ↓
-COLLECTION_CONFIRMED (webhook / status poll confirms funds reserved)
-  ↓
-DISBURSEMENT_INITIATED (funds dispatched to recipient wallet)
-  ↓
-DISBURSEMENT_CONFIRMED (telco confirms recipient credited)
-  ↓
-COMPLETED (authoritative receipt generated and spoken)
-```
-
-**Failure Branches**:
-- `CUSTOMER_DECLINED`: User canceled PIN prompt on handset.
-- `COLLECTION_TIMEOUT`: User took > 120s to respond to USSD prompt.
-- `DISBURSEMENT_FAILED`: Recipient wallet suspended or limit reached -> triggers automatic reconciliation.
-- `RECONCILIATION_REQUIRED`: System flags transaction for manual/automated reversal.
+This repository is **not production-ready for financial execution**. Remaining release blockers include full payment-path consolidation, shared persistence/idempotency, authenticated provider webhook processing, complete telephony hardening, comprehensive empirical Ghanaian-language and speech evaluation, and a successful full CI/release-gate run.

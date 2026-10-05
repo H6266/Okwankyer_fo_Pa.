@@ -47,6 +47,7 @@ export interface ITransactionRepository {
   record(sessionId: string, record: TransactionalMemoryRecord): Promise<void>;
   get(referenceId: string): Promise<TransactionalMemoryRecord | null>;
   list(sessionId: string): Promise<TransactionalMemoryRecord[]>;
+  clear(sessionId: string): Promise<void>;
 }
 
 export interface IPronunciationRepository {
@@ -67,4 +68,10 @@ export interface ISemanticMemoryRepository {
   storeVector(record: VectorRecord): Promise<void>;
   searchSimilar(sessionId: string, queryEmbedding: number[], topK?: number): Promise<VectorRecord[]>;
   clear(sessionId: string): Promise<void>;
+}
+
+export interface ITaskStateRepository {
+  get(sessionId: string): TaskState[];
+  set(sessionId: string, tasks: TaskState[]): void;
+  delete(sessionId: string): void;
 }

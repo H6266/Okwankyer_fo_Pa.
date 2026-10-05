@@ -165,41 +165,38 @@ momoRouter.get("/api/momo/capability-matrix", (_req: Request, res: Response) => 
 // Send Money (Supports both Consumer P2P RequestToPay and Direct Float Disbursement)
 momoRouter.post("/api/momo/send", adminRateLimiter, requireAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { recipient_phone, recipient_name, amount, payer_phone, mode } = req.body;
+    const { recipient_phone, recipient_name, amount, payer_phone, network, mode } = req.body;
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
       return res.status(400).json({ error: "Missing or invalid positive 'amount' field." });
     }
 
-    const payer = (payer_phone || recipient_phone || "").trim();
-    const recipient = (recipient_phone || payer_phone || "").trim();
-    if (!payer) {
-      return res.status(400).json({ error: "Missing required phone number field." });
+    if (!recipient_phone || typeof recipient_phone !== "string") {
+      return res.status(400).json({ error: "Missing required recipient_phone." });
+    }
+    if (network !== "MTN") {
+      return res.status(400).json({ error: "This endpoint currently supports only an explicitly selected MTN network." });
     }
 
-    const validatedPayer = validateGhanaPhoneNumber(payer);
-    if (!validatedPayer.valid || !validatedPayer.normalized) {
-      return res.status(400).json({ error: validatedPayer.error || "Invalid payer phone number." });
+    const validatedRecipient = validateGhanaPhoneNumber(recipient_phone);
+    if (!validatedRecipient.valid || !validatedRecipient.normalized) {
+      return res.status(400).json({ error: validatedRecipient.error || "Invalid recipient phone number." });
     }
-
-    const validatedRecipient = validateGhanaPhoneNumber(recipient);
-    const finalRecipientPhone = validatedRecipient.valid && validatedRecipient.normalized
-      ? validatedRecipient.normalized
-      : recipient;
+    const finalRecipientPhone = validatedRecipient.normalized;
 
     // Handle Direct Float Disbursement
     if (mode === "DISBURSEMENT_TRANSFER") {
       const tx = await mtnMomoService.transfer({
         amount: parsedAmount,
         payeePhone: finalRecipientPhone,
-        payeeName: recipient_name || "Recipient Subscriber",
+        payeeName: typeof recipient_name === "string" ? recipient_name : "",
         payerMessage: "Direct Float Disbursement",
         payeeNote: "Okwankyerɛfo Pa MoMo",
       });
 
       tx.payerPhone = "FLOAT (Business Float)";
       tx.recipientPhone = finalRecipientPhone;
-      tx.recipientName = recipient_name || "Recipient Subscriber";
+      tx.recipientName = typeof recipient_name === "string" ? recipient_name : "";
       tx.requestedAmount = parsedAmount;
       tx.requestedCurrency = "GHS";
       mtnMomoService.recordTransaction(tx);
@@ -216,7 +213,7 @@ momoRouter.post("/api/momo/send", adminRateLimiter, requireAdminAuth, async (req
           executionCurrency: tx.currency,
           currencyNotice: tx.currency === "EUR" ? "MTN Developer Sandbox executes in EUR; live Ghana production executes in GHS" : undefined,
           payer_phone: "FLOAT (Business Float)",
-          recipient_name: recipient_name || "Recipient Subscriber",
+          recipient_name: typeof recipient_name === "string" ? recipient_name : undefined,
           recipient_phone: finalRecipientPhone,
           momoDetails: {
             referenceId: tx.referenceId,
@@ -230,7 +227,16 @@ momoRouter.post("/api/momo/send", adminRateLimiter, requireAdminAuth, async (req
       });
     }
 
-    // Default: Consumer P2P / Handset Authorization (Collection RequestToPay)
+    // Consumer collection requires the payer identity separately from the recipient.
+    if (typeof payer_phone !== "string" || !payer_phone.trim()) {
+      return res.status(400).json({ error: "Missing required payer_phone; payer and recipient are never inferred from each other." });
+    }
+    const validatedPayer = validateGhanaPhoneNumber(payer_phone);
+    if (!validatedPayer.valid || !validatedPayer.normalized) {
+      return res.status(400).json({ error: validatedPayer.error || "Invalid payer phone number." });
+    }
+
+    // Request handset authorization from the explicitly supplied payer.
     const result = await voicePaymentService.initiatePayment(validatedPayer.normalized, parsedAmount);
     const evidence = evidenceStore.get(result.evidenceId);
 
@@ -241,9 +247,9 @@ momoRouter.post("/api/momo/send", adminRateLimiter, requireAdminAuth, async (req
     }
 
     const refId = result.fields.referenceId || result.evidenceId;
-    const extId = result.fields.externalId || `OKP-${Date.now().toString().slice(-6)}`;
+    const extId = result.fields.externalId;
     mtnMomoService.recordTransaction({
-      id: extId,
+      id: extId || refId,
       referenceId: refId,
       externalId: extId,
       type: "COLLECTION_REQUEST_TO_PAY",
@@ -255,7 +261,7 @@ momoRouter.post("/api/momo/send", adminRateLimiter, requireAdminAuth, async (req
       msisdn: validatedPayer.normalized,
       payerPhone: validatedPayer.normalized,
       recipientPhone: finalRecipientPhone,
-      recipientName: recipient_name || "Sand Box",
+      recipientName: typeof recipient_name === "string" ? recipient_name : undefined,
       mode: "SANDBOX_API",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -275,7 +281,7 @@ momoRouter.post("/api/momo/send", adminRateLimiter, requireAdminAuth, async (req
         executionCurrency: result.fields.currency || "EUR",
         currencyNotice: result.fields.currency === "EUR" ? "MTN Developer Sandbox executes in EUR; live Ghana production executes in GHS" : undefined,
         payer_phone: validatedPayer.normalized,
-        recipient_name: recipient_name || "Sand Box",
+        recipient_name: typeof recipient_name === "string" ? recipient_name : undefined,
         recipient_phone: finalRecipientPhone,
         momoDetails: {
           referenceId: result.fields.referenceId,
@@ -413,7 +419,11 @@ momoRouter.post(
   adminRateLimiter,
   requireAdminAuth,
   async (req: Request, res: Response) => {
-  const phone = (req.body?.phone || "0553838464").trim();
+  const phone = typeof req.body?.phone === "string" ? req.body.phone.trim() : "";
+  if (!/^0\d{9}$/.test(phone)) {
+    res.status(400).json({ success: false, error: "Provide an explicit Ghanaian phone number to run provider diagnostics." });
+    return;
+  }
   const results: Array<{
     functionName: string;
     passed: boolean;
@@ -665,25 +675,27 @@ momoRouter.get("/api/momo/transfer/:referenceId", adminRateLimiter, requireAdmin
       if (financialTransactionId) localTx.financialTransactionId = financialTransactionId;
     }
 
+    const providerCompleted = (status === "SUCCESSFUL" || status === "SUCCESS") && Boolean(financialTransactionId?.trim());
     res.json({
-      success: status === "SUCCESSFUL" || status === "SUCCESS",
+      success: providerCompleted,
+      state: providerCompleted ? "COMPLETED" : (status === "SUCCESSFUL" || status === "SUCCESS") ? "RECONCILIATION_REQUIRED" : status,
       transaction: {
         status,
         financialTransactionId,
         reason,
-        amount: localTx?.amount || 5,
-        requestedAmount: localTx?.requestedAmount || localTx?.amount || 5,
-        currency: localTx?.currency || "EUR",
-        requestedCurrency: "GHS",
-        executionCurrency: localTx?.currency || "EUR",
-        currencyNotice: (localTx?.currency || "EUR") === "EUR" ? "MTN Developer Sandbox executes in EUR; live Ghana production executes in GHS" : undefined,
+        amount: localTx?.amount,
+        requestedAmount: localTx?.requestedAmount || localTx?.amount,
+        currency: localTx?.currency,
+        requestedCurrency: localTx?.requestedCurrency,
+        executionCurrency: localTx?.currency,
+        currencyNotice: localTx?.currency === "EUR" ? "MTN Developer Sandbox executes in EUR; live Ghana production executes in GHS" : undefined,
         referenceId,
         recipient_phone: localTx?.recipientPhone || localTx?.msisdn,
-        recipient_name: localTx?.recipientName || "Sand Box",
+        recipient_name: localTx?.recipientName,
         payer_phone: localTx?.payerPhone,
         momoDetails: {
           referenceId,
-          externalId: localTx?.externalId || referenceId,
+          externalId: localTx?.externalId,
           status,
           financialTransactionId,
         },
