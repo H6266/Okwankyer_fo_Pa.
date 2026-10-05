@@ -18,44 +18,42 @@ import { inputNormalizer } from "../perception/inputNormalizer";
 import { languageDetector } from "../perception/languageDetector";
 import { aiUnderstanding } from "../core/aiUnderstanding";
 import { geminiClient } from "../../services/geminiClient";
-import { openAiClient } from "../../services/openAiClient";
-import { fastLocalReasoner } from "./fastLocalReasoner";
 
 const ModelReasoningSchema = z.object({
   intent: z.string().default("UNKNOWN"),
-  confidence: z.number().min(0).max(1).default(0.5),
+  confidence: z.coerce.number().min(0).max(1).default(0.85),
   language: z.string().default("en"),
   entities: z.object({
-    amount: z.number().optional().nullable(),
+    amount: z.union([z.number(), z.string()]).optional().nullable(),
     recipientPhone: z.string().optional().nullable(),
     recipientName: z.string().optional().nullable(),
     network: z.string().optional().nullable(),
-  }).optional(),
-  conversationAct: z.string().optional(),
+  }).optional().nullable().default({}),
+  conversationAct: z.string().optional().nullable(),
   correction: z.object({
     isCorrection: z.boolean().optional(),
     field: z.string().optional(),
     oldValue: z.string().optional(),
     newValue: z.string().optional(),
     reason: z.string().optional(),
-  }).optional(),
+  }).optional().nullable(),
   referenceResolution: z.object({
     hasReference: z.boolean().optional(),
     referenceType: z.string().optional(),
     resolvedField: z.string().optional(),
     resolvedValue: z.string().optional(),
-  }).optional(),
+  }).optional().nullable(),
   ambiguity: z.object({
     isAmbiguous: z.boolean().optional(),
     candidates: z.array(z.string()).optional(),
-  }).optional(),
+  }).optional().nullable(),
   requestedAction: z.object({
     type: z.string().optional(),
-    tool: z.string().optional(),
-  }).optional(),
+    tool: z.string().optional().nullable(),
+  }).optional().nullable(),
   requiresConfirmation: z.boolean().optional(),
   safetyFlags: z.array(z.string()).optional(),
-});
+}).passthrough();
 
 export class ReasoningEngine {
   private ai: GoogleGenAI | null = null;
@@ -97,52 +95,18 @@ export class ReasoningEngine {
   }): Promise<StructuredReasoningResponse> {
     const cleanUtterance = params.utterance.trim();
 
-    // 1. Ultra-fast local deterministic evaluation (<2ms)
-    // Handles DTMF (0,1,2,8,9), yes/no, cancel, repeat, back, phone numbers, amounts,
-    // greetings, thanks, goodbyes, help, and simple corrections without waiting for cloud LLMs.
-    const fastResult = fastLocalReasoner.evaluate({
-      input: cleanUtterance,
-      currentStep: params.currentStep,
-      existingSlots: params.existingSlots,
-      languageHint: params.languageHint,
-    });
-
-    if (fastResult.canFastPath) {
-      return {
-        intent: fastResult.intent,
-        confidence: fastResult.confidence,
-        language: params.languageHint || "en",
-        entities: fastResult.entities,
-        conversationAct: fastResult.conversationAct || "UNKNOWN",
-        correction: fastResult.isCorrection
-          ? {
-              isCorrection: true,
-              field: fastResult.correctionField,
-              newValue: String(fastResult.correctionNewValue),
-            }
-          : null,
-        referenceResolution: null,
-        ambiguity: { isAmbiguous: false, candidates: [] },
-        requestedAction: {
-          type: fastResult.intent,
-          tool: null,
-          arguments: fastResult.entities,
-        },
-        requiresConfirmation: fastResult.intent === "SEND_MONEY" || fastResult.intent === "CONFIRM",
-        safetyFlags: [],
-      };
-    }
-
     // Fast-path: simple confirmations and cancellations (e.g. "yes", "aane", "cancel")
     if (this.isSimpleAffirmationOrDenial(cleanUtterance)) {
       return this.deterministicReasoning(params);
     }
 
-    // 2. Deliberative Cloud Reasoning (Gemini primary -> OpenAI secondary -> Deterministic fallback)
-    const canUseGemini = this.client.isAvailable();
-    const canUseOpenAi = openAiClient.isAvailable();
+    const candidateModels = [
+      AI_CONFIG.model || "gemini-3.8-flash",
+      "gemini-3.1-flash-lite",
+    ];
 
-    if (!canUseGemini && !canUseOpenAi) {
+    const availableCandidates = candidateModels.filter((m) => this.client.isModelAvailable(m));
+    if (availableCandidates.length === 0) {
       return this.deterministicReasoning(params);
     }
 
@@ -158,7 +122,7 @@ Existing transaction slots: ${JSON.stringify(params.existingSlots || {})}
 Recent conversation context: ${JSON.stringify(params.recentTurns || [])}
 
 Rules:
-1. Identify the caller's intent from [SEND_MONEY, PAY_BILL, BUY_AIRTIME, BUY_DATA, CASH_OUT, CHECK_BALANCE, CHECK_ACCOUNT, HELP, GO_BACK, GO_HOME, CANCEL, REPEAT, CHANGE_INFORMATION, CONFIRM, DENY, GREETING, THANKS, GOODBYE, QUESTION, EXPLANATION, CHITCHAT, CONFUSION, CLARIFICATION, MULTI_INTENT, OUT_OF_DOMAIN, INTERRUPTION, RECOVERY, UNKNOWN].
+1. Identify the caller's intent from [SEND_MONEY, PAY_BILL, BUY_AIRTIME, BUY_DATA, CASH_OUT, CHECK_BALANCE, CHECK_ACCOUNT, HELP, GO_BACK, GO_HOME, CANCEL, REPEAT, CHANGE_INFORMATION, CONFIRM, DENY, UNKNOWN].
 2. Extract financial entities: amount (number), recipientPhone (10 digits starting with 0), recipientName, network (MTN, Telecel, AT, G-Money).
 3. Do NOT treat phone numbers as amounts.
 4. Detect mid-turn corrections (e.g. "make it 200", "no send to Ama instead", "wrong number").
@@ -166,74 +130,57 @@ Rules:
 6. If the user spoke a PIN or passcode, set safetyFlags: ["SPOKEN_PIN"].
 7. Output valid JSON adhering strictly to the schema.`;
 
-    let rawJson: string | null = null;
-
-    // Try Gemini Primary
-    if (canUseGemini) {
+    for (const modelName of availableCandidates) {
       try {
-        rawJson = await geminiClient.executeWithTimeout(
+        const rawJson = await geminiClient.executeWithTimeout(
           "REASONING",
           async (ai, signal) => {
             const resp = await ai.models.generateContent({
-              model: AI_CONFIG.model,
+              model: modelName,
               contents: prompt,
               config: {
-                systemInstruction:
-                  "You are an expert Ghanaian mobile financial voice cognitive engine. Analyze spoken English, Twi, and code-switched inputs accurately into structured JSON.",
+                systemInstruction: "You are an expert Ghanaian mobile financial voice cognitive engine. Analyze spoken English, Twi, and code-switched inputs accurately into structured JSON.",
                 responseMimeType: "application/json",
                 temperature: 0.1,
               },
             });
             return resp.text || "{}";
           },
-          2000,
-          0
+          2500,
+          0 // No inner retries; fail fast to next candidate
         );
-      } catch (err: any) {
-        const errMessage = String(err.message || "");
-        const isQuota =
-          err.status === 429 ||
-          errMessage.includes("429") ||
-          errMessage.includes("RESOURCE_EXHAUSTED") ||
-          errMessage.includes("Quota exceeded") ||
-          errMessage.includes("quota");
 
-        if (isQuota) {
-          console.warn("[ReasoningEngine] Gemini API quota reached; attempting secondary cloud provider or local reasoning.");
-        } else {
-          console.warn("[ReasoningEngine] Gemini API unavailable or timed out:", err.message);
+        let cleanJson = (rawJson || "").trim();
+        if (cleanJson.startsWith("```")) {
+          cleanJson = cleanJson.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
         }
-      }
-    }
-
-    // Try OpenAI Secondary (if Gemini failed or unavailable)
-    if (!rawJson && canUseOpenAi) {
-      try {
-        rawJson = await openAiClient.generateStructuredReasoning(prompt, 2000);
-      } catch (err: any) {
-        console.warn("[ReasoningEngine] OpenAI secondary provider unavailable or exhausted:", err.message);
-      }
-    }
-
-    // Process structured model JSON if obtained
-    if (rawJson) {
-      try {
-        const parsed = JSON.parse(rawJson);
+        const parsed = JSON.parse(cleanJson);
         const validated = ModelReasoningSchema.safeParse(parsed);
-        if (validated.success) {
-          return this.normalizeModelResponse(validated.data, cleanUtterance, params.existingSlots);
-        } else {
-          console.warn(
-            "[ReasoningEngine] Model returned off-schema JSON; falling back to deterministic reasoning:",
-            validated.error.message
-          );
+        if (!validated.success) {
+          console.warn("[ReasoningEngine] Model returned off-schema JSON; falling back to deterministic reasoning:", validated.error.message);
+          continue;
         }
-      } catch (parseErr: any) {
-        console.warn("[ReasoningEngine] Failed to parse model response JSON; falling back:", parseErr.message);
+
+        return this.normalizeModelResponse(validated.data, cleanUtterance, params.existingSlots);
+      } catch (err: any) {
+        const msg = String(err?.message || "");
+        const isQuota = msg.includes("RESOURCE_EXHAUSTED") || msg.includes("Quota exceeded") || msg.includes("429");
+        if (isQuota) {
+          let cooldownMs = 15 * 60 * 1000;
+          const retrySecMatch = msg.match(/retryDelay['":\s]+([0-9]+)/i);
+          if (retrySecMatch && retrySecMatch[1]) {
+            cooldownMs = Math.max(60 * 1000, parseInt(retrySecMatch[1], 10) * 1000);
+          }
+          this.client.recordModelQuotaExhausted(modelName, cooldownMs);
+          console.info(`[ReasoningEngine] Model '${modelName}' free quota reached. Cooldown until ${new Date(Date.now() + cooldownMs).toLocaleTimeString()}.`);
+        } else {
+          console.warn(`[ReasoningEngine] Model '${modelName}' notice:`, msg.slice(0, 100));
+        }
+        continue;
       }
     }
 
-    // Resilient local deterministic reasoning fallback
+    // All cloud candidates failed or exhausted; fall back to deterministic Ghanaian reasoning
     return this.deterministicReasoning(params);
   }
 

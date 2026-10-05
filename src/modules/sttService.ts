@@ -176,12 +176,31 @@ Instructions:
 3. Transcribe only what the caller actually spoke. Do not assume or hallucinate.`;
 
   const primaryModel = AI_CONFIG.transcriptionModel || "gemini-3.5-transcribe";
-  const secondaryModel = "gemini-3.1-flash-lite";
+  const secondaryModel = "gemini-3.8-flash";
 
   try {
     const rawJsonText = await geminiClient.executeHedged(
       "STT_TRANSCRIBE",
       async (ai, signal) => {
+        const isTranscribeModel = primaryModel.includes("transcribe");
+        if (isTranscribeModel) {
+          // Dedicated transcribe models (e.g. gemini-3.5-transcribe) output plain text and do NOT support JSON mode
+          const resp = await ai.models.generateContent({
+            model: primaryModel,
+            contents: [
+              { inlineData: { data: base64Data, mimeType: mime } },
+              { text: "Transcribe the caller's spoken words or numbers accurately in Ghanaian English or Akan Twi. Output only the spoken words without formatting." },
+            ],
+          });
+          const text = (resp.text || "").trim();
+          const isTwi = /[\u0190\u0254\u025b\u0186]|sika|mane|akwaaba|kasa|brofo|baako|mmienu|mmeensa|dabi|aane|mepa|kyɛ/i.test(text);
+          return JSON.stringify({
+            transcript: text,
+            confidence: text.length > 0 ? 0.92 : 0.0,
+            languageDetected: isTwi ? "twi" : "en",
+          });
+        }
+
         const resp = await ai.models.generateContent({
           model: primaryModel,
           contents: [
@@ -193,6 +212,24 @@ Instructions:
         return resp.text || "{}";
       },
       async (ai, signal) => {
+        const isTranscribeModel = secondaryModel.includes("transcribe");
+        if (isTranscribeModel) {
+          const resp = await ai.models.generateContent({
+            model: secondaryModel,
+            contents: [
+              { inlineData: { data: base64Data, mimeType: mime } },
+              { text: "Transcribe the caller's spoken words or numbers accurately in Ghanaian English or Akan Twi. Output only the spoken words without formatting." },
+            ],
+          });
+          const text = (resp.text || "").trim();
+          const isTwi = /[\u0190\u0254\u025b\u0186]|sika|mane|akwaaba|kasa|brofo|baako|mmienu|mmeensa|dabi|aane|mepa|kyɛ/i.test(text);
+          return JSON.stringify({
+            transcript: text,
+            confidence: text.length > 0 ? 0.92 : 0.0,
+            languageDetected: isTwi ? "twi" : "en",
+          });
+        }
+
         const resp = await ai.models.generateContent({
           model: secondaryModel,
           contents: [
@@ -207,9 +244,19 @@ Instructions:
       1200 // Hedge delay: start secondary after 1.2s if primary hasn't responded
     );
 
-    const parsed = JSON.parse(rawJsonText);
+    let cleanJson = (rawJsonText || "").trim();
+    if (cleanJson.startsWith("```")) {
+      cleanJson = cleanJson.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+    }
+    let parsed: any = {};
+    try {
+      parsed = JSON.parse(cleanJson);
+    } catch {
+      parsed = { transcript: cleanJson, confidence: cleanJson.length > 0 ? 0.8 : 0.0, languageDetected: "en" };
+    }
+
     const transcript = (parsed.transcript || "").trim();
-    const confidence = typeof parsed.confidence === "number" ? parsed.confidence : 0.75;
+    const confidence = typeof parsed.confidence === "number" ? parsed.confidence : (transcript.length > 0 ? 0.75 : 0.0);
     const languageDetected = parsed.languageDetected === "twi" ? "twi" : "en";
 
     // Item 3.1: Step-aware PIN gate
@@ -234,7 +281,22 @@ Instructions:
       provider: "HedgedGeminiSTT",
     };
   } catch (err: any) {
-    auditLogger.log("warn", "STT", `STT deadline exceeded or error: ${err.message}. Falling back closed to DTMF.`);
+    auditLogger.log("warn", "STT", `STT deadline exceeded or error: ${err.message}. Checking offline speech recognizer.`);
+    try {
+      const offlineRes = await offlineSpeechRecognizer.transcribe(base64Data, mime);
+      if (offlineRes.text && offlineRes.text.length > 0) {
+        return {
+          text: offlineRes.text,
+          confidence: offlineRes.confidence,
+          languageDetected: offlineRes.detectedLanguage === "tw" ? "twi" : "en",
+          provider: offlineRes.provider,
+        };
+      }
+    } catch {
+      // offline recognizer fallback
+    }
+
+    auditLogger.log("warn", "STT", `Falling back closed to DTMF.`);
     return {
       text: "empty",
       confidence: 0.0,

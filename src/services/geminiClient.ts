@@ -40,8 +40,6 @@ export class UnifiedGeminiClient {
 
   private readonly FAILURE_THRESHOLD = 4;
   private readonly RECOVERY_TIMEOUT_MS = 30 * 1000; // 30s
-  private readonly QUOTA_COOLDOWN_MS = 10 * 60 * 1000; // 10m on quota exhaustion
-  private isQuotaCooldown = false;
   private latencyHistory: { stage: string; durationMs: number; timestamp: number }[] = [];
 
   constructor() {
@@ -76,17 +74,30 @@ export class UnifiedGeminiClient {
     return this.ai;
   }
 
+  private modelQuotaCooldowns = new Map<string, number>();
+
   public isAvailable(): boolean {
     return Boolean(this.getRawClient()) && this.checkCircuitBreaker();
   }
 
+  public isModelAvailable(model: string): boolean {
+    if (!this.getRawClient()) return false;
+    const cooldownUntil = this.modelQuotaCooldowns.get(model);
+    if (cooldownUntil && Date.now() < cooldownUntil) {
+      return false;
+    }
+    return this.checkCircuitBreaker();
+  }
+
+  public recordModelQuotaExhausted(model: string, retryDelayMs: number = 15 * 60 * 1000): void {
+    this.modelQuotaCooldowns.set(model, Date.now() + retryDelayMs);
+  }
+
   private checkCircuitBreaker(): boolean {
     const now = Date.now();
-    const timeout = this.isQuotaCooldown ? this.QUOTA_COOLDOWN_MS : this.RECOVERY_TIMEOUT_MS;
     if (this.circuitBreaker.state === "OPEN") {
-      if (now - this.circuitBreaker.lastFailureTime > timeout) {
+      if (now - this.circuitBreaker.lastFailureTime > this.RECOVERY_TIMEOUT_MS) {
         this.circuitBreaker.state = "HALF_OPEN";
-        this.isQuotaCooldown = false;
         return true;
       }
       return false;
@@ -94,18 +105,9 @@ export class UnifiedGeminiClient {
     return true;
   }
 
-  public recordQuotaExceeded(operationName?: string): void {
-    this.circuitBreaker.failureCount = this.FAILURE_THRESHOLD;
-    this.circuitBreaker.lastFailureTime = Date.now();
-    this.circuitBreaker.state = "OPEN";
-    this.isQuotaCooldown = true;
-    auditLogger.log("warn", "AI_CIRCUIT_BREAKER", `Gemini API quota exceeded for ${operationName || "operation"}. Fast-failing to local offline engine for 10 minutes.`);
-  }
-
   private recordSuccess(stage: string, durationMs: number): void {
     this.circuitBreaker.failureCount = 0;
     this.circuitBreaker.state = "CLOSED";
-    this.isQuotaCooldown = false;
     this.latencyHistory.push({ stage, durationMs, timestamp: Date.now() });
     if (this.latencyHistory.length > 500) {
       this.latencyHistory.shift();
@@ -156,25 +158,26 @@ export class UnifiedGeminiClient {
         return result;
       } catch (err: any) {
         clearTimeout(timeoutHandle);
-        const errMessage = String(err.message || "");
-        const isQuota =
-          err.status === 429 ||
-          errMessage.includes("429") ||
-          errMessage.includes("RESOURCE_EXHAUSTED") ||
-          errMessage.includes("Quota exceeded") ||
-          errMessage.includes("quota");
+        const msg = String(err?.message || "");
+        const isQuotaExhausted =
+          err.status === 429 &&
+          (msg.includes("RESOURCE_EXHAUSTED") ||
+           msg.includes("Quota exceeded") ||
+           msg.includes("generativelanguage.googleapis.com"));
 
-        if (isQuota) {
-          this.recordQuotaExceeded(operationName);
+        // If daily quota is exhausted, retrying immediately is futile. Throw immediately.
+        if (isQuotaExhausted) {
+          this.recordFailure();
           throw err;
         }
 
         const isAbort = controller.signal.aborted || err.name === "AbortError";
         const isRetriable =
           isAbort ||
+          err.status === 429 ||
           (err.status >= 500 && err.status < 600) ||
-          errMessage.includes("fetch failed") ||
-          errMessage.includes("network");
+          msg.includes("fetch failed") ||
+          msg.includes("network");
 
         if (attempt < maxRetries && isRetriable) {
           attempt++;
@@ -208,10 +211,6 @@ export class UnifiedGeminiClient {
     }
 
     const overallController = new AbortController();
-    const deadlineHandle = setTimeout(() => {
-      overallController.abort(new Error(`Overall deadline of ${overallDeadlineMs}ms exceeded`));
-    }, overallDeadlineMs);
-
     const primaryController = new AbortController();
     const secondaryController = new AbortController();
 
@@ -221,40 +220,86 @@ export class UnifiedGeminiClient {
     };
     overallController.signal.addEventListener("abort", forwardAbort);
 
-    let winnerFound = false;
+    return new Promise<T>((resolve, reject) => {
+      let settled = false;
+      let primaryFailed = false;
+      let secondaryFailed = false;
+      let primaryError: any = null;
+      let secondaryError: any = null;
+      let secondaryStarted = false;
+      let hedgeTimer: NodeJS.Timeout | null = null;
 
-    const primaryPromise = (async () => {
-      const res = await primaryAction(ai, primaryController.signal);
-      if (!winnerFound) {
-        winnerFound = true;
-        secondaryController.abort();
-      }
-      return res;
-    })();
+      const deadlineHandle = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          cleanup();
+          overallController.abort();
+          reject(new Error(`[GeminiClient] Overall deadline of ${overallDeadlineMs}ms exceeded for ${operationName}`));
+        }
+      }, overallDeadlineMs);
 
-    const secondaryPromise = (async () => {
-      await new Promise((r) => setTimeout(r, hedgeDelayMs));
-      if (winnerFound || overallController.signal.aborted) {
-        throw new Error("Secondary cancelled: Primary completed first.");
-      }
-      const res = await secondaryAction(ai, secondaryController.signal);
-      if (!winnerFound) {
-        winnerFound = true;
-        primaryController.abort();
-      }
-      return res;
-    })();
+      const cleanup = () => {
+        clearTimeout(deadlineHandle);
+        if (hedgeTimer) clearTimeout(hedgeTimer);
+        overallController.signal.removeEventListener("abort", forwardAbort);
+      };
 
-    try {
-      const result = await Promise.race([primaryPromise, secondaryPromise]);
-      clearTimeout(deadlineHandle);
-      return result;
-    } catch (err: any) {
-      clearTimeout(deadlineHandle);
-      throw err;
-    } finally {
-      clearTimeout(deadlineHandle);
-    }
+      const succeed = (val: T) => {
+        if (!settled) {
+          settled = true;
+          cleanup();
+          primaryController.abort();
+          secondaryController.abort();
+          resolve(val);
+        }
+      };
+
+      const checkAllFailed = () => {
+        if (!settled && primaryFailed && secondaryFailed) {
+          settled = true;
+          cleanup();
+          reject(secondaryError || primaryError || new Error(`Both hedged calls failed for ${operationName}`));
+        }
+      };
+
+      const triggerSecondary = () => {
+        if (secondaryStarted || settled) return;
+        secondaryStarted = true;
+        if (hedgeTimer) {
+          clearTimeout(hedgeTimer);
+          hedgeTimer = null;
+        }
+
+        secondaryAction(ai, secondaryController.signal)
+          .then((res) => succeed(res))
+          .catch((err) => {
+            secondaryFailed = true;
+            secondaryError = err;
+            checkAllFailed();
+          });
+      };
+
+      // Launch primary immediately
+      primaryAction(ai, primaryController.signal)
+        .then((res) => succeed(res))
+        .catch((err) => {
+          primaryFailed = true;
+          primaryError = err;
+          // If primary failed early, trigger secondary immediately instead of waiting for hedgeDelay
+          if (!secondaryStarted) {
+            triggerSecondary();
+          } else {
+            checkAllFailed();
+          }
+        });
+
+      // Schedule secondary if primary hasn't finished within hedgeDelayMs
+      hedgeTimer = setTimeout(() => {
+        if (!settled && !secondaryStarted) {
+          triggerSecondary();
+        }
+      }, hedgeDelayMs);
+    });
   }
 
   public getLatencyMetrics(): { p50: number; p95: number; p99: number; count: number } {

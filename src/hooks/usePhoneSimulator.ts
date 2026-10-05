@@ -59,6 +59,33 @@ export interface AccuracyTestResult {
   isPass: boolean;
 }
 
+export interface SimulatorSyncState {
+  callLogsTotal: number;
+  ledgerTotal: number;
+  floatBalance: number;
+  lastSessionId?: string;
+  targetEnv: string;
+  activeKeyType: string;
+  offlineReady: boolean;
+  geminiConfigured: boolean;
+}
+
+export interface SimulatorVoiceXmlTrace {
+  step: string;
+  xml: string;
+  timestamp: string;
+}
+
+export interface SimulatorContact {
+  phone: string;
+  name: string;
+  network: "MTN" | "Telecel" | "AT";
+  tier?: string;
+  verified: boolean;
+  suggestedPromptEn: string;
+  suggestedPromptTw: string;
+}
+
 export interface SimulatorScenario {
   id: string;
   title: string;
@@ -217,6 +244,21 @@ export function usePhoneSimulator() {
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [enableTts, setEnableTts] = useState(true);
+  const [voiceMode, setVoiceMode] = useState<"AI_NEURAL" | "STUDIO_PROMPTS" | "BROWSER">("AI_NEURAL");
+
+  // Synchronized Ecosystem State
+  const [syncState, setSyncState] = useState<SimulatorSyncState>({
+    callLogsTotal: 1,
+    ledgerTotal: 0,
+    floatBalance: 25480.0,
+    lastSessionId: undefined,
+    targetEnv: "sandbox",
+    activeKeyType: "primary",
+    offlineReady: true,
+    geminiConfigured: false,
+  });
+  const [voiceXmlTraces, setVoiceXmlTraces] = useState<SimulatorVoiceXmlTrace[]>([]);
+  const [contacts, setContacts] = useState<SimulatorContact[]>([]);
 
   // Authoritative Backend AI State
   const [transcript, setTranscript] = useState<SimulatorTranscriptItem[]>([]);
@@ -254,10 +296,54 @@ export function usePhoneSimulator() {
   const [lastTurnDiagnostic, setLastTurnDiagnostic] = useState<TurnDiffDiagnostic | null>(null);
   const [accuracyResult, setAccuracyResult] = useState<AccuracyTestResult | null>(null);
 
-  // Audio Playback
+  // Audio Playback & Microphone
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const recognitionRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<any>(null);
+
+  // Poll sync status & fetch contacts on mount
+  useEffect(() => {
+    api.getSimulatorSyncStatus().then((data) => {
+      if (data) {
+        setSyncState({
+          callLogsTotal: data.callLogsCount,
+          ledgerTotal: data.ledgerCount,
+          floatBalance: data.momo?.floatBalance || 25480.0,
+          targetEnv: data.momo?.targetEnv || "sandbox",
+          activeKeyType: data.momo?.activeKeyType || "primary",
+          offlineReady: Boolean(data.ai?.offlineEngineReady),
+          geminiConfigured: Boolean(data.ai?.geminiConfigured),
+        });
+      }
+    });
+
+    api.getSimulatorContacts().then((list) => {
+      if (list && list.length > 0) {
+        setContacts(list);
+      }
+    });
+  }, []);
+
+  const refreshSyncStatus = useCallback(async () => {
+    try {
+      const data = await api.getSimulatorSyncStatus();
+      if (data) {
+        setSyncState({
+          callLogsTotal: data.callLogsCount,
+          ledgerTotal: data.ledgerCount,
+          floatBalance: data.momo?.floatBalance || 25480.0,
+          targetEnv: data.momo?.targetEnv || "sandbox",
+          activeKeyType: data.momo?.activeKeyType || "primary",
+          offlineReady: Boolean(data.ai?.offlineEngineReady),
+          geminiConfigured: Boolean(data.ai?.geminiConfigured),
+        });
+      }
+    } catch (e) {
+      console.warn("Failed to refresh simulator sync status:", e);
+    }
+  }, []);
 
   // Call Duration Timer
   useEffect(() => {
@@ -318,27 +404,61 @@ export function usePhoneSimulator() {
     return () => {
       if (audioRef.current) audioRef.current.pause();
       if (recognitionRef.current) recognitionRef.current.abort();
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+      }
     };
   }, []);
 
   /**
-   * Play synthesized speech via /api/ai/synthesize
+   * Play speech or studio prompts based on selected audio mode
    */
-  const playAudioSynthesis = useCallback(async (text: string, lang: string) => {
+  const playAudioSynthesis = useCallback(async (text: string, lang: string, step?: string) => {
     if (!enableTts || !text) return;
     try {
       setIsAiSpeaking(true);
-      const synth = await api.synthesizeSpeech({
-        text,
-        language: lang === "tw" || lang === "ak" ? "tw" : "en",
-        style: "ghanaian-warm",
-      });
+      const isTwi = lang === "tw" || lang === "ak";
 
-      if (synth?.result?.audioBase64 && audioRef.current) {
-        audioRef.current.src = `data:${synth.result.audioMimeType || "audio/wav"};base64,${synth.result.audioBase64}`;
-        await audioRef.current.play();
-      } else if ("speechSynthesis" in window) {
-        // Fallback browser speech
+      // 1. Studio Pre-Recorded Prompts Mode
+      if (voiceMode === "STUDIO_PROMPTS") {
+        let promptFile = isTwi ? "/audio/Twi/Welcome_prompt_01.mp3" : "/audio/English/Welcome_prompt_01.mp3";
+        const currentCheck = step || currentStep;
+        if (currentCheck === "confirm") {
+          promptFile = isTwi ? "/audio/Twi/Audio_prompt_twi_08.mp3" : "/audio/English/Audio_prompt_08.mp3";
+        } else if (currentCheck === "amount") {
+          promptFile = isTwi ? "/audio/Twi/Audio_prompt_twi_07.mp3" : "/audio/English/Audio_prompt_07.mp3";
+        } else if (currentCheck === "phone") {
+          promptFile = isTwi ? "/audio/Twi/Audio_prompt_twi_04.mp3" : "/audio/English/Audio_prompt_04.mp3";
+        } else if (currentCheck === "receipt") {
+          promptFile = isTwi ? "/audio/Twi/Audio_prompt_twi_10.mp3" : "/audio/English/Audio_prompt_10.mp3";
+        } else if (currentCheck === "service") {
+          promptFile = isTwi ? "/audio/Twi/Audio_prompt_twi_02.mp3" : "/audio/English/Audio_prompt_02.mp3";
+        }
+
+        if (audioRef.current) {
+          audioRef.current.src = promptFile;
+          await audioRef.current.play().catch(() => {});
+          return;
+        }
+      }
+
+      // 2. AI Neural TTS Mode (Synthesizer Service)
+      if (voiceMode === "AI_NEURAL") {
+        const synth = await api.synthesizeSpeech({
+          text,
+          language: isTwi ? "tw" : "en",
+          style: "ghanaian-warm",
+        });
+
+        if (synth?.result?.audioBase64 && audioRef.current) {
+          audioRef.current.src = `data:${synth.result.audioMimeType || "audio/wav"};base64,${synth.result.audioBase64}`;
+          await audioRef.current.play().catch(() => {});
+          return;
+        }
+      }
+
+      // 3. Browser Speech Synthesis Fallback
+      if ("speechSynthesis" in window) {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.rate = 0.95;
         utterance.onend = () => setIsAiSpeaking(false);
@@ -350,7 +470,7 @@ export function usePhoneSimulator() {
     } catch {
       setIsAiSpeaking(false);
     }
-  }, [enableTts]);
+  }, [enableTts, voiceMode, currentStep]);
 
   /**
    * Process a single turn through the backend Canonical AI
@@ -404,6 +524,7 @@ export function usePhoneSimulator() {
         currentScreen: overrideScreen || currentScreen,
         currentStep: overrideStep || currentStep,
         executionMode,
+        callDurationSec,
       });
 
       const res = resp.result;
@@ -417,6 +538,30 @@ export function usePhoneSimulator() {
       const newAction = res.action || {};
       const newSafety = res.safety || {};
       const newDialogue = res.dialogue || {};
+
+      // Live Ecosystem Sync: Update Call Logs and Ledger Counts
+      if (resp.sync) {
+        setSyncState((prev) => ({
+          ...prev,
+          callLogsTotal: resp.sync.callLogsTotal,
+          ledgerTotal: resp.sync.ledgerTotal,
+          lastSessionId: resp.sync.sessionId,
+        }));
+      }
+
+      // Live VoiceXML Trace: Sync with IVR Lab & Africa's Talking telephony flow
+      const stepName = newNav.targetStep || currentStep;
+      const responseText = newDialogue.response || "Mepa wo kyɛw, tie me yie.";
+      const langChoice = detectedLang === "tw" || detectedLang === "ak" ? "woman" : "alice";
+      const generatedXml = `<Response>\n  <GetDigits timeout="2" finishOnKey="#" numDigits="10">\n    <Say voice="${langChoice}">${responseText}</Say>\n  </GetDigits>\n</Response>`;
+      setVoiceXmlTraces((prev) => [
+        {
+          step: stepName,
+          xml: generatedXml,
+          timestamp: new Date().toLocaleTimeString(),
+        },
+        ...prev.slice(0, 19),
+      ]);
 
       // Detect field-level changes for "What changed?"
       const changed: Array<{ field: string; oldVal: any; newVal: any }> = [];
@@ -459,6 +604,8 @@ export function usePhoneSimulator() {
         providerExecuted = true;
         providerSuccess = Boolean(newAction.executedResult.success);
         setProviderResult(newAction.executedResult);
+        // Refresh sync state when a tool executes
+        refreshSyncStatus();
       }
 
       setPipelineStages({
@@ -475,8 +622,6 @@ export function usePhoneSimulator() {
         response: true,
       });
 
-      // AI Response
-      const responseText = newDialogue.response || "Mepa wo kyɛw, tie me yie.";
       setAiResponse(responseText);
 
       // Record AI turn
@@ -492,8 +637,8 @@ export function usePhoneSimulator() {
       };
       setTranscript((prev) => [...prev, aiTurnItem]);
 
-      // Play Audio
-      playAudioSynthesis(responseText, detectedLang);
+      // Play Audio (Speech Synthesis / Studio Clips)
+      playAudioSynthesis(responseText, detectedLang, stepName);
     } catch (err: any) {
       console.error("[usePhoneSimulator] Turn failed:", err);
       const errText = err.message || "Network error communicating with AI brain.";
@@ -524,7 +669,9 @@ export function usePhoneSimulator() {
     currentStep,
     executionMode,
     entities,
+    callDurationSec,
     playAudioSynthesis,
+    refreshSyncStatus,
   ]);
 
   /**
@@ -548,6 +695,11 @@ export function usePhoneSimulator() {
       ? "Akwaaba! Ɔkwankyerɛfo Pa MoMo Ntentan so. Sika bɛn na wobɛpɛ sɛ womane anaa wobɛyɛ?"
       : "Welcome to Ɔkwankyerɛfo Pa Voice Mobile Money! Who would you like to send money to today?";
 
+    const initialXml = `<Response>\n  <GetDigits timeout="2" finishOnKey="#" numDigits="10">\n    <Say voice="${initialLang === "tw" ? "woman" : "alice"}">${welcomeGreeting}</Say>\n  </GetDigits>\n</Response>`;
+    setVoiceXmlTraces([
+      { step: "welcome", xml: initialXml, timestamp: new Date().toLocaleTimeString() },
+    ]);
+
     setTranscript([
       {
         id: `sys_start_${Date.now()}`,
@@ -567,29 +719,63 @@ export function usePhoneSimulator() {
     ]);
 
     setAiResponse(welcomeGreeting);
-    playAudioSynthesis(welcomeGreeting, initialLang);
+    playAudioSynthesis(welcomeGreeting, initialLang, "welcome");
+
+    // Also trigger initial turn synchronization in background so Call Logs reflects call immediately
+    api.processSimulatorTurn({
+      sessionId: newSession,
+      channel: "SIMULATOR",
+      input: initialLang === "tw" ? "Akwaaba" : "Hello",
+      language: initialLang,
+      currentScreen: "HOME",
+      currentStep: "welcome",
+      executionMode,
+      callDurationSec: 0,
+    }).then((resp) => {
+      if (resp?.sync) {
+        setSyncState((prev) => ({
+          ...prev,
+          callLogsTotal: resp.sync.callLogsTotal,
+          ledgerTotal: resp.sync.ledgerTotal,
+          lastSessionId: resp.sync.sessionId,
+        }));
+      }
+    }).catch(() => {});
   }, [executionMode, playAudioSynthesis]);
 
   /**
-   * Hang up the call
+   * Hang up the call & synchronize completion to Call Logs
    */
-  const endCall = useCallback((reason: string = "User ended call") => {
+  const endCall = useCallback(async (reason: string = "User ended call") => {
     setIsActive(false);
     setIsMicActive(false);
     setIsAiSpeaking(false);
     if (audioRef.current) audioRef.current.pause();
     if (recognitionRef.current) recognitionRef.current.abort();
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+    }
+
+    try {
+      await api.endSimulatorCall({
+        sessionId,
+        durationSeconds: callDurationSec,
+        reason,
+        outcome: reason.toLowerCase().includes("cancel") ? "CANCELLED" : "COMPLETED",
+      });
+      refreshSyncStatus();
+    } catch {}
 
     setTranscript((prev) => [
       ...prev,
       {
         id: `sys_end_${Date.now()}`,
         role: "system",
-        text: `⏹ Call Disconnected (${reason})`,
+        text: `⏹ Call Disconnected (${reason}) · Session Logged to /dashboard/calls`,
         timestamp: Date.now(),
       },
     ]);
-  }, []);
+  }, [sessionId, callDurationSec, refreshSyncStatus]);
 
   /**
    * Keypad digit pressed
@@ -597,7 +783,7 @@ export function usePhoneSimulator() {
   const handleKeypadDigit = useCallback((digit: string) => {
     playTone(digit);
 
-    // If call not active, pressing call or numbers can start call
+    // If call not active, pressing 1 or 2 starts call in corresponding language
     if (!isActive) {
       if (digit === "1") startCall("en");
       else if (digit === "2") startCall("tw");
@@ -647,24 +833,79 @@ export function usePhoneSimulator() {
   }, [digitsBuffer, sendInputTurn]);
 
   /**
-   * Toggle browser microphone
+   * Toggle microphone with MediaRecorder & Speech-To-Text (linking ASR Lab)
    */
-  const toggleMic = useCallback(() => {
+  const toggleMic = useCallback(async () => {
     if (!isActive) return;
     if (isMicActive) {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+        mediaRecorderRef.current.stop();
+      }
       if (recognitionRef.current) recognitionRef.current.stop();
       setIsMicActive(false);
     } else {
       try {
-        if (recognitionRef.current) {
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          mediaStreamRef.current = stream;
+          const recorder = new MediaRecorder(stream);
+          const chunks: Blob[] = [];
+
+          recorder.ondataavailable = (e) => {
+            if (e.data.size > 0) chunks.push(e.data);
+          };
+
+          recorder.onstop = async () => {
+            const blob = new Blob(chunks, { type: "audio/webm" });
+            const reader = new FileReader();
+            reader.onloadend = async () => {
+              const base64 = (reader.result as string)?.split(",")[1];
+              if (base64) {
+                try {
+                  const asrRes = await api.transcribeAudio(base64, "audio/webm", language);
+                  if (asrRes?.result?.text) {
+                    sendInputTurn(asrRes.result.text, "VOICE");
+                  }
+                } catch (asrErr) {
+                  console.warn("[PhoneSimulator ASR Lab] Transcribe notice:", asrErr);
+                }
+              }
+            };
+            reader.readAsDataURL(blob);
+            stream.getTracks().forEach((track) => track.stop());
+          };
+
+          recorder.start();
+          mediaRecorderRef.current = recorder;
+          setIsMicActive(true);
+        } else if (recognitionRef.current) {
           recognitionRef.current.start();
           setIsMicActive(true);
         }
       } catch (err) {
         console.warn("[PhoneSimulator] Mic start error:", err);
+        if (recognitionRef.current) {
+          try {
+            recognitionRef.current.start();
+            setIsMicActive(true);
+          } catch {}
+        }
       }
     }
-  }, [isActive, isMicActive]);
+  }, [isActive, isMicActive, language, sendInputTurn]);
+
+  /**
+   * Direct 1-click test transfer to a KYC verified contact
+   */
+  const sendContactTransfer = useCallback((contact: SimulatorContact, amount: number = 20) => {
+    if (!isActive) {
+      startCall(language === "tw" ? "tw" : "en");
+    }
+    const utterance = language === "tw"
+      ? `Mepa wo kyɛw, mane sika aduonu kɔma ${contact.name} wɔ ${contact.phone}`
+      : `I want to send ${amount} cedis to ${contact.name} on ${contact.phone}`;
+    sendInputTurn(utterance, "SIMULATOR");
+  }, [isActive, language, startCall, sendInputTurn]);
 
   /**
    * Run an automated test scenario
@@ -688,7 +929,7 @@ export function usePhoneSimulator() {
 
     // Evaluate accuracy vs expectations
     setTimeout(() => {
-      setAccuracyResult((current) => {
+      setAccuracyResult((_current) => {
         return {
           scenarioTitle: sc.title,
           expectedIntent: sc.expected.intent,
@@ -704,8 +945,9 @@ export function usePhoneSimulator() {
             (!sc.expected.recipient || String(entities.recipientPhone).includes(sc.expected.recipient)),
         };
       });
+      refreshSyncStatus();
     }, 800);
-  }, [startCall, sendInputTurn, intent, entities, language, confidence]);
+  }, [startCall, sendInputTurn, intent, entities, language, confidence, refreshSyncStatus]);
 
   return {
     isActive,
@@ -724,6 +966,11 @@ export function usePhoneSimulator() {
     isLoading,
     enableTts,
     setEnableTts,
+    voiceMode,
+    setVoiceMode,
+    syncState,
+    voiceXmlTraces,
+    contacts,
     transcript,
     aiResponse,
     intent,
@@ -742,5 +989,7 @@ export function usePhoneSimulator() {
     sendInputTurn,
     toggleMic,
     runScenario,
+    sendContactTransfer,
+    refreshSyncStatus,
   };
 }

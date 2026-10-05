@@ -26,6 +26,7 @@ export class GeminiTtsAdapter implements TTSProvider {
   private cacheMisses = 0;
   private totalRenderLatencyMs = 0;
   private renderCount = 0;
+  private quotaExhaustedUntil = 0;
 
   private validateAudioHeader(buf: Buffer): { valid: boolean; format: "wav" | "mp3" | "unknown" } {
     if (!buf || buf.length < 128) {
@@ -71,6 +72,13 @@ export class GeminiTtsAdapter implements TTSProvider {
       return {
         audioMimeType: "audio/wav",
         providerUsed: "fallback-text-only",
+      };
+    }
+
+    if (Date.now() < this.quotaExhaustedUntil) {
+      return {
+        audioMimeType: "audio/wav",
+        providerUsed: "quota-cooldown-fallback",
       };
     }
 
@@ -140,7 +148,14 @@ export class GeminiTtsAdapter implements TTSProvider {
         providerUsed: "gemini-tts-empty",
       };
     } catch (err: any) {
-      console.warn("[GeminiTtsAdapter] TTS error:", err.message);
+      const msg = String(err?.message || "");
+      if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("Quota exceeded") || msg.includes("quota")) {
+        // Cooldown for 5 minutes so router falls back to local synthesis without repeated failed network requests
+        this.quotaExhaustedUntil = Date.now() + 5 * 60 * 1000;
+        console.warn(`[GeminiTtsAdapter] Gemini TTS quota exhausted (429 RESOURCE_EXHAUSTED). Free tier daily quota reached. Local Ghanaian synthesis will serve requests until ${new Date(this.quotaExhaustedUntil).toLocaleTimeString()}.`);
+      } else {
+        console.warn("[GeminiTtsAdapter] TTS error:", msg);
+      }
       return {
         audioMimeType: "audio/wav",
         providerUsed: "error-fallback",

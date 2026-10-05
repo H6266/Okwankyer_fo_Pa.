@@ -134,27 +134,19 @@ export class UnifiedMemory {
 
     await this.conversationRepo.append(sessionId, turnRecord);
 
-    // Asynchronous background indexing: non-blocking per Section 4 architecture
-    const backgroundIndexing = async () => {
-      try {
-        const embeddingRes = turn.embeddingVector
-          ? { vector: turn.embeddingVector, source: "GEMINI_EMBEDDING" as const }
-          : await embeddingProvider.embed(turn.sanitizedInput);
+    // Generate embedding via EmbeddingProvider (or use supplied vector)
+    const embeddingRes = turn.embeddingVector
+      ? { vector: turn.embeddingVector, source: "GEMINI_EMBEDDING" as const }
+      : await embeddingProvider.embed(turn.sanitizedInput);
 
-        await this.semanticRepo.storeVector({
-          id: turnRecord.turnId,
-          sessionId,
-          turnIndex: history.length,
-          text: turn.sanitizedInput,
-          embedding: embeddingRes.vector,
-          timestamp: turnRecord.timestamp,
-        });
-      } catch (err: any) {
-        // Non-fatal background indexing warning
-      }
-    };
-
-    queueMicrotask(backgroundIndexing);
+    await this.semanticRepo.storeVector({
+      id: turnRecord.turnId,
+      sessionId,
+      turnIndex: history.length,
+      text: turn.sanitizedInput,
+      embedding: embeddingRes.vector,
+      timestamp: turnRecord.timestamp,
+    });
 
     return turnRecord;
   }
@@ -355,7 +347,6 @@ export class UnifiedMemory {
       amount: transaction.amount,
       currency: "GHS",
       recipientPhoneMasked: maskedPhone,
-      recipientPhone: transaction.recipientPhone,
       recipientName: transaction.recipientName,
       network: transaction.network,
       status: transaction.status,
@@ -365,10 +356,6 @@ export class UnifiedMemory {
 
     await this.transactionRepo.record(sessionId, record);
     return record;
-  }
-
-  public async listTransactions(sessionId: string): Promise<TransactionalMemoryRecord[]> {
-    return this.transactionRepo.list(sessionId);
   }
 
   // =========================================================================

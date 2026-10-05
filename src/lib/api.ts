@@ -707,6 +707,47 @@ export const api = {
     if (!res.ok) throw new Error(data.error || "Utterance analysis failed");
     return data;
   },
+
+  async transcribeAudio(audioBase64: string, mimeType?: string, language?: string): Promise<{ success: boolean; result: { text: string; confidence: number; languageDetected: string } }> {
+    const res = await fetch("/api/ai/transcribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ audioBase64, mimeType, language }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Audio transcription failed");
+    return data;
+  },
+
+  async endSimulatorCall(payload: { sessionId: string; durationSeconds?: number; reason?: string; outcome?: string }): Promise<any> {
+    const res = await fetch("/api/ai/simulator/call-end", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return res.json();
+  },
+
+  async getSimulatorContacts(): Promise<any[]> {
+    try {
+      const res = await fetch("/api/ai/simulator/contacts");
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.contacts || [];
+    } catch {
+      return [];
+    }
+  },
+
+  async getSimulatorSyncStatus(): Promise<any> {
+    try {
+      const res = await fetch("/api/ai/simulator/sync-status");
+      if (!res.ok) return null;
+      return res.json();
+    } catch {
+      return null;
+    }
+  },
 };
 
 export type TaskStatus = "todo" | "in_progress" | "in_review" | "done";

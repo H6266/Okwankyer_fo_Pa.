@@ -92,7 +92,7 @@ export class ModelRouter {
         const client = geminiClient.getRawClient();
         if (!client) throw new Error("Gemini client is not initialized.");
         const resp = await client.models.generateContent({
-          model: process.env.GEMINI_REASONING_MODEL || "gemini-3.1-flash-lite",
+          model: process.env.GEMINI_REASONING_MODEL || "gemini-3.8-flash",
           contents: payload.prompt,
           config: payload.config || { responseMimeType: "application/json" },
         });

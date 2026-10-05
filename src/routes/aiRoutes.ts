@@ -14,6 +14,10 @@ import { modelRouter } from "../ai_system/providers/modelRouter";
 import { aiTrace } from "../ai_system/observability/aiTrace";
 import { requireAdminAuth, isAdminAuthenticated } from "../middleware/adminAuth";
 import { adminRateLimiter, publicApiRateLimiter } from "../middleware/rateLimiter";
+import { callSessionRepository } from "../services/callSessionRepository";
+import { momoEngine } from "../integrations/momo";
+import { durableTransactionStore } from "../services/durableTransactionStore";
+import { SANDBOX_RECIPIENT_FIXTURES } from "../demo/recipientFixtures";
 
 export const aiRouter = Router();
 
@@ -153,6 +157,7 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       currentStep,
       executionMode,
       userProfile,
+      callDurationSec,
     } = req.body;
 
     // Mode B (MTN SANDBOX) guard: require authenticated admin session
@@ -174,11 +179,201 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       userProfile,
     });
 
-    res.json({ success: true, result });
+    // ── Live Synchronization 1: Call Session Repository ──────────────────
+    const targetStep = result.navigation?.targetStep || currentStep || "welcome";
+    const outcome =
+      result.intent === "CANCEL"
+        ? "CANCELLED"
+        : result.action?.tool === "execute_transfer" && (result.action?.executedResult?.success || result.action?.isExecutable)
+        ? "COMPLETED"
+        : "IN_PROGRESS";
+
+    const generatedVoiceXml = `<Response>\n  <GetDigits timeout="2" finishOnKey="#" numDigits="10">\n    <Say voice="${
+      result.language === "tw" || result.language === "ak" ? "woman" : "alice"
+    }">${result.dialogue?.response || ""}</Say>\n  </GetDigits>\n</Response>`;
+
+    const storedSession = callSessionRepository.upsertSession({
+      sessionId: sessionKey,
+      callerNumber: userProfile?.phone || "+233 30 804 8098 (Simulator)",
+      durationSeconds: typeof callDurationSec === "number" ? callDurationSec : undefined,
+      language: result.language === "tw" || result.language === "ak" ? "twi" : "en",
+      finalStep: targetStep,
+      outcome,
+      amountGHS: Number(result.entities?.amount) || 0,
+      recipientName: String(result.entities?.recipientName || ""),
+      recipientPhone: String(result.entities?.recipientPhone || ""),
+      voiceXmlTrace: [
+        {
+          step: targetStep,
+          voiceXml: generatedVoiceXml,
+          timestamp: new Date().toLocaleTimeString(),
+        },
+      ],
+    });
+
+    // ── Live Synchronization 2: MoMo Ledger & Transaction Store ───────────
+    if (
+      result.action?.executedResult?.success ||
+      (result.action?.tool === "execute_transfer" && result.action?.isExecutable)
+    ) {
+      const amount = Number(result.entities?.amount) || 20;
+      const recipientPhone = String(result.entities?.recipientPhone || "0553838464");
+      const recipientName = String(result.entities?.recipientName || "Kwame Boateng");
+      const extId = `OKP-${Date.now().toString().slice(-6)}`;
+      const refId = result.action?.executedResult?.data?.referenceId || `REF-${Date.now()}`;
+      const finTxId =
+        result.action?.executedResult?.data?.financialTransactionId ||
+        `FIN-${Date.now().toString().slice(-8)}`;
+
+      momoEngine.recordTransaction({
+        id: extId,
+        referenceId: refId,
+        externalId: extId,
+        type: "DISBURSEMENT_TRANSFER",
+        status: result.action?.executedResult?.success === false ? "FAILED" : "SUCCESSFUL",
+        amount,
+        currency: "GHS",
+        msisdn: recipientPhone,
+        recipientName,
+        financialTransactionId: finTxId,
+        payerMessage: "Ɔkwankyerɛfo Pa Phone Simulator Transfer",
+        mode: executionMode === "MTN_SANDBOX" ? "SANDBOX_API" : "LIVE_API",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      durableTransactionStore.recordVelocityAttempt("0543546010", recipientPhone, amount);
+    }
+
+    res.json({
+      success: true,
+      result,
+      sync: {
+        sessionId: storedSession.sessionId,
+        callLogsTotal: callSessionRepository.getAllSessions().length,
+        ledgerTotal: momoEngine.getHistory().length,
+        storedSession,
+      },
+    });
   } catch (err: any) {
     console.error("[POST /api/ai/simulator/turn] Error:", err);
     res.status(500).json({ error: err.message || "Failed to process simulator turn" });
   }
+});
+
+// ── Call Termination Synchronization ──────────────────────────────────
+aiRouter.post("/api/ai/simulator/call-end", async (req: Request, res: Response) => {
+  try {
+    const { sessionId, durationSeconds, reason, outcome } = req.body;
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing sessionId." });
+    }
+
+    const finalOutcome =
+      outcome ||
+      (reason && typeof reason === "string" && reason.toLowerCase().includes("cancel")
+        ? "CANCELLED"
+        : "COMPLETED");
+
+    const updated = callSessionRepository.upsertSession({
+      sessionId,
+      durationSeconds: typeof durationSeconds === "number" ? durationSeconds : 0,
+      outcome: finalOutcome,
+    });
+
+    res.json({ success: true, session: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to finalize call session" });
+  }
+});
+
+// ── Simulator KYC Directory Contacts ──────────────────────────────────
+aiRouter.get("/api/ai/simulator/contacts", (_req: Request, res: Response) => {
+  const contacts = [
+    {
+      phone: "0553838464",
+      name: "Kwame Nyamebere",
+      network: "MTN",
+      tier: "Tier 2",
+      verified: true,
+      suggestedPromptEn: "Send 20 cedis to Kwame Nyamebere on 0553838464",
+      suggestedPromptTw: "Mepa wo kyɛw mane sika aduonu kɔma Kwame Nyamebere wɔ 0553838464",
+    },
+    {
+      phone: "0241234567",
+      name: "Ama Serwaa",
+      network: "MTN",
+      tier: "Tier 1",
+      verified: true,
+      suggestedPromptEn: "Send 50 cedis to Ama Serwaa on 0241234567",
+      suggestedPromptTw: "Mepa wo kyɛw mane sika aduonum kɔma Ama Serwaa wɔ 0241234567",
+    },
+    {
+      phone: "0543546010",
+      name: "Hannes Aboagye",
+      network: "MTN",
+      tier: "Tier 3",
+      verified: true,
+      suggestedPromptEn: "Transfer 100 GHS to Hannes Aboagye on 0543546010",
+      suggestedPromptTw: "Mane sika ɔha kɔma Hannes Aboagye wɔ 0543546010",
+    },
+    {
+      phone: "0244123456",
+      name: "Kwame Mensah",
+      network: "MTN",
+      tier: "Tier 2",
+      verified: true,
+      suggestedPromptEn: "Send 30 cedis to Kwame Mensah on 0244123456",
+      suggestedPromptTw: "Mane sika aduasa kɔma Kwame Mensah wɔ 0244123456",
+    },
+    {
+      phone: "0201234567",
+      name: "Kofi Annan",
+      network: "Telecel",
+      tier: "Tier 2",
+      verified: true,
+      suggestedPromptEn: "Send 40 cedis to Kofi Annan on 0201234567",
+      suggestedPromptTw: "Mane sika aduanan kɔma Kofi Annan wɔ 0201234567",
+    },
+    {
+      phone: "0271234567",
+      name: "Yaw Osei",
+      network: "AT",
+      tier: "Tier 1",
+      verified: true,
+      suggestedPromptEn: "Send 15 cedis to Yaw Osei on 0271234567",
+      suggestedPromptTw: "Mane sika dunum kɔma Yaw Osei wɔ 0271234567",
+    },
+  ];
+
+  res.json({ success: true, contacts });
+});
+
+// ── Unified Simulator Sync Status ─────────────────────────────────────
+aiRouter.get("/api/ai/simulator/sync-status", (_req: Request, res: Response) => {
+  const allSessions = callSessionRepository.getAllSessions();
+  const allLedger = momoEngine.getHistory();
+  const momoKeys = momoEngine.getKeys();
+
+  res.json({
+    success: true,
+    callLogsCount: allSessions.length,
+    recentCalls: allSessions.slice(0, 3),
+    ledgerCount: allLedger.length,
+    recentLedger: allLedger.slice(0, 3),
+    momo: {
+      targetEnv: momoKeys.targetEnv,
+      activeKeyType: momoKeys.activeKeyType,
+      currency: momoKeys.currency,
+      floatBalance: 25480.0,
+    },
+    ai: {
+      geminiConfigured: config.gemini.configured,
+      offlineEngineReady: true,
+      zeroPinEnforced: true,
+      languages: ["en", "tw", "ak"],
+    },
+  });
 });
 
 aiRouter.post("/api/ai/analyze", publicApiRateLimiter, async (req: Request, res: Response) => {

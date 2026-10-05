@@ -71,6 +71,30 @@ export class CallSessionRepository {
     this.inMemorySessions.set(session.sessionId, session);
   }
 
+  public upsertSession(partial: Partial<StoredCallSession> & { sessionId: string }): StoredCallSession {
+    const existing = this.inMemorySessions.get(partial.sessionId);
+    const updated: StoredCallSession = {
+      id: existing?.id || `sim-sess-${partial.sessionId}`,
+      sessionId: partial.sessionId,
+      callerNumber: partial.callerNumber || existing?.callerNumber || "+233 30 804 8098 (Simulator)",
+      startedAt: existing?.startedAt || partial.startedAt || new Date().toISOString(),
+      durationSeconds: partial.durationSeconds !== undefined ? partial.durationSeconds : (existing?.durationSeconds || 0),
+      language: partial.language || existing?.language || "en",
+      finalStep: partial.finalStep || existing?.finalStep || "welcome",
+      outcome: partial.outcome || existing?.outcome || "IN_PROGRESS",
+      amountGHS: partial.amountGHS !== undefined ? partial.amountGHS : (existing?.amountGHS || 0),
+      recipientName: partial.recipientName || existing?.recipientName || "",
+      recipientPhone: partial.recipientPhone || existing?.recipientPhone || "",
+      referenceId: partial.referenceId || existing?.referenceId || `OKP-${Date.now().toString().slice(-6)}`,
+      isDemo: false,
+      voiceXmlTrace: partial.voiceXmlTrace
+        ? (existing?.voiceXmlTrace ? [...existing.voiceXmlTrace, ...partial.voiceXmlTrace] : partial.voiceXmlTrace)
+        : (existing?.voiceXmlTrace || []),
+    };
+    this.inMemorySessions.set(partial.sessionId, updated);
+    return updated;
+  }
+
   public getSession(sessionId: string): StoredCallSession | undefined {
     return this.inMemorySessions.get(sessionId);
   }
