@@ -237,8 +237,8 @@ async function runFullSecurityAudit() {
   checks.push({
     id: "INVARIANT_014",
     name: "Non-Commercial Datasets Barred from Production Training",
-    passed: pristineNCBlocked && licenseAudit.commercialApprovedCount > 0,
-    details: `CC BY-NC 4.0 dataset 'pristine-twi' barred from production training weights. ${licenseAudit.commercialApprovedCount} datasets approved.`,
+    passed: pristineNCBlocked && licenseAudit.productionTrainingApprovedCount > 0,
+    details: `CC BY-NC 4.0 dataset 'pristine-twi' barred from production training weights. ${licenseAudit.productionTrainingApprovedCount} datasets approved.`,
   });
 
   // INVARIANT_015: No unverified model benchmark presented as project performance

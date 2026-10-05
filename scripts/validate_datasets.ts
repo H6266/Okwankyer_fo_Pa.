@@ -22,15 +22,32 @@ async function validateDatasets() {
 
   const audit = DataLicenseGate.auditAllDatasets();
   console.log(`Total Datasets in License Gate:   ${audit.totalDatasets}`);
-  console.log(`Commercial Approved Datasets:     ${audit.commercialApprovedCount}`);
+  console.log(`Production Training Approved:     ${audit.productionTrainingApprovedCount}`);
   console.log(`Non-Commercial Restricted:        ${audit.nonCommercialRestrictedCount}`);
   console.log(`Gold Tier Datasets:               ${audit.goldTierCount}`);
   console.log(`Silver Tier Datasets:             ${audit.silverTierCount}`);
   console.log(`Bronze Tier Datasets:             ${audit.bronzeTierCount}\n`);
 
   let errors = 0;
+  const manifestIds = new Set<string>();
+
+  if (!Array.isArray(manifest.datasets)) {
+    console.error("❌ Manifest datasets must be an array.");
+    process.exit(1);
+  }
+
+  if (manifest.datasets.length !== audit.totalDatasets) {
+    console.error(`❌ Dataset count mismatch: manifest=${manifest.datasets.length}, registry=${audit.totalDatasets}`);
+    errors++;
+  }
 
   for (const ds of manifest.datasets) {
+    if (manifestIds.has(ds.id)) {
+      console.error(`❌ Duplicate dataset id '${ds.id}' in manifest.`);
+      errors++;
+    }
+    manifestIds.add(ds.id);
+
     const gateRecord = REGISTERED_DATASETS[ds.id];
     if (!gateRecord) {
       console.error(`❌ Dataset '${ds.id}' in manifest is NOT registered in DATA_LICENSE_GATE.ts!`);
@@ -43,9 +60,19 @@ async function validateDatasets() {
       errors++;
     }
 
+    if (ds.commercial_use_allowed !== gateRecord.commercialUseAllowed) {
+      console.error(`❌ Commercial-use mismatch for '${ds.id}': manifest=${ds.commercial_use_allowed}, gate=${gateRecord.commercialUseAllowed}`);
+      errors++;
+    }
+
+    if (ds.approved_for_training !== gateRecord.approvedForProductionTraining) {
+      console.error(`❌ Production-training mismatch for '${ds.id}': manifest=${ds.approved_for_training}, gate=${gateRecord.approvedForProductionTraining}`);
+      errors++;
+    }
+
     // Verify non-commercial invariant:
-    if (ds.license.includes("NC") && ds.approved_for_training) {
-      console.error(`❌ CRITICAL VIOLATION: Non-commercial dataset '${ds.id}' marked approved_for_training!`);
+    if (ds.license.includes("NC") && (ds.approved_for_training || ds.commercial_use_allowed)) {
+      console.error(`❌ CRITICAL VIOLATION: Non-commercial dataset '${ds.id}' marked for commercial use or production training!`);
       errors++;
     } else {
       console.log(`  ✓ [${gateRecord.tier.padEnd(6)}] ${ds.id.padEnd(32)} -> License: ${ds.license.padEnd(12)} (Training Approved: ${ds.approved_for_training})`);

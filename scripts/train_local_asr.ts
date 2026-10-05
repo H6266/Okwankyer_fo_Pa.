@@ -18,7 +18,7 @@ async function trainLocalAsr() {
 
   // 1. Data License Gate check
   const gateResult = DataLicenseGate.auditAllDatasets();
-  console.log(`✓ Data License Gate passed: ${gateResult.commercialApprovedCount} commercial datasets approved.`);
+  console.log(`ℹ Registry has ${gateResult.productionTrainingApprovedCount} datasets approved for production training.`);
 
   // 2. Audio Catalog & Acoustic Fingerprinting
   let indexedPrompts = 0;

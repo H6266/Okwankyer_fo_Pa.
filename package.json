@@ -11,7 +11,7 @@
     "test:voicexml": "vitest run tests/voicexmlSnapshots.test.ts",
     "test:e2e": "vitest run tests/ivrFullFlowIntegration.test.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "tsc --noEmit",
+    "lint": "eslint DATA_LICENSE_GATE.ts scripts/validate_datasets.ts scripts/run_ai_benchmark.ts scripts/grade_ai.ts",
     "check:copy": "node scripts/check-copy.mjs",
     "security:audit": "tsx scripts/security_audit.ts",
     "ai:security-audit": "tsx scripts/security_audit.ts",
@@ -56,6 +56,7 @@
     "@types/react-dom": "^19.3.0",
     "@types/supertest": "^7.2.1",
     "@types/ws": "^8.18.2",
+    "@eslint/js": "^10.0.1",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.28.2",
     "eslint": "^10.12.0",
@@ -64,6 +65,7 @@
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",
+    "typescript-eslint": "^8.70.0",
     "vitest": "^5.0.3"
   }
 }

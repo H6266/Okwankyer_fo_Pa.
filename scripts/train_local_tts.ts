@@ -18,7 +18,7 @@ async function trainLocalTts() {
 
   // 1. Data License Gate check
   const gateResult = DataLicenseGate.auditAllDatasets();
-  console.log(`✓ Data License Gate passed: ${gateResult.commercialApprovedCount} commercial datasets approved.`);
+  console.log(`ℹ Registry has ${gateResult.productionTrainingApprovedCount} datasets approved for production training.`);
 
   // 2. Run synthesis benchmark to verify acoustic model calibration
   console.log("⚡ Calibrating Akan vowel formant targets and acoustic envelope...");

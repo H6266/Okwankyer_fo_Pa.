@@ -8,7 +8,7 @@ on:
 
 jobs:
   validate:
-    name: Lint, Typecheck, Test, Audit & Build
+    name: Lint, Typecheck, Test, Data & Security Audit, Build
     runs-on: ubuntu-latest
 
     steps:
@@ -26,8 +26,20 @@ jobs:
       - name: Run Copy Audit
         run: npm run check:copy
 
+      - name: Lint AI and Dataset Governance
+        run: npm run lint
+
       - name: Run Typecheck
         run: npm run typecheck
+
+      - name: Validate Dataset Licensing
+        run: npm run ai:data:validate
+
+      - name: Run Security Audit
+        run: npm run security:audit
+
+      - name: Run AI Evaluation Harness
+        run: npm run ai:eval
 
       - name: Run Tests
         run: npm test
