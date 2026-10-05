@@ -68,6 +68,24 @@ export interface SimulatorSyncState {
   activeKeyType: string;
   offlineReady: boolean;
   geminiConfigured: boolean;
+  collectionsCount: number;
+  disbursementsCount: number;
+  airtimeCount: number;
+  escrowCount: number;
+  kycTotal: number;
+  kycVerified: number;
+  audioTotal: number;
+  audioEnglish: number;
+  audioTwi: number;
+  ivrVoiceNumber: string;
+  ivrAtConfigured: boolean;
+  safetyZeroPinEnforced: boolean;
+  safetyPiiActive: boolean;
+  shippingActive: number;
+  testsTotal: number;
+  testsPassing: number;
+  recentCalls: any[];
+  recentLedger: any[];
 }
 
 export interface SimulatorVoiceXmlTrace {
@@ -256,7 +274,26 @@ export function usePhoneSimulator() {
     activeKeyType: "primary",
     offlineReady: true,
     geminiConfigured: false,
+    collectionsCount: 0,
+    disbursementsCount: 0,
+    airtimeCount: 0,
+    escrowCount: 0,
+    kycTotal: 6,
+    kycVerified: 6,
+    audioTotal: 26,
+    audioEnglish: 13,
+    audioTwi: 13,
+    ivrVoiceNumber: "+233 30 804 8098",
+    ivrAtConfigured: false,
+    safetyZeroPinEnforced: true,
+    safetyPiiActive: true,
+    shippingActive: 3,
+    testsTotal: 18,
+    testsPassing: 18,
+    recentCalls: [],
+    recentLedger: [],
   });
+  const [activeAudioClip, setActiveAudioClip] = useState<string | null>(null);
   const [voiceXmlTraces, setVoiceXmlTraces] = useState<SimulatorVoiceXmlTrace[]>([]);
   const [contacts, setContacts] = useState<SimulatorContact[]>([]);
 
@@ -303,20 +340,42 @@ export function usePhoneSimulator() {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<any>(null);
 
+  const applySyncPayload = useCallback((data: any) => {
+    if (!data) return;
+    setSyncState((prev) => ({
+      ...prev,
+      callLogsTotal: typeof data.callLogsCount === "number" ? data.callLogsCount : prev.callLogsTotal,
+      ledgerTotal: typeof data.ledgerCount === "number" ? data.ledgerCount : prev.ledgerTotal,
+      floatBalance: typeof data.momo?.floatBalance === "number" ? data.momo.floatBalance : prev.floatBalance,
+      targetEnv: data.momo?.targetEnv || prev.targetEnv,
+      activeKeyType: data.momo?.activeKeyType || prev.activeKeyType,
+      offlineReady: data.ai ? Boolean(data.ai.offlineEngineReady) : prev.offlineReady,
+      geminiConfigured: data.ai ? Boolean(data.ai.geminiConfigured) : prev.geminiConfigured,
+      collectionsCount: typeof data.momo?.collectionsCount === "number" ? data.momo.collectionsCount : prev.collectionsCount,
+      disbursementsCount: typeof data.momo?.disbursementsCount === "number" ? data.momo.disbursementsCount : prev.disbursementsCount,
+      airtimeCount: typeof data.momo?.airtimeCount === "number" ? data.momo.airtimeCount : prev.airtimeCount,
+      escrowCount: typeof data.momo?.escrowCount === "number" ? data.momo.escrowCount : prev.escrowCount,
+      kycTotal: typeof data.kyc?.totalCount === "number" ? data.kyc.totalCount : prev.kycTotal,
+      kycVerified: typeof data.kyc?.verifiedCount === "number" ? data.kyc.verifiedCount : prev.kycVerified,
+      audioTotal: typeof data.audio?.totalCount === "number" ? data.audio.totalCount : prev.audioTotal,
+      audioEnglish: typeof data.audio?.englishCount === "number" ? data.audio.englishCount : prev.audioEnglish,
+      audioTwi: typeof data.audio?.twiCount === "number" ? data.audio.twiCount : prev.audioTwi,
+      ivrVoiceNumber: data.ivr?.voiceNumber || prev.ivrVoiceNumber,
+      ivrAtConfigured: typeof data.ivr?.atConfigured === "boolean" ? data.ivr.atConfigured : prev.ivrAtConfigured,
+      safetyZeroPinEnforced: typeof data.safety?.zeroPinEnforced === "boolean" ? data.safety.zeroPinEnforced : prev.safetyZeroPinEnforced,
+      safetyPiiActive: typeof data.safety?.piiRedactorActive === "boolean" ? data.safety.piiRedactorActive : prev.safetyPiiActive,
+      shippingActive: typeof data.shipping?.activeEscrows === "number" ? data.shipping.activeEscrows : prev.shippingActive,
+      testsTotal: typeof data.tests?.suiteCount === "number" ? data.tests.suiteCount : prev.testsTotal,
+      testsPassing: typeof data.tests?.passedCount === "number" ? data.tests.passedCount : prev.testsPassing,
+      recentCalls: Array.isArray(data.recentCalls) ? data.recentCalls : prev.recentCalls,
+      recentLedger: Array.isArray(data.recentLedger) ? data.recentLedger : prev.recentLedger,
+    }));
+  }, []);
+
   // Poll sync status & fetch contacts on mount
   useEffect(() => {
     api.getSimulatorSyncStatus().then((data) => {
-      if (data) {
-        setSyncState({
-          callLogsTotal: data.callLogsCount,
-          ledgerTotal: data.ledgerCount,
-          floatBalance: data.momo?.floatBalance || 25480.0,
-          targetEnv: data.momo?.targetEnv || "sandbox",
-          activeKeyType: data.momo?.activeKeyType || "primary",
-          offlineReady: Boolean(data.ai?.offlineEngineReady),
-          geminiConfigured: Boolean(data.ai?.geminiConfigured),
-        });
-      }
+      if (data) applySyncPayload(data);
     });
 
     api.getSimulatorContacts().then((list) => {
@@ -324,26 +383,16 @@ export function usePhoneSimulator() {
         setContacts(list);
       }
     });
-  }, []);
+  }, [applySyncPayload]);
 
   const refreshSyncStatus = useCallback(async () => {
     try {
       const data = await api.getSimulatorSyncStatus();
-      if (data) {
-        setSyncState({
-          callLogsTotal: data.callLogsCount,
-          ledgerTotal: data.ledgerCount,
-          floatBalance: data.momo?.floatBalance || 25480.0,
-          targetEnv: data.momo?.targetEnv || "sandbox",
-          activeKeyType: data.momo?.activeKeyType || "primary",
-          offlineReady: Boolean(data.ai?.offlineEngineReady),
-          geminiConfigured: Boolean(data.ai?.geminiConfigured),
-        });
-      }
+      if (data) applySyncPayload(data);
     } catch (e) {
       console.warn("Failed to refresh simulator sync status:", e);
     }
-  }, []);
+  }, [applySyncPayload]);
 
   // Call Duration Timer
   useEffect(() => {
@@ -949,6 +998,109 @@ export function usePhoneSimulator() {
     }, 800);
   }, [startCall, sendInputTurn, intent, entities, language, confidence, refreshSyncStatus]);
 
+  /**
+   * Play any authentic studio prompt clip from the Audio Library
+   */
+  const playStudioClip = useCallback(async (filepath: string) => {
+    try {
+      setIsAiSpeaking(true);
+      setActiveAudioClip(filepath);
+      const url = filepath.startsWith("/audio/")
+        ? filepath
+        : filepath.startsWith("audio/")
+        ? `/${filepath}`
+        : `/audio/${filepath}`;
+
+      if (audioRef.current) {
+        audioRef.current.src = url;
+        audioRef.current.onended = () => {
+          setIsAiSpeaking(false);
+          setActiveAudioClip(null);
+        };
+        audioRef.current.onerror = () => {
+          setIsAiSpeaking(false);
+          setActiveAudioClip(null);
+        };
+        await audioRef.current.play();
+      }
+    } catch (err) {
+      console.warn("Studio clip play notice:", err);
+      setIsAiSpeaking(false);
+      setActiveAudioClip(null);
+    }
+  }, []);
+
+  /**
+   * 1-Click Feature Trigger: Test Zero-PIN Violation Interception
+   */
+  const simulateSpokenPinViolation = useCallback(() => {
+    if (!isActive) startCall(language === "tw" ? "tw" : "en");
+    sendInputTurn("Send 20 cedis to 0553838464 my secret PIN is 1234", "TEXT");
+  }, [isActive, language, startCall, sendInputTurn]);
+
+  /**
+   * 1-Click Feature Trigger: MoMo Wallet Balance & Float Inquiry
+   */
+  const simulateBalanceInquiry = useCallback(() => {
+    if (!isActive) startCall(language === "tw" ? "tw" : "en");
+    const utterance = language === "tw"
+      ? "Mepa wo kyɛw, me sika dodoɔ bɛn na ɛwɔ me MoMo kotokuo mu seesei?"
+      : "Wait, first check my mobile money wallet balance";
+    sendInputTurn(utterance, "TEXT");
+  }, [isActive, language, startCall, sendInputTurn]);
+
+  /**
+   * 1-Click Feature Trigger: Airtime Top-Up
+   */
+  const simulateAirtimePurchase = useCallback((amount: number = 10) => {
+    if (!isActive) startCall(language === "tw" ? "tw" : "en");
+    const utterance = language === "tw"
+      ? `Mepɛ sɛ metɔ airtime cedis ${amount} ma me fon so`
+      : `Buy ${amount} cedis airtime for my phone`;
+    sendInputTurn(utterance, "TEXT");
+  }, [isActive, language, startCall, sendInputTurn]);
+
+  /**
+   * 1-Click Feature Trigger: Shipping & Delivery Escrow Payment
+   */
+  const simulateEscrowPayment = useCallback((orderId: string = "#1042", amount: number = 15) => {
+    if (!isActive) startCall(language === "tw" ? "tw" : "en");
+    const utterance = language === "tw"
+      ? `Mane delivery rider no sika cedis ${amount} ma order ${orderId}`
+      : `Pay ${amount} cedis delivery fee for dispatch rider order ${orderId}`;
+    sendInputTurn(utterance, "TEXT");
+  }, [isActive, language, startCall, sendInputTurn]);
+
+  /**
+   * 1-Click Feature Trigger: Mid-Call Amount Correction (Invalidates Confirmation)
+   */
+  const simulateMidCallCorrection = useCallback(() => {
+    if (!isActive) startCall(language === "tw" ? "tw" : "en");
+    sendInputTurn("Send 20 to 0553838464", "TEXT");
+    setTimeout(() => {
+      sendInputTurn("No, make it 50 cedis instead", "TEXT");
+    }, 1200);
+  }, [isActive, language, startCall, sendInputTurn]);
+
+  /**
+   * 1-Click Feature Trigger: Wrong Number Correction
+   */
+  const simulateWrongNumberCorrection = useCallback(() => {
+    if (!isActive) startCall(language === "tw" ? "tw" : "en");
+    sendInputTurn("Send 30 cedis to 0241112233", "TEXT");
+    setTimeout(() => {
+      sendInputTurn("No, that's wrong number, send to 0553838464 instead", "TEXT");
+    }, 1200);
+  }, [isActive, language, startCall, sendInputTurn]);
+
+  /**
+   * 1-Click Feature Trigger: Ingest ASR Voice Sample
+   */
+  const simulateAsrSample = useCallback((text: string, lang: "en" | "tw" = "en") => {
+    if (!isActive) startCall(lang);
+    sendInputTurn(text, "VOICE");
+  }, [isActive, startCall, sendInputTurn]);
+
   return {
     isActive,
     callDurationSec,
@@ -982,6 +1134,7 @@ export function usePhoneSimulator() {
     pipelineStages,
     lastTurnDiagnostic,
     accuracyResult,
+    activeAudioClip,
     startCall,
     endCall,
     handleKeypadDigit,
@@ -990,6 +1143,14 @@ export function usePhoneSimulator() {
     toggleMic,
     runScenario,
     sendContactTransfer,
+    playStudioClip,
+    simulateSpokenPinViolation,
+    simulateBalanceInquiry,
+    simulateAirtimePurchase,
+    simulateEscrowPayment,
+    simulateMidCallCorrection,
+    simulateWrongNumberCorrection,
+    simulateAsrSample,
     refreshSyncStatus,
   };
 }
