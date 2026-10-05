@@ -29,7 +29,7 @@ from typing import Optional
 
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 
 
 MODEL = os.getenv("PIPER_MODEL", "").strip()
@@ -73,8 +73,11 @@ def validate_wav(path: Path) -> dict:
         channels = wav.getnchannels()
         sample_width = wav.getsampwidth()
 
-    if frames <= 0 or sample_rate <= 0 or channels <= 0:
+    if frames <= 0 or sample_rate < 8000 or sample_rate > 96000 or channels not in (1, 2) or sample_width not in (1, 2, 3, 4):
         raise RuntimeError("Generated WAV has invalid metadata")
+
+    if path.stat().st_size > 20 * 1024 * 1024:
+        raise RuntimeError("Generated WAV exceeds the 20 MiB response limit")
 
     duration = frames / sample_rate
 
@@ -89,6 +92,30 @@ def validate_wav(path: Path) -> dict:
 @app.get("/health")
 def health(authorization: Optional[str] = Header(default=None)):
     authorize(authorization)
+    # A configured model string is not proof that the runtime can load it. Run
+    # a tiny real synthesis probe before reporting the neural worker as ready.
+    try:
+        with tempfile.TemporaryDirectory(prefix="okwankyer_piper_health_") as temp_dir:
+            output_path = Path(temp_dir) / "probe.wav"
+            command = ["python", "-m", "piper", "-m", MODEL, "-f", str(output_path)]
+            if DATA_DIR:
+                command.extend(["--data-dir", DATA_DIR])
+            command.extend(["--", "ok"])
+            probe = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=float(os.getenv("PIPER_HEALTH_TIMEOUT_SEC", "8")),
+            )
+            if probe.returncode != 0 or not output_path.exists():
+                return {"ready": False, "provider": "piper-local-neural-tts", "model": MODEL,
+                        "details": "Configured Piper voice failed the inference health probe."}
+            validate_wav(output_path)
+    except Exception as exc:
+        return {"ready": False, "provider": "piper-local-neural-tts", "model": MODEL,
+                "details": f"Piper inference health probe failed: {type(exc).__name__}."}
+
     return {
         "ready": True,
         "provider": "piper-local-neural-tts",
@@ -156,11 +183,14 @@ def synthesize(
 
         metadata = validate_wav(output_path)
 
-        return FileResponse(
-            output_path,
+        audio_bytes = output_path.read_bytes()
+        if len(audio_bytes) < 64:
+            raise HTTPException(status_code=500, detail="Piper produced an empty WAV response.")
+        return Response(
+            content=audio_bytes,
             media_type="audio/wav",
-            filename="speech.wav",
             headers={
+                "Content-Disposition": 'inline; filename="speech.wav"',
                 "X-Piper-Model": payload.model or MODEL,
                 "X-Piper-Duration-Seconds": f"{metadata['durationSec']:.4f}",
                 "X-Piper-Sample-Rate": str(metadata["sampleRate"]),

@@ -1,7 +1,7 @@
 /**
  * Ɔkwankyerɛfo Pa - Local Language Brain (LocalLanguageBrain.ts)
  * 
- * Standalone offline cognitive language engine operating without Gemini or network:
+ * Local lexical and slot evidence provider. This is not an ASR engine or a calibrated classifier:
  * 1. Intent understanding across English, Asante Twi, and Ghanaian Code-switching
  * 2. Slot & entity extraction (amounts, Akan compound numbers, Ghanaian mobile numbers, names)
  * 3. Contextual reasoning & mid-turn conversational corrections ("no, send 50 instead")
@@ -9,7 +9,7 @@
  * 5. Ambiguity recognition & clarification prompting
  * 6. Task interruption ("wait", "hold on") and safe resumption
  * 7. Safe refusal & Zero-PIN enforcement
- * 8. Fully validated StructuredReasoningResponse generation
+ * 8. Structured understanding proposal; action authorization remains in the orchestrator
  */
 
 import {
@@ -29,6 +29,28 @@ export interface LocalBrainInput {
   turnCount?: number;
 }
 
+const INTENT_CUES: Partial<Record<IntentName, RegExp>> = {
+  CANCEL: /\b(cancel|gyae|stop|abort|don't|dabi|daabi|mompɛ)\b/i,
+  GO_BACK: /\b(back|san|kɔ akyi|previous|return)\b/i,
+  REPEAT: /\b(repeat|tie bio|ka bio|again|say that again)\b/i,
+  CONFIRM: /\b(confirm|yes|aane|yoo|send it|proceed|ok|okay|kɔ so)\b/i,
+  CHECK_BALANCE: /\b(balance|sika dodoɔ|how much|check balance|akontaabu)\b/i,
+  BUY_AIRTIME: /\b(airtime|credit|kɔkɔɔ|topup|recharge)\b/i,
+  BUY_DATA: /\b(data|bundle|internet|mb|gb)\b/i,
+  PAY_BILL: /\b(bill|ecg|gwcl|water|light|electricity|nhyira|tua)\b/i,
+  CASH_OUT: /\b(cash\s*out|withdraw|agent|gye sika)\b/i,
+  SEND_MONEY: /\b(send|mane|transfer|sika|cedis|ghs)\b/i,
+};
+
+function estimateEvidenceScore(intent: IntentName, text: string): number {
+  if (intent === "UNKNOWN") return 0;
+  const matchingCandidates = Object.values(INTENT_CUES).filter((cue) => cue?.test(text)).length;
+  const selectedCue = INTENT_CUES[intent];
+  const cueStrength = selectedCue?.test(text) ? 0.68 : 0.38;
+  // This is an uncalibrated lexical evidence score, not a probability.
+  return Math.max(0, Math.min(0.88, cueStrength - Math.max(0, matchingCandidates - 1) * 0.12));
+}
+
 export class LocalLanguageBrain {
   public async understand(input: LocalBrainInput): Promise<StructuredReasoningResponse> {
     const raw = (input.text || "").trim();
@@ -41,7 +63,7 @@ export class LocalLanguageBrain {
     if (/\b(?:pin|code|secret|password|1234|passcode)\b/i.test(lower) && /\d{4}/.test(lower)) {
       return {
         intent: "UNKNOWN",
-        confidence: 0.99,
+        confidence: 0,
         language: detectedLang,
         entities: {},
         conversationAct: "DENY",
@@ -67,7 +89,7 @@ export class LocalLanguageBrain {
     if (/^(wait|hold on|twi|tie|kakra|gyae kakra)/i.test(lower)) {
       return {
         intent: "CANCEL",
-        confidence: 0.92,
+        confidence: estimateEvidenceScore("CANCEL", lower),
         language: detectedLang,
         entities: input.previousSlots || {},
         conversationAct: "INTERRUPT",
@@ -88,54 +110,45 @@ export class LocalLanguageBrain {
 
     // 4. Intent Classification
     let intent: IntentName = "UNKNOWN";
-    let confidence = 0.50;
+    let confidence = 0;
     let conversationAct: StructuredReasoningResponse["conversationAct"] = "INFORM";
 
     if (/\b(cancel|gyae|stop|abort|don't|dabi|daabi|mompɛ)\b/i.test(lower)) {
       intent = "CANCEL";
-      confidence = 0.95;
       conversationAct = "DENY";
     } else if (/\b(back|san|kɔ akyi|previous|return)\b/i.test(lower)) {
       intent = "GO_BACK";
-      confidence = 0.95;
       conversationAct = "REQUEST";
     } else if (/\b(repeat|tie bio|ka bio|again|say that again)\b/i.test(lower)) {
       intent = "REPEAT";
-      confidence = 0.95;
       conversationAct = "REQUEST";
     } else if (/\b(confirm|yes|aane|yoo|send it|proceed|ok|okay|kɔ so)\b/i.test(lower)) {
       intent = "CONFIRM";
-      confidence = 0.95;
       conversationAct = "CONFIRM";
     } else if (/\b(balance|sika dodoɔ|how much|check balance|akontaabu)\b/i.test(lower)) {
       intent = "CHECK_BALANCE";
-      confidence = 0.92;
       conversationAct = "REQUEST";
     } else if (/\b(airtime|credit|kɔkɔɔ|topup|recharge)\b/i.test(lower)) {
       intent = "BUY_AIRTIME";
-      confidence = 0.90;
       conversationAct = "REQUEST";
     } else if (/\b(data|bundle|internet|mb|gb)\b/i.test(lower)) {
       intent = "BUY_DATA";
-      confidence = 0.90;
       conversationAct = "REQUEST";
     } else if (/\b(bill|ecg|gwcl|water|light|electricity|nhyira|tua)\b/i.test(lower)) {
       intent = "PAY_BILL";
-      confidence = 0.90;
       conversationAct = "REQUEST";
     } else if (/\b(cash\s*out|withdraw|agent|gye sika)\b/i.test(lower)) {
       intent = "CASH_OUT";
-      confidence = 0.90;
       conversationAct = "REQUEST";
     } else if (/\b(send|mane|transfer|sika|cedis|ghs)\b/i.test(lower)) {
       intent = "SEND_MONEY";
-      confidence = 0.94;
       conversationAct = "REQUEST";
     } else if (input.previousSlots?.amount || input.previousSlots?.recipientPhone) {
       intent = "SEND_MONEY";
-      confidence = 0.88;
       conversationAct = "INFORM";
     }
+
+    confidence = estimateEvidenceScore(intent, lower);
 
     // 5. Entity Extraction (Amount, Phone, Name, Network)
     const slots: EntitySlotMap = { ...(input.previousSlots || {}) };
@@ -146,9 +159,14 @@ export class LocalLanguageBrain {
 
     // Decode numbers & amounts via Ghanaian number decoder
     const numDecoded = numberDecoder.decode(raw);
-    if (numDecoded.isPhoneNumber && numDecoded.phoneNumberDigits) {
+    const phoneMatch = raw.match(/(?:^|\D)(?:\+?233|0)(?:[\s().-]*\d){8,9}(?!\d)/);
+    const phoneDigits = phoneMatch?.[0].replace(/\D/g, "");
+    if (phoneDigits && (phoneDigits.length === 10 || (phoneDigits.length === 12 && phoneDigits.startsWith("233")))) {
+      slots.recipientPhone = phoneDigits.length === 12 ? `0${phoneDigits.slice(3)}` : phoneDigits;
+    } else if (numDecoded.isPhoneNumber && numDecoded.phoneNumberDigits) {
       slots.recipientPhone = numDecoded.phoneNumberDigits;
-    } else if (numDecoded.numericValue !== null) {
+    }
+    if (!numDecoded.isPhoneNumber && numDecoded.numericValue !== null) {
       slots.amount = numDecoded.numericValue;
     }
 
@@ -193,26 +211,29 @@ export class LocalLanguageBrain {
         ? "Mepa wo kyɛw, wo sika dodoɔ nni ha. Pia *170# wɔ wo fon no so pɛɛ sɛ wobɛhwehwɛ mu."
         : "Wallet balance inquiry is not accessible over this line for security. Please dial *170# directly on your handset.";
     } else if (intent === "SEND_MONEY") {
-      if (slots.recipientPhone && slots.amount) {
+      if (slots.recipientPhone && slots.amount && slots.network) {
         actionType = "PREPARE_TRANSFER";
         toolToExecute = "prepare_transfer";
         toolParameters.amount = slots.amount;
         toolParameters.recipientPhone = slots.recipientPhone;
-        toolParameters.recipientName = slots.recipientName || "Recipient";
-        toolParameters.network = slots.network || "MTN";
+        toolParameters.recipientName = slots.recipientName;
+        toolParameters.network = slots.network;
         requiresConfirmation = true;
       }
     } else if (intent === "CANCEL") {
       actionType = "CANCEL";
       toolToExecute = null;
     } else if (intent === "CONFIRM") {
-      actionType = "EXECUTE";
-      toolToExecute = "execute_transfer";
-      toolParameters.amount = slots.amount;
-      toolParameters.recipientPhone = slots.recipientPhone;
-      toolParameters.recipientName = slots.recipientName;
-      requiresConfirmation = true;
+      // Understanding can classify a confirmation utterance, but only the
+      // orchestrator may bind it to a persisted draft and authorize execution.
+      actionType = "UNBOUND_CONFIRMATION";
+      toolToExecute = null;
+      requiresConfirmation = false;
     }
+
+    const intentCandidates = Object.entries(INTENT_CUES)
+      .filter(([, cue]) => cue?.test(lower))
+      .map(([candidate]) => candidate as IntentName);
 
     return {
       intent,
@@ -231,8 +252,8 @@ export class LocalLanguageBrain {
         : null,
       referenceResolution: null,
       ambiguity: {
-        isAmbiguous: false,
-        candidates: [],
+        isAmbiguous: intentCandidates.length > 1,
+        candidates: intentCandidates,
       },
       requestedAction: {
         type: actionType,
