@@ -8,8 +8,15 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { api } from "../lib/api";
+import { api, ParsedVoiceXml } from "../lib/api";
 import { useDtmf } from "./useDtmf";
+import type {
+  NavigationOutput,
+  ActionOutput,
+  SafetyOutput,
+  DialogueOutput,
+  EntitySlotMap,
+} from "../ai_system/core/aiTypes";
 
 export interface SimulatorTranscriptItem {
   id: string;
@@ -93,6 +100,99 @@ export interface SimulatorVoiceXmlTrace {
   xml: string;
   timestamp: string;
 }
+
+export interface AtHttpLogItem {
+  id: string;
+  timestamp: string;
+  endpoint: string;
+  method: "POST" | "GET";
+  requestParams: Record<string, any>;
+  statusCode: number;
+  voiceXml: string;
+  promptSpoken?: string;
+  audioUrl?: string;
+}
+
+export interface UssdPushPrompt {
+  active: boolean;
+  title: string;
+  message: string;
+  recipientName?: string;
+  recipientPhone?: string;
+  amount?: number;
+  currency?: string;
+  referenceId?: string;
+}
+
+export interface AtPresetScenario {
+  id: string;
+  title: string;
+  description: string;
+  language: "en" | "twi";
+  steps: Array<{
+    name: string;
+    digits: string;
+    description: string;
+  }>;
+}
+
+export const AT_PRESET_SCENARIOS: AtPresetScenario[] = [
+  {
+    id: "at_send_money_en",
+    title: "AT: English Send Money (9-Step IVR)",
+    description: "Full Africa's Talking IVR call: Welcome (1) → MoMo (1) → MTN (1) → Send (1) → 0553838464# → Kwame Boateng (1) → 20 GHS# → Safe Readback (1) → Zero-PIN Screen Push",
+    language: "en",
+    steps: [
+      { name: "Language Selection", digits: "1", description: "Select English (1)" },
+      { name: "Service Selection", digits: "1", description: "Select Mobile Money (1)" },
+      { name: "Provider Selection", digits: "1", description: "Select MTN MoMo (1)" },
+      { name: "Action Selection", digits: "1", description: "Select Send Money (1)" },
+      { name: "Recipient Phone Number", digits: "0553838464#", description: "Enter Kwame Boateng (0553838464#)" },
+      { name: "Recipient Verification Readback", digits: "1", description: "Confirm Kwame Boateng (Ends 8464) (1)" },
+      { name: "Enter Amount", digits: "20#", description: "Enter 20 GHS followed by # (20#)" },
+      { name: "Safe Confirmation Readback", digits: "1", description: "Confirm 20 GHS to Kwame Boateng (1)" },
+    ],
+  },
+  {
+    id: "at_send_money_twi",
+    title: "AT: Akan Twi Send Money (9-Step IVR)",
+    description: "Full Africa's Talking IVR call in Akan Twi: Akwaaba → Twi (2) → MoMo (1) → MTN (1) → Mane Sika (1) → 0553838464# → Kwame Boateng (1) → 20 GHS# → Bammbɔ Pene So (1) → USSD Screen Push",
+    language: "twi",
+    steps: [
+      { name: "Kasa Hwehwɛmu (Language)", digits: "2", description: "Paw Akan Twi (2)" },
+      { name: "Dwumadie Hwehwɛmu (Service)", digits: "1", description: "Paw Mobile Money (1)" },
+      { name: "Ntentan Hwehwɛmu (Provider)", digits: "1", description: "Paw MTN MoMo (1)" },
+      { name: "Deɛ Worepɛ Sɛ Woyɛ (Action)", digits: "1", description: "Paw Mane Sika (1)" },
+      { name: "Fon Nɔma a Wode Mane (Recipient)", digits: "0553838464#", description: "Bɔ 0553838464#" },
+      { name: "Gye Edin To Mu (Verify Recipient)", digits: "1", description: "Pene Kwame Boateng so (1)" },
+      { name: "Sika Dodow (Amount)", digits: "20#", description: "Bɔ cedis aduonu (20#)" },
+      { name: "Bammbɔ Ntiaseɛ (Safe Readback)", digits: "1", description: "Pene cedis 20 no so (1)" },
+    ],
+  },
+  {
+    id: "at_balance_inquiry",
+    title: "AT: Balance Inquiry Notice",
+    description: "Africa's Talking VoiceXML guidance directing subscriber to dial *170# with zero PIN interception on voice channel",
+    language: "en",
+    steps: [
+      { name: "Language Selection", digits: "1", description: "Select English (1)" },
+      { name: "Service Selection", digits: "1", description: "Select Mobile Money (1)" },
+      { name: "Provider Selection", digits: "1", description: "Select MTN MoMo (1)" },
+      { name: "Action Selection", digits: "2", description: "Select Check Balance (2)" },
+    ],
+  },
+  {
+    id: "at_cancel_transfer",
+    title: "AT: Immediate Cancellation (Zero Fund Movement)",
+    description: "Pressing 0 at any prompt safely terminates the call with immediate Africa's Talking <Reject/> and zero charge",
+    language: "en",
+    steps: [
+      { name: "Language Selection", digits: "1", description: "Select English (1)" },
+      { name: "Service Selection", digits: "1", description: "Select Mobile Money (1)" },
+      { name: "Cancel Prompt", digits: "0", description: "Press 0 to Cancel (0)" },
+    ],
+  },
+];
 
 export interface SimulatorContact {
   phone: string;
@@ -253,6 +353,17 @@ export function usePhoneSimulator() {
   const [sessionId, setSessionId] = useState<string>(() => `sim_${Date.now()}`);
   const [executionMode, setExecutionMode] = useState<"SIMULATION" | "MTN_SANDBOX">("SIMULATION");
   const [language, setLanguage] = useState<"en" | "tw" | "ak" | "en-ak">("en");
+
+  // Africa's Talking Telephony Gateway & Protocol State
+  const [gatewayMode, setGatewayMode] = useState<"AFRICASTALKING_IVR" | "CANONICAL_AI">("AFRICASTALKING_IVR");
+  const [atSessionId, setAtSessionId] = useState<string>(() => `ATVN_${Date.now()}`);
+  const [atCallerPhone, setAtCallerPhone] = useState<string>("+233543546010");
+  const [atCurrentCallbackUrl, setAtCurrentCallbackUrl] = useState<string | null>(null);
+  const [atExpectedDigits, setAtExpectedDigits] = useState<number>(1);
+  const [atFinishOnKey, setAtFinishOnKey] = useState<string>("#");
+  const [atInstruction, setAtInstruction] = useState<string>("Africa's Talking Voice Trunk Ready (+233 30 804 8098)");
+  const [atHttpLogs, setAtHttpLogs] = useState<AtHttpLogItem[]>([]);
+  const [ussdPushPrompt, setUssdPushPrompt] = useState<UssdPushPrompt | null>(null);
 
   // Phone Navigation & Handset Screen State
   const [currentScreen, setCurrentScreen] = useState<string>("HOME");
@@ -418,6 +529,390 @@ export function usePhoneSimulator() {
     }
   }, []);
 
+  function getPromptTranscript(filename: string): string {
+    const f = filename.toLowerCase();
+    if (f.includes("welcome")) return "Akwaaba! Welcome to Okwankyerɛfo Pa. Press 1 for English, Press 2 for Akan Twi.";
+    if (f.includes("audio_prompt_02") || f.includes("audio_prompt_twi_03")) return "Mobile Money Service Menu: Press 1 for Mobile Money, 2 for Banking.";
+    if (f.includes("audio_prompt_03") || f.includes("audio_prompt_twi_02")) return "Select Provider: Press 1 for MTN, 2 for Telecel, 3 for AT.";
+    if (f.includes("audio_prompt_04") || f.includes("audio_prompt_twi_04")) return "Mane Sika: Mia 1 ma Mane Sika, mia 2 ma Balance.";
+    if (f.includes("audio_prompt_05")) return "Action Menu: Press 1 to Send Money, Press 2 to Check Balance.";
+    if (f.includes("audio_prompt_06") || f.includes("audio_prompt_twi_05")) return "Please enter the 10-digit mobile number of the recipient followed by the hash key (#).";
+    if (f.includes("audio_prompt_07") || f.includes("audio_prompt_twi_07")) return "Please enter the amount in Ghana Cedis followed by the hash key (#).";
+    if (f.includes("audio_prompt_08") || f.includes("audio_prompt_twi_08")) return "Safe Confirmation: Press 1 to Confirm transfer, 2 to Re-enter.";
+    if (f.includes("audio_prompt_09")) return "Please enter the amount in Ghana Cedis followed by the hash key (#).";
+    if (f.includes("audio_prompt_10")) return "Transaction dispatched to MoMo provider. SMS receipt pending.";
+    return "Playing Africa's Talking audio prompt...";
+  }
+
+  /**
+   * Process Africa's Talking VoiceXML Response recursively (following <Redirect> & setting DTMF expectations)
+   */
+  const processAtVoiceResponse = useCallback(
+    async (
+      res: { voiceXml: string; parsed: ParsedVoiceXml; status: number; effectiveUrl: string },
+      sessionKey: string,
+      requestEndpoint: string,
+      requestParams: Record<string, any>,
+      redirectDepth: number = 0
+    ) => {
+      const parsed = res.parsed;
+      const currentXml = res.voiceXml;
+
+      // 1. Log to HTTP inspector
+      const logItem: AtHttpLogItem = {
+        id: `http_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        timestamp: new Date().toLocaleTimeString(),
+        endpoint: requestEndpoint,
+        method: "POST",
+        requestParams,
+        statusCode: res.status,
+        voiceXml: currentXml,
+        promptSpoken: parsed.say?.text,
+        audioUrl: parsed.playUrl,
+      };
+      setAtHttpLogs((prev) => [logItem, ...prev.slice(0, 39)]);
+
+      // 2. Live VoiceXML Trace
+      const stepLabel = requestEndpoint.replace(/^\//, "").split("?")[0] || "voice-menu";
+      setVoiceXmlTraces((prev) => [
+        {
+          step: stepLabel,
+          xml: currentXml,
+          timestamp: new Date().toLocaleTimeString(),
+        },
+        ...prev.slice(0, 19),
+      ]);
+
+      // 3. Follow Africa's Talking <Redirect> automatically
+      if (parsed.redirectUrl && redirectDepth < 6) {
+        const nextUrl = parsed.redirectUrl;
+        setTranscript((prev) => [
+          ...prev,
+          {
+            id: `sys_redir_${Date.now()}`,
+            role: "system",
+            text: `↳ Africa's Talking followed <Redirect> to: ${nextUrl}`,
+            timestamp: Date.now(),
+          },
+        ]);
+
+        const redirRes = await api.dispatchAtVoiceWebhook(nextUrl, {
+          sessionId: sessionKey,
+          callerNumber: atCallerPhone,
+          isActive: "1",
+        });
+
+        return processAtVoiceResponse(
+          redirRes,
+          sessionKey,
+          nextUrl,
+          { sessionId: sessionKey },
+          redirectDepth + 1
+        );
+      }
+
+      // 4. Play audio prompt (<Play url="...">)
+      if (parsed.playUrl) {
+        let audioUrl = parsed.playUrl;
+        if (audioUrl.startsWith("http://") || audioUrl.startsWith("https://")) {
+          try {
+            const u = new URL(audioUrl);
+            audioUrl = u.pathname;
+          } catch {}
+        }
+        setActiveAudioClip(audioUrl);
+        if (audioRef.current && enableTts) {
+          audioRef.current.src = audioUrl;
+          setIsAiSpeaking(true);
+          audioRef.current.play().catch(() => {});
+        }
+      }
+
+      // 5. Spoken text (<Say voice="...">)
+      const spokenText = parsed.say?.text || "";
+      if (spokenText) {
+        setAiResponse(spokenText);
+        setTranscript((prev) => [
+          ...prev,
+          {
+            id: `ai_${Date.now()}`,
+            role: "ai",
+            text: spokenText,
+            timestamp: Date.now(),
+            stage: stepLabel,
+          },
+        ]);
+        if (!parsed.playUrl && enableTts) {
+          playAudioSynthesis(spokenText, language);
+        }
+      } else if (parsed.playUrl) {
+        const promptName = parsed.playUrl.split("/").pop() || "";
+        const promptText = getPromptTranscript(promptName);
+        setAiResponse(promptText);
+        setTranscript((prev) => [
+          ...prev,
+          {
+            id: `ai_${Date.now()}`,
+            role: "ai",
+            text: promptText,
+            timestamp: Date.now(),
+            stage: stepLabel,
+          },
+        ]);
+      }
+
+      // 6. GetDigits expectation
+      if (parsed.getDigits) {
+        setAtCurrentCallbackUrl(parsed.getDigits.callbackUrl || null);
+        const expected = parsed.getDigits.numDigits || 1;
+        setAtExpectedDigits(expected);
+        setAtFinishOnKey(parsed.getDigits.finishOnKey || "#");
+        setCurrentStep(stepLabel);
+
+        const promptDesc =
+          expected === 1
+            ? "Awaiting Single Digit Keypad Choice (Press 1, 2, 8, 9, 0)"
+            : `Awaiting ${expected} Digits (Press digits, finish with ${parsed.getDigits.finishOnKey || "#"})`;
+        setAtInstruction(promptDesc);
+      }
+
+      // 7. Reject handling (Zero-PIN USSD screen push & hangup)
+      if (parsed.isReject) {
+        setIsActive(false);
+        setAtCurrentCallbackUrl(null);
+        setAtInstruction("Call Completed (<Reject/> Released)");
+
+        // Pop up USSD prompt modal if safe-outcome occurred
+        if (
+          stepLabel.includes("safe-outcome") ||
+          spokenText.toLowerCase().includes("phone screen") ||
+          spokenText.toLowerCase().includes("momo pin")
+        ) {
+          setUssdPushPrompt({
+            active: true,
+            title: "MTN MoMo USSD Authorization",
+            message:
+              "Authorize transfer on your mobile screen. Enter your secret Mobile Money PIN (Zero-PIN: Never spoken on voice call):",
+            amount: 20,
+            currency: "GHS",
+            recipientName: "Kwame Boateng",
+            recipientPhone: "0553838464",
+            referenceId: `OKP-${Date.now().toString().slice(-6)}`,
+          });
+        }
+
+        setTranscript((prev) => [
+          ...prev,
+          {
+            id: `sys_reject_${Date.now()}`,
+            role: "system",
+            text: `⏹ Call Ended by Africa's Talking (<Reject/>) · Zero-PIN USSD Handset Prompt Pushed`,
+            timestamp: Date.now(),
+          },
+        ]);
+      }
+
+      refreshSyncStatus();
+    },
+    [atCallerPhone, enableTts, language, refreshSyncStatus]
+  );
+
+  /**
+   * Start Africa's Talking Live Voice IVR Call
+   */
+  const startAtCall = useCallback(
+    async (initialLang: "en" | "tw" = "en") => {
+      const newAtSession = `ATVN_${Date.now()}`;
+      setAtSessionId(newAtSession);
+      setSessionId(newAtSession);
+      setIsActive(true);
+      setLanguage(initialLang);
+      setCurrentScreen("HOME");
+      setCurrentStep("welcome");
+      setDigitsBuffer("");
+      setEntities({});
+      setProviderResult(null);
+      setAccuracyResult(null);
+      setLastTurnDiagnostic(null);
+      setUssdPushPrompt(null);
+      setIsLoading(true);
+
+      setTranscript([
+        {
+          id: `sys_at_conn_${Date.now()}`,
+          role: "system",
+          text: `📞 Connected to Africa's Talking Telephony Trunk (+233 30 804 8098) · Session: ${newAtSession} · Codec: G.711 / PCM`,
+          timestamp: Date.now(),
+        },
+      ]);
+
+      try {
+        const res = await api.dispatchAtVoiceWebhook("/voice-menu", {
+          sessionId: newAtSession,
+          callerNumber: atCallerPhone,
+          destinationNumber: "+233308048098",
+          isActive: "1",
+          direction: "Inbound",
+        });
+
+        await processAtVoiceResponse(res, newAtSession, "/voice-menu", {
+          sessionId: newAtSession,
+          callerNumber: atCallerPhone,
+          isActive: "1",
+          direction: "Inbound",
+        });
+      } catch (err: any) {
+        console.error("[AT Telephony] Inbound call error:", err);
+        setTranscript((prev) => [
+          ...prev,
+          {
+            id: `sys_err_${Date.now()}`,
+            role: "system",
+            text: `✕ Africa's Talking Trunk Error: ${err.message}`,
+            timestamp: Date.now(),
+          },
+        ]);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [atCallerPhone, processAtVoiceResponse]
+  );
+
+  /**
+   * Keypad digit handler for Africa's Talking Telephony Mode
+   */
+  const handleAtKeypadDigit = useCallback(
+    async (digit: string) => {
+      playTone(digit);
+
+      if (!isActive) {
+        if (digit === "1") startAtCall("en");
+        else if (digit === "2") startAtCall("tw");
+        else startAtCall("en");
+        return;
+      }
+
+      if (!atCurrentCallbackUrl) {
+        console.warn("[AT Telephony] No active Africa's Talking callback URL");
+        return;
+      }
+
+      // Finish on key (#)
+      if (digit === atFinishOnKey) {
+        if (digitsBuffer.trim()) {
+          const submitted = digitsBuffer.trim();
+          setDigitsBuffer("");
+          setTranscript((prev) => [
+            ...prev,
+            {
+              id: `caller_dtmf_${Date.now()}`,
+              role: "caller",
+              text: `[DTMF Keypad Entered]: ${submitted}#`,
+              timestamp: Date.now(),
+            },
+          ]);
+          setIsLoading(true);
+          try {
+            const res = await api.dispatchAtVoiceWebhook(atCurrentCallbackUrl, {
+              sessionId: atSessionId,
+              callerNumber: atCallerPhone,
+              destinationNumber: "+233308048098",
+              isActive: "1",
+              dtmfDigits: submitted,
+            });
+            await processAtVoiceResponse(res, atSessionId, atCurrentCallbackUrl, {
+              dtmfDigits: submitted,
+            });
+          } catch (e: any) {
+            console.error("[AT Keypad] Dispatch error:", e);
+          } finally {
+            setIsLoading(false);
+          }
+        }
+        return;
+      }
+
+      // 1-digit expectation: immediate submission
+      if (atExpectedDigits === 1) {
+        setDigitsBuffer("");
+        setTranscript((prev) => [
+          ...prev,
+          {
+            id: `caller_dtmf_${Date.now()}`,
+            role: "caller",
+            text: `[DTMF Keypad Pressed]: Key ${digit}`,
+            timestamp: Date.now(),
+          },
+        ]);
+        setIsLoading(true);
+        try {
+          const res = await api.dispatchAtVoiceWebhook(atCurrentCallbackUrl, {
+            sessionId: atSessionId,
+            callerNumber: atCallerPhone,
+            destinationNumber: "+233308048098",
+            isActive: "1",
+            dtmfDigits: digit,
+          });
+          await processAtVoiceResponse(res, atSessionId, atCurrentCallbackUrl, {
+            dtmfDigits: digit,
+          });
+        } catch (e: any) {
+          console.error("[AT Keypad] Dispatch error:", e);
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      // Multi-digit buffering (e.g. 10 digits for phone number or amount)
+      const nextBuf = digitsBuffer + digit;
+      setDigitsBuffer(nextBuf);
+
+      if (nextBuf.length >= atExpectedDigits) {
+        setDigitsBuffer("");
+        setTranscript((prev) => [
+          ...prev,
+          {
+            id: `caller_dtmf_${Date.now()}`,
+            role: "caller",
+            text: `[DTMF Keypad Entered]: ${nextBuf}`,
+            timestamp: Date.now(),
+          },
+        ]);
+        setIsLoading(true);
+        try {
+          const res = await api.dispatchAtVoiceWebhook(atCurrentCallbackUrl, {
+            sessionId: atSessionId,
+            callerNumber: atCallerPhone,
+            destinationNumber: "+233308048098",
+            isActive: "1",
+            dtmfDigits: nextBuf,
+          });
+          await processAtVoiceResponse(res, atSessionId, atCurrentCallbackUrl, {
+            dtmfDigits: nextBuf,
+          });
+        } catch (e: any) {
+          console.error("[AT Keypad] Dispatch error:", e);
+        } finally {
+          setIsLoading(false);
+        }
+      }
+    },
+    [
+      isActive,
+      atCurrentCallbackUrl,
+      atFinishOnKey,
+      atExpectedDigits,
+      digitsBuffer,
+      atSessionId,
+      atCallerPhone,
+      playTone,
+      startAtCall,
+      processAtVoiceResponse,
+    ]
+  );
+
   // Web Speech Recognition for Microphone Input
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -581,12 +1076,12 @@ export function usePhoneSimulator() {
       // Extract results
       const detectedIntent = res.intent || "UNKNOWN";
       const detectedConfidence = typeof res.confidence === "number" ? res.confidence : 0.85;
-      const detectedLang = res.language || language;
-      const newSlots = res.entities || {};
-      const newNav = res.navigation || {};
-      const newAction = res.action || {};
-      const newSafety = res.safety || {};
-      const newDialogue = res.dialogue || {};
+      const detectedLang = (res.language && res.language !== "unknown" ? res.language : language) as "en" | "ak" | "tw" | "en-ak";
+      const newSlots: EntitySlotMap = res.entities || {};
+      const newNav: NavigationOutput = res.navigation;
+      const newAction: ActionOutput = res.action;
+      const newSafety: SafetyOutput = res.safety;
+      const newDialogue: DialogueOutput = res.dialogue;
 
       // Live Ecosystem Sync: Update Call Logs and Ledger Counts
       if (resp.sync) {
@@ -727,6 +1222,11 @@ export function usePhoneSimulator() {
    * Start a phone call
    */
   const startCall = useCallback(async (initialLang: "en" | "tw" = "en") => {
+    if (gatewayMode === "AFRICASTALKING_IVR") {
+      await startAtCall(initialLang);
+      return;
+    }
+
     const newSession = `sim_${Date.now()}`;
     setSessionId(newSession);
     setIsActive(true);
@@ -790,7 +1290,7 @@ export function usePhoneSimulator() {
         }));
       }
     }).catch(() => {});
-  }, [executionMode, playAudioSynthesis]);
+  }, [gatewayMode, startAtCall, executionMode, playAudioSynthesis]);
 
   /**
    * Hang up the call & synchronize completion to Call Logs
@@ -799,21 +1299,30 @@ export function usePhoneSimulator() {
     setIsActive(false);
     setIsMicActive(false);
     setIsAiSpeaking(false);
+    setAtCurrentCallbackUrl(null);
     if (audioRef.current) audioRef.current.pause();
     if (recognitionRef.current) recognitionRef.current.abort();
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((t) => t.stop());
     }
 
-    try {
-      await api.endSimulatorCall({
-        sessionId,
-        durationSeconds: callDurationSec,
-        reason,
-        outcome: reason.toLowerCase().includes("cancel") ? "CANCELLED" : "COMPLETED",
-      });
-      refreshSyncStatus();
-    } catch {}
+    if (gatewayMode === "AFRICASTALKING_IVR") {
+      api.dispatchAtVoiceWebhook("/voice-menu", {
+        sessionId: atSessionId,
+        callerNumber: atCallerPhone,
+        isActive: "0",
+      }).catch(() => {});
+    } else {
+      try {
+        await api.endSimulatorCall({
+          sessionId,
+          durationSeconds: callDurationSec,
+          reason,
+          outcome: reason.toLowerCase().includes("cancel") ? "CANCELLED" : "COMPLETED",
+        });
+      } catch {}
+    }
+    refreshSyncStatus();
 
     setTranscript((prev) => [
       ...prev,
@@ -824,12 +1333,17 @@ export function usePhoneSimulator() {
         timestamp: Date.now(),
       },
     ]);
-  }, [sessionId, callDurationSec, refreshSyncStatus]);
+  }, [gatewayMode, atSessionId, atCallerPhone, sessionId, callDurationSec, refreshSyncStatus]);
 
   /**
    * Keypad digit pressed
    */
   const handleKeypadDigit = useCallback((digit: string) => {
+    if (gatewayMode === "AFRICASTALKING_IVR") {
+      handleAtKeypadDigit(digit);
+      return;
+    }
+
     playTone(digit);
 
     // If call not active, pressing 1 or 2 starts call in corresponding language
@@ -869,17 +1383,43 @@ export function usePhoneSimulator() {
       sendInputTurn(nextBuffer, "DTMF");
       setDigitsBuffer("");
     }
-  }, [isActive, digitsBuffer, currentStep, playTone, startCall, sendInputTurn]);
+  }, [gatewayMode, handleAtKeypadDigit, isActive, digitsBuffer, currentStep, playTone, startCall, sendInputTurn]);
 
   /**
    * Submit current digits buffer
    */
   const submitKeypadBuffer = useCallback(() => {
+    if (gatewayMode === "AFRICASTALKING_IVR") {
+      if (digitsBuffer.trim() && atCurrentCallbackUrl) {
+        const submitted = digitsBuffer.trim();
+        setDigitsBuffer("");
+        setTranscript((prev) => [
+          ...prev,
+          {
+            id: `caller_dtmf_${Date.now()}`,
+            role: "caller",
+            text: `[DTMF Keypad Entered]: ${submitted}`,
+            timestamp: Date.now(),
+          },
+        ]);
+        api.dispatchAtVoiceWebhook(atCurrentCallbackUrl, {
+          sessionId: atSessionId,
+          callerNumber: atCallerPhone,
+          destinationNumber: "+233308048098",
+          isActive: "1",
+          dtmfDigits: submitted,
+        }).then((res) => {
+          processAtVoiceResponse(res, atSessionId, atCurrentCallbackUrl, { dtmfDigits: submitted });
+        });
+      }
+      return;
+    }
+
     if (digitsBuffer.trim()) {
       sendInputTurn(digitsBuffer.trim(), "DTMF");
       setDigitsBuffer("");
     }
-  }, [digitsBuffer, sendInputTurn]);
+  }, [gatewayMode, digitsBuffer, atCurrentCallbackUrl, atSessionId, atCallerPhone, processAtVoiceResponse, sendInputTurn]);
 
   /**
    * Toggle microphone with MediaRecorder & Speech-To-Text (linking ASR Lab)
@@ -1101,6 +1641,38 @@ export function usePhoneSimulator() {
     sendInputTurn(text, "VOICE");
   }, [isActive, startCall, sendInputTurn]);
 
+  /**
+   * Run automated Africa's Talking IVR Scenario
+   */
+  const runAtPresetScenario = useCallback(
+    async (scenarioId: string) => {
+      const sc = AT_PRESET_SCENARIOS.find((s) => s.id === scenarioId);
+      if (!sc) return;
+
+      setGatewayMode("AFRICASTALKING_IVR");
+      await startAtCall(sc.language === "twi" ? "tw" : "en");
+
+      for (let i = 0; i < sc.steps.length; i++) {
+        const step = sc.steps[i];
+        await new Promise((r) => setTimeout(r, 1600));
+        const digits = step.digits;
+        for (let c = 0; c < digits.length; c++) {
+          handleAtKeypadDigit(digits[c]);
+          await new Promise((r) => setTimeout(r, 160));
+        }
+      }
+    },
+    [startAtCall, handleAtKeypadDigit]
+  );
+
+  const dismissUssdPrompt = useCallback(() => {
+    setUssdPushPrompt(null);
+  }, []);
+
+  const clearAtLogs = useCallback(() => {
+    setAtHttpLogs([]);
+  }, []);
+
   return {
     isActive,
     callDurationSec,
@@ -1152,5 +1724,23 @@ export function usePhoneSimulator() {
     simulateWrongNumberCorrection,
     simulateAsrSample,
     refreshSyncStatus,
+
+    // Africa's Talking Telephony Mode & State
+    gatewayMode,
+    setGatewayMode,
+    atSessionId,
+    setAtSessionId,
+    atCallerPhone,
+    setAtCallerPhone,
+    atCurrentCallbackUrl,
+    atExpectedDigits,
+    atFinishOnKey,
+    atInstruction,
+    atHttpLogs,
+    ussdPushPrompt,
+    dismissUssdPrompt,
+    clearAtLogs,
+    startAtCall,
+    runAtPresetScenario,
   };
 }

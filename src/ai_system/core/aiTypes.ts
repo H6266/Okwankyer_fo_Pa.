@@ -539,3 +539,111 @@ export const SECURITY_INVARIANTS = {
   INVARIANT_009: "Mock provider cannot execute in production mode.",
   INVARIANT_010: "Failed tool execution cannot be reported as success.",
 } as const;
+
+// ── Shared Canonical Telephony & Simulator API Contracts ────────────
+export interface ProviderEvidence {
+  provider: "MTN_SANDBOX" | "SIMULATION" | "REAL_PROVIDER";
+  status: "PENDING" | "SUCCESSFUL" | "FAILED" | "WAITING_FOR_AUTHORIZATION" | "RECONCILIATION_REQUIRED";
+  financialTransactionId?: string;
+  referenceId?: string;
+  amount?: number;
+  currency?: string;
+  recipientPhone?: string;
+  timestamp?: string;
+  isSimulation?: boolean;
+  rawResponse?: any;
+}
+
+export interface TruthResult {
+  verified: boolean;
+  reason: string;
+  providerStatus: string;
+  evidenceScore: number;
+  isTerminalSuccess: boolean;
+  hasProviderFinancialTxId: boolean;
+  matchesOriginalFingerprint: boolean;
+  idempotentMatch: boolean;
+}
+
+export interface VoiceXmlTrace {
+  step: string;
+  xml: string;
+  timestamp: string;
+  callbackUrl?: string;
+  numDigits?: number;
+  timeout?: number;
+  finishOnKey?: string;
+}
+
+export interface SimulatorSyncState {
+  sessionId: string;
+  callLogsTotal: number;
+  ledgerTotal: number;
+  lastSessionId?: string;
+}
+
+export interface SimulatorTurnRequest {
+  sessionId: string;
+  input: string;
+  channel: AiChannel;
+  language?: AiLanguage;
+  currentScreen?: string;
+  currentStep?: string;
+  executionMode?: "SIMULATION" | "MTN_SANDBOX";
+  userProfile?: any;
+  callDurationSec?: number;
+  callerPhone?: string;
+  calledPhone?: string;
+  dtmf?: string;
+  audio?: {
+    mimeType?: string;
+    dataBase64?: string;
+    durationMs?: number;
+  };
+}
+
+export interface SimulatorTurnResponse {
+  success: boolean;
+  result: AiProcessResult;
+  sync: SimulatorSyncState;
+  telephony?: any;
+  voiceXml?: VoiceXmlTrace;
+  latency?: Record<string, number>;
+  provider?: ProviderEvidence;
+  truth?: TruthResult;
+}
+
+export interface TelephonyTurnRequest {
+  sessionId: string;
+  callerPhone: string;
+  calledPhone: string;
+  channel: AiChannel;
+  inputType: "SPEECH" | "DTMF" | "TEXT";
+  input: string;
+  dtmf?: string;
+  audio?: any;
+  language?: AiLanguage;
+  currentScreen?: string;
+  currentStep?: string;
+  executionMode?: "SIMULATION" | "MTN_SANDBOX";
+  timestamp?: number;
+  callDurationSec?: number;
+}
+
+export interface TelephonyTurnResponse {
+  session: any;
+  state: CognitiveState;
+  intent: IntentName;
+  entities: EntitySlotMap;
+  navigation: NavigationOutput;
+  dialogue: DialogueOutput;
+  speech: SpeechOutput;
+  action: ActionOutput;
+  safety: SafetyOutput;
+  transaction?: any;
+  provider?: ProviderEvidence;
+  truth?: TruthResult;
+  voiceXml: string;
+  latency: Record<string, number>;
+  observability?: any;
+}

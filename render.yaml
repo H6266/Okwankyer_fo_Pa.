@@ -9,6 +9,10 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
+      - key: NODE_ENV
+        value: "production"
+      - key: PORT
+        value: "3000"
       - key: AT_USERNAME
         sync: false
       - key: AT_API_KEY
@@ -30,7 +34,7 @@ services:
       - key: MOMO_BASE_URL
         value: "https://sandbox.momodeveloper.mtn.com"
       - key: MOMO_CURRENCY
-        value: "EUR"
+        value: "GHS"
       - key: MOMO_COLLECTION_SUBSCRIPTION_KEY
         sync: false
       - key: MOMO_COLLECTION_API_USER_ID

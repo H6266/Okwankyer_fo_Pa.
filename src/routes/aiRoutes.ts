@@ -18,6 +18,11 @@ import { callSessionRepository } from "../services/callSessionRepository";
 import { momoEngine } from "../integrations/momo";
 import { durableTransactionStore } from "../services/durableTransactionStore";
 import { SANDBOX_RECIPIENT_FIXTURES } from "../demo/recipientFixtures";
+import { simulatorTelephonyAdapter } from "../providers/telephony/telephonyAdapter";
+import { eventBus } from "../services/eventBus";
+import { momoCallbackService } from "../integrations/momo/momoCallbackService";
+import { paymentSaga } from "../integrations/momo/paymentSaga";
+import { ProviderEvidence, TruthResult } from "../ai_system/core/aiTypes";
 
 export const aiRouter = Router();
 
@@ -184,13 +189,23 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
     const outcome =
       result.intent === "CANCEL"
         ? "CANCELLED"
-        : result.action?.tool === "execute_transfer" && (result.action?.executedResult?.success || result.action?.isExecutable)
+        : (result.action?.tool === "execute_transfer" || result.action?.tool === "momo_execute_transfer") &&
+          result.action?.executedResult?.success
         ? "COMPLETED"
         : "IN_PROGRESS";
 
-    const generatedVoiceXml = `<Response>\n  <GetDigits timeout="2" finishOnKey="#" numDigits="10">\n    <Say voice="${
-      result.language === "tw" || result.language === "ak" ? "woman" : "alice"
-    }">${result.dialogue?.response || ""}</Say>\n  </GetDigits>\n</Response>`;
+    // Use Simulator Telephony Adapter to build clean, escaped VoiceXML
+    const langVoice = result.language === "tw" || result.language === "ak" ? "woman" : "alice";
+    const generatedVoiceXml = simulatorTelephonyAdapter.buildVoiceXml([
+      simulatorTelephonyAdapter.collectDigits({
+        timeout: 5,
+        finishOnKey: "#",
+        numDigits: 10,
+        callbackUrl: `/api/ai/simulator/turn`,
+        promptText: result.dialogue?.response || "",
+        voice: langVoice,
+      }),
+    ]);
 
     const storedSession = callSessionRepository.upsertSession({
       sessionId: sessionKey,
@@ -199,9 +214,9 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       language: result.language === "tw" || result.language === "ak" ? "twi" : "en",
       finalStep: targetStep,
       outcome,
-      amountGHS: Number(result.entities?.amount) || 0,
-      recipientName: String(result.entities?.recipientName || ""),
-      recipientPhone: String(result.entities?.recipientPhone || ""),
+      amountGHS: typeof result.entities?.amount === "number" ? result.entities.amount : undefined,
+      recipientName: result.entities?.recipientName ? String(result.entities.recipientName) : undefined,
+      recipientPhone: result.entities?.recipientPhone ? String(result.entities.recipientPhone) : undefined,
       voiceXmlTrace: [
         {
           step: targetStep,
@@ -212,50 +227,70 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
     });
 
     // ── Live Synchronization 2: MoMo Ledger & Transaction Store ───────────
-    const intentUpper = String(result.intent || "").toUpperCase();
     const isTransferExecuted =
       result.action?.executedResult?.success ||
-      (result.action?.tool === "execute_transfer" && result.action?.isExecutable);
-    const isAirtime = intentUpper === "BUY_AIRTIME" || input.toLowerCase().includes("airtime");
-    const isEscrow = intentUpper === "ESCROW_DELIVERY" || input.toLowerCase().includes("delivery") || input.toLowerCase().includes("escrow") || input.toLowerCase().includes("rider");
+      ((result.action?.tool === "execute_transfer" || result.action?.tool === "momo_execute_transfer") &&
+        result.action?.isExecutable);
 
-    if (isTransferExecuted || (isAirtime && result.entities?.amount) || (isEscrow && result.entities?.amount)) {
-      const amount = Number(result.entities?.amount) || (isAirtime ? 10 : isEscrow ? 15 : 20);
-      const recipientPhone = String(result.entities?.recipientPhone || (isAirtime ? "0543546010" : "0553838464"));
-      const recipientName = String(
-        result.entities?.recipientName ||
-        (isAirtime ? "Airtime Top-up" : isEscrow ? "Dispatch Rider Escrow" : "Kwame Boateng")
-      );
-      const txType = isAirtime
-        ? "AIRTIME_PURCHASE"
-        : isEscrow
-        ? "ESCROW_DISPATCH_PAYMENT"
-        : "DISBURSEMENT_TRANSFER";
+    let providerEvidence: ProviderEvidence | undefined = undefined;
+    let truthResult: TruthResult | undefined = undefined;
 
+    if (isTransferExecuted && result.entities?.amount && result.entities?.recipientPhone) {
+      const amount = Number(result.entities.amount);
+      const recipientPhone = String(result.entities.recipientPhone);
+      const recipientName = result.entities.recipientName ? String(result.entities.recipientName) : undefined;
       const extId = `OKP-${Date.now().toString().slice(-6)}`;
-      const refId = result.action?.executedResult?.data?.referenceId || `REF-${Date.now()}`;
-      const finTxId =
-        result.action?.executedResult?.data?.financialTransactionId ||
-        `FIN-${Date.now().toString().slice(-8)}`;
+      const refId = result.action?.executedResult?.data?.referenceId;
+      const finTxId = result.action?.executedResult?.data?.financialTransactionId; // Only if real provider returned it!
 
       momoEngine.recordTransaction({
         id: extId,
-        referenceId: refId,
+        referenceId: refId || `REF-${Date.now()}`,
         externalId: extId,
-        type: txType,
-        status: result.action?.executedResult?.success === false ? "FAILED" : "SUCCESSFUL",
+        type: "DISBURSEMENT_TRANSFER",
+        status:
+          executionMode === "MTN_SANDBOX"
+            ? (result.action?.executedResult?.success ? "SUCCESSFUL" : "FAILED")
+            : "PENDING",
         amount,
         currency: "GHS",
         msisdn: recipientPhone,
         recipientName,
-        financialTransactionId: finTxId,
-        payerMessage: `Ɔkwankyerɛfo Pa Phone Simulator: ${txType}`,
+        financialTransactionId: finTxId || undefined,
+        payerMessage: `Ɔkwankyerɛfo Pa Phone Simulator Transfer`,
         mode: executionMode === "MTN_SANDBOX" ? "SANDBOX_API" : "LIVE_API",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
 
       durableTransactionStore.recordVelocityAttempt("0543546010", recipientPhone, amount);
+
+      providerEvidence = {
+        provider: executionMode === "MTN_SANDBOX" ? "MTN_SANDBOX" : "SIMULATION",
+        status: executionMode === "MTN_SANDBOX" && finTxId ? "SUCCESSFUL" : "PENDING",
+        financialTransactionId: finTxId || undefined,
+        referenceId: refId || undefined,
+        amount,
+        currency: "GHS",
+        recipientPhone,
+        isSimulation: executionMode === "SIMULATION",
+        timestamp: new Date().toISOString(),
+      };
+
+      truthResult = {
+        verified: Boolean(finTxId && executionMode === "MTN_SANDBOX"),
+        reason: executionMode === "SIMULATION"
+          ? "Simulation mode active: transactions are safe dry-runs without external financial movement."
+          : finTxId
+          ? "Verified terminal success with authentic MTN Sandbox financial transaction ID."
+          : "Awaiting provider confirmation callback; financial transaction ID not yet issued.",
+        providerStatus: providerEvidence.status,
+        evidenceScore: result.confidence,
+        isTerminalSuccess: providerEvidence.status === "SUCCESSFUL",
+        hasProviderFinancialTxId: Boolean(finTxId),
+        matchesOriginalFingerprint: true,
+        idempotentMatch: true,
+      };
     }
 
     res.json({
@@ -265,8 +300,20 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
         sessionId: storedSession.sessionId,
         callLogsTotal: callSessionRepository.getAllSessions().length,
         ledgerTotal: momoEngine.getHistory().length,
-        storedSession,
+        lastSessionId: storedSession.sessionId,
       },
+      telephony: {
+        lastInstruction: simulatorTelephonyAdapter.getLastInstruction(),
+        targetStep,
+      },
+      voiceXml: {
+        step: targetStep,
+        xml: generatedVoiceXml,
+        timestamp: new Date().toLocaleTimeString(),
+      },
+      latency: result.performance,
+      provider: providerEvidence,
+      truth: truthResult,
     });
   } catch (err: any) {
     console.error("[POST /api/ai/simulator/turn] Error:", err);
@@ -282,21 +329,138 @@ aiRouter.post("/api/ai/simulator/call-end", async (req: Request, res: Response) 
       return res.status(400).json({ error: "Missing sessionId." });
     }
 
-    const finalOutcome =
-      outcome ||
-      (reason && typeof reason === "string" && reason.toLowerCase().includes("cancel")
-        ? "CANCELLED"
-        : "COMPLETED");
+    const existingSession = callSessionRepository.getSession(sessionId);
+    let calculatedOutcome: "COMPLETED" | "CANCELLED" | "FAILED" | "TIMEOUT" | "IN_PROGRESS" | "RECONCILIATION_REQUIRED" = "IN_PROGRESS";
+
+    if (outcome) {
+      calculatedOutcome = outcome;
+    } else if (reason && typeof reason === "string" && reason.toLowerCase().includes("cancel")) {
+      calculatedOutcome = "CANCELLED";
+    } else if (reason && typeof reason === "string" && reason.toLowerCase().includes("timeout")) {
+      calculatedOutcome = "TIMEOUT";
+    } else if (reason && typeof reason === "string" && reason.toLowerCase().includes("fail")) {
+      calculatedOutcome = "FAILED";
+    } else if (existingSession?.outcome === "COMPLETED") {
+      calculatedOutcome = "COMPLETED";
+    } else {
+      calculatedOutcome = "CANCELLED";
+    }
 
     const updated = callSessionRepository.upsertSession({
       sessionId,
       durationSeconds: typeof durationSeconds === "number" ? durationSeconds : 0,
-      outcome: finalOutcome,
+      outcome: calculatedOutcome,
     });
+
+    eventBus.emitEvent(
+      calculatedOutcome === "COMPLETED"
+        ? "ai.call.completed"
+        : calculatedOutcome === "CANCELLED"
+        ? "ai.call.cancelled"
+        : "ai.call.failed",
+      sessionId,
+      { outcome: calculatedOutcome, reason }
+    );
 
     res.json({ success: true, session: updated });
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Failed to finalize call session" });
+  }
+});
+
+// ── Simulator Webhook Laboratory Endpoint (Section 27) ─────────────────
+aiRouter.post("/api/ai/simulator/webhook-trigger", async (req: Request, res: Response) => {
+  try {
+    const { action, sessionId, referenceId, amount, phone } = req.body;
+    const ref = referenceId || `sim_ref_${Date.now()}`;
+
+    switch (action) {
+      case "CALL_STARTED":
+        eventBus.emitEvent("ai.call.started", sessionId || "sim_call", { channel: "SIMULATOR" });
+        return res.json({ success: true, action, message: "Call started event emitted" });
+
+      case "COLLECTION_PENDING":
+        await momoCallbackService.handleWebhook({
+          referenceId: ref,
+          status: "PENDING",
+          amount: amount || 50,
+          currency: "GHS",
+        });
+        eventBus.emitEvent("ai.provider.pending", sessionId || ref, { referenceId: ref, status: "PENDING" });
+        return res.json({ success: true, action, referenceId: ref, status: "PENDING" });
+
+      case "CUSTOMER_AUTHORIZED":
+      case "COLLECTION_SUCCESS": {
+        const finId = `FIN-MTN-${Date.now().toString().slice(-8)}`;
+        await momoCallbackService.handleWebhook({
+          referenceId: ref,
+          status: "SUCCESSFUL",
+          financialTransactionId: finId,
+          amount: amount || 50,
+        });
+        eventBus.emitEvent("ai.provider.success", sessionId || ref, {
+          referenceId: ref,
+          status: "SUCCESSFUL",
+          financialTransactionId: finId,
+        });
+        return res.json({ success: true, action, referenceId: ref, status: "SUCCESSFUL", financialTransactionId: finId });
+      }
+
+      case "COLLECTION_FAILED":
+        await momoCallbackService.handleWebhook({
+          referenceId: ref,
+          status: "FAILED",
+          reason: "INSUFFICIENT_FUNDS_OR_DECLINED",
+        });
+        eventBus.emitEvent("ai.provider.failed", sessionId || ref, { referenceId: ref, status: "FAILED" });
+        return res.json({ success: true, action, referenceId: ref, status: "FAILED" });
+
+      case "DISBURSEMENT_SUCCESS": {
+        const finId = `DISB-MTN-${Date.now().toString().slice(-8)}`;
+        await momoCallbackService.handleWebhook({
+          referenceId: ref,
+          status: "SUCCESSFUL",
+          financialTransactionId: finId,
+        });
+        eventBus.emitEvent("ai.provider.success", sessionId || ref, {
+          referenceId: ref,
+          status: "SUCCESSFUL",
+          financialTransactionId: finId,
+        });
+        return res.json({ success: true, action, referenceId: ref, status: "SUCCESSFUL", financialTransactionId: finId });
+      }
+
+      case "DISBURSEMENT_FAILED":
+        await momoCallbackService.handleWebhook({
+          referenceId: ref,
+          status: "FAILED",
+          reason: "PROVIDER_SYSTEM_ERROR",
+        });
+        eventBus.emitEvent("ai.provider.failed", sessionId || ref, { referenceId: ref, status: "FAILED" });
+        return res.json({ success: true, action, referenceId: ref, status: "FAILED" });
+
+      case "TIMEOUT":
+        eventBus.emitEvent("ai.call.failed", sessionId || ref, { reason: "CALL_TIMEOUT" });
+        return res.json({ success: true, action, message: "Call timeout triggered" });
+
+      case "REPLAYED_WEBHOOK":
+      case "DUPLICATE_WEBHOOK":
+        // Duplicate delivery to test idempotency
+        await momoCallbackService.handleWebhook({
+          referenceId: ref,
+          status: "SUCCESSFUL",
+        });
+        await momoCallbackService.handleWebhook({
+          referenceId: ref,
+          status: "SUCCESSFUL",
+        });
+        return res.json({ success: true, action, message: "Duplicate webhook dispatched idempotently" });
+
+      default:
+        return res.status(400).json({ error: `Unknown webhook lab action: ${action}` });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to trigger webhook lab action" });
   }
 });
 

@@ -87,6 +87,25 @@ export class LocalLanguageBrain {
 
     // 3. Ambiguity & Interruption detection
     if (/^(wait|hold on|twi|tie|kakra|gyae kakra)/i.test(lower)) {
+      if (lower.includes("balance") || lower.includes("sika dodoɔ") || lower.includes("akontaabu") || lower.includes("check")) {
+        return {
+          intent: "CHECK_BALANCE",
+          confidence: estimateEvidenceScore("CHECK_BALANCE", lower),
+          language: detectedLang,
+          entities: input.previousSlots || {},
+          conversationAct: "INTERRUPT",
+          correction: null,
+          referenceResolution: null,
+          ambiguity: { isAmbiguous: false, candidates: [] },
+          requestedAction: {
+            type: "CHECK_BALANCE",
+            tool: "momo_get_balance",
+            arguments: {},
+          },
+          requiresConfirmation: false,
+          safetyFlags: [],
+        };
+      }
       return {
         intent: "CANCEL",
         confidence: estimateEvidenceScore("CANCEL", lower),

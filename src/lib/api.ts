@@ -3,6 +3,8 @@
  * Communicates with backend Express services
  */
 
+import type { SimulatorTurnRequest, SimulatorTurnResponse } from "../ai_system/core/aiTypes";
+
 export interface HealthResponse {
   status: string;
   service: string;
@@ -153,7 +155,145 @@ export interface MomoTransactionStatus {
   timestamp: string;
 }
 
+export interface ParsedVoiceXml {
+  raw: string;
+  say?: { text: string; voice?: string };
+  playUrl?: string;
+  getDigits?: {
+    timeout?: number;
+    finishOnKey?: string;
+    numDigits?: number;
+    callbackUrl?: string;
+  };
+  record?: {
+    timeout?: number;
+    finishOnKey?: string;
+    maxLength?: number;
+    callbackUrl?: string;
+    playBeep?: boolean;
+    trimSilence?: boolean;
+  };
+  redirectUrl?: string;
+  isReject: boolean;
+}
+
+export function parseVoiceXml(xmlText: string): ParsedVoiceXml {
+  const result: ParsedVoiceXml = {
+    raw: xmlText || "",
+    isReject: (xmlText || "").includes("<Reject") || (xmlText || "").includes("<reject"),
+  };
+
+  if (!xmlText) return result;
+
+  // Play URL
+  const playMatch = xmlText.match(/<Play[^>]*>([^<]+)<\/Play>/i) || xmlText.match(/<Play\s+url=["']([^"']+)["']/i);
+  if (playMatch) {
+    result.playUrl = playMatch[1].trim();
+  }
+
+  // Say text and voice
+  const sayMatch = xmlText.match(/<Say(?:\s+voice=["']([^"']+)["'])?[^>]*>([\s\S]*?)<\/Say>/i);
+  if (sayMatch) {
+    result.say = {
+      voice: sayMatch[1] || "female",
+      text: sayMatch[2].trim(),
+    };
+  }
+
+  // GetDigits attributes
+  const digitsMatch = xmlText.match(/<GetDigits\s+([^>]+)>/i);
+  if (digitsMatch) {
+    const attrs = digitsMatch[1];
+    const timeout = attrs.match(/timeout=["'](\d+)["']/i);
+    const finishOnKey = attrs.match(/finishOnKey=["']([^"']+)["']/i);
+    const numDigits = attrs.match(/numDigits=["'](\d+)["']/i);
+    const callbackUrl = attrs.match(/callbackUrl=["']([^"']+)["']/i);
+
+    result.getDigits = {
+      timeout: timeout ? parseInt(timeout[1], 10) : undefined,
+      finishOnKey: finishOnKey ? finishOnKey[1] : undefined,
+      numDigits: numDigits ? parseInt(numDigits[1], 10) : undefined,
+      callbackUrl: callbackUrl ? callbackUrl[1].replace(/&amp;/g, "&") : undefined,
+    };
+  }
+
+  // Record attributes
+  const recordMatch = xmlText.match(/<Record\s+([^>]+)>/i);
+  if (recordMatch) {
+    const attrs = recordMatch[1];
+    const timeout = attrs.match(/timeout=["'](\d+)["']/i);
+    const finishOnKey = attrs.match(/finishOnKey=["']([^"']+)["']/i);
+    const maxLength = attrs.match(/maxLength=["'](\d+)["']/i);
+    const callbackUrl = attrs.match(/callbackUrl=["']([^"']+)["']/i);
+
+    result.record = {
+      timeout: timeout ? parseInt(timeout[1], 10) : undefined,
+      finishOnKey: finishOnKey ? finishOnKey[1] : undefined,
+      maxLength: maxLength ? parseInt(maxLength[1], 10) : undefined,
+      callbackUrl: callbackUrl ? callbackUrl[1].replace(/&amp;/g, "&") : undefined,
+      playBeep: attrs.includes('playBeep="true"'),
+      trimSilence: attrs.includes('trimSilence="true"'),
+    };
+  }
+
+  // Redirect
+  const redirectMatch = xmlText.match(/<Redirect[^>]*>([^<]+)<\/Redirect>/i);
+  if (redirectMatch) {
+    result.redirectUrl = redirectMatch[1].trim().replace(/&amp;/g, "&");
+  }
+
+  return result;
+}
+
 export const api = {
+  // ── Africa's Talking Telephony Webhook Dispatcher ───────────────────
+  async dispatchAtVoiceWebhook(
+    endpointUrl: string,
+    params: {
+      sessionId: string;
+      callerNumber?: string;
+      destinationNumber?: string;
+      isActive?: string | number;
+      direction?: string;
+      dtmfDigits?: string;
+      recordingUrl?: string;
+      [key: string]: any;
+    }
+  ): Promise<{ voiceXml: string; parsed: ParsedVoiceXml; status: number; effectiveUrl: string }> {
+    let effectiveUrl = endpointUrl;
+    if (effectiveUrl.startsWith("http://") || effectiveUrl.startsWith("https://")) {
+      try {
+        const u = new URL(effectiveUrl);
+        effectiveUrl = u.pathname + u.search;
+      } catch {
+        // fallback
+      }
+    }
+
+    const formParams = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== null) {
+        formParams.append(k, String(v));
+      }
+    }
+
+    const res = await fetch(effectiveUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/xml, text/xml, */*",
+      },
+      body: formParams.toString(),
+    });
+
+    const xmlText = await res.text();
+    return {
+      voiceXml: xmlText,
+      parsed: parseVoiceXml(xmlText),
+      status: res.status,
+      effectiveUrl,
+    };
+  },
   async getHealth(): Promise<HealthResponse> {
     const res = await fetch("/api/health");
     if (!res.ok) throw new Error(`Health check returned ${res.status}`);
@@ -655,16 +795,7 @@ export const api = {
     return res.json();
   },
 
-  async processSimulatorTurn(payload: {
-    sessionId: string;
-    input: string;
-    channel: "VOICE" | "DTMF" | "TEXT" | "SIMULATOR";
-    language?: "en" | "tw" | "ak" | "en-ak";
-    currentScreen?: string;
-    currentStep?: string;
-    executionMode?: "SIMULATION" | "MTN_SANDBOX";
-    userProfile?: any;
-  }): Promise<{ success: boolean; result: any }> {
+  async processSimulatorTurn(payload: SimulatorTurnRequest): Promise<SimulatorTurnResponse> {
     const res = await fetch("/api/ai/simulator/turn", {
       method: "POST",
       credentials: "same-origin",

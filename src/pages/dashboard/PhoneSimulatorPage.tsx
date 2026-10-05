@@ -43,6 +43,7 @@ import {
 import {
   usePhoneSimulator,
   PRESET_SCENARIOS,
+  AT_PRESET_SCENARIOS,
   SimulatorContact,
 } from "../../hooks/usePhoneSimulator";
 import { AUDIO_CATALOG } from "../../audio/catalog";
@@ -50,6 +51,7 @@ import { AUDIO_CATALOG } from "../../audio/catalog";
 export const PhoneSimulatorPage: React.FC = () => {
   const sim = usePhoneSimulator();
   const [selectedScenarioId, setSelectedScenarioId] = useState<string>("send_money_en");
+  const [selectedAtScenarioId, setSelectedAtScenarioId] = useState<string>("at_send_money_en");
   const [typedInput, setTypedInput] = useState<string>("");
   const [pressedKey, setPressedKey] = useState<string | null>(null);
   const [activeCenterTab, setActiveCenterTab] = useState<
@@ -216,6 +218,35 @@ export const PhoneSimulatorPage: React.FC = () => {
             >
               <Radio className="w-3 h-3 text-emerald-600" />
               <span>Studio Prompts</span>
+            </button>
+          </div>
+
+          {/* Gateway Selector: Africa's Talking IVR vs Conversational AI */}
+          <div className="flex items-center bg-slate-900 p-1 rounded-xl border border-slate-700 text-xs font-semibold shadow-xs">
+            <button
+              onClick={() => sim.setGatewayMode("AFRICASTALKING_IVR")}
+              className={`px-3 py-1 rounded-lg transition-all flex items-center gap-1.5 ${
+                sim.gatewayMode === "AFRICASTALKING_IVR"
+                  ? "bg-amber-400 text-slate-950 font-bold shadow-xs"
+                  : "text-slate-300 hover:text-white"
+              }`}
+              title="Real-time Africa's Talking voice telephony trunk (+233 30 804 8098) with VoiceXML and IVR menus"
+            >
+              <PhoneCall className="w-3 h-3" />
+              <span>Africa's Talking IVR</span>
+              <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-amber-300 font-mono">+233 30 804 8098</span>
+            </button>
+            <button
+              onClick={() => sim.setGatewayMode("CANONICAL_AI")}
+              className={`px-3 py-1 rounded-lg transition-all flex items-center gap-1.5 ${
+                sim.gatewayMode === "CANONICAL_AI"
+                  ? "bg-emerald-600 text-white font-bold shadow-xs"
+                  : "text-slate-300 hover:text-white"
+              }`}
+              title="Conversational AI brain with natural Ghanaian voice & text understanding"
+            >
+              <Sparkles className="w-3 h-3" />
+              <span>Conversational AI</span>
             </button>
           </div>
 
@@ -479,91 +510,194 @@ export const PhoneSimulatorPage: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-2">
-          {/* Transfer EN */}
-          <button
-            onClick={() => {
-              if (!sim.isActive) sim.startCall("en");
-              sim.sendInputTurn("I want to send 20 cedis to 0553838464", "TEXT");
-            }}
-            className="p-2 rounded-xl bg-slate-50 hover:bg-emerald-50 text-left border border-slate-200 hover:border-emerald-300 transition-all text-xs font-medium group"
-          >
-            <div className="text-[10px] font-bold text-emerald-800">💸 Send Money</div>
-            <div className="text-[11px] text-slate-700 font-semibold truncate">20 GHS (EN)</div>
-          </button>
+          {sim.gatewayMode === "AFRICASTALKING_IVR" ? (
+            <>
+              {/* AT Scenario 1: English 9-Step Transfer */}
+              <button
+                onClick={() => sim.runAtPresetScenario("at_send_money_en")}
+                className="p-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-left border border-amber-300 transition-all text-xs font-medium group"
+                title="Full 9-step Africa's Talking IVR call in English with recipient lookup and Zero-PIN push"
+              >
+                <div className="text-[10px] font-bold text-amber-900 flex items-center gap-1">
+                  <PhoneCall className="w-3 h-3 text-amber-700" />
+                  <span>AT MoMo (EN)</span>
+                </div>
+                <div className="text-[11px] text-slate-800 font-bold truncate">9-Step Full IVR</div>
+              </button>
 
-          {/* Transfer Twi */}
-          <button
-            onClick={() => {
-              if (!sim.isActive) sim.startCall("tw");
-              sim.sendInputTurn("Mepa wo kyɛw, mane sika aduonu kɔma Kwame Nyamebere wɔ 0553838464", "TEXT");
-            }}
-            className="p-2 rounded-xl bg-slate-50 hover:bg-emerald-50 text-left border border-slate-200 hover:border-emerald-300 transition-all text-xs font-medium group"
-          >
-            <div className="text-[10px] font-bold text-emerald-800">🇬🇭 Mane Sika</div>
-            <div className="text-[11px] text-slate-700 font-semibold truncate">20 GHS (Akan Twi)</div>
-          </button>
+              {/* AT Scenario 2: Akan Twi 9-Step Transfer */}
+              <button
+                onClick={() => sim.runAtPresetScenario("at_send_money_twi")}
+                className="p-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-left border border-emerald-300 transition-all text-xs font-medium group"
+                title="Full 9-step Africa's Talking IVR call in Akan Twi with authentic voice prompts"
+              >
+                <div className="text-[10px] font-bold text-emerald-900 flex items-center gap-1">
+                  <PhoneCall className="w-3 h-3 text-emerald-700" />
+                  <span>AT Mane Sika</span>
+                </div>
+                <div className="text-[11px] text-slate-800 font-bold truncate">9-Step Akan Twi</div>
+              </button>
 
-          {/* Code-Switching */}
-          <button
-            onClick={() => {
-              if (!sim.isActive) sim.startCall("en");
-              sim.sendInputTurn("Please mane 20 cedis kɔma my brother on 0553838464", "TEXT");
-            }}
-            className="p-2 rounded-xl bg-slate-50 hover:bg-emerald-50 text-left border border-slate-200 hover:border-emerald-300 transition-all text-xs font-medium group"
-          >
-            <div className="text-[10px] font-bold text-purple-700">🔀 Code-Switch</div>
-            <div className="text-[11px] text-slate-700 font-semibold truncate">English + Twi</div>
-          </button>
+              {/* AT Inbound Call Entry */}
+              <button
+                onClick={() => sim.startAtCall("en")}
+                className="p-2 rounded-xl bg-slate-50 hover:bg-emerald-50 text-left border border-slate-200 hover:border-emerald-300 transition-all text-xs font-medium group"
+              >
+                <div className="text-[10px] font-bold text-emerald-800">📞 Inbound Trunk</div>
+                <div className="text-[11px] text-slate-700 font-semibold truncate">+233 30 804 8098</div>
+              </button>
 
-          {/* Float / Balance Inquiry */}
-          <button
-            onClick={() => sim.simulateBalanceInquiry()}
-            className="p-2 rounded-xl bg-slate-50 hover:bg-emerald-50 text-left border border-slate-200 hover:border-emerald-300 transition-all text-xs font-medium group"
-          >
-            <div className="text-[10px] font-bold text-amber-700">💰 MoMo Float</div>
-            <div className="text-[11px] text-slate-700 font-semibold truncate">Check Balance</div>
-          </button>
+              {/* AT Balance Guidance */}
+              <button
+                onClick={() => sim.runAtPresetScenario("at_balance_inquiry")}
+                className="p-2 rounded-xl bg-slate-50 hover:bg-amber-50 text-left border border-slate-200 hover:border-amber-300 transition-all text-xs font-medium group"
+              >
+                <div className="text-[10px] font-bold text-amber-700">💰 Balance Query</div>
+                <div className="text-[11px] text-slate-700 font-semibold truncate">Dial *170# VoiceXML</div>
+              </button>
 
-          {/* Airtime Purchase */}
-          <button
-            onClick={() => sim.simulateAirtimePurchase(10)}
-            className="p-2 rounded-xl bg-slate-50 hover:bg-emerald-50 text-left border border-slate-200 hover:border-emerald-300 transition-all text-xs font-medium group"
-          >
-            <div className="text-[10px] font-bold text-cyan-700">📱 Airtime Top-Up</div>
-            <div className="text-[11px] text-slate-700 font-semibold truncate">10 GHS Airtime</div>
-          </button>
+              {/* AT Cancel Transfer */}
+              <button
+                onClick={() => sim.runAtPresetScenario("at_cancel_transfer")}
+                className="p-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-left border border-slate-200 transition-all text-xs font-medium group"
+              >
+                <div className="text-[10px] font-bold text-slate-700">🛑 Cancel Call</div>
+                <div className="text-[11px] text-slate-700 font-semibold truncate">Press 0 (<Reject/>)</div>
+              </button>
 
-          {/* Delivery Rider Escrow */}
-          <button
-            onClick={() => sim.simulateEscrowPayment("#1042", 15)}
-            className="p-2 rounded-xl bg-slate-50 hover:bg-emerald-50 text-left border border-slate-200 hover:border-emerald-300 transition-all text-xs font-medium group"
-          >
-            <div className="text-[10px] font-bold text-blue-700">🚚 Escrow Delivery</div>
-            <div className="text-[11px] text-slate-700 font-semibold truncate">15 GHS Rider Fee</div>
-          </button>
+              {/* AT Recipient Lookup */}
+              <button
+                onClick={() => {
+                  if (!sim.isActive) sim.startAtCall("en");
+                  sim.handleKeypadDigit("0");
+                  sim.handleKeypadDigit("5");
+                  sim.handleKeypadDigit("5");
+                  sim.handleKeypadDigit("3");
+                  sim.handleKeypadDigit("8");
+                  sim.handleKeypadDigit("3");
+                  sim.handleKeypadDigit("8");
+                  sim.handleKeypadDigit("4");
+                  sim.handleKeypadDigit("6");
+                  sim.handleKeypadDigit("4");
+                  sim.handleKeypadDigit("#");
+                }}
+                className="p-2 rounded-xl bg-slate-50 hover:bg-blue-50 text-left border border-slate-200 hover:border-blue-300 transition-all text-xs font-medium group"
+              >
+                <div className="text-[10px] font-bold text-blue-700">👤 Recipient Lookup</div>
+                <div className="text-[11px] text-slate-700 font-semibold truncate">Kwame Boateng</div>
+              </button>
 
-          {/* Zero-PIN Security Interception Test */}
-          <button
-            onClick={() => sim.simulateSpokenPinViolation()}
-            className="p-2 rounded-xl bg-rose-50/70 hover:bg-rose-100 text-left border border-rose-200 transition-all text-xs font-medium group"
-            title="Spoken PIN security test: validates that spoken PINs are blocked and never processed"
-          >
-            <div className="text-[10px] font-bold text-rose-800 flex items-center gap-1">
-              <ShieldAlert className="w-3 h-3 text-rose-600" />
-              <span>Zero-PIN Test</span>
-            </div>
-            <div className="text-[11px] text-rose-700 font-semibold truncate">Spoken PIN Intercept</div>
-          </button>
+              {/* Zero-PIN Security Screen Prompt */}
+              <button
+                onClick={() => sim.runAtPresetScenario("at_send_money_en")}
+                className="p-2 rounded-xl bg-rose-50/70 hover:bg-rose-100 text-left border border-rose-200 transition-all text-xs font-medium group"
+                title="Tests Zero-PIN handoff from Africa's Talking voice trunk to handset USSD screen prompt"
+              >
+                <div className="text-[10px] font-bold text-rose-800 flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3 text-rose-600" />
+                  <span>Zero-PIN Push</span>
+                </div>
+                <div className="text-[11px] text-rose-700 font-semibold truncate">USSD Screen Prompt</div>
+              </button>
 
-          {/* Mid-Call Correction */}
-          <button
-            onClick={() => sim.simulateMidCallCorrection()}
-            className="p-2 rounded-xl bg-slate-50 hover:bg-amber-50 text-left border border-slate-200 hover:border-amber-300 transition-all text-xs font-medium group"
-            title="Mid-call amount correction test: ensures previous confirmation is invalidated"
-          >
-            <div className="text-[10px] font-bold text-amber-800">✏️ Correction</div>
-            <div className="text-[11px] text-slate-700 font-semibold truncate">20 → 50 Cedis</div>
-          </button>
+              {/* Hangup Trunk */}
+              <button
+                onClick={() => sim.endCall("User ended IVR call")}
+                className="p-2 rounded-xl bg-slate-50 hover:bg-rose-50 text-left border border-slate-200 hover:border-rose-300 transition-all text-xs font-medium group"
+              >
+                <div className="text-[10px] font-bold text-slate-600">⏹ Hang Up</div>
+                <div className="text-[11px] text-slate-700 font-semibold truncate">Release Trunk</div>
+              </button>
+            </>
+          ) : (
+            <>
+              {/* Transfer EN */}
+              <button
+                onClick={() => {
+                  if (!sim.isActive) sim.startCall("en");
+                  sim.sendInputTurn("I want to send 20 cedis to 0553838464", "TEXT");
+                }}
+                className="p-2 rounded-xl bg-slate-50 hover:bg-emerald-50 text-left border border-slate-200 hover:border-emerald-300 transition-all text-xs font-medium group"
+              >
+                <div className="text-[10px] font-bold text-emerald-800">💸 Send Money</div>
+                <div className="text-[11px] text-slate-700 font-semibold truncate">20 GHS (EN)</div>
+              </button>
+
+              {/* Transfer Twi */}
+              <button
+                onClick={() => {
+                  if (!sim.isActive) sim.startCall("tw");
+                  sim.sendInputTurn("Mepa wo kyɛw, mane sika aduonu kɔma Kwame Nyamebere wɔ 0553838464", "TEXT");
+                }}
+                className="p-2 rounded-xl bg-slate-50 hover:bg-emerald-50 text-left border border-slate-200 hover:border-emerald-300 transition-all text-xs font-medium group"
+              >
+                <div className="text-[10px] font-bold text-emerald-800">🇬🇭 Mane Sika</div>
+                <div className="text-[11px] text-slate-700 font-semibold truncate">20 GHS (Akan Twi)</div>
+              </button>
+
+              {/* Code-Switching */}
+              <button
+                onClick={() => {
+                  if (!sim.isActive) sim.startCall("en");
+                  sim.sendInputTurn("Please mane 20 cedis kɔma my brother on 0553838464", "TEXT");
+                }}
+                className="p-2 rounded-xl bg-slate-50 hover:bg-emerald-50 text-left border border-slate-200 hover:border-emerald-300 transition-all text-xs font-medium group"
+              >
+                <div className="text-[10px] font-bold text-purple-700">🔀 Code-Switch</div>
+                <div className="text-[11px] text-slate-700 font-semibold truncate">English + Twi</div>
+              </button>
+
+              {/* Float / Balance Inquiry */}
+              <button
+                onClick={() => sim.simulateBalanceInquiry()}
+                className="p-2 rounded-xl bg-slate-50 hover:bg-emerald-50 text-left border border-slate-200 hover:border-emerald-300 transition-all text-xs font-medium group"
+              >
+                <div className="text-[10px] font-bold text-amber-700">💰 MoMo Float</div>
+                <div className="text-[11px] text-slate-700 font-semibold truncate">Check Balance</div>
+              </button>
+
+              {/* Airtime Purchase */}
+              <button
+                onClick={() => sim.simulateAirtimePurchase(10)}
+                className="p-2 rounded-xl bg-slate-50 hover:bg-emerald-50 text-left border border-slate-200 hover:border-emerald-300 transition-all text-xs font-medium group"
+              >
+                <div className="text-[10px] font-bold text-cyan-700">📱 Airtime Top-Up</div>
+                <div className="text-[11px] text-slate-700 font-semibold truncate">10 GHS Airtime</div>
+              </button>
+
+              {/* Delivery Rider Escrow */}
+              <button
+                onClick={() => sim.simulateEscrowPayment("#1042", 15)}
+                className="p-2 rounded-xl bg-slate-50 hover:bg-emerald-50 text-left border border-slate-200 hover:border-emerald-300 transition-all text-xs font-medium group"
+              >
+                <div className="text-[10px] font-bold text-blue-700">🚚 Escrow Delivery</div>
+                <div className="text-[11px] text-slate-700 font-semibold truncate">15 GHS Rider Fee</div>
+              </button>
+
+              {/* Zero-PIN Security Interception Test */}
+              <button
+                onClick={() => sim.simulateSpokenPinViolation()}
+                className="p-2 rounded-xl bg-rose-50/70 hover:bg-rose-100 text-left border border-rose-200 transition-all text-xs font-medium group"
+                title="Spoken PIN security test: validates that spoken PINs are blocked and never processed"
+              >
+                <div className="text-[10px] font-bold text-rose-800 flex items-center gap-1">
+                  <ShieldAlert className="w-3 h-3 text-rose-600" />
+                  <span>Zero-PIN Test</span>
+                </div>
+                <div className="text-[11px] text-rose-700 font-semibold truncate">Spoken PIN Intercept</div>
+              </button>
+
+              {/* Mid-Call Correction */}
+              <button
+                onClick={() => sim.simulateMidCallCorrection()}
+                className="p-2 rounded-xl bg-slate-50 hover:bg-amber-50 text-left border border-slate-200 hover:border-amber-300 transition-all text-xs font-medium group"
+                title="Mid-call amount correction test: ensures previous confirmation is invalidated"
+              >
+                <div className="text-[10px] font-bold text-amber-800">✏️ Correction</div>
+                <div className="text-[11px] text-slate-700 font-semibold truncate">20 → 50 Cedis</div>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -588,7 +722,9 @@ export const PhoneSimulatorPage: React.FC = () => {
                     }`}
                   />
                   <span className="font-bold tracking-tight">
-                    {sim.entities.network ? `${sim.entities.network} 4G` : "MTN 4G"}
+                    {sim.gatewayMode === "AFRICASTALKING_IVR"
+                      ? "AT TRUNK · +233 30 804 8098"
+                      : sim.entities.network ? `${sim.entities.network} 4G` : "MTN 4G"}
                   </span>
                 </div>
                 <div className="font-bold text-slate-300">
@@ -599,7 +735,15 @@ export const PhoneSimulatorPage: React.FC = () => {
               {/* Main Screen Content */}
               <div className="py-3 space-y-2 text-center my-auto">
                 <div className="text-[10px] font-mono uppercase tracking-wider text-emerald-400 flex items-center justify-center gap-1">
-                  <span>{sim.isActive ? `${sim.currentStep.toUpperCase()} STEP` : "ƆKWANKYERƐFO PA"}</span>
+                  <span>
+                    {sim.isActive
+                      ? sim.gatewayMode === "AFRICASTALKING_IVR"
+                        ? `AT IVR · ${sim.currentStep.toUpperCase()}`
+                        : `${sim.currentStep.toUpperCase()} STEP`
+                      : sim.gatewayMode === "AFRICASTALKING_IVR"
+                      ? "AFRICA'S TALKING IVR TRUNK"
+                      : "ƆKWANKYERƐFO PA"}
+                  </span>
                   {sim.safety.pinDetectedInVoice && (
                     <span className="px-1 py-0.2 rounded bg-rose-950 text-rose-400 font-bold border border-rose-800">
                       PIN BLOCKED
@@ -612,22 +756,33 @@ export const PhoneSimulatorPage: React.FC = () => {
                   {sim.isLoading ? (
                     <div className="flex items-center gap-2 text-amber-300 animate-pulse">
                       <Sparkles className="w-4 h-4 animate-spin" />
-                      <span className="text-[11px] font-medium">AI reasoning...</span>
+                      <span className="text-[11px] font-medium">
+                        {sim.gatewayMode === "AFRICASTALKING_IVR" ? "Africa's Talking routing..." : "AI reasoning..."}
+                      </span>
                     </div>
                   ) : sim.isAiSpeaking ? (
                     <div className="flex items-center gap-2 text-emerald-300">
                       <Volume2 className="w-4 h-4 animate-bounce shrink-0" />
                       <span className="italic text-[11px] truncate max-w-[190px]">
-                        🔊 {sim.activeAudioClip ? "Playing Studio Clip..." : sim.voiceMode === "STUDIO_PROMPTS" ? "Studio prompt playing..." : "AI speaking..."}
+                        🔊 {sim.activeAudioClip ? "Playing AT Prompt..." : sim.voiceMode === "STUDIO_PROMPTS" ? "Studio prompt playing..." : "Prompt playing..."}
                       </span>
                     </div>
                   ) : sim.isActive ? (
-                    <div className="text-[11px] text-slate-300 line-clamp-2">
-                      {sim.aiResponse || "Listening for speech or keypad digits..."}
+                    <div className="space-y-1">
+                      <div className="text-[11px] text-slate-200 font-medium line-clamp-2">
+                        {sim.aiResponse || sim.atInstruction || "Listening for speech or keypad digits..."}
+                      </div>
+                      {sim.gatewayMode === "AFRICASTALKING_IVR" && (
+                        <div className="text-[10px] text-amber-300 font-mono">
+                          {sim.atInstruction}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="text-[11px] text-slate-500">
-                      Press Call (Green), choose a scenario, or click a contact
+                      {sim.gatewayMode === "AFRICASTALKING_IVR"
+                        ? "Press Call (Green) to dial Africa's Talking IVR Trunk"
+                        : "Press Call (Green), choose a scenario, or click a contact"}
                     </div>
                   )}
                 </div>

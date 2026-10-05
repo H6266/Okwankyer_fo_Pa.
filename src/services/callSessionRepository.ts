@@ -17,7 +17,7 @@ export interface StoredCallSession {
   durationSeconds: number;
   language: "en" | "twi";
   finalStep: string;
-  outcome: "COMPLETED" | "CANCELLED" | "FAILED" | "IN_PROGRESS";
+  outcome: "COMPLETED" | "CANCELLED" | "FAILED" | "TIMEOUT" | "IN_PROGRESS" | "RECONCILIATION_REQUIRED";
   amountGHS: number;
   recipientName: string;
   recipientPhone: string;

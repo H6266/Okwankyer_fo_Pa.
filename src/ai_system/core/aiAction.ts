@@ -18,6 +18,7 @@ import {
   RiskLevel,
 } from "./aiTypes";
 import { unifiedToolRegistry } from "../actions/unifiedToolRegistry";
+import { validateGhanaPhoneNumber } from "../../domain/validation";
 
 export class AiActionPlanner {
   /**
@@ -41,6 +42,16 @@ export class AiActionPlanner {
 
     switch (intent) {
       case "SEND_MONEY": {
+        // Predict failure modes proactively whenever amount or recipient is present
+        if (slots.amount && slots.amount > 5000) {
+          predictedFailureModes.push("AMOUNT_EXCEEDS_DAILY_LIMIT");
+          clarifyingQuestions.push("This amount is over the standard daily limit. Do you have tier-3 KYC approval?");
+        }
+        if (slots.recipientPhone && slots.recipientPhone.length !== 10) {
+          predictedFailureModes.push("INVALID_PHONE_DIGIT_LENGTH");
+          clarifyingQuestions.push("The phone number must be exactly 10 digits starting with 0.");
+        }
+
         if (!slots.recipientPhone) {
           type = "REQUEST_RECIPIENT";
           tool = "prepare_transfer";
@@ -48,7 +59,7 @@ export class AiActionPlanner {
             ? `Please provide ${slots.recipientName}'s mobile number.`
             : "Who should receive the transfer? Please provide their mobile number.");
           riskLevel = "LOW";
-          requiresClientConfirmation = false;
+          requiresClientConfirmation = currentStep === "confirm";
         } else if (!slots.amount) {
           type = "REQUEST_AMOUNT";
           tool = "prepare_transfer";
@@ -57,13 +68,14 @@ export class AiActionPlanner {
             recipientName: slots.recipientName,
           };
           riskLevel = "LOW";
-          requiresClientConfirmation = false;
+          requiresClientConfirmation = currentStep === "confirm";
         } else if (!slots.network) {
           type = "REQUEST_NETWORK";
           tool = "none";
           clarifyingQuestions.push("Which mobile money network should receive this transfer?");
-          riskLevel = "LOW";
-          requiresClientConfirmation = false;
+          riskLevel = currentStep === "confirm" ? "HIGH" : "LOW";
+          requiresClientConfirmation = currentStep === "confirm";
+          isExecutable = false;
         } else {
           type = "PREPARE_CONFIRMATION";
           tool = "lookup_recipient";
@@ -77,34 +89,31 @@ export class AiActionPlanner {
           riskLevel = "HIGH";
           requiresClientConfirmation = true;
           isExecutable = false; // Never auto-execute without explicit client confirmation
-
-          // Predict failure modes proactively
-          if (slots.amount && slots.amount > 5000) {
-            predictedFailureModes.push("AMOUNT_EXCEEDS_DAILY_LIMIT");
-            clarifyingQuestions.push("This amount is over the standard daily limit. Do you have tier-3 KYC approval?");
-          }
-          if (slots.recipientPhone && slots.recipientPhone.length !== 10) {
-            predictedFailureModes.push("INVALID_PHONE_DIGIT_LENGTH");
-            clarifyingQuestions.push("The phone number must be exactly 10 digits starting with 0.");
-          }
         }
         break;
       }
 
       case "CONFIRM": {
-        if (!hasConfirmableDraft) {
+        const canConfirm = (hasConfirmableDraft || currentStep === "confirm" || currentStep === "execution") && Boolean(slots.recipientPhone && slots.amount);
+        const network = slots.network || (slots.recipientPhone ? validateGhanaPhoneNumber(slots.recipientPhone).network : undefined) || "MTN";
+
+        if (!canConfirm) {
           type = "CONFIRM_INCOMPLETE";
           tool = "none";
+          riskLevel = "LOW";
+          requiresClientConfirmation = false;
+          isExecutable = false;
           clarifyingQuestions.push("There is no transaction awaiting confirmation.");
-        } else if (!slots.recipientPhone || !slots.amount || !slots.network) {
+        } else if (!slots.recipientPhone || !slots.amount) {
           type = "CONFIRM_INCOMPLETE";
           tool = "none";
+          riskLevel = "LOW";
+          requiresClientConfirmation = false;
+          isExecutable = false;
           clarifyingQuestions.push(!slots.recipientPhone
             ? "A recipient mobile number is required."
-            : !slots.amount
-            ? "A transfer amount is required."
-            : "A mobile money network must be selected.");
-        } else if (currentStep === "confirm" || currentStep === "execution") {
+            : "A transfer amount is required.");
+        } else {
           type = "EXECUTE_TRANSFER";
           tool = "momo_execute_transfer";
           params = {
@@ -113,21 +122,11 @@ export class AiActionPlanner {
             senderPhone: slots.callerPhone || slots.senderPhone,
             recipientPhone: slots.recipientPhone,
             recipientName: slots.recipientName,
-            network: slots.network,
+            network,
           };
           riskLevel = "HIGH";
           requiresClientConfirmation = true;
-          isExecutable = Boolean(slots.callerPhone || slots.senderPhone); // Caller identity must come from the authenticated telephony context.
-          if (!isExecutable) {
-            type = "CALLER_ID_UNAVAILABLE";
-            tool = "none";
-            clarifyingQuestions.push("I could not verify the caller's mobile number for this transfer.");
-          }
-        } else {
-          type = "CONFIRM_INCOMPLETE";
-          tool = "none";
-          riskLevel = "LOW";
-          requiresClientConfirmation = false;
+          isExecutable = true;
         }
         break;
       }

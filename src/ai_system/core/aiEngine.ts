@@ -38,6 +38,8 @@ import { inputNormalizer } from "../perception/inputNormalizer";
 import { languageDetector } from "../perception/languageDetector";
 import { unifiedMemory } from "../memory/unifiedMemory";
 import { reasoningEngine } from "../understanding/reasoningEngine";
+import { cognitiveRouter } from "../providers/CognitiveRouter";
+import { eventBus } from "../../services/eventBus";
 import { aiNavigation } from "./aiNavigation";
 import { aiAction } from "./aiAction";
 import { unifiedSafetyEngine } from "../safety/unifiedSafetyEngine";
@@ -158,21 +160,37 @@ export class AiEngine {
     latencies.normalizationLatencyMs = Math.round(performance.now() - stage1Start);
 
     // ─────────────────────────────────────────────────────────────────────────
-    // STAGE 2: UNDERSTAND (Structured Reasoning + Corrections)
+    // STAGE 2: UNDERSTAND (Canonical Cognitive Gateway Routing)
     // ─────────────────────────────────────────────────────────────────────────
     const stage2Start = performance.now();
+    eventBus.emitEvent("ai.turn.received", ctx.sessionId, {
+      rawInput: ctx.rawInput,
+      channel: ctx.channel,
+      currentStep: ctx.currentStep,
+    });
 
-    const reasoning = await reasoningEngine.reason({
+    const cognitiveDecision = await cognitiveRouter.routeUnderstanding({
       utterance: ctx.normalizedInput,
       languageHint: ctx.detectedLanguage,
       currentScreen: ctx.currentScreen,
       currentStep: ctx.currentStep,
       existingSlots: ctx.workingSlots,
       recentTurns: ctx.recentTurns.map(t => ({ role: t.role, text: t.sanitizedInput })),
+      channel: ctx.channel,
+      sessionId: ctx.sessionId,
     });
 
+    const reasoning = cognitiveDecision.response;
     const intent: IntentName = reasoning.intent;
     const confidence = reasoning.confidence;
+
+    eventBus.emitEvent("ai.intent.detected", ctx.sessionId, {
+      intent,
+      confidence,
+      entities: reasoning.entities,
+      routingDecision: cognitiveDecision.metrics.routingDecision,
+      providerUsed: cognitiveDecision.metrics.providerUsed,
+    });
 
     // Merge entities extracted by reasoning layer
     Object.assign(ctx.workingSlots, reasoning.entities);
@@ -426,20 +444,24 @@ export class AiEngine {
     // ─────────────────────────────────────────────────────────────────────────
     const stage8Start = performance.now();
 
-    // 1. Update working memory slots
+    // 1. Update working memory slots synchronously
     unifiedMemory.updateWorkingSlots(ctx.sessionId, ctx.workingSlots);
 
-    // 2. Record turn in episodic and vector semantic store
-    await unifiedMemory.recordTurn(ctx.sessionId, {
-      role: "user",
-      rawInput: ctx.rawInput,
-      sanitizedInput: safety.piiMaskedInput,
-      detectedLanguage: ctx.detectedLanguage,
-      intent,
-      slots: ctx.workingSlots,
-      response: dialogue.response,
-      screen: navigation.targetScreen || ctx.currentScreen,
-      step: navigation.targetStep || ctx.currentStep,
+    // 2. Record turn in episodic and vector semantic store asynchronously in background
+    queueMicrotask(() => {
+      unifiedMemory.recordTurn(ctx.sessionId, {
+        role: "user",
+        rawInput: ctx.rawInput,
+        sanitizedInput: safety.piiMaskedInput,
+        detectedLanguage: ctx.detectedLanguage,
+        intent,
+        slots: ctx.workingSlots,
+        response: dialogue.response,
+        screen: navigation.targetScreen || ctx.currentScreen,
+        step: navigation.targetStep || ctx.currentStep,
+      }).catch((err) => {
+        console.warn("[AiEngine] Background turn indexing notice:", err.message);
+      });
     });
 
     // 3. Persist session state durably

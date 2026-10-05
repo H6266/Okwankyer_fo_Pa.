@@ -100,12 +100,21 @@ export class ReasoningEngine {
       return this.deterministicReasoning(params);
     }
 
+    if (this.client && typeof (this.client as any).isAvailable === "function" && !(this.client as any).isAvailable()) {
+      return this.deterministicReasoning(params);
+    }
+
     const candidateModels = [
       AI_CONFIG.model || "gemini-3.8-flash",
       "gemini-3.1-flash-lite",
     ];
 
-    const availableCandidates = candidateModels.filter((m) => this.client.isModelAvailable(m));
+    const availableCandidates = candidateModels.filter((m) => {
+      if (typeof (this.client as any)?.isModelAvailable === "function") {
+        return (this.client as any).isModelAvailable(m);
+      }
+      return true;
+    });
     if (availableCandidates.length === 0) {
       return this.deterministicReasoning(params);
     }
