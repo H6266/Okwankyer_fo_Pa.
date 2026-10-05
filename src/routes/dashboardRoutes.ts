@@ -201,28 +201,34 @@ dashboardRouter.post("/api/dev/releases/:id/rollback", (req: Request, res: Respo
 // ── Transactions Direct Endpoint ──────────────────────────────────────
 dashboardRouter.post("/transactions/send", async (req: Request, res: Response) => {
   try {
-    const { network, recipient_phone, recipient_name, amount } = req.body;
+    const { network, payer_phone, recipient_phone, recipient_name, amount } = req.body;
     const amountVal = parseAndValidateAmount(String(amount));
     if (!amountVal.valid || !amountVal.amount) {
       return res.status(400).json({ error: amountVal.error || "Invalid amount" });
     }
 
-    if (!recipient_phone) {
-      return res.status(400).json({ error: "MISSING_REQUIRED_INFORMATION: Recipient phone number is required." });
+    if (!payer_phone || !recipient_phone) {
+      return res.status(400).json({ error: "MISSING_REQUIRED_INFORMATION: Explicit payer_phone and recipient_phone are required." });
     }
+    if (network !== "MTN") {
+      return res.status(400).json({ error: "This endpoint currently supports only an explicitly selected MTN network." });
+    }
+    const payerVal = validateGhanaPhoneNumber(String(payer_phone));
     const phoneVal = validateGhanaPhoneNumber(String(recipient_phone));
+    if (!payerVal.valid || !payerVal.normalized) {
+      return res.status(400).json({ error: payerVal.error || "Invalid payer phone number format." });
+    }
     if (!phoneVal.valid || !phoneVal.normalized) {
       return res.status(400).json({ error: phoneVal.error || "Invalid recipient phone number format." });
     }
 
-    const payer = phoneVal.normalized;
-    const payment = await voicePaymentService.initiatePayment(payer, amountVal.amount);
+    const payment = await voicePaymentService.initiatePayment(payerVal.normalized, amountVal.amount);
 
     res.status(200).json({
       status: payment.ok ? "PENDING" : "FAILED",
       reference: payment.fields.referenceId,
       amount: amountVal.amount,
-      recipient_name: recipient_name || "Subscriber",
+      recipient_name: typeof recipient_name === "string" ? recipient_name : undefined,
       timestamp: new Date().toISOString(),
       spokenReceipt: buildSpokenText(payment),
     });
