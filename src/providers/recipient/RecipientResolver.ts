@@ -130,6 +130,21 @@ export class MtnRecipientResolver implements RecipientResolver {
       console.warn(`[MtnRecipientResolver] Failed to resolve via MTN API for ${val.normalized}:`, err.message);
     }
 
+    if (config.momo.targetEnv === "sandbox" || process.env.NODE_ENV === "test" || config.demoMode) {
+      const fixture = SANDBOX_RECIPIENT_FIXTURES[val.normalized];
+      if (fixture) {
+        return {
+          valid: true,
+          phoneNumber: rawPhoneNumber,
+          normalizedPhone: val.normalized,
+          name: fixture.name,
+          network: fixture.network,
+          verified: fixture.isVerified,
+          source: "SANDBOX_FIXTURE",
+        };
+      }
+    }
+
     // Fall back to unverified result without guessing
     return {
       valid: true,

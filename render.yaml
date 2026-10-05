@@ -15,9 +15,31 @@ services:
         sync: false
       - key: AT_VOICE_NUMBER
         value: "+233308048098"
-      - key: PORT
-        value: "3000"
       - key: BASE_URL
         sync: false
+      - key: CORS_ORIGINS
+        sync: false
       - key: GEMINI_API_KEY
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: MOMO_TARGET_ENV
+        value: "sandbox"
+      - key: MOMO_BASE_URL
+        value: "https://sandbox.momodeveloper.mtn.com"
+      - key: MOMO_CURRENCY
+        value: "EUR"
+      - key: MOMO_COLLECTION_SUBSCRIPTION_KEY
+        sync: false
+      - key: MOMO_COLLECTION_API_USER_ID
+        sync: false
+      - key: MOMO_COLLECTION_API_KEY
+        sync: false
+      - key: MOMO_DISBURSEMENT_SUBSCRIPTION_KEY
+        sync: false
+      - key: MOMO_DISBURSEMENT_API_USER_ID
+        sync: false
+      - key: MOMO_DISBURSEMENT_API_KEY
         sync: false

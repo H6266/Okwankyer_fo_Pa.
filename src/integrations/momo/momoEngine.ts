@@ -85,9 +85,13 @@ export class MoMoEngine {
   }
 
   /**
-   * Switches active key between primary, secondary, or custom
+   * Switches active key between primary, secondary, or custom for a specific product
    */
-  public switchKey(keyType: "primary" | "secondary" | "custom", customKey?: string): MoMoKeyConfig {
+  public switchKey(
+    keyType: "primary" | "secondary" | "custom",
+    customKey?: string,
+    product: "collection" | "disbursement" = "collection"
+  ): MoMoKeyConfig {
     let newKey = this.knownKeys.primary;
     if (keyType === "secondary") {
       newKey = this.knownKeys.secondary;
@@ -95,10 +99,13 @@ export class MoMoEngine {
       newKey = customKey.trim();
     }
     this.knownKeys.activeKeyType = keyType;
-    this.config.collection.subscriptionKey = newKey;
-    this.config.disbursement.subscriptionKey = newKey;
+    if (product === "disbursement") {
+      this.config.disbursement.subscriptionKey = newKey;
+    } else {
+      this.config.collection.subscriptionKey = newKey;
+    }
     this.tokenCache.clear();
-    console.log(`[MTN MoMo Engine] Switched active key to: ${keyType} (${newKey.slice(0, 6)}••••${newKey.slice(-4)})`);
+    console.log(`[MTN MoMo Engine] Switched active ${product} key to: ${keyType} (${newKey.slice(0, 6)}••••${newKey.slice(-4)})`);
     return this.getKeys();
   }
 

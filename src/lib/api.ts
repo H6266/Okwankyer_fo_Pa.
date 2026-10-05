@@ -16,6 +16,16 @@ export interface HealthResponse {
   features: string[];
 }
 
+let activeAdminToken: string | null = null;
+
+function getAdminAuthHeaders(customHeaders: Record<string, string> = {}): Record<string, string> {
+  const headers: Record<string, string> = { ...customHeaders };
+  if (activeAdminToken) {
+    headers["Authorization"] = `Bearer ${activeAdminToken}`;
+  }
+  return headers;
+}
+
 export interface AudioItem {
   id: string;
   number: string;
@@ -267,31 +277,44 @@ export const api = {
 
   // ── Dedicated MTN MoMo Testing Methods ──────────────────────────────
   async getMomoStatus(): Promise<any> {
-    const res = await fetch("/api/momo/status");
+    const res = await fetch("/api/momo/status", {
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders(),
+    });
     return res.json();
   },
 
   async provisionMomoSandbox(subscriptionKey?: string): Promise<any> {
     const res = await fetch("/api/momo/provision", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ subscriptionKey }),
     });
     return res.json();
   },
 
   async getCapabilityMatrix(): Promise<any> {
-    const res = await fetch("/api/momo/capability-matrix");
+    const res = await fetch("/api/momo/capability-matrix", {
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders(),
+    });
     return res.json();
   },
 
   async getMomoBalance(product: "collection" | "disbursement" = "collection"): Promise<any> {
-    const res = await fetch(`/api/momo/account/balance?product=${product}`);
+    const res = await fetch(`/api/momo/account/balance?product=${product}`, {
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders(),
+    });
     return res.json();
   },
 
   async validateMomoHolder(phone: string): Promise<any> {
-    const res = await fetch(`/api/momo/account/holder/${encodeURIComponent(phone)}`);
+    const res = await fetch(`/api/momo/account/holder/${encodeURIComponent(phone)}`, {
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders(),
+    });
     return res.json();
   },
 
@@ -305,14 +328,18 @@ export const api = {
   }): Promise<any> {
     const res = await fetch("/api/momo/request-to-pay", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(params),
     });
     return res.json();
   },
 
   async getMomoTransactionStatus(referenceId: string): Promise<any> {
-    const res = await fetch(`/api/momo/request-to-pay/${encodeURIComponent(referenceId)}`);
+    const res = await fetch(`/api/momo/request-to-pay/${encodeURIComponent(referenceId)}`, {
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders(),
+    });
     return res.json();
   },
 
@@ -326,21 +353,26 @@ export const api = {
   }): Promise<any> {
     const res = await fetch("/api/momo/transfer", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(params),
     });
     return res.json();
   },
 
   async getTransferStatus(referenceId: string): Promise<any> {
-    const res = await fetch(`/api/momo/transfer/${encodeURIComponent(referenceId)}`);
+    const res = await fetch(`/api/momo/transfer/${encodeURIComponent(referenceId)}`, {
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders(),
+    });
     return res.json();
   },
 
   async authorizeMomoPrompt(referenceId: string, action: "approve" | "reject" = "approve"): Promise<any> {
     const res = await fetch("/api/momo/authorize-prompt", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ referenceId, action }),
     });
     return res.json();
@@ -353,14 +385,19 @@ export const api = {
   }): Promise<any> {
     const res = await fetch("/api/momo/test-account", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(params),
     });
     return res.json();
   },
 
   async runMomoTestSuite(): Promise<any> {
-    const res = await fetch("/api/momo/test-all", { method: "POST" });
+    const res = await fetch("/api/momo/test-all", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders(),
+    });
     return res.json();
   },
 
@@ -374,7 +411,8 @@ export const api = {
   }): Promise<any> {
     const res = await fetch("/api/momo/send", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(params),
     });
     return res.json();
@@ -569,6 +607,51 @@ export const api = {
       method: "DELETE",
     });
     if (!res.ok) throw new Error(`Task deletion failed: ${res.status}`);
+    return res.json();
+  },
+
+  async getAdminSession(): Promise<{ authenticated: boolean; isDev?: boolean; hint?: string }> {
+    const res = await fetch("/api/admin/session", {
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders(),
+    });
+    return res.json();
+  },
+
+  async adminLogin(token: string): Promise<any> {
+    const res = await fetch("/api/admin/login", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ token }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(
+        data?.error || `Admin login failed (${res.status}).`
+      );
+    }
+
+    if (data?.token) {
+      activeAdminToken = data.token;
+    } else {
+      activeAdminToken = token;
+    }
+
+    return data;
+  },
+
+  async adminLogout(): Promise<any> {
+    activeAdminToken = null;
+    const res = await fetch("/api/admin/logout", {
+      method: "POST",
+      credentials: "same-origin",
+    });
+
     return res.json();
   },
 };

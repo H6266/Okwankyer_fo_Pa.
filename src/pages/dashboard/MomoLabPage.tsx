@@ -59,6 +59,13 @@ interface TxRecord {
 export const MomoLabPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<LabTab>("send_money");
 
+  // Admin Authentication Session
+  const [adminConnected, setAdminConnected] = useState(false);
+  const [adminTokenInput, setAdminTokenInput] = useState("");
+  const [adminLoginBusy, setAdminLoginBusy] = useState(false);
+  const [adminLoginError, setAdminLoginError] = useState("");
+  const [devHint, setDevHint] = useState("");
+
   // Status & Environment
   const [momoStatus, setMomoStatus] = useState<any>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
@@ -66,7 +73,10 @@ export const MomoLabPage: React.FC = () => {
   // Send Money Form
   const [senderAccount, setSenderAccount] = useState("MTN MoMo Sandbox Float (EUR/GHS)");
   const [senderPhone, setSenderPhone] = useState("0553838464");
-  const [sendMode, setSendMode] = useState<"COLLECTION_REQUEST_TO_PAY" | "DISBURSEMENT_TRANSFER">("COLLECTION_REQUEST_TO_PAY");
+  const [sendMode, setSendMode] = useState<
+    "COLLECTION_REQUEST_TO_PAY" |
+    "DISBURSEMENT_TRANSFER"
+  >("DISBURSEMENT_TRANSFER");
   const [backendMatrix, setBackendMatrix] = useState<any[]>([]);
   const [recipientPhone, setRecipientPhone] = useState("0553838464");
   const [recipientName, setRecipientName] = useState("Sand Box");
@@ -269,59 +279,59 @@ export const MomoLabPage: React.FC = () => {
     },
     {
       operation: "Airtime Top-Up",
-      classification: "PARTIALLY IMPLEMENTED",
-      badgeColor: "bg-amber-100 text-amber-800 border-amber-300",
-      endpoint: "POST /disbursement/v1_0/transfer (Routed via real Disbursement)",
+      classification: "NOT IMPLEMENTED — Requires VAS aggregator",
+      badgeColor: "bg-rose-100 text-rose-800 border-rose-300",
+      endpoint: "POST /api/momo/airtime (Fails closed)",
       httpMethod: "POST",
-      auth: "Bearer Token (Disbursement)",
-      leavesServer: "YES",
-      httpStatus: "202 Accepted",
-      source: "MTN Sandbox Gateway (via Transfer pipeline)",
-      fallback: "Routes through real transfer pipeline",
-      files: "src/integrations/momo/voicePaymentService.ts",
-      result: "VERIFIED VIA TRANSFER (MTN has no native /airtime endpoint)",
+      auth: "Requires Third-Party VAS Aggregator",
+      leavesServer: "NO",
+      httpStatus: "501 Not Implemented",
+      source: "Honest Telecom Boundary",
+      fallback: "Explicit 501 / NOT_IMPLEMENTED response",
+      files: "src/routes/momoRoutes.ts, src/modules/transactionOrchestrator.ts",
+      result: "NOT IMPLEMENTED (MTN has no native Open API airtime endpoint)",
     },
     {
       operation: "Data Bundle Purchase",
-      classification: "PARTIALLY IMPLEMENTED",
-      badgeColor: "bg-amber-100 text-amber-800 border-amber-300",
-      endpoint: "POST /disbursement/v1_0/transfer (Routed via real Disbursement)",
+      classification: "NOT IMPLEMENTED — Requires VAS aggregator",
+      badgeColor: "bg-rose-100 text-rose-800 border-rose-300",
+      endpoint: "POST /api/momo/data (Fails closed)",
       httpMethod: "POST",
-      auth: "Bearer Token (Disbursement)",
-      leavesServer: "YES",
-      httpStatus: "202 Accepted",
-      source: "MTN Sandbox Gateway (via Transfer pipeline)",
-      fallback: "Routes through real transfer pipeline",
-      files: "src/integrations/momo/voicePaymentService.ts",
-      result: "VERIFIED VIA TRANSFER (MTN has no native /data endpoint)",
+      auth: "Requires Third-Party VAS Aggregator",
+      leavesServer: "NO",
+      httpStatus: "501 Not Implemented",
+      source: "Honest Telecom Boundary",
+      fallback: "Explicit 501 / NOT_IMPLEMENTED response",
+      files: "src/routes/momoRoutes.ts, src/modules/transactionOrchestrator.ts",
+      result: "NOT IMPLEMENTED (MTN has no native Open API data bundle endpoint)",
     },
     {
       operation: "Utility & Bill Payment",
-      classification: "PARTIALLY IMPLEMENTED",
-      badgeColor: "bg-amber-100 text-amber-800 border-amber-300",
-      endpoint: "POST /disbursement/v1_0/transfer (Routed via real Disbursement)",
+      classification: "NOT IMPLEMENTED — Requires Biller aggregator",
+      badgeColor: "bg-rose-100 text-rose-800 border-rose-300",
+      endpoint: "POST /api/momo/bills (Fails closed)",
       httpMethod: "POST",
-      auth: "Bearer Token (Disbursement)",
-      leavesServer: "YES",
-      httpStatus: "202 Accepted",
-      source: "MTN Sandbox Gateway (via Transfer pipeline)",
-      fallback: "Routes through real transfer pipeline",
-      files: "src/integrations/momo/voicePaymentService.ts",
-      result: "VERIFIED VIA TRANSFER (Settles biller account via Transfer)",
+      auth: "Requires Biller Aggregator Integration",
+      leavesServer: "NO",
+      httpStatus: "501 Not Implemented",
+      source: "Honest Telecom Boundary",
+      fallback: "Explicit 501 / NOT_IMPLEMENTED response",
+      files: "src/routes/momoRoutes.ts, src/modules/transactionOrchestrator.ts",
+      result: "NOT IMPLEMENTED (Requires ECG/Ghana Water third-party integration)",
     },
     {
       operation: "Cash Out Authorization",
-      classification: "MOCKED / EMULATED",
-      badgeColor: "bg-purple-100 text-purple-800 border-purple-300",
-      endpoint: "POST /collection/v1_0/requesttopay (Intended merchant debit)",
+      classification: "NOT IMPLEMENTED — Merchant debit required",
+      badgeColor: "bg-rose-100 text-rose-800 border-rose-300",
+      endpoint: "POST /api/momo/cashout (Fails closed)",
       httpMethod: "POST",
-      auth: "Requires Collection subscription credentials",
+      auth: "Requires Specialized Merchant Debit Agreement",
       leavesServer: "NO",
-      httpStatus: "N/A",
-      source: "Local in-memory emulator",
-      fallback: "Emulated record",
-      files: "src/integrations/momo/voicePaymentService.ts",
-      result: "EMULATED (Pending Collection credentials)",
+      httpStatus: "501 Not Implemented",
+      source: "Honest Telecom Boundary",
+      fallback: "Explicit 501 / NOT_IMPLEMENTED response",
+      files: "src/routes/momoRoutes.ts, src/modules/transactionOrchestrator.ts",
+      result: "NOT IMPLEMENTED (Cash-out requires registered merchant partner credentials)",
     },
   ];
 
@@ -363,13 +373,98 @@ export const MomoLabPage: React.FC = () => {
     }
   };
 
+  const connectAdmin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminTokenInput.trim()) return;
+
+    setAdminLoginBusy(true);
+    setAdminLoginError("");
+
+    try {
+      await api.adminLogin(adminTokenInput.trim());
+      setAdminTokenInput("");
+      setAdminConnected(true);
+
+      await Promise.allSettled([
+        refreshStatus(),
+        fetchBalance("disbursement"),
+        fetchLedger(),
+      ]);
+    } catch (err: any) {
+      setAdminConnected(false);
+      setAdminLoginError(err.message || "Admin authentication failed.");
+    } finally {
+      setAdminLoginBusy(false);
+    }
+  };
+
+  const disconnectAdmin = async () => {
+    await api.adminLogout();
+    setAdminConnected(false);
+    setMomoStatus(null);
+    setBalanceData(null);
+    setLedgerTransactions([]);
+  };
+
   useEffect(() => {
-    refreshStatus();
-    fetchBalance("disbursement");
-    fetchLedger();
-    api.getCapabilityMatrix().then((res) => {
-      if (res?.matrix) setBackendMatrix(res.matrix);
-    }).catch((err) => console.warn("Capability matrix notice:", err));
+    let cancelled = false;
+
+    const initializeDashboard = async () => {
+      try {
+        const session = await api.getAdminSession();
+        if (cancelled) return;
+
+        if (session?.hint) {
+          setDevHint(session.hint);
+        }
+
+        if (session?.authenticated) {
+          setAdminConnected(true);
+          await Promise.allSettled([
+            refreshStatus(),
+            fetchBalance("disbursement"),
+            fetchLedger(),
+          ]);
+        } else if (session?.isDev && session?.hint) {
+          try {
+            await api.adminLogin(session.hint);
+            if (!cancelled) {
+              setAdminConnected(true);
+              await Promise.allSettled([
+                refreshStatus(),
+                fetchBalance("disbursement"),
+                fetchLedger(),
+              ]);
+            }
+          } catch (autoErr) {
+            console.warn("Dev auto-auth notice:", autoErr);
+            if (!cancelled) {
+              setAdminConnected(false);
+              setAdminTokenInput(session.hint);
+            }
+          }
+        } else {
+          setAdminConnected(false);
+        }
+      } catch (err) {
+        console.warn("Admin session check failed:", err);
+      }
+
+      try {
+        const matrix = await api.getCapabilityMatrix();
+        if (!cancelled && matrix?.matrix) {
+          setBackendMatrix(matrix.matrix);
+        }
+      } catch (err) {
+        console.warn("Capability matrix notice:", err);
+      }
+    };
+
+    void initializeDashboard();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Handle Validate Recipient
@@ -597,6 +692,82 @@ export const MomoLabPage: React.FC = () => {
         </div>
       </div>
 
+      {/* ── Administrator Session Authentication Gate ───────────────────────── */}
+      {!adminConnected ? (
+        <div className="bg-white border-2 border-amber-300 rounded-2xl p-5 shadow-xs">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0">
+              <Lock className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-black text-slate-900">
+                MoMo Administrator Access
+              </h2>
+              <p className="text-xs text-slate-500">
+                Authenticate the secure server session before sending transactions.
+              </p>
+            </div>
+          </div>
+
+          <form
+            onSubmit={connectAdmin}
+            className="flex flex-col sm:flex-row gap-3"
+          >
+            <input
+              type="password"
+              value={adminTokenInput}
+              onChange={(e) =>
+                setAdminTokenInput(e.target.value)
+              }
+              placeholder="Administrator token"
+              className="flex-1 text-xs border border-slate-300 rounded-xl px-3.5 py-3 font-mono"
+            />
+            <button
+              type="submit"
+              disabled={adminLoginBusy}
+              className="px-5 py-3 bg-slate-900 text-white text-xs font-bold rounded-xl"
+            >
+              {adminLoginBusy
+                ? "Connecting..."
+                : "Connect"}
+            </button>
+          </form>
+
+          {devHint && (
+            <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+              <span>Development token:</span>
+              <button
+                type="button"
+                onClick={() => setAdminTokenInput(devHint)}
+                className="font-mono text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-800 px-2 py-0.5 rounded border border-slate-300 font-bold transition-colors cursor-pointer"
+              >
+                {devHint}
+              </button>
+              <span className="text-[10px] text-slate-400">(click to prefill)</span>
+            </div>
+          )}
+
+          {adminLoginError && (
+            <div className="mt-3 text-xs font-bold text-rose-700">
+              {adminLoginError}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="bg-emerald-50 border border-emerald-300 rounded-2xl px-4 py-3 flex items-center justify-between shadow-xs">
+          <div className="text-xs font-bold text-emerald-800 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            Secure administrator session active
+          </div>
+          <button
+            onClick={disconnectAdmin}
+            className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100 transition-colors"
+          >
+            Disconnect
+          </button>
+        </div>
+      )}
+
       {/* ── MoMo Lab Header & Live Credentials Bar ─────────────────────────── */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -791,10 +962,14 @@ export const MomoLabPage: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-base font-extrabold text-slate-900">
-                  Send Money (Disbursement Transfer)
+                  {sendMode === "DISBURSEMENT_TRANSFER"
+                    ? "Send Money (Disbursement Transfer)"
+                    : "Request Payment (Collection)"}
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Dispatches funds transfer from sandbox float directly to subscriber MSISDN via MTN MoMo Transfer API.
+                  {sendMode === "DISBURSEMENT_TRANSFER"
+                    ? "Dispatches funds from the configured MTN MoMo disbursement float to the recipient wallet."
+                    : "Requests a payment from the customer's MoMo wallet and sends an MTN authorization prompt to the handset."}
                 </p>
               </div>
               <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">

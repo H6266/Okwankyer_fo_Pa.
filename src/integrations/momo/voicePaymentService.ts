@@ -101,8 +101,8 @@ export class VoicePaymentService {
 
     if (!subKey) return false;
 
-    const envUserId = (process.env.MOMO_COLLECTION_API_USER_ID || process.env.MOMO_API_USER_ID || "").trim();
-    const envApiKey = (process.env.MOMO_COLLECTION_API_KEY || process.env.MOMO_API_KEY || "").trim();
+    const envUserId = (process.env.MOMO_COLLECTION_API_USER_ID || "").trim();
+    const envApiKey = (process.env.MOMO_COLLECTION_API_KEY || "").trim();
 
     if (envUserId && envApiKey) {
       this.config.collection.subscriptionKey = subKey;
@@ -154,8 +154,6 @@ export class VoicePaymentService {
 
       process.env.MOMO_COLLECTION_API_USER_ID = apiUserId;
       process.env.MOMO_COLLECTION_API_KEY = apiKey;
-      process.env.MOMO_API_USER_ID = apiUserId;
-      process.env.MOMO_API_KEY = apiKey;
 
       console.log(`[VoicePaymentService] Successfully auto-provisioned API User ${apiUserId}`);
       return true;

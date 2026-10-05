@@ -16,6 +16,7 @@ import { sessionMemoryBridge } from "../src/ai_system/memory/sessionMemoryBridge
 import { aiBootstrap } from "../src/ai_system/core/aiBootstrap";
 import { aiProviderAdapter } from "../src/ai_system/providers/aiProviderAdapter";
 import { inputNormalizer } from "../src/ai_system/perception/inputNormalizer";
+import { reasoningEngine } from "../src/ai_system/understanding/reasoningEngine";
 
 describe("Ɔkwankyerɛfo Pa - 10-System Cognitive Engine Master Test Suite", () => {
   beforeEach(() => {
@@ -385,6 +386,8 @@ describe("Ɔkwankyerɛfo Pa - 10-System Cognitive Engine Master Test Suite", () 
   // =========================================================================
   describe("System 10: Multi-Turn Orchestration & Latency Benchmarks (<80ms)", () => {
     beforeAll(async () => {
+      // Force offline deterministic client for local benchmark to validate <80ms SLA without remote network quota/jitter
+      reasoningEngine.setClient({ isAvailable: () => false, executeWithTimeout: async () => "{}" });
       // Warm up pipeline caches and JIT compiler before measuring strict latency
       await aiEngine.process({
         sessionId: "warmup_session",

@@ -38,8 +38,12 @@ export class ActionPlanner {
           chosenTool = "confirm_transaction";
           params = {
             amount: slots.amount,
+            currency: "GHS",
+            senderPhone: slots.callerPhone,
             recipientPhone: slots.recipientPhone,
             recipientName: slots.recipientName,
+            network: slots.network || "MTN",
+            referenceId: `REF_${Date.now()}`,
           };
         } else {
           chosenTool = "request_confirmation";

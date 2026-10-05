@@ -408,7 +408,11 @@ momoRouter.post("/api/momo/provision", adminRateLimiter, requireAdminAuth, async
 });
 
 // Automated Real Account / Sandbox Test Runner
-momoRouter.post("/api/momo/test-all", async (req: Request, res: Response) => {
+momoRouter.post(
+  "/api/momo/test-all",
+  adminRateLimiter,
+  requireAdminAuth,
+  async (req: Request, res: Response) => {
   const phone = (req.body?.phone || "0553838464").trim();
   const results: Array<{
     functionName: string;

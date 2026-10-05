@@ -10,6 +10,7 @@
 
 import { MobileNetwork, VerificationStatus, TransactionStatus } from "../core/aiTypes";
 import { AI_CONFIG } from "../core/aiConfig";
+import { mtnMomoService } from "../../modules/mtnMomoService";
 
 export interface RecipientLookupResult {
   phoneNumber: string;
@@ -135,63 +136,28 @@ export class RealTransferService implements ITransferService {
     amount: number;
     network: MobileNetwork;
   }): Promise<TransferResult> {
-    const momoKey = process.env.MOMO_API_KEY;
-    const momoSub = process.env.MOMO_SUBSCRIPTION_KEY;
-
-    if (!momoKey || !momoSub) {
-      throw new Error("REAL_PROVIDER_UNCONFIGURED: Live MoMo API credentials required for financial execution.");
-    }
-
-    const baseUrl = process.env.MOMO_BASE_URL || "https://sandbox.momodeveloper.mtn.com";
-    // Real Disbursement / Transfer API (P2P Payout)
-    const res = await fetch(`${baseUrl}/disbursement/v1_0/transfer`, {
-      method: "POST",
-      headers: {
-        "X-Reference-Id": params.referenceId,
-        "X-Target-Environment": process.env.MOMO_TARGET_ENV || "mtnghana",
-        "Ocp-Apim-Subscription-Key": momoSub,
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${momoKey}`,
-      },
-      body: JSON.stringify({
-        amount: params.amount.toString(),
-        currency: "GHS",
-        externalId: params.referenceId,
-        payee: { partyIdType: "MSISDN", partyId: params.recipientPhone },
-        payerMessage: "Ɔkwankyerɛfo Pa Voice Transfer",
-        payeeNote: `Transfer from ${params.senderPhone}`,
-      }),
+    const tx = await mtnMomoService.transfer({
+      amount: params.amount,
+      payeePhone: params.recipientPhone,
+      payeeName: params.recipientName,
+      payerMessage: "Ɔkwankyerɛfo Pa Voice Transfer",
+      payeeNote: `Transfer from ${params.senderPhone}`,
+      externalId: params.referenceId,
     });
 
-    if (res.status === 202) {
-      return {
-        transactionId: `TX_${Date.now()}`,
-        referenceId: params.referenceId,
-        amount: params.amount,
-        currency: "GHS",
-        recipientPhone: params.recipientPhone,
-        recipientName: params.recipientName,
-        network: params.network,
-        status: "PENDING",
-        source: "real_provider",
-      };
-    }
+    const isPending = tx.status === "PENDING" || tx.status === "SUCCESSFUL";
 
-    if (res.status === 200 || res.status === 201) {
-      return {
-        transactionId: `TX_${Date.now()}`,
-        referenceId: params.referenceId,
-        amount: params.amount,
-        currency: "GHS",
-        recipientPhone: params.recipientPhone,
-        recipientName: params.recipientName,
-        network: params.network,
-        status: "COMPLETED",
-        source: "real_provider",
-      };
-    }
-
-    throw new Error(`MoMo Transfer failed: HTTP ${res.status}`);
+    return {
+      transactionId: tx.financialTransactionId || `TX_${Date.now()}`,
+      referenceId: tx.referenceId || params.referenceId,
+      amount: tx.amount,
+      currency: "GHS",
+      recipientPhone: params.recipientPhone,
+      recipientName: params.recipientName,
+      network: params.network,
+      status: isPending ? "PENDING" : "FAILED",
+      source: "real_provider",
+    };
   }
 }
 
@@ -340,9 +306,14 @@ export class FinancialServiceRegistry {
   public billPaymentService: IBillPaymentService;
 
   private constructor() {
-    const isProd = process.env.NODE_ENV === "production" && process.env.MOMO_TARGET_ENV === "live";
+    const isConfigured = Boolean(
+      process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY ||
+      process.env.MTN_DISBURSEMENT_SUBSCRIPTION_KEY ||
+      process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY ||
+      process.env.MTN_COLLECTION_SUBSCRIPTION_KEY
+    );
 
-    if (isProd) {
+    if (isConfigured) {
       this.balanceService = new RealBalanceService();
       this.recipientLookupService = new RealRecipientLookupService();
       this.transferService = new RealTransferService();
