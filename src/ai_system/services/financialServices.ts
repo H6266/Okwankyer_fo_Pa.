@@ -29,6 +29,8 @@ export interface BalanceResult {
 }
 
 export interface TransferResult {
+  /** Provider's financial transaction identifier; required before speaking completion. */
+  financialTransactionId?: string;
   transactionId: string;
   referenceId: string;
   amount: number;
@@ -155,15 +157,17 @@ export class RealTransferService implements ITransferService {
       ? "TIMEOUT"
       : "FAILED";
 
+    const providerConfirmed = tx.status === "SUCCESSFUL" && Boolean(tx.financialTransactionId?.trim());
     return {
-      transactionId: tx.financialTransactionId || tx.id || `TX_${Date.now()}`,
+      financialTransactionId: tx.financialTransactionId || undefined,
+      transactionId: tx.id || params.referenceId,
       referenceId: tx.referenceId || params.referenceId,
       amount: tx.amount,
       currency: "GHS",
       recipientPhone: params.recipientPhone,
       recipientName: params.recipientName,
       network: params.network,
-      status,
+      status: providerConfirmed ? status : status === "SUCCESSFUL" ? "PENDING" : status,
       source: "real_provider",
     };
   }

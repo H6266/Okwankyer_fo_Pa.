@@ -361,6 +361,7 @@ export class FinancialPolicyEngine {
   public isAuthoritativeCompletion(result: {
     status?: string;
     source?: string;
+    /** Internal IDs are accepted for diagnostics but never constitute provider evidence. */
     transactionId?: string;
     financialTransactionId?: string;
   }): boolean {
@@ -377,10 +378,7 @@ export class FinancialPolicyEngine {
       return false;
     }
 
-    if (
-      !result.transactionId &&
-      !result.financialTransactionId
-    ) {
+    if (!result.financialTransactionId?.trim()) {
       return false;
     }
 

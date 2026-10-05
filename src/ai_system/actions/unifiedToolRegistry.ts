@@ -202,7 +202,7 @@ export class UnifiedToolRegistry {
       riskLevel: "HIGH",
       requiresConfirmation: true,
       idempotencyRequired: true,
-      requiredParams: ["amount", "recipientPhone"],
+      requiredParams: ["amount", "recipientPhone", "senderPhone", "network"],
       timeoutMs: 10000,
       retryPolicy: { maxRetries: 0, backoffMs: 0 },
       auditBehavior: "AUDIT_REDACTED",
@@ -227,9 +227,9 @@ export class UnifiedToolRegistry {
           };
         }
 
-        const senderPhone = req.params.senderPhone || req.params.callerPhone || (req.params.fundingSource === "BUSINESS_FLOAT" ? "BUSINESS_FLOAT" : "0240000000");
+        const senderPhone = req.params.senderPhone || req.params.callerPhone;
 
-        if (!senderPhone || !req.params.recipientPhone || !req.params.amount) {
+        if (!senderPhone || !req.params.recipientPhone || !req.params.amount || !req.params.network) {
           return {
             success: false,
             tool: "execute_transfer",
@@ -238,20 +238,20 @@ export class UnifiedToolRegistry {
           };
         }
 
-        const refId = req.params.referenceId || `TX_${Date.now()}`;
+        const refId = req.params.referenceId || this.buildIdempotencyKey("execute_transfer", req);
         unifiedSafetyEngine.markReferenceProcessed(refId);
 
         const res = await financialServices.transferService.executeTransfer({
           referenceId: refId,
           senderPhone,
           recipientPhone: req.params.recipientPhone,
-          recipientName: req.params.recipientName || "Recipient",
+          recipientName: req.params.recipientName || "",
           amount: Number(req.params.amount),
-          network: req.params.network || "MTN",
+          network: req.params.network,
         });
 
         // Enforce INVARIANT_010: Failed or pending tool execution cannot be falsely reported as completed success
-        const isSuccess = res.status === "SUCCESSFUL";
+        const isSuccess = res.status === "SUCCESSFUL" && res.source === "real_provider" && Boolean(res.financialTransactionId?.trim());
         return {
           success: isSuccess,
           tool: "execute_transfer",
@@ -268,7 +268,7 @@ export class UnifiedToolRegistry {
       riskLevel: "HIGH",
       requiresConfirmation: true,
       idempotencyRequired: true,
-      requiredParams: ["amount"],
+      requiredParams: ["amount", "network"],
       timeoutMs: 8000,
       retryPolicy: { maxRetries: 1, backoffMs: 500 },
       auditBehavior: "AUDIT_REDACTED",
@@ -281,7 +281,7 @@ export class UnifiedToolRegistry {
             source: "demo_simulator",
           };
         }
-        if (!req.params.phoneNumber || !req.params.amount) {
+        if (!req.params.phoneNumber || !req.params.amount || !req.params.network) {
           return {
             success: false,
             tool: "buy_airtime",
@@ -292,10 +292,10 @@ export class UnifiedToolRegistry {
         const res = await financialServices.airtimeService.purchaseAirtime({
           phoneNumber: req.params.phoneNumber,
           amount: Number(req.params.amount),
-          network: req.params.network || "MTN",
+          network: req.params.network,
         });
         return {
-          success: res.status !== "FAILED",
+          success: res.status === "COMPLETED" && res.source === "real_provider",
           tool: "buy_airtime",
           data: res,
           source: res.source,
@@ -309,7 +309,7 @@ export class UnifiedToolRegistry {
       riskLevel: "HIGH",
       requiresConfirmation: true,
       idempotencyRequired: true,
-      requiredParams: ["amount"],
+      requiredParams: ["amount", "network"],
       timeoutMs: 8000,
       retryPolicy: { maxRetries: 1, backoffMs: 500 },
       auditBehavior: "AUDIT_REDACTED",
@@ -322,7 +322,7 @@ export class UnifiedToolRegistry {
             source: "demo_simulator",
           };
         }
-        if (!req.params.phoneNumber || !req.params.amount) {
+        if (!req.params.phoneNumber || !req.params.amount || !req.params.network) {
           return {
             success: false,
             tool: "buy_data",
@@ -331,10 +331,10 @@ export class UnifiedToolRegistry {
           };
         }
         return {
-          success: true,
+          success: false,
           tool: "buy_data",
           data: { status: "COMPLETED", amount: req.params.amount },
-          source: "mock_sandbox",
+          source: "demo_simulator",
         };
       },
     });

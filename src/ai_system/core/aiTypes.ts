@@ -153,7 +153,7 @@ export interface ActionPlan {
   params: Record<string, any>;
   riskLevel: RiskLevel;
   requiresConfirmation: boolean;
-  confidence: number;
+  confidence?: number;
   reason: string;
   idempotencyKey?: string;
   isExecutable?: boolean;
