@@ -57,11 +57,13 @@ export const momoTransferHandler: ServiceHandler = async (params): Promise<Servi
   // 3. Authoritative Payment Saga Handoff
   try {
     const saga = PaymentSagaOrchestrator.getInstance();
+    const dispatchKey = params.dispatchKey || `${params.sessionId || 'session'}:${params.confirmedDraftHash || 'confirmed'}`;
     const draft = saga.createDraft({
       senderPhone,
       recipientPhone: phoneVal.normalized,
       amount,
       network,
+      clientNonce: dispatchKey,
     });
 
     return {

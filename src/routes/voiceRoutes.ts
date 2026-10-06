@@ -23,6 +23,7 @@ import { voicePaymentService } from "../integrations/momo/voicePaymentService";
 import { durableTransactionStore } from "../services/durableTransactionStore";
 import { telephonyRateLimiter } from "../middleware/rateLimiter";
 import { aiSystem } from "../ai_system";
+import { brain } from "../ai_system/brain/brain";
 
 export const voiceRouter = Router();
 
@@ -653,10 +654,49 @@ voiceRouter.all("/speech-fallback", async (req: Request, res: Response) => {
     }
   }
 
-  // Every accepted spoken turn also passes through the canonical AI entry point.
-  // Keep execution disabled here: the legacy IVR's verification/saga flow owns
-  // financial state transitions until the complete payment migration is done.
+  // Central Reasoning Brain Processing with timeout & DTMF fallback
   const safeTranscript = transcript.replace(/\b(0[2-5]\d{8})\b/g, (phone) => `${phone.slice(0, 3)}****${phone.slice(-3)}`);
+  let brainResult: any = null;
+  let brainFailed = false;
+
+  try {
+    const brainPromise = brain.process({
+      transcript: safeTranscript,
+      language: lang === "twi" ? "twi-asante" : "en",
+      languageConfidence: confidence,
+      sessionLanguage: lang === "twi" ? "twi-asante" : "en",
+      draft: (session as any).brainDraft || { slots: {} },
+      callerNumber: session.callerPhone,
+      sessionId,
+    });
+    brainResult = await Promise.race([
+      brainPromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("BRAIN_PROCESSING_TIMEOUT")), 2500)),
+    ]);
+    if (brainResult?.updatedDraft) {
+      (session as any).brainDraft = brainResult.updatedDraft;
+    }
+  } catch (err: any) {
+    brainFailed = true;
+    auditLogger.log("warn", "BRAIN", `Central brain failed or timed out: ${err.message}`, sessionId);
+  }
+
+  // Requirement e: On brain error or timeout, play safe prompt and offer DTMF
+  if (brainFailed || !brainResult) {
+    const safeAudioUrl = lang === "twi"
+      ? `${baseUrl}/audio/Twi/Audio_prompt_twi_02.mp3`
+      : `${baseUrl}/audio/English/Audio_prompt_02.mp3`;
+    const safeSayText = lang === "twi"
+      ? "Yɛantumi ante wo nne yie. Mepa wo kyɛw bɔ nɔma no wɔ wo fon so."
+      : "We could not process your voice request. Please use your telephone keypad.";
+
+    const fallbackXml = `    <GetDigits timeout="5" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/${step}?sessionId=${sessionId}&amp;lang=${lang}">
+        <Play url="${safeAudioUrl}"/>
+        <Say voice="female">${safeSayText}</Say>
+    </GetDigits>`;
+    return xmlResponse(res, fallbackXml);
+  }
+
   let aiTurn: Awaited<ReturnType<typeof aiSystem.process>> | undefined;
   try {
     aiTurn = await aiSystem.process({

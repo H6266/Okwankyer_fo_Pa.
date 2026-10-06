@@ -207,12 +207,15 @@ ${profileSection}
 </caller_transcript>
 Current draft: ${JSON.stringify(draft.slots)}`;
 
+    const shadowModel = process.env.GEMINI_MODEL || (process.env.NODE_ENV === 'production' ? '' : 'gemini-2.5-flash');
+    if (!shadowModel) return null;
+
     const abortController = new AbortController();
     const timer = setTimeout(() => abortController.abort(), 1200);
 
     try {
       const response: any = await rawClient.models.generateContent({
-        model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+        model: shadowModel,
         contents: prompt,
         config: {
           responseMimeType: 'application/json',

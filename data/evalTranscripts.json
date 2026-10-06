@@ -1,0 +1,266 @@
+[
+  {
+    "id": "eval-en-01",
+    "scenario": "en",
+    "transcript": "i wanna sen 50 sedis to 0553838464",
+    "expectedIntent": "momo.transfer",
+    "expectedSlots": {
+      "amount": 50,
+      "recipientPhone": "0553838464"
+    }
+  },
+  {
+    "id": "eval-en-02",
+    "scenario": "en",
+    "transcript": "transfer one hundred ghana cedis to zero five five three eight three eight four six four",
+    "expectedIntent": "momo.transfer",
+    "expectedSlots": {
+      "amount": 100,
+      "recipientPhone": "0553838464"
+    }
+  },
+  {
+    "id": "eval-en-03",
+    "scenario": "en",
+    "transcript": "pls send twenty cedis to kofi on 0241234567",
+    "expectedIntent": "momo.transfer",
+    "expectedSlots": {
+      "amount": 20,
+      "recipientPhone": "0241234567",
+      "recipientName": "Kofi"
+    }
+  },
+  {
+    "id": "eval-en-04",
+    "scenario": "en",
+    "transcript": "send ten ghs to ama 0509876543 right now",
+    "expectedIntent": "momo.transfer",
+    "expectedSlots": {
+      "amount": 10,
+      "recipientPhone": "0509876543",
+      "recipientName": "Ama"
+    }
+  },
+  {
+    "id": "eval-en-05",
+    "scenario": "en",
+    "transcript": "i want to check my account balance please",
+    "expectedIntent": "momo.check_balance",
+    "expectedSlots": {}
+  },
+  {
+    "id": "eval-en-06",
+    "scenario": "en",
+    "transcript": "recharge 10 cedis airtime for my phone 0271122334",
+    "expectedIntent": "momo.buy_airtime",
+    "expectedSlots": {
+      "amount": 10,
+      "recipientPhone": "0271122334"
+    }
+  },
+  {
+    "id": "eval-en-07",
+    "scenario": "en",
+    "transcript": "i want to pay my ecg electricity bill meter 123456 40 cedis",
+    "expectedIntent": "momo.pay_bill",
+    "expectedSlots": {
+      "amount": 40
+    }
+  },
+  {
+    "id": "eval-en-08",
+    "scenario": "en",
+    "transcript": "buy two gig internet data bundle for me",
+    "expectedIntent": "momo.buy_data",
+    "expectedSlots": {}
+  },
+  {
+    "id": "eval-en-09",
+    "scenario": "en",
+    "transcript": "i made a mistake please reverse my wrong transfer to that number",
+    "expectedIntent": "momo.reverse_transaction",
+    "expectedSlots": {}
+  },
+  {
+    "id": "eval-en-10",
+    "scenario": "en",
+    "transcript": "can i get a quick loan borrow fifty cedis",
+    "expectedIntent": "momo.loan",
+    "expectedSlots": {
+      "amount": 50
+    }
+  },
+  {
+    "id": "eval-twi-01",
+    "scenario": "twi",
+    "transcript": "mepɛ sɛ me mane sidi aduonum kɔma 0553838464",
+    "expectedIntent": "momo.transfer",
+    "expectedSlots": {
+      "amount": 50,
+      "recipientPhone": "0553838464"
+    }
+  },
+  {
+    "id": "eval-twi-02",
+    "scenario": "twi",
+    "transcript": "mena sika cedi ɔha kɔma kofi wɔ hwee nnum nnum mmiɛnsa nwɔtwe mmiɛnsa nwɔtwe nan nsia nan so",
+    "expectedIntent": "momo.transfer",
+    "expectedSlots": {
+      "amount": 100,
+      "recipientPhone": "0553838464"
+    }
+  },
+  {
+    "id": "eval-twi-03",
+    "scenario": "twi",
+    "transcript": "fa sika cedi aduonu kɔma ama 0241234567",
+    "expectedIntent": "momo.transfer",
+    "expectedSlots": {
+      "amount": 20,
+      "recipientPhone": "0241234567",
+      "recipientName": "Ama"
+    }
+  },
+  {
+    "id": "eval-twi-04",
+    "scenario": "twi",
+    "transcript": "me pɛ sɛ me mane cedi ahanum kɔ ma me papa",
+    "expectedIntent": "momo.transfer",
+    "expectedSlots": {
+      "amount": 500
+    }
+  },
+  {
+    "id": "eval-twi-05",
+    "scenario": "twi",
+    "transcript": "mepa wo kyɛw hwɛ me sika dodoɔ a aka wɔ me momo mu",
+    "expectedIntent": "momo.check_balance",
+    "expectedSlots": {}
+  },
+  {
+    "id": "eval-twi-06",
+    "scenario": "twi",
+    "transcript": "tɔ kɔkɔɔ credit cedi edu ma me fon 0201234567",
+    "expectedIntent": "momo.buy_airtime",
+    "expectedSlots": {
+      "amount": 10,
+      "recipientPhone": "0201234567"
+    }
+  },
+  {
+    "id": "eval-twi-07",
+    "scenario": "twi",
+    "transcript": "me pɛ sɛ me tua ecg kanea gya ka no",
+    "expectedIntent": "momo.pay_bill",
+    "expectedSlots": {}
+  },
+  {
+    "id": "eval-twi-08",
+    "scenario": "twi",
+    "transcript": "mepa wo kyɛw tɔ intanɛt data bundle ma me",
+    "expectedIntent": "momo.buy_data",
+    "expectedSlots": {}
+  },
+  {
+    "id": "eval-twi-09",
+    "scenario": "twi",
+    "transcript": "sika no kɔɔ nɔmba mfomsoɔ so san fa sika no bra",
+    "expectedIntent": "momo.reverse_transaction",
+    "expectedSlots": {}
+  },
+  {
+    "id": "eval-twi-10",
+    "scenario": "twi",
+    "transcript": "me pɛ sɛ me gye bosea qwickloan wɔ me momo so",
+    "expectedIntent": "momo.loan",
+    "expectedSlots": {}
+  },
+  {
+    "id": "eval-code-01",
+    "scenario": "code-switched",
+    "transcript": "chale please i want to transfer 50 cedis kɔma 0553838464",
+    "expectedIntent": "momo.transfer",
+    "expectedSlots": {
+      "amount": 50,
+      "recipientPhone": "0553838464"
+    }
+  },
+  {
+    "id": "eval-code-02",
+    "scenario": "code-switched",
+    "transcript": "me pɛ sɛ me send one hundred cedis kɔma Kwame on 0241234567",
+    "expectedIntent": "momo.transfer",
+    "expectedSlots": {
+      "amount": 100,
+      "recipientPhone": "0241234567",
+      "recipientName": "Kwame"
+    }
+  },
+  {
+    "id": "eval-code-03",
+    "scenario": "code-switched",
+    "transcript": "send 30 cedis to sister on zero five five three eight three eight four six four",
+    "expectedIntent": "momo.transfer",
+    "expectedSlots": {
+      "amount": 30,
+      "recipientPhone": "0553838464"
+    }
+  },
+  {
+    "id": "eval-code-04",
+    "scenario": "code-switched",
+    "transcript": "transfer cedi 70 kɔ ma bro wɔ 0501122334",
+    "expectedIntent": "momo.transfer",
+    "expectedSlots": {
+      "amount": 70,
+      "recipientPhone": "0501122334"
+    }
+  },
+  {
+    "id": "eval-code-05",
+    "scenario": "code-switched",
+    "transcript": "how much sika do i have in my wallet balance koraa",
+    "expectedIntent": "momo.check_balance",
+    "expectedSlots": {}
+  },
+  {
+    "id": "eval-code-06",
+    "scenario": "code-switched",
+    "transcript": "buy 15 cedis credit airtime ma me phone 0553838464",
+    "expectedIntent": "momo.buy_airtime",
+    "expectedSlots": {
+      "amount": 15,
+      "recipientPhone": "0553838464"
+    }
+  },
+  {
+    "id": "eval-code-07",
+    "scenario": "code-switched",
+    "transcript": "pay my ecg electricity bill 25 cedis for me",
+    "expectedIntent": "momo.pay_bill",
+    "expectedSlots": {
+      "amount": 25
+    }
+  },
+  {
+    "id": "eval-code-08",
+    "scenario": "code-switched",
+    "transcript": "me pɛ internet data bundle for my mtn sim",
+    "expectedIntent": "momo.buy_data",
+    "expectedSlots": {}
+  },
+  {
+    "id": "eval-code-09",
+    "scenario": "code-switched",
+    "transcript": "i sent the money to wrong number reverse transaction no ma me",
+    "expectedIntent": "momo.reverse_transaction",
+    "expectedSlots": {}
+  },
+  {
+    "id": "eval-code-10",
+    "scenario": "code-switched",
+    "transcript": "connect me to human customer care agent make i talk to am",
+    "expectedIntent": "momo.customer_care",
+    "expectedSlots": {}
+  }
+]

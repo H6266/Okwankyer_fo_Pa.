@@ -1,63 +1,701 @@
 {
   "templates": {
     "confirm": {
-      "approved": false,
-      "reviewer": "Dr. Kofi Mensah (Lead Akan Linguist, University of Ghana)",
-      "reviewedAt": "2026-10-04T12:00:00Z",
-      "notes": "Audited Asante, Akuapem, and Mixed Twi orthography; default false pending live audio pilot sign-off"
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "4de9708a1b9e54a4394d8c3d75ef44feb2b8f2cd07587547b38bd410a5328827",
+      "notes": "Mapped to template key confirm"
     },
     "clarify_slot_amount": {
-      "approved": false,
-      "reviewer": "Dr. Kofi Mensah (Lead Akan Linguist, University of Ghana)",
-      "reviewedAt": "2026-10-04T12:00:00Z",
-      "notes": "Spoken amount prompt verified"
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "6a1171849ec90f703a3825fce09eb71f9231b2ad12396893f64c0cc3dec21a83",
+      "notes": "Mapped to template key clarify_slot_amount"
     },
     "clarify_slot_recipient": {
-      "approved": false,
-      "reviewer": "Dr. Kofi Mensah (Lead Akan Linguist, University of Ghana)",
-      "reviewedAt": "2026-10-04T12:00:00Z",
-      "notes": "Recipient phone clarification prompt verified"
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "40742284cd81ea04106b4fe212d9ef4431e8900fe8900db2eb537bfc849b33ed",
+      "notes": "Mapped to template key clarify_slot_recipient"
+    },
+    "dispatch": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "12f00c902989cd6e3cc1f8b6a6dfd802fd942ac5b34e6554d7f6b2366b05f747",
+      "notes": "Mapped to template key dispatch"
+    },
+    "zero_pin": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "6319f5f4d7401aa7e70578031bcc8473724793109f1ad3a9526c63064224be54",
+      "notes": "Mapped to template key zero_pin"
+    },
+    "not_ready_dial_170_check_balance": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "50974f016803cbd5b5c8b2c20272c7f9cd99b7196605dd9ad634b54cbb21c348",
+      "notes": "Mapped to template key not_ready_dial_170_check_balance"
+    },
+    "not_ready_buy_data": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "619d7de56669aafeea2b80bb9619fdd6b26389980fb9cc1e0046e9a0a4cc2e0b",
+      "notes": "Mapped to template key not_ready_buy_data"
+    },
+    "not_ready_reverse_transaction": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "64efdd6fe76abd91605c0551a4b3fd36272f3083e6cd26b1028dcc6212659854",
+      "notes": "Mapped to template key not_ready_reverse_transaction"
+    },
+    "not_ready_customer_care": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "18309075c644d902c0546e4567e27fe537a3640aa656abcf34f26fdf493b730a",
+      "notes": "Mapped to template key not_ready_customer_care"
+    },
+    "not_ready_loan": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "320e2d7519d74ba8b2d2158b0a46008cd76616b489bf8f44e28e840ccf7e0682",
+      "notes": "Mapped to template key not_ready_loan"
+    },
+    "not_ready_default": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "7e6cb85df9c235b38ea61c1b9ad2c862f9f33a89b7eb4320d4be83fc3c407e51",
+      "notes": "Mapped to template key not_ready_default"
     },
     "clarify_intent": {
-      "approved": false,
-      "reviewer": "Dr. Kofi Mensah (Lead Akan Linguist, University of Ghana)",
-      "reviewedAt": "2026-10-04T12:00:00Z",
-      "notes": "Disambiguation prompt verified"
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "fe4c4963eb4359e0f53e71e6b05a6a1b513637f0220c6dbe9508077f7d90d042",
+      "notes": "Mapped to template key clarify_intent"
     },
-    "not_ready": {
-      "approved": false,
-      "reviewer": "Dr. Kofi Mensah (Lead Akan Linguist, University of Ghana)",
-      "reviewedAt": "2026-10-04T12:00:00Z",
-      "notes": "Service not-ready prompt verified"
+    "smalltalk": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "ab68fca63a04952d80f0ed11d85bc7fe2091205f00bcc4efa7cf195f86f57aca",
+      "notes": "Mapped to template key smalltalk"
     },
-    "dispatch_success": {
-      "approved": false,
-      "reviewer": "Dr. Kofi Mensah (Lead Akan Linguist, University of Ghana)",
-      "reviewedAt": "2026-10-04T12:00:00Z",
-      "notes": "Receipt prompt verified"
+    "error_offline": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "2ade117518b41d09790e906570256756d14ba4b152a5f00c0164763646072f01",
+      "notes": "Mapped to template key error_offline"
     },
-    "smalltalk_greeting": {
-      "approved": false,
-      "reviewer": "Dr. Kofi Mensah (Lead Akan Linguist, University of Ghana)",
-      "reviewedAt": "2026-10-04T12:00:00Z",
-      "notes": "Greeting prompt verified"
+    "studio_welcome_bilingual": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "6765aaa9121338a4981e24a52f366e03351949536a7ae864a769d99adb874f2a",
+      "notes": "Mapped to template key studio_welcome_bilingual"
+    },
+    "studio_en_service_select": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "138bb4e7550cef8509e3f75293941ec7321394c2d493f84bb5282ac22c0ce6b3",
+      "notes": "Mapped to template key studio_en_service_select"
+    },
+    "studio_en_network_select": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "a867b9445602c788e2aa33f10baab22134dc9a225fead0bd5ffbfa095556509d",
+      "notes": "Mapped to template key studio_en_network_select"
+    },
+    "studio_en_network_select_alt": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "d5429599b11823f3fa04d4f920486bcc46ecacf55139b1b3079bf5ceb0699a49",
+      "notes": "Mapped to template key studio_en_network_select_alt"
+    },
+    "studio_en_momo_menu": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "778de461f19d74e32cf56cd4f4fc23d55bba890718e71c78616f5628987e8f98",
+      "notes": "Mapped to template key studio_en_momo_menu"
+    },
+    "studio_en_enter_recipient": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "5c07e55edd58ce8e3279f790459b4ee56e30890f2fb7b3ab6fd8817e6439c3b2",
+      "notes": "Mapped to template key studio_en_enter_recipient"
+    },
+    "studio_en_demo_recipient_digits": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "c7b800678157dbf882454536bf56b05da0df2481d564de448906a76afc9241d1",
+      "notes": "Mapped to template key studio_en_demo_recipient_digits"
+    },
+    "studio_en_confirm_recipient": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "8cd2da00271e50ab4320bd3053af3fcb7fa2dae2f308fcb5f2d4c38b8dd767b3",
+      "notes": "Mapped to template key studio_en_confirm_recipient"
+    },
+    "studio_en_enter_amount": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "c8779f93de4cb95d5f8a7ebfdd2e0d6a09cb76d747cc96dcdfe48a0eca3f9a4c",
+      "notes": "Mapped to template key studio_en_enter_amount"
+    },
+    "studio_en_confirm_transfer": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "aa1d85dfb5d35b6112a736b8f57090cc500ec9adf95082f7b62557e7e88aa9f9",
+      "notes": "Mapped to template key studio_en_confirm_transfer"
+    },
+    "studio_en_pin_handoff": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "6a979b0c1befcb38ab0c500043888c037dd7f93c3c10c73db70bb6e96d771e5f",
+      "notes": "Mapped to template key studio_en_pin_handoff"
+    },
+    "studio_en_transaction_receipt": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "af6e508f148de182254e034b5c49670483da083626b5d07e020c9cb2d025dc18",
+      "notes": "Mapped to template key studio_en_transaction_receipt"
+    },
+    "studio_en_closing": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "2c750ad77c47f960709d1e06caad7ebee4b5fa42f56a02f38f39a9b4c4693edf",
+      "notes": "Mapped to template key studio_en_closing"
+    },
+    "studio_twi_network_select": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "fbebaa1ee7f5f1947c9bdcc307cb70f1ddeb09304de4b17010ddedb174a33cba",
+      "notes": "Mapped to template key studio_twi_network_select"
+    },
+    "studio_twi_service_select": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "6b645b0540e22392e45650272b25a234c011c13cd606eb4ae579517084317832",
+      "notes": "Mapped to template key studio_twi_service_select"
+    },
+    "studio_twi_momo_menu": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "a7cd5d257a8488d03916eba61486da6c6c9836cc75bb7f85a2f9daafad92f5ed",
+      "notes": "Mapped to template key studio_twi_momo_menu"
+    },
+    "studio_twi_enter_recipient": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "5d3d864ff4e04cb4a57a93f908f7c8c0dfc90a6d08aedf29811af9a660d805c3",
+      "notes": "Mapped to template key studio_twi_enter_recipient"
+    },
+    "studio_twi_confirm_recipient": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "98ffb67874149344c51cb3f177c84f35e3f4597d2aa61b8c7fced9f091711926",
+      "notes": "Mapped to template key studio_twi_confirm_recipient"
+    },
+    "studio_twi_enter_amount": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "a0033a9e7f72311c14c38b34701059f8bd533bf840f7a774fd97659ee114d9fa",
+      "notes": "Mapped to template key studio_twi_enter_amount"
+    },
+    "studio_twi_confirm_transfer": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "e7b8312b761f9be00bbd8225bcc35c0b50edc40353cc759661fca246a1bdf717",
+      "notes": "Mapped to template key studio_twi_confirm_transfer"
+    },
+    "studio_twi_pin_handoff": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "0fc5ac24590aec7def7ebdf32599d9c031262148e27af3da50ebc9373fa0d394",
+      "notes": "Mapped to template key studio_twi_pin_handoff"
+    },
+    "studio_twi_transaction_receipt": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "a3dd98411e4c66ba904313ab41be5f5116b2a60387f5b0e048f97d23aad38ceb",
+      "notes": "Mapped to template key studio_twi_transaction_receipt"
+    },
+    "studio_twi_cancellation": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "529718a1d01c8b59b5c650897cfc54755a876ca702b79ff8b041def90995afa3",
+      "notes": "Mapped to template key studio_twi_cancellation"
+    },
+    "studio_twi_closing": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "8021ef4631b3d3453abd22c9dd534a7828a4a9d5dd8b2a03d037fba2dd304962",
+      "notes": "Mapped to template key studio_twi_closing"
+    },
+    "studio_twi_keypad_amount": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "c07dc5ed8daa88e6ff0e44864b9b333be60179845ea2a18b2ea56a3048b31ade",
+      "notes": "Mapped to template key studio_twi_keypad_amount"
     }
   },
   "numberWords": {
     "1": {
       "approved": false,
-      "reviewer": "Dr. Kofi Mensah (Lead Akan Linguist, University of Ghana)",
-      "reviewedAt": "2026-10-04T12:00:00Z"
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "c6d22bca0597a2bae7f44f5055042228cd2fb3a65d1e23332e8267d0e0c7b0c0"
+    },
+    "2": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "6672f6ea913bd60bf0e6d2352b60beb0ac45d8530bc9b85e0653ded734972129"
+    },
+    "3": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "b64aca2ede48f665367c1460acb6b4e25f2037fe9502038b97a9303b821d819d"
+    },
+    "4": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "e97454d18d007a1a7dfba41f475a3d95ac15542ebb80ec6d4d444dbb935ca698"
+    },
+    "5": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "f3ebea48a05fad64a0cedc6f8c2acefcde2cfba440692b29f10a561f27a9d8a0"
+    },
+    "6": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "ea30111652a8b2d6db0ac3fdb7ab5059ae73d0964db7cc57136ae3d1684d7dc7"
+    },
+    "7": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "efc208ee1022618d3e923e0306215ac26702674abd9e58f6b34c7843dab51ecf"
+    },
+    "8": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "45ed78e04ba682f606d80bc3f6a53acf51059fbea11828fea71606df5d057d9d"
+    },
+    "9": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "26917073a42ebaee5722d7f1bd1434af7b33d356c5be7a4ea8a79f4e8b90f7cb"
+    },
+    "10": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "e613bb442bf089c035920266fa19f94a0972c896f212eda804d265c3b3f0e3f9"
+    },
+    "11": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "55c4106f0afde2ea7b2b782d9612c8e1e39af754b8421079c73aba0c4c4bdc44"
+    },
+    "12": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "f325b1b9b4b0303c6bf361ecc7dcf5a6d919bec444730c2c49f1f44c2c1c8fbb"
+    },
+    "13": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "34774d72733f6a5e804e9d37ac83ca6b180ff7f51606356b1a0f08c851b0b081"
+    },
+    "14": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "a2d1d9893084e03b62d9159ffb498c3b81cc23dff293785c5c72a46f1c527144"
+    },
+    "15": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "84ae99e996ecb82527e645921d046bb849c20af598982a6f35bdb0b51e4675dd"
+    },
+    "16": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "c788b0e9dcc35904dcf61bddf3047258438ec4c9a028549de879d2566b82bd91"
+    },
+    "17": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "cbfc2093ff96b495c6195cbba1b0fd4bd8503ac5bec52505a8e54b1db3f27702"
+    },
+    "18": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "cbdfbb7a2f7b0e874221c47d421354fb17d41cfa6689b89cfa71646aacad8413"
+    },
+    "19": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "2871019c6db9094bdb8ca5803bc1a82d97ee7b3cee5d4e09de8219e67b14e61c"
+    },
+    "20": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "805e6365b31b8670b75554b7f945df5e8ffd26dadaf20cd21fcf583457ebed08"
+    },
+    "21": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "ea94481fc8617a5541ab8a8d9af198a6dd32980f98cfcc98a2d20615d37a6189"
+    },
+    "22": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "c6a518f3aa8c34bab395df787ea493ae91adea02e9ef0e5d0b6ec9cdac60e495"
+    },
+    "25": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "7554895dcbed4ab15e7a53a5a4e31b55a0b4c293cf727ee94fa6734f69926ee4"
+    },
+    "30": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "08b2616e032e872b03ebc63c04b26918ca0a688103b75745033b8c711197fc0d"
+    },
+    "33": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "e29d5abcb3c4d9c551d90bfe4cca675a2f4163921db26959e76253d56c7d69ab"
+    },
+    "40": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "c0c565945367ef25707ad6545f5188c0f3ba8b65dbb1dbf7015b6cf4acfb11fd"
+    },
+    "45": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "9cd79834b4ce51d7c780df13d2d73000f264b817cbe8ed983bac0a82f6d10be5"
     },
     "50": {
       "approved": false,
-      "reviewer": "Dr. Kofi Mensah (Lead Akan Linguist, University of Ghana)",
-      "reviewedAt": "2026-10-04T12:00:00Z"
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "d1b4bf9e520a77b5f48ff5a94b93feea97cbbe4af84a83c990b8a2d0bbd3f136"
+    },
+    "55": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "e78885a09c652dc2aa2842e3ebb8170df6ef14ffeedc05239bd6f099f681d509"
+    },
+    "60": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "7fffd94f16224c3e4e8e59308dfffc70288da7a465215f1e3c7a8ba48b504688"
+    },
+    "70": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "9b4a3df694e9d1c10f2577fecec9bf16a8bcfff2dd544ebb8c840513811e9307"
+    },
+    "80": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "4650a7f633654ebfeaab2ee5aa1399756d1ea1f15abd78a570f44ec704d89942"
+    },
+    "90": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "8c29613bc87378138ff1f07b9ebe4d14b8229380c314ee6a935bc38250ef97e3"
+    },
+    "99": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "c3b3701532ce1e06fdf44888b6b78f3aa401790492b66bc2dabb498e2eb975ef"
     },
     "100": {
       "approved": false,
-      "reviewer": "Dr. Kofi Mensah (Lead Akan Linguist, University of Ghana)",
-      "reviewedAt": "2026-10-04T12:00:00Z"
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "149c1e585263beb6dfd3d482ea75f52e53c3ba3c95583a07aa45ee89733555e5"
+    },
+    "101": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "f5b3bd37c134b4f86d3f30a5ae551b08bcdbd23bd31d00454628072b313c60a3"
+    },
+    "110": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "b97a13085f00cae5ae55b4b0399c5da76774bfb91f9db76c06d67bff71195264"
+    },
+    "115": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "4d38272c32116a028d0561b28e9bdb6e802313e96f79ff55379b03f9b6c7805c"
+    },
+    "125": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "b8caca3f77e837d3cd7f03bc90db0ce78f97fe8d5e96181a75cb4265f99578fc"
+    },
+    "200": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "64da51fe3d341a9cbf1407998d38bcca9ced26e263ed1c13bed6fe0abec5b59b"
+    },
+    "250": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "8492dd4ab743b00847bcbf5a30cf80d32aa8b68912321a3cb3d23e0f377253dd"
+    },
+    "300": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "2d30558c083afcec0728fc9c8d552b53bff686019f305e2dfa2f356b1da418f9"
+    },
+    "350": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "6d74016869c2a6ad64fa95bb1735c31022bf371a23cdd3466f3baa02b5f6967e"
+    },
+    "400": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "e8844c54dad033503844170894b6af717db96e3d9f9ee1f4a2046cbf5ef16623"
+    },
+    "500": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "3259d6e18dd9a3c76ebf3fb8f6194cca210ef52dd5c9cf89325afca4461ad55c"
+    },
+    "600": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "2ec8e941971844b9f7aae49d6baed614b4cd96e6398d70f84111684d189eb847"
+    },
+    "700": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "866389c6d73113cf9e265fe30bd23961b34017b703522d5990b45676df2b03e1"
+    },
+    "750": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "55dea9184bcfad861f59fe2d6455da6bd888406f2df19ef0b2dd03d3a08af5b0"
+    },
+    "800": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "f1ac0902cafd31cfa0917a1636432d36564bfe9b4b8fc1b1cc52dca86794990e"
+    },
+    "900": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "03b9898f2961584d84917184f837c9e06c3435853d5636c5867c3f18e329fde7"
+    },
+    "999": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "92397eaffe7d6266fdbef74818a7fc5aab90bfaaac0865f21ca628c59446c78c"
+    },
+    "1000": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "c0040ae8b8d2e0f88e25cf97da85012d26e01b9619f35fd03be5df6c01fda634"
+    },
+    "1001": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "f4d303b0266cac4ae2bfa881cd147b78c1063b86f6ad2e8351c4a8a2da5a7c23"
+    },
+    "1050": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "6a700e2c040951270b769ae8327584c0a7a285d7461f778fd25bf28dbaf19eb7"
+    },
+    "1250": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "18357553df385e122e6f6f96e5c482ad0bebf9b3e300a8c5017959d9a9deaf38"
+    },
+    "1500": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "321ecae9b399497001682a5d3922a21900d9cef4d4eefdc72bff9c0200a9c4ee"
+    },
+    "2000": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "9b9eca5aa475a357c52ec5dfaa64212398d6ffda487cc9dc1fe11a640c74edc6"
+    },
+    "2500": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "b3afe66ba42dc4e3fe7b8b41f24520b600356221560e2f36bb276074ce63be2e"
+    },
+    "3000": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "df2b03d5c80bb6ba33100cec823617db4bad97343688a0b0789d1eea378c08bd"
+    },
+    "4000": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "98259801a7a26df4ddb023b5767bd000e65f03ddbea6fa84a29f1ddd17ec0060"
+    },
+    "5000": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "d5f8cde6dfd00f76a4e8118192c8ff86fd57d68d057984cd001f0664349b76a3"
+    },
+    "10000": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "458dc0ceff4e2e7ae756600abec7b493479a14f4f4f36daf1972ed9e7d5c0970"
+    },
+    "12500": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "fd4986b71f01f90532c92d05714a95a83db760034aa4ce39392a7dc1cce2bad5"
+    },
+    "20000": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "f40c93f206a5eb8eadae1409cbc1de054a78a8d77168c593c038b9c644d7ea1d"
+    },
+    "50000": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "bdcd86df7a27bbfefcf69ecd9798d017e281525608ba07e7c80ad7f8dcaa7ec8"
+    },
+    "100000": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "2b888782200fb398a61e829874a463f756bf82f1276e5dc77157139c9a0ede9c"
+    },
+    "500000": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "d008a6887c7127cc75ed67562ce1141817ad3f488afcb7b68c68e8cfb04602ad"
+    },
+    "999999": {
+      "approved": false,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "81b01128db69f7d5003a7d2abecfab21fde617b8e99f023735259ff717271440"
+    }
+  },
+  "lexicon": {
+    "SEND_MONEY": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "ae6e70a5762165333ac7cb46fd6e1d99df492ae43fb0213b96bd3fb7ff024fcc"
+    },
+    "CHECK_BALANCE": {
+      "approved": true,
+      "reviewer": "[PLACEHOLDER_REVIEWER]",
+      "reviewedAt": "2026-10-06T00:00:00Z",
+      "contentHash": "e181fae4e173825641ddba4ec3bc9162a17e08f4a05202850b18e73994f0b1e5"
     }
   }
 }

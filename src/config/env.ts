@@ -79,6 +79,9 @@ export function loadConfig(): AppConfig {
   const sessionSecret = (process.env.SESSION_SECRET || "").trim();
 
   if (nodeEnv === "production") {
+    if (!process.env.GEMINI_MODEL || process.env.GEMINI_MODEL.trim() === "") {
+      throw new Error("CONFIGURATION_ERROR: GEMINI_MODEL environment variable must be explicitly defined in production. Literal model fallbacks are forbidden.");
+    }
     if (adminToken.length < 32) {
       throw new Error("CONFIGURATION_ERROR: Production requires ADMIN_TOKEN with at least 32 characters.");
     }

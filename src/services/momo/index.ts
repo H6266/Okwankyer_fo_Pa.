@@ -46,6 +46,40 @@ export function registerMomoServices(): void {
     ],
     notReadyMessageKey: 'bill_pay_not_ready',
   });
+
+  // 5. momo.buy_data - status: 'not_ready'
+  serviceRegistry.register({
+    intent: 'momo.buy_data',
+    status: 'not_ready',
+    requiredSlots: [
+      { name: 'amount', type: 'amount', required: true, description: 'Bundle cost in GHS' },
+    ],
+    notReadyMessageKey: 'not_ready_buy_data',
+  });
+
+  // 6. momo.reverse_transaction - status: 'not_ready'
+  serviceRegistry.register({
+    intent: 'momo.reverse_transaction',
+    status: 'not_ready',
+    requiredSlots: [],
+    notReadyMessageKey: 'not_ready_reverse_transaction',
+  });
+
+  // 7. momo.customer_care - status: 'not_ready'
+  serviceRegistry.register({
+    intent: 'momo.customer_care',
+    status: 'not_ready',
+    requiredSlots: [],
+    notReadyMessageKey: 'not_ready_customer_care',
+  });
+
+  // 8. momo.loan - status: 'not_ready'
+  serviceRegistry.register({
+    intent: 'momo.loan',
+    status: 'not_ready',
+    requiredSlots: [],
+    notReadyMessageKey: 'not_ready_loan',
+  });
 }
 
 // Auto-register upon import

@@ -25,6 +25,8 @@ import { requireAdminAuth } from "./middleware/adminAuth";
 import { adminRateLimiter } from "./middleware/rateLimiter";
 import { validateGhanaPhoneNumber } from "./domain/validation";
 import { aiBootstrap } from "./ai_system/core/aiBootstrap";
+import { validateProductionModelConfig } from "./ai_system/brain/brain";
+import { approvalWorkflow } from "./ai_system/brain/approvalWorkflow";
 
 const app = express();
 
@@ -142,6 +144,19 @@ app.all("/api/*", (_req: Request, res: Response) => {
 
 // ── Server Bootstrap & Frontend Serving ───────────────────────────────
 export async function startServer() {
+  // Production Invariant Gates: Refuse startup on unapproved text or missing model
+  try {
+    validateProductionModelConfig();
+    approvalWorkflow.validateProductionApprovals();
+  } catch (err: any) {
+    if (process.env.NODE_ENV === "production") {
+      console.error("FATAL: Production Readiness Hardening Violation:", err.message);
+      throw err;
+    } else {
+      console.warn("⚠️ Production readiness notice:", err.message);
+    }
+  }
+
   // Initialize AI Cognitive Core subsystem
   try {
     const bootReport = await aiBootstrap.initialize();

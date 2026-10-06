@@ -92,6 +92,8 @@ export type ServiceHandler = (params: {
   sessionLanguage: LanguageId;
   callerNumber?: string;
   sessionId?: string;
+  confirmedDraftHash?: string;
+  dispatchKey?: string;
 }) => Promise<ServiceHandlerResult>;
 
 export interface ServiceDefinition {

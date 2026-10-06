@@ -231,6 +231,19 @@ export class Brain {
       delete (draft.slots as any).recipientName;
     }
 
+    // Finalizer to hook shadow mode evaluation without mutating or delaying output
+    const finalizeOutput = (output: BrainOutput): BrainOutput => {
+      if (this.config.mode === 'shadow' && Math.random() <= this.config.shadowSamplingRate && geminiClient.isAvailable()) {
+        shadowEngine.recordShadowComparison({
+          input,
+          offlineDecision: output.decision,
+          offlineDraft: output.updatedDraft,
+          turnId: currentTurn,
+        });
+      }
+      return output;
+    };
+
     // ─────────────────────────────────────────────────────────────────────────
     // STEP 0: ZERO-PIN INTERCEPTION
     // Spoken PINs are blocked immediately. The model NEVER sees or stores them.
@@ -251,7 +264,7 @@ export class Brain {
         isZeroPinAlert: true,
       });
 
-      return {
+      return finalizeOutput({
         decision: { kind: 'clarify_slot', slot: 'pin_blocked' },
         reply: {
           text: reply.text,
@@ -260,7 +273,7 @@ export class Brain {
         },
         updatedDraft: draft,
         sessionLanguage: langRes.sessionLanguage,
-      };
+      });
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -388,7 +401,7 @@ export class Brain {
         language: activeLanguage,
         slots: draft.slots,
       });
-      return {
+      return finalizeOutput({
         decision,
         reply: {
           text: APPROVED_KEYPAD_FALLBACK_PROMPT,
@@ -397,7 +410,7 @@ export class Brain {
         },
         updatedDraft: draft,
         sessionLanguage,
-      };
+      });
     }
 
     // Confirmation Revocation Invariant:
@@ -436,11 +449,14 @@ export class Brain {
 
     let modelOutput: ModelOutputContract | null = null;
 
-    // Only invoke model if:
-    // 1. Not already Tier 1/2 deterministic confidence (skip model path)
-    // 2. Not explicit confirm/cancel on settled draft
-    // 3. Gemini client is available
-    if (!isHighConfidenceDeterministic && !isExplicitConfirm && !isExplicitCancel && geminiClient.isAvailable()) {
+    const canCallModel =
+      this.config.mode === 'live' &&
+      !isHighConfidenceDeterministic &&
+      !isExplicitConfirm &&
+      !isExplicitCancel &&
+      geminiClient.isAvailable();
+
+    if (canCallModel) {
       modelOutput = await this.callModelWithFallback(
         rawTranscript,
         targetDialect,
@@ -628,13 +644,13 @@ export class Brain {
         slots: draft.slots,
         notReadyMessageKey: serviceDef?.notReadyMessageKey,
       });
-      return {
+      return finalizeOutput({
         decision,
         modelOutput: modelOutput || undefined,
         reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
         updatedDraft: draft,
         sessionLanguage,
-      };
+      });
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -654,13 +670,13 @@ export class Brain {
         language: activeLanguage,
         slots: draft.slots,
       });
-      return {
+      return finalizeOutput({
         decision,
         modelOutput: modelOutput || undefined,
         reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
         updatedDraft: draft,
         sessionLanguage,
-      };
+      });
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -681,12 +697,12 @@ export class Brain {
         language: activeLanguage,
         slots: {},
       });
-      return {
+      return finalizeOutput({
         decision,
         reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
         updatedDraft: draft,
         sessionLanguage,
-      };
+      });
     }
 
     // Requirement 8: Confirmation is valid only if previous reply was the read-back ('confirm')
@@ -710,11 +726,14 @@ export class Brain {
       // DISPATCH HANDOFF to registered service handler
       draft.lastReplyKind = 'dispatch';
       if (serviceDef.handler) {
+        const dispatchKey = `${input.sessionId || 'session'}:${draft.confirmedDraftHash || currentDraftHash}`;
         await serviceDef.handler({
           slots: draft.slots,
           sessionLanguage,
           callerNumber: input.callerNumber,
           sessionId: input.sessionId,
+          confirmedDraftHash: draft.confirmedDraftHash || currentDraftHash,
+          dispatchKey,
         });
       }
 
@@ -729,13 +748,13 @@ export class Brain {
         slots: draft.slots,
       });
 
-      return {
+      return finalizeOutput({
         decision,
         modelOutput: modelOutput || undefined,
         reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
         updatedDraft: draft,
         sessionLanguage,
-      };
+      });
     }
 
     // NOT YET CONFIRMED: Present confirmation to caller
@@ -753,13 +772,13 @@ export class Brain {
       slots: draft.slots,
     });
 
-    return {
+    return finalizeOutput({
       decision,
       modelOutput: modelOutput || undefined,
       reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
       updatedDraft: draft,
       sessionLanguage,
-    };
+    });
   }
 
   // ── RECOMPUTE MISSING SLOTS ────────────────────────────────────────────────
@@ -935,31 +954,39 @@ Output format: Return ONLY valid JSON with keys: intent, slots, signals, reply.`
       'momo.transfer': 0,
       'momo.check_balance': 0,
       'momo.buy_airtime': 0,
+      'momo.buy_data': 0,
+      'momo.reverse_transaction': 0,
+      'momo.customer_care': 0,
+      'momo.loan': 0,
       'momo.pay_bill': 0,
       'smalltalk': 0,
       'unknown': 0.1,
     };
 
     const isBill = /\b(?:bill|ecg|gwcl|water|light|electricity|tua\s+ka)\b/i.test(lower);
-    const isAirtime = /\b(?:airtime|credit|kɔkɔɔ|topup|recharge|tɔ\s+airtime)\b/i.test(lower);
+    const isAirtime = /\b(?:airtime|credit|kɔkɔɔ|topup|recharge|tɔ\s+airtime|tɔ\s+credit)\b/i.test(lower);
+    const isData = /\b(?:buy\s+data|data\s+bundle|internet\s+bundle|bundle|megabytes|gigabytes|wifi\s+bundle|tɔ\s+data|tɔ\s+bundle|intanɛt)\b/i.test(lower);
+    const isReverse = /\b(?:reverse|reversal|wrong\s+number|wrong\s+transfer|sent\s+by\s+mistake|refund|sesa\s+transaction|nɔmba\s+mfomsoɔ|san\s+fa\s+sika|mfomsoɔ)\b/i.test(lower);
+    const isCare = /\b(?:customer\s+care|agent|talk\s+to\s+agent|speak\s+to\s+person|human\s+support|help\s+desk|kasa\s+kyerɛ\s+agent|customer\s+service)\b/i.test(lower);
+    const isLoan = /\b(?:loan|quick\s+loan|qwickloan|borrow\s+money|borrow|bosea|gye\s+bosea|fɛm\s+me\s+sika)\b/i.test(lower);
     const isBalance = /\b(?:balance|check\s+balance|sika\s+dodoɔ|akontaabu|hwɛ\s+balance)\b/i.test(lower);
 
-    if (isBill) {
-      scores['momo.pay_bill'] += 0.85;
-    }
-    if (isAirtime) {
-      scores['momo.buy_airtime'] += 0.85;
-    }
-    if (isBalance) {
-      scores['momo.check_balance'] += 0.85;
-    }
+    if (isBill) scores['momo.pay_bill'] += 0.85;
+    if (isAirtime) scores['momo.buy_airtime'] += 0.85;
+    if (isData) scores['momo.buy_data'] += 0.85;
+    if (isReverse) scores['momo.reverse_transaction'] += 0.85;
+    if (isCare) scores['momo.customer_care'] += 0.85;
+    if (isLoan) scores['momo.loan'] += 0.85;
+    if (isBalance) scores['momo.check_balance'] += 0.85;
 
     const hasTransferWord = /\b(?:send|transfer|mane|kɔma)\b/i.test(lower);
     const hasCurrencyWord = /\b(?:sika|cedi|cedis|ghs)\b/i.test(lower);
 
-    if (hasTransferWord) {
+    const isNonTransferSpecific = isBill || isAirtime || isData || isReverse || isCare || isLoan || isBalance;
+
+    if (hasTransferWord && !isReverse && !isLoan && !isData) {
       scores['momo.transfer'] += 0.80;
-    } else if (!isBill && !isAirtime && !isBalance && hasCurrencyWord) {
+    } else if (!isNonTransferSpecific && hasCurrencyWord) {
       scores['momo.transfer'] += 0.70;
     }
 
@@ -967,11 +994,11 @@ Output format: Return ONLY valid JSON with keys: intent, slots, signals, reply.`
       scores['momo.transfer'] += 0.20;
     }
 
-    if (draft.intent && scores[draft.intent] !== undefined) {
+    if (draft.intent && scores[draft.intent] !== undefined && !isNonTransferSpecific) {
       scores[draft.intent] += 0.15;
     }
 
-    if (/^(hello|hi|akwaaba|good\s+morning|good\s+afternoon|how\s+are\s+you|thank\s+you|help)\b/i.test(lower)) {
+    if (/^(hello|hi|akwaaba|good\s+morning|good\s+afternoon|how\s+are\s+you|thank\s+you|help)\b/i.test(lower) && !isCare) {
       scores['smalltalk'] += 0.75;
     }
 

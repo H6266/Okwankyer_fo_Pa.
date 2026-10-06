@@ -23,6 +23,7 @@ import {
 import {
   APPROVED_REPLY_TEMPLATES,
   getApprovedTemplateText,
+  isApprovedTemplateKey,
 } from './replyTemplates';
 import { replyTranslator } from './replyTranslator';
 
@@ -216,9 +217,21 @@ export class ReplyComposer {
       templateKey = 'dispatch';
       replyKind = 'confirm';
     } else if (decision.kind === 'not_ready') {
-      templateKey = (notReadyMessageKey === 'dial_170_check_balance' || decision.intent === 'momo.check_balance')
-        ? 'not_ready_dial_170_check_balance'
-        : 'not_ready_default';
+      if (notReadyMessageKey && isApprovedTemplateKey(notReadyMessageKey)) {
+        templateKey = notReadyMessageKey;
+      } else if (decision.intent === 'momo.check_balance' || notReadyMessageKey === 'dial_170_check_balance') {
+        templateKey = 'not_ready_dial_170_check_balance';
+      } else if (decision.intent === 'momo.buy_data') {
+        templateKey = 'not_ready_buy_data';
+      } else if (decision.intent === 'momo.reverse_transaction') {
+        templateKey = 'not_ready_reverse_transaction';
+      } else if (decision.intent === 'momo.customer_care') {
+        templateKey = 'not_ready_customer_care';
+      } else if (decision.intent === 'momo.loan') {
+        templateKey = 'not_ready_loan';
+      } else {
+        templateKey = 'not_ready_default';
+      }
       replyKind = 'not_ready';
     } else if (decision.kind === 'clarify_slot') {
       templateKey = decision.slot === 'amount'
