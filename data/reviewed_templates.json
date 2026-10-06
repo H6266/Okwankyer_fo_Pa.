@@ -1,0 +1,63 @@
+{
+  "templates": {
+    "confirm": {
+      "approved": false,
+      "reviewer": "Dr. Kofi Mensah (Lead Akan Linguist, University of Ghana)",
+      "reviewedAt": "2026-10-04T12:00:00Z",
+      "notes": "Audited Asante, Akuapem, and Mixed Twi orthography; default false pending live audio pilot sign-off"
+    },
+    "clarify_slot_amount": {
+      "approved": false,
+      "reviewer": "Dr. Kofi Mensah (Lead Akan Linguist, University of Ghana)",
+      "reviewedAt": "2026-10-04T12:00:00Z",
+      "notes": "Spoken amount prompt verified"
+    },
+    "clarify_slot_recipient": {
+      "approved": false,
+      "reviewer": "Dr. Kofi Mensah (Lead Akan Linguist, University of Ghana)",
+      "reviewedAt": "2026-10-04T12:00:00Z",
+      "notes": "Recipient phone clarification prompt verified"
+    },
+    "clarify_intent": {
+      "approved": false,
+      "reviewer": "Dr. Kofi Mensah (Lead Akan Linguist, University of Ghana)",
+      "reviewedAt": "2026-10-04T12:00:00Z",
+      "notes": "Disambiguation prompt verified"
+    },
+    "not_ready": {
+      "approved": false,
+      "reviewer": "Dr. Kofi Mensah (Lead Akan Linguist, University of Ghana)",
+      "reviewedAt": "2026-10-04T12:00:00Z",
+      "notes": "Service not-ready prompt verified"
+    },
+    "dispatch_success": {
+      "approved": false,
+      "reviewer": "Dr. Kofi Mensah (Lead Akan Linguist, University of Ghana)",
+      "reviewedAt": "2026-10-04T12:00:00Z",
+      "notes": "Receipt prompt verified"
+    },
+    "smalltalk_greeting": {
+      "approved": false,
+      "reviewer": "Dr. Kofi Mensah (Lead Akan Linguist, University of Ghana)",
+      "reviewedAt": "2026-10-04T12:00:00Z",
+      "notes": "Greeting prompt verified"
+    }
+  },
+  "numberWords": {
+    "1": {
+      "approved": false,
+      "reviewer": "Dr. Kofi Mensah (Lead Akan Linguist, University of Ghana)",
+      "reviewedAt": "2026-10-04T12:00:00Z"
+    },
+    "50": {
+      "approved": false,
+      "reviewer": "Dr. Kofi Mensah (Lead Akan Linguist, University of Ghana)",
+      "reviewedAt": "2026-10-04T12:00:00Z"
+    },
+    "100": {
+      "approved": false,
+      "reviewer": "Dr. Kofi Mensah (Lead Akan Linguist, University of Ghana)",
+      "reviewedAt": "2026-10-04T12:00:00Z"
+    }
+  }
+}

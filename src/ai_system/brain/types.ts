@@ -4,10 +4,16 @@
  * Defines strict taxonomy, decisions, session language, and brain I/O contracts.
  */
 
+export type BrainMode = 'offline_only' | 'shadow' | 'live';
+
 export type IntentId =
   | 'momo.transfer'
   | 'momo.check_balance'
   | 'momo.buy_airtime'
+  | 'momo.buy_data'
+  | 'momo.reverse_transaction'
+  | 'momo.customer_care'
+  | 'momo.loan'
   | 'momo.pay_bill'
   | 'smalltalk'
   | 'unknown';

@@ -67,3 +67,100 @@ import './services/airtime';
 ```
 
 `brain.ts` will automatically gate, validate required slots, confirm, and dispatch to your handler.
+
+---
+
+## How to Add a New Dialect or Language
+
+To add support for a new dialect (e.g. Fante, Akuapem Twi, Ga, Ewe):
+
+### Step 1: Create a Language Profile
+Create a new profile in `src/ai_system/brain/languageProfiles/<dialect_name>.ts` conforming to `LanguageProfile`:
+```typescript
+import { LanguageProfile } from './types';
+
+export const fanteProfile: LanguageProfile = {
+  id: 'twi-fante',
+  name: 'Mfantse (Fante)',
+  dialectFamily: 'Akan',
+  confirmationAffirmations: ['aane', 'nyew', 'yoo'],
+  confirmationNegations: ['dabi', 'mma no', 'gyae'],
+  cancellationKeywords: ['gyae', 'mompɛ', 'dabi'],
+  numberLexicon: {
+    1: 'koro',
+    2: 'ebien',
+    3: 'ebiasa',
+  },
+  systemPromptGuidance: `You are speaking with a native Fante speaker. Follow standard Mfantse phonology and vocabulary conventions.`,
+};
+```
+
+### Step 2: Register in `languageProfiles/index.ts` and `languagePolicy.ts`
+1. Export the profile in `src/ai_system/brain/languageProfiles/index.ts`.
+2. Add language detection cues and fallback rules in `languagePolicy.ts`.
+3. In production, unapproved dialects are gated behind `allowUnapprovedDialects` (default `false`) until reviewed.
+
+---
+
+## Linguistic Approval Workflow & Production Build Gate
+
+To guarantee safety and prevent AI hallucinations or culturally inauthentic speech:
+
+1. **Reviewed Data Repository (`data/reviewed_templates.json`)**:
+   Every reply template and spoken number word must have an entry in `data/reviewed_templates.json`:
+   ```json
+   {
+     "templates": {
+       "confirm": {
+         "approved": true,
+         "reviewer": "Dr. Kofi Mensah (Lead Akan Linguist, University of Ghana)",
+         "reviewedAt": "2026-10-04T12:00:00Z",
+         "notes": "Verified authentic Asante and Akuapem orthography"
+       }
+     }
+   }
+   ```
+2. **Mandatory Metadata Invariant**:
+   Any entry with `"approved": true` **MUST** include both `reviewer` (string) and `reviewedAt` (valid ISO date timestamp).
+3. **Production Build Refusal**:
+   During production builds and initialization, `approvalWorkflow.validateProductionApprovals()` inspects all records.
+   If any entry has `"approved": true` without reviewer or date metadata, the build immediately aborts with:
+   `PRODUCTION_BUILD_REFUSED: Linguistic approval metadata incomplete`.
+
+---
+
+## Shadow Mode & Observability
+
+Shadow mode evaluates model reasoning against offline deterministic ground truth without altering caller conversations:
+
+1. **Execution**: The offline engine controls the caller response. In the background, the Gemini reasoning model runs concurrently on the sanitized transcript.
+2. **Strict Zero-PII Log**:
+   Disagreements are stored via `shadowEngine.getDisagreements()`.
+   **Zero-PII guarantee**: Phone numbers, amounts, and names are stripped. Only `hasAmount`, `hasRecipientPhone`, intent names, and `disagreementType` are logged:
+   ```json
+   {
+     "id": "shadow-1730000000000-abcde",
+     "timestamp": "2026-10-06T13:30:00.000Z",
+     "language": "twi-asante",
+     "turnId": 1,
+     "disagreementType": "INTENT_MISMATCH",
+     "offlineDecision": {
+       "intent": "momo.transfer",
+       "kind": "confirm",
+       "hasAmount": true,
+       "hasRecipientPhone": true
+     },
+     "modelDecision": {
+       "intent": "momo.pay_bill",
+       "confidence": 0.88,
+       "kind": "confirm",
+       "hasAmount": true,
+       "hasRecipientPhone": false
+     }
+   }
+   ```
+3. **How to Read the Log**:
+   - `INTENT_MISMATCH`: The model and offline engine chose different intents.
+   - `DECISION_KIND_MISMATCH`: One wanted to clarify while the other wanted to confirm or dispatch.
+   - `SLOT_PRESENCE_MISMATCH`: Discrepancy in whether required slots were extracted.
+

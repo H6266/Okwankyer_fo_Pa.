@@ -15,6 +15,7 @@
 
 import { LanguageId, ReplyKind } from './types';
 import { languagePolicyConfig } from './languagePolicy';
+import { approvalWorkflow } from './approvalWorkflow';
 
 export interface TemplateConfig {
   allowUnapprovedTemplates: boolean;
@@ -151,6 +152,11 @@ export const APPROVED_REPLY_TEMPLATES: Record<string, ApprovedTemplateDefinition
     },
   },
 };
+
+// Synchronize template approval flags from reviewed data repository (data/reviewed_templates.json)
+for (const [key, tpl] of Object.entries(APPROVED_REPLY_TEMPLATES)) {
+  tpl.approved = approvalWorkflow.isTemplateApproved(key);
+}
 
 /**
  * Gets an approved template text for a key and language.

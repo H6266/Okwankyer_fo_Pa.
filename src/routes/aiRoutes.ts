@@ -18,6 +18,8 @@ import { callSessionRepository } from "../services/callSessionRepository";
 import { momoEngine } from "../integrations/momo";
 import { simulatorTelephonyAdapter } from "../providers/telephony/telephonyAdapter";
 import { eventBus } from "../services/eventBus";
+import { brain } from "../ai_system/brain/brain";
+import { ttsRouter } from "../ai_system/speech/tts/ttsRouter";
 
 export const aiRouter = Router();
 
@@ -186,15 +188,45 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
     const targetStep = result.navigation?.targetStep || currentStep || "welcome";
     const outcome = result.intent === "CANCEL" ? "CANCELLED" : "IN_PROGRESS";
 
+    // ── Canonical Brain Reasoning & Reply Composition ───────────────────
+    const brainLanguage = language === "tw" || language === "ak" ? "twi-asante" : "en";
+    const brainOutput = await brain.process({
+      transcript: input !== undefined && input !== null ? String(input) : "",
+      language: brainLanguage,
+      sessionLanguage: brainLanguage,
+      draft: req.body.draft || {},
+      sessionId: sessionKey,
+      callerNumber: typeof req.body.callerPhone === "string" ? req.body.callerPhone : undefined,
+    });
+
+    // Wire brain's reply (text, language, promptId) into telephonyAdapter
+    simulatorTelephonyAdapter.speakBrainReply(brainOutput.reply, {
+      callbackUrl: `/api/ai/simulator/turn`,
+    });
+
+    // Wire brain reply into ttsRouter for audio synthesis
+    let ttsAudioMeta: any = null;
+    try {
+      const ttsResult = await ttsRouter.synthesizeBrainReply(brainOutput.reply);
+      ttsAudioMeta = {
+        providerUsed: ttsResult.providerUsed,
+        audioMimeType: ttsResult.audioMimeType,
+        audioBase64: ttsResult.audioBase64,
+        durationEstimateSec: ttsResult.durationEstimateSec,
+      };
+    } catch {
+      // safe fallback if TTS engine is unavailable
+    }
+
     // Use Simulator Telephony Adapter to build clean, escaped VoiceXML
-    const langVoice = result.language === "tw" || result.language === "ak" ? "woman" : "alice";
+    const langVoice = brainOutput.reply.language === "tw" || brainOutput.reply.language === "ak" || brainOutput.reply.language.startsWith("twi") ? "woman" : "alice";
     const generatedVoiceXml = simulatorTelephonyAdapter.buildVoiceXml([
       simulatorTelephonyAdapter.collectDigits({
         timeout: 5,
         finishOnKey: "#",
         numDigits: 10,
         callbackUrl: `/api/ai/simulator/turn`,
-        promptText: result.dialogue?.response || "",
+        promptText: brainOutput.reply.text || result.dialogue?.response || "",
         voice: langVoice,
       }),
     ]);
@@ -235,6 +267,8 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
         lastInstruction: simulatorTelephonyAdapter.getLastInstruction(),
         targetStep,
       },
+      brain: brainOutput,
+      tts: ttsAudioMeta,
       voiceXml: {
         step: targetStep,
         xml: generatedVoiceXml,

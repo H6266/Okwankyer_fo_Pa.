@@ -183,6 +183,33 @@ npm test
 
 ---
 
+## 🔧 Extensibility & Governance Guides
+
+### 1. Adding a New Service
+Services register dynamically without modifying core brain logic:
+1. Create a service folder in `src/services/<service_name>/index.ts`.
+2. Define required slots using `SlotSpec[]` and a `ServiceHandler`.
+3. Call `serviceRegistry.register({ intent: 'momo.new_service', status: 'ready', requiredSlots, handler })`.
+See [`src/ai_system/brain/README.md`](./src/ai_system/brain/README.md) for full instructions.
+
+### 2. Adding a New Dialect
+Dialects plug into the language profile registry:
+1. Define a `LanguageProfile` in `src/ai_system/brain/languageProfiles/<dialect>.ts`.
+2. Register the profile in `src/ai_system/brain/languageProfiles/index.ts` and `languagePolicy.ts`.
+3. In production, unapproved dialects are kept unreachable until validated.
+
+### 3. Linguistic Approval Workflow & Production Gate
+1. All templates and numbers are tracked in `data/reviewed_templates.json`.
+2. **Metadata Invariant**: Every `approved: true` entry **must** specify `reviewer` (string) and `reviewedAt` (ISO date).
+3. Production builds (`validateProductionApprovals()`) refuse to compile or start if unreviewed approvals exist.
+
+### 4. Shadow Mode Observability
+Runs the Gemini model concurrently alongside the offline engine in background without affecting caller calls.
+Disagreements are logged with strict **Zero-PII** guarantees (no phones, names, or amounts).
+Inspect disagreements via `shadowEngine.getDisagreements()`.
+
+---
+
 ## 🌐 Production Deployment (Render)
 
 This repository is configured for one-click deployment via `render.yaml`. See [`docs/RENDER_RUNBOOK.md`](./docs/RENDER_RUNBOOK.md) for full deployment instructions and Africa's Talking webhook configuration.

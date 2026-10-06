@@ -87,6 +87,60 @@ export const ALL_INTENTS: Record<IntentId, IntentMetadata> = {
     },
   },
 
+  'momo.buy_data': {
+    id: 'momo.buy_data',
+    name: 'MoMo Buy Data Bundle',
+    description: 'Purchase internet data bundle packages for mobile handset.',
+    category: 'momo',
+    requiredSlots: [
+      { name: 'amount', type: 'amount', required: true, description: 'Bundle cost in GHS' },
+    ],
+    optionalSlots: [],
+    keywords: {
+      en: ['buy data', 'data bundle', 'internet bundle', 'internet', 'bundle', 'megabytes', 'gigabytes', 'wifi bundle'],
+      twi: ['tɔ data', 'data bundle', 'intanɛt', 'bundle', 'tɔ bundle'],
+    },
+  },
+
+  'momo.reverse_transaction': {
+    id: 'momo.reverse_transaction',
+    name: 'MoMo Reverse Transaction',
+    description: 'Request reversal for wrong transaction or money sent to wrong phone number.',
+    category: 'momo',
+    requiredSlots: [],
+    optionalSlots: [],
+    keywords: {
+      en: ['reverse', 'reverse transaction', 'wrong number', 'wrong transfer', 'sent by mistake', 'refund money', 'reversal'],
+      twi: ['sesa transaction', 'nɔmba mfomsoɔ', 'san fa sika', 'reverse', 'mfomsoɔ'],
+    },
+  },
+
+  'momo.customer_care': {
+    id: 'momo.customer_care',
+    name: 'MoMo Customer Care Support',
+    description: 'Connect subscriber with human customer care service or telco support desk.',
+    category: 'momo',
+    requiredSlots: [],
+    optionalSlots: [],
+    keywords: {
+      en: ['customer care', 'agent', 'support', 'human', 'representative', 'help desk', 'talk to agent', 'speak to person'],
+      twi: ['customer care', 'kasa kyerɛ agent', 'panin', 'customer service', 'obi nka me ho'],
+    },
+  },
+
+  'momo.loan': {
+    id: 'momo.loan',
+    name: 'MoMo QwickLoan & Credit',
+    description: 'Apply for microloan or advance mobile money credit.',
+    category: 'momo',
+    requiredSlots: [],
+    optionalSlots: [],
+    keywords: {
+      en: ['loan', 'quick loan', 'borrow money', 'qwickloan', 'bemu', 'borrow'],
+      twi: ['bosea', 'gye bosea', 'loan', 'qwickloan', 'fɛm me sika'],
+    },
+  },
+
   'smalltalk': {
     id: 'smalltalk',
     name: 'Conversational Smalltalk & Assistance',

@@ -109,6 +109,23 @@ export class TtsRouter implements TTSProvider {
     return await localGhanaianTtsProvider.synthesize(request);
   }
 
+  public async synthesizeBrainReply(reply: {
+    text: string;
+    language: string;
+    promptId?: string;
+  }): Promise<TtsSynthesisResponse> {
+    const isTwi =
+      reply.language === "tw" ||
+      reply.language === "ak" ||
+      reply.language.startsWith("twi");
+    const lang = isTwi ? "tw" : "en";
+    return this.synthesize({
+      text: reply.text,
+      language: lang,
+      voiceProfile: reply.promptId,
+    });
+  }
+
   public async getRouterReport(): Promise<TtsRouterReport> {
     if (ghanaNlpTtsService.isConfigured()) {
       return {

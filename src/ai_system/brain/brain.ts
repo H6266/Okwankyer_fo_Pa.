@@ -23,6 +23,7 @@ import crypto from 'crypto';
 import {
   BrainDecision,
   BrainInput,
+  BrainMode,
   BrainOutput,
   DraftState,
   IntentId,
@@ -37,6 +38,7 @@ import { replyComposer, convertAmountToSpokenWords } from './replyComposer';
 import { contextualReasoningEngine } from '../understanding/contextualReasoningEngine';
 import { numberDecoder } from '../speech/asr/numberDecoder';
 import { inputNormalizer } from '../perception/inputNormalizer';
+import { shadowEngine } from './shadowEngine';
 import {
   APPROVED_KEYPAD_FALLBACK_PROMPT,
   numberConfig,
@@ -56,6 +58,8 @@ import {
 import '../../services/momo';
 
 export interface BrainConfig {
+  mode: BrainMode;
+  shadowSamplingRate: number; // Configurable sampling rate 0.0 - 1.0 (default 1.0)
   confidenceThreshold: number;
   ambiguityMargin: number;
   modelTimeoutMs: number; // Hard model timeout (default 1500ms)
@@ -64,13 +68,23 @@ export interface BrainConfig {
   modelName: string; // Configurable model name - no literal strings in brain logic
 }
 
+export function validateProductionModelConfig(): void {
+  if (process.env.NODE_ENV === 'production' && !process.env.GEMINI_MODEL) {
+    throw new Error(
+      'PRODUCTION_CONFIG_ERROR: GEMINI_MODEL environment variable must be explicitly defined in production. Literal model fallbacks are forbidden.'
+    );
+  }
+}
+
 export const DEFAULT_BRAIN_CONFIG: BrainConfig = {
+  mode: (process.env.BRAIN_MODE as BrainMode) || (process.env.NODE_ENV === 'production' ? 'shadow' : 'shadow'),
+  shadowSamplingRate: 1.0,
   confidenceThreshold: 0.65,
   ambiguityMargin: 0.15,
   modelTimeoutMs: 1500,
   skipModelTierConfidence: 0.85,
   maxTransferAmount: 5000,
-  modelName: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+  modelName: process.env.GEMINI_MODEL || (process.env.NODE_ENV === 'production' ? '' : 'gemini-2.5-flash'),
 };
 
 // ── SANITIZATION & MASKING HELPERS ──────────────────────────────────────────
@@ -169,6 +183,14 @@ export function isExplicitCancellation(raw: string): boolean {
 export class Brain {
   public config: BrainConfig;
   private currentTurnId = 0;
+
+  public getCurrentTurnId(): number {
+    return this.currentTurnId;
+  }
+
+  public resetTurnId(): void {
+    this.currentTurnId = 0;
+  }
 
   constructor(config: BrainConfig = DEFAULT_BRAIN_CONFIG) {
     this.config = { ...DEFAULT_BRAIN_CONFIG, ...config };
@@ -335,15 +357,24 @@ export class Brain {
       };
     }
 
-    this.extractSlotsFromUtterance(rawTranscript, draft.slots, decoderResult);
+    // Extract New Slots from Current Utterance (unless utterance is purely DTMF / confirmation / cancel)
+    const isPureConfirmOrCancel = isExplicitConfirmation(rawTranscript) || isExplicitCancellation(rawTranscript);
 
-    // Requirement 6: Recipient name must appear in the transcript (fuzzy) to be accepted;
-    // otherwise drop it and keep the phone only.
-    if (draft.slots.recipient?.name) {
-      const candidateName = draft.slots.recipient.name.toLowerCase();
-      const rawLower = rawTranscript.toLowerCase();
-      if (!rawLower.includes(candidateName)) {
-        delete draft.slots.recipient.name;
+    if (!isPureConfirmOrCancel) {
+      this.extractSlotsFromUtterance(rawTranscript, draft.slots, decoderResult);
+
+      // Requirement 6: Recipient name must appear in the transcript (fuzzy) to be accepted;
+      // otherwise drop it and keep the phone only.
+      // Existing recipient names established in prior turns are preserved.
+      if (
+        draft.slots.recipient?.name &&
+        draft.slots.recipient.name !== input.draft?.slots?.recipient?.name
+      ) {
+        const candidateName = draft.slots.recipient.name.toLowerCase();
+        const rawLower = rawTranscript.toLowerCase();
+        if (!rawLower.includes(candidateName)) {
+          delete draft.slots.recipient.name;
+        }
       }
     }
 
@@ -517,6 +548,20 @@ export class Brain {
           if (!draft.slots.recipient.phone) draft.slots.recipient.phone = modelOutput.slots.recipient.phone;
         }
       }
+
+      // Requirement 6: Recipient name from model must appear in transcript (fuzzy) to be accepted;
+      // otherwise drop it and keep phone only.
+      if (modelOutput.slots.recipient?.name) {
+        const proposedName = modelOutput.slots.recipient.name.toLowerCase();
+        if (rawTranscript.toLowerCase().includes(proposedName)) {
+          if (!draft.slots.recipient) draft.slots.recipient = {};
+          draft.slots.recipient.name = modelOutput.slots.recipient.name;
+        } else {
+          if (draft.slots.recipient) {
+            delete draft.slots.recipient.name;
+          }
+        }
+      }
     } else {
       // Deterministic Settling
       // Settling Invariant 1: Margin check (Ambiguity)
@@ -654,6 +699,8 @@ export class Brain {
     if (draft.confirmationRevokedReason) {
       draft.confirmed = false;
     } else if (isExplicitConfirm && isPreviousReplyReadback && isDraftHashUnchanged) {
+      draft.confirmed = true;
+    } else if (input.draft?.confirmed && !draft.confirmationRevokedReason && !isExplicitCancel) {
       draft.confirmed = true;
     } else {
       draft.confirmed = false;
@@ -810,29 +857,34 @@ Output format: Return ONLY valid JSON with keys: intent, slots, signals, reply.`
     const abortController = new AbortController();
     let timer: NodeJS.Timeout | null = null;
 
-    const abortPromise = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        abortController.abort();
-        reject(new Error(`MODEL_TIMEOUT_${timeoutMs}MS`));
-      }, timeoutMs);
-
-      abortController.signal.addEventListener('abort', () => {
-        reject(new Error(`MODEL_TIMEOUT_${timeoutMs}MS`));
-      }, { once: true });
-    });
-
     try {
-      const callPromise = rawClient.models.generateContent({
-        model: this.config.modelName,
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          temperature: 0.1,
-          abortSignal: abortController.signal,
-        },
+      const response = await new Promise<any>((resolve, reject) => {
+        timer = setTimeout(() => {
+          abortController.abort();
+          reject(new Error(`MODEL_TIMEOUT_${timeoutMs}MS`));
+        }, timeoutMs);
+
+        abortController.signal.addEventListener(
+          'abort',
+          () => {
+            reject(new Error(`MODEL_TIMEOUT_${timeoutMs}MS`));
+          },
+          { once: true }
+        );
+
+        Promise.resolve(
+          rawClient.models.generateContent({
+            model: this.config.modelName,
+            contents: prompt,
+            config: {
+              responseMimeType: 'application/json',
+              temperature: 0.1,
+              abortSignal: abortController.signal,
+            },
+          })
+        ).then(resolve, reject);
       });
 
-      const response: any = await Promise.race([callPromise, abortPromise]);
       if (timer) clearTimeout(timer);
 
       // Discard stale response if a newer turn has already executed

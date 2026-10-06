@@ -44,11 +44,20 @@ export interface SimulatorInstruction {
   numDigits?: number;
   callbackUrl?: string;
   voiceXml: string;
+  promptId?: string;
+  language?: string;
+}
+
+export interface BrainReplyInput {
+  text: string;
+  language: string;
+  promptId?: string;
 }
 
 export interface TelephonyAdapter {
   answerCall(params: { sessionId: string; callerNumber: string }): string;
   speak(text: string, options?: { voice?: string; language?: string }): string;
+  speakBrainReply(reply: BrainReplyInput, options?: { voice?: string; callbackUrl?: string }): string;
   playAudio(url: string): string;
   collectDigits(options: CollectDigitsOptions): string;
   collectSpeech(options: CollectSpeechOptions): string;
@@ -68,6 +77,12 @@ export class AfricaTalkingAdapter implements TelephonyAdapter {
   public speak(text: string, options?: { voice?: string; language?: string }): string {
     const voice = options?.voice || (options?.language === "tw" || options?.language === "ak" ? "woman" : "alice");
     return `<Say voice="${escapeXml(voice)}">${escapeXml(text)}</Say>`;
+  }
+
+  public speakBrainReply(reply: BrainReplyInput, options?: { voice?: string; callbackUrl?: string }): string {
+    const isTwi = reply.language === "tw" || reply.language === "ak" || reply.language.startsWith("twi");
+    const voice = options?.voice || (isTwi ? "woman" : "alice");
+    return `<Say voice="${escapeXml(voice)}">${escapeXml(reply.text)}</Say>`;
   }
 
   public playAudio(url: string): string {
@@ -147,6 +162,21 @@ export class SimulatorTelephonyAdapter implements TelephonyAdapter {
       type: "SPEAK",
       prompt: text,
       voiceXml: xml,
+    };
+    return xml;
+  }
+
+  public speakBrainReply(reply: BrainReplyInput, options?: { voice?: string; callbackUrl?: string }): string {
+    const isTwi = reply.language === "tw" || reply.language === "ak" || reply.language.startsWith("twi");
+    const voice = options?.voice || (isTwi ? "woman" : "alice");
+    const xml = `<Say voice="${escapeXml(voice)}">${escapeXml(reply.text)}</Say>`;
+    this.lastInstruction = {
+      type: "SPEAK",
+      prompt: reply.text,
+      language: reply.language,
+      promptId: reply.promptId,
+      voiceXml: xml,
+      callbackUrl: options?.callbackUrl,
     };
     return xml;
   }
