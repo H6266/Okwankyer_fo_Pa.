@@ -493,7 +493,7 @@ Respond strictly in valid JSON adhering to this schema:
           rawText: text,
         };
       } catch (err: any) {
-        console.warn(`[NluService] Model ${modelName} error/timeout (${err?.message || err}), continuing cascade...`);
+        console.info(`[NluService] Model ${modelName} error/timeout (${err?.message || err}), continuing cascade...`);
       }
     }
   }

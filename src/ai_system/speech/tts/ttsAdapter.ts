@@ -161,8 +161,11 @@ export class GeminiTtsAdapter implements TTSProvider {
       } else if (isQuota) {
         this.quotaExhaustedUntil = Date.now() + 5 * 60 * 1000;
         console.info(`[GeminiTtsAdapter] Gemini TTS quota reached. Free tier daily quota reached. Local Ghanaian synthesis will serve requests until ${new Date(this.quotaExhaustedUntil).toLocaleTimeString()}.`);
+      } else if (msg.includes("503") || msg.includes("high demand") || msg.includes("UNAVAILABLE")) {
+        this.quotaExhaustedUntil = Date.now() + 60 * 1000;
+        console.info(`[GeminiTtsAdapter] Gemini TTS experiencing high demand (503). Using local synthesis for 60s.`);
       } else {
-        console.warn("[GeminiTtsAdapter] Gemini TTS notice:", msg);
+        console.info("[GeminiTtsAdapter] Gemini TTS note:", msg.slice(0, 80));
       }
 
       return this.synthesizeFallback(request, isForbidden ? "forbidden-fallback" : "error-fallback");

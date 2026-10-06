@@ -170,12 +170,21 @@ export class UnifiedGeminiClient {
 
     while (attempt <= maxRetries) {
       const controller = new AbortController();
+      let timeoutTriggered = false;
       const timeoutHandle = setTimeout(() => {
+        timeoutTriggered = true;
         controller.abort(new Error(`Timeout after ${timeoutMs}ms`));
       }, timeoutMs);
 
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        controller.signal.addEventListener("abort", () => {
+          reject(new Error(`[GeminiClient] Timeout after ${timeoutMs}ms for '${operationName}'`));
+        });
+      });
+
       try {
-        const result = await action(ai, controller.signal);
+        const actionPromise = action(ai, controller.signal);
+        const result = await Promise.race([actionPromise, timeoutPromise]);
         clearTimeout(timeoutHandle);
         const duration = Date.now() - startTime;
         this.recordSuccess(operationName, duration);
@@ -215,7 +224,18 @@ export class UnifiedGeminiClient {
           throw err;
         }
 
-        const isAbort = controller.signal.aborted || err.name === "AbortError";
+        // 503 high demand spikes: fail fast so fallback/alternate candidate can take over
+        const isUnavailable =
+          err.status === 503 ||
+          msg.includes("503") ||
+          msg.includes("high demand") ||
+          msg.includes("UNAVAILABLE");
+        if (isUnavailable && maxRetries === 0) {
+          this.recordFailure();
+          throw err;
+        }
+
+        const isAbort = controller.signal.aborted || err.name === "AbortError" || timeoutTriggered;
         const isRetriable =
           isAbort ||
           err.status === 429 ||
