@@ -22,7 +22,10 @@
  * 18. Multi-channel architectural convergence on ServiceOrchestrator
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { transactionOrchestrator, ServiceOrchestrator } from "../src/modules/transactionOrchestrator";
 import { mtnMomoService } from "../src/modules/mtnMomoService";
 import { MoMoEngine } from "../src/integrations/momo";
@@ -32,6 +35,7 @@ describe("Phase 1: Wallet Functions & Central Transaction Service Suite (18 Test
   let mockEngine: MoMoEngine;
   let testStore: DurableTransactionStore;
   let testOrchestrator: ServiceOrchestrator;
+  let testStoreDir: string;
 
   beforeEach(() => {
     mockEngine = new MoMoEngine({
@@ -50,8 +54,13 @@ describe("Phase 1: Wallet Functions & Central Transaction Service Suite (18 Test
       },
     });
 
-    testStore = new DurableTransactionStore("/tmp/test_wallet_store_" + Date.now());
+    testStoreDir = mkdtempSync(join(tmpdir(), "test-wallet-store-"));
+    testStore = new DurableTransactionStore(testStoreDir);
     testOrchestrator = new ServiceOrchestrator(testStore);
+  });
+
+  afterEach(() => {
+    rmSync(testStoreDir, { recursive: true, force: true });
   });
 
   // 1. Centralized Transaction Convergence

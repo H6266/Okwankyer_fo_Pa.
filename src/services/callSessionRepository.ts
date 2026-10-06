@@ -18,7 +18,7 @@ export interface StoredCallSession {
   language: "en" | "twi";
   finalStep: string;
   outcome: "COMPLETED" | "CANCELLED" | "FAILED" | "TIMEOUT" | "IN_PROGRESS" | "RECONCILIATION_REQUIRED";
-  amountGHS: number;
+  amountGHS?: number;
   recipientName: string;
   recipientPhone: string;
   referenceId: string;
@@ -76,16 +76,16 @@ export class CallSessionRepository {
     const updated: StoredCallSession = {
       id: existing?.id || `sim-sess-${partial.sessionId}`,
       sessionId: partial.sessionId,
-      callerNumber: partial.callerNumber || existing?.callerNumber || "+233 30 804 8098 (Simulator)",
+      callerNumber: partial.callerNumber || existing?.callerNumber || "Unknown",
       startedAt: existing?.startedAt || partial.startedAt || new Date().toISOString(),
       durationSeconds: partial.durationSeconds !== undefined ? partial.durationSeconds : (existing?.durationSeconds || 0),
       language: partial.language || existing?.language || "en",
       finalStep: partial.finalStep || existing?.finalStep || "welcome",
       outcome: partial.outcome || existing?.outcome || "IN_PROGRESS",
-      amountGHS: partial.amountGHS !== undefined ? partial.amountGHS : (existing?.amountGHS || 0),
+      amountGHS: partial.amountGHS !== undefined ? partial.amountGHS : existing?.amountGHS,
       recipientName: partial.recipientName || existing?.recipientName || "",
       recipientPhone: partial.recipientPhone || existing?.recipientPhone || "",
-      referenceId: partial.referenceId || existing?.referenceId || `OKP-${Date.now().toString().slice(-6)}`,
+      referenceId: partial.referenceId || existing?.referenceId || "",
       isDemo: false,
       voiceXmlTrace: partial.voiceXmlTrace
         ? (existing?.voiceXmlTrace ? [...existing.voiceXmlTrace, ...partial.voiceXmlTrace] : partial.voiceXmlTrace)
@@ -107,7 +107,7 @@ export class CallSessionRepository {
         this.inMemorySessions.set(live.sessionId, {
           id: `live-${live.sessionId}`,
           sessionId: live.sessionId,
-          callerNumber: live.callerPhone || "Active Caller",
+          callerNumber: live.callerPhone || "Unknown",
           startedAt: new Date(live.createdAt).toISOString(),
           durationSeconds: Math.floor((live.updatedAt - live.createdAt) / 1000),
           language: live.language,
@@ -120,8 +120,8 @@ export class CallSessionRepository {
               : live.state === "FAILED"
               ? "FAILED"
               : "IN_PROGRESS",
-          amountGHS: live.amount || 0,
-          recipientName: live.recipientName || "Unverified",
+          amountGHS: live.amount,
+          recipientName: live.recipientName || "",
           recipientPhone: live.recipientPhone || "",
           referenceId: live.referenceId,
           isDemo: false,

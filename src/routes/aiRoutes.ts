@@ -16,13 +16,8 @@ import { requireAdminAuth, isAdminAuthenticated } from "../middleware/adminAuth"
 import { adminRateLimiter, publicApiRateLimiter } from "../middleware/rateLimiter";
 import { callSessionRepository } from "../services/callSessionRepository";
 import { momoEngine } from "../integrations/momo";
-import { durableTransactionStore } from "../services/durableTransactionStore";
-import { SANDBOX_RECIPIENT_FIXTURES } from "../demo/recipientFixtures";
 import { simulatorTelephonyAdapter } from "../providers/telephony/telephonyAdapter";
 import { eventBus } from "../services/eventBus";
-import { momoCallbackService } from "../integrations/momo/momoCallbackService";
-import { paymentSaga } from "../integrations/momo/paymentSaga";
-import { ProviderEvidence, TruthResult } from "../ai_system/core/aiTypes";
 
 export const aiRouter = Router();
 
@@ -172,7 +167,10 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       });
     }
 
-    const sessionKey = sessionId || `sim_${Date.now()}`;
+    if (typeof sessionId !== "string" || sessionId.trim().length === 0 || sessionId.length > 128) {
+      return res.status(400).json({ error: "A valid sessionId is required." });
+    }
+    const sessionKey = sessionId.trim();
     const result = await aiSystem.process({
       sessionId: sessionKey,
       channel: channel || "SIMULATOR",
@@ -186,13 +184,7 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
 
     // ── Live Synchronization 1: Call Session Repository ──────────────────
     const targetStep = result.navigation?.targetStep || currentStep || "welcome";
-    const outcome =
-      result.intent === "CANCEL"
-        ? "CANCELLED"
-        : (result.action?.tool === "execute_transfer" || result.action?.tool === "momo_execute_transfer") &&
-          result.action?.executedResult?.success
-        ? "COMPLETED"
-        : "IN_PROGRESS";
+    const outcome = result.intent === "CANCEL" ? "CANCELLED" : "IN_PROGRESS";
 
     // Use Simulator Telephony Adapter to build clean, escaped VoiceXML
     const langVoice = result.language === "tw" || result.language === "ak" ? "woman" : "alice";
@@ -209,7 +201,7 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
 
     const storedSession = callSessionRepository.upsertSession({
       sessionId: sessionKey,
-      callerNumber: userProfile?.phone || "+233 30 804 8098 (Simulator)",
+      callerNumber: typeof req.body.callerPhone === "string" ? req.body.callerPhone : undefined,
       durationSeconds: typeof callDurationSec === "number" ? callDurationSec : undefined,
       language: result.language === "tw" || result.language === "ak" ? "twi" : "en",
       finalStep: targetStep,
@@ -226,72 +218,9 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       ],
     });
 
-    // ── Live Synchronization 2: MoMo Ledger & Transaction Store ───────────
-    const isTransferExecuted =
-      result.action?.executedResult?.success ||
-      ((result.action?.tool === "execute_transfer" || result.action?.tool === "momo_execute_transfer") &&
-        result.action?.isExecutable);
-
-    let providerEvidence: ProviderEvidence | undefined = undefined;
-    let truthResult: TruthResult | undefined = undefined;
-
-    if (isTransferExecuted && result.entities?.amount && result.entities?.recipientPhone) {
-      const amount = Number(result.entities.amount);
-      const recipientPhone = String(result.entities.recipientPhone);
-      const recipientName = result.entities.recipientName ? String(result.entities.recipientName) : undefined;
-      const extId = `OKP-${Date.now().toString().slice(-6)}`;
-      const refId = result.action?.executedResult?.data?.referenceId;
-      const finTxId = result.action?.executedResult?.data?.financialTransactionId; // Only if real provider returned it!
-
-      momoEngine.recordTransaction({
-        id: extId,
-        referenceId: refId || `REF-${Date.now()}`,
-        externalId: extId,
-        type: "DISBURSEMENT_TRANSFER",
-        status:
-          executionMode === "MTN_SANDBOX"
-            ? (result.action?.executedResult?.success ? "SUCCESSFUL" : "FAILED")
-            : "PENDING",
-        amount,
-        currency: "GHS",
-        msisdn: recipientPhone,
-        recipientName,
-        financialTransactionId: finTxId || undefined,
-        payerMessage: `Ɔkwankyerɛfo Pa Phone Simulator Transfer`,
-        mode: executionMode === "MTN_SANDBOX" ? "SANDBOX_API" : "LIVE_API",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-
-      durableTransactionStore.recordVelocityAttempt("0543546010", recipientPhone, amount);
-
-      providerEvidence = {
-        provider: executionMode === "MTN_SANDBOX" ? "MTN_SANDBOX" : "SIMULATION",
-        status: executionMode === "MTN_SANDBOX" && finTxId ? "SUCCESSFUL" : "PENDING",
-        financialTransactionId: finTxId || undefined,
-        referenceId: refId || undefined,
-        amount,
-        currency: "GHS",
-        recipientPhone,
-        isSimulation: executionMode === "SIMULATION",
-        timestamp: new Date().toISOString(),
-      };
-
-      truthResult = {
-        verified: Boolean(finTxId && executionMode === "MTN_SANDBOX"),
-        reason: executionMode === "SIMULATION"
-          ? "Simulation mode active: transactions are safe dry-runs without external financial movement."
-          : finTxId
-          ? "Verified terminal success with authentic MTN Sandbox financial transaction ID."
-          : "Awaiting provider confirmation callback; financial transaction ID not yet issued.",
-        providerStatus: providerEvidence.status,
-        evidenceScore: result.confidence,
-        isTerminalSuccess: providerEvidence.status === "SUCCESSFUL",
-        hasProviderFinancialTxId: Boolean(finTxId),
-        matchesOriginalFingerprint: true,
-        idempotentMatch: true,
-      };
-    }
+    // This endpoint is a conversation simulator. It must not manufacture provider
+    // references, financial ledger rows, velocity attempts, or provider evidence.
+    // Real financial execution and truth are owned by the payment saga/provider path.
 
     res.json({
       success: true,
@@ -299,7 +228,7 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       sync: {
         sessionId: storedSession.sessionId,
         callLogsTotal: callSessionRepository.getAllSessions().length,
-        ledgerTotal: momoEngine.getHistory().length,
+        ledgerTotal: callSessionRepository.getLedger().length,
         lastSessionId: storedSession.sessionId,
       },
       telephony: {
@@ -312,8 +241,8 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
         timestamp: new Date().toLocaleTimeString(),
       },
       latency: result.performance,
-      provider: providerEvidence,
-      truth: truthResult,
+      provider: undefined,
+      truth: undefined,
     });
   } catch (err: any) {
     console.error("[POST /api/ai/simulator/turn] Error:", err);
@@ -324,7 +253,7 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
 // ── Call Termination Synchronization ──────────────────────────────────
 aiRouter.post("/api/ai/simulator/call-end", async (req: Request, res: Response) => {
   try {
-    const { sessionId, durationSeconds, reason, outcome } = req.body;
+    const { sessionId, durationSeconds, reason } = req.body;
     if (!sessionId) {
       return res.status(400).json({ error: "Missing sessionId." });
     }
@@ -332,18 +261,16 @@ aiRouter.post("/api/ai/simulator/call-end", async (req: Request, res: Response) 
     const existingSession = callSessionRepository.getSession(sessionId);
     let calculatedOutcome: "COMPLETED" | "CANCELLED" | "FAILED" | "TIMEOUT" | "IN_PROGRESS" | "RECONCILIATION_REQUIRED" = "IN_PROGRESS";
 
-    if (outcome) {
-      calculatedOutcome = outcome;
+    if (existingSession?.outcome === "COMPLETED") {
+      calculatedOutcome = "COMPLETED";
     } else if (reason && typeof reason === "string" && reason.toLowerCase().includes("cancel")) {
       calculatedOutcome = "CANCELLED";
     } else if (reason && typeof reason === "string" && reason.toLowerCase().includes("timeout")) {
       calculatedOutcome = "TIMEOUT";
     } else if (reason && typeof reason === "string" && reason.toLowerCase().includes("fail")) {
       calculatedOutcome = "FAILED";
-    } else if (existingSession?.outcome === "COMPLETED") {
-      calculatedOutcome = "COMPLETED";
     } else {
-      calculatedOutcome = "CANCELLED";
+      calculatedOutcome = existingSession?.outcome || "IN_PROGRESS";
     }
 
     const updated = callSessionRepository.upsertSession({
@@ -352,15 +279,13 @@ aiRouter.post("/api/ai/simulator/call-end", async (req: Request, res: Response) 
       outcome: calculatedOutcome,
     });
 
-    eventBus.emitEvent(
-      calculatedOutcome === "COMPLETED"
-        ? "ai.call.completed"
-        : calculatedOutcome === "CANCELLED"
-        ? "ai.call.cancelled"
-        : "ai.call.failed",
-      sessionId,
-      { outcome: calculatedOutcome, reason }
-    );
+    if (calculatedOutcome === "COMPLETED") {
+      eventBus.emitEvent("ai.call.completed", sessionId, { outcome: calculatedOutcome });
+    } else if (calculatedOutcome === "CANCELLED") {
+      eventBus.emitEvent("ai.call.cancelled", sessionId, { outcome: calculatedOutcome, reason });
+    } else if (calculatedOutcome === "FAILED" || calculatedOutcome === "TIMEOUT") {
+      eventBus.emitEvent("ai.call.failed", sessionId, { outcome: calculatedOutcome, reason });
+    }
 
     res.json({ success: true, session: updated });
   } catch (err: any) {
@@ -371,90 +296,29 @@ aiRouter.post("/api/ai/simulator/call-end", async (req: Request, res: Response) 
 // ── Simulator Webhook Laboratory Endpoint (Section 27) ─────────────────
 aiRouter.post("/api/ai/simulator/webhook-trigger", async (req: Request, res: Response) => {
   try {
-    const { action, sessionId, referenceId, amount, phone } = req.body;
-    const ref = referenceId || `sim_ref_${Date.now()}`;
+    const { action, sessionId } = req.body;
+    if (typeof sessionId !== "string" || !sessionId.trim() || sessionId.length > 128) {
+      return res.status(400).json({ error: "A valid sessionId is required." });
+    }
 
     switch (action) {
       case "CALL_STARTED":
-        eventBus.emitEvent("ai.call.started", sessionId || "sim_call", { channel: "SIMULATOR" });
+        eventBus.emitEvent("ai.call.started", sessionId, { channel: "SIMULATOR" });
         return res.json({ success: true, action, message: "Call started event emitted" });
-
-      case "COLLECTION_PENDING":
-        await momoCallbackService.handleWebhook({
-          referenceId: ref,
-          status: "PENDING",
-          amount: amount || 50,
-          currency: "GHS",
-        });
-        eventBus.emitEvent("ai.provider.pending", sessionId || ref, { referenceId: ref, status: "PENDING" });
-        return res.json({ success: true, action, referenceId: ref, status: "PENDING" });
-
-      case "CUSTOMER_AUTHORIZED":
-      case "COLLECTION_SUCCESS": {
-        const finId = `FIN-MTN-${Date.now().toString().slice(-8)}`;
-        await momoCallbackService.handleWebhook({
-          referenceId: ref,
-          status: "SUCCESSFUL",
-          financialTransactionId: finId,
-          amount: amount || 50,
-        });
-        eventBus.emitEvent("ai.provider.success", sessionId || ref, {
-          referenceId: ref,
-          status: "SUCCESSFUL",
-          financialTransactionId: finId,
-        });
-        return res.json({ success: true, action, referenceId: ref, status: "SUCCESSFUL", financialTransactionId: finId });
-      }
-
-      case "COLLECTION_FAILED":
-        await momoCallbackService.handleWebhook({
-          referenceId: ref,
-          status: "FAILED",
-          reason: "INSUFFICIENT_FUNDS_OR_DECLINED",
-        });
-        eventBus.emitEvent("ai.provider.failed", sessionId || ref, { referenceId: ref, status: "FAILED" });
-        return res.json({ success: true, action, referenceId: ref, status: "FAILED" });
-
-      case "DISBURSEMENT_SUCCESS": {
-        const finId = `DISB-MTN-${Date.now().toString().slice(-8)}`;
-        await momoCallbackService.handleWebhook({
-          referenceId: ref,
-          status: "SUCCESSFUL",
-          financialTransactionId: finId,
-        });
-        eventBus.emitEvent("ai.provider.success", sessionId || ref, {
-          referenceId: ref,
-          status: "SUCCESSFUL",
-          financialTransactionId: finId,
-        });
-        return res.json({ success: true, action, referenceId: ref, status: "SUCCESSFUL", financialTransactionId: finId });
-      }
-
-      case "DISBURSEMENT_FAILED":
-        await momoCallbackService.handleWebhook({
-          referenceId: ref,
-          status: "FAILED",
-          reason: "PROVIDER_SYSTEM_ERROR",
-        });
-        eventBus.emitEvent("ai.provider.failed", sessionId || ref, { referenceId: ref, status: "FAILED" });
-        return res.json({ success: true, action, referenceId: ref, status: "FAILED" });
-
       case "TIMEOUT":
-        eventBus.emitEvent("ai.call.failed", sessionId || ref, { reason: "CALL_TIMEOUT" });
+        eventBus.emitEvent("ai.call.failed", sessionId, { reason: "CALL_TIMEOUT" });
         return res.json({ success: true, action, message: "Call timeout triggered" });
-
+      case "COLLECTION_PENDING":
+      case "CUSTOMER_AUTHORIZED":
+      case "COLLECTION_SUCCESS":
+      case "COLLECTION_FAILED":
+      case "DISBURSEMENT_SUCCESS":
+      case "DISBURSEMENT_FAILED":
       case "REPLAYED_WEBHOOK":
       case "DUPLICATE_WEBHOOK":
-        // Duplicate delivery to test idempotency
-        await momoCallbackService.handleWebhook({
-          referenceId: ref,
-          status: "SUCCESSFUL",
+        return res.status(410).json({
+          error: "Financial webhook simulation is disabled on this endpoint. Use isolated provider fixtures in tests; this endpoint cannot create provider evidence.",
         });
-        await momoCallbackService.handleWebhook({
-          referenceId: ref,
-          status: "SUCCESSFUL",
-        });
-        return res.json({ success: true, action, message: "Duplicate webhook dispatched idempotently" });
 
       default:
         return res.status(400).json({ error: `Unknown webhook lab action: ${action}` });
@@ -472,7 +336,8 @@ aiRouter.get("/api/ai/simulator/contacts", (_req: Request, res: Response) => {
       name: "Kwame Nyamebere",
       network: "MTN",
       tier: "Tier 2",
-      verified: true,
+      verified: false,
+      source: "SIMULATION",
       suggestedPromptEn: "Send 20 cedis to Kwame Nyamebere on 0553838464",
       suggestedPromptTw: "Mepa wo kyɛw mane sika aduonu kɔma Kwame Nyamebere wɔ 0553838464",
     },
@@ -481,7 +346,8 @@ aiRouter.get("/api/ai/simulator/contacts", (_req: Request, res: Response) => {
       name: "Ama Serwaa",
       network: "MTN",
       tier: "Tier 1",
-      verified: true,
+      verified: false,
+      source: "SIMULATION",
       suggestedPromptEn: "Send 50 cedis to Ama Serwaa on 0241234567",
       suggestedPromptTw: "Mepa wo kyɛw mane sika aduonum kɔma Ama Serwaa wɔ 0241234567",
     },
@@ -490,7 +356,8 @@ aiRouter.get("/api/ai/simulator/contacts", (_req: Request, res: Response) => {
       name: "Hannes Aboagye",
       network: "MTN",
       tier: "Tier 3",
-      verified: true,
+      verified: false,
+      source: "SIMULATION",
       suggestedPromptEn: "Transfer 100 GHS to Hannes Aboagye on 0543546010",
       suggestedPromptTw: "Mane sika ɔha kɔma Hannes Aboagye wɔ 0543546010",
     },
@@ -499,7 +366,8 @@ aiRouter.get("/api/ai/simulator/contacts", (_req: Request, res: Response) => {
       name: "Kwame Mensah",
       network: "MTN",
       tier: "Tier 2",
-      verified: true,
+      verified: false,
+      source: "SIMULATION",
       suggestedPromptEn: "Send 30 cedis to Kwame Mensah on 0244123456",
       suggestedPromptTw: "Mane sika aduasa kɔma Kwame Mensah wɔ 0244123456",
     },
@@ -508,7 +376,8 @@ aiRouter.get("/api/ai/simulator/contacts", (_req: Request, res: Response) => {
       name: "Kofi Annan",
       network: "Telecel",
       tier: "Tier 2",
-      verified: true,
+      verified: false,
+      source: "SIMULATION",
       suggestedPromptEn: "Send 40 cedis to Kofi Annan on 0201234567",
       suggestedPromptTw: "Mane sika aduanan kɔma Kofi Annan wɔ 0201234567",
     },
@@ -517,13 +386,14 @@ aiRouter.get("/api/ai/simulator/contacts", (_req: Request, res: Response) => {
       name: "Yaw Osei",
       network: "AT",
       tier: "Tier 1",
-      verified: true,
+      verified: false,
+      source: "SIMULATION",
       suggestedPromptEn: "Send 15 cedis to Yaw Osei on 0271234567",
       suggestedPromptTw: "Mane sika dunum kɔma Yaw Osei wɔ 0271234567",
     },
   ];
 
-  res.json({ success: true, contacts });
+  res.json({ success: true, mode: "SIMULATION", contacts });
 });
 
 // ── Unified Simulator Sync Status ─────────────────────────────────────
@@ -531,12 +401,6 @@ aiRouter.get("/api/ai/simulator/sync-status", (_req: Request, res: Response) => 
   const allSessions = callSessionRepository.getAllSessions();
   const allLedger = momoEngine.getHistory();
   const momoKeys = momoEngine.getKeys();
-
-  const totalDeductions = allLedger
-    .filter((tx) => tx.status === "SUCCESSFUL")
-    .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
-  const baseFloat = 25480.0;
-  const currentFloat = Math.max(100.0, baseFloat - totalDeductions);
 
   res.json({
     success: true,
@@ -548,7 +412,7 @@ aiRouter.get("/api/ai/simulator/sync-status", (_req: Request, res: Response) => 
       targetEnv: momoKeys.targetEnv,
       activeKeyType: momoKeys.activeKeyType,
       currency: momoKeys.currency,
-      floatBalance: currentFloat,
+      balanceAvailable: false,
       collectionsCount: allLedger.filter((t) => t.type?.includes("REQUEST") || t.type?.includes("COLLECTION")).length,
       disbursementsCount: allLedger.filter((t) => t.type?.includes("DISBURSEMENT") || t.type?.includes("TRANSFER")).length,
       airtimeCount: allLedger.filter((t) => t.type?.includes("AIRTIME")).length,

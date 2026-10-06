@@ -2,6 +2,7 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 import { parseUserIntent } from "../src/modules/nluService";
 import { voicePaymentService } from "../src/integrations/momo/voicePaymentService";
 import { buildSpokenText } from "../src/integrations/momo/spokenTextBuilder";
+import { callSessionRepository } from "../src/services/callSessionRepository";
 
 function setupMockMtnFetch() {
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -119,5 +120,18 @@ describe("Pillar 3: Zero-PIN Security Gate", () => {
     expect(result.mtnHttpStatus).toBe(202);
     expect(result.fields.referenceId).toMatch(/^[0-9a-f]{8}-[0-9a-f-]{27}$/i);
     expect(result.mtnStatus).toBeUndefined();
+  });
+});
+
+describe("Simulator call log truthfulness", () => {
+  it("does not invent a caller number or transaction reference for a new session", () => {
+    const session = callSessionRepository.upsertSession({
+      sessionId: `sim_truth_${Date.now()}`,
+      outcome: "IN_PROGRESS",
+    });
+
+    expect(session.callerNumber).toBe("Unknown");
+    expect(session.referenceId).toBe("");
+    expect(session.amountGHS).toBeUndefined();
   });
 });
