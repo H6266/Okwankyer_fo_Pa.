@@ -44,6 +44,24 @@ export interface PipelineStageFlags {
   response: boolean;
 }
 
+export interface LastTranscriptionInfo {
+  text: string;
+  confidence: number;
+  language: string;
+  timestamp: number;
+  channel: "VOICE" | "DTMF" | "TEXT" | "SIMULATOR";
+  source?: string;
+  durationMs?: number;
+}
+
+export interface PipelineLatencyInfo {
+  totalMs: number;
+  asrMs: number;
+  nluMs: number;
+  ttsMs: number;
+  timestamp: number;
+}
+
 export interface TurnDiffDiagnostic {
   turnNumber: number;
   previousSlots: Record<string, any>;
@@ -374,6 +392,17 @@ export function usePhoneSimulator() {
   const [isLoading, setIsLoading] = useState(false);
   const [enableTts, setEnableTts] = useState(true);
   const [voiceMode, setVoiceMode] = useState<"AI_NEURAL" | "STUDIO_PROMPTS" | "BROWSER">("STUDIO_PROMPTS");
+
+  // Real-Time Speech Transcription & AI Processing Telemetry
+  const [interimTranscript, setInterimTranscript] = useState<string>("");
+  const [transcriptionStatus, setTranscriptionStatus] = useState<"IDLE" | "LISTENING" | "PROCESSING" | "TRANSCRIBED" | "ERROR">("IDLE");
+  const [aiProcessingPhase, setAiProcessingPhase] = useState<
+    "IDLE" | "SPEECH_IN" | "LANGUAGE_DETECTION" | "INTENT_EXTRACTION" | "SECURITY_CHECK" | "HANDOFF" | "SPEECH_SYNTHESIS" | "READY"
+  >("IDLE");
+  const [aiProcessingDetail, setAiProcessingDetail] = useState<string>("System standing by");
+  const [lastTranscription, setLastTranscription] = useState<LastTranscriptionInfo | null>(null);
+  const [pipelineLatency, setPipelineLatency] = useState<PipelineLatencyInfo | null>(null);
+  const [audioLevel, setAudioLevel] = useState<number>(0);
 
   // Synchronized Ecosystem State
   const [syncState, setSyncState] = useState<SimulatorSyncState>({

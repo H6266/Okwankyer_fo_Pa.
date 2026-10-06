@@ -14,6 +14,7 @@ import { AsrTranscriptionResult, offlineSpeechRecognizer } from "./offlineAsrEng
 import { neuralAsrProvider } from "./neuralAsrProvider";
 import { geminiClient } from "../../../services/geminiClient";
 import { speechToText } from "../../../modules/sttService";
+import { getActiveAsrProvider } from "../speechProvider";
 
 export class AsrRouter {
   public async transcribe(
@@ -65,7 +66,26 @@ export class AsrRouter {
       };
     }
 
-    // Step 3: Local Neural ASR (faster-whisper runtime)
+    // Step 3: Pluggable ASR Provider (Vosk prototype or University of Ghana HCI Lab API)
+    try {
+      const activeAsr = getActiveAsrProvider(languageHint);
+      const pluggableResult = await activeAsr.transcribe(rawBuffer, languageHint);
+      if (pluggableResult.text && pluggableResult.text.trim().length > 0) {
+        return {
+          text: pluggableResult.text,
+          confidence: pluggableResult.confidence,
+          confidenceSource: "MODEL_HEURISTIC",
+          detectedLanguage: pluggableResult.language,
+          speechActivityDetected: true,
+          durationMs: Math.round((rawBuffer.length / 32000) * 1000),
+          provider: pluggableResult.provider,
+        };
+      }
+    } catch {
+      // Pluggable server may be unconfigured or offline
+    }
+
+    // Step 3b: Local Neural ASR (faster-whisper runtime)
     try {
       const neuralResult = await neuralAsrProvider.transcribe(rawBuffer, mimeType, languageHint);
       if (neuralResult.text && neuralResult.text.trim().length > 0) {

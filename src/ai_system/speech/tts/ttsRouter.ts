@@ -15,6 +15,7 @@ import { piperProvider } from "./localTtsProvider";
 import { localGhanaianTtsProvider } from "./localGhanaianTts";
 import { ttsAdapter } from "./ttsAdapter";
 import { geminiClient } from "../../../services/geminiClient";
+import { getActiveTtsProvider } from "../speechProvider";
 
 export type TtsTier = "STUDIO_CATALOG" | "LOCAL_NEURAL_PIPER" | "REMOTE_GEMINI_TTS" | "EXPERIMENTAL_FORMANT_TTS";
 
@@ -36,14 +37,27 @@ export class TtsRouter implements TTSProvider {
       }
     }
 
-    // Tier 2: Genuine Local Neural Piper TTS Runtime
+    // Tier 2: Pluggable Neural TTS Runtime (Piper offline prototype or University of Ghana HCI Lab API)
     try {
-      const piperResult = await piperProvider.synthesize(request);
-      if (piperResult.audioBuffer && piperResult.audioBuffer.length > 64) {
-        return piperResult;
+      const activeTts = getActiveTtsProvider(request.language);
+      const pluggableResult = await activeTts.synthesize(request.text, request.language === "tw" ? "tw" : "en");
+      if (pluggableResult.audioBuffer && pluggableResult.audioBuffer.length > 64) {
+        return {
+          audioBuffer: pluggableResult.audioBuffer,
+          audioBase64: pluggableResult.audioBase64,
+          audioMimeType: pluggableResult.audioMime,
+          durationEstimateSec: Math.max(1, Math.round(request.text.split(/\s+/).length * 0.35)),
+          providerUsed: pluggableResult.provider,
+        };
       }
     } catch {
-      // Piper worker may be unstarted or offline
+      // Pluggable server may be unconfigured; try direct Piper worker
+      try {
+        const piperResult = await piperProvider.synthesize(request);
+        if (piperResult.audioBuffer && piperResult.audioBuffer.length > 64) {
+          return piperResult;
+        }
+      } catch {}
     }
 
     // Tier 3: Optional Remote Gemini TTS Accelerator

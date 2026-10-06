@@ -75,6 +75,7 @@ export class UnifiedGeminiClient {
   }
 
   private modelQuotaCooldowns = new Map<string, number>();
+  private globalQuotaCooldownUntil: number = 0;
   private accessDenied: boolean = false;
   private accessDeniedUntil: number = 0;
 
@@ -82,11 +83,17 @@ export class UnifiedGeminiClient {
     if (this.accessDenied && Date.now() < this.accessDeniedUntil) {
       return false;
     }
+    if (this.globalQuotaCooldownUntil && Date.now() < this.globalQuotaCooldownUntil) {
+      return false;
+    }
     return Boolean(this.getRawClient()) && this.checkCircuitBreaker();
   }
 
   public isModelAvailable(model: string): boolean {
     if (this.accessDenied && Date.now() < this.accessDeniedUntil) {
+      return false;
+    }
+    if (this.globalQuotaCooldownUntil && Date.now() < this.globalQuotaCooldownUntil) {
       return false;
     }
     if (!this.getRawClient()) return false;
@@ -100,6 +107,10 @@ export class UnifiedGeminiClient {
   public recordAccessDenied(reason: string = "PERMISSION_DENIED", cooldownMs: number = 24 * 60 * 60 * 1000): void {
     this.accessDenied = true;
     this.accessDeniedUntil = Date.now() + cooldownMs;
+  }
+
+  public recordQuotaExhausted(retryDelayMs: number = 60 * 60 * 1000): void {
+    this.globalQuotaCooldownUntil = Date.now() + retryDelayMs;
   }
 
   public recordModelQuotaExhausted(model: string, retryDelayMs: number = 15 * 60 * 1000): void {
@@ -194,6 +205,12 @@ export class UnifiedGeminiClient {
 
         // If daily quota is exhausted, retrying immediately is futile. Throw immediately.
         if (isQuotaExhausted) {
+          let cooldownMs = 60 * 60 * 1000;
+          const retrySecMatch = msg.match(/retryDelay['":\s]+([0-9]+)/i);
+          if (retrySecMatch && retrySecMatch[1]) {
+            cooldownMs = Math.max(60 * 1000, parseInt(retrySecMatch[1], 10) * 1000);
+          }
+          this.recordQuotaExhausted(cooldownMs);
           this.recordFailure();
           throw err;
         }
@@ -285,7 +302,33 @@ export class UnifiedGeminiClient {
         if (!settled && primaryFailed && secondaryFailed) {
           settled = true;
           cleanup();
-          reject(secondaryError || primaryError || new Error(`Both hedged calls failed for ${operationName}`));
+          this.recordFailure();
+
+          const activeErr = secondaryError || primaryError;
+          const msg = String(activeErr?.message || "");
+          const isQuota =
+            activeErr?.status === 429 ||
+            msg.includes("429") ||
+            msg.includes("RESOURCE_EXHAUSTED") ||
+            msg.includes("Quota exceeded");
+          const isForbidden =
+            activeErr?.status === 403 ||
+            msg.includes("403") ||
+            msg.includes("PERMISSION_DENIED") ||
+            msg.includes("denied access");
+
+          if (isQuota) {
+            let cooldownMs = 60 * 60 * 1000;
+            const retrySecMatch = msg.match(/retryDelay['":\s]+([0-9]+)/i);
+            if (retrySecMatch && retrySecMatch[1]) {
+              cooldownMs = Math.max(60 * 1000, parseInt(retrySecMatch[1], 10) * 1000);
+            }
+            this.recordQuotaExhausted(cooldownMs);
+          } else if (isForbidden) {
+            this.recordAccessDenied(msg);
+          }
+
+          reject(activeErr || new Error(`Both hedged calls failed for ${operationName}`));
         }
       };
 

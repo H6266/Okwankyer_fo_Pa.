@@ -139,7 +139,14 @@ async function transcribeAudioBufferWithHedgedGemini(
   step?: string,
   deadlineMs: number = 3000
 ): Promise<SttResult> {
-  if (!geminiClient.isAvailable()) {
+  const primaryModel = AI_CONFIG.transcriptionModel || "gemini-3.5-transcribe";
+  const secondaryModel = "gemini-3.8-flash";
+
+  if (
+    !geminiClient.isAvailable() ||
+    !geminiClient.isModelAvailable(primaryModel) ||
+    !geminiClient.isModelAvailable(secondaryModel)
+  ) {
     const offlineRes = await offlineSpeechRecognizer.transcribe(buffer, mime);
     buffer.fill(0);
     return {
@@ -174,9 +181,6 @@ Instructions:
 1. Return strictly valid JSON with keys: "transcript", "confidence" (0.0 to 1.0), "languageDetected" ("en" or "twi").
 2. If the audio is silent, inaudible, noisy, or background static, set "transcript": "" and "confidence": 0.0.
 3. Transcribe only what the caller actually spoke. Do not assume or hallucinate.`;
-
-  const primaryModel = AI_CONFIG.transcriptionModel || "gemini-3.5-transcribe";
-  const secondaryModel = "gemini-3.8-flash";
 
   try {
     const rawJsonText = await geminiClient.executeHedged(
@@ -281,7 +285,35 @@ Instructions:
       provider: "HedgedGeminiSTT",
     };
   } catch (err: any) {
-    auditLogger.log("warn", "STT", `STT deadline exceeded or error: ${err.message}. Checking offline speech recognizer.`);
+    const msg = String(err?.message || "");
+    const isQuota =
+      err?.status === 429 ||
+      msg.includes("429") ||
+      msg.includes("RESOURCE_EXHAUSTED") ||
+      msg.includes("Quota exceeded");
+    const isForbidden =
+      err?.status === 403 ||
+      msg.includes("403") ||
+      msg.includes("PERMISSION_DENIED") ||
+      msg.includes("denied access");
+
+    if (isQuota) {
+      let cooldownMs = 60 * 60 * 1000;
+      const retrySecMatch = msg.match(/retryDelay['":\s]+([0-9]+)/i);
+      if (retrySecMatch && retrySecMatch[1]) {
+        cooldownMs = Math.max(60 * 1000, parseInt(retrySecMatch[1], 10) * 1000);
+      }
+      geminiClient.recordModelQuotaExhausted(primaryModel, cooldownMs);
+      geminiClient.recordModelQuotaExhausted(secondaryModel, cooldownMs);
+      geminiClient.recordQuotaExhausted(cooldownMs);
+      auditLogger.log("info", "STT", `Gemini STT quota limit reached (429). Seamlessly routing speech turns to offline recognizer & DTMF.`);
+    } else if (isForbidden) {
+      geminiClient.recordAccessDenied(msg);
+      auditLogger.log("info", "STT", `Gemini STT access not permitted (403). Operating with offline recognizer & DTMF.`);
+    } else {
+      auditLogger.log("info", "STT", `STT notice (${msg.slice(0, 80)}). Falling back to offline speech recognizer.`);
+    }
+
     try {
       const offlineRes = await offlineSpeechRecognizer.transcribe(base64Data, mime);
       if (offlineRes.text && offlineRes.text.length > 0) {
@@ -296,7 +328,7 @@ Instructions:
       // offline recognizer fallback
     }
 
-    auditLogger.log("warn", "STT", `Falling back closed to DTMF.`);
+    auditLogger.log("info", "STT", `Falling back closed to DTMF.`);
     return {
       text: "empty",
       confidence: 0.0,
