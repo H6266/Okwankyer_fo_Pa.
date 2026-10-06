@@ -144,13 +144,14 @@ export class OfflineAIEngine {
     // 8. Deterministic Safety Gate & Truth Engine
     const activeDraft = unifiedMemory.getActiveTask(input.sessionId)?.draft || null;
     const isAffirmative = /^(yes|aane|yie|proceed|confirm|kɔ so|ɛyɛ|1)$/i.test(normalizedInput);
-    const clientConfirmed = isAffirmative && activeDraft?.confirmationState === "CONFIRMATION_REQUESTED";
+    const allowToolExecution = input.executionPolicy !== "UNDERSTAND_ONLY";
+    const clientConfirmed = allowToolExecution && isAffirmative && activeDraft?.confirmationState === "CONFIRMATION_REQUESTED";
 
-    if (clientConfirmed && activeDraft) {
+    if (allowToolExecution && clientConfirmed && activeDraft) {
       activeDraft.confirmationState = "CONFIRMED";
     }
 
-    if (activeDraft && navigation.targetStep === "confirm" && activeDraft.confirmationState === "UNCONFIRMED") {
+    if (allowToolExecution && activeDraft && navigation.targetStep === "confirm" && activeDraft.confirmationState === "UNCONFIRMED") {
       activeDraft.confirmationState = "CONFIRMATION_REQUESTED";
     }
 
@@ -158,7 +159,7 @@ export class OfflineAIEngine {
     let executionAllowed = false;
     let truthError: string | undefined;
 
-    if (action.isExecutable && action.tool !== "none") {
+    if (allowToolExecution && action.isExecutable && action.tool !== "none") {
       try {
         if (action.requiresClientConfirmation) {
           truthEngine.assertExecutionAllowed(activeDraft!, workingSlots);
@@ -182,6 +183,7 @@ export class OfflineAIEngine {
       });
       action.executedResult = toolResult;
     }
+    if (!allowToolExecution) action.isExecutable = false;
 
     // 11. Dialogue Generation & Clarification Handling
     let dialogue = aiDialogue.generate(
