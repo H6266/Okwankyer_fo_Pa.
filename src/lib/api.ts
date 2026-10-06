@@ -879,6 +879,26 @@ export const api = {
       return null;
     }
   },
+
+  async getGhanaNlpHealth(): Promise<any> {
+    try {
+      const res = await fetch("/api/ai/ghananlp/health");
+      if (!res.ok) return { configured: false };
+      return res.json();
+    } catch {
+      return { configured: false };
+    }
+  },
+
+  async getGhanaNlpLanguages(): Promise<any> {
+    const res = await fetch("/api/ai/ghananlp/languages");
+    return res.json();
+  },
+
+  async getGhanaNlpSpeakers(): Promise<any> {
+    const res = await fetch("/api/ai/ghananlp/speakers");
+    return res.json();
+  },
 };
 
 export type TaskStatus = "todo" | "in_progress" | "in_review" | "done";

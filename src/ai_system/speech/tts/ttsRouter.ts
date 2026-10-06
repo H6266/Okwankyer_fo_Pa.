@@ -16,8 +16,9 @@ import { localGhanaianTtsProvider } from "./localGhanaianTts";
 import { ttsAdapter } from "./ttsAdapter";
 import { geminiClient } from "../../../services/geminiClient";
 import { getActiveTtsProvider } from "../speechProvider";
+import { ghanaNlpTtsService } from "../../../services/ghanaNlpTtsService";
 
-export type TtsTier = "STUDIO_CATALOG" | "LOCAL_NEURAL_PIPER" | "REMOTE_GEMINI_TTS" | "EXPERIMENTAL_FORMANT_TTS";
+export type TtsTier = "STUDIO_CATALOG" | "GHANANLP_TTS" | "LOCAL_NEURAL_PIPER" | "REMOTE_GEMINI_TTS" | "EXPERIMENTAL_FORMANT_TTS";
 
 export interface TtsRouterReport {
   tier: TtsTier;
@@ -37,9 +38,31 @@ export class TtsRouter implements TTSProvider {
       }
     }
 
-    // Tier 2: Pluggable Neural TTS Runtime (Piper offline prototype or University of Ghana HCI Lab API)
+    // Tier 2: Authenticated Ghana NLP TTS v2 (Akan Twi, Ghanaian English, Ewe, Ga, Dagbani)
+    if (ghanaNlpTtsService.isConfigured()) {
+      try {
+        const ghanaRes = await ghanaNlpTtsService.synthesize({
+          text: request.text,
+          language: request.language,
+          speakerId: request.voiceProfile,
+        });
+        if (ghanaRes.audioBuffer && ghanaRes.audioBuffer.length > 64) {
+          return {
+            audioBuffer: ghanaRes.audioBuffer,
+            audioBase64: ghanaRes.audioBase64,
+            audioMimeType: ghanaRes.audioMimeType,
+            durationEstimateSec: ghanaRes.durationEstimateSec,
+            providerUsed: ghanaRes.provider,
+          };
+        }
+      } catch (err: any) {
+        console.warn("[TtsRouter] Ghana NLP TTS v2 notice:", err.message);
+      }
+    }
+
+    // Tier 3: Pluggable Neural TTS Runtime (Piper offline prototype or University of Ghana HCI Lab API)
     try {
-      const activeTts = getActiveTtsProvider(request.language);
+      const activeTts = getActiveTtsProvider(request.language === "tw" || request.language === "ak" ? "tw" : "en");
       const pluggableResult = await activeTts.synthesize(request.text, request.language === "tw" ? "tw" : "en");
       if (pluggableResult.audioBuffer && pluggableResult.audioBuffer.length > 64) {
         return {
@@ -87,6 +110,13 @@ export class TtsRouter implements TTSProvider {
   }
 
   public async getRouterReport(): Promise<TtsRouterReport> {
+    if (ghanaNlpTtsService.isConfigured()) {
+      return {
+        tier: "GHANANLP_TTS",
+        provider: "Ghana NLP TTS v2 (Akan Twi & Ghanaian English)",
+        offlineReady: false,
+      };
+    }
     const health = await piperProvider.checkHealth();
     return {
       tier: "LOCAL_NEURAL_PIPER",

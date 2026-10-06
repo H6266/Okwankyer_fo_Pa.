@@ -584,3 +584,46 @@ aiRouter.post("/api/ai/intent-to-momo", publicApiRateLimiter, async (req: Reques
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+// ── Ghana NLP Discovery & Health Endpoints ────────────────────────────
+aiRouter.get("/api/ai/ghananlp/health", async (_req: Request, res: Response) => {
+  const { ghanaNlpAsrService } = await import("../services/ghanaNlpAsrService");
+  const { ghanaNlpTtsService } = await import("../services/ghanaNlpTtsService");
+
+  const [asrHealth, ttsHealth] = await Promise.all([
+    ghanaNlpAsrService.healthCheck(),
+    ghanaNlpTtsService.healthCheck(),
+  ]);
+
+  res.json({
+    configured: config.ghanaNlp?.configured || false,
+    asr: asrHealth,
+    tts: ttsHealth,
+  });
+});
+
+aiRouter.get("/api/ai/ghananlp/languages", async (_req: Request, res: Response) => {
+  try {
+    const { ghanaNlpAsrService } = await import("../services/ghanaNlpAsrService");
+    if (!ghanaNlpAsrService.isConfigured()) {
+      return res.status(503).json({ error: "Ghana NLP API is not configured. Set GHANANLP_API_KEY in environment." });
+    }
+    const data = await ghanaNlpAsrService.getLanguages();
+    res.json(data);
+  } catch (err: any) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+aiRouter.get("/api/ai/ghananlp/speakers", async (_req: Request, res: Response) => {
+  try {
+    const { ghanaNlpTtsService } = await import("../services/ghanaNlpTtsService");
+    if (!ghanaNlpTtsService.isConfigured()) {
+      return res.status(503).json({ error: "Ghana NLP API is not configured. Set GHANANLP_API_KEY in environment." });
+    }
+    const data = await ghanaNlpTtsService.getSpeakers();
+    res.json(data);
+  } catch (err: any) {
+    res.status(502).json({ error: err.message });
+  }
+});

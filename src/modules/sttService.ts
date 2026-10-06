@@ -14,6 +14,7 @@ import { AI_CONFIG } from "../ai_system/core/aiConfig";
 import { geminiClient } from "../services/geminiClient";
 import { auditLogger } from "../services/auditLogger";
 import { offlineSpeechRecognizer } from "../ai_system/speech/asr/offlineAsrEngine";
+import { ghanaNlpAsrService } from "../services/ghanaNlpAsrService";
 
 export interface SttResult {
   text: string;
@@ -338,6 +339,53 @@ Instructions:
   }
 }
 
+/**
+ * Unified multi-tiered ASR transcription:
+ * 1. Authentic Ghana NLP ASR v3 (if configured)
+ * 2. Hedged Gemini STT
+ * 3. Offline Speech Recognizer
+ * 4. Closed DTMF keypad fallback
+ */
+async function transcribeAudioBufferUnified(
+  buffer: Buffer,
+  mime: string,
+  step?: string,
+  deadlineMs: number = 3000
+): Promise<SttResult> {
+  // Tier 1: Authentic Ghana NLP ASR v3
+  if (ghanaNlpAsrService.isConfigured()) {
+    try {
+      const ghaResult = await ghanaNlpAsrService.transcribe(buffer, "twi", mime, Math.min(deadlineMs, 2500));
+      if (ghaResult.text && ghaResult.text !== "empty") {
+        if (isSpokenPinPattern(ghaResult.text, step)) {
+          auditLogger.log("warn", "PIN_SAFETY", `Spoken PIN pattern intercepted and discarded at step '${step || "unknown"}' (Ghana NLP ASR)`);
+          buffer.fill(0);
+          return {
+            text: "[DISCARDED_PIN]",
+            confidence: 0.0,
+            languageDetected: ghaResult.languageDetected === "twi" ? "twi" : "en",
+            provider: "PIN_SAFETY_GATE",
+            pinDiscarded: true,
+          };
+        }
+        auditLogger.log("info", "STT", `Transcribed utterance via Ghana NLP ASR: length=${ghaResult.text.length}, confidence=${ghaResult.confidence}`);
+        buffer.fill(0);
+        return {
+          text: ghaResult.text,
+          confidence: ghaResult.confidence,
+          languageDetected: ghaResult.languageDetected === "twi" ? "twi" : "en",
+          provider: ghaResult.provider,
+        };
+      }
+    } catch (err: any) {
+      auditLogger.log("info", "STT", `Ghana NLP ASR notice (${err.message}). Falling back to Hedged Gemini ASR.`);
+    }
+  }
+
+  // Tier 2 & 3: Hedged Gemini STT / Offline Speech Recognizer
+  return await transcribeAudioBufferWithHedgedGemini(buffer, mime, step, deadlineMs);
+}
+
 export class TelephonySpeechService implements SpeechToTextProvider {
   public async transcribe(
     audioPayload: Buffer | string,
@@ -360,7 +408,7 @@ export class TelephonySpeechService implements SpeechToTextProvider {
         if (audioPayload.toLowerCase().includes(".wav")) {
           mime = "audio/wav";
         }
-        return await transcribeAudioBufferWithHedgedGemini(buffer, mime, step, 3000);
+        return await transcribeAudioBufferUnified(buffer, mime, step, 3000);
       } catch (err: any) {
         return { text: "empty", confidence: 0.0, provider: "TelephonySpeechService" };
       }
@@ -372,13 +420,13 @@ export class TelephonySpeechService implements SpeechToTextProvider {
       if (match) {
         const mime = match[1];
         const buffer = Buffer.from(match[2], "base64");
-        return await transcribeAudioBufferWithHedgedGemini(buffer, mime, step, 3000);
+        return await transcribeAudioBufferUnified(buffer, mime, step, 3000);
       }
     }
 
     // 3. Raw Buffer
     if (Buffer.isBuffer(audioPayload)) {
-      return await transcribeAudioBufferWithHedgedGemini(audioPayload, mimeType, step, 3000);
+      return await transcribeAudioBufferUnified(audioPayload, mimeType, step, 3000);
     }
 
     // 4. Direct text string (for testing or direct pipeline invocation)

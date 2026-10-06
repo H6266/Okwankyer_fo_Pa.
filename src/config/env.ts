@@ -24,6 +24,11 @@ export interface AppConfig {
   adminToken: string;
   sessionSecret: string;
   corsOrigins: string[];
+  ghanaNlp: {
+    apiKey: string;
+    baseUrl: string;
+    configured: boolean;
+  };
   at: {
     username: string;
     apiKey: string;
@@ -148,6 +153,11 @@ export function loadConfig(): AppConfig {
     adminToken,
     sessionSecret,
     corsOrigins,
+    ghanaNlp: {
+      apiKey: (process.env.GHANANLP_API_KEY || "").trim(),
+      baseUrl: (process.env.GHANANLP_BASE_URL || "https://translation-api.ghananlp.org").trim().replace(/\/+$/, ""),
+      configured: Boolean((process.env.GHANANLP_API_KEY || "").trim()),
+    },
     at: {
       username: atUsername,
       apiKey: atApiKey,

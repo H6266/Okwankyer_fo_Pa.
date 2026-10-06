@@ -680,7 +680,7 @@ voiceRouter.all("/speech-fallback", async (req: Request, res: Response) => {
     return xmlResponse(res, `    <Redirect>${baseUrl}/language-selection?sessionId=${sessionId}&amp;dtmfDigits=${chosenDtmf}</Redirect>`);
   }
 
-  // Universal cancel or back
+  // Universal cancel or exit
   const isCancellation = aiTurn?.intent === "CANCEL" ||
     (!aiTurn && (clean.includes("cancel") || clean.includes("gyae") || clean.includes("stop")));
   if (isCancellation) {
@@ -688,9 +688,42 @@ voiceRouter.all("/speech-fallback", async (req: Request, res: Response) => {
     return xmlResponse(res, `    <Say voice="female">${lang === "twi" ? "Yɛatwa mu. Nante yie." : "Transaction cancelled. Goodbye."}</Say>\n    <Reject/>`);
   }
 
+  // Handle balance inquiry or airtime spoken intent directly
+  if (aiTurn?.intent === "CHECK_BALANCE") {
+    const spoken = lang === "twi"
+      ? "Mentumi nhwɛ wo wallet balance. Sɛ wopɛ sɛ wohwɛ wo deɛ a, bɔ star baako nson hwee hash wɔ wo fon so."
+      : "I can't check wallet balances. To check yours, dial star one seven zero hash on your handset.";
+    return xmlResponse(res, `    <Say voice="female">${spoken}</Say>\n    <Reject/>`);
+  }
+
+  // Confirmation steps (safe-confirmation or recipient-verify-choice)
+  if (step === "safe-confirmation" || step === "recipient-verify-choice") {
+    const isAffirmative =
+      aiTurn?.intent === "CONFIRM" ||
+      /\b(yes|confirm|aane|ampa|yie|ɛyɛ|proceed|kɔ so|okay|one|baako)\b/i.test(clean);
+    const isNegative =
+      /\b(no|dabi|sesa|change|repeat|san|back|two|mmienu)\b/i.test(clean);
+
+    if (isAffirmative) {
+      const targetUrl = step === "safe-confirmation"
+        ? `${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=1`
+        : `${baseUrl}/recipient-verify-choice?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=1`;
+      return xmlResponse(res, `    <Redirect>${targetUrl}</Redirect>`);
+    }
+    if (isNegative) {
+      const targetUrl = step === "safe-confirmation"
+        ? `${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=2`
+        : `${baseUrl}/recipient-verify-choice?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=2`;
+      return xmlResponse(res, `    <Redirect>${targetUrl}</Redirect>`);
+    }
+  }
+
   // Rule 2: Spoken recipients and amounts are NEVER accepted silently; routed to verification step
   if (step === "enter-recipient") {
-    const digitsOnly = clean.replace(/[^0-9]/g, "");
+    const aiPhone = (aiTurn?.entities?.recipientPhone || "").replace(/[^0-9]/g, "");
+    const cleanDigits = clean.replace(/[^0-9]/g, "");
+    const digitsOnly = aiPhone.length === 10 ? aiPhone : cleanDigits;
+
     if (digitsOnly.length === 10) {
       return xmlResponse(res, `    <Redirect>${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${digitsOnly}</Redirect>`);
     }
@@ -699,7 +732,7 @@ voiceRouter.all("/speech-fallback", async (req: Request, res: Response) => {
 
   if (step === "enter-amount") {
     const parsedAmount = aiTurn?.entities?.amount;
-    const digitsOnly = typeof parsedAmount === "number" && Number.isFinite(parsedAmount)
+    const digitsOnly = typeof parsedAmount === "number" && Number.isFinite(parsedAmount) && parsedAmount > 0
       ? String(parsedAmount)
       : clean.replace(/[^0-9]/g, "");
     if (digitsOnly.length > 0 && digitsOnly.length <= 5) {
