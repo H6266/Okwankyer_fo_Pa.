@@ -75,18 +75,31 @@ export class UnifiedGeminiClient {
   }
 
   private modelQuotaCooldowns = new Map<string, number>();
+  private accessDenied: boolean = false;
+  private accessDeniedUntil: number = 0;
 
   public isAvailable(): boolean {
+    if (this.accessDenied && Date.now() < this.accessDeniedUntil) {
+      return false;
+    }
     return Boolean(this.getRawClient()) && this.checkCircuitBreaker();
   }
 
   public isModelAvailable(model: string): boolean {
+    if (this.accessDenied && Date.now() < this.accessDeniedUntil) {
+      return false;
+    }
     if (!this.getRawClient()) return false;
     const cooldownUntil = this.modelQuotaCooldowns.get(model);
     if (cooldownUntil && Date.now() < cooldownUntil) {
       return false;
     }
     return this.checkCircuitBreaker();
+  }
+
+  public recordAccessDenied(reason: string = "PERMISSION_DENIED", cooldownMs: number = 24 * 60 * 60 * 1000): void {
+    this.accessDenied = true;
+    this.accessDeniedUntil = Date.now() + cooldownMs;
   }
 
   public recordModelQuotaExhausted(model: string, retryDelayMs: number = 15 * 60 * 1000): void {
@@ -164,6 +177,20 @@ export class UnifiedGeminiClient {
           (msg.includes("RESOURCE_EXHAUSTED") ||
            msg.includes("Quota exceeded") ||
            msg.includes("generativelanguage.googleapis.com"));
+
+        const isForbidden =
+          err.status === 403 ||
+          msg.includes("403") ||
+          msg.includes("PERMISSION_DENIED") ||
+          msg.includes("denied access") ||
+          msg.includes("API_KEY_INVALID");
+
+        // If access is denied (403), immediately record access denied and do not retry
+        if (isForbidden) {
+          this.recordAccessDenied(msg);
+          this.recordFailure();
+          throw err;
+        }
 
         // If daily quota is exhausted, retrying immediately is futile. Throw immediately.
         if (isQuotaExhausted) {

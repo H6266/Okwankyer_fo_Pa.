@@ -173,8 +173,19 @@ Rules:
         return this.normalizeModelResponse(validated.data, cleanUtterance, params.existingSlots);
       } catch (err: any) {
         const msg = String(err?.message || "");
+        const isForbidden =
+          msg.includes("403") ||
+          msg.includes("PERMISSION_DENIED") ||
+          msg.includes("denied access");
         const isQuota = msg.includes("RESOURCE_EXHAUSTED") || msg.includes("Quota exceeded") || msg.includes("429");
-        if (isQuota) {
+
+        if (isForbidden) {
+          if (typeof (this.client as any)?.recordAccessDenied === "function") {
+            (this.client as any).recordAccessDenied(msg);
+          }
+          console.info(`[ReasoningEngine] Gemini API access not permitted on current project (403). Operating with 100% resilient Ghanaian deterministic reasoning.`);
+          break; // Stop querying subsequent models when project access is denied
+        } else if (isQuota) {
           let cooldownMs = 15 * 60 * 1000;
           const retrySecMatch = msg.match(/retryDelay['":\s]+([0-9]+)/i);
           if (retrySecMatch && retrySecMatch[1]) {

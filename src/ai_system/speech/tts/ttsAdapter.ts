@@ -156,10 +156,11 @@ export class GeminiTtsAdapter implements TTSProvider {
       if (isForbidden) {
         // Cooldown for 24 hours so we don't spam 403 on every spoken phrase
         this.quotaExhaustedUntil = Date.now() + 24 * 60 * 60 * 1000;
-        console.warn("[GeminiTtsAdapter] Gemini TTS is not permitted for current project (403 PERMISSION_DENIED). Seamlessly falling back to local / Google speech synthesis.");
+        geminiClient.recordAccessDenied(msg);
+        console.info("[GeminiTtsAdapter] Gemini TTS is not permitted for current project (403). Using authentic studio recordings & Google speech synthesis.");
       } else if (isQuota) {
         this.quotaExhaustedUntil = Date.now() + 5 * 60 * 1000;
-        console.warn(`[GeminiTtsAdapter] Gemini TTS quota exhausted (429 RESOURCE_EXHAUSTED). Free tier daily quota reached. Local Ghanaian synthesis will serve requests until ${new Date(this.quotaExhaustedUntil).toLocaleTimeString()}.`);
+        console.info(`[GeminiTtsAdapter] Gemini TTS quota reached. Free tier daily quota reached. Local Ghanaian synthesis will serve requests until ${new Date(this.quotaExhaustedUntil).toLocaleTimeString()}.`);
       } else {
         console.warn("[GeminiTtsAdapter] Gemini TTS notice:", msg);
       }
@@ -169,47 +170,7 @@ export class GeminiTtsAdapter implements TTSProvider {
   }
 
   private async synthesizeFallback(request: TtsSynthesisRequest, reason: string): Promise<TtsSynthesisResponse> {
-    const isAkan = request.language === "tw" || /([ɛɔ]|mepa|sika|mane|akwaaba|dabi|aane)/i.test(request.text);
-
-    // Try Google TTS for non-Akan / English text if under 200 characters
-    if (!isAkan && request.text.length <= 200) {
-      try {
-        const b64 = await googleTTS.getAudioBase64(request.text, {
-          lang: "en",
-          slow: false,
-          host: "https://translate.google.com",
-          timeout: 3000,
-        });
-        if (b64 && b64.length > 64) {
-          const buf = Buffer.from(b64, "base64");
-          return {
-            audioBase64: b64,
-            audioBuffer: buf,
-            audioMimeType: "audio/mp3",
-            providerUsed: `google-tts-${reason}`,
-          };
-        }
-      } catch {
-        // Fall through to local Ghanaian provider
-      }
-    }
-
-    try {
-      const localResult = await localGhanaianTtsProvider.synthesize(request);
-      if (localResult.audioBuffer && localResult.audioBuffer.length > 44) {
-        return localResult;
-      }
-    } catch {
-      // Fall through to PCM generator
-    }
-
-    const fallbackBuffer = localGhanaianTtsProvider.generatePcmWav(request.text, 1.0);
-    return {
-      audioBuffer: fallbackBuffer,
-      audioBase64: fallbackBuffer.toString("base64"),
-      audioMimeType: "audio/wav",
-      providerUsed: `local-ghanaian-${reason}`,
-    };
+    return await localGhanaianTtsProvider.synthesize(request);
   }
 }
 

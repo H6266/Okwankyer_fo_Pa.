@@ -959,7 +959,7 @@ export function usePhoneSimulator() {
    */
   const resolveStudioPrompt = useCallback((text: string, lang: string, step?: string): string | null => {
     const isTwi = lang === "tw" || lang === "ak";
-    const lower = (text || "").toLowerCase();
+    const lower = (text || "").toLowerCase().replace(/[-_]/g, " ");
     const currentCheck = (step || "").toLowerCase();
 
     if (currentCheck.includes("confirm") || currentCheck.includes("safe-confirm") || lower.includes("confirm and send") || lower.includes("woremane sika") || lower.includes("500 ghana cedis") || lower.includes("500 ghana cedi")) {
