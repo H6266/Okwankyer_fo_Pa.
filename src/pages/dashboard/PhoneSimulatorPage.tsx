@@ -562,7 +562,7 @@ export const PhoneSimulatorPage: React.FC = () => {
                 className="p-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-left border border-slate-200 transition-all text-xs font-medium group"
               >
                 <div className="text-[10px] font-bold text-slate-700">🛑 Cancel Call</div>
-                <div className="text-[11px] text-slate-700 font-semibold truncate">Press 0 (Reject)</div>
+                <div className="text-[11px] text-slate-700 font-semibold truncate">Press 0 (&lt;Reject/&gt;)</div>
               </button>
 
               {/* AT Recipient Lookup */}
