@@ -373,7 +373,7 @@ export function usePhoneSimulator() {
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [enableTts, setEnableTts] = useState(true);
-  const [voiceMode, setVoiceMode] = useState<"AI_NEURAL" | "STUDIO_PROMPTS" | "BROWSER">("AI_NEURAL");
+  const [voiceMode, setVoiceMode] = useState<"AI_NEURAL" | "STUDIO_PROMPTS" | "BROWSER">("STUDIO_PROMPTS");
 
   // Synchronized Ecosystem State
   const [syncState, setSyncState] = useState<SimulatorSyncState>({
@@ -955,6 +955,51 @@ export function usePhoneSimulator() {
   }, []);
 
   /**
+   * Helper to map conversation dialogue turns or steps to authentic studio recordings
+   */
+  const resolveStudioPrompt = useCallback((text: string, lang: string, step?: string): string | null => {
+    const isTwi = lang === "tw" || lang === "ak";
+    const lower = (text || "").toLowerCase();
+    const currentCheck = (step || "").toLowerCase();
+
+    if (currentCheck.includes("confirm") || currentCheck.includes("safe-confirm") || lower.includes("confirm and send") || lower.includes("woremane sika") || lower.includes("500 ghana cedis") || lower.includes("500 ghana cedi")) {
+      return isTwi ? "/audio/Twi/Audio_prompt_twi_08.mp3" : "/audio/English/Audio_prompt_10.mp3";
+    }
+    if (currentCheck.includes("amount") || currentCheck.includes("enter-amount") || lower.includes("cedi amount") || lower.includes("enter amount") || lower.includes("sika dodoɔ") || lower.includes("sika dodow")) {
+      return isTwi ? "/audio/Twi/Audio_prompt_twi_07.mp3" : "/audio/English/Audio_prompt_09.mp3";
+    }
+    if (currentCheck.includes("recipient") || currentCheck.includes("phone") || currentCheck.includes("enter-recipient") || lower.includes("10-digit") || lower.includes("bɔ nɔmba") || lower.includes("number you want to send")) {
+      return isTwi ? "/audio/Twi/Audio_prompt_twi_05.mp3" : "/audio/English/Audio_prompt_06.mp3";
+    }
+    if (currentCheck.includes("verify") || lower.includes("about to send money to kwame") || lower.includes("kwame nyamebrɛ") || lower.includes("ends with 8464")) {
+      return isTwi ? "/audio/Twi/Audio_prompt_twi_06.mp3" : "/audio/English/Audio_prompt_08.mp3";
+    }
+    if (currentCheck.includes("receipt") || currentCheck.includes("outcome") || currentCheck.includes("safe-outcome") || lower.includes("congratulations") || lower.includes("akɔ yie") || lower.includes("successfully sent")) {
+      return isTwi ? "/audio/Twi/Audio_prompt_twi_10.mp3" : "/audio/English/Audio_prompt_12.mp3";
+    }
+    if (currentCheck.includes("pin") || lower.includes("secret pin") || lower.includes("momo pin") || lower.includes("nkyerɛwee")) {
+      return isTwi ? "/audio/Twi/Audio_prompt_twi_09.mp3" : "/audio/English/Audio_prompt_11.mp3";
+    }
+    if (currentCheck.includes("network") || currentCheck.includes("provider") || lower.includes("network") || lower.includes("mtn") || lower.includes("telecel") || lower.includes("airteltigo")) {
+      return isTwi ? "/audio/Twi/Audio_prompt_twi_02.mp3" : "/audio/English/Audio_prompt_03.mp3";
+    }
+    if (currentCheck.includes("service") || lower.includes("telecom") || lower.includes("banking") || lower.includes("sikakorabea")) {
+      return isTwi ? "/audio/Twi/Audio_prompt_twi_03.mp3" : "/audio/English/Audio_prompt_02.mp3";
+    }
+    if (currentCheck.includes("action") || lower.includes("momo user") || lower.includes("pay bills") || lower.includes("buy airtime") || lower.includes("cash out")) {
+      return isTwi ? "/audio/Twi/Audio_prompt_twi_04.mp3" : "/audio/English/Audio_prompt_05.mp3";
+    }
+    if (currentCheck.includes("welcome") || currentCheck.includes("language") || lower.includes("welcome") || lower.includes("akwaaba")) {
+      return isTwi ? "/audio/Twi/Welcome_prompt_01.mp3" : "/audio/Welcome_prompt_01.mp3";
+    }
+    if (lower.includes("thank you") || lower.includes("goodbye") || lower.includes("meda wo ase")) {
+      return isTwi ? "/audio/Twi/Audio_prompt_twi_11.mp3" : "/audio/English/Audio_prompt_13.mp3";
+    }
+
+    return null;
+  }, []);
+
+  /**
    * Play speech or studio prompts based on selected audio mode
    */
   const playAudioSynthesis = useCallback(async (text: string, lang: string, step?: string) => {
@@ -963,42 +1008,33 @@ export function usePhoneSimulator() {
       setIsAiSpeaking(true);
       const isTwi = lang === "tw" || lang === "ak";
 
-      // 1. Studio Pre-Recorded Prompts Mode
-      if (voiceMode === "STUDIO_PROMPTS") {
-        let promptFile = isTwi ? "/audio/Twi/Welcome_prompt_01.mp3" : "/audio/English/Welcome_prompt_01.mp3";
-        const currentCheck = step || currentStep;
-        if (currentCheck === "confirm") {
-          promptFile = isTwi ? "/audio/Twi/Audio_prompt_twi_08.mp3" : "/audio/English/Audio_prompt_08.mp3";
-        } else if (currentCheck === "amount") {
-          promptFile = isTwi ? "/audio/Twi/Audio_prompt_twi_07.mp3" : "/audio/English/Audio_prompt_07.mp3";
-        } else if (currentCheck === "phone") {
-          promptFile = isTwi ? "/audio/Twi/Audio_prompt_twi_04.mp3" : "/audio/English/Audio_prompt_04.mp3";
-        } else if (currentCheck === "receipt") {
-          promptFile = isTwi ? "/audio/Twi/Audio_prompt_twi_10.mp3" : "/audio/English/Audio_prompt_10.mp3";
-        } else if (currentCheck === "service") {
-          promptFile = isTwi ? "/audio/Twi/Audio_prompt_twi_02.mp3" : "/audio/English/Audio_prompt_02.mp3";
-        }
-
+      // 1. Studio Pre-Recorded Prompts Mode (Priority 1)
+      const matchedPrompt = resolveStudioPrompt(text, lang, step || currentStep);
+      if (voiceMode === "STUDIO_PROMPTS" || (matchedPrompt && voiceMode !== "BROWSER")) {
+        const promptFile = matchedPrompt || (isTwi ? "/audio/Twi/Welcome_prompt_01.mp3" : "/audio/Welcome_prompt_01.mp3");
         if (audioRef.current) {
           audioRef.current.src = promptFile;
+          setActiveAudioClip(promptFile);
           await audioRef.current.play().catch(() => {});
           return;
         }
       }
 
       // 2. AI Neural TTS Mode (Synthesizer Service)
-      if (voiceMode === "AI_NEURAL") {
-        const synth = await api.synthesizeSpeech({
-          text,
-          language: isTwi ? "tw" : "en",
-          style: "ghanaian-warm",
-        });
+      if (voiceMode === "AI_NEURAL" || voiceMode === "STUDIO_PROMPTS") {
+        try {
+          const synth = await api.synthesizeSpeech({
+            text,
+            language: isTwi ? "tw" : "en",
+            style: "ghanaian-warm",
+          });
 
-        if (synth?.result?.audioBase64 && audioRef.current) {
-          audioRef.current.src = `data:${synth.result.audioMimeType || "audio/wav"};base64,${synth.result.audioBase64}`;
-          await audioRef.current.play().catch(() => {});
-          return;
-        }
+          if (synth?.result?.audioBase64 && audioRef.current) {
+            audioRef.current.src = `data:${synth.result.audioMimeType || "audio/mp3"};base64,${synth.result.audioBase64}`;
+            await audioRef.current.play().catch(() => {});
+            return;
+          }
+        } catch {}
       }
 
       // 3. Browser Speech Synthesis Fallback
@@ -1014,7 +1050,7 @@ export function usePhoneSimulator() {
     } catch {
       setIsAiSpeaking(false);
     }
-  }, [enableTts, voiceMode, currentStep]);
+  }, [enableTts, voiceMode, currentStep, resolveStudioPrompt]);
 
   /**
    * Process a single turn through the backend Canonical AI
@@ -1540,18 +1576,44 @@ export function usePhoneSimulator() {
   /**
    * Play any authentic studio prompt clip from the Audio Library
    */
-  const playStudioClip = useCallback(async (filepath: string) => {
+  const playStudioClip = useCallback(async (target: string) => {
+    if (!target) return;
     try {
       setIsAiSpeaking(true);
-      setActiveAudioClip(filepath);
-      const url = filepath.startsWith("/audio/")
-        ? filepath
-        : filepath.startsWith("audio/")
-        ? `/${filepath}`
-        : `/audio/${filepath}`;
+      const isAudioFile =
+        target.endsWith(".mp3") ||
+        target.endsWith(".wav") ||
+        target.startsWith("/audio/") ||
+        target.startsWith("audio/");
 
-      if (audioRef.current) {
-        audioRef.current.src = url;
+      if (isAudioFile) {
+        setActiveAudioClip(target);
+        const url = target.startsWith("/audio/")
+          ? target
+          : target.startsWith("audio/")
+          ? `/${target}`
+          : `/audio/${target}`;
+
+        if (audioRef.current) {
+          audioRef.current.src = url;
+          audioRef.current.onended = () => {
+            setIsAiSpeaking(false);
+            setActiveAudioClip(null);
+          };
+          audioRef.current.onerror = () => {
+            setIsAiSpeaking(false);
+            setActiveAudioClip(null);
+          };
+          await audioRef.current.play();
+        }
+        return;
+      }
+
+      // If target is text (e.g. from chat replay or custom test sandbox), resolve studio prompt or synthesize
+      const matched = resolveStudioPrompt(target, language);
+      if (matched && audioRef.current) {
+        setActiveAudioClip(matched);
+        audioRef.current.src = matched;
         audioRef.current.onended = () => {
           setIsAiSpeaking(false);
           setActiveAudioClip(null);
@@ -1561,13 +1623,48 @@ export function usePhoneSimulator() {
           setActiveAudioClip(null);
         };
         await audioRef.current.play();
+        return;
+      }
+
+      // Dynamic text: synthesize speech
+      try {
+        const synth = await api.synthesizeSpeech({
+          text: target,
+          language: language === "tw" ? "tw" : "en",
+          style: "ghanaian-warm",
+        });
+
+        if (synth?.result?.audioBase64 && audioRef.current) {
+          audioRef.current.src = `data:${synth.result.audioMimeType || "audio/mp3"};base64,${synth.result.audioBase64}`;
+          audioRef.current.onended = () => {
+            setIsAiSpeaking(false);
+            setActiveAudioClip(null);
+          };
+          audioRef.current.onerror = () => {
+            setIsAiSpeaking(false);
+            setActiveAudioClip(null);
+          };
+          await audioRef.current.play();
+          return;
+        }
+      } catch {}
+
+      // Browser TTS fallback
+      if ("speechSynthesis" in window) {
+        const utterance = new SpeechSynthesisUtterance(target);
+        utterance.rate = 0.95;
+        utterance.onend = () => setIsAiSpeaking(false);
+        utterance.onerror = () => setIsAiSpeaking(false);
+        window.speechSynthesis.speak(utterance);
+      } else {
+        setIsAiSpeaking(false);
       }
     } catch (err) {
       console.warn("Studio clip play notice:", err);
       setIsAiSpeaking(false);
       setActiveAudioClip(null);
     }
-  }, []);
+  }, [language, resolveStudioPrompt]);
 
   /**
    * 1-Click Feature Trigger: Test Zero-PIN Violation Interception

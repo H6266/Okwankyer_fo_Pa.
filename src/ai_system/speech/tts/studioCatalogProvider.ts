@@ -13,6 +13,7 @@ import fs from "fs";
 import path from "path";
 import { AUDIO_CATALOG } from "../../../audio/catalog";
 import { TTSProvider, TtsSynthesisRequest, TtsSynthesisResponse } from "./ttsProvider";
+import { localGhanaianTtsProvider } from "./localGhanaianTts";
 
 export class StudioCatalogProvider implements TTSProvider {
   private catalog = new Map<string, string>(); // normalizedText -> absoluteFilePath
@@ -59,10 +60,11 @@ export class StudioCatalogProvider implements TTSProvider {
   }
 
   /**
-   * Checks if an exact matching human recording exists in the catalog.
+   * Checks if an exact or semantic matching human recording exists in the catalog.
    */
-  public hasMatch(text: string): boolean {
-    return this.catalog.has(this.normalizeText(text));
+  public hasMatch(text: string, language?: string): boolean {
+    if (this.catalog.has(this.normalizeText(text))) return true;
+    return localGhanaianTtsProvider.findPromptMatch(text, language) !== null;
   }
 
   /**
@@ -70,7 +72,10 @@ export class StudioCatalogProvider implements TTSProvider {
    */
   public async synthesize(request: TtsSynthesisRequest): Promise<TtsSynthesisResponse> {
     const key = this.normalizeText(request.text);
-    const filePath = this.catalog.get(key);
+    let filePath = this.catalog.get(key);
+    if (!filePath || !fs.existsSync(filePath)) {
+      filePath = localGhanaianTtsProvider.findPromptMatch(request.text, request.language) || undefined;
+    }
 
     if (!filePath || !fs.existsSync(filePath)) {
       throw new Error(`STUDIO_CATALOG_MISS: No pre-recorded studio audio for: "${request.text}"`);

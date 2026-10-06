@@ -8,10 +8,12 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
+import * as googleTTS from "google-tts-api";
 import { TTSProvider, TtsSynthesisRequest, TtsSynthesisResponse } from "./ttsProvider";
 import { AI_CONFIG } from "../../core/aiConfig";
 import { GHANA_VOICE_PROFILES } from "../voiceProfiles/ghanaProfile";
 import { geminiClient } from "../../../services/geminiClient";
+import { localGhanaianTtsProvider } from "./localGhanaianTts";
 
 export interface TtsCacheStats {
   hits: number;
@@ -69,17 +71,11 @@ export class GeminiTtsAdapter implements TTSProvider {
     this.cacheMisses++;
 
     if (!geminiClient.isAvailable()) {
-      return {
-        audioMimeType: "audio/wav",
-        providerUsed: "fallback-text-only",
-      };
+      return this.synthesizeFallback(request, "offline");
     }
 
     if (Date.now() < this.quotaExhaustedUntil) {
-      return {
-        audioMimeType: "audio/wav",
-        providerUsed: "quota-cooldown-fallback",
-      };
+      return this.synthesizeFallback(request, "cooldown");
     }
 
     const startTime = Date.now();
@@ -126,7 +122,7 @@ export class GeminiTtsAdapter implements TTSProvider {
         const headerCheck = this.validateAudioHeader(audioBuffer);
         if (!headerCheck.valid) {
           console.warn("[GeminiTtsAdapter] Generated audio failed header validation (size under 128 bytes).");
-          return { audioMimeType: "audio/wav", providerUsed: "invalid-header-fallback" };
+          return this.synthesizeFallback(request, "invalid-header");
         }
 
         const mime = headerCheck.format === "mp3" ? "audio/mp3" : "audio/wav";
@@ -143,24 +139,77 @@ export class GeminiTtsAdapter implements TTSProvider {
         };
       }
 
-      return {
-        audioMimeType: "audio/wav",
-        providerUsed: "gemini-tts-empty",
-      };
+      return this.synthesizeFallback(request, "gemini-empty");
     } catch (err: any) {
       const msg = String(err?.message || "");
-      if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("Quota exceeded") || msg.includes("quota")) {
-        // Cooldown for 5 minutes so router falls back to local synthesis without repeated failed network requests
+      const isForbidden =
+        msg.includes("403") ||
+        msg.includes("PERMISSION_DENIED") ||
+        msg.includes("denied access") ||
+        msg.includes("not enabled");
+      const isQuota =
+        msg.includes("429") ||
+        msg.includes("RESOURCE_EXHAUSTED") ||
+        msg.includes("Quota exceeded") ||
+        msg.includes("quota");
+
+      if (isForbidden) {
+        // Cooldown for 24 hours so we don't spam 403 on every spoken phrase
+        this.quotaExhaustedUntil = Date.now() + 24 * 60 * 60 * 1000;
+        console.warn("[GeminiTtsAdapter] Gemini TTS is not permitted for current project (403 PERMISSION_DENIED). Seamlessly falling back to local / Google speech synthesis.");
+      } else if (isQuota) {
         this.quotaExhaustedUntil = Date.now() + 5 * 60 * 1000;
         console.warn(`[GeminiTtsAdapter] Gemini TTS quota exhausted (429 RESOURCE_EXHAUSTED). Free tier daily quota reached. Local Ghanaian synthesis will serve requests until ${new Date(this.quotaExhaustedUntil).toLocaleTimeString()}.`);
       } else {
-        console.warn("[GeminiTtsAdapter] TTS error:", msg);
+        console.warn("[GeminiTtsAdapter] Gemini TTS notice:", msg);
       }
-      return {
-        audioMimeType: "audio/wav",
-        providerUsed: "error-fallback",
-      };
+
+      return this.synthesizeFallback(request, isForbidden ? "forbidden-fallback" : "error-fallback");
     }
+  }
+
+  private async synthesizeFallback(request: TtsSynthesisRequest, reason: string): Promise<TtsSynthesisResponse> {
+    const isAkan = request.language === "tw" || /([ɛɔ]|mepa|sika|mane|akwaaba|dabi|aane)/i.test(request.text);
+
+    // Try Google TTS for non-Akan / English text if under 200 characters
+    if (!isAkan && request.text.length <= 200) {
+      try {
+        const b64 = await googleTTS.getAudioBase64(request.text, {
+          lang: "en",
+          slow: false,
+          host: "https://translate.google.com",
+          timeout: 3000,
+        });
+        if (b64 && b64.length > 64) {
+          const buf = Buffer.from(b64, "base64");
+          return {
+            audioBase64: b64,
+            audioBuffer: buf,
+            audioMimeType: "audio/mp3",
+            providerUsed: `google-tts-${reason}`,
+          };
+        }
+      } catch {
+        // Fall through to local Ghanaian provider
+      }
+    }
+
+    try {
+      const localResult = await localGhanaianTtsProvider.synthesize(request);
+      if (localResult.audioBuffer && localResult.audioBuffer.length > 44) {
+        return localResult;
+      }
+    } catch {
+      // Fall through to PCM generator
+    }
+
+    const fallbackBuffer = localGhanaianTtsProvider.generatePcmWav(request.text, 1.0);
+    return {
+      audioBuffer: fallbackBuffer,
+      audioBase64: fallbackBuffer.toString("base64"),
+      audioMimeType: "audio/wav",
+      providerUsed: `local-ghanaian-${reason}`,
+    };
   }
 }
 

@@ -56,9 +56,20 @@ app.use((req: Request, res: Response, next) => {
   next();
 });
 
-// Request body limits (strict 1MB limit for JSON and urlencoded)
-app.use(express.urlencoded({ extended: true, limit: "1mb" }));
-app.use(express.json({ limit: "1mb" }));
+// Request body limits (50MB to support audio recordings, ASR audio streams, and base64 uploads)
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+app.use(express.json({ limit: "50mb" }));
+
+// Graceful handler for payload too large errors
+app.use((err: any, _req: Request, res: Response, next: any) => {
+  if (err && (err.type === "entity.too.large" || err.status === 413 || err.name === "PayloadTooLargeError")) {
+    return res.status(413).json({
+      success: false,
+      error: "Payload too large. Audio file size exceeds maximum upload limit (50MB).",
+    });
+  }
+  next(err);
+});
 
 // Static public directory (disable index to let Vite/SPA handle index.html)
 app.use(express.static(path.resolve(process.cwd(), "public"), { index: false }));

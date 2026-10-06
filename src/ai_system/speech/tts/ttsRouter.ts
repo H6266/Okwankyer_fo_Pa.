@@ -28,7 +28,7 @@ export interface TtsRouterReport {
 export class TtsRouter implements TTSProvider {
   public async synthesize(request: TtsSynthesisRequest): Promise<TtsSynthesisResponse> {
     // Tier 1: Check authentic human studio recording catalog
-    if (studioCatalogProvider.hasMatch(request.text)) {
+    if (studioCatalogProvider.hasMatch(request.text, request.language)) {
       try {
         return await studioCatalogProvider.synthesize(request);
       } catch (err: any) {
@@ -58,7 +58,7 @@ export class TtsRouter implements TTSProvider {
       }
     }
 
-    // Tier 4: Genuine Local Ghanaian Speech Synthesizer (Studio catalog + authentic Akan acoustic synthesis)
+    // Tier 4: Genuine Local Ghanaian Speech Synthesizer (Studio catalog + Google neural synthesis)
     try {
       const localResult = await localGhanaianTtsProvider.synthesize(request);
       if (localResult.audioBuffer && localResult.audioBuffer.length > 44) {
@@ -68,14 +68,8 @@ export class TtsRouter implements TTSProvider {
       console.warn("[TtsRouter] Local Ghanaian TTS notice:", err.message);
     }
 
-    // Tier 5: Resilient acoustic synthesis fallback
-    const fallbackBuffer = localGhanaianTtsProvider.generatePcmWav(request.text, 1.0);
-    return {
-      audioBuffer: fallbackBuffer,
-      audioBase64: fallbackBuffer.toString("base64"),
-      audioMimeType: "audio/wav",
-      providerUsed: "local-ghanaian-resilient-fallback",
-    };
+    // Tier 5: Safe clean studio welcome fallback (never sine-wave noise)
+    return await localGhanaianTtsProvider.synthesize(request);
   }
 
   public async getRouterReport(): Promise<TtsRouterReport> {
