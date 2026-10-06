@@ -11,6 +11,7 @@
  */
 
 import { FreeOpenSourceAsrProvider, FreeSpeechResult, freeOpenSourceAsrProvider } from "./asr/freeOpenSourceProvider";
+import type { AiLanguage } from "../core/aiTypes";
 
 export type SpeechProviderMode = "free" | "hci_lab" | "hybrid";
 
@@ -233,12 +234,21 @@ export function getSpeechProviderMode(): SpeechProviderMode {
   return "free";
 }
 
-export function getActiveAsrProvider(languageHint?: "en" | "tw" | "auto"): PluggableAsrProvider {
+function normalizeLanguageForTts(languageHint?: AiLanguage | "auto"): "en" | "tw" {
+  if (languageHint === "tw" || languageHint === "ak" || languageHint === "en-ak") {
+    return "tw";
+  }
+  return "en";
+}
+
+export function getActiveAsrProvider(languageHint?: AiLanguage | "auto"): PluggableAsrProvider {
   const mode = getSpeechProviderMode();
+  const normalized = languageHint === "auto" ? "en" : normalizeLanguageForTts(languageHint);
+
   if (mode === "hci_lab") {
     return ugHciLabAsrProvider;
   }
-  if (mode === "hybrid" && languageHint === "tw") {
+  if (mode === "hybrid" && normalized === "tw") {
     return ugHciLabAsrProvider;
   }
   return {
@@ -248,12 +258,14 @@ export function getActiveAsrProvider(languageHint?: "en" | "tw" | "auto"): Plugg
   };
 }
 
-export function getActiveTtsProvider(languageHint?: "en" | "tw"): PluggableTtsProvider {
+export function getActiveTtsProvider(languageHint?: AiLanguage): PluggableTtsProvider {
   const mode = getSpeechProviderMode();
+  const normalized = normalizeLanguageForTts(languageHint);
+
   if (mode === "hci_lab") {
     return ugHciLabTtsProvider;
   }
-  if (mode === "hybrid" && languageHint === "tw") {
+  if (mode === "hybrid" && normalized === "tw") {
     return ugHciLabTtsProvider;
   }
   return freeTtsProvider;
