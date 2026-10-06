@@ -346,7 +346,7 @@ export const PhoneSimulatorPage: React.FC = () => {
           </div>
           <div className="mt-1">
             <div className="text-[11px] font-extrabold text-emerald-700 font-mono truncate">
-              GH₵ {sim.syncState.floatBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              {sim.syncState.floatBalance === null ? "Unavailable" : `GH₵ ${sim.syncState.floatBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
             </div>
             <span className="text-[9px] text-slate-500 font-semibold flex items-center">
               <span>MoMo Lab →</span>
@@ -1186,7 +1186,7 @@ export const PhoneSimulatorPage: React.FC = () => {
                   <div className="bg-white p-2 rounded border border-emerald-200">
                     <span className="text-slate-500 block text-[10px]">Business Float:</span>
                     <span className="font-bold text-emerald-800">
-                      GH₵ {sim.syncState.floatBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      {sim.syncState.floatBalance === null ? "Unavailable" : `GH₵ ${sim.syncState.floatBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
                     </span>
                   </div>
                   <div className="bg-white p-2 rounded border border-emerald-200">
@@ -1779,7 +1779,7 @@ export const PhoneSimulatorPage: React.FC = () => {
               <div className="flex items-center justify-between py-1 border-b border-slate-50">
                 <span className="text-slate-500">Confidence Score</span>
                 <span className="font-mono font-bold text-emerald-700">
-                  {(sim.confidence * 100).toFixed(1)}%
+                  {sim.confidence === null ? "Unavailable" : `${(sim.confidence * 100).toFixed(1)}%`}
                 </span>
               </div>
 

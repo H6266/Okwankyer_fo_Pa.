@@ -62,14 +62,14 @@ export interface AccuracyTestResult {
   actualAmount?: number;
   actualRecipient?: string;
   language: string;
-  confidence: number;
+  confidence: number | null;
   isPass: boolean;
 }
 
 export interface SimulatorSyncState {
   callLogsTotal: number;
   ledgerTotal: number;
-  floatBalance: number;
+  floatBalance: number | null;
   lastSessionId?: string;
   targetEnv: string;
   activeKeyType: string;
@@ -379,7 +379,7 @@ export function usePhoneSimulator() {
   const [syncState, setSyncState] = useState<SimulatorSyncState>({
     callLogsTotal: 1,
     ledgerTotal: 0,
-    floatBalance: 25480.0,
+    floatBalance: null,
     lastSessionId: undefined,
     targetEnv: "sandbox",
     activeKeyType: "primary",
@@ -412,7 +412,7 @@ export function usePhoneSimulator() {
   const [transcript, setTranscript] = useState<SimulatorTranscriptItem[]>([]);
   const [aiResponse, setAiResponse] = useState<string | null>(null);
   const [intent, setIntent] = useState<string>("UNKNOWN");
-  const [confidence, setConfidence] = useState<number>(0.0);
+  const [confidence, setConfidence] = useState<number | null>(null);
   const [entities, setEntities] = useState<Record<string, any>>({});
   const [safety, setSafety] = useState<Record<string, any>>({
     riskLevel: "LOW",
@@ -457,7 +457,7 @@ export function usePhoneSimulator() {
       ...prev,
       callLogsTotal: typeof data.callLogsCount === "number" ? data.callLogsCount : prev.callLogsTotal,
       ledgerTotal: typeof data.ledgerCount === "number" ? data.ledgerCount : prev.ledgerTotal,
-      floatBalance: typeof data.momo?.floatBalance === "number" ? data.momo.floatBalance : prev.floatBalance,
+      floatBalance: typeof data.momo?.floatBalance === "number" ? data.momo.floatBalance : null,
       targetEnv: data.momo?.targetEnv || prev.targetEnv,
       activeKeyType: data.momo?.activeKeyType || prev.activeKeyType,
       offlineReady: data.ai ? Boolean(data.ai.offlineEngineReady) : prev.offlineReady,
@@ -1075,7 +1075,7 @@ export function usePhoneSimulator() {
 
       // Extract results
       const detectedIntent = res.intent || "UNKNOWN";
-      const detectedConfidence = typeof res.confidence === "number" ? res.confidence : 0.85;
+      const detectedConfidence = typeof res.confidence === "number" ? res.confidence : null;
       const detectedLang = (res.language && res.language !== "unknown" ? res.language : language) as "en" | "ak" | "tw" | "en-ak";
       const newSlots: EntitySlotMap = res.entities || {};
       const newNav: NavigationOutput = res.navigation;
@@ -1094,18 +1094,16 @@ export function usePhoneSimulator() {
       }
 
       // Live VoiceXML Trace: Sync with IVR Lab & Africa's Talking telephony flow
-      const stepName = newNav.targetStep || currentStep;
-      const responseText = newDialogue.response || "Mepa wo kyɛw, tie me yie.";
-      const langChoice = detectedLang === "tw" || detectedLang === "ak" ? "woman" : "alice";
-      const generatedXml = `<Response>\n  <GetDigits timeout="2" finishOnKey="#" numDigits="10">\n    <Say voice="${langChoice}">${responseText}</Say>\n  </GetDigits>\n</Response>`;
-      setVoiceXmlTraces((prev) => [
-        {
-          step: stepName,
-          xml: generatedXml,
-          timestamp: new Date().toLocaleTimeString(),
-        },
-        ...prev.slice(0, 19),
-      ]);
+      if (resp.voiceXml?.xml) {
+        setVoiceXmlTraces((prev) => [
+          {
+            step: resp.voiceXml.step,
+            xml: resp.voiceXml.xml,
+            timestamp: resp.voiceXml.timestamp,
+          },
+          ...prev.slice(0, 19),
+        ]);
+      }
 
       // Detect field-level changes for "What changed?"
       const changed: Array<{ field: string; oldVal: any; newVal: any }> = [];
@@ -1166,6 +1164,8 @@ export function usePhoneSimulator() {
         response: true,
       });
 
+      const responseText = newDialogue.response;
+      const stepName = newNav.targetStep || currentStep;
       setAiResponse(responseText);
 
       // Record AI turn
@@ -1176,7 +1176,7 @@ export function usePhoneSimulator() {
         timestamp: Date.now(),
         stage: newNav.targetStep || currentStep,
         intent: detectedIntent,
-        confidence: detectedConfidence,
+        ...(detectedConfidence === null ? {} : { confidence: detectedConfidence }),
         language: detectedLang,
       };
       setTranscript((prev) => [...prev, aiTurnItem]);
@@ -1263,7 +1263,6 @@ export function usePhoneSimulator() {
         timestamp: Date.now(),
         stage: "welcome",
         language: initialLang,
-        confidence: 0.99,
       },
     ]);
 
