@@ -486,6 +486,7 @@ export function usePhoneSimulator() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
+  const speechTurnSubmittedRef = useRef<boolean>(false);
 
   useEffect(() => {
     isMicActiveRef.current = isMicActive;
@@ -1542,7 +1543,9 @@ export function usePhoneSimulator() {
     }
 
     if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      try {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      } catch {}
       mediaStreamRef.current = null;
     }
 
@@ -1553,6 +1556,7 @@ export function usePhoneSimulator() {
     capturedSpeechTextRef.current = "";
 
     if (textToSend) {
+      speechTurnSubmittedRef.current = true;
       setInterimTranscript("");
       setTranscriptionStatus("PROCESSING");
       setAiProcessingPhase("LANGUAGE_DETECTION");
@@ -1560,8 +1564,11 @@ export function usePhoneSimulator() {
       await sendInputTurn(textToSend, "VOICE");
     } else {
       setInterimTranscript("");
-      setTranscriptionStatus("IDLE");
-      setAiProcessingDetail("No speech input captured. Tap mic to retry or choose a voice chip.");
+      // Only set to IDLE if mediaRecorder hasn't submitted a turn
+      if (!speechTurnSubmittedRef.current) {
+        setTranscriptionStatus("IDLE");
+        setAiProcessingDetail("No speech detected. Tap mic to retry, tap a Ghanaian voice phrase, or type below!");
+      }
     }
   }, [interimTranscript, sendInputTurn]);
 
@@ -1574,12 +1581,12 @@ export function usePhoneSimulator() {
       return;
     }
 
-    // If call is not yet connected, auto-start call immediately
+    // Auto-connect call immediately if not active
     if (!isActive) {
       await startCall(language === "tw" ? "tw" : "en");
     }
 
-    // Start Microphone & Speech Recognition
+    speechTurnSubmittedRef.current = false;
     capturedSpeechTextRef.current = "";
     setInterimTranscript("");
     setIsMicActive(true);
@@ -1601,7 +1608,9 @@ export function usePhoneSimulator() {
             recognitionRef.current.onend = null;
             recognitionRef.current.abort();
           } catch {}
+          recognitionRef.current = null;
         }
+
         const rec = new SpeechRec();
         rec.continuous = true;
         rec.interimResults = true;
@@ -1635,12 +1644,12 @@ export function usePhoneSimulator() {
           }
 
           if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-          if (combined.trim().length > 3) {
+          if (combined.trim().length > 2) {
             silenceTimerRef.current = setTimeout(() => {
               if (isMicActiveRef.current) {
                 stopMicAndSubmit();
               }
-            }, 2000);
+            }, 1800);
           }
         };
 
@@ -1650,7 +1659,7 @@ export function usePhoneSimulator() {
             isMicActiveRef.current = false;
             setIsMicActive(false);
             setTranscriptionStatus("ERROR");
-            setAiProcessingDetail("Microphone permission blocked. Tap a quick voice chip or type below!");
+            setAiProcessingDetail("Microphone access blocked in browser. Tap a voice chip or type below!");
             if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
             if (micTimeoutRef.current) clearTimeout(micTimeoutRef.current);
           } else if (e.error === "language-not-supported") {
@@ -1658,12 +1667,14 @@ export function usePhoneSimulator() {
               rec.lang = "en-US";
               rec.start();
             } catch {}
+          } else if (e.error === "no-speech") {
+            // Do not abort, let user speak or let silence timer finish
           }
         };
 
         rec.onend = () => {
-          // Prevent infinite restart loops on error
-          if (isMicActiveRef.current && recognitionRef.current && recStarted) {
+          // Prevent infinite restart loops on error or after submission
+          if (isMicActiveRef.current && recognitionRef.current && recStarted && !speechTurnSubmittedRef.current) {
             try {
               recognitionRef.current.start();
             } catch {}
@@ -1723,18 +1734,19 @@ export function usePhoneSimulator() {
               if (e.data.size > 0) chunks.push(e.data);
             };
             recorder.onstop = async () => {
-              if (!capturedSpeechTextRef.current && chunks.length > 0) {
+              if (!speechTurnSubmittedRef.current && chunks.length > 0) {
                 const blob = new Blob(chunks, { type: "audio/webm" });
                 const reader = new FileReader();
                 reader.onloadend = async () => {
                   const base64 = (reader.result as string)?.split(",")[1];
-                  if (base64) {
+                  if (base64 && !speechTurnSubmittedRef.current) {
                     try {
                       setTranscriptionStatus("PROCESSING");
                       setAiProcessingDetail("Transcribing with Ghanaian Neural ASR...");
                       const asrRes = await api.transcribeAudio(base64, "audio/webm", language);
                       const recognized = asrRes?.result?.text;
                       if (recognized && recognized !== "empty" && recognized.trim().length > 0) {
+                        speechTurnSubmittedRef.current = true;
                         setAiProcessingDetail(`Transcribed: "${recognized}"`);
                         await sendInputTurn(recognized, "VOICE");
                       }
@@ -1767,13 +1779,13 @@ export function usePhoneSimulator() {
       }
     }
 
-    // Safety timeout: auto stop after 10s to ensure mic is never stuck indefinitely
+    // Safety timeout: auto stop after 8s to ensure mic is never stuck indefinitely
     micTimeoutRef.current = setTimeout(() => {
       if (isMicActiveRef.current) {
         stopMicAndSubmit();
       }
-    }, 10000);
-  }, [isActive, isMicActive, language, startCall, stopMicAndSubmit]);
+    }, 8000);
+  }, [isActive, isMicActive, language, startCall, stopMicAndSubmit, sendInputTurn]);
 
   /**
    * Direct 1-click test transfer to a KYC verified contact

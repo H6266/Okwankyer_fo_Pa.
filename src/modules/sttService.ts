@@ -140,14 +140,17 @@ async function transcribeAudioBufferWithHedgedGemini(
   step?: string,
   deadlineMs: number = 3000
 ): Promise<SttResult> {
-  const primaryModel = AI_CONFIG.transcriptionModel || "gemini-3.5-transcribe";
-  const secondaryModel = "gemini-3.8-flash";
+  const primaryModel = (AI_CONFIG.transcriptionModel && AI_CONFIG.transcriptionModel !== "gemini-3.5-transcribe")
+    ? AI_CONFIG.transcriptionModel
+    : "gemini-3.8-flash";
+  const secondaryModel = "gemini-flash-latest";
 
-  if (
-    !geminiClient.isAvailable() ||
-    !geminiClient.isModelAvailable(primaryModel) ||
-    !geminiClient.isModelAvailable(secondaryModel)
-  ) {
+  const hasAnyModel = geminiClient.isAvailable() && (
+    geminiClient.isModelAvailable(primaryModel) ||
+    geminiClient.isModelAvailable(secondaryModel)
+  );
+
+  if (!hasAnyModel) {
     const offlineRes = await offlineSpeechRecognizer.transcribe(buffer, mime);
     buffer.fill(0);
     return {

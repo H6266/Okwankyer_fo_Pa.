@@ -71,6 +71,7 @@ export const PhoneSimulatorPage: React.FC = () => {
   const [selectedScenarioId, setSelectedScenarioId] = useState<string>("send_money_en");
   const [selectedAtScenarioId, setSelectedAtScenarioId] = useState<string>("at_send_money_en");
   const [typedInput, setTypedInput] = useState<string>("");
+  const [inScreenSpeechText, setInScreenSpeechText] = useState<string>("");
   const [pressedKey, setPressedKey] = useState<string | null>(null);
   const [activeCenterTab, setActiveCenterTab] = useState<
     | "transcript"
@@ -964,6 +965,27 @@ export const PhoneSimulatorPage: React.FC = () => {
                     </div>
                   </div>
                 )}
+
+                {/* C. Clear Microphone Error / Fallback Guidance Notice */}
+                {sim.transcriptionStatus === "ERROR" && (
+                  <div className="p-2.5 rounded-2xl bg-amber-950/90 border border-amber-500/80 text-amber-200 text-xs shadow-md space-y-1.5 animate-fadeIn">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 font-bold text-amber-300 text-[11px]">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Microphone Access Notice</span>
+                      </div>
+                      <button
+                        onClick={sim.toggleMic}
+                        className="px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-500 text-slate-950 text-[10px] font-bold"
+                      >
+                        Retry Mic
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-amber-200/90 leading-tight">
+                      Browser blocked mic access in preview iframe. Tap any Ghanaian voice chip below or type in the speech bar to test speech &amp; AI understanding!
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* ── 4. Main Body: Mode-Specific Display ────────────────────────── */}
@@ -1071,6 +1093,50 @@ export const PhoneSimulatorPage: React.FC = () => {
                         </div>
                       );
                     })
+                  )}
+
+                  {/* ── Real-Time AI Intent & Entity Comprehension Card ─── */}
+                  {sim.transcript.length > 0 && sim.intent && sim.intent !== "UNKNOWN" && (
+                    <div className="p-2.5 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 border border-emerald-500/60 text-emerald-200 text-xs shadow-lg space-y-1.5 animate-fadeIn">
+                      <div className="flex items-center justify-between text-[10px] font-mono font-bold">
+                        <span className="flex items-center gap-1.5 text-emerald-400">
+                          <Sparkles className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+                          <span>AI COMPREHENSION SUMMARY</span>
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700/80 text-[9px]">
+                          {sim.intent}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5 text-[10px] bg-black/60 p-2 rounded-xl border border-slate-800">
+                        <div>
+                          <span className="text-slate-400 block text-[9px]">Detected Action:</span>
+                          <span className="font-semibold text-white">
+                            {sim.intent === "SEND_MONEY" ? "💸 Send Money" :
+                             sim.intent === "CHECK_BALANCE" ? "💳 Check Wallet Balance" :
+                             sim.intent === "BUY_AIRTIME" ? "📱 Buy Airtime" :
+                             sim.intent === "PAY_BILL" ? "🧾 Pay Utility Bill" : sim.intent}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block text-[9px]">Amount:</span>
+                          <span className="font-mono font-bold text-amber-300">
+                            {sim.entities.amount ? `GH₵ ${Number(sim.entities.amount).toFixed(2)}` : "Not specified"}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block text-[9px]">Recipient:</span>
+                          <span className="font-semibold text-emerald-300 truncate block">
+                            {sim.entities.recipientName || sim.entities.recipientPhone || "Pending"}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block text-[9px]">Zero-PIN Security:</span>
+                          <span className="font-semibold text-cyan-300">
+                            {sim.safety?.sanitized ? "🛡️ PIN Protected" : "Active"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
                   )}
                 </div>
               )}
@@ -1246,53 +1312,94 @@ export const PhoneSimulatorPage: React.FC = () => {
                 )}
 
                 {/* In-Screen Voice & Interaction Action Bar */}
-                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
-                  <button
-                    onClick={sim.toggleMic}
-                    className={`px-2.5 py-1 rounded-xl text-[10px] font-bold flex items-center gap-1.5 shadow-sm transition-all shrink-0 ${
-                      sim.isMicActive
-                        ? "bg-amber-500 text-slate-950 animate-pulse ring-2 ring-amber-300"
-                        : "bg-emerald-600 hover:bg-emerald-500 text-white"
-                    }`}
-                    title="Click to speak with microphone"
-                  >
-                    <Mic className="w-3 h-3" />
-                    <span>{sim.isMicActive ? "Mute Mic" : "Speak (Mic)"}</span>
-                  </button>
+                <div className="space-y-1.5 pt-0.5">
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                    <button
+                      onClick={sim.toggleMic}
+                      className={`px-3 py-1.5 rounded-xl text-[10px] font-bold flex items-center gap-1.5 shadow-sm transition-all shrink-0 ${
+                        sim.isMicActive
+                          ? "bg-amber-500 text-slate-950 ring-2 ring-amber-300 animate-pulse font-extrabold"
+                          : "bg-emerald-600 hover:bg-emerald-500 text-white"
+                      }`}
+                      title={sim.isMicActive ? "Click to finish speaking and submit" : "Click to speak into microphone (Ghanaian ASR)"}
+                    >
+                      <Mic className={`w-3 h-3 ${sim.isMicActive ? "animate-bounce" : ""}`} />
+                      <span>{sim.isMicActive ? "⏹️ Stop & Send Speech" : "🎙️ Speak (Mic)"}</span>
+                    </button>
 
-                  {/* Quick-Turn Chips (Immediate Ghanaian ASR Testing) */}
-                  <button
-                    onClick={() => sim.simulateAsrSample("Send 20 cedis to Kwame", "en")}
-                    className="px-2 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-medium whitespace-nowrap shrink-0 transition-colors"
+                    {/* Quick-Turn Chips (Immediate Ghanaian ASR Ingest) */}
+                    <button
+                      onClick={() => sim.simulateAsrSample("Send 20 cedis to Kwame", "en")}
+                      className="px-2 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-medium whitespace-nowrap shrink-0 transition-colors"
+                      title="Test speech: 'Send 20 cedis to Kwame'"
+                    >
+                      🎙️ Send 20
+                    </button>
+                    <button
+                      onClick={() => sim.simulateAsrSample("Mane sika aduonum kɔma Ama", "tw")}
+                      className="px-2 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 text-[10px] font-medium whitespace-nowrap shrink-0 transition-colors"
+                      title="Test Twi speech: 'Mane sika aduonum kɔma Ama'"
+                    >
+                      🎙️ Mane Sika (Twi)
+                    </button>
+                    <button
+                      onClick={() => sim.simulateAsrSample("Check balance", "en")}
+                      className="px-2 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[10px] font-medium whitespace-nowrap shrink-0 transition-colors"
+                      title="Test speech: 'Check balance'"
+                    >
+                      🎙️ Balance
+                    </button>
+                    <button
+                      onClick={() => sim.simulateAsrSample("Buy 10 cedis airtime", "en")}
+                      className="px-2 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-purple-300 text-[10px] font-medium whitespace-nowrap shrink-0 transition-colors"
+                      title="Test speech: 'Buy 10 cedis airtime'"
+                    >
+                      🎙️ Airtime
+                    </button>
+                    <button
+                      onClick={() => sim.sendInputTurn("Aane", "TEXT")}
+                      disabled={!sim.isActive}
+                      className="px-2 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 text-[10px] font-bold disabled:opacity-30 whitespace-nowrap shrink-0"
+                    >
+                      ✅ Aane (Yes)
+                    </button>
+                    <button
+                      onClick={() => sim.sendInputTurn("Dabi", "TEXT")}
+                      disabled={!sim.isActive}
+                      className="px-2 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-rose-300 text-[10px] font-bold disabled:opacity-30 whitespace-nowrap shrink-0"
+                    >
+                      ❌ Dabi (No)
+                    </button>
+                  </div>
+
+                  {/* In-Screen Direct Speech & Utterance Form */}
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (inScreenSpeechText.trim()) {
+                        if (!sim.isActive) sim.startCall(sim.language === "tw" ? "tw" : "en");
+                        sim.sendInputTurn(inScreenSpeechText.trim(), "VOICE");
+                        setInScreenSpeechText("");
+                      }
+                    }}
+                    className="flex items-center gap-1.5"
                   >
-                    Send 20
-                  </button>
-                  <button
-                    onClick={() => sim.simulateAsrSample("Mane sika aduonum kɔma Ama", "tw")}
-                    className="px-2 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 text-[10px] font-medium whitespace-nowrap shrink-0 transition-colors"
-                  >
-                    Mane Sika (Twi)
-                  </button>
-                  <button
-                    onClick={() => sim.simulateAsrSample("Check balance", "en")}
-                    className="px-2 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-medium whitespace-nowrap shrink-0 transition-colors"
-                  >
-                    Balance
-                  </button>
-                  <button
-                    onClick={() => sim.sendInputTurn("Aane", "TEXT")}
-                    disabled={!sim.isActive}
-                    className="px-2 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 text-[10px] font-bold disabled:opacity-30 whitespace-nowrap shrink-0"
-                  >
-                    Aane (Yes)
-                  </button>
-                  <button
-                    onClick={() => sim.sendInputTurn("Dabi", "TEXT")}
-                    disabled={!sim.isActive}
-                    className="px-2 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-rose-300 text-[10px] font-bold disabled:opacity-30 whitespace-nowrap shrink-0"
-                  >
-                    Dabi (No)
-                  </button>
+                    <input
+                      type="text"
+                      value={inScreenSpeechText}
+                      onChange={(e) => setInScreenSpeechText(e.target.value)}
+                      placeholder={sim.isActive ? "Type voice request (e.g. Send 20 cedis to Kwame)..." : "Start call or type speech request..."}
+                      className="flex-1 bg-slate-900 border border-slate-700/80 rounded-xl px-2.5 py-1.5 text-[11px] text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-medium"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!inScreenSpeechText.trim()}
+                      className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-30 text-white rounded-xl text-[10px] font-bold shadow-xs transition-colors shrink-0 flex items-center gap-1"
+                    >
+                      <span>Send</span>
+                      <Send className="w-2.5 h-2.5" />
+                    </button>
+                  </form>
                 </div>
               </div>
 
@@ -1367,11 +1474,11 @@ export const PhoneSimulatorPage: React.FC = () => {
                 className={`py-3 rounded-2xl flex items-center justify-center font-bold shadow-md active:scale-95 transition-all relative ${
                   sim.isMicActive
                     ? "bg-amber-500 text-slate-950 ring-4 ring-amber-400/50 animate-pulse"
-                    : "bg-slate-800 hover:bg-slate-700 text-slate-200"
+                    : "bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700/80"
                 }`}
-                title={sim.isMicActive ? "Mute Microphone" : "Speak to AI (Ghanaian ASR Capture - Auto Connects)"}
+                title={sim.isMicActive ? "Mute Microphone / Stop Speaking" : "🎙️ Tap to Speak (Ghanaian ASR Voice Ingest)"}
               >
-                {sim.isMicActive ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
+                <Mic className={`w-5 h-5 ${sim.isMicActive ? "text-slate-950 animate-bounce" : "text-emerald-400"}`} />
               </button>
 
               <button
