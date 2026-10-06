@@ -39,6 +39,21 @@ import {
   RefreshCw,
   PlayCircle,
   Flame,
+  Maximize2,
+  Minimize2,
+  Activity,
+  Cpu,
+  TrendingUp,
+  Gauge,
+  Compass,
+  ChevronDown,
+  ChevronUp,
+  Sliders,
+  Wand2,
+  Info,
+  RadioTower,
+  MessageSquare,
+  Binary,
 } from "lucide-react";
 import {
   usePhoneSimulator,
@@ -50,6 +65,9 @@ import { AUDIO_CATALOG } from "../../audio/catalog";
 
 export const PhoneSimulatorPage: React.FC = () => {
   const sim = usePhoneSimulator();
+  const [phoneScale, setPhoneScale] = useState<"compact" | "large" | "cinematic">("large");
+  const [phoneScreenTab, setPhoneScreenTab] = useState<"call_view" | "ai_brain" | "advancement">("call_view");
+  const [showKeypad, setShowKeypad] = useState<boolean>(true);
   const [selectedScenarioId, setSelectedScenarioId] = useState<string>("send_money_en");
   const [selectedAtScenarioId, setSelectedAtScenarioId] = useState<string>("at_send_money_en");
   const [typedInput, setTypedInput] = useState<string>("");
@@ -701,132 +719,595 @@ export const PhoneSimulatorPage: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Main 3-Column Studio Grid ────────────────────────────────────── */}
+      {/* ── Main 3-Column Studio Grid (Dynamically Responsive to Phone Viewport Scale) ─── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* ══════════════════════════════════════════════════════════════════
-            COLUMN 1: PHONE SCREEN & HANDSET (Presentation Layer)
+            COLUMN 1: EXPANDED PRO PHONE SCREEN & HANDSET (Interactive UI/AI HUD)
         ══════════════════════════════════════════════════════════════════ */}
-        <div className="lg:col-span-4 flex flex-col items-center">
-          <div className="w-full max-w-[340px] bg-slate-900 p-5 rounded-[44px] border-[6px] border-slate-700 shadow-2xl space-y-4">
-            {/* Top Speaker Notch */}
-            <div className="w-16 h-2 bg-slate-700 rounded-full mx-auto" />
+        <div className={`${phoneScale === "cinematic" ? "lg:col-span-6" : phoneScale === "large" ? "lg:col-span-5" : "lg:col-span-4"} flex flex-col items-center transition-all duration-300`}>
+          
+          {/* Top Handset Controls Bar: Scale Toggle & Keypad Visibility */}
+          <div className="w-full flex items-center justify-between pb-2.5 px-2 text-xs">
+            <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
+              <span className="text-[10px] font-bold text-slate-500 uppercase px-1">Display:</span>
+              <button
+                onClick={() => setPhoneScale("compact")}
+                className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all ${
+                  phoneScale === "compact"
+                    ? "bg-white text-slate-900 shadow-2xs border border-slate-200"
+                    : "text-slate-500 hover:text-slate-800"
+                }`}
+                title="Compact 360px handset view"
+              >
+                Compact
+              </button>
+              <button
+                onClick={() => setPhoneScale("large")}
+                className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all ${
+                  phoneScale === "large"
+                    ? "bg-emerald-600 text-white shadow-2xs"
+                    : "text-slate-500 hover:text-slate-800"
+                }`}
+                title="Large 460px expanded handset screen (Recommended)"
+              >
+                Large (460px)
+              </button>
+              <button
+                onClick={() => setPhoneScale("cinematic")}
+                className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all flex items-center gap-1 ${
+                  phoneScale === "cinematic"
+                    ? "bg-slate-900 text-amber-300 shadow-2xs"
+                    : "text-slate-500 hover:text-slate-800"
+                }`}
+                title="Cinematic 540px expansive widescreen handset view"
+              >
+                <Maximize2 className="w-2.5 h-2.5" />
+                <span>Cinematic</span>
+              </button>
+            </div>
 
-            {/* Handset OLED Display Screen */}
-            <div className="relative bg-slate-950 rounded-2xl p-4 border border-slate-800 min-h-[260px] flex flex-col justify-between text-slate-100 shadow-inner overflow-hidden">
-              {/* Screen Top Status Bar */}
-              <div className="flex items-center justify-between text-[11px] font-mono text-amber-400 pb-2 border-b border-slate-800">
+            {/* Keypad Visibility Toggle */}
+            <button
+              onClick={() => setShowKeypad(!showKeypad)}
+              className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 rounded-xl border border-slate-200 text-[10px] font-bold flex items-center gap-1 shadow-2xs transition-colors"
+              title={showKeypad ? "Hide keypad to expand screen size" : "Show keypad for DTMF dialing"}
+            >
+              <Binary className="w-3 h-3 text-emerald-600" />
+              <span>{showKeypad ? "Hide Keypad" : "Show Keypad"}</span>
+            </button>
+          </div>
+
+          {/* Physical Phone Handset Casing (Enlarged Pro Viewport) */}
+          <div className={`w-full ${phoneScale === "cinematic" ? "max-w-[560px]" : phoneScale === "large" ? "max-w-[480px]" : "max-w-[360px]"} bg-slate-950 p-4 sm:p-5 rounded-[46px] border-[7px] border-slate-800 shadow-2xl space-y-3.5 transition-all duration-300 relative`}>
+            
+            {/* Top Speaker Notch & Camera Pin */}
+            <div className="flex items-center justify-center gap-2 pt-0.5">
+              <div className="w-3 h-3 rounded-full bg-slate-900 border border-slate-700/80" />
+              <div className="w-20 h-2.5 bg-slate-800 rounded-full shadow-inner" />
+            </div>
+
+            {/* Handset OLED Display Screen (Enlarged with High Viewport Clarity) */}
+            <div className={`relative bg-gradient-to-b from-slate-950 via-slate-900 to-black rounded-3xl p-3.5 sm:p-4 border border-slate-800/90 ${showKeypad ? "h-[540px] min-h-[540px]" : "h-[680px] min-h-[680px]"} flex flex-col justify-between text-slate-100 shadow-2xl overflow-hidden transition-all duration-300`}>
+              
+              {/* ── 1. Top Dynamic Island & Status Bar ─────────────────────────── */}
+              <div className="flex items-center justify-between text-[11px] font-mono pb-2 border-b border-slate-800/80 shrink-0">
                 <div className="flex items-center gap-1.5">
                   <span
-                    className={`w-2 h-2 rounded-full ${
+                    className={`w-2.5 h-2.5 rounded-full ${
                       sim.isActive ? "bg-emerald-400 animate-pulse" : "bg-slate-600"
                     }`}
                   />
-                  <span className="font-bold tracking-tight">
+                  <span className="font-bold tracking-tight text-emerald-400">
                     {sim.gatewayMode === "AFRICASTALKING_IVR"
                       ? "AT TRUNK · +233 30 804 8098"
                       : sim.entities.network ? `${sim.entities.network} 4G` : "MTN 4G"}
                   </span>
+                  <span className="hidden sm:inline text-slate-500 font-mono text-[10px]">●●●●</span>
                 </div>
-                <div className="font-bold text-slate-300">
-                  {sim.isActive ? formatTimer(sim.callDurationSec) : "STANDBY"}
+
+                {/* Call Timer / Standby & Codec */}
+                <div className="flex items-center gap-2">
+                  {sim.isActive ? (
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-600/40 text-emerald-300 text-[10px] font-bold flex items-center gap-1">
+                      <Clock className="w-2.5 h-2.5" />
+                      <span>{formatTimer(sim.callDurationSec)}</span>
+                    </span>
+                  ) : (
+                    <span className="text-slate-400 font-bold text-[10px]">STANDBY</span>
+                  )}
+                  <span className="px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 text-[9px] font-mono font-bold">
+                    {sim.language.toUpperCase()}
+                  </span>
                 </div>
               </div>
 
-              {/* Main Screen Content */}
-              <div className="py-3 space-y-2 text-center my-auto">
-                <div className="text-[10px] font-mono uppercase tracking-wider text-emerald-400 flex items-center justify-center gap-1">
-                  <span>
-                    {sim.isActive
-                      ? sim.gatewayMode === "AFRICASTALKING_IVR"
-                        ? `AT IVR · ${sim.currentStep.toUpperCase()}`
-                        : `${sim.currentStep.toUpperCase()} STEP`
-                      : sim.gatewayMode === "AFRICASTALKING_IVR"
-                      ? "AFRICA'S TALKING IVR TRUNK"
-                      : "ƆKWANKYERƐFO PA"}
-                  </span>
-                  {sim.safety.pinDetectedInVoice && (
-                    <span className="px-1 py-0.2 rounded bg-rose-950 text-rose-400 font-bold border border-rose-800">
-                      PIN BLOCKED
-                    </span>
-                  )}
+              {/* ── 2. In-Screen Interactive Mode Switcher ─────────────────────── */}
+              <div className="pt-2 pb-1 shrink-0">
+                <div className="grid grid-cols-3 gap-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800 text-[10px] font-bold">
+                  <button
+                    onClick={() => setPhoneScreenTab("call_view")}
+                    className={`py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${
+                      phoneScreenTab === "call_view"
+                        ? "bg-emerald-600 text-white shadow-xs"
+                        : "text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    <MessageSquare className="w-3 h-3" />
+                    <span>Live Call</span>
+                  </button>
+                  <button
+                    onClick={() => setPhoneScreenTab("ai_brain")}
+                    className={`py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${
+                      phoneScreenTab === "ai_brain"
+                        ? "bg-amber-600 text-white shadow-xs"
+                        : "text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    <Cpu className="w-3 h-3" />
+                    <span>AI Brain</span>
+                  </button>
+                  <button
+                    onClick={() => setPhoneScreenTab("advancement")}
+                    className={`py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${
+                      phoneScreenTab === "advancement"
+                        ? "bg-purple-600 text-white shadow-xs"
+                        : "text-slate-400 hover:text-white"
+                    }`}
+                    title="Inspect which portion of the system needs advancement and improvement"
+                  >
+                    <TrendingUp className="w-3 h-3" />
+                    <span>Radar</span>
+                  </button>
                 </div>
+              </div>
 
-                {/* Spoken AI Status / Waveform */}
-                <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-200 min-h-[70px] flex flex-col items-center justify-center">
-                  {sim.isLoading ? (
-                    <div className="flex items-center gap-2 text-amber-300 animate-pulse">
-                      <Sparkles className="w-4 h-4 animate-spin" />
-                      <span className="text-[11px] font-medium">
-                        {sim.gatewayMode === "AFRICASTALKING_IVR" ? "Africa's Talking routing..." : "AI reasoning..."}
-                      </span>
-                    </div>
-                  ) : sim.isAiSpeaking ? (
-                    <div className="flex items-center gap-2 text-emerald-300">
-                      <Volume2 className="w-4 h-4 animate-bounce shrink-0" />
-                      <span className="italic text-[11px] truncate max-w-[190px]">
-                        🔊 {sim.activeAudioClip ? "Playing AT Prompt..." : sim.voiceMode === "STUDIO_PROMPTS" ? "Studio prompt playing..." : "Prompt playing..."}
-                      </span>
-                    </div>
-                  ) : sim.isActive ? (
-                    <div className="space-y-1">
-                      <div className="text-[11px] text-slate-200 font-medium line-clamp-2">
-                        {sim.aiResponse || sim.atInstruction || "Listening for speech or keypad digits..."}
-                      </div>
-                      {sim.gatewayMode === "AFRICASTALKING_IVR" && (
-                        <div className="text-[10px] text-amber-300 font-mono">
-                          {sim.atInstruction}
+              {/* ── 3. Real-Time Telemetry Banners (Transcribing / Processing) ─── */}
+              <div className="space-y-1.5 py-1 shrink-0">
+                {/* A. Live Speech-in-Progress / ASR Stream with Animated Sound Wave Visualizer */}
+                {(sim.isMicActive || sim.interimTranscript || sim.transcriptionStatus === "LISTENING") && (
+                  <div className="p-3 rounded-2xl bg-gradient-to-r from-amber-950/95 via-slate-900/95 to-amber-950/95 border-2 border-amber-500/80 text-amber-200 text-xs shadow-xl animate-pulse space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-lg bg-amber-500 text-slate-950 flex items-center justify-center font-bold">
+                          <Mic className="w-3.5 h-3.5 animate-bounce" />
                         </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="text-[11px] text-slate-500">
-                      {sim.gatewayMode === "AFRICASTALKING_IVR"
-                        ? "Press Call (Green) to dial Africa's Talking IVR Trunk"
-                        : "Press Call (Green), choose a scenario, or click a contact"}
-                    </div>
-                  )}
-                </div>
+                        <div>
+                          <div className="text-[10px] font-mono text-amber-400 font-bold uppercase tracking-wider">
+                            🎙️ ASR Live Speech Ingest
+                          </div>
+                          <div className="text-[9px] text-amber-300/80">Ghanaian English &amp; Akan Twi</div>
+                        </div>
+                      </div>
 
-                {/* Keypad Digits Buffer Display */}
-                {sim.digitsBuffer && (
-                  <div className="font-mono text-xl font-bold text-amber-400 tracking-widest bg-slate-900/60 py-1 rounded-lg border border-amber-400/20">
-                    {sim.digitsBuffer}
+                      {/* Animated Sound Wave Equalizer Bars */}
+                      <div className="flex items-center gap-1 px-2 py-1 bg-amber-950/60 rounded-lg border border-amber-600/30">
+                        <div
+                          className="w-1 bg-amber-400 rounded-full transition-all duration-75"
+                          style={{ height: `${Math.max(6, Math.min(22, (sim.audioLevel || 20) * 0.25))}px` }}
+                        />
+                        <div
+                          className="w-1 bg-amber-300 rounded-full transition-all duration-75"
+                          style={{ height: `${Math.max(8, Math.min(26, (sim.audioLevel || 35) * 0.35))}px` }}
+                        />
+                        <div
+                          className="w-1 bg-amber-400 rounded-full transition-all duration-75"
+                          style={{ height: `${Math.max(10, Math.min(28, (sim.audioLevel || 50) * 0.4))}px` }}
+                        />
+                        <div
+                          className="w-1 bg-amber-300 rounded-full transition-all duration-75"
+                          style={{ height: `${Math.max(8, Math.min(24, (sim.audioLevel || 30) * 0.3))}px` }}
+                        />
+                        <div
+                          className="w-1 bg-amber-400 rounded-full transition-all duration-75"
+                          style={{ height: `${Math.max(6, Math.min(20, (sim.audioLevel || 15) * 0.2))}px` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Transcribed Speech In Progress */}
+                    <div className="bg-black/60 rounded-xl p-2 border border-amber-500/30 text-[11px] font-medium text-amber-100 flex items-center justify-between gap-2">
+                      <div className="truncate flex-1">
+                        {sim.interimTranscript ? (
+                          <span className="font-semibold text-white">"{sim.interimTranscript}"</span>
+                        ) : (
+                          <span className="text-amber-300/80 italic">Listening... Speak now into your microphone</span>
+                        )}
+                      </div>
+                      <button
+                        onClick={sim.toggleMic}
+                        className="px-2 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg text-[10px] font-extrabold shadow-xs transition-colors shrink-0"
+                      >
+                        Stop &amp; Submit
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* B. Live AI Is Processing Multi-Stage Pipeline Holographic Indicator */}
+                {(sim.isLoading || sim.transcriptionStatus === "PROCESSING") && (
+                  <div className="p-3 rounded-2xl bg-gradient-to-r from-emerald-950/95 via-slate-900/95 to-emerald-950/95 border-2 border-emerald-500/80 text-emerald-200 text-xs shadow-xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-lg bg-emerald-500/30 text-emerald-300 flex items-center justify-center border border-emerald-400/50">
+                          <Sparkles className="w-3.5 h-3.5 animate-spin" />
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-mono text-emerald-400 font-bold uppercase tracking-wider">
+                            ⚡ AI Cognitive Engine Active
+                          </div>
+                          <div className="text-[9px] text-emerald-300/80">Ghanaian MoMo Orchestrator</div>
+                        </div>
+                      </div>
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-900/80 text-emerald-300 text-[9px] font-mono font-bold animate-pulse">
+                        PROCESSING
+                      </span>
+                    </div>
+
+                    {/* Behind the System Multi-Stage Progress */}
+                    <div className="grid grid-cols-4 gap-1 text-[8px] font-mono font-bold text-center">
+                      <div className="p-1 rounded bg-emerald-900/40 border border-emerald-700/50 text-emerald-300">
+                        1. ASR Ingest
+                      </div>
+                      <div className="p-1 rounded bg-emerald-900/40 border border-emerald-700/50 text-emerald-300">
+                        2. NLU Intent
+                      </div>
+                      <div className="p-1 rounded bg-emerald-900/40 border border-emerald-700/50 text-emerald-300">
+                        3. Zero-PIN
+                      </div>
+                      <div className="p-1 rounded bg-amber-900/40 border border-amber-700/50 text-amber-300 animate-pulse">
+                        4. Response
+                      </div>
+                    </div>
+
+                    <div className="text-[10px] font-semibold text-white/90 truncate bg-black/40 px-2 py-1 rounded-lg border border-emerald-500/20">
+                      {sim.aiProcessingDetail || "Reasoning through Ghanaian cognitive layer & checking Zero-PIN security..."}
+                    </div>
                   </div>
                 )}
               </div>
 
-              {/* Screen Bottom Indicators: Language & Mic */}
-              <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[10px]">
-                <div className="flex items-center gap-1.5">
-                  {sim.isMicActive ? (
-                    <span className="inline-flex items-center gap-1 text-emerald-400 font-semibold animate-pulse">
-                      <Mic className="w-3 h-3" />
-                      <span>Recording via ASR</span>
-                    </span>
+              {/* ── 4. Main Body: Mode-Specific Display ────────────────────────── */}
+              
+              {/* VIEW 1: LIVE CALL & FULL TRANSCRIBED INTERACTION FEED */}
+              {phoneScreenTab === "call_view" && (
+                <div className="flex-1 overflow-y-auto space-y-2.5 my-1 pr-1 text-xs select-text scroll-smooth" aria-label="Phone conversation stream">
+                  {sim.transcript.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center text-center p-4 text-slate-400 space-y-2 my-auto">
+                      <div className="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-emerald-400 shadow-inner">
+                        <Smartphone className="w-6 h-6 stroke-1.5" />
+                      </div>
+                      <p className="text-xs font-bold text-slate-200">Ɔkwankyerɛfo Pa Voice Ready</p>
+                      <p className="text-[11px] text-slate-400 max-w-xs leading-relaxed">
+                        Akwaaba! Click <span className="text-emerald-400 font-bold">Call</span>, tap the microphone to speak, or tap any Ghanaian voice phrase below to test ASR &amp; AI reasoning.
+                      </p>
+
+                      {/* 1-Tap Quick Action Suggestions inside the screen */}
+                      <div className="pt-2 w-full space-y-1.5 text-left">
+                        <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider block font-bold">
+                          1-Tap Ghanaian Voice Phrases (Instant ASR Ingest):
+                        </span>
+                        <button
+                          onClick={() => sim.simulateAsrSample("Send 20 cedis to 0553838464", "en")}
+                          className="w-full text-left p-2 rounded-xl bg-slate-900/90 hover:bg-emerald-950/60 border border-slate-800 hover:border-emerald-700/60 text-[11px] text-slate-200 font-medium truncate transition-colors flex items-center justify-between"
+                        >
+                          <span>🎙️ "Send 20 cedis to 0553838464"</span>
+                          <span className="text-[9px] text-emerald-400 font-mono font-bold">EN-GH</span>
+                        </button>
+                        <button
+                          onClick={() => sim.simulateAsrSample("Mepa wo kyɛw, mane sika aduonu kɔma Ama wɔ 0553838464", "tw")}
+                          className="w-full text-left p-2 rounded-xl bg-slate-900/90 hover:bg-emerald-950/60 border border-slate-800 hover:border-emerald-700/60 text-[11px] text-slate-200 font-medium truncate transition-colors flex items-center justify-between"
+                        >
+                          <span>🎙️ "Mane sika aduonu kɔma Ama"</span>
+                          <span className="text-[9px] text-amber-400 font-mono font-bold">TWI</span>
+                        </button>
+                        <button
+                          onClick={() => sim.simulateAsrSample("Check my mobile money wallet balance", "en")}
+                          className="w-full text-left p-2 rounded-xl bg-slate-900/90 hover:bg-emerald-950/60 border border-slate-800 hover:border-emerald-700/60 text-[11px] text-slate-200 font-medium truncate transition-colors flex items-center justify-between"
+                        >
+                          <span>🎙️ "Check my MoMo wallet balance"</span>
+                          <span className="text-[9px] text-cyan-400 font-mono font-bold">WALLET</span>
+                        </button>
+                      </div>
+                    </div>
                   ) : (
-                    <span className="inline-flex items-center gap-1 text-slate-500">
-                      <MicOff className="w-3 h-3" />
-                      <span>Mic Idle</span>
-                    </span>
+                    sim.transcript.map((item) => {
+                      if (item.role === "caller") {
+                        return (
+                          <div key={item.id} className="flex flex-col items-end space-y-1">
+                            <div className="flex items-center gap-1.5 text-[9px] text-slate-400 font-mono">
+                              <span className="px-1.5 py-0.2 rounded bg-slate-800 text-emerald-400 font-bold">
+                                👤 YOU (Caller)
+                              </span>
+                              <span>{new Date(item.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
+                            </div>
+                            <div className="max-w-[85%] bg-emerald-600 text-white px-3 py-2 rounded-2xl rounded-tr-xs text-xs font-medium shadow-md leading-relaxed break-words">
+                              {item.text}
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (item.role === "ai") {
+                        return (
+                          <div key={item.id} className="flex flex-col items-start space-y-1">
+                            <div className="flex items-center gap-1.5 text-[9px] text-slate-400 font-mono">
+                              <span className="px-1.5 py-0.2 rounded bg-amber-950/80 text-amber-300 font-bold border border-amber-800/60">
+                                🤖 AI VOICE
+                              </span>
+                              {item.stage && (
+                                <span className="text-slate-400 font-mono uppercase text-[8px]">
+                                  {item.stage}
+                                </span>
+                              )}
+                              <span>{new Date(item.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
+                            </div>
+                            <div className="max-w-[88%] bg-slate-800/90 text-slate-100 border border-slate-700/80 px-3 py-2 rounded-2xl rounded-tl-xs text-xs font-medium shadow-md leading-relaxed space-y-1 break-words">
+                              <p>{item.text}</p>
+                              {/* Audio Replay Chip */}
+                              <div className="pt-1 flex items-center justify-between border-t border-slate-700/60 text-[10px]">
+                                <span className="text-emerald-400 font-mono">
+                                  {sim.voiceMode === "STUDIO_PROMPTS" ? "Authentic Studio Prompt" : "Ghanaian Neural Voice"}
+                                </span>
+                                <button
+                                  onClick={() => sim.playStudioClip("/audio/English/Audio_prompt_02.mp3")}
+                                  className="text-[9px] text-amber-300 hover:text-amber-200 flex items-center gap-1 font-bold"
+                                  title="Replay Voice Prompt Audio"
+                                >
+                                  <Volume2 className="w-2.5 h-2.5" />
+                                  <span>Replay Audio</span>
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // System / Security event notice
+                      return (
+                        <div key={item.id} className="text-center py-1">
+                          <span className="inline-block px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-400 font-mono">
+                            {item.text}
+                          </span>
+                        </div>
+                      );
+                    })
                   )}
                 </div>
-                <div className="font-mono text-slate-400 uppercase font-semibold">
-                  {sim.language.toUpperCase()}
+              )}
+
+              {/* VIEW 2: AI BRAIN & BEHIND-THE-SYSTEM COGNITION HUD */}
+              {phoneScreenTab === "ai_brain" && (
+                <div className="flex-1 overflow-y-auto space-y-2.5 my-1 pr-1 text-xs select-text">
+                  <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between text-[10px] font-mono text-amber-400 font-bold uppercase">
+                      <span>🧠 Real-Time Cognitive Decision</span>
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800">
+                        {sim.intent || "IDLE"}
+                      </span>
+                    </div>
+
+                    {/* Intent & Confidence Meter */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[11px]">
+                        <span className="text-slate-400">Calibrated Confidence:</span>
+                        <span className="font-mono font-bold text-emerald-400">
+                          {sim.confidence !== null ? `${(sim.confidence * 100).toFixed(1)}%` : "Calibrating..."}
+                        </span>
+                      </div>
+                      <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                        <div
+                          className="bg-emerald-500 h-full rounded-full transition-all duration-500"
+                          style={{ width: `${sim.confidence !== null ? Math.min(100, sim.confidence * 100) : 0}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 pt-1 text-[10px] font-mono text-slate-300">
+                      <div>
+                        Language: <span className="text-amber-300 font-bold">{sim.language.toUpperCase()}</span>
+                      </div>
+                      <div>
+                        Step: <span className="text-emerald-400 font-bold">{sim.currentStep}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Extracted Transaction Slots HUD */}
+                  <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1.5">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block font-mono">
+                      Extracted Financial Slots:
+                    </span>
+                    <div className="space-y-1 text-[11px]">
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Amount:</span>
+                        <span className="font-mono font-bold text-white">
+                          {sim.entities.amount ? `GH₵ ${Number(sim.entities.amount).toFixed(2)}` : "—"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Recipient Phone:</span>
+                        <span className="font-mono font-bold text-amber-300">
+                          {maskPhone(sim.entities.recipientPhone)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Recipient Name:</span>
+                        <span className="font-bold text-emerald-300">
+                          {sim.entities.recipientName || "Unresolved"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Telco Network:</span>
+                        <span className="font-mono font-bold text-cyan-400">
+                          {sim.entities.network || "MTN"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Security Radar */}
+                  <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1 text-[11px]">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400 flex items-center gap-1">
+                        <Lock className="w-3 h-3 text-emerald-400" />
+                        <span>Zero-PIN Guard:</span>
+                      </span>
+                      <span className="font-mono font-bold text-emerald-400">
+                        {sim.safety.pinDetectedInVoice ? "BLOCKED ✕" : "ENFORCED ✓"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">Latency:</span>
+                      <span className="font-mono text-slate-300">
+                        {sim.pipelineLatency ? `${sim.pipelineLatency.totalMs}ms` : "< 200ms target"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* VIEW 3: INNOVATION & ADVANCEMENT RADAR (What Needs Improvement) */}
+              {phoneScreenTab === "advancement" && (
+                <div className="flex-1 overflow-y-auto space-y-2.5 my-1 pr-1 text-xs select-text">
+                  <div className="p-2.5 rounded-xl bg-purple-950/60 border border-purple-500/40 text-purple-200 space-y-1">
+                    <div className="flex items-center justify-between text-[10px] font-bold font-mono text-purple-300 uppercase">
+                      <span>🔬 System Advancement Radar</span>
+                      <span>DIAGNOSTICS</span>
+                    </div>
+                    <p className="text-[10px] text-purple-300 leading-snug">
+                      Real-time assessment to identify which cognitive or telephony portions need engineering improvement.
+                    </p>
+                  </div>
+
+                  {/* Aspect 1: ASR Acoustic Calibration */}
+                  <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1">
+                    <div className="flex items-center justify-between text-[10px] font-bold">
+                      <span className="text-slate-200">1. ASR Acoustic Recognition</span>
+                      <span className="px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-400 font-mono text-[9px]">
+                        OPTIMAL (94%)
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 leading-normal">
+                      Acoustic calibration matches Ghanaian telephony bandwidth (8kHz).
+                    </p>
+                    <div className="text-[10px] text-amber-300/90 font-medium bg-amber-950/40 p-1.5 rounded-lg border border-amber-900/40">
+                      💡 <span className="font-bold">Advancement Need:</span> Add noise suppression for open-market callers (Kejetia / Makola market background noise).
+                    </div>
+                  </div>
+
+                  {/* Aspect 2: Dialectal Nuance & Code-Switching */}
+                  <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1">
+                    <div className="flex items-center justify-between text-[10px] font-bold">
+                      <span className="text-slate-200">2. Akan Dialect Grammar</span>
+                      <span className="px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-400 font-mono text-[9px]">
+                        STRONG
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 leading-normal">
+                      Asante Twi &amp; Ghanaian English code-switching handled with tone disambiguation.
+                    </p>
+                    <div className="text-[10px] text-amber-300/90 font-medium bg-amber-950/40 p-1.5 rounded-lg border border-amber-900/40">
+                      💡 <span className="font-bold">Advancement Need:</span> Expand Fante and Bono vocabulary variants in local linguistic lexicon.
+                    </div>
+                  </div>
+
+                  {/* Aspect 3: Recipient Coreference & Contact Resolving */}
+                  <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1">
+                    <div className="flex items-center justify-between text-[10px] font-bold">
+                      <span className="text-slate-200">3. Contact Matching &amp; KYC</span>
+                      <span className="px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-400 font-mono text-[9px]">
+                        ACTIVE
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 leading-normal">
+                      Matches verified Ghanaian phone numbers and KYC subscriber directory.
+                    </p>
+                    <div className="text-[10px] text-amber-300/90 font-medium bg-amber-950/40 p-1.5 rounded-lg border border-amber-900/40">
+                      💡 <span className="font-bold">Advancement Need:</span> Add fuzzy phonetic day-name resolution (Kwame, Kwabena, Ama).
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── 5. Screen Bottom: Live Voice Bar, In-Screen Utterances & Buffer ─ */}
+              <div className="pt-2 border-t border-slate-800/80 shrink-0 space-y-2">
+                {/* Keypad Digits Buffer Display */}
+                {sim.digitsBuffer && (
+                  <div className="font-mono text-lg font-bold text-amber-400 tracking-widest bg-slate-900/90 py-1 px-3 rounded-lg border border-amber-400/30 text-center flex items-center justify-between">
+                    <span className="text-[9px] text-slate-400 font-normal">BUFFER:</span>
+                    <span>{sim.digitsBuffer}</span>
+                    <button
+                      onClick={() => sim.submitKeypadBuffer()}
+                      className="text-[9px] px-2 py-0.5 rounded bg-emerald-700 text-white font-bold"
+                    >
+                      # Submit
+                    </button>
+                  </div>
+                )}
+
+                {/* In-Screen Voice & Interaction Action Bar */}
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                  <button
+                    onClick={sim.toggleMic}
+                    className={`px-2.5 py-1 rounded-xl text-[10px] font-bold flex items-center gap-1.5 shadow-sm transition-all shrink-0 ${
+                      sim.isMicActive
+                        ? "bg-amber-500 text-slate-950 animate-pulse ring-2 ring-amber-300"
+                        : "bg-emerald-600 hover:bg-emerald-500 text-white"
+                    }`}
+                    title="Click to speak with microphone"
+                  >
+                    <Mic className="w-3 h-3" />
+                    <span>{sim.isMicActive ? "Mute Mic" : "Speak (Mic)"}</span>
+                  </button>
+
+                  {/* Quick-Turn Chips (Immediate Ghanaian ASR Testing) */}
+                  <button
+                    onClick={() => sim.simulateAsrSample("Send 20 cedis to Kwame", "en")}
+                    className="px-2 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-medium whitespace-nowrap shrink-0 transition-colors"
+                  >
+                    Send 20
+                  </button>
+                  <button
+                    onClick={() => sim.simulateAsrSample("Mane sika aduonum kɔma Ama", "tw")}
+                    className="px-2 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 text-[10px] font-medium whitespace-nowrap shrink-0 transition-colors"
+                  >
+                    Mane Sika (Twi)
+                  </button>
+                  <button
+                    onClick={() => sim.simulateAsrSample("Check balance", "en")}
+                    className="px-2 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-medium whitespace-nowrap shrink-0 transition-colors"
+                  >
+                    Balance
+                  </button>
+                  <button
+                    onClick={() => sim.sendInputTurn("Aane", "TEXT")}
+                    disabled={!sim.isActive}
+                    className="px-2 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 text-[10px] font-bold disabled:opacity-30 whitespace-nowrap shrink-0"
+                  >
+                    Aane (Yes)
+                  </button>
+                  <button
+                    onClick={() => sim.sendInputTurn("Dabi", "TEXT")}
+                    disabled={!sim.isActive}
+                    className="px-2 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-rose-300 text-[10px] font-bold disabled:opacity-30 whitespace-nowrap shrink-0"
+                  >
+                    Dabi (No)
+                  </button>
                 </div>
               </div>
 
-              {/* ── MoMo Push / Execution Modal Overlay ──────────────────── */}
+              {/* ── 6. MoMo Push / Execution Modal Overlay ─────────────────────── */}
               {(sim.currentStep === "confirm" || sim.currentStep === "execution" || sim.action.isExecutable) && (
-                <div className="absolute inset-2 bg-slate-950/95 backdrop-blur-md border-2 border-emerald-500/80 rounded-xl p-3 flex flex-col justify-between shadow-2xl z-20">
-                  <div className="space-y-1 text-left">
-                    <div className="flex items-center justify-between text-[10px] text-emerald-400 font-mono font-bold">
+                <div className="absolute inset-2 bg-slate-950/98 backdrop-blur-md border-2 border-emerald-500/80 rounded-2xl p-4 flex flex-col justify-between shadow-2xl z-30">
+                  <div className="space-y-1.5 text-left">
+                    <div className="flex items-center justify-between text-[11px] text-emerald-400 font-mono font-bold">
                       <span>MTN MoMo PUSH</span>
                       <span className="text-amber-400">GHANA TELECOM</span>
                     </div>
-                    <div className="text-xs font-bold text-white pt-1">
+                    <div className="text-sm font-bold text-white pt-1">
                       {sim.entities.amount ? `GH₵ ${Number(sim.entities.amount).toFixed(2)}` : "Mobile Transfer"}
                     </div>
-                    <div className="text-[10px] text-slate-300">
+                    <div className="text-[11px] text-slate-300">
                       To: <span className="font-mono font-bold text-amber-300">{maskPhone(sim.entities.recipientPhone)}</span>
                       {sim.entities.recipientName ? ` (${sim.entities.recipientName})` : ""}
                     </div>
@@ -842,9 +1323,9 @@ export const PhoneSimulatorPage: React.FC = () => {
                   </div>
 
                   {/* Authorization / Dial Keypad instruction */}
-                  <div className="py-2 text-center bg-slate-900 rounded-lg border border-slate-800">
-                    <div className="text-[10px] text-amber-300 font-semibold flex items-center justify-center gap-1">
-                      <Lock className="w-3 h-3" />
+                  <div className="py-2.5 text-center bg-slate-900 rounded-xl border border-slate-800">
+                    <div className="text-[11px] text-amber-300 font-semibold flex items-center justify-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5" />
                       <span>Zero-PIN Security Enforced</span>
                     </div>
                     <div className="text-[10px] text-slate-400 mt-0.5">
@@ -855,13 +1336,13 @@ export const PhoneSimulatorPage: React.FC = () => {
                   <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800">
                     <button
                       onClick={() => handleKeyPress("1")}
-                      className="py-1.5 px-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[11px] font-bold shadow-xs active:scale-95 transition-all"
+                      className="py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-xs active:scale-95 transition-all"
                     >
                       1: Confirm
                     </button>
                     <button
                       onClick={() => handleKeyPress("2")}
-                      className="py-1.5 px-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[11px] font-bold shadow-xs active:scale-95 transition-all"
+                      className="py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold shadow-xs active:scale-95 transition-all"
                     >
                       2: Cancel
                     </button>
@@ -871,65 +1352,66 @@ export const PhoneSimulatorPage: React.FC = () => {
             </div>
 
             {/* Handset Top Action Buttons (Call / End / Mic) */}
-            <div className="grid grid-cols-3 gap-2 px-2">
+            <div className="grid grid-cols-3 gap-2 px-1">
               <button
                 onClick={() => sim.startCall(sim.language === "tw" ? "tw" : "en")}
                 disabled={sim.isActive}
-                className="py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-xl flex items-center justify-center font-bold shadow-xs active:scale-95 transition-all"
-                title="Start Call"
+                className="py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-2xl flex items-center justify-center font-bold shadow-md active:scale-95 transition-all group"
+                title="Start Phone Call"
               >
-                <Phone className="w-4 h-4" />
+                <Phone className="w-5 h-5 group-hover:scale-110 transition-transform" />
               </button>
 
               <button
                 onClick={sim.toggleMic}
-                disabled={!sim.isActive}
-                className={`py-2.5 rounded-xl flex items-center justify-center font-bold shadow-xs active:scale-95 transition-all ${
+                className={`py-3 rounded-2xl flex items-center justify-center font-bold shadow-md active:scale-95 transition-all relative ${
                   sim.isMicActive
-                    ? "bg-amber-500 text-slate-950 animate-pulse"
-                    : "bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40"
+                    ? "bg-amber-500 text-slate-950 ring-4 ring-amber-400/50 animate-pulse"
+                    : "bg-slate-800 hover:bg-slate-700 text-slate-200"
                 }`}
-                title={sim.isMicActive ? "Mute Microphone" : "Speak to AI (ASR Capture)"}
+                title={sim.isMicActive ? "Mute Microphone" : "Speak to AI (Ghanaian ASR Capture - Auto Connects)"}
               >
-                {sim.isMicActive ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+                {sim.isMicActive ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
               </button>
 
               <button
                 onClick={() => sim.endCall("User pressed End Call")}
                 disabled={!sim.isActive}
-                className="py-2.5 bg-rose-700 hover:bg-rose-600 disabled:opacity-40 text-white rounded-xl flex items-center justify-center font-bold shadow-xs active:scale-95 transition-all"
-                title="Hang Up and sync to Call Logs"
+                className="py-3 bg-rose-700 hover:bg-rose-600 disabled:opacity-40 text-white rounded-2xl flex items-center justify-center font-bold shadow-md active:scale-95 transition-all group"
+                title="Hang Up and sync call session to Call Logs"
               >
-                <PhoneOff className="w-4 h-4" />
+                <PhoneOff className="w-5 h-5 group-hover:scale-110 transition-transform" />
               </button>
             </div>
 
-            {/* Physical 12-Button Keypad with Authentic Audio Tones */}
-            <div className="grid grid-cols-3 gap-2 px-2">
-              {keypadButtons.map((btn) => (
-                <button
-                  key={btn.digit}
-                  onClick={() => handleKeyPress(btn.digit)}
-                  className={`h-11 rounded-xl flex flex-col items-center justify-center transition-all duration-75 shadow-xs ${
-                    pressedKey === btn.digit
-                      ? "bg-amber-400 text-slate-950 scale-95"
-                      : "bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/60"
-                  }`}
-                >
-                  <span className="text-sm font-bold leading-none">{btn.digit}</span>
-                  {btn.sub && (
-                    <span className="text-[8px] font-mono text-slate-400 leading-tight">
-                      {btn.sub}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
+            {/* Physical 12-Button Tactile Keypad (Collapsible) */}
+            {showKeypad && (
+              <div className="grid grid-cols-3 gap-2 px-1 transition-all duration-300 animate-fadeIn">
+                {keypadButtons.map((btn) => (
+                  <button
+                    key={btn.digit}
+                    onClick={() => handleKeyPress(btn.digit)}
+                    className={`h-11 sm:h-12 rounded-2xl flex flex-col items-center justify-center transition-all duration-75 shadow-xs ${
+                      pressedKey === btn.digit
+                        ? "bg-amber-400 text-slate-950 scale-95"
+                        : "bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/60"
+                    }`}
+                  >
+                    <span className="text-sm font-extrabold leading-none">{btn.digit}</span>
+                    {btn.sub && (
+                      <span className="text-[8px] font-mono text-slate-400 leading-tight">
+                        {btn.sub}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Handset Brand Footer */}
-            <div className="text-center">
+            <div className="text-center pt-0.5">
               <span className="text-[10px] font-mono tracking-widest text-slate-500 font-bold uppercase">
-                Ɔkwankyerɛfo Pa Handset
+                Ɔkwankyerɛfo Pa Voice Handset
               </span>
             </div>
           </div>
@@ -938,7 +1420,7 @@ export const PhoneSimulatorPage: React.FC = () => {
         {/* ══════════════════════════════════════════════════════════════════
             COLUMN 2: MULTI-TAB STUDIO PANE (All Features Testable Here)
         ══════════════════════════════════════════════════════════════════ */}
-        <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 p-5 shadow-xs flex flex-col h-[740px]">
+        <div className={`${phoneScale === "cinematic" ? "lg:col-span-6" : phoneScale === "large" ? "lg:col-span-4" : "lg:col-span-5"} bg-white rounded-2xl border border-slate-200 p-5 shadow-xs flex flex-col h-[740px] transition-all duration-300`}>
           {/* Top Scenario Runner & Tab Switcher Bar */}
           <div className="pb-3 border-b border-slate-100 flex flex-col gap-2.5">
             <div className="flex items-center justify-between">
@@ -1755,7 +2237,7 @@ export const PhoneSimulatorPage: React.FC = () => {
         {/* ══════════════════════════════════════════════════════════════════
             COLUMN 3: AI INSPECTOR (Structured Decision & Security View)
         ══════════════════════════════════════════════════════════════════ */}
-        <div className="lg:col-span-3 space-y-4">
+        <div className={`${phoneScale === "cinematic" ? "col-span-12 lg:col-span-12 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 space-y-0" : "lg:col-span-3 space-y-4"} transition-all duration-300`}>
           {/* Card 1: AI Result & Entity Extraction */}
           <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs space-y-3">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">

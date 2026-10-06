@@ -106,7 +106,7 @@ export class ReasoningEngine {
 
     const candidateModels = [
       AI_CONFIG.model || "gemini-3.8-flash",
-      "gemini-3.1-flash-lite",
+      "gemini-flash-latest",
     ];
 
     const availableCandidates = candidateModels.filter((m) => {
@@ -178,6 +178,12 @@ Rules:
           msg.includes("PERMISSION_DENIED") ||
           msg.includes("denied access");
         const isQuota = msg.includes("RESOURCE_EXHAUSTED") || msg.includes("Quota exceeded") || msg.includes("429");
+        const is503HighDemand =
+          msg.includes("503") ||
+          msg.includes("high demand") ||
+          msg.includes("Spikes in demand") ||
+          msg.includes("UNAVAILABLE") ||
+          msg.includes("Overloaded");
 
         if (isForbidden) {
           if (typeof (this.client as any)?.recordAccessDenied === "function") {
@@ -185,6 +191,10 @@ Rules:
           }
           console.info(`[ReasoningEngine] Gemini API access not permitted on current project (403). Operating with 100% resilient Ghanaian deterministic reasoning.`);
           break; // Stop querying subsequent models when project access is denied
+        } else if (is503HighDemand) {
+          const cooldownMs = 3 * 60 * 1000;
+          this.client.recordModelQuotaExhausted(modelName, cooldownMs);
+          console.info(`[ReasoningEngine] Model '${modelName}' temporarily at high demand (503). Cooled down for 3m; proceeding with resilient reasoning.`);
         } else if (isQuota) {
           let cooldownMs = 15 * 60 * 1000;
           const retrySecMatch = msg.match(/retryDelay['":\s]+([0-9]+)/i);

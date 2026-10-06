@@ -117,9 +117,9 @@ export async function runRealSmokeTests(): Promise<SmokeTestReport> {
     });
   } else {
     try {
-      const probeModel = geminiClient.isModelAvailable("gemini-3.1-flash-lite")
-        ? "gemini-3.1-flash-lite"
-        : (geminiClient.isModelAvailable("gemini-3.8-flash") ? "gemini-3.8-flash" : "gemini-3.1-flash-lite");
+      const probeModel = geminiClient.isModelAvailable("gemini-3.8-flash")
+        ? "gemini-3.8-flash"
+        : (geminiClient.isModelAvailable("gemini-flash-latest") ? "gemini-flash-latest" : "gemini-3.8-flash");
 
       const pingResponse = await geminiClient.executeWithTimeout(
         "HEALTH_PROBE",
