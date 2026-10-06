@@ -127,6 +127,7 @@ export interface DraftState {
   interruptedSlots?: Slots | null;
   recentTurns?: TurnHistoryItem[];
   turnCount?: number;
+  clarificationLoops?: number;
   lastReplyKind?: ReplyKind;
   draftHash?: string;
   confirmedDraftHash?: string;

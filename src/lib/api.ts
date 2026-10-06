@@ -18,7 +18,16 @@ export interface HealthResponse {
   features: string[];
 }
 
-let activeAdminToken: string | null = null;
+let activeAdminToken: string | null =
+  typeof window !== "undefined"
+    ? (() => {
+        try {
+          return window.localStorage?.getItem("okw_admin_token") || null;
+        } catch {
+          return null;
+        }
+      })()
+    : null;
 
 function getAdminAuthHeaders(customHeaders: Record<string, string> = {}): Record<string, string> {
   const headers: Record<string, string> = { ...customHeaders };
@@ -782,11 +791,22 @@ export const api = {
       activeAdminToken = token;
     }
 
+    if (typeof window !== "undefined" && activeAdminToken) {
+      try {
+        window.localStorage?.setItem("okw_admin_token", activeAdminToken);
+      } catch {}
+    }
+
     return data;
   },
 
   async adminLogout(): Promise<any> {
     activeAdminToken = null;
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage?.removeItem("okw_admin_token");
+      } catch {}
+    }
     const res = await fetch("/api/admin/logout", {
       method: "POST",
       credentials: "same-origin",

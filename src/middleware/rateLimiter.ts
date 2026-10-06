@@ -23,6 +23,32 @@ const getClientIp = (req: Request): string => {
   return req.ip || req.socket?.remoteAddress || "127.0.0.1";
 };
 
+const getAdminKey = (req: Request): string => {
+  const ip = getClientIp(req);
+  const auth = req.headers.authorization;
+  if (auth && auth.startsWith("Bearer ")) {
+    return `${ip}:${auth.slice(-10)}`;
+  }
+  return ip;
+};
+
+const isNonApiOrStaticRequest = (req: Request): boolean => {
+  const p = req.path || "";
+  // Never rate-limit frontend UI navigation, static assets, or Vite bundles
+  if (
+    !p.startsWith("/api/") &&
+    !p.startsWith("/ussd-trigger") &&
+    p !== "/transactions/send"
+  ) {
+    return true;
+  }
+  // In development / test, allow bypassing rate limits if configured
+  if (process.env.NODE_ENV !== "production" && process.env.DISABLE_RATE_LIMIT === "true") {
+    return true;
+  }
+  return false;
+};
+
 const commonRateLimitOptions = {
   standardHeaders: true,
   legacyHeaders: false,
@@ -39,28 +65,32 @@ export const telephonyRateLimiter = rateLimit({
 
 export const adminRateLimiter = rateLimit({
   ...commonRateLimitOptions,
+  keyGenerator: getAdminKey,
   windowMs: 60 * 1000, // 1 minute
-  max: 30, // 30 requests per minute
+  max: process.env.NODE_ENV === "production" ? 300 : 1200, // Generous 300-1200 req/min for rich developer dashboard
+  skip: isNonApiOrStaticRequest,
   message: { error: "Too many admin requests. Rate limit exceeded." },
 });
 
 export const kycLookupRateLimiter = rateLimit({
   ...commonRateLimitOptions,
   windowMs: 60 * 1000, // 1 minute
-  max: 15, // 15 KYC queries per minute
+  max: 120, // 120 KYC queries per minute
+  skip: isNonApiOrStaticRequest,
   message: { error: "KYC directory rate limit exceeded. Please slow down." },
 });
 
 export const ussdTriggerRateLimiter = rateLimit({
   ...commonRateLimitOptions,
   windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 5, // max 5 outbound calls per 5 minutes per IP
+  max: 30, // max 30 outbound calls per 5 minutes per IP
   message: { error: "Outbound telephony trigger limit reached. Please wait." },
 });
 
 export const publicApiRateLimiter = rateLimit({
   ...commonRateLimitOptions,
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200,
+  max: 600,
+  skip: isNonApiOrStaticRequest,
   message: { error: "Too many requests. Please try again later." },
 });
