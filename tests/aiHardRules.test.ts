@@ -4,6 +4,8 @@ import { parseUserIntent } from "../src/modules/nluService";
 import { aiBootstrap } from "../src/ai_system/core/aiBootstrap";
 import { redactPii } from "../src/domain/validation";
 import { runEvaluationHarness, runAudioEvaluationHarness } from "../src/ai_eval/evalHarness";
+import { aiEngine } from "../src/ai_system/core/aiEngine";
+import { offlineAIEngine } from "../src/ai_system/core/offlineAIEngine";
 
 describe("Hard Rules for AI Telephony Layer", { timeout: 20000 }, () => {
   // ── Rule 1: Fail Closed ─────────────────────────────────────────────
@@ -23,6 +25,26 @@ describe("Hard Rules for AI Telephony Layer", { timeout: 20000 }, () => {
     expect(intentOnly.intent).toBe("SEND_MONEY");
     expect(intentOnly.amount).toBeNull();
     expect(intentOnly.recipient_phone).toBeNull();
+  });
+
+  it("keeps canonical speech and offline turns in understand-only mode from executing tools", async () => {
+    const inputs = {
+      channel: "VOICE" as const,
+      input: "go home",
+      currentScreen: "TELEPHONY",
+      currentStep: "service-choice",
+      executionPolicy: "UNDERSTAND_ONLY" as const,
+    };
+    const [onlineResult, offlineResult] = await Promise.all([
+      aiEngine.process({ ...inputs, sessionId: `understand-online-${Date.now()}` }),
+      offlineAIEngine.process({ ...inputs, sessionId: `understand-offline-${Date.now()}` }),
+    ]);
+
+    for (const result of [onlineResult, offlineResult]) {
+      expect(result.action.tool).toBe("navigate_home");
+      expect(result.action.isExecutable).toBe(false);
+      expect(result.action.executedResult).toBeUndefined();
+    }
   });
 
   // ── Rule 2: Spoken Amounts & Numbers Never Accepted Silently ────────

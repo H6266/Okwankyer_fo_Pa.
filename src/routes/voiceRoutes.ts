@@ -22,6 +22,7 @@ import { verifyAtWebhook } from "../providers/telephony/webhookGuard";
 import { voicePaymentService } from "../integrations/momo/voicePaymentService";
 import { durableTransactionStore } from "../services/durableTransactionStore";
 import { telephonyRateLimiter } from "../middleware/rateLimiter";
+import { aiSystem } from "../ai_system";
 
 export const voiceRouter = Router();
 
@@ -47,7 +48,29 @@ const TELEPHONY_ROUTES = new Set([
 // Apply rate limiting & Africa's Talking webhook verification strictly to telephony routes
 voiceRouter.use((req: Request, res: Response, next) => {
   if (TELEPHONY_ROUTES.has(req.path)) {
-    return telephonyRateLimiter(req, res, () => verifyAtWebhook(req, res, next));
+    return telephonyRateLimiter(req, res, () => verifyAtWebhook(req, res, async () => {
+      const dtmf = req.body?.dtmfDigits ?? req.query?.dtmfDigits;
+      const sessionId = req.body?.sessionId ?? req.query?.sessionId;
+      if (typeof dtmf === "string" && dtmf.length > 0 && typeof sessionId === "string" && sessionId.length > 0) {
+        const safeDtmf = dtmf.length >= 9 && /^\d+$/.test(dtmf)
+          ? `${dtmf.slice(0, 3)}****${dtmf.slice(-3)}`
+          : dtmf;
+        try {
+          await aiSystem.process({
+            sessionId,
+            channel: "DTMF",
+            input: safeDtmf,
+            language: req.query?.lang === "twi" || req.body?.lang === "twi" ? "tw" : "unknown",
+            currentScreen: "TELEPHONY",
+            currentStep: req.path.slice(1),
+            executionPolicy: "UNDERSTAND_ONLY",
+          });
+        } catch {
+          auditLogger.log("warn", "AI", "Canonical keypad understanding unavailable; using guarded IVR flow.", sessionId);
+        }
+      }
+      next();
+    }));
   }
   return next();
 });
@@ -595,7 +618,7 @@ voiceRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   let pinDiscarded = false;
   if (recordingUrl) {
     try {
-      const stt = await speechToText(recordingUrl);
+      const stt = await speechToText(recordingUrl, undefined, step);
       transcript = stt.text;
       confidence = stt.confidence;
       pinDiscarded = Boolean(stt.pinDiscarded);
@@ -630,15 +653,37 @@ voiceRouter.all("/speech-fallback", async (req: Request, res: Response) => {
     }
   }
 
-  // High-confidence spoken input: map to next step
+  // Every accepted spoken turn also passes through the canonical AI entry point.
+  // Keep execution disabled here: the legacy IVR's verification/saga flow owns
+  // financial state transitions until the complete payment migration is done.
+  const safeTranscript = transcript.replace(/\b(0[2-5]\d{8})\b/g, (phone) => `${phone.slice(0, 3)}****${phone.slice(-3)}`);
+  let aiTurn: Awaited<ReturnType<typeof aiSystem.process>> | undefined;
+  try {
+    aiTurn = await aiSystem.process({
+      sessionId,
+      channel: "VOICE",
+      input: safeTranscript,
+      language: step === "language-selection" ? "unknown" : lang === "twi" ? "tw" : "en",
+      currentScreen: "TELEPHONY",
+      currentStep: step,
+      executionPolicy: "UNDERSTAND_ONLY",
+    });
+  } catch {
+    auditLogger.log("warn", "AI", "Canonical understanding unavailable; retaining guarded IVR fallback.", sessionId);
+  }
+
+  // Continue the existing DTMF verification flow using the AI's turn decision.
   const clean = transcript.toLowerCase();
   if (step === "language-selection") {
-    const chosenDtmf = clean.includes("twi") || clean.includes("mmienu") || clean.includes("two") ? "2" : "1";
+    const chosenDtmf = aiTurn?.language === "tw" || aiTurn?.language === "ak" ||
+      clean.includes("twi") || clean.includes("mmienu") || clean.includes("two") ? "2" : "1";
     return xmlResponse(res, `    <Redirect>${baseUrl}/language-selection?sessionId=${sessionId}&amp;dtmfDigits=${chosenDtmf}</Redirect>`);
   }
 
   // Universal cancel or back
-  if (clean.includes("cancel") || clean.includes("gyae") || clean.includes("stop")) {
+  const isCancellation = aiTurn?.intent === "CANCEL" ||
+    (!aiTurn && (clean.includes("cancel") || clean.includes("gyae") || clean.includes("stop")));
+  if (isCancellation) {
     transactionStateMachine.transition(sessionId, "CANCELLED");
     return xmlResponse(res, `    <Say voice="female">${lang === "twi" ? "Yɛatwa mu. Nante yie." : "Transaction cancelled. Goodbye."}</Say>\n    <Reject/>`);
   }
@@ -653,7 +698,10 @@ voiceRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   }
 
   if (step === "enter-amount") {
-    const digitsOnly = clean.replace(/[^0-9]/g, "");
+    const parsedAmount = aiTurn?.entities?.amount;
+    const digitsOnly = typeof parsedAmount === "number" && Number.isFinite(parsedAmount)
+      ? String(parsedAmount)
+      : clean.replace(/[^0-9]/g, "");
     if (digitsOnly.length > 0 && digitsOnly.length <= 5) {
       return xmlResponse(res, `    <Redirect>${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${digitsOnly}</Redirect>`);
     }

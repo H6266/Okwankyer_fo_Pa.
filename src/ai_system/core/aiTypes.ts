@@ -399,6 +399,7 @@ export interface AiProcessInput {
   availableActions?: string[];
   userProfile?: UserProfileData;
   executionMode?: "SIMULATION" | "MTN_SANDBOX";
+  executionPolicy?: "NORMAL" | "UNDERSTAND_ONLY";
   metadata?: Record<string, any>;
 }
 

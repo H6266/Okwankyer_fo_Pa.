@@ -257,10 +257,11 @@ export class AiEngine {
       ctx.rawInput.toLowerCase().trim() === "aane" ||
       ctx.rawInput.trim() === "1"
     );
-    const clientConfirmed = isAffirmative && ctx.activeDraft?.confirmationState === "CONFIRMATION_REQUESTED";
+    const allowToolExecution = input.executionPolicy !== "UNDERSTAND_ONLY";
+    const clientConfirmed = allowToolExecution && isAffirmative && ctx.activeDraft?.confirmationState === "CONFIRMATION_REQUESTED";
 
     // If this turn prepares a confirmation prompt for caller, mark draft as CONFIRMATION_REQUESTED
-    if (ctx.activeDraft && (dialogueTypeIsConfirmation(intent, ctx.workingSlots) || navigation.targetStep === "confirm")) {
+    if (allowToolExecution && ctx.activeDraft && (dialogueTypeIsConfirmation(intent, ctx.workingSlots) || navigation.targetStep === "confirm")) {
       if (ctx.activeDraft.confirmationState === "UNCONFIRMED") {
         ctx.activeDraft.confirmationState = "CONFIRMATION_REQUESTED";
       }
@@ -299,6 +300,8 @@ export class AiEngine {
       unifiedMemory.saveDraft(ctx.sessionId, ctx.activeDraft);
     }
 
+    if (!allowToolExecution) action.isExecutable = false;
+
     latencies.safetyCheckLatencyMs = Math.round(performance.now() - stage4Start);
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -306,7 +309,7 @@ export class AiEngine {
     // ─────────────────────────────────────────────────────────────────────────
     const stage5Start = performance.now();
 
-    if (action.isExecutable && action.tool !== "none") {
+    if (allowToolExecution && action.isExecutable && action.tool !== "none") {
       const isTransferTool = action.tool === "execute_transfer" || action.tool === "momo_execute_transfer";
 
       let toolResult = await unifiedToolRegistry.execute({
