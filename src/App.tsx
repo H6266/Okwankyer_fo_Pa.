@@ -23,6 +23,7 @@ import { DocsPage } from "./pages/dashboard/DocsPage";
 import { ShippingPage } from "./pages/dashboard/ShippingPage";
 import { TasksPage } from "./pages/dashboard/TasksPage";
 import { PhoneSimulatorPage } from "./pages/dashboard/PhoneSimulatorPage";
+import { PreachModeView } from "./components/study/PreachModeView";
 
 export default function App() {
   return (
@@ -31,10 +32,13 @@ export default function App() {
         <Routes>
           {/* Public Marketing Landing Page */}
           <Route path="/" element={<LandingPage />} />
+          <Route path="/preach" element={<PreachModeView />} />
 
           {/* Developer & QA Testing Dashboard */}
           <Route path="/dashboard" element={<DashboardLayout />}>
             <Route index element={<OverviewPage />} />
+            {/* Preach Mode Document Study Layer */}
+            <Route path="preach" element={<PreachModeView />} />
             {/* Primary Laboratories */}
             <Route path="momo" element={<MomoLabPage />} />
             <Route path="api" element={<MomoLabPage />} />

@@ -52,7 +52,7 @@ export class OpenAIClientManager {
   }
 
   public getApiKey(): string | undefined {
-    return process.env.OPENAI_API_KEY;
+    return process.env.OPENAI_API_KEY || (process.env.NODE_ENV === "test" || process.env.VITEST ? "mock-test-key" : undefined);
   }
 
   private initClient(): void {

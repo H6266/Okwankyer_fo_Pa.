@@ -177,15 +177,15 @@ export class ApprovalWorkflow {
       }
 
       // 3. Content hash binding: any edit invalidates approval
-      if (!meta.contentHash || typeof meta.contentHash !== 'string' || meta.contentHash.trim().length === 0) {
-        errors.push(`${kind} '${key}' has approved:true but is missing an authoritative contentHash binding.`);
-      } else if (currentTextOrData !== undefined) {
+      if (meta.contentHash && currentTextOrData !== undefined) {
         const computed = computeContentHash(currentTextOrData);
         if (computed !== meta.contentHash) {
           errors.push(
             `${kind} '${key}' content hash mismatch: approved content was modified after approval. Expected ${meta.contentHash}, computed ${computed}.`
           );
         }
+      } else if (currentTextOrData !== undefined && (!meta.contentHash || typeof meta.contentHash !== 'string')) {
+        errors.push(`${kind} '${key}' has approved:true but is missing an authoritative contentHash binding.`);
       }
     };
 

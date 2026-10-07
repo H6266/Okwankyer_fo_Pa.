@@ -870,52 +870,35 @@ Output format: Return ONLY valid JSON with keys: intent, slots, signals, reply.`
   }
 
   private async executeModelWithTimeout(prompt: string, timeoutMs: number, turnId: number): Promise<any> {
-    const rawClient = geminiClient.getRawClient();
-    if (!rawClient) return null;
-
-    const abortController = new AbortController();
-    let timer: NodeJS.Timeout | null = null;
+    if (!geminiClient.isAvailable()) return null;
 
     try {
-      const response = await new Promise<any>((resolve, reject) => {
-        timer = setTimeout(() => {
-          abortController.abort();
-          reject(new Error(`MODEL_TIMEOUT_${timeoutMs}MS`));
-        }, timeoutMs);
-
-        abortController.signal.addEventListener(
-          'abort',
-          () => {
-            reject(new Error(`MODEL_TIMEOUT_${timeoutMs}MS`));
-          },
-          { once: true }
-        );
-
-        Promise.resolve(
-          rawClient.models.generateContent({
+      const response = await geminiClient.executeWithTimeout(
+        "BRAIN_REASONING",
+        async (rawClient, signal) => {
+          return rawClient.models.generateContent({
             model: this.config.modelName,
             contents: prompt,
             config: {
               responseMimeType: 'application/json',
               temperature: 0.1,
-              abortSignal: abortController.signal,
+              abortSignal: signal,
             },
-          })
-        ).then(resolve, reject);
-      });
-
-      if (timer) clearTimeout(timer);
+          });
+        },
+        timeoutMs,
+        0
+      );
 
       // Discard stale response if a newer turn has already executed
       if (turnId !== this.currentTurnId) {
         return null;
       }
 
-      const text = response?.text?.();
+      const text = typeof response?.text === 'function' ? response.text() : response?.text;
       if (!text) return null;
       return JSON.parse(text);
     } catch {
-      if (timer) clearTimeout(timer);
       return null;
     }
   }

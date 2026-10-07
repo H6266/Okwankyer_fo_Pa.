@@ -57,6 +57,36 @@ import { AI_CONFIG } from "../core/aiConfig";
 import { fieldEncryption } from "../security/fieldEncryption";
 import { embeddingProvider } from "./embeddingProvider";
 
+function maskPiiText(text: string): string {
+  if (!text) return "";
+  let masked = text.replace(/\b(?:\d[\s-]*){4,6}\b/g, "[PIN_REDACTED]");
+  masked = masked.replace(/\b(?:pin|secret|passcode|code|password)\b/gi, "[PIN_KEYWORD]");
+  masked = masked.replace(/\b(0[235]\d{8}|233[235]\d{8})\b/g, "[PHONE_MASKED]");
+  masked = masked.replace(/\b(?:\d[\s-]*){9,12}\b/g, "[PHONE_MASKED]");
+  const spokenSequenceRegex = /\b(?:zero|one|two|three|four|five|six|seven|eight|nine|oh|hwee|baako|mmienu|mmiensa|mmiɛnsa|ɛnan|enan|enum|nsia|nson|nwɔtwe|nwotwe|nkron|kron)(?:\s+(?:zero|one|two|three|four|five|six|seven|eight|nine|oh|hwee|baako|mmienu|mmiensa|mmiɛnsa|ɛnan|enan|enum|nsia|nson|nwɔtwe|nwotwe|nkron|kron)){6,}\b/gi;
+  masked = masked.replace(spokenSequenceRegex, "[PHONE_MASKED]");
+  masked = masked.replace(/\b\d+(\.\d{1,2})?\s*(?:ghs|cedis?|pesewas?|sidi)?\b/gi, "[AMOUNT_MASKED]");
+  return masked;
+}
+
+function maskSlotsData(slots: EntitySlotMap): EntitySlotMap {
+  if (!slots) return {};
+  const masked: any = { ...slots };
+  if (masked.recipientPhone) {
+    masked.recipientPhone = typeof masked.recipientPhone === "string" && masked.recipientPhone.length >= 7
+      ? `${masked.recipientPhone.slice(0, 3)}****${masked.recipientPhone.slice(-3)}`
+      : "[PHONE_MASKED]";
+  }
+  if (masked.recipientName) {
+    masked.recipientName = "[NAME_MASKED]";
+  }
+  if (masked.amount) {
+    masked.hasAmount = true;
+    masked.amount = "[AMOUNT_MASKED]" as any;
+  }
+  return masked;
+}
+
 export class UnifiedMemory {
   // Working memory (transient during active session)
   private workingSlots = new Map<string, EntitySlotMap>();
@@ -126,8 +156,13 @@ export class UnifiedMemory {
     this.sanitizeSlotsBeforeStorage(turn.slots);
 
     const history = await this.conversationRepo.getHistory(sessionId);
+    const maskedInput = maskPiiText(turn.sanitizedInput);
+    const maskedSlots = maskSlotsData(turn.slots);
+
     const turnRecord: ConversationTurnRecord = {
       ...turn,
+      sanitizedInput: maskedInput,
+      slots: maskedSlots,
       turnId: `turn_${Date.now()}_${history.length + 1}`,
       timestamp: Date.now(),
     };
@@ -137,13 +172,13 @@ export class UnifiedMemory {
     // Generate embedding via EmbeddingProvider (or use supplied vector)
     const embeddingRes = turn.embeddingVector
       ? { vector: turn.embeddingVector, source: "GEMINI_EMBEDDING" as const }
-      : await embeddingProvider.embed(turn.sanitizedInput);
+      : await embeddingProvider.embed(maskedInput);
 
     await this.semanticRepo.storeVector({
       id: turnRecord.turnId,
       sessionId,
       turnIndex: history.length,
-      text: turn.sanitizedInput,
+      text: maskedInput,
       embedding: embeddingRes.vector,
       timestamp: turnRecord.timestamp,
     });

@@ -19,6 +19,7 @@ import { momoRouter } from "./routes/momoRoutes";
 import { shippingRouter } from "./routes/shippingRoutes";
 import { aiRouter } from "./routes/aiRoutes";
 import { adminRouter } from "./routes/adminRoutes";
+import { studyRouter } from "./routes/studyRoutes";
 import { liveVoiceGateway } from "./ai_system/voice/liveVoiceGateway";
 import { initialize as initAtClient } from "../africastalking";
 import { requireAdminAuth } from "./middleware/adminAuth";
@@ -136,6 +137,7 @@ app.use(momoRouter);
 app.use(shippingRouter);
 app.use(aiRouter);
 app.use(adminRouter);
+app.use("/api/study", studyRouter);
 
 // Fallback for unmatched API routes to ensure clean JSON responses
 app.all("/api/*", (_req: Request, res: Response) => {

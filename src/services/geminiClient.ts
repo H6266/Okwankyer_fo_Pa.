@@ -30,8 +30,9 @@ export interface CircuitBreakerState {
 }
 
 export class UnifiedGeminiClient {
-  private static instance: UnifiedGeminiClient;
+  private static instances = new Map<string, UnifiedGeminiClient>();
   private ai: GoogleGenAI | null = null;
+  public readonly laneName: string;
   private circuitBreaker: CircuitBreakerState = {
     failureCount: 0,
     lastFailureTime: 0,
@@ -42,15 +43,33 @@ export class UnifiedGeminiClient {
   private readonly RECOVERY_TIMEOUT_MS = 30 * 1000; // 30s
   private latencyHistory: { stage: string; durationMs: number; timestamp: number }[] = [];
 
-  constructor() {
+  constructor(laneName: string = "telephony") {
+    this.laneName = laneName;
     this.initClient();
   }
 
-  public static getInstance(): UnifiedGeminiClient {
-    if (!UnifiedGeminiClient.instance) {
-      UnifiedGeminiClient.instance = new UnifiedGeminiClient();
+  public static getInstance(laneName: string = "telephony"): UnifiedGeminiClient {
+    let inst = UnifiedGeminiClient.instances.get(laneName);
+    if (!inst) {
+      inst = new UnifiedGeminiClient(laneName);
+      UnifiedGeminiClient.instances.set(laneName, inst);
     }
-    return UnifiedGeminiClient.instance;
+    return inst;
+  }
+
+  public getCircuitBreakerState(): "CLOSED" | "OPEN" | "HALF_OPEN" {
+    return this.circuitBreaker.state;
+  }
+
+  public resetCircuitBreaker(): void {
+    this.circuitBreaker = {
+      failureCount: 0,
+      lastFailureTime: 0,
+      state: "CLOSED",
+    };
+    this.globalQuotaCooldownUntil = 0;
+    this.modelQuotaCooldowns.clear();
+    this.accessDenied = false;
   }
 
   private initClient(): void {
@@ -404,4 +423,5 @@ export class UnifiedGeminiClient {
   }
 }
 
-export const geminiClient = UnifiedGeminiClient.getInstance();
+export const geminiClient = UnifiedGeminiClient.getInstance("telephony");
+export const studyGeminiClient = UnifiedGeminiClient.getInstance("study");

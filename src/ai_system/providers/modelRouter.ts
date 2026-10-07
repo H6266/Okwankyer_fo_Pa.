@@ -89,14 +89,19 @@ export class ModelRouter {
       timeoutMs: 2500,
       isAvailable: () => geminiClient.isAvailable(),
       execute: async (payload, signal) => {
-        const client = geminiClient.getRawClient();
-        if (!client) throw new Error("Gemini client is not initialized.");
-        const resp = await client.models.generateContent({
-          model: process.env.GEMINI_REASONING_MODEL || "gemini-3.8-flash",
-          contents: payload.prompt,
-          config: payload.config || { responseMimeType: "application/json" },
-        });
-        return resp.text || "{}";
+        return geminiClient.executeWithTimeout(
+          "GEMINI_REASONING_ROUTER",
+          async (client, s) => {
+            const resp = await client.models.generateContent({
+              model: process.env.GEMINI_REASONING_MODEL || "gemini-3.8-flash",
+              contents: payload.prompt,
+              config: payload.config || { responseMimeType: "application/json" },
+            });
+            return typeof resp.text === "function" ? resp.text() : resp.text || "{}";
+          },
+          2500,
+          0
+        );
       },
     });
 
