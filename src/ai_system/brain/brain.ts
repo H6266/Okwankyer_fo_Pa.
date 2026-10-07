@@ -295,12 +295,12 @@ export class Brain {
     const normalizedText = inputNormalizer.normalize(rawTranscript);
     const contextualAnalysis = contextualReasoningEngine.analyzeTurn({
       utterance: normalizedText,
-      currentSlots: draft.slots,
+      currentSlots: draft.slots as any,
       activeTask: draft.intent ? {
         taskId: 'active_task',
         intent: 'SEND_MONEY',
         type: draft.intent,
-        slots: draft.slots,
+        slots: draft.slots as any,
         currentStep: 'COLLECT',
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -309,7 +309,7 @@ export class Brain {
         taskId: 'interrupted_task',
         intent: 'SEND_MONEY',
         type: draft.interruptedIntent,
-        slots: draft.interruptedSlots || {},
+        slots: (draft.interruptedSlots || {}) as any,
         currentStep: 'COLLECT',
         createdAt: Date.now(),
         updatedAt: Date.now(),

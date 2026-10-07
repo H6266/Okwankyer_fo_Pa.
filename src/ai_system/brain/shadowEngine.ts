@@ -105,7 +105,7 @@ export class ShadowEngine {
     language: LanguageId;
     turnId?: number;
   }): ShadowDisagreementLog | null {
-    const offlineIntent = params.offlineDecision.intent || params.offlineDraft.intent;
+    const offlineIntent = ('intent' in params.offlineDecision ? params.offlineDecision.intent : undefined) || params.offlineDraft.intent;
     const modelIntent = params.modelOutput.intent.id;
 
     const offlineKind = params.offlineDecision.kind;

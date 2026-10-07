@@ -198,13 +198,14 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
     // ── Canonical Brain Reasoning & Reply Composition ───────────────────
     const brainLanguage = language === "tw" || language === "ak" ? "twi-asante" : "en";
     const brainOutput = await brain.process({
-      transcript: input !== undefined && input !== null ? String(input) : "",
-      language: brainLanguage,
-      sessionLanguage: brainLanguage,
-      draft: req.body.draft || {},
-      sessionId: sessionKey,
-      callerNumber: typeof req.body.callerPhone === "string" ? req.body.callerPhone : undefined,
-    });
+       transcript: input !== undefined && input !== null ? String(input) : "",
+       language: brainLanguage,
+       languageConfidence: 0.95,
+       sessionLanguage: brainLanguage,
+       draft: req.body.draft || {},
+       sessionId: sessionKey,
+       callerNumber: typeof req.body.callerPhone === "string" ? req.body.callerPhone : undefined,
+     });
 
     // Wire brain's reply (text, language, promptId) into telephonyAdapter
     simulatorTelephonyAdapter.speakBrainReply(brainOutput.reply, {
@@ -226,7 +227,7 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
     }
 
     // Use Simulator Telephony Adapter to build clean, escaped VoiceXML
-    const langVoice = brainOutput.reply.language === "tw" || brainOutput.reply.language === "ak" || brainOutput.reply.language.startsWith("twi") ? "woman" : "alice";
+    const langVoice = brainOutput.reply.language.startsWith("twi") ? "woman" : "alice";
     const generatedVoiceXml = simulatorTelephonyAdapter.buildVoiceXml([
       simulatorTelephonyAdapter.collectDigits({
         timeout: 5,

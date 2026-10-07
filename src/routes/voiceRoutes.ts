@@ -656,6 +656,7 @@ voiceRouter.all("/speech-fallback", async (req: Request, res: Response) => {
 
   // Central Reasoning Brain Processing with timeout & DTMF fallback
   const safeTranscript = transcript.replace(/\b(0[2-5]\d{8})\b/g, (phone) => `${phone.slice(0, 3)}****${phone.slice(-3)}`);
+  const session = transactionStateMachine.getSession(sessionId);
   let brainResult: any = null;
   let brainFailed = false;
 
@@ -665,8 +666,8 @@ voiceRouter.all("/speech-fallback", async (req: Request, res: Response) => {
       language: lang === "twi" ? "twi-asante" : "en",
       languageConfidence: confidence,
       sessionLanguage: lang === "twi" ? "twi-asante" : "en",
-      draft: (session as any).brainDraft || { slots: {} },
-      callerNumber: session.callerPhone,
+      draft: (session as any)?.brainDraft || { slots: {} },
+      callerNumber: session?.callerPhone,
       sessionId,
     });
     brainResult = await Promise.race([

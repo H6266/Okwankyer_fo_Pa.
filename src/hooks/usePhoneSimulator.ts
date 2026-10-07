@@ -2384,6 +2384,7 @@ export function usePhoneSimulator() {
     interimTranscript,
     setInterimTranscript,
     transcriptionStatus,
+    setTranscriptionStatus,
     aiProcessingPhase,
     aiProcessingDetail,
     lastTranscription,

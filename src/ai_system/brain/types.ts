@@ -31,6 +31,7 @@ export type ReplyKind =
   | 'clarify_intent'
   | 'not_ready'
   | 'confirm'
+  | 'dispatch'
   | 'smalltalk'
   | 'error';
 

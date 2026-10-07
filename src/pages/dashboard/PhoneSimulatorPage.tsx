@@ -1149,7 +1149,7 @@ export const PhoneSimulatorPage: React.FC = () => {
                                   {sim.voiceMode === "STUDIO_PROMPTS" ? "Authentic Studio Prompt" : "Ghanaian Neural Voice"}
                                 </span>
                                 <button
-                                  onClick={() => sim.playStudioClip(item.text, sim.language)}
+                                  onClick={() => sim.playStudioClip(item.text)}
                                   className="text-[9px] text-amber-300 hover:text-amber-200 flex items-center gap-1 font-bold transition-colors"
                                   title="Replay Voice Prompt Audio"
                                 >
