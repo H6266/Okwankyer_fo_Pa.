@@ -75,14 +75,6 @@ class AuditLogger {
   public getRecentLogs(): LogEntry[] {
     return [...this.logBuffer];
   }
-
-  public getLogs(): LogEntry[] {
-    return this.getRecentLogs();
-  }
-
-  public clear(): void {
-    this.logBuffer = [];
-  }
 }
 
 export const auditLogger = new AuditLogger();

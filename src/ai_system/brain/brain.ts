@@ -48,8 +48,6 @@ import {
   formatProfilePromptSection,
 } from './languageProfiles';
 import { geminiClient } from '../../services/geminiClient';
-import { pilotControls } from '../../services/pilotControls';
-import { pilotMetrics } from '../../services/pilotMetrics';
 import {
   APPROVED_REPLY_TEMPLATES,
   getApprovedTemplateText,
@@ -79,7 +77,7 @@ export function validateProductionModelConfig(): void {
 }
 
 export const DEFAULT_BRAIN_CONFIG: BrainConfig = {
-  mode: (process.env.BRAIN_MODE as BrainMode) || (process.env.NODE_ENV === 'production' ? 'shadow' : 'live'),
+  mode: (process.env.BRAIN_MODE as BrainMode) || (process.env.NODE_ENV === 'production' ? 'shadow' : 'shadow'),
   shadowSamplingRate: 1.0,
   confidenceThreshold: 0.65,
   ambiguityMargin: 0.15,
@@ -202,7 +200,6 @@ export class Brain {
    * Main entry point: Processes caller utterance and returns settled decision with validated reply.
    */
   public async process(input: BrainInput): Promise<BrainOutput> {
-    const turnStartTime = Date.now();
     const currentTurn = ++this.currentTurnId;
     const rawTranscript = (input.transcript || '').trim();
     const draft: DraftState = {
@@ -214,7 +211,6 @@ export class Brain {
       interruptedSlots: input.draft?.interruptedSlots,
       recentTurns: [...(input.draft?.recentTurns || [])],
       turnCount: (input.draft?.turnCount || 0) + 1,
-      clarificationLoops: input.draft?.clarificationLoops || 0,
       lastReplyKind: input.draft?.lastReplyKind,
       draftHash: input.draft?.draftHash,
       confirmedDraftHash: input.draft?.confirmedDraftHash,
@@ -235,29 +231,9 @@ export class Brain {
       delete (draft.slots as any).recipientName;
     }
 
-    // Finalizer to hook shadow mode evaluation and pilot operational metrics
+    // Finalizer to hook shadow mode evaluation without mutating or delaying output
     const finalizeOutput = (output: BrainOutput): BrainOutput => {
-      pilotMetrics.recordTurnLatency(Date.now() - turnStartTime);
-
-      // Clarification loop limit handling (Phase 6 Item b: after N failed clarifications, offer keypad or customer care)
-      if (output.decision.kind === 'clarify_slot' || output.decision.kind === 'clarify_intent') {
-        draft.clarificationLoops = (draft.clarificationLoops || 0) + 1;
-        const callId = input.sessionId || input.callerNumber || 'session';
-        pilotMetrics.recordClarificationLoop(callId);
-
-        if (draft.clarificationLoops >= pilotControls.getMaxClarificationAttempts()) {
-          pilotMetrics.recordDtmfFallback();
-          output.decision = { kind: 'clarify_slot', slot: 'keypad_fallback' };
-          if (output.reply.language === 'twi-asante' || output.reply.language === 'twi-akuapem') {
-            output.reply.text = 'Yɛnte wo kasa no yie. Mepa wo kyɛw, fa wo fon so keypad bɔ sika no, anaa mia zero ma customer care.';
-          } else {
-            output.reply.text = 'We are having trouble understanding your speech. Please enter the details using your phone keypad, or press 0 for customer care.';
-          }
-        }
-      }
-
-      const effectiveMode = pilotControls.getEffectiveBrainMode(input.callerNumber, this.config.mode);
-      if (effectiveMode === 'shadow' && Math.random() <= this.config.shadowSamplingRate && geminiClient.isAvailable()) {
+      if (this.config.mode === 'shadow' && Math.random() <= this.config.shadowSamplingRate && geminiClient.isAvailable()) {
         shadowEngine.recordShadowComparison({
           input,
           offlineDecision: output.decision,
@@ -382,7 +358,7 @@ export class Brain {
         language: activeLanguage,
         slots: draft.slots,
       });
-      return finalizeOutput({
+      return {
         decision,
         reply: {
           text: APPROVED_KEYPAD_FALLBACK_PROMPT,
@@ -391,7 +367,7 @@ export class Brain {
         },
         updatedDraft: draft,
         sessionLanguage,
-      });
+      };
     }
 
     // Extract New Slots from Current Utterance (unless utterance is purely DTMF / confirmation / cancel)
@@ -473,10 +449,8 @@ export class Brain {
 
     let modelOutput: ModelOutputContract | null = null;
 
-    const effectiveMode = pilotControls.getEffectiveBrainMode(input.callerNumber, this.config.mode);
-
     const canCallModel =
-      effectiveMode === 'live' &&
+      this.config.mode === 'live' &&
       !isHighConfidenceDeterministic &&
       !isExplicitConfirm &&
       !isExplicitCancel &&
@@ -514,13 +488,13 @@ export class Brain {
             language: activeLanguage,
             slots: draft.slots,
           });
-          return finalizeOutput({
+          return {
             decision,
             modelOutput,
             reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
             updatedDraft: draft,
             sessionLanguage,
-          });
+          };
         }
         // (c) model-only value with no decoder match -> clarify_slot
         else if (!hasUtteranceAmountMatch) {
@@ -532,13 +506,13 @@ export class Brain {
             language: activeLanguage,
             slots: draft.slots,
           });
-          return finalizeOutput({
+          return {
             decision,
             modelOutput,
             reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
             updatedDraft: draft,
             sessionLanguage,
-          });
+          };
         } else if (!draft.slots.amount) {
           draft.slots.amount = modelOutput.slots.amount;
         }
@@ -560,13 +534,13 @@ export class Brain {
             language: activeLanguage,
             slots: draft.slots,
           });
-          return finalizeOutput({
+          return {
             decision,
             modelOutput,
             reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
             updatedDraft: draft,
             sessionLanguage,
-          });
+          };
         }
         // (c) model-only value with no decoder match -> clarify_slot
         else if (!hasUtterancePhoneMatch) {
@@ -578,13 +552,13 @@ export class Brain {
             language: activeLanguage,
             slots: draft.slots,
           });
-          return finalizeOutput({
+          return {
             decision,
             modelOutput,
             reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
             updatedDraft: draft,
             sessionLanguage,
-          });
+          };
         } else {
           if (!draft.slots.recipient) draft.slots.recipient = {};
           if (!draft.slots.recipient.phone) draft.slots.recipient.phone = modelOutput.slots.recipient.phone;
@@ -618,12 +592,12 @@ export class Brain {
           language: activeLanguage,
           slots: draft.slots,
         });
-        return finalizeOutput({
+        return {
           decision,
           reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
           updatedDraft: draft,
           sessionLanguage,
-        });
+        };
       }
 
       // Settling Invariant 2: Confidence threshold
@@ -643,12 +617,12 @@ export class Brain {
           language: activeLanguage,
           slots: draft.slots,
         });
-        return finalizeOutput({
+        return {
           decision,
           reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
           updatedDraft: draft,
           sessionLanguage,
-        });
+        };
       }
     }
 
@@ -938,18 +912,10 @@ Output format: Return ONLY valid JSON with keys: intent, slots, signals, reply.`
       }
 
       const text = response?.text?.();
-      if (!text) {
-        pilotMetrics.recordModelCall('ERROR');
-        pilotMetrics.recordFallbackToOffline();
-        return null;
-      }
-      pilotMetrics.recordModelCall('SUCCESS');
+      if (!text) return null;
       return JSON.parse(text);
-    } catch (err: any) {
+    } catch {
       if (timer) clearTimeout(timer);
-      const isTimeout = err?.message?.includes('MODEL_TIMEOUT');
-      pilotMetrics.recordModelCall(isTimeout ? 'TIMEOUT' : 'ERROR');
-      pilotMetrics.recordFallbackToOffline();
       return null;
     }
   }

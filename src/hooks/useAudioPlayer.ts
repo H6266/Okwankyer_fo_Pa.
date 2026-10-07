@@ -73,10 +73,11 @@ export function useAudioPlayer(onEnded?: () => void) {
   }, []);
 
   const playAudio = useCallback((url: string) => {
-    if (!audioRef.current) return;
+    if (!audioRef.current || !url) return;
     try {
-      if (audioRef.current.src !== url && !audioRef.current.src.endsWith(url)) {
-        audioRef.current.src = url;
+      const normalizedUrl = url.startsWith("http") || url.startsWith("/") || url.startsWith("data:") ? url : `/${url}`;
+      if (audioRef.current.src !== normalizedUrl && !audioRef.current.src.endsWith(normalizedUrl)) {
+        audioRef.current.src = normalizedUrl;
       }
       audioRef.current.currentTime = 0;
       const playPromise = audioRef.current.play();
@@ -86,7 +87,7 @@ export function useAudioPlayer(onEnded?: () => void) {
           setState((s) => ({ ...s, isPlaying: false }));
         });
       }
-      setState((s) => ({ ...s, currentUrl: url, error: null }));
+      setState((s) => ({ ...s, currentUrl: normalizedUrl, error: null }));
     } catch (err: any) {
       console.warn("playAudio failed:", err);
     }

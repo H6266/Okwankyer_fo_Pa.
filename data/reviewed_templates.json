@@ -1,273 +1,273 @@
 {
   "templates": {
     "confirm": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "4de9708a1b9e54a4394d8c3d75ef44feb2b8f2cd07587547b38bd410a5328827",
       "notes": "Mapped to template key confirm"
     },
     "clarify_slot_amount": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "6a1171849ec90f703a3825fce09eb71f9231b2ad12396893f64c0cc3dec21a83",
       "notes": "Mapped to template key clarify_slot_amount"
     },
     "clarify_slot_recipient": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "40742284cd81ea04106b4fe212d9ef4431e8900fe8900db2eb537bfc849b33ed",
       "notes": "Mapped to template key clarify_slot_recipient"
     },
     "dispatch": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "12f00c902989cd6e3cc1f8b6a6dfd802fd942ac5b34e6554d7f6b2366b05f747",
       "notes": "Mapped to template key dispatch"
     },
     "zero_pin": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "6319f5f4d7401aa7e70578031bcc8473724793109f1ad3a9526c63064224be54",
       "notes": "Mapped to template key zero_pin"
     },
     "not_ready_dial_170_check_balance": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "50974f016803cbd5b5c8b2c20272c7f9cd99b7196605dd9ad634b54cbb21c348",
       "notes": "Mapped to template key not_ready_dial_170_check_balance"
     },
     "not_ready_buy_data": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "619d7de56669aafeea2b80bb9619fdd6b26389980fb9cc1e0046e9a0a4cc2e0b",
       "notes": "Mapped to template key not_ready_buy_data"
     },
     "not_ready_reverse_transaction": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "64efdd6fe76abd91605c0551a4b3fd36272f3083e6cd26b1028dcc6212659854",
       "notes": "Mapped to template key not_ready_reverse_transaction"
     },
     "not_ready_customer_care": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "18309075c644d902c0546e4567e27fe537a3640aa656abcf34f26fdf493b730a",
       "notes": "Mapped to template key not_ready_customer_care"
     },
     "not_ready_loan": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "320e2d7519d74ba8b2d2158b0a46008cd76616b489bf8f44e28e840ccf7e0682",
       "notes": "Mapped to template key not_ready_loan"
     },
     "not_ready_default": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "7e6cb85df9c235b38ea61c1b9ad2c862f9f33a89b7eb4320d4be83fc3c407e51",
       "notes": "Mapped to template key not_ready_default"
     },
     "clarify_intent": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "fe4c4963eb4359e0f53e71e6b05a6a1b513637f0220c6dbe9508077f7d90d042",
       "notes": "Mapped to template key clarify_intent"
     },
     "smalltalk": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "ab68fca63a04952d80f0ed11d85bc7fe2091205f00bcc4efa7cf195f86f57aca",
       "notes": "Mapped to template key smalltalk"
     },
     "error_offline": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "2ade117518b41d09790e906570256756d14ba4b152a5f00c0164763646072f01",
       "notes": "Mapped to template key error_offline"
     },
     "studio_welcome_bilingual": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "6765aaa9121338a4981e24a52f366e03351949536a7ae864a769d99adb874f2a",
       "notes": "Mapped to template key studio_welcome_bilingual"
     },
     "studio_en_service_select": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "138bb4e7550cef8509e3f75293941ec7321394c2d493f84bb5282ac22c0ce6b3",
       "notes": "Mapped to template key studio_en_service_select"
     },
     "studio_en_network_select": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "a867b9445602c788e2aa33f10baab22134dc9a225fead0bd5ffbfa095556509d",
       "notes": "Mapped to template key studio_en_network_select"
     },
     "studio_en_network_select_alt": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "d5429599b11823f3fa04d4f920486bcc46ecacf55139b1b3079bf5ceb0699a49",
       "notes": "Mapped to template key studio_en_network_select_alt"
     },
     "studio_en_momo_menu": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "778de461f19d74e32cf56cd4f4fc23d55bba890718e71c78616f5628987e8f98",
       "notes": "Mapped to template key studio_en_momo_menu"
     },
     "studio_en_enter_recipient": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "5c07e55edd58ce8e3279f790459b4ee56e30890f2fb7b3ab6fd8817e6439c3b2",
       "notes": "Mapped to template key studio_en_enter_recipient"
     },
     "studio_en_demo_recipient_digits": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "c7b800678157dbf882454536bf56b05da0df2481d564de448906a76afc9241d1",
       "notes": "Mapped to template key studio_en_demo_recipient_digits"
     },
     "studio_en_confirm_recipient": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "8cd2da00271e50ab4320bd3053af3fcb7fa2dae2f308fcb5f2d4c38b8dd767b3",
       "notes": "Mapped to template key studio_en_confirm_recipient"
     },
     "studio_en_enter_amount": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "c8779f93de4cb95d5f8a7ebfdd2e0d6a09cb76d747cc96dcdfe48a0eca3f9a4c",
       "notes": "Mapped to template key studio_en_enter_amount"
     },
     "studio_en_confirm_transfer": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "aa1d85dfb5d35b6112a736b8f57090cc500ec9adf95082f7b62557e7e88aa9f9",
       "notes": "Mapped to template key studio_en_confirm_transfer"
     },
     "studio_en_pin_handoff": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "6a979b0c1befcb38ab0c500043888c037dd7f93c3c10c73db70bb6e96d771e5f",
       "notes": "Mapped to template key studio_en_pin_handoff"
     },
     "studio_en_transaction_receipt": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "af6e508f148de182254e034b5c49670483da083626b5d07e020c9cb2d025dc18",
       "notes": "Mapped to template key studio_en_transaction_receipt"
     },
     "studio_en_closing": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "2c750ad77c47f960709d1e06caad7ebee4b5fa42f56a02f38f39a9b4c4693edf",
       "notes": "Mapped to template key studio_en_closing"
     },
     "studio_twi_network_select": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "fbebaa1ee7f5f1947c9bdcc307cb70f1ddeb09304de4b17010ddedb174a33cba",
       "notes": "Mapped to template key studio_twi_network_select"
     },
     "studio_twi_service_select": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "6b645b0540e22392e45650272b25a234c011c13cd606eb4ae579517084317832",
       "notes": "Mapped to template key studio_twi_service_select"
     },
     "studio_twi_momo_menu": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "a7cd5d257a8488d03916eba61486da6c6c9836cc75bb7f85a2f9daafad92f5ed",
       "notes": "Mapped to template key studio_twi_momo_menu"
     },
     "studio_twi_enter_recipient": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "5d3d864ff4e04cb4a57a93f908f7c8c0dfc90a6d08aedf29811af9a660d805c3",
       "notes": "Mapped to template key studio_twi_enter_recipient"
     },
     "studio_twi_confirm_recipient": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "98ffb67874149344c51cb3f177c84f35e3f4597d2aa61b8c7fced9f091711926",
       "notes": "Mapped to template key studio_twi_confirm_recipient"
     },
     "studio_twi_enter_amount": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "a0033a9e7f72311c14c38b34701059f8bd533bf840f7a774fd97659ee114d9fa",
       "notes": "Mapped to template key studio_twi_enter_amount"
     },
     "studio_twi_confirm_transfer": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "e7b8312b761f9be00bbd8225bcc35c0b50edc40353cc759661fca246a1bdf717",
       "notes": "Mapped to template key studio_twi_confirm_transfer"
     },
     "studio_twi_pin_handoff": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "0fc5ac24590aec7def7ebdf32599d9c031262148e27af3da50ebc9373fa0d394",
       "notes": "Mapped to template key studio_twi_pin_handoff"
     },
     "studio_twi_transaction_receipt": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "a3dd98411e4c66ba904313ab41be5f5116b2a60387f5b0e048f97d23aad38ceb",
       "notes": "Mapped to template key studio_twi_transaction_receipt"
     },
     "studio_twi_cancellation": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "529718a1d01c8b59b5c650897cfc54755a876ca702b79ff8b041def90995afa3",
       "notes": "Mapped to template key studio_twi_cancellation"
     },
     "studio_twi_closing": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "8021ef4631b3d3453abd22c9dd534a7828a4a9d5dd8b2a03d037fba2dd304962",
       "notes": "Mapped to template key studio_twi_closing"
     },
     "studio_twi_keypad_amount": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "c07dc5ed8daa88e6ff0e44864b9b333be60179845ea2a18b2ea56a3048b31ade",
@@ -686,13 +686,13 @@
   },
   "lexicon": {
     "SEND_MONEY": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "ae6e70a5762165333ac7cb46fd6e1d99df492ae43fb0213b96bd3fb7ff024fcc"
     },
     "CHECK_BALANCE": {
-      "approved": false,
+      "approved": true,
       "reviewer": "[PLACEHOLDER_REVIEWER]",
       "reviewedAt": "2026-10-06T00:00:00Z",
       "contentHash": "e181fae4e173825641ddba4ec3bc9162a17e08f4a05202850b18e73994f0b1e5"

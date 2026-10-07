@@ -1027,42 +1027,101 @@ export function usePhoneSimulator() {
       setIsAiSpeaking(true);
       const isTwi = lang === "tw" || lang === "ak";
 
-      // 1. Studio Pre-Recorded Prompts Mode (Priority 1)
+      // 1. Studio Pre-Recorded Prompts Mode (Priority 1 for known workflow steps)
       const matchedPrompt = resolveStudioPrompt(text, lang, step || currentStep);
-      if (voiceMode === "STUDIO_PROMPTS" || (matchedPrompt && voiceMode !== "BROWSER")) {
-        const promptFile = matchedPrompt || (isTwi ? "/audio/Twi/Welcome_prompt_01.mp3" : "/audio/Welcome_prompt_01.mp3");
+      if (matchedPrompt && voiceMode !== "BROWSER") {
         if (audioRef.current) {
-          audioRef.current.src = promptFile;
-          setActiveAudioClip(promptFile);
-          await audioRef.current.play().catch(() => {});
+          audioRef.current.src = matchedPrompt;
+          setActiveAudioClip(matchedPrompt);
+          audioRef.current.onended = () => {
+            setIsAiSpeaking(false);
+            setActiveAudioClip(null);
+          };
+          audioRef.current.onerror = () => {
+            setIsAiSpeaking(false);
+            setActiveAudioClip(null);
+          };
+          const playPromise = audioRef.current.play();
+          if (playPromise) {
+            await playPromise.catch((err) => {
+              console.warn("[TTS Play] Autoplay notice:", err);
+              if ("speechSynthesis" in window) {
+                try {
+                  window.speechSynthesis.resume();
+                  window.speechSynthesis.cancel();
+                  const utterance = new SpeechSynthesisUtterance(text);
+                  utterance.rate = 0.95;
+                  utterance.onend = () => setIsAiSpeaking(false);
+                  utterance.onerror = () => setIsAiSpeaking(false);
+                  window.speechSynthesis.speak(utterance);
+                } catch {
+                  setIsAiSpeaking(false);
+                }
+              } else {
+                setIsAiSpeaking(false);
+              }
+            });
+          }
           return;
         }
       }
 
-      // 2. AI Neural TTS Mode (Synthesizer Service)
-      if (voiceMode === "AI_NEURAL" || voiceMode === "STUDIO_PROMPTS") {
-        try {
-          const synth = await api.synthesizeSpeech({
-            text,
-            language: isTwi ? "tw" : "en",
-            style: "ghanaian-warm",
-          });
+      // 2. Dynamic Speech Synthesizer Service (for custom amounts, names, receipt numbers)
+      try {
+        const synth = await api.synthesizeSpeech({
+          text,
+          language: isTwi ? "tw" : "en",
+          style: "ghanaian-warm",
+        });
 
-          if (synth?.result?.audioBase64 && audioRef.current) {
-            audioRef.current.src = `data:${synth.result.audioMimeType || "audio/mp3"};base64,${synth.result.audioBase64}`;
-            await audioRef.current.play().catch(() => {});
-            return;
+        if (synth?.result?.audioBase64 && audioRef.current) {
+          const mime = synth.result.audioMimeType || "audio/mp3";
+          audioRef.current.src = `data:${mime};base64,${synth.result.audioBase64}`;
+          audioRef.current.onended = () => {
+            setIsAiSpeaking(false);
+            setActiveAudioClip(null);
+          };
+          audioRef.current.onerror = () => {
+            setIsAiSpeaking(false);
+            setActiveAudioClip(null);
+          };
+          const playPromise = audioRef.current.play();
+          if (playPromise) {
+            await playPromise.catch(() => {
+              if ("speechSynthesis" in window) {
+                try {
+                  window.speechSynthesis.resume();
+                  window.speechSynthesis.cancel();
+                  const utterance = new SpeechSynthesisUtterance(text);
+                  utterance.rate = 0.95;
+                  utterance.onend = () => setIsAiSpeaking(false);
+                  utterance.onerror = () => setIsAiSpeaking(false);
+                  window.speechSynthesis.speak(utterance);
+                } catch {
+                  setIsAiSpeaking(false);
+                }
+              } else {
+                setIsAiSpeaking(false);
+              }
+            });
           }
-        } catch {}
-      }
+          return;
+        }
+      } catch {}
 
       // 3. Browser Speech Synthesis Fallback
       if ("speechSynthesis" in window) {
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.rate = 0.95;
-        utterance.onend = () => setIsAiSpeaking(false);
-        utterance.onerror = () => setIsAiSpeaking(false);
-        window.speechSynthesis.speak(utterance);
+        try {
+          window.speechSynthesis.resume();
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.rate = 0.95;
+          utterance.onend = () => setIsAiSpeaking(false);
+          utterance.onerror = () => setIsAiSpeaking(false);
+          window.speechSynthesis.speak(utterance);
+        } catch {
+          setIsAiSpeaking(false);
+        }
       } else {
         setIsAiSpeaking(false);
       }
@@ -1553,6 +1612,7 @@ export function usePhoneSimulator() {
     isMicActiveRef.current = false;
 
     const textToSend = (explicitText || capturedSpeechTextRef.current || interimTranscript || "").trim();
+    const hintText = textToSend;
     capturedSpeechTextRef.current = "";
 
     if (textToSend) {
@@ -1562,9 +1622,14 @@ export function usePhoneSimulator() {
       setAiProcessingPhase("LANGUAGE_DETECTION");
       setAiProcessingDetail(`Transcribed: "${textToSend}" · Processing with AI...`);
       await sendInputTurn(textToSend, "VOICE");
+    } else if (mediaRecorderRef.current) {
+      // Waiting for backend audio stream transcription to complete
+      setInterimTranscript("");
+      setTranscriptionStatus("PROCESSING");
+      setAiProcessingPhase("SPEECH_IN");
+      setAiProcessingDetail("Transcribing voice audio with Ghanaian Speech Recognition...");
     } else {
       setInterimTranscript("");
-      // Only set to IDLE if mediaRecorder hasn't submitted a turn
       if (!speechTurnSubmittedRef.current) {
         setTranscriptionStatus("IDLE");
         setAiProcessingDetail("No speech detected. Tap mic to retry, tap a Ghanaian voice phrase, or type below!");
@@ -1656,12 +1721,12 @@ export function usePhoneSimulator() {
         rec.onerror = (e: any) => {
           console.warn("[PhoneSimulator ASR] Event notice:", e.error);
           if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-            isMicActiveRef.current = false;
-            setIsMicActive(false);
-            setTranscriptionStatus("ERROR");
-            setAiProcessingDetail("Microphone access blocked in browser. Tap a voice chip or type below!");
-            if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-            if (micTimeoutRef.current) clearTimeout(micTimeoutRef.current);
+            // Note: in cross-origin / sandboxed iframes, Web Speech API throws not-allowed.
+            // Do NOT cancel recording here; MediaRecorder & getUserMedia will continue!
+            recognitionRef.current = null;
+            if (!mediaStreamRef.current && !mediaRecorderRef.current) {
+              setAiProcessingDetail("Web Speech restricted in iframe · Recording speech audio stream...");
+            }
           } else if (e.error === "language-not-supported") {
             try {
               rec.lang = "en-US";
@@ -1743,15 +1808,19 @@ export function usePhoneSimulator() {
                     try {
                       setTranscriptionStatus("PROCESSING");
                       setAiProcessingDetail("Transcribing with Ghanaian Neural ASR...");
-                      const asrRes = await api.transcribeAudio(base64, "audio/webm", language);
+                      const asrRes = await api.transcribeAudio(base64, "audio/webm", language, currentStep);
                       const recognized = asrRes?.result?.text;
                       if (recognized && recognized !== "empty" && recognized.trim().length > 0) {
                         speechTurnSubmittedRef.current = true;
                         setAiProcessingDetail(`Transcribed: "${recognized}"`);
                         await sendInputTurn(recognized, "VOICE");
+                      } else {
+                        setTranscriptionStatus("IDLE");
+                        setAiProcessingDetail("No words detected. Tap mic or a voice chip to try again!");
                       }
                     } catch (err) {
                       console.warn("[PhoneSimulator ASR] Backend transcription fallback:", err);
+                      setTranscriptionStatus("IDLE");
                     }
                   }
                 };
@@ -1764,7 +1833,7 @@ export function usePhoneSimulator() {
         } else if (!recStarted) {
           // Neither Web Speech nor getUserMedia succeeded
           setTranscriptionStatus("ERROR");
-          setAiProcessingDetail("Microphone access unavailable. Tap a quick voice test chip or type!");
+          setAiProcessingDetail("Browser blocked mic in preview iframe. Tap a Ghanaian voice chip, upload audio, or type below!");
           setIsMicActive(false);
           isMicActiveRef.current = false;
         }
@@ -1785,7 +1854,54 @@ export function usePhoneSimulator() {
         stopMicAndSubmit();
       }
     }, 8000);
-  }, [isActive, isMicActive, language, startCall, stopMicAndSubmit, sendInputTurn]);
+  }, [isActive, isMicActive, language, currentStep, startCall, stopMicAndSubmit, sendInputTurn]);
+
+  /**
+   * Upload audio file directly for Ghanaian Speech Recognition
+   */
+  const uploadAudioForAsr = useCallback(async (file: File) => {
+    if (!file) return;
+    if (!isActive) {
+      await startCall(language === "tw" ? "tw" : "en");
+    }
+    setTranscriptionStatus("PROCESSING");
+    setAiProcessingPhase("SPEECH_IN");
+    setAiProcessingDetail(`Uploading "${file.name}" for Ghanaian ASR...`);
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataUrl = reader.result as string;
+      const base64 = dataUrl.split(",")[1];
+      const mime = file.type || "audio/wav";
+      try {
+        setAiProcessingDetail("Transcribing with Ghanaian Speech Recognition...");
+        const res = await api.transcribeAudio(base64, mime, language, currentStep);
+        const text = res?.result?.text;
+        if (text && text !== "empty" && text.trim().length > 0) {
+          setAiProcessingDetail(`Transcribed: "${text}"`);
+          setTranscriptionStatus("TRANSCRIBED");
+          await sendInputTurn(text, "VOICE");
+        } else {
+          setTranscriptionStatus("IDLE");
+          setAiProcessingDetail("No words recognized in uploaded audio.");
+        }
+      } catch (err: any) {
+        setTranscriptionStatus("ERROR");
+        setAiProcessingDetail(`Audio transcription error: ${err.message}`);
+      }
+    };
+    reader.readAsDataURL(file);
+  }, [isActive, language, currentStep, startCall, sendInputTurn]);
+
+  /**
+   * Replay current or latest assistant prompt
+   */
+  const replayCurrentSpeech = useCallback(async () => {
+    if (aiResponse) {
+      await playAudioSynthesis(aiResponse, language, currentStep);
+    } else {
+      await playAudioSynthesis("Akwaaba! Welcome to Okwankyerɛfo Pa", language, currentStep);
+    }
+  }, [aiResponse, language, currentStep, playAudioSynthesis]);
 
   /**
    * Direct 1-click test transfer to a KYC verified contact
@@ -1873,7 +1989,14 @@ export function usePhoneSimulator() {
             setIsAiSpeaking(false);
             setActiveAudioClip(null);
           };
-          await audioRef.current.play();
+          const playPromise = audioRef.current.play();
+          if (playPromise) {
+            await playPromise.catch((e) => {
+              console.warn("Audio file play notice:", e);
+              setIsAiSpeaking(false);
+              setActiveAudioClip(null);
+            });
+          }
         }
         return;
       }
@@ -1891,7 +2014,27 @@ export function usePhoneSimulator() {
           setIsAiSpeaking(false);
           setActiveAudioClip(null);
         };
-        await audioRef.current.play();
+        const playPromise = audioRef.current.play();
+        if (playPromise) {
+          await playPromise.catch((e) => {
+            console.warn("Studio audio play notice:", e);
+            if ("speechSynthesis" in window) {
+              try {
+                window.speechSynthesis.resume();
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(target);
+                utterance.rate = 0.95;
+                utterance.onend = () => setIsAiSpeaking(false);
+                utterance.onerror = () => setIsAiSpeaking(false);
+                window.speechSynthesis.speak(utterance);
+              } catch {
+                setIsAiSpeaking(false);
+              }
+            } else {
+              setIsAiSpeaking(false);
+            }
+          });
+        }
         return;
       }
 
@@ -1913,18 +2056,43 @@ export function usePhoneSimulator() {
             setIsAiSpeaking(false);
             setActiveAudioClip(null);
           };
-          await audioRef.current.play();
+          const playPromise = audioRef.current.play();
+          if (playPromise) {
+            await playPromise.catch(() => {
+              if ("speechSynthesis" in window) {
+                try {
+                  window.speechSynthesis.resume();
+                  window.speechSynthesis.cancel();
+                  const utterance = new SpeechSynthesisUtterance(target);
+                  utterance.rate = 0.95;
+                  utterance.onend = () => setIsAiSpeaking(false);
+                  utterance.onerror = () => setIsAiSpeaking(false);
+                  window.speechSynthesis.speak(utterance);
+                } catch {
+                  setIsAiSpeaking(false);
+                }
+              } else {
+                setIsAiSpeaking(false);
+              }
+            });
+          }
           return;
         }
       } catch {}
 
       // Browser TTS fallback
       if ("speechSynthesis" in window) {
-        const utterance = new SpeechSynthesisUtterance(target);
-        utterance.rate = 0.95;
-        utterance.onend = () => setIsAiSpeaking(false);
-        utterance.onerror = () => setIsAiSpeaking(false);
-        window.speechSynthesis.speak(utterance);
+        try {
+          window.speechSynthesis.resume();
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(target);
+          utterance.rate = 0.95;
+          utterance.onend = () => setIsAiSpeaking(false);
+          utterance.onerror = () => setIsAiSpeaking(false);
+          window.speechSynthesis.speak(utterance);
+        } catch {
+          setIsAiSpeaking(false);
+        }
       } else {
         setIsAiSpeaking(false);
       }
@@ -2092,6 +2260,8 @@ export function usePhoneSimulator() {
     submitKeypadBuffer,
     sendInputTurn,
     toggleMic,
+    uploadAudioForAsr,
+    replayCurrentSpeech,
     runScenario,
     sendContactTransfer,
     playStudioClip,

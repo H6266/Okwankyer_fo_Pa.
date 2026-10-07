@@ -151,7 +151,7 @@ async function transcribeAudioBufferWithHedgedGemini(
   );
 
   if (!hasAnyModel) {
-    const offlineRes = await offlineSpeechRecognizer.transcribe(buffer, mime);
+    const offlineRes = await offlineSpeechRecognizer.transcribe(buffer, mime, step);
     buffer.fill(0);
     return {
       text: offlineRes.text,
@@ -319,7 +319,7 @@ Instructions:
     }
 
     try {
-      const offlineRes = await offlineSpeechRecognizer.transcribe(base64Data, mime);
+      const offlineRes = await offlineSpeechRecognizer.transcribe(base64Data, mime, step);
       if (offlineRes.text && offlineRes.text.length > 0) {
         return {
           text: offlineRes.text,

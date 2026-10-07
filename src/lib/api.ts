@@ -18,16 +18,7 @@ export interface HealthResponse {
   features: string[];
 }
 
-let activeAdminToken: string | null =
-  typeof window !== "undefined"
-    ? (() => {
-        try {
-          return window.localStorage?.getItem("okw_admin_token") || null;
-        } catch {
-          return null;
-        }
-      })()
-    : null;
+let activeAdminToken: string | null = null;
 
 function getAdminAuthHeaders(customHeaders: Record<string, string> = {}): Record<string, string> {
   const headers: Record<string, string> = { ...customHeaders };
@@ -791,22 +782,11 @@ export const api = {
       activeAdminToken = token;
     }
 
-    if (typeof window !== "undefined" && activeAdminToken) {
-      try {
-        window.localStorage?.setItem("okw_admin_token", activeAdminToken);
-      } catch {}
-    }
-
     return data;
   },
 
   async adminLogout(): Promise<any> {
     activeAdminToken = null;
-    if (typeof window !== "undefined") {
-      try {
-        window.localStorage?.removeItem("okw_admin_token");
-      } catch {}
-    }
     const res = await fetch("/api/admin/logout", {
       method: "POST",
       credentials: "same-origin",
@@ -859,11 +839,17 @@ export const api = {
     return data;
   },
 
-  async transcribeAudio(audioBase64: string, mimeType?: string, language?: string): Promise<{ success: boolean; result: { text: string; confidence: number; languageDetected: string } }> {
+  async transcribeAudio(
+    audioBase64: string,
+    mimeType?: string,
+    language?: string,
+    step?: string,
+    hintText?: string
+  ): Promise<{ success: boolean; result: { text: string; confidence: number; languageDetected: string; provider?: string } }> {
     const res = await fetch("/api/ai/transcribe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ audioBase64, mimeType, language }),
+      body: JSON.stringify({ audioBase64, mimeType, language, step, hintText }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Audio transcription failed");

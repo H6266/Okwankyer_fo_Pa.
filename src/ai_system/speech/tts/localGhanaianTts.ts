@@ -17,8 +17,6 @@ import { AUDIO_CATALOG } from "../../../audio/catalog";
 export class LocalGhanaianTtsProvider implements TTSProvider {
   private promptCatalog = new Map<string, string>();
   private audioRoot: string;
-  private audioCache = new Map<string, { buffer: Buffer; base64: string; mimeType: string; duration: number }>();
-  private googleTtsCooldownUntil: number = 0;
 
   constructor() {
     this.audioRoot = path.resolve(process.cwd(), "audio");
@@ -291,19 +289,6 @@ export class LocalGhanaianTtsProvider implements TTSProvider {
 
   public async synthesize(request: TtsSynthesisRequest): Promise<TtsSynthesisResponse> {
     const cleanText = request.text.trim();
-    const cacheKey = `${request.language || "en"}_${request.voiceProfile || "default"}_${this.normalizeText(cleanText)}`;
-
-    // 0. Check in-memory audio clip cache (avoids redundant synthesis and network calls)
-    const cached = this.audioCache.get(cacheKey);
-    if (cached) {
-      return {
-        audioBuffer: cached.buffer,
-        audioBase64: cached.base64,
-        audioMimeType: cached.mimeType,
-        durationEstimateSec: cached.duration,
-        providerUsed: "local-ghanaian-tts-cache",
-      };
-    }
 
     // 1. Check studio recorded catalog for exact or semantic prompt match
     const studioMatch = this.findPromptMatch(cleanText, request.language);
@@ -312,20 +297,11 @@ export class LocalGhanaianTtsProvider implements TTSProvider {
         const fileBuf = fs.readFileSync(studioMatch);
         const ext = path.extname(studioMatch).toLowerCase();
         const mime = ext === ".mp3" ? "audio/mpeg" : "audio/wav";
-        const duration = 3.5;
-        if (this.audioCache.size < 120) {
-          this.audioCache.set(cacheKey, {
-            buffer: fileBuf,
-            base64: fileBuf.toString("base64"),
-            mimeType: mime,
-            duration,
-          });
-        }
         return {
           audioBuffer: fileBuf,
           audioBase64: fileBuf.toString("base64"),
           audioMimeType: mime,
-          durationEstimateSec: duration,
+          durationEstimateSec: 3.5,
           providerUsed: "local-ghanaian-studio-catalog",
         };
       } catch {}
@@ -346,95 +322,78 @@ export class LocalGhanaianTtsProvider implements TTSProvider {
     }
 
     // 3. High quality natural spoken synthesis via Google TTS for dynamic speech (names, amounts, receipts)
-    const isGoogleTtsCoolingDown = Date.now() < this.googleTtsCooldownUntil;
-    if (!isGoogleTtsCoolingDown) {
-      try {
-        const phoneticText = cleanText
-          .replace(/ɛ/g, "e")
-          .replace(/ɔ/g, "o")
-          .replace(/Ɛ/g, "E")
-          .replace(/Ɔ/g, "O");
+    try {
+      const phoneticText = cleanText
+        .replace(/ɛ/g, "e")
+        .replace(/ɔ/g, "o")
+        .replace(/Ɛ/g, "E")
+        .replace(/Ɔ/g, "O");
 
-        if (phoneticText.length <= 200) {
-          const b64 = await googleTTS.getAudioBase64(phoneticText, {
-            lang: "en",
-            slow: request.speed && request.speed < 0.9 ? true : false,
-            host: "https://translate.google.com",
-            timeout: 3000,
-          });
-          if (b64 && b64.length > 64) {
-            const buf = Buffer.from(b64, "base64");
-            const duration = Math.max(1, Math.round(cleanText.split(/\s+/).length * 0.35));
-            if (this.audioCache.size < 120) {
-              this.audioCache.set(cacheKey, {
-                buffer: buf,
-                base64: b64,
-                mimeType: "audio/mp3",
-                duration,
-              });
-            }
-            return {
-              audioBuffer: buf,
-              audioBase64: b64,
-              audioMimeType: "audio/mp3",
-              durationEstimateSec: duration,
-              providerUsed: "google-tts-spoken-engine",
-            };
-          }
-        } else {
-          const parts = await googleTTS.getAllAudioBase64(phoneticText, {
-            lang: "en",
-            slow: request.speed && request.speed < 0.9 ? true : false,
-            host: "https://translate.google.com",
-            timeout: 3000,
-          });
-          if (parts && parts.length > 0) {
-            const buffers = parts.map((p) => Buffer.from(p.base64, "base64"));
-            const combined = Buffer.concat(buffers);
-            const b64 = combined.toString("base64");
-            const duration = Math.max(1, Math.round(cleanText.split(/\s+/).length * 0.35));
-            if (this.audioCache.size < 120) {
-              this.audioCache.set(cacheKey, {
-                buffer: combined,
-                base64: b64,
-                mimeType: "audio/mp3",
-                duration,
-              });
-            }
-            return {
-              audioBuffer: combined,
-              audioBase64: b64,
-              audioMimeType: "audio/mp3",
-              durationEstimateSec: duration,
-              providerUsed: "google-tts-spoken-engine",
-            };
-          }
+      if (phoneticText.length <= 200) {
+        const b64 = await googleTTS.getAudioBase64(phoneticText, {
+          lang: "en",
+          slow: request.speed && request.speed < 0.9 ? true : false,
+          host: "https://translate.google.com",
+          timeout: 4000,
+        });
+        if (b64 && b64.length > 64) {
+          const buf = Buffer.from(b64, "base64");
+          return {
+            audioBuffer: buf,
+            audioBase64: b64,
+            audioMimeType: "audio/mp3",
+            durationEstimateSec: Math.max(1, Math.round(cleanText.split(/\s+/).length * 0.35)),
+            providerUsed: "google-tts-spoken-engine",
+          };
         }
-      } catch (err: any) {
-        const errMsg = String(err?.message || err || "");
-        const isRateLimit = errMsg.includes("429") || errMsg.includes("Too Many Requests") || err?.status === 429;
-        if (isRateLimit) {
-          // Engage cooldown for 10 minutes to avoid hammering translate.google.com
-          this.googleTtsCooldownUntil = Date.now() + 10 * 60 * 1000;
-          console.info(
-            "[LocalGhanaianTts] Google TTS rate limited (429). Using authentic Ghanaian voice recordings & local acoustic synthesis."
-          );
-        } else {
-          console.info("[LocalGhanaianTts] Synthesis fallback notice:", errMsg.slice(0, 80));
+      } else {
+        const parts = await googleTTS.getAllAudioBase64(phoneticText, {
+          lang: "en",
+          slow: request.speed && request.speed < 0.9 ? true : false,
+          host: "https://translate.google.com",
+          timeout: 4000,
+        });
+        if (parts && parts.length > 0) {
+          const buffers = parts.map((p) => Buffer.from(p.base64, "base64"));
+          const combined = Buffer.concat(buffers);
+          return {
+            audioBuffer: combined,
+            audioBase64: combined.toString("base64"),
+            audioMimeType: "audio/mp3",
+            durationEstimateSec: Math.max(1, Math.round(cleanText.split(/\s+/).length * 0.35)),
+            providerUsed: "google-tts-spoken-engine",
+          };
         }
       }
+    } catch (err: any) {
+      console.warn("[LocalGhanaianTts] Google TTS spoken synthesis notice:", err?.message || err);
     }
 
-    // 4. Fallback to authentic studio welcome audio rather than harsh sine wave noise
+    // 4. Contextual studio prompt fallback if Google TTS is unavailable
+    const contextualStudioMatch = this.findPromptMatch(cleanText, request.language);
+    if (contextualStudioMatch && fs.existsSync(contextualStudioMatch)) {
+      try {
+        const fileBuf = fs.readFileSync(contextualStudioMatch);
+        const ext = path.extname(contextualStudioMatch).toLowerCase();
+        return {
+          audioBuffer: fileBuf,
+          audioBase64: fileBuf.toString("base64"),
+          audioMimeType: ext === ".mp3" ? "audio/mpeg" : "audio/wav",
+          durationEstimateSec: 3.5,
+          providerUsed: "local-studio-contextual-fallback",
+        };
+      } catch {}
+    }
+
     const safeStudio = path.resolve(this.audioRoot, "Welcome_prompt_01.mp3");
-    if (fs.existsSync(safeStudio)) {
+    if (fs.existsSync(safeStudio) && (cleanText.toLowerCase().includes("welcome") || cleanText.toLowerCase().includes("akwaaba"))) {
       const fileBuf = fs.readFileSync(safeStudio);
       return {
         audioBuffer: fileBuf,
         audioBase64: fileBuf.toString("base64"),
         audioMimeType: "audio/mpeg",
         durationEstimateSec: 3.0,
-        providerUsed: "local-studio-fallback",
+        providerUsed: "local-studio-welcome-fallback",
       };
     }
 

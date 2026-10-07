@@ -54,18 +54,6 @@ export const DashboardLayout: React.FC = () => {
   const location = useLocation();
 
   useEffect(() => {
-    // Check and auto-initialize admin session in dev/demo mode
-    api
-      .getAdminSession()
-      .then(async (session) => {
-        if (!session?.authenticated && session?.isDev && session?.hint) {
-          try {
-            await api.adminLogin(session.hint);
-          } catch {}
-        }
-      })
-      .catch(() => {});
-
     api
       .getHealth()
       .then(setHealth)

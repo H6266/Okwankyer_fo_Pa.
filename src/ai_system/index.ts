@@ -162,8 +162,8 @@ export const aiSystem = {
     };
   },
 
-  transcribe: async (params: { audioBuffer: string | Buffer; mimeType?: string; expectedLanguage?: string }) => {
-    const res = await audioIngestor.transcribe(params.audioBuffer, params.mimeType);
+  transcribe: async (params: { audioBuffer: string | Buffer; mimeType?: string; expectedLanguage?: string; step?: string }) => {
+    const res = await audioIngestor.transcribe(params.audioBuffer, params.mimeType, params.step);
     return {
       text: res.text,
       confidence: res.confidence,

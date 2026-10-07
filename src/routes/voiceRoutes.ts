@@ -24,9 +24,6 @@ import { durableTransactionStore } from "../services/durableTransactionStore";
 import { telephonyRateLimiter } from "../middleware/rateLimiter";
 import { aiSystem } from "../ai_system";
 import { brain } from "../ai_system/brain/brain";
-import { pilotControls } from "../services/pilotControls";
-import { pilotMetrics } from "../services/pilotMetrics";
-import { dataRetentionService } from "../services/dataRetentionService";
 
 export const voiceRouter = Router();
 
@@ -101,31 +98,18 @@ voiceRouter.all("/voice-menu", (req: Request, res: Response) => {
   const baseUrl = getBaseUrl(req);
 
   if (isActive === "0") {
-    const existing = transactionStateMachine.getSession(sessionId);
-    if (existing && (existing.state === "CONFIRMATION_PENDING" || existing.state === "RECIPIENT_VERIFIED" || existing.state === "AMOUNT_ENTERED")) {
-      auditLogger.log("warn", "TELEPHONY", `Caller hung up mid-confirmation: transaction aborted immediately`, sessionId);
-      pilotMetrics.recordAbandonmentBeforeConfirmation();
-      transactionStateMachine.transition(sessionId, "CANCELLED");
-    } else {
-      auditLogger.log("info", "TELEPHONY", `Call ended remotely`, sessionId);
-    }
+    auditLogger.log("info", "TELEPHONY", `Call ended remotely`, sessionId);
     return xmlResponse(res, "");
   }
-
-  pilotMetrics.recordCallStart(sessionId);
-  dataRetentionService.registerSession(sessionId);
 
   auditLogger.log("info", "TELEPHONY", `Inbound call connected from ${callerNumber}`, sessionId);
   const session = transactionStateMachine.getOrCreateSession(sessionId, "en", "VOICE");
   session.callerPhone = callerNumber;
 
   const introAudioUrl = `${baseUrl}/audio/Welcome_prompt_01.mp3`;
-  const consentNotice = pilotControls.isConsentNoticeEnabled()
-    ? `    <Say voice="female">${dataRetentionService.getConsentNotice("en")}</Say>\n`
-    : "";
 
   // Dual-track barge-in: instant GetDigits with Record fallback
-  const xml = `${consentNotice}    <GetDigits timeout="3" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?sessionId=${sessionId}">
+  const xml = `    <GetDigits timeout="3" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?sessionId=${sessionId}">
         <Play url="${introAudioUrl}"/>
     </GetDigits>
     <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=language-selection&amp;sessionId=${sessionId}&amp;retry=0"/>`;
@@ -500,7 +484,6 @@ voiceRouter.all("/safe-outcome", async (req: Request, res: Response) => {
 
   if (dtmf === "0") {
     transactionStateMachine.transition(sessionId, "CANCELLED");
-    pilotMetrics.recordPaymentOutcome("CANCELLED");
     const exitMsg = lang === "twi"
       ? "Yɛatwa mu. Sika biara mfirii wo account mu. Nante yie."
       : "Transaction cancelled. No money has been deducted from your account. Goodbye.";
@@ -579,7 +562,6 @@ voiceRouter.all("/safe-outcome", async (req: Request, res: Response) => {
     transactionStateMachine.transition(sessionId, "PIN_PENDING", {
       momoReferenceId: collectionRef,
     });
-    pilotMetrics.recordPaymentOutcome("PENDING");
 
     auditLogger.log(
       "info",
@@ -597,7 +579,6 @@ voiceRouter.all("/safe-outcome", async (req: Request, res: Response) => {
 
     xmlResponse(res, xml);
   } catch (err: any) {
-    pilotMetrics.recordPaymentOutcome("FAILED");
     auditLogger.log("error", "MOMO", `Handoff execution failed: ${err.message}`, sessionId);
     transactionStateMachine.transition(sessionId, "FAILED", {
       failureReason: err.message,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
   Smartphone,
@@ -26,6 +26,7 @@ import {
   History,
   Mic2,
   FileAudio,
+  UploadCloud,
   Users,
   Zap,
   PhoneCall,
@@ -65,6 +66,15 @@ import { AUDIO_CATALOG } from "../../audio/catalog";
 
 export const PhoneSimulatorPage: React.FC = () => {
   const sim = usePhoneSimulator();
+  const audioFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleAudioFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      sim.uploadAudioForAsr(file);
+      e.target.value = "";
+    }
+  };
   const [phoneScale, setPhoneScale] = useState<"compact" | "large" | "cinematic">("large");
   const [phoneScreenTab, setPhoneScreenTab] = useState<"call_view" | "ai_brain" | "advancement">("call_view");
   const [showKeypad, setShowKeypad] = useState<boolean>(true);
@@ -968,22 +978,76 @@ export const PhoneSimulatorPage: React.FC = () => {
 
                 {/* C. Clear Microphone Error / Fallback Guidance Notice */}
                 {sim.transcriptionStatus === "ERROR" && (
-                  <div className="p-2.5 rounded-2xl bg-amber-950/90 border border-amber-500/80 text-amber-200 text-xs shadow-md space-y-1.5 animate-fadeIn">
+                  <div className="p-2.5 rounded-2xl bg-amber-950/95 border border-amber-500/80 text-amber-200 text-xs shadow-md space-y-2 animate-fadeIn">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5 font-bold text-amber-300 text-[11px]">
                         <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Microphone Access Notice</span>
+                        <span>Microphone Access Notice (Preview iFrame)</span>
                       </div>
-                      <button
-                        onClick={sim.toggleMic}
-                        className="px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-500 text-slate-950 text-[10px] font-bold"
-                      >
-                        Retry Mic
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={sim.toggleMic}
+                          className="px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-500 text-slate-950 text-[10px] font-bold transition-colors"
+                        >
+                          Retry Mic
+                        </button>
+                        <button
+                          onClick={() => audioFileInputRef.current?.click()}
+                          className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold transition-colors flex items-center gap-1"
+                        >
+                          <FileAudio className="w-3 h-3" />
+                          <span>Upload Audio</span>
+                        </button>
+                        <button
+                          onClick={() => sim.setTranscriptionStatus("IDLE")}
+                          className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold transition-colors"
+                          title="Dismiss"
+                        >
+                          ✕
+                        </button>
+                      </div>
                     </div>
                     <p className="text-[10px] text-amber-200/90 leading-tight">
-                      Browser blocked mic access in preview iframe. Tap any Ghanaian voice chip below or type in the speech bar to test speech &amp; AI understanding!
+                      Browser blocked mic access in preview iframe. Tap any Ghanaian voice chip below or type in the speech bar to test speech & AI understanding!
                     </p>
+                    <div className="flex flex-wrap gap-1 pt-0.5">
+                      <button
+                        onClick={() => sim.simulateAsrSample("Send 20 cedis to 0553838464", "en")}
+                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-emerald-300 rounded text-[9px] font-bold border border-emerald-700/50"
+                      >
+                        🎙️ Send 20 Cedis (EN)
+                      </button>
+                      <button
+                        onClick={() => sim.simulateAsrSample("Mepa wo kyɛw, mane sika aduonu kɔma Ama wɔ 0553838464", "tw")}
+                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-amber-300 rounded text-[9px] font-bold border border-amber-700/50"
+                      >
+                        🎙️ Mane Sika (Twi)
+                      </button>
+                      <button
+                        onClick={() => sim.simulateAsrSample("Check my mobile money wallet balance", "en")}
+                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-cyan-300 rounded text-[9px] font-bold border border-cyan-700/50"
+                      >
+                        🎙️ Check Balance
+                      </button>
+                      <button
+                        onClick={() => sim.simulateAsrSample("Buy 5 cedis airtime for my phone", "en")}
+                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-indigo-300 rounded text-[9px] font-bold border border-indigo-700/50"
+                      >
+                        🎙️ Buy Airtime
+                      </button>
+                      <button
+                        onClick={() => sim.simulateAsrSample("Aane, pene so", "tw")}
+                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-emerald-400 rounded text-[9px] font-bold border border-emerald-700/50"
+                      >
+                        🎙️ Aane (Confirm)
+                      </button>
+                      <button
+                        onClick={() => sim.simulateAsrSample("Dabi, gyae mu", "tw")}
+                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-rose-300 rounded text-[9px] font-bold border border-rose-700/50"
+                      >
+                        🎙️ Dabi (Cancel)
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1000,7 +1064,7 @@ export const PhoneSimulatorPage: React.FC = () => {
                       </div>
                       <p className="text-xs font-bold text-slate-200">Ɔkwankyerɛfo Pa Voice Ready</p>
                       <p className="text-[11px] text-slate-400 max-w-xs leading-relaxed">
-                        Akwaaba! Click <span className="text-emerald-400 font-bold">Call</span>, tap the microphone to speak, or tap any Ghanaian voice phrase below to test ASR &amp; AI reasoning.
+                        Akwaaba! Click <span className="text-emerald-400 font-bold">Call</span>, tap the microphone to speak, upload an audio clip, or tap any Ghanaian voice phrase below to test ASR &amp; AI reasoning.
                       </p>
 
                       {/* 1-Tap Quick Action Suggestions inside the screen */}
@@ -1071,8 +1135,8 @@ export const PhoneSimulatorPage: React.FC = () => {
                                   {sim.voiceMode === "STUDIO_PROMPTS" ? "Authentic Studio Prompt" : "Ghanaian Neural Voice"}
                                 </span>
                                 <button
-                                  onClick={() => sim.playStudioClip("/audio/English/Audio_prompt_02.mp3")}
-                                  className="text-[9px] text-amber-300 hover:text-amber-200 flex items-center gap-1 font-bold"
+                                  onClick={() => sim.playStudioClip(item.text, sim.language)}
+                                  className="text-[9px] text-amber-300 hover:text-amber-200 flex items-center gap-1 font-bold transition-colors"
                                   title="Replay Voice Prompt Audio"
                                 >
                                   <Volume2 className="w-2.5 h-2.5" />
@@ -1458,15 +1522,24 @@ export const PhoneSimulatorPage: React.FC = () => {
               )}
             </div>
 
-            {/* Handset Top Action Buttons (Call / End / Mic) */}
-            <div className="grid grid-cols-3 gap-2 px-1">
+            {/* Hidden file input for audio file upload ASR */}
+            <input
+              type="file"
+              ref={audioFileInputRef}
+              accept="audio/*,.mp3,.wav,.m4a,.webm,.ogg"
+              onChange={handleAudioFileUpload}
+              className="hidden"
+            />
+
+            {/* Handset Top Action Buttons (Call / Mic / Upload / Replay / End) */}
+            <div className="grid grid-cols-5 gap-1.5 px-1">
               <button
                 onClick={() => sim.startCall(sim.language === "tw" ? "tw" : "en")}
                 disabled={sim.isActive}
                 className="py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-2xl flex items-center justify-center font-bold shadow-md active:scale-95 transition-all group"
                 title="Start Phone Call"
               >
-                <Phone className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                <Phone className="w-4 h-4 sm:w-5 sm:h-5 group-hover:scale-110 transition-transform" />
               </button>
 
               <button
@@ -1478,7 +1551,23 @@ export const PhoneSimulatorPage: React.FC = () => {
                 }`}
                 title={sim.isMicActive ? "Mute Microphone / Stop Speaking" : "🎙️ Tap to Speak (Ghanaian ASR Voice Ingest)"}
               >
-                <Mic className={`w-5 h-5 ${sim.isMicActive ? "text-slate-950 animate-bounce" : "text-emerald-400"}`} />
+                <Mic className={`w-4 h-4 sm:w-5 sm:h-5 ${sim.isMicActive ? "text-slate-950 animate-bounce" : "text-emerald-400"}`} />
+              </button>
+
+              <button
+                onClick={() => audioFileInputRef.current?.click()}
+                className="py-3 bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-slate-700/80 rounded-2xl flex items-center justify-center font-bold shadow-md active:scale-95 transition-all group"
+                title="Upload Audio File for Ghanaian Speech Recognition"
+              >
+                <FileAudio className="w-4 h-4 sm:w-5 sm:h-5 group-hover:scale-110 transition-transform text-cyan-400" />
+              </button>
+
+              <button
+                onClick={sim.replayCurrentSpeech}
+                className="py-3 bg-slate-800 hover:bg-slate-700 text-purple-400 border border-slate-700/80 rounded-2xl flex items-center justify-center font-bold shadow-md active:scale-95 transition-all group"
+                title="Replay Voice Prompt (Audio Playback)"
+              >
+                <Volume2 className={`w-4 h-4 sm:w-5 sm:h-5 group-hover:scale-110 transition-transform ${sim.isAiSpeaking ? "text-amber-400 animate-pulse" : "text-purple-400"}`} />
               </button>
 
               <button
@@ -1487,7 +1576,7 @@ export const PhoneSimulatorPage: React.FC = () => {
                 className="py-3 bg-rose-700 hover:bg-rose-600 disabled:opacity-40 text-white rounded-2xl flex items-center justify-center font-bold shadow-md active:scale-95 transition-all group"
                 title="Hang Up and sync call session to Call Logs"
               >
-                <PhoneOff className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                <PhoneOff className="w-4 h-4 sm:w-5 sm:h-5 group-hover:scale-110 transition-transform" />
               </button>
             </div>
 

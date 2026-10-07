@@ -506,7 +506,7 @@ aiRouter.post("/api/ai/analyze", publicApiRateLimiter, async (req: Request, res:
 
 aiRouter.post("/api/ai/transcribe", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {
-    const { audioBase64, mimeType, language } = req.body;
+    const { audioBase64, mimeType, language, step, hintText } = req.body;
     if (!audioBase64) {
       return res.status(400).json({ error: "Missing 'audioBase64' payload." });
     }
@@ -514,6 +514,7 @@ aiRouter.post("/api/ai/transcribe", publicApiRateLimiter, async (req: Request, r
       audioBuffer: audioBase64,
       mimeType: mimeType || "audio/webm",
       expectedLanguage: language || "bilingual",
+      step: hintText || step || "",
     });
     res.json({ success: true, result });
   } catch (err: any) {
