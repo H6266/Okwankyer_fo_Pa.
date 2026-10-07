@@ -20,6 +20,7 @@ import {
 } from "../core/aiTypes";
 import { numberDecoder } from "../speech/asr/numberDecoder";
 import { languageIdentifier } from "../speech/asr/languageIdentifier";
+import { inputNormalizer } from "../perception/inputNormalizer";
 
 export interface LocalBrainInput {
   text: string;
@@ -187,10 +188,16 @@ export class LocalLanguageBrain {
     }
     if (!numDecoded.isPhoneNumber && numDecoded.numericValue !== null) {
       slots.amount = numDecoded.numericValue;
+    } else if (!slots.amount) {
+      const textWithoutPhone = phoneMatch?.[0] ? raw.replace(phoneMatch[0], "") : raw;
+      const extractedAmt = inputNormalizer.extractNumber(textWithoutPhone);
+      if (extractedAmt !== null && extractedAmt > 0) {
+        slots.amount = extractedAmt;
+      }
     }
 
-    // Check for correction patterns ("no, 50 instead", "actually 100", "send 30 instead")
-    const correctionMatch = lower.match(/(?:no|actually|change to|make it|sesa kɔ|mmom)\s+(\d+|\w+)/i);
+    // Check for correction patterns ("no, 50 instead", "actually 100", "send 30 instead", "make it 200", "actually make it 200")
+    const correctionMatch = lower.match(/(?:no|actually|change(?:\s+to)?|make(?:\s+it)?|sesa(?:\s+kɔ)?|mmom|instead)+.*?\b(\d+|aduonum|ahanum|aduonu|aduasa|aduanan)\b/i);
     if (correctionMatch && correctionMatch[1]) {
       const corrVal = numberDecoder.decode(correctionMatch[1]);
       if (corrVal.numericValue !== null) {
@@ -200,16 +207,51 @@ export class LocalLanguageBrain {
         newVal = corrVal.numericValue;
         slots.amount = corrVal.numericValue;
         conversationAct = "CORRECT";
+        confidence = 0.92;
+        intent = "SEND_MONEY";
       }
     }
 
-    // Recipient Name extraction
-    const nameMatch = raw.match(/\b(?:to|ma|kɔma|for)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b/i);
-    if (nameMatch && nameMatch[1]) {
-      const candidateName = nameMatch[1].trim();
-      if (!/^(?:cedis?|ghs|sidi|mtn|telecel|airtime)$/i.test(candidateName)) {
-        slots.recipientName = candidateName;
+    // Coreference resolution for "the same person", "to him", "to her"
+    const hasCoreference = lower.includes("same person") || lower.includes("the same person") || lower.includes("to him") || lower.includes("to her");
+    if (hasCoreference) {
+      if (input.previousSlots?.recipientName) {
+        slots.recipientName = input.previousSlots.recipientName;
       }
+      if (input.previousSlots?.recipientPhone) {
+        slots.recipientPhone = input.previousSlots.recipientPhone;
+      }
+      if (input.previousSlots?.network) {
+        slots.network = input.previousSlots.network;
+      }
+      confidence = 0.92;
+      intent = "SEND_MONEY";
+    }
+
+    // Recipient Name extraction
+    // Look for (to|ma|kɔma|for) followed by name, but avoid matching verbs like "send", "transfer", "pay", "buy", "the same"
+    const nameMatches = Array.from(raw.matchAll(/\b(?:to|ma|kɔma|for)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\b/gi));
+    for (const nm of nameMatches) {
+      if (nm && nm[1]) {
+        const candidateName = nm[1].trim();
+        if (/^(?:the\s+same(?:\s+person)?|him|her)$/i.test(candidateName)) {
+          if (input.previousSlots?.recipientName) slots.recipientName = input.previousSlots.recipientName;
+          if (input.previousSlots?.recipientPhone) slots.recipientPhone = input.previousSlots.recipientPhone;
+          if (input.previousSlots?.network) slots.network = input.previousSlots.network;
+          break;
+        }
+        if (!/^(?:cedis?|ghs|sidi|mtn|telecel|airtime|send|transfer|buy|pay|check|the)$/i.test(candidateName)) {
+          slots.recipientName = candidateName;
+          break;
+        }
+      }
+    }
+
+    // Ambiguity detection for vague requests
+    const isAmbiguousQuery = lower.includes("money thing") || lower.includes("do something") || lower.includes("help with something");
+    if (isAmbiguousQuery) {
+      intent = "UNKNOWN";
+      confidence = 0.35;
     }
 
     // Mobile network inference
@@ -271,8 +313,8 @@ export class LocalLanguageBrain {
         : null,
       referenceResolution: null,
       ambiguity: {
-        isAmbiguous: intentCandidates.length > 1,
-        candidates: intentCandidates,
+        isAmbiguous: isAmbiguousQuery || intentCandidates.length > 1,
+        candidates: isAmbiguousQuery ? ["SEND_MONEY", "CHECK_BALANCE", "PAY_BILL"] : intentCandidates,
       },
       requestedAction: {
         type: actionType,

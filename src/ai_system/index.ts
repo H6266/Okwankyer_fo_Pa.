@@ -132,15 +132,7 @@ import { offlineAIEngine } from "./core/offlineAIEngine";
 
 export const aiSystem = {
   process: async (input: any) => {
-    if (!process.env.GEMINI_API_KEY || process.env.OFFLINE_MODE === "true") {
-      return offlineAIEngine.process(input);
-    }
-    try {
-      return await aiEngine.process(input);
-    } catch (err) {
-      console.warn("[aiSystem] aiEngine failed, falling back to autonomous offline engine:", err);
-      return offlineAIEngine.process(input);
-    }
+    return aiEngine.process(input);
   },
 
   analyzeUtterance: async (utterance: string, languageHint: any = "bilingual") => {

@@ -34,6 +34,7 @@ aiRouter.get("/api/ai/status", (_req: Request, res: Response) => {
     status: "ok",
     system: "Ɔkwankyerɛfo Pa AI Subsystem",
     geminiConfigured: config.gemini.configured,
+    openAiConfigured: Boolean(process.env.OPENAI_API_KEY),
     offlineCapable: true,
     languages: ["en", "tw", "ak"],
     zeroPinEnforced: true,

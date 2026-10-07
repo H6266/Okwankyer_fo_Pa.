@@ -69,6 +69,8 @@ export interface CognitiveRouteInput {
   existingSlots?: EntitySlotMap;
   workingSlots?: EntitySlotMap;
   recentTurns?: Array<{ role: string; text: string }>;
+  semanticMemoryContext?: Array<{ text: string }>;
+  frequentContacts?: Array<{ name: string; phone: string; network?: string }>;
   executionMode?: "SIMULATION" | "MTN_SANDBOX";
   asrConfidence?: number;
 }
@@ -136,10 +138,12 @@ export class CognitiveRouter {
     const language = input.language || (input as any).languageHint || "en";
     const workingSlots = (input as any).workingSlots || (input as any).existingSlots || {};
     const recentTurns = (input as any).recentTurns || [];
+    const semanticMemoryContext = (input as any).semanticMemoryContext || [];
+    const frequentContacts = (input as any).frequentContacts || [];
     const asrConfidence = (input as any).asrConfidence;
 
     // ── Tier 1: PIN Disclosure & Safety Circuit Intercept ───────────────────
-    if (unifiedSafetyEngine.detectSpokenPin(rawText)) {
+    if (unifiedSafetyEngine.detectSpokenPin(rawText) || rawText.includes("[REDACTED_PIN]")) {
       const response: StructuredReasoningResponse = {
         intent: "UNKNOWN",
         confidence: 0.99,
@@ -208,6 +212,36 @@ export class CognitiveRouter {
       };
     }
 
+    // ── Tier 1b: Simulation Digital Twin Execution (Autonomous local processing) ─
+    if (input.executionMode === "SIMULATION") {
+      const localSimResult = await localLanguageBrain.understand({
+        text: rawText,
+        language,
+        currentStep,
+        previousSlots: workingSlots,
+      });
+      const evidenceScore = calculateEvidenceScore({
+        rawText,
+        intent: localSimResult.intent,
+        entities: localSimResult.entities,
+        asrConfidence,
+        deterministicMatch: true,
+        schemaValid: true,
+      });
+      localSimResult.confidence = evidenceScore;
+      return {
+        response: localSimResult,
+        metrics: {
+          routingDecision: "LOCAL_BRAIN",
+          providerUsed: "simulator-local-brain",
+          reasoningLatencyMs: Math.max(1, Math.round(performance.now() - start)),
+          confidence: evidenceScore,
+          evidenceScore,
+          circuitBreakerOpen: false,
+        },
+      };
+    }
+
     // ── Tier 2: Local Ghanaian Language Brain (Local-First execution) ───────
     const localBrainResult = await localLanguageBrain.understand({
       text: rawText,
@@ -216,7 +250,9 @@ export class CognitiveRouter {
     });
 
     const isHighConfidenceLocal =
-      localBrainResult.confidence >= 0.80 ||
+      localBrainResult.confidence >= 0.65 ||
+      localBrainResult.ambiguity.isAmbiguous ||
+      (localBrainResult.intent !== "UNKNOWN" && (Boolean(localBrainResult.entities.amount) || Boolean(localBrainResult.entities.recipientPhone) || Boolean(localBrainResult.entities.recipientName))) ||
       ["CANCEL", "GO_BACK", "REPEAT", "CONFIRM", "CHECK_BALANCE"].includes(localBrainResult.intent);
 
     if (isHighConfidenceLocal) {
@@ -256,6 +292,8 @@ export class CognitiveRouter {
           currentStep,
           existingSlots: workingSlots,
           recentTurns,
+          semanticMemoryContext,
+          frequentContacts,
         });
 
         const evidenceScore = calculateEvidenceScore({

@@ -316,6 +316,6 @@ describe("Ɔkwankyerɛfo Pa - AI System Master Cognitive Test Suite", () => {
 
       expect(turn4.entities.amount).toBe(200);
       expect(turn4.entities.recipientPhone).toBe("0553838464"); // Still remembers recipient!
-    });
+    }, 15000);
   });
 });

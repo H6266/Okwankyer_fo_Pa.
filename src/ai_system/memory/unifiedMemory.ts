@@ -358,6 +358,10 @@ export class UnifiedMemory {
     return record;
   }
 
+  public async listTransactions(sessionId: string): Promise<TransactionalMemoryRecord[]> {
+    return this.transactionRepo.list(sessionId);
+  }
+
   // =========================================================================
   // 7. USER PREFERENCES & PRONUNCIATIONS
   // =========================================================================

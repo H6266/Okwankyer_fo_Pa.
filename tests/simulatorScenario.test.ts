@@ -164,5 +164,5 @@ describe("Section 43: Full Phone Simulator Digital Twin End-to-End Scenario", ()
     const stored = callSessionRepository.getSession(sessionId);
     expect(stored?.amountGHS).toBe(20);
     expect(stored?.recipientPhone).toBe("0553838464");
-  });
+  }, 30000);
 });

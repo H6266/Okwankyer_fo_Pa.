@@ -62,8 +62,12 @@ export interface ExecutionContext {
   currentStep: string;
   workingSlots: EntitySlotMap;
   activeTask: TaskState | null;
+  interruptedTask: TaskState | null;
   activeDraft: TransactionDraft | null;
   recentTurns: ConversationTurnRecord[];
+  semanticMemoryContext: ConversationTurnRecord[];
+  frequentContacts: Array<{ name: string; phone: string; network?: string; count: number }>;
+  userPreferences: any;
 }
 
 export class AiEngine {
@@ -139,8 +143,55 @@ export class AiEngine {
     };
 
     const activeTask = unifiedMemory.getActiveTask(input.sessionId);
+    const interruptedTask = unifiedMemory.getInterruptedTask(input.sessionId);
     const activeDraft = activeTask?.draft || null;
     const history = await unifiedMemory.getConversationHistory(input.sessionId);
+
+    // Hydrate semantic memory context via vector similarity query
+    let semanticMemoryContext: ConversationTurnRecord[] = [];
+    try {
+      semanticMemoryContext = await unifiedMemory.searchSemanticMemory(input.sessionId, normalizedInput, 3);
+    } catch (err: any) {
+      // Graceful fallback to empty
+    }
+
+    // Hydrate past transactions & aggregate frequent contacts for recipient recall
+    let pastTransactions: any[] = [];
+    try {
+      pastTransactions = await unifiedMemory.listTransactions(input.sessionId);
+    } catch (err: any) {
+      // Graceful fallback
+    }
+
+    const contactMap = new Map<string, { name: string; phone: string; network?: string; count: number }>();
+    for (const tx of pastTransactions) {
+      if (tx.recipientName && tx.recipientPhoneMasked) {
+        const key = tx.recipientName.toLowerCase().trim();
+        const existing = contactMap.get(key);
+        if (existing) {
+          existing.count += 1;
+        } else {
+          contactMap.set(key, {
+            name: tx.recipientName,
+            phone: tx.recipientPhoneMasked,
+            network: tx.network,
+            count: 1,
+          });
+        }
+      }
+    }
+    const frequentContacts = Array.from(contactMap.values()).sort((a, b) => b.count - a.count);
+
+    // Hydrate user profile preferences
+    const userId = input.userProfile?.userId || session.userId;
+    let userPreferences = null;
+    if (userId) {
+      try {
+        userPreferences = await unifiedMemory.getPreferences(userId);
+      } catch (err: any) {
+        // Graceful fallback
+      }
+    }
 
     const ctx: ExecutionContext = {
       sessionId: input.sessionId,
@@ -153,8 +204,12 @@ export class AiEngine {
       currentStep,
       workingSlots,
       activeTask,
+      interruptedTask,
       activeDraft,
       recentTurns: history.slice(-4),
+      semanticMemoryContext,
+      frequentContacts,
+      userPreferences,
     };
 
     latencies.normalizationLatencyMs = Math.round(performance.now() - stage1Start);
@@ -176,8 +231,11 @@ export class AiEngine {
       currentStep: ctx.currentStep,
       existingSlots: ctx.workingSlots,
       recentTurns: ctx.recentTurns.map(t => ({ role: t.role, text: t.sanitizedInput })),
+      semanticMemoryContext: ctx.semanticMemoryContext.map(t => ({ text: t.sanitizedInput })),
+      frequentContacts: ctx.frequentContacts,
       channel: ctx.channel,
       sessionId: ctx.sessionId,
+      executionMode: input.executionMode,
     });
 
     const reasoning = cognitiveDecision.response;
@@ -527,8 +585,15 @@ export class AiEngine {
     });
 
     return {
+      success: true,
       sessionId: ctx.sessionId,
       state: cognitiveState,
+      cognitiveState: {
+        intent,
+        workingSlots: ctx.workingSlots,
+        language: ctx.detectedLanguage,
+        state: cognitiveState,
+      },
       intent,
       confidence,
       language: ctx.detectedLanguage,

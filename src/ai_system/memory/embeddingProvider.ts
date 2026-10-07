@@ -9,10 +9,12 @@
 
 import { GoogleGenAI } from "@google/genai";
 import { AI_CONFIG } from "../core/aiConfig";
+import { openAiEmbeddings } from "../../services/openai/openaiEmbeddings";
+import { geminiClient } from "../../services/geminiClient";
 
 export interface EmbeddingResult {
   vector: number[];
-  source: "GEMINI_EMBEDDING" | "LEXICAL_FALLBACK";
+  source: "GEMINI_EMBEDDING" | "OPENAI_EMBEDDING" | "LEXICAL_FALLBACK";
   dimension: number;
 }
 
@@ -22,21 +24,10 @@ export interface IEmbeddingProvider {
 }
 
 export class GeminiEmbeddingProvider implements IEmbeddingProvider {
-  private ai: GoogleGenAI | null = null;
   private fallbackProvider: LexicalFallbackEmbeddingProvider;
 
   constructor() {
     this.fallbackProvider = new LexicalFallbackEmbeddingProvider();
-    if (process.env.GEMINI_API_KEY) {
-      this.ai = new GoogleGenAI({
-        apiKey: process.env.GEMINI_API_KEY,
-        httpOptions: {
-          headers: {
-            "User-Agent": AI_CONFIG.userAgentHeader,
-          },
-        },
-      });
-    }
   }
 
   public async embed(text: string): Promise<EmbeddingResult> {
@@ -45,29 +36,50 @@ export class GeminiEmbeddingProvider implements IEmbeddingProvider {
       return this.fallbackProvider.embed(text);
     }
 
-    if (!this.ai || !process.env.GEMINI_API_KEY) {
-      return this.fallbackProvider.embed(text);
-    }
+    if (geminiClient.isAvailable() && geminiClient.isModelAvailable(AI_CONFIG.embeddingModel)) {
+      try {
+        const values = await geminiClient.executeWithTimeout(
+          "EMBEDDING",
+          async (ai) => {
+            const response = await ai.models.embedContent({
+              model: AI_CONFIG.embeddingModel,
+              contents: clean,
+            });
+            return response.embeddings?.[0]?.values;
+          },
+          1500,
+          0
+        );
 
-    try {
-      const response = await this.ai.models.embedContent({
-        model: AI_CONFIG.embeddingModel,
-        contents: clean,
-      });
-
-      const values = response.embeddings?.[0]?.values;
-      if (values && Array.isArray(values) && values.length > 0) {
-        return {
-          vector: values,
-          source: "GEMINI_EMBEDDING",
-          dimension: values.length,
-        };
+        if (values && Array.isArray(values) && values.length > 0) {
+          return {
+            vector: values,
+            source: "GEMINI_EMBEDDING",
+            dimension: values.length,
+          };
+        }
+      } catch (err: any) {
+        // Fall through to next provider
       }
-      return this.fallbackProvider.embed(text);
-    } catch (err: any) {
-      // Fail safely to lexical fallback
-      return this.fallbackProvider.embed(text);
     }
+
+    // Try OpenAI text-embedding-3-small provider if available
+    if (openAiEmbeddings.isAvailable()) {
+      try {
+        const res = await openAiEmbeddings.embed(clean);
+        if (res.vector && res.vector.length > 0) {
+          return {
+            vector: res.vector,
+            source: "OPENAI_EMBEDDING",
+            dimension: res.dimension,
+          };
+        }
+      } catch (err: any) {
+        // Fall through to lexical fallback
+      }
+    }
+
+    return this.fallbackProvider.embed(text);
   }
 
   public cosineSimilarity(a: number[], b: number[]): number {

@@ -18,6 +18,7 @@ import { inputNormalizer } from "../perception/inputNormalizer";
 import { languageDetector } from "../perception/languageDetector";
 import { aiUnderstanding } from "../core/aiUnderstanding";
 import { geminiClient } from "../../services/geminiClient";
+import { openAiReasoner } from "../../services/openai/openaiReasoner";
 
 const ModelReasoningSchema = z.object({
   intent: z.string().default("UNKNOWN"),
@@ -92,6 +93,8 @@ export class ReasoningEngine {
     currentStep?: string;
     existingSlots?: EntitySlotMap;
     recentTurns?: Array<{ role: string; text: string }>;
+    semanticMemoryContext?: Array<{ text: string }>;
+    frequentContacts?: Array<{ name: string; phone: string; network?: string }>;
   }): Promise<StructuredReasoningResponse> {
     const cleanUtterance = params.utterance.trim();
 
@@ -101,6 +104,23 @@ export class ReasoningEngine {
     }
 
     if (this.client && typeof (this.client as any).isAvailable === "function" && !(this.client as any).isAvailable()) {
+      // If Gemini client unavailable, check OpenAI reasoner before deterministic
+      if (openAiReasoner.isAvailable()) {
+        try {
+          return await openAiReasoner.reason({
+            utterance: cleanUtterance,
+            languageHint: params.languageHint,
+            currentScreen: params.currentScreen,
+            currentStep: params.currentStep,
+            existingSlots: params.existingSlots,
+            recentTurns: params.recentTurns,
+            semanticMemoryContext: params.semanticMemoryContext,
+            frequentContacts: params.frequentContacts,
+          });
+        } catch (err: any) {
+          console.warn("[ReasoningEngine] OpenAI reasoner attempt notice:", err?.message || err);
+        }
+      }
       return this.deterministicReasoning(params);
     }
 
@@ -207,6 +227,24 @@ Rules:
           console.warn(`[ReasoningEngine] Model '${modelName}' notice:`, msg.slice(0, 100));
         }
         continue;
+      }
+    }
+
+    // If all Gemini candidates failed or were exhausted, try OpenAI Reasoner
+    if (openAiReasoner.isAvailable()) {
+      try {
+        return await openAiReasoner.reason({
+          utterance: cleanUtterance,
+          languageHint: params.languageHint,
+          currentScreen: params.currentScreen,
+          currentStep: params.currentStep,
+          existingSlots: params.existingSlots,
+          recentTurns: params.recentTurns,
+          semanticMemoryContext: params.semanticMemoryContext,
+          frequentContacts: params.frequentContacts,
+        });
+      } catch (err: any) {
+        console.warn("[ReasoningEngine] OpenAI reasoner candidate attempt notice:", err?.message || err);
       }
     }
 
