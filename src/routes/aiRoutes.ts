@@ -21,6 +21,11 @@ import { eventBus } from "../services/eventBus";
 import { brain } from "../ai_system/brain/brain";
 import { ttsRouter } from "../ai_system/speech/tts/ttsRouter";
 import { formatSpokenNumbersAsDigits } from "../domain/numberFormatter";
+import {
+  isAcousticSystemEcho,
+  stripSystemEchoFromTranscript,
+  isBackgroundNoiseOrStatic,
+} from "../domain/echoFilter";
 
 export const aiRouter = Router();
 
@@ -519,6 +524,12 @@ aiRouter.post("/api/ai/transcribe", publicApiRateLimiter, async (req: Request, r
     });
     if (result && result.text) {
       result.text = formatSpokenNumbersAsDigits(result.text);
+      if (isBackgroundNoiseOrStatic(result.text)) {
+        result.text = "";
+      } else if (isAcousticSystemEcho(result.text, hintText || step)) {
+        const stripped = stripSystemEchoFromTranscript(result.text, hintText || step);
+        result.text = (!stripped || isAcousticSystemEcho(stripped, hintText || step)) ? "" : stripped;
+      }
     }
     res.json({ success: true, result });
   } catch (err: any) {

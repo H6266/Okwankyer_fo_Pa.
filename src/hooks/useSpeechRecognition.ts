@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatSpokenNumbersAsDigits } from "../domain/numberFormatter";
+import {
+  isAcousticSystemEcho,
+  stripSystemEchoFromTranscript,
+  isBackgroundNoiseOrStatic,
+} from "../domain/echoFilter";
 
 export interface SpeechMatchResult {
   transcript: string;
@@ -13,6 +18,8 @@ export interface SpeechMatchResult {
 export function useSpeechRecognition(options: {
   language: "en" | "twi";
   isMuted: boolean;
+  activePrompt?: string;
+  isSpeaking?: boolean;
   onMatch?: (result: SpeechMatchResult) => void;
 }) {
   const [isListening, setIsListening] = useState(false);
@@ -210,7 +217,17 @@ export function useSpeechRecognition(options: {
         if (options.isMuted) return; // Strict Zero-PIN muting
         const lastResultIndex = event.results.length - 1;
         const res = event.results[lastResultIndex];
-        const rawText = res[0].transcript;
+        const rawText = (res[0]?.transcript || "").trim();
+        if (!rawText || isBackgroundNoiseOrStatic(rawText)) return;
+
+        // Acoustic Echo Suppression
+        if (isAcousticSystemEcho(rawText, options.activePrompt, options.isSpeaking)) {
+          const stripped = stripSystemEchoFromTranscript(rawText, options.activePrompt);
+          if (!stripped || isAcousticSystemEcho(stripped, options.activePrompt)) {
+            return;
+          }
+        }
+
         const formattedText = formatSpokenNumbersAsDigits(rawText);
         setTranscript(formattedText);
 

@@ -43,6 +43,8 @@ export const VoiceTesterPage: React.FC = () => {
   const speech = useSpeechRecognition({
     language: session.language || "en",
     isMuted: !session.isActive || session.isMicMuted,
+    isSpeaking: audio.isPlaying,
+    activePrompt: session.currentAudioUrl || "",
     onMatch: (result) => {
       if (result.resolvedDigit) {
         handleKeyPress(result.resolvedDigit);

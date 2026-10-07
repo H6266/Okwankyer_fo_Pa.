@@ -11,6 +11,11 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { api, ParsedVoiceXml } from "../lib/api";
 import { useDtmf } from "./useDtmf";
 import { formatSpokenNumbersAsDigits } from "../domain/numberFormatter";
+import {
+  isAcousticSystemEcho,
+  stripSystemEchoFromTranscript,
+  isBackgroundNoiseOrStatic,
+} from "../domain/echoFilter";
 import type {
   NavigationOutput,
   ActionOutput,
@@ -488,10 +493,31 @@ export function usePhoneSimulator() {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const speechTurnSubmittedRef = useRef<boolean>(false);
+  const isAiSpeakingRef = useRef<boolean>(false);
+  const activePromptTextRef = useRef<string>("");
+  const audioLevelRef = useRef<number>(0);
 
   useEffect(() => {
     isMicActiveRef.current = isMicActive;
   }, [isMicActive]);
+
+  useEffect(() => {
+    isAiSpeakingRef.current = isAiSpeaking;
+  }, [isAiSpeaking]);
+
+  const updateAiSpeaking = useCallback((speaking: boolean, promptText?: string) => {
+    setIsAiSpeaking(speaking);
+    isAiSpeakingRef.current = speaking;
+    if (promptText) {
+      activePromptTextRef.current = promptText;
+    } else if (!speaking) {
+      setTimeout(() => {
+        if (!isAiSpeakingRef.current) {
+          activePromptTextRef.current = "";
+        }
+      }, 1500);
+    }
+  }, []);
 
   const applySyncPayload = useCallback((data: any) => {
     if (!data) return;
@@ -1025,7 +1051,7 @@ export function usePhoneSimulator() {
   const playAudioSynthesis = useCallback(async (text: string, lang: string, step?: string) => {
     if (!enableTts || !text) return;
     try {
-      setIsAiSpeaking(true);
+      updateAiSpeaking(true, text);
       const isTwi = lang === "tw" || lang === "ak";
 
       // 1. Studio Pre-Recorded Prompts Mode (Priority 1 for known workflow steps)
@@ -1035,11 +1061,11 @@ export function usePhoneSimulator() {
           audioRef.current.src = matchedPrompt;
           setActiveAudioClip(matchedPrompt);
           audioRef.current.onended = () => {
-            setIsAiSpeaking(false);
+            updateAiSpeaking(false);
             setActiveAudioClip(null);
           };
           audioRef.current.onerror = () => {
-            setIsAiSpeaking(false);
+            updateAiSpeaking(false);
             setActiveAudioClip(null);
           };
           const playPromise = audioRef.current.play();
@@ -1052,14 +1078,14 @@ export function usePhoneSimulator() {
                   window.speechSynthesis.cancel();
                   const utterance = new SpeechSynthesisUtterance(text);
                   utterance.rate = 0.95;
-                  utterance.onend = () => setIsAiSpeaking(false);
-                  utterance.onerror = () => setIsAiSpeaking(false);
+                  utterance.onend = () => updateAiSpeaking(false);
+                  utterance.onerror = () => updateAiSpeaking(false);
                   window.speechSynthesis.speak(utterance);
                 } catch {
-                  setIsAiSpeaking(false);
+                  updateAiSpeaking(false);
                 }
               } else {
-                setIsAiSpeaking(false);
+                updateAiSpeaking(false);
               }
             });
           }
@@ -1079,11 +1105,11 @@ export function usePhoneSimulator() {
           const mime = synth.result.audioMimeType || "audio/mp3";
           audioRef.current.src = `data:${mime};base64,${synth.result.audioBase64}`;
           audioRef.current.onended = () => {
-            setIsAiSpeaking(false);
+            updateAiSpeaking(false);
             setActiveAudioClip(null);
           };
           audioRef.current.onerror = () => {
-            setIsAiSpeaking(false);
+            updateAiSpeaking(false);
             setActiveAudioClip(null);
           };
           const playPromise = audioRef.current.play();
@@ -1095,14 +1121,14 @@ export function usePhoneSimulator() {
                   window.speechSynthesis.cancel();
                   const utterance = new SpeechSynthesisUtterance(text);
                   utterance.rate = 0.95;
-                  utterance.onend = () => setIsAiSpeaking(false);
-                  utterance.onerror = () => setIsAiSpeaking(false);
+                  utterance.onend = () => updateAiSpeaking(false);
+                  utterance.onerror = () => updateAiSpeaking(false);
                   window.speechSynthesis.speak(utterance);
                 } catch {
-                  setIsAiSpeaking(false);
+                  updateAiSpeaking(false);
                 }
               } else {
-                setIsAiSpeaking(false);
+                updateAiSpeaking(false);
               }
             });
           }
@@ -1117,19 +1143,19 @@ export function usePhoneSimulator() {
           window.speechSynthesis.cancel();
           const utterance = new SpeechSynthesisUtterance(text);
           utterance.rate = 0.95;
-          utterance.onend = () => setIsAiSpeaking(false);
-          utterance.onerror = () => setIsAiSpeaking(false);
+          utterance.onend = () => updateAiSpeaking(false);
+          utterance.onerror = () => updateAiSpeaking(false);
           window.speechSynthesis.speak(utterance);
         } catch {
-          setIsAiSpeaking(false);
+          updateAiSpeaking(false);
         }
       } else {
-        setIsAiSpeaking(false);
+        updateAiSpeaking(false);
       }
     } catch {
-      setIsAiSpeaking(false);
+      updateAiSpeaking(false);
     }
-  }, [enableTts, voiceMode, currentStep, resolveStudioPrompt]);
+  }, [enableTts, voiceMode, currentStep, resolveStudioPrompt, updateAiSpeaking]);
 
   /**
    * Process a single turn through the backend Canonical AI
@@ -1616,11 +1642,27 @@ export function usePhoneSimulator() {
     isMicActiveRef.current = false;
 
     const rawCollected = (explicitText || capturedSpeechTextRef.current || interimTranscript || "").trim();
-    const textToSend = formatSpokenNumbersAsDigits(rawCollected);
-    const hintText = textToSend;
+    let textToSend = formatSpokenNumbersAsDigits(rawCollected);
     capturedSpeechTextRef.current = "";
 
     if (textToSend) {
+      if (isAcousticSystemEcho(textToSend, activePromptTextRef.current, isAiSpeakingRef.current)) {
+        const stripped = stripSystemEchoFromTranscript(textToSend, activePromptTextRef.current);
+        if (!stripped || isAcousticSystemEcho(stripped, activePromptTextRef.current)) {
+          setInterimTranscript("");
+          setTranscriptionStatus("IDLE");
+          setAiProcessingDetail("Ignored system voice echo · Focus on caller voice only");
+          return;
+        }
+        textToSend = stripped;
+      }
+      if (isBackgroundNoiseOrStatic(textToSend, audioLevelRef.current)) {
+        setInterimTranscript("");
+        setTranscriptionStatus("IDLE");
+        setAiProcessingDetail("Filtered background noise · Ready for voice");
+        return;
+      }
+
       speechTurnSubmittedRef.current = true;
       setInterimTranscript("");
       setTranscriptionStatus("PROCESSING");
@@ -1705,23 +1747,54 @@ export function usePhoneSimulator() {
               interim += item[0].transcript;
             }
           }
-          const combined = (final + " " + interim).trim();
-          if (combined) {
-            const normalizedCombined = formatSpokenNumbersAsDigits(combined);
-            capturedSpeechTextRef.current = normalizedCombined;
-            setInterimTranscript(normalizedCombined);
-            setTranscriptionStatus("LISTENING");
-            setAiProcessingDetail(`Heard: "${normalizedCombined}"`);
+          let combined = (final + " " + interim).trim();
+          if (!combined) return;
+
+          // 1. Background noise and acoustic non-verbal filter
+          if (isBackgroundNoiseOrStatic(combined, audioLevelRef.current)) {
+            return;
           }
 
-          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-          if (combined.trim().length > 2) {
-            silenceTimerRef.current = setTimeout(() => {
-              if (isMicActiveRef.current) {
-                stopMicAndSubmit();
-              }
-            }, 1800);
+          // 2. Acoustic echo filter: Ignore system audio / prompt playback picked up by the microphone
+          if (isAcousticSystemEcho(combined, activePromptTextRef.current, isAiSpeakingRef.current)) {
+            const stripped = stripSystemEchoFromTranscript(combined, activePromptTextRef.current);
+            if (!stripped || stripped === combined || isAcousticSystemEcho(stripped, activePromptTextRef.current)) {
+              // Utterance is purely system audio echoing back from speaker. Silently discard!
+              return;
+            }
+            combined = stripped;
           }
+
+          // 3. User barge-in detection: If caller speaks an authentic command while system is speaking,
+          // pause the system audio playback so the user has the floor cleanly!
+          if (isAiSpeakingRef.current) {
+            if (audioRef.current) {
+              try { audioRef.current.pause(); } catch {}
+            }
+            if ("speechSynthesis" in window) {
+              try { window.speechSynthesis.cancel(); } catch {}
+            }
+            updateAiSpeaking(false);
+          }
+
+          // 4. Format all spoken numbers as numeric digits (e.g. "2" not "two", "1" not "one", "baako" -> "1")
+          const normalizedCombined = formatSpokenNumbersAsDigits(combined);
+          capturedSpeechTextRef.current = normalizedCombined;
+          setInterimTranscript(normalizedCombined);
+          setTranscriptionStatus("LISTENING");
+          setAiProcessingDetail(`Heard: "${normalizedCombined}"`);
+
+          // 5. Adaptive Fast-Submit Timer:
+          // Single digits or quick commands submit in 800ms for instantaneous response; longer input gets 1600ms
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+          const isShortCommand = /^(?:\d{1,2}|aane|dabi|yes|no|confirm|cancel|stop|back|mtn|telecel|at)$/i.test(normalizedCombined);
+          const silenceDelay = isShortCommand ? 800 : 1600;
+
+          silenceTimerRef.current = setTimeout(() => {
+            if (isMicActiveRef.current) {
+              stopMicAndSubmit();
+            }
+          }, silenceDelay);
         };
 
         rec.onerror = (e: any) => {
@@ -1763,9 +1836,19 @@ export function usePhoneSimulator() {
     // 2. Hardware Audio Stream with Live Volume Equalizer & Fallback
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true }).catch((err) => {
-          console.warn("[PhoneSimulator] getUserMedia permission notice:", err);
-          return null;
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            channelCount: 1,
+            sampleRate: 16000,
+          },
+        }).catch(async () => {
+          return await navigator.mediaDevices.getUserMedia({ audio: true }).catch((err) => {
+            console.warn("[PhoneSimulator] getUserMedia permission notice:", err);
+            return null;
+          });
         });
 
         if (stream) {
@@ -1790,6 +1873,7 @@ export function usePhoneSimulator() {
                 let total = 0;
                 for (let i = 0; i < buffer.length; i++) total += buffer[i];
                 const score = Math.min(100, Math.round((total / buffer.length) * 1.8));
+                audioLevelRef.current = score;
                 setAudioLevel(score);
                 animFrameRef.current = requestAnimationFrame(checkVolume);
               };
@@ -1818,6 +1902,16 @@ export function usePhoneSimulator() {
                       const rawRecognized = asrRes?.result?.text;
                       const recognized = rawRecognized && rawRecognized !== "empty" ? formatSpokenNumbersAsDigits(rawRecognized) : rawRecognized;
                       if (recognized && recognized !== "empty" && recognized.trim().length > 0) {
+                        if (isAcousticSystemEcho(recognized, activePromptTextRef.current, isAiSpeakingRef.current)) {
+                          console.log("[ASR] Filtered out acoustic system echo from audio stream:", recognized);
+                          setTranscriptionStatus("IDLE");
+                          setAiProcessingDetail("Ignored system voice echo · Focus on caller voice only");
+                          return;
+                        }
+                        if (isBackgroundNoiseOrStatic(recognized, audioLevelRef.current)) {
+                          setTranscriptionStatus("IDLE");
+                          return;
+                        }
                         speechTurnSubmittedRef.current = true;
                         setAiProcessingDetail(`Transcribed: "${recognized}"`);
                         await sendInputTurn(recognized, "VOICE");
@@ -1972,7 +2066,6 @@ export function usePhoneSimulator() {
   const playStudioClip = useCallback(async (target: string) => {
     if (!target) return;
     try {
-      setIsAiSpeaking(true);
       const isAudioFile =
         target.endsWith(".mp3") ||
         target.endsWith(".wav") ||
@@ -1980,6 +2073,9 @@ export function usePhoneSimulator() {
         target.startsWith("audio/");
 
       if (isAudioFile) {
+        const promptName = target.split("/").pop() || "";
+        const promptTranscript = getPromptTranscript(promptName);
+        updateAiSpeaking(true, promptTranscript);
         setActiveAudioClip(target);
         const url = target.startsWith("/audio/")
           ? target
@@ -1990,18 +2086,18 @@ export function usePhoneSimulator() {
         if (audioRef.current) {
           audioRef.current.src = url;
           audioRef.current.onended = () => {
-            setIsAiSpeaking(false);
+            updateAiSpeaking(false);
             setActiveAudioClip(null);
           };
           audioRef.current.onerror = () => {
-            setIsAiSpeaking(false);
+            updateAiSpeaking(false);
             setActiveAudioClip(null);
           };
           const playPromise = audioRef.current.play();
           if (playPromise) {
             await playPromise.catch((e) => {
               console.warn("Audio file play notice:", e);
-              setIsAiSpeaking(false);
+              updateAiSpeaking(false);
               setActiveAudioClip(null);
             });
           }
@@ -2010,16 +2106,17 @@ export function usePhoneSimulator() {
       }
 
       // If target is text (e.g. from chat replay or custom test sandbox), resolve studio prompt or synthesize
+      updateAiSpeaking(true, target);
       const matched = resolveStudioPrompt(target, language);
       if (matched && audioRef.current) {
         setActiveAudioClip(matched);
         audioRef.current.src = matched;
         audioRef.current.onended = () => {
-          setIsAiSpeaking(false);
+          updateAiSpeaking(false);
           setActiveAudioClip(null);
         };
         audioRef.current.onerror = () => {
-          setIsAiSpeaking(false);
+          updateAiSpeaking(false);
           setActiveAudioClip(null);
         };
         const playPromise = audioRef.current.play();
@@ -2032,14 +2129,14 @@ export function usePhoneSimulator() {
                 window.speechSynthesis.cancel();
                 const utterance = new SpeechSynthesisUtterance(target);
                 utterance.rate = 0.95;
-                utterance.onend = () => setIsAiSpeaking(false);
-                utterance.onerror = () => setIsAiSpeaking(false);
+                utterance.onend = () => updateAiSpeaking(false);
+                utterance.onerror = () => updateAiSpeaking(false);
                 window.speechSynthesis.speak(utterance);
               } catch {
-                setIsAiSpeaking(false);
+                updateAiSpeaking(false);
               }
             } else {
-              setIsAiSpeaking(false);
+              updateAiSpeaking(false);
             }
           });
         }
@@ -2057,11 +2154,11 @@ export function usePhoneSimulator() {
         if (synth?.result?.audioBase64 && audioRef.current) {
           audioRef.current.src = `data:${synth.result.audioMimeType || "audio/mp3"};base64,${synth.result.audioBase64}`;
           audioRef.current.onended = () => {
-            setIsAiSpeaking(false);
+            updateAiSpeaking(false);
             setActiveAudioClip(null);
           };
           audioRef.current.onerror = () => {
-            setIsAiSpeaking(false);
+            updateAiSpeaking(false);
             setActiveAudioClip(null);
           };
           const playPromise = audioRef.current.play();
@@ -2073,14 +2170,14 @@ export function usePhoneSimulator() {
                   window.speechSynthesis.cancel();
                   const utterance = new SpeechSynthesisUtterance(target);
                   utterance.rate = 0.95;
-                  utterance.onend = () => setIsAiSpeaking(false);
-                  utterance.onerror = () => setIsAiSpeaking(false);
+                  utterance.onend = () => updateAiSpeaking(false);
+                  utterance.onerror = () => updateAiSpeaking(false);
                   window.speechSynthesis.speak(utterance);
                 } catch {
-                  setIsAiSpeaking(false);
+                  updateAiSpeaking(false);
                 }
               } else {
-                setIsAiSpeaking(false);
+                updateAiSpeaking(false);
               }
             });
           }
@@ -2095,21 +2192,21 @@ export function usePhoneSimulator() {
           window.speechSynthesis.cancel();
           const utterance = new SpeechSynthesisUtterance(target);
           utterance.rate = 0.95;
-          utterance.onend = () => setIsAiSpeaking(false);
-          utterance.onerror = () => setIsAiSpeaking(false);
+          utterance.onend = () => updateAiSpeaking(false);
+          utterance.onerror = () => updateAiSpeaking(false);
           window.speechSynthesis.speak(utterance);
         } catch {
-          setIsAiSpeaking(false);
+          updateAiSpeaking(false);
         }
       } else {
-        setIsAiSpeaking(false);
+        updateAiSpeaking(false);
       }
     } catch (err) {
       console.warn("Studio clip play notice:", err);
-      setIsAiSpeaking(false);
+      updateAiSpeaking(false);
       setActiveAudioClip(null);
     }
-  }, [language, resolveStudioPrompt]);
+  }, [language, resolveStudioPrompt, updateAiSpeaking]);
 
   /**
    * 1-Click Feature Trigger: Test Zero-PIN Violation Interception

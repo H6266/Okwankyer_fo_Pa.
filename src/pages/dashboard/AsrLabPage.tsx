@@ -161,7 +161,17 @@ export const AsrLabPage: React.FC = () => {
         return;
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+          sampleRate: 16000,
+        },
+      }).catch(async () => {
+        return await navigator.mediaDevices.getUserMedia({ audio: true });
+      });
       mediaStreamRef.current = stream;
 
       // Audio level meter

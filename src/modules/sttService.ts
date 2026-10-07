@@ -16,6 +16,11 @@ import { auditLogger } from "../services/auditLogger";
 import { offlineSpeechRecognizer } from "../ai_system/speech/asr/offlineAsrEngine";
 import { ghanaNlpAsrService } from "../services/ghanaNlpAsrService";
 import { formatSpokenNumbersAsDigits } from "../domain/numberFormatter";
+import {
+  isAcousticSystemEcho,
+  stripSystemEchoFromTranscript,
+  isBackgroundNoiseOrStatic,
+} from "../domain/echoFilter";
 
 export interface SttResult {
   text: string;
@@ -266,7 +271,16 @@ Instructions:
     }
 
     const rawTranscript = (parsed.transcript || "").trim();
-    const transcript = formatSpokenNumbersAsDigits(rawTranscript);
+    let transcript = formatSpokenNumbersAsDigits(rawTranscript);
+
+    // Suppress acoustic echo and background noise from recorded audio
+    if (isBackgroundNoiseOrStatic(transcript)) {
+      transcript = "";
+    } else if (isAcousticSystemEcho(transcript)) {
+      const stripped = stripSystemEchoFromTranscript(transcript);
+      transcript = (!stripped || isAcousticSystemEcho(stripped)) ? "" : stripped;
+    }
+
     const confidence = typeof parsed.confidence === "number" ? parsed.confidence : (transcript.length > 0 ? 0.75 : 0.0);
     const languageDetected = parsed.languageDetected === "twi" ? "twi" : "en";
 
@@ -363,8 +377,16 @@ async function transcribeAudioBufferUnified(
     try {
       const ghaResult = await ghanaNlpAsrService.transcribe(buffer, "twi", mime, Math.min(deadlineMs, 2500));
       if (ghaResult.text && ghaResult.text !== "empty") {
-        const normalizedGhaText = formatSpokenNumbersAsDigits(ghaResult.text);
-        if (isSpokenPinPattern(normalizedGhaText, step)) {
+        let normalizedGhaText = formatSpokenNumbersAsDigits(ghaResult.text);
+
+        if (isBackgroundNoiseOrStatic(normalizedGhaText)) {
+          normalizedGhaText = "";
+        } else if (isAcousticSystemEcho(normalizedGhaText)) {
+          const stripped = stripSystemEchoFromTranscript(normalizedGhaText);
+          normalizedGhaText = (!stripped || isAcousticSystemEcho(stripped)) ? "" : stripped;
+        }
+
+        if (normalizedGhaText && isSpokenPinPattern(normalizedGhaText, step)) {
           auditLogger.log("warn", "PIN_SAFETY", `Spoken PIN pattern intercepted and discarded at step '${step || "unknown"}' (Ghana NLP ASR)`);
           buffer.fill(0);
           return {
