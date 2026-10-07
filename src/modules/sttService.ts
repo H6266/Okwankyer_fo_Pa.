@@ -15,6 +15,7 @@ import { geminiClient } from "../services/geminiClient";
 import { auditLogger } from "../services/auditLogger";
 import { offlineSpeechRecognizer } from "../ai_system/speech/asr/offlineAsrEngine";
 import { ghanaNlpAsrService } from "../services/ghanaNlpAsrService";
+import { formatSpokenNumbersAsDigits } from "../domain/numberFormatter";
 
 export interface SttResult {
   text: string;
@@ -154,7 +155,7 @@ async function transcribeAudioBufferWithHedgedGemini(
     const offlineRes = await offlineSpeechRecognizer.transcribe(buffer, mime, step);
     buffer.fill(0);
     return {
-      text: offlineRes.text,
+      text: formatSpokenNumbersAsDigits(offlineRes.text),
       confidence: offlineRes.confidence,
       languageDetected: offlineRes.detectedLanguage === "tw" ? "twi" : "en",
       provider: offlineRes.provider,
@@ -184,7 +185,8 @@ Vocabulary context:
 Instructions:
 1. Return strictly valid JSON with keys: "transcript", "confidence" (0.0 to 1.0), "languageDetected" ("en" or "twi").
 2. If the audio is silent, inaudible, noisy, or background static, set "transcript": "" and "confidence": 0.0.
-3. Transcribe only what the caller actually spoke. Do not assume or hallucinate.`;
+3. Transcribe only what the caller actually spoke. Do not assume or hallucinate.
+4. NUMBER FORMATTING MANDATE: Always write numbers and digits as numeric digits (e.g. write '2' NOT 'two', write '1' NOT 'one', write '20' NOT 'twenty', write '50 cedis' NOT 'fifty cedis', write '0553838464' NOT 'zero five five...'). Never spell out numbers as words.`;
 
   try {
     const rawJsonText = await geminiClient.executeHedged(
@@ -197,10 +199,10 @@ Instructions:
             model: primaryModel,
             contents: [
               { inlineData: { data: base64Data, mimeType: mime } },
-              { text: "Transcribe the caller's spoken words or numbers accurately in Ghanaian English or Akan Twi. Output only the spoken words without formatting." },
+              { text: "Transcribe the caller's spoken words or numbers accurately in Ghanaian English or Akan Twi. Output only the spoken words. Write all numbers as digits (e.g. 2 not two, 20 not twenty)." },
             ],
           });
-          const text = (resp.text || "").trim();
+          const text = formatSpokenNumbersAsDigits((resp.text || "").trim());
           const isTwi = /[\u0190\u0254\u025b\u0186]|sika|mane|akwaaba|kasa|brofo|baako|mmienu|mmeensa|dabi|aane|mepa|kyɛ/i.test(text);
           return JSON.stringify({
             transcript: text,
@@ -226,10 +228,10 @@ Instructions:
             model: secondaryModel,
             contents: [
               { inlineData: { data: base64Data, mimeType: mime } },
-              { text: "Transcribe the caller's spoken words or numbers accurately in Ghanaian English or Akan Twi. Output only the spoken words without formatting." },
+              { text: "Transcribe the caller's spoken words or numbers accurately in Ghanaian English or Akan Twi. Output only the spoken words. Write all numbers as digits (e.g. 2 not two, 20 not twenty)." },
             ],
           });
-          const text = (resp.text || "").trim();
+          const text = formatSpokenNumbersAsDigits((resp.text || "").trim());
           const isTwi = /[\u0190\u0254\u025b\u0186]|sika|mane|akwaaba|kasa|brofo|baako|mmienu|mmeensa|dabi|aane|mepa|kyɛ/i.test(text);
           return JSON.stringify({
             transcript: text,
@@ -263,7 +265,8 @@ Instructions:
       parsed = { transcript: cleanJson, confidence: cleanJson.length > 0 ? 0.8 : 0.0, languageDetected: "en" };
     }
 
-    const transcript = (parsed.transcript || "").trim();
+    const rawTranscript = (parsed.transcript || "").trim();
+    const transcript = formatSpokenNumbersAsDigits(rawTranscript);
     const confidence = typeof parsed.confidence === "number" ? parsed.confidence : (transcript.length > 0 ? 0.75 : 0.0);
     const languageDetected = parsed.languageDetected === "twi" ? "twi" : "en";
 
@@ -322,7 +325,7 @@ Instructions:
       const offlineRes = await offlineSpeechRecognizer.transcribe(base64Data, mime, step);
       if (offlineRes.text && offlineRes.text.length > 0) {
         return {
-          text: offlineRes.text,
+          text: formatSpokenNumbersAsDigits(offlineRes.text),
           confidence: offlineRes.confidence,
           languageDetected: offlineRes.detectedLanguage === "tw" ? "twi" : "en",
           provider: offlineRes.provider,
@@ -360,7 +363,8 @@ async function transcribeAudioBufferUnified(
     try {
       const ghaResult = await ghanaNlpAsrService.transcribe(buffer, "twi", mime, Math.min(deadlineMs, 2500));
       if (ghaResult.text && ghaResult.text !== "empty") {
-        if (isSpokenPinPattern(ghaResult.text, step)) {
+        const normalizedGhaText = formatSpokenNumbersAsDigits(ghaResult.text);
+        if (isSpokenPinPattern(normalizedGhaText, step)) {
           auditLogger.log("warn", "PIN_SAFETY", `Spoken PIN pattern intercepted and discarded at step '${step || "unknown"}' (Ghana NLP ASR)`);
           buffer.fill(0);
           return {
@@ -371,10 +375,10 @@ async function transcribeAudioBufferUnified(
             pinDiscarded: true,
           };
         }
-        auditLogger.log("info", "STT", `Transcribed utterance via Ghana NLP ASR: length=${ghaResult.text.length}, confidence=${ghaResult.confidence}`);
+        auditLogger.log("info", "STT", `Transcribed utterance via Ghana NLP ASR: length=${normalizedGhaText.length}, confidence=${ghaResult.confidence}`);
         buffer.fill(0);
         return {
-          text: ghaResult.text,
+          text: normalizedGhaText,
           confidence: ghaResult.confidence,
           languageDetected: ghaResult.languageDetected === "twi" ? "twi" : "en",
           provider: ghaResult.provider,
@@ -434,7 +438,7 @@ export class TelephonySpeechService implements SpeechToTextProvider {
 
     // 4. Direct text string (for testing or direct pipeline invocation)
     if (typeof audioPayload === "string") {
-      const clean = audioPayload.trim();
+      const clean = formatSpokenNumbersAsDigits(audioPayload.trim());
       if (isSpokenPinPattern(clean, step)) {
         return {
           text: "[DISCARDED_PIN]",

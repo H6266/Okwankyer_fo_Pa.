@@ -11,6 +11,7 @@
 
 import { AiLanguage } from "../../core/aiTypes";
 import crypto from "crypto";
+import { formatSpokenNumbersAsDigits } from "../../../domain/numberFormatter";
 
 export interface AsrTranscriptionResult {
   text: string;
@@ -98,7 +99,7 @@ export class LocalGhanaianAsrEngine implements OfflineSpeechRecognizer {
     if (STUDIO_AUDIO_MATCHES[md5Hash]) {
       const match = STUDIO_AUDIO_MATCHES[md5Hash];
       return {
-        text: match.text,
+        text: formatSpokenNumbersAsDigits(match.text),
         confidence: 0.98,
         confidenceSource: "STUDIO_CATALOG_MATCH",
         detectedLanguage: match.lang,
@@ -114,7 +115,7 @@ export class LocalGhanaianAsrEngine implements OfflineSpeechRecognizer {
     if (cleanedHint.length > 1 && !isStepName) {
       const isTwi = /[\u0190\u0254\u025b\u0186]|sika|mane|akwaaba|kasa|brofo|baako|mmienu|mmeensa|dabi|aane|mepa|kyɛ/i.test(cleanedHint);
       return {
-        text: cleanedHint,
+        text: formatSpokenNumbersAsDigits(cleanedHint),
         confidence: 0.95,
         confidenceSource: "GHANAIAN_ACOUSTIC_TEMPLATE",
         detectedLanguage: isTwi ? "tw" : "en",
@@ -217,7 +218,7 @@ export class LocalGhanaianAsrEngine implements OfflineSpeechRecognizer {
     }
 
     return {
-      text: resolvedText,
+      text: formatSpokenNumbersAsDigits(resolvedText),
       confidence,
       confidenceSource: "GHANAIAN_ACOUSTIC_TEMPLATE",
       detectedLanguage: resolvedLang,

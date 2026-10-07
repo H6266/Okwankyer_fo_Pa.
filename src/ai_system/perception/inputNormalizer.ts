@@ -3,6 +3,8 @@
  * Normalizes numbers, currency tokens, phone digits, and Ghanaian code-switched phrases.
  */
 
+import { formatSpokenNumbersAsDigits } from "../../domain/numberFormatter";
+
 const SPOKEN_NUMBER_MAP: Record<string, number> = {
   // English
   zero: 0, oh: 0,
@@ -47,6 +49,9 @@ export class InputNormalizer {
     if (!raw) return "";
 
     let normalized = raw.trim();
+
+    // Convert any spoken numbers to digits (e.g. "two" -> "2", "twenty" -> "20", "aduonum" -> "50")
+    normalized = formatSpokenNumbersAsDigits(normalized);
 
     // Normalize DTMF star to decimal if in amount context
     if (/^[0-9]+\*[0-9]+$/.test(normalized)) {

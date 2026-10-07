@@ -20,6 +20,7 @@ import { simulatorTelephonyAdapter } from "../providers/telephony/telephonyAdapt
 import { eventBus } from "../services/eventBus";
 import { brain } from "../ai_system/brain/brain";
 import { ttsRouter } from "../ai_system/speech/tts/ttsRouter";
+import { formatSpokenNumbersAsDigits } from "../domain/numberFormatter";
 
 export const aiRouter = Router();
 
@@ -516,6 +517,9 @@ aiRouter.post("/api/ai/transcribe", publicApiRateLimiter, async (req: Request, r
       expectedLanguage: language || "bilingual",
       step: hintText || step || "",
     });
+    if (result && result.text) {
+      result.text = formatSpokenNumbersAsDigits(result.text);
+    }
     res.json({ success: true, result });
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Failed to transcribe audio" });

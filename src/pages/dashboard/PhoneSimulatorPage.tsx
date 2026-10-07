@@ -1012,6 +1012,20 @@ export const PhoneSimulatorPage: React.FC = () => {
                     </p>
                     <div className="flex flex-wrap gap-1 pt-0.5">
                       <button
+                        onClick={() => sim.simulateAsrSample("1", "en")}
+                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-emerald-300 rounded text-[9px] font-bold border border-emerald-700/50"
+                        title="Say or send Option 1 (English / MoMo / Yes)"
+                      >
+                        🎙️ Option 1
+                      </button>
+                      <button
+                        onClick={() => sim.simulateAsrSample("2", "tw")}
+                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-amber-300 rounded text-[9px] font-bold border border-amber-700/50"
+                        title="Say or send Option 2 (Twi / Banking / Cancel)"
+                      >
+                        🎙️ Option 2
+                      </button>
+                      <button
                         onClick={() => sim.simulateAsrSample("Send 20 cedis to 0553838464", "en")}
                         className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-emerald-300 rounded text-[9px] font-bold border border-emerald-700/50"
                       >

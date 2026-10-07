@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { formatSpokenNumbersAsDigits } from "../domain/numberFormatter";
 
 export interface SpeechMatchResult {
   transcript: string;
@@ -25,12 +26,13 @@ export function useSpeechRecognition(options: {
 
   // Resolve spoken input to keypad digit/intent
   const resolveSpokenText = useCallback((text: string, lang: "en" | "twi"): SpeechMatchResult => {
-    const raw = text.toLowerCase().trim();
+    const formatted = formatSpokenNumbersAsDigits(text);
+    const raw = formatted.toLowerCase().trim();
 
     // 1. Direct digits
     if (/^[0-9]$/.test(raw)) {
       return {
-        transcript: text,
+        transcript: formatted,
         confidence: 0.98,
         resolvedDigit: raw,
         resolvedIntent: `Digit ${raw}`,
@@ -208,11 +210,12 @@ export function useSpeechRecognition(options: {
         if (options.isMuted) return; // Strict Zero-PIN muting
         const lastResultIndex = event.results.length - 1;
         const res = event.results[lastResultIndex];
-        const text = res[0].transcript;
-        setTranscript(text);
+        const rawText = res[0].transcript;
+        const formattedText = formatSpokenNumbersAsDigits(rawText);
+        setTranscript(formattedText);
 
         if (res.isFinal) {
-          const match = resolveSpokenText(text, options.language);
+          const match = resolveSpokenText(formattedText, options.language);
           setLastMatch(match);
           if (onMatchRef.current) {
             onMatchRef.current(match);

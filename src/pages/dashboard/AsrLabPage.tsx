@@ -21,6 +21,7 @@ import {
   Send,
 } from "lucide-react";
 import { api } from "../../lib/api";
+import { formatSpokenNumbersAsDigits } from "../../domain/numberFormatter";
 
 interface AsrTestCase {
   id: string;
@@ -75,7 +76,7 @@ export const AsrLabPage: React.FC = () => {
       id: "ASR-02",
       language: "ak-GH",
       spokenPhrase: "Fa sidi aduonu kɔma Kwame Nyamebere",
-      transcription: "Fa sidi aduonu kɔma Kwame Nyamebere",
+      transcription: "Fa sidi 20 kɔma Kwame Nyamebere",
       category: "Send Money",
       status: "pending",
       confidence: 0.91,
@@ -95,7 +96,7 @@ export const AsrLabPage: React.FC = () => {
       id: "ASR-04",
       language: "ak-GH",
       spokenPhrase: "Tɔ mframa sidi anum ma me",
-      transcription: "Tɔ mframa sidi anum ma me",
+      transcription: "Tɔ mframa sidi 5 ma me",
       category: "Airtime",
       status: "pending",
       confidence: 0.89,
@@ -115,7 +116,7 @@ export const AsrLabPage: React.FC = () => {
       id: "ASR-06",
       language: "ak-GH",
       spokenPhrase: "Sɛ wopene so a mia baako, dabi a mia mmienu",
-      transcription: "Sɛ wopene so a mia baako, dabi a mia mmienu",
+      transcription: "Sɛ wopene so a mia 1, dabi a mia 2",
       category: "Navigation",
       status: "pending",
       confidence: 0.92,
@@ -130,6 +131,24 @@ export const AsrLabPage: React.FC = () => {
       status: "pending",
       confidence: 1.0,
       audioClip: "/audio/English/Audio_prompt_11.mp3",
+    },
+    {
+      id: "ASR-08",
+      language: "en-GH",
+      spokenPhrase: "For English press one, for Twi press two",
+      transcription: "For English press 1, for Twi press 2",
+      category: "Navigation",
+      status: "pending",
+      confidence: 0.95,
+    },
+    {
+      id: "ASR-09",
+      language: "en-GH",
+      spokenPhrase: "Transfer two cedis to Kwame",
+      transcription: "Transfer 2 cedis to Kwame",
+      category: "Send Money",
+      status: "pending",
+      confidence: 0.94,
     },
   ]);
 
@@ -188,8 +207,9 @@ export const AsrLabPage: React.FC = () => {
             try {
               const res = await api.transcribeAudio(base64, "audio/webm", selectedLanguage === "ak-GH" ? "tw" : "en");
               const latencyMs = Math.round(performance.now() - startTime);
+              const formattedText = formatSpokenNumbersAsDigits(res.result.text || "No speech detected");
               setRecognizedResult({
-                text: res.result.text || "No speech detected",
+                text: formattedText,
                 confidence: res.result.confidence || 0.92,
                 language: res.result.languageDetected === "tw" || res.result.languageDetected === "twi" ? "Akan Twi" : "Ghanaian English",
                 latencyMs,
@@ -263,8 +283,9 @@ export const AsrLabPage: React.FC = () => {
       try {
         const res = await api.transcribeAudio(base64, mime, selectedLanguage === "ak-GH" ? "tw" : "en");
         const latencyMs = Math.round(performance.now() - startTime);
+        const formattedText = formatSpokenNumbersAsDigits(res.result.text || "No speech detected");
         setRecognizedResult({
-          text: res.result.text || "No speech detected",
+          text: formattedText,
           confidence: res.result.confidence || 0.95,
           language: res.result.languageDetected === "tw" || res.result.languageDetected === "twi" ? "Akan Twi" : "Ghanaian English",
           latencyMs,
@@ -312,7 +333,7 @@ export const AsrLabPage: React.FC = () => {
               try {
                 const asrRes = await api.transcribeAudio(b64, "audio/mp3", tc.language === "ak-GH" ? "tw" : "en");
                 if (asrRes.result.text) {
-                  text = asrRes.result.text;
+                  text = formatSpokenNumbersAsDigits(asrRes.result.text);
                   conf = asrRes.result.confidence;
                   detectedLang = asrRes.result.languageDetected === "tw" ? "Akan Twi" : "Ghanaian English";
                 }

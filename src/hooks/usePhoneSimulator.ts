@@ -10,6 +10,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { api, ParsedVoiceXml } from "../lib/api";
 import { useDtmf } from "./useDtmf";
+import { formatSpokenNumbersAsDigits } from "../domain/numberFormatter";
 import type {
   NavigationOutput,
   ActionOutput,
@@ -1141,11 +1142,14 @@ export function usePhoneSimulator() {
   ) => {
     if (!rawInput && channel !== "DTMF") return;
 
+    // Normalize any spoken numbers into digits (e.g. "two" -> "2", "twenty" -> "20")
+    const normalizedInput = channel === "DTMF" ? rawInput : formatSpokenNumbersAsDigits(rawInput);
+
     const turnStartTime = performance.now();
     setIsLoading(true);
     setTranscriptionStatus("PROCESSING");
     setAiProcessingPhase("SPEECH_IN");
-    setAiProcessingDetail(`Analyzing input: "${rawInput.slice(0, 45)}"`);
+    setAiProcessingDetail(`Analyzing input: "${normalizedInput.slice(0, 45)}"`);
     const newTurnNum = turnCount + 1;
     setTurnCount(newTurnNum);
 
@@ -1153,7 +1157,7 @@ export function usePhoneSimulator() {
     const callerTurnItem: SimulatorTranscriptItem = {
       id: `turn_c_${Date.now()}`,
       role: "caller",
-      text: rawInput,
+      text: normalizedInput,
       timestamp: Date.now(),
       stage: currentStep,
     };
@@ -1184,7 +1188,7 @@ export function usePhoneSimulator() {
       const resp = await api.processSimulatorTurn({
         sessionId,
         channel,
-        input: rawInput,
+        input: normalizedInput,
         language,
         currentScreen: overrideScreen || currentScreen,
         currentStep: overrideStep || currentStep,
@@ -1611,7 +1615,8 @@ export function usePhoneSimulator() {
     setIsMicActive(false);
     isMicActiveRef.current = false;
 
-    const textToSend = (explicitText || capturedSpeechTextRef.current || interimTranscript || "").trim();
+    const rawCollected = (explicitText || capturedSpeechTextRef.current || interimTranscript || "").trim();
+    const textToSend = formatSpokenNumbersAsDigits(rawCollected);
     const hintText = textToSend;
     capturedSpeechTextRef.current = "";
 
@@ -1702,10 +1707,11 @@ export function usePhoneSimulator() {
           }
           const combined = (final + " " + interim).trim();
           if (combined) {
-            capturedSpeechTextRef.current = combined;
-            setInterimTranscript(combined);
+            const normalizedCombined = formatSpokenNumbersAsDigits(combined);
+            capturedSpeechTextRef.current = normalizedCombined;
+            setInterimTranscript(normalizedCombined);
             setTranscriptionStatus("LISTENING");
-            setAiProcessingDetail(`Heard: "${combined}"`);
+            setAiProcessingDetail(`Heard: "${normalizedCombined}"`);
           }
 
           if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
@@ -1809,7 +1815,8 @@ export function usePhoneSimulator() {
                       setTranscriptionStatus("PROCESSING");
                       setAiProcessingDetail("Transcribing with Ghanaian Neural ASR...");
                       const asrRes = await api.transcribeAudio(base64, "audio/webm", language, currentStep);
-                      const recognized = asrRes?.result?.text;
+                      const rawRecognized = asrRes?.result?.text;
+                      const recognized = rawRecognized && rawRecognized !== "empty" ? formatSpokenNumbersAsDigits(rawRecognized) : rawRecognized;
                       if (recognized && recognized !== "empty" && recognized.trim().length > 0) {
                         speechTurnSubmittedRef.current = true;
                         setAiProcessingDetail(`Transcribed: "${recognized}"`);
@@ -1875,7 +1882,8 @@ export function usePhoneSimulator() {
       try {
         setAiProcessingDetail("Transcribing with Ghanaian Speech Recognition...");
         const res = await api.transcribeAudio(base64, mime, language, currentStep);
-        const text = res?.result?.text;
+        const rawText = res?.result?.text;
+        const text = rawText && rawText !== "empty" ? formatSpokenNumbersAsDigits(rawText) : rawText;
         if (text && text !== "empty" && text.trim().length > 0) {
           setAiProcessingDetail(`Transcribed: "${text}"`);
           setTranscriptionStatus("TRANSCRIBED");
@@ -2170,12 +2178,13 @@ export function usePhoneSimulator() {
    * 1-Click Feature Trigger: Ingest ASR Voice Sample with Live Transcription Streaming
    */
   const simulateAsrSample = useCallback(async (text: string, lang: "en" | "tw" = "en") => {
+    const normalizedText = formatSpokenNumbersAsDigits(text);
     if (!isActive) await startCall(lang);
     setLanguage(lang);
     setTranscriptionStatus("LISTENING");
-    setInterimTranscript(text);
+    setInterimTranscript(normalizedText);
     setAiProcessingPhase("SPEECH_IN");
-    setAiProcessingDetail(`Streaming ASR: "${text}"`);
+    setAiProcessingDetail(`Streaming ASR: "${normalizedText}"`);
     setAudioLevel(75);
 
     setTimeout(() => {
@@ -2183,8 +2192,8 @@ export function usePhoneSimulator() {
       setInterimTranscript("");
       setTranscriptionStatus("PROCESSING");
       setAiProcessingPhase("INTENT_EXTRACTION");
-      setAiProcessingDetail(`Transcribed: "${text}" · Routing through Ghanaian NLU & Zero-PIN guard...`);
-      sendInputTurn(text, "VOICE");
+      setAiProcessingDetail(`Transcribed: "${normalizedText}" · Routing through Ghanaian NLU & Zero-PIN guard...`);
+      sendInputTurn(normalizedText, "VOICE");
     }, 450);
   }, [isActive, startCall, sendInputTurn]);
 

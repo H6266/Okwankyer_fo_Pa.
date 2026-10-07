@@ -7,6 +7,7 @@ import { AiProcessInput, AiLanguage } from "../core/aiTypes";
 import { languageDetector } from "./languageDetector";
 import { inputNormalizer } from "./inputNormalizer";
 import { speechToText } from "../../modules/sttService";
+import { formatSpokenNumbersAsDigits } from "../../domain/numberFormatter";
 
 export interface ProcessedInput {
   rawText: string;
@@ -40,6 +41,9 @@ export class InputProcessor {
         console.warn("[InputProcessor] Audio transcription notice:", err.message);
       }
     }
+
+    // Always normalize spoken numbers into digits (e.g. 2 not two)
+    rawText = formatSpokenNumbersAsDigits(rawText);
 
     // Check if input is pure DTMF
     const isDtmf = input.channel === "DTMF" || /^[0-9*#]+$/.test(rawText);

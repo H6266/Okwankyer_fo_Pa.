@@ -8,6 +8,7 @@
 
 import { AudioFrame, TranscriptFinal } from "../core/aiTypes";
 import { speechToTextService } from "../../modules/sttService";
+import { formatSpokenNumbersAsDigits } from "../../domain/numberFormatter";
 
 export interface AudioValidationResult {
   valid: boolean;
@@ -78,7 +79,7 @@ export class AudioIngestor {
     }
 
     const sttResult = await speechToTextService.transcribe(validated.dataBuffer, mimeType, step);
-    const text = sttResult.text === "empty" ? "" : sttResult.text;
+    const text = sttResult.text === "empty" ? "" : formatSpokenNumbersAsDigits(sttResult.text);
 
     return {
       text,
