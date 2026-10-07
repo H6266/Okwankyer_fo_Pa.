@@ -97,7 +97,8 @@ export class ModelRouter {
               contents: payload.prompt,
               config: payload.config || { responseMimeType: "application/json" },
             });
-            return typeof resp.text === "function" ? resp.text() : resp.text || "{}";
+            const raw = resp as any;
+            return raw?.text && typeof raw.text === "function" ? raw.text() : raw?.text || "{}";
           },
           2500,
           0

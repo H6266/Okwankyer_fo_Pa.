@@ -828,7 +828,24 @@ export const api = {
     return data;
   },
 
-  async analyzeUtterance(utterance: string, languageHint?: string): Promise<{ success: boolean; result: any }> {
+  async processBrain(payload: {
+    transcript: string;
+    language?: string;
+    draft?: any;
+    callerNumber?: string;
+    sessionId?: string;
+  }): Promise<{ success: boolean; brainOutput: any; result: any }> {
+    const res = await fetch("/api/ai/brain/process", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Brain processing failed");
+    return data;
+  },
+
+  async analyzeUtterance(utterance: string, languageHint?: string): Promise<{ success: boolean; result: any; brainOutput?: any }> {
     const res = await fetch("/api/ai/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

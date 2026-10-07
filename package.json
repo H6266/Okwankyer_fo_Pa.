@@ -9,7 +9,7 @@
     "start": "node server.ts",
     "test": "vitest run --testTimeout=15000",
     "test:voicexml": "vitest run tests/voicexmlSnapshots.test.ts",
-    "test:e2e": "vitest run tests/ivrFullFlowIntegration.test.ts",
+    "test:e2e": "vitest run tests/ivrFullFlowIntegration.test.ts --testTimeout=15000",
     "shadow:summary": "tsx scripts/summarize_shadow_disagreements.ts",
     "eval:transcripts": "tsx scripts/run_eval_transcripts.ts",
     "typecheck": "tsc --noEmit",

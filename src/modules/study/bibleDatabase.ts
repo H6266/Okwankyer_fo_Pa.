@@ -261,3 +261,12 @@ export function searchBibleByText(query: string): BiblePassage[] {
   }
   return results;
 }
+
+export const bibleDatabase = {
+  getPassage: getBiblePassage,
+  getBiblePassage,
+  search: searchBibleByText,
+  searchBibleByText,
+  curatedPassages: CURATED_PASSAGES,
+};
+

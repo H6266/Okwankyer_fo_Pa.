@@ -129,6 +129,7 @@ export interface DraftState {
   recentTurns?: TurnHistoryItem[];
   turnCount?: number;
   lastReplyKind?: ReplyKind;
+  lastConfirmReadbackText?: string;
   draftHash?: string;
   confirmedDraftHash?: string;
 }

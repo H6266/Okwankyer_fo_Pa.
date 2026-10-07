@@ -499,14 +499,49 @@ aiRouter.get("/api/ai/simulator/sync-status", (_req: Request, res: Response) => 
   });
 });
 
+// Canonical Central Reasoning Brain Processing Endpoint
+aiRouter.post("/api/ai/brain/process", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { transcript, language, draft, callerNumber, sessionId } = req.body;
+    const text = transcript || req.body.input || req.body.utterance || "";
+    const lang = (language === "tw" || language === "ak" || language === "twi" || language === "twi-asante")
+      ? "twi-asante"
+      : language === "twi-akuapem"
+      ? "twi-akuapem"
+      : "en";
+
+    const output = await brain.process({
+      transcript: String(text),
+      language: lang,
+      languageConfidence: req.body.languageConfidence ?? 0.95,
+      sessionLanguage: lang,
+      draft: draft || { slots: {} },
+      callerNumber,
+      sessionId,
+    });
+
+    res.json({ success: true, brainOutput: output, result: output });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Brain processing failed" });
+  }
+});
+
 aiRouter.post("/api/ai/analyze", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {
-    const { utterance, languageHint } = req.body;
+    const { utterance, languageHint, draft } = req.body;
     if (!utterance || typeof utterance !== "string") {
       return res.status(400).json({ error: "Missing or invalid 'utterance' field." });
     }
+    const brainLanguage = (languageHint?.startsWith("tw") || languageHint === "ak") ? "twi-asante" : "en";
+    const brainOutput = await brain.process({
+      transcript: utterance,
+      language: brainLanguage,
+      languageConfidence: 0.95,
+      sessionLanguage: brainLanguage,
+      draft: draft || { slots: {} },
+    });
     const result = await aiSystem.analyzeUtterance(utterance, languageHint || "bilingual");
-    res.json({ success: true, result });
+    res.json({ success: true, result, brainOutput });
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Failed to analyze utterance" });
   }

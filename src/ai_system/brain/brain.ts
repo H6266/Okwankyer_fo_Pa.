@@ -77,7 +77,7 @@ export function validateProductionModelConfig(): void {
 }
 
 export const DEFAULT_BRAIN_CONFIG: BrainConfig = {
-  mode: (process.env.BRAIN_MODE as BrainMode) || (process.env.NODE_ENV === 'production' ? 'shadow' : 'shadow'),
+  mode: (process.env.BRAIN_MODE as BrainMode) || 'shadow',
   shadowSamplingRate: 1.0,
   confidenceThreshold: 0.65,
   ambiguityMargin: 0.15,
@@ -212,6 +212,7 @@ export class Brain {
       recentTurns: [...(input.draft?.recentTurns || [])],
       turnCount: (input.draft?.turnCount || 0) + 1,
       lastReplyKind: input.draft?.lastReplyKind,
+      lastConfirmReadbackText: input.draft?.lastConfirmReadbackText,
       draftHash: input.draft?.draftHash,
       confirmedDraftHash: input.draft?.confirmedDraftHash,
     };
@@ -709,7 +710,25 @@ export class Brain {
     // and the draft hash is unchanged! Accept DTMF 1 (confirm) and 2 (cancel).
     const currentDraftHash = computeDraftHash(draft);
     draft.draftHash = currentDraftHash;
-    const isPreviousReplyReadback = draft.lastReplyKind === 'confirm';
+    const prevText = draft.lastConfirmReadbackText || '';
+    const readbackHasAmount =
+      Boolean(prevText) &&
+      !prevText.includes(APPROVED_KEYPAD_FALLBACK_PROMPT) &&
+      (prevText.toLowerCase().includes('cedi') || (typeof draft.slots.amount === 'number' && prevText.includes(String(draft.slots.amount))));
+    const readbackHasRecipient =
+      Boolean(prevText) &&
+      (
+        (draft.slots.recipient?.phone && (
+          prevText.includes(draft.slots.recipient.phone) ||
+          prevText.includes(draft.slots.recipient.phone.slice(-4)) ||
+          /\b(?:zero|one|two|three|four|five|six|seven|eight|nine|hwee|baako|mmienu)\b/i.test(prevText)
+        )) ||
+        (draft.slots.recipient?.name && prevText.toLowerCase().includes(draft.slots.recipient.name.toLowerCase()))
+      );
+
+    const isPreviousReplyReadback =
+      draft.lastReplyKind === 'confirm' &&
+      (draft.lastConfirmReadbackText !== undefined ? (readbackHasAmount && readbackHasRecipient) : true);
     const isDraftHashUnchanged = Boolean(draft.confirmedDraftHash && draft.confirmedDraftHash === currentDraftHash);
 
     if (draft.confirmationRevokedReason) {
@@ -771,6 +790,7 @@ export class Brain {
       language: activeLanguage,
       slots: draft.slots,
     });
+    draft.lastConfirmReadbackText = reply.text;
 
     return finalizeOutput({
       decision,
@@ -895,7 +915,8 @@ Output format: Return ONLY valid JSON with keys: intent, slots, signals, reply.`
         return null;
       }
 
-      const text = typeof response?.text === 'function' ? response.text() : response?.text;
+      const rawResp = response as any;
+      const text = rawResp?.text && typeof rawResp.text === 'function' ? rawResp.text() : rawResp?.text;
       if (!text) return null;
       return JSON.parse(text);
     } catch {
