@@ -8,7 +8,6 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
-import * as googleTTS from "google-tts-api";
 import { TTSProvider, TtsSynthesisRequest, TtsSynthesisResponse } from "./ttsProvider";
 import { AI_CONFIG } from "../../core/aiConfig";
 import { GHANA_VOICE_PROFILES } from "../voiceProfiles/ghanaProfile";

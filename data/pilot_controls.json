@@ -1,6 +1,7 @@
 {
-  "killSwitch": false,
-  "killSwitchActivatedAt": null,
+  "killSwitch": true,
+  "killSwitchReason": "Test kill switch engagement",
+  "killSwitchActivatedAt": "2026-10-07T03:10:34.530Z",
   "allowlistEnabled": true,
   "allowedNumbers": [
     "0553838464",
