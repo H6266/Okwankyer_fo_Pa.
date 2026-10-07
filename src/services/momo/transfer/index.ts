@@ -19,7 +19,7 @@ export const TRANSFER_OPTIONAL_SLOTS: SlotSpec[] = [
 ];
 
 export const momoTransferHandler: ServiceHandler = async (params): Promise<ServiceHandlerResult> => {
-  const { slots, callerNumber } = params;
+  const { slots, callerNumber, dispatchKey } = params;
   const amount = Number(slots.amount);
   const recipientPhone = String(slots.recipient?.phone || '').trim();
   const recipientName = String(slots.recipient?.name || 'Recipient').trim();
@@ -54,7 +54,7 @@ export const momoTransferHandler: ServiceHandler = async (params): Promise<Servi
     };
   }
 
-  // 3. Authoritative Payment Saga Handoff
+  // 3. Authoritative Payment Saga Handoff with Dispatch Key Idempotency
   try {
     const saga = PaymentSagaOrchestrator.getInstance();
     const dispatchKey = params.dispatchKey || `${params.sessionId || 'session'}:${params.confirmedDraftHash || 'confirmed'}`;
@@ -71,6 +71,7 @@ export const momoTransferHandler: ServiceHandler = async (params): Promise<Servi
       result: {
         sagaId: draft.sagaId,
         idempotencyKey: draft.idempotencyKey,
+        dispatchKey,
         state: draft.state,
         amount,
         recipientPhone: phoneVal.normalized,

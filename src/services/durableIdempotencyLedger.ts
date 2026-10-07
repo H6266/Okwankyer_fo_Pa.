@@ -320,6 +320,21 @@ export class DurableIdempotencyLedger {
     );
   }
 
+  public getStats(): { activeReservations: number; totalRecords: number } {
+    if (!fs.existsSync(this.baseDir)) {
+      return { activeReservations: 0, totalRecords: 0 };
+    }
+    try {
+      const files = fs.readdirSync(this.baseDir).filter((f) => f.endsWith('.json'));
+      return {
+        activeReservations: files.length,
+        totalRecords: files.length,
+      };
+    } catch {
+      return { activeReservations: 0, totalRecords: 0 };
+    }
+  }
+
   public clearAllForTesting(): void {
     if (fs.existsSync(this.baseDir)) {
       for (const file of fs.readdirSync(this.baseDir)) {

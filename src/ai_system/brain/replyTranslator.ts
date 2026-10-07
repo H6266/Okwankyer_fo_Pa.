@@ -21,6 +21,7 @@ import {
   requiresApprovedTemplate,
   templateConfig,
 } from './replyTemplates';
+import { approvalWorkflow } from './approvalWorkflow';
 import { ASANTE_TWI_PROFILE } from './languageProfiles/asanteTwi';
 import { AKUAPEM_TWI_PROFILE } from './languageProfiles/akuapemTwi';
 import {
@@ -183,7 +184,8 @@ export class ReplyTranslator {
 
     if (matchedKey && APPROVED_REPLY_TEMPLATES[matchedKey]) {
       const templateDef = APPROVED_REPLY_TEMPLATES[matchedKey];
-      if (!templateConfig.allowUnapprovedTemplates && !templateDef.approved) {
+      const isApproved = templateDef.approved || approvalWorkflow.isTemplateApproved(matchedKey, templateDef.texts);
+      if (!templateConfig.allowUnapprovedTemplates && !isApproved) {
         return {
           text: APPROVED_KEYPAD_FALLBACK_PROMPT,
           language: 'en',
@@ -225,7 +227,8 @@ export class ReplyTranslator {
       // Must use fallback approved template for this kind!
       const fallbackKey = reply_kind === 'confirm' ? 'confirm' : 'clarify_slot_amount';
       const fallbackDef = APPROVED_REPLY_TEMPLATES[fallbackKey];
-      if (!templateConfig.allowUnapprovedTemplates && !fallbackDef?.approved) {
+      const isFallbackApproved = fallbackDef?.approved || (fallbackDef && approvalWorkflow.isTemplateApproved(fallbackKey, fallbackDef.texts));
+      if (!templateConfig.allowUnapprovedTemplates && !isFallbackApproved) {
         return {
           text: APPROVED_KEYPAD_FALLBACK_PROMPT,
           language: 'en',
@@ -306,7 +309,8 @@ export class ReplyTranslator {
     // ─────────────────────────────────────────────────────────────────────────
     const fallbackKey = reply_kind in APPROVED_REPLY_TEMPLATES ? reply_kind : 'smalltalk';
     const fallbackDef = APPROVED_REPLY_TEMPLATES[fallbackKey];
-    if (!templateConfig.allowUnapprovedTemplates && !fallbackDef?.approved) {
+    const isFallbackApproved = fallbackDef?.approved || (fallbackDef && approvalWorkflow.isTemplateApproved(fallbackKey, fallbackDef.texts));
+    if (!templateConfig.allowUnapprovedTemplates && !isFallbackApproved) {
       return {
         text: APPROVED_KEYPAD_FALLBACK_PROMPT,
         language: 'en',

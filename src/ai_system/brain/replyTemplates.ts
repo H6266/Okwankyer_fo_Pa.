@@ -162,6 +162,218 @@ export const APPROVED_REPLY_TEMPLATES: Record<string, ApprovedTemplateDefinition
       'twi-akuapem': 'Saa dwumadie no nnya nnsiesieeɛ, nanso wotumi soma sika seesei ara.',
     },
   },
+  not_ready_dial_170_buy_data: {
+    key: 'not_ready_dial_170_buy_data',
+    kind: 'not_ready',
+    approved: false,
+    texts: {
+      'en': 'Internet data bundles are not ready yet. Please dial star, one, seven, zero, hash on your handset to buy data.',
+      'twi-asante': 'Data bundle dwumadie no nnya nnsiesieeɛ. Mepa wo kyɛw bɔ star, baako, nson, hwee, hash wɔ wo fon so na tɔ data.',
+      'mixed-twi-en': 'Data bundle nready ɛnnɛ. Please dial star, one, seven, zero, hash on your phone to buy data.',
+      'twi-akuapem': 'Data bundle dwumadie no nnya nnsiesieeɛ. Mepa wo kyɛw bɔ star, baako, nson, hwee, hash wɔ wo fon so na tɔ data.',
+    },
+  },
+  not_ready_dial_100_reversal: {
+    key: 'not_ready_dial_100_reversal',
+    kind: 'not_ready',
+    approved: false,
+    texts: {
+      'en': 'Transaction reversal is not available here. Please call customer care on one zero zero for reversal assistance.',
+      'twi-asante': 'Sika a wopɛ sɛ wosesa no nni ha. Mepa wo kyɛw frɛ customer care wɔ baako, hwee, hwee na wɔmmoa wo.',
+      'mixed-twi-en': 'Reversal nni ha. Please call customer care on one zero zero for help.',
+      'twi-akuapem': 'Sika a wopɛ sɛ wosesa no nni ha. Mepa wo kyɛw frɛ customer care wɔ baako, hwee, hwee na wɔmmoa wo.',
+    },
+  },
+  not_ready_dial_100_customer_care: {
+    key: 'not_ready_dial_100_customer_care',
+    kind: 'not_ready',
+    approved: false,
+    texts: {
+      'en': 'To speak with customer care, please dial one zero zero on your phone.',
+      'twi-asante': 'Sɛ wopɛ sɛ wokasa kyerɛ customer care a, mepa wo kyɛw frɛ baako, hwee, hwee wɔ wo fon so.',
+      'mixed-twi-en': 'Sɛ wopɛ sɛ wokasa kyerɛ customer care a, please dial one zero zero on your phone.',
+      'twi-akuapem': 'Sɛ wopɛ sɛ wokasa kyerɛ customer care a, mepa wo kyɛw frɛ baako, hwee, hwee wɔ wo fon so.',
+    },
+  },
+  not_ready_dial_170_loan: {
+    key: 'not_ready_dial_170_loan',
+    kind: 'not_ready',
+    approved: false,
+    texts: {
+      'en': 'Loans are not supported on this voice service. Please dial star, one, seven, zero, hash to apply for a loan.',
+      'twi-asante': 'Bosea dwumadie no nni ha. Mepa wo kyɛw bɔ star, baako, nson, hwee, hash wɔ wo fon so na gye bosea.',
+      'mixed-twi-en': 'Loan nni ha. Please dial star, one, seven, zero, hash on your phone to apply for loan.',
+      'twi-akuapem': 'Bosea dwumadie no nni ha. Mepa wo kyɛw bɔ star, baako, nson, hwee, hash wɔ wo fon so na gye bosea.',
+    },
+  },
+  welcome_language_select: {
+    key: 'welcome_language_select',
+    kind: 'smalltalk',
+    approved: false,
+    studioPromptIds: { 'en': 'en-01', 'twi-asante': 'tw-01' },
+    texts: {
+      'en': 'Welcome to Ɔkwankyerɛfo Pa, an easy financial transaction service. For English, press 1. For Twi, press 2.',
+      'twi-asante': 'Welcome to Ɔkwankyerɛfo Pa, an easy financial transaction service. For English, press 1. For Twi, press 2.',
+      'mixed-twi-en': 'Welcome to Ɔkwankyerɛfo Pa. For English, press 1. For Twi, press 2.',
+      'twi-akuapem': 'Welcome to Ɔkwankyerɛfo Pa, an easy financial transaction service. For English, press 1. For Twi, press 2.',
+    },
+  },
+  service_select: {
+    key: 'service_select',
+    kind: 'clarify_intent',
+    approved: false,
+    studioPromptIds: { 'en': 'en-02', 'twi-asante': 'tw-03' },
+    texts: {
+      'en': 'For telecom or mobile money services, press 1. For banking services, press 2. To hear this again, press 9. To exit, press 0.',
+      'twi-asante': 'Sɛ wopɛ sɛ wosende sika kɔ Mobile Money a, mia baako. Sikakorabea dwumadie no, mia mmienu.',
+      'mixed-twi-en': 'Sɛ wopɛ sɛ wosend sika kɔ MoMo a, mia baako. Sikakorabea dwumadie no, mia mmienu.',
+      'twi-akuapem': 'Sɛ wopɛ sɛ wosende sika kɔ Mobile Money a, mia baako. Sikakorabea dwumadie no, mia mmienu.',
+    },
+  },
+  network_select: {
+    key: 'network_select',
+    kind: 'clarify_slot',
+    approved: false,
+    studioPromptIds: { 'en': 'en-03', 'twi-asante': 'tw-02' },
+    texts: {
+      'en': 'Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again, or 0 to exit.',
+      'twi-asante': 'Afei selecte wo network. Sɛ MTN a, mia baako. Sɛ Telecel a, mia mmienu. Sɛ AirtelTigo a, mia mmiɛnsa. Mia anan na tie wei biom. Mia zero na si ha.',
+      'mixed-twi-en': 'Select wo network. MTN, press 1. Telecel, press 2. AirtelTigo, press 3.',
+      'twi-akuapem': 'Afei paw wo network. Sɛ MTN a, mia baako. Sɛ Telecel a, mia mmienu. Sɛ AirtelTigo a, mia mmiɛnsa.',
+    },
+  },
+  network_select_alt: {
+    key: 'network_select_alt',
+    kind: 'clarify_slot',
+    approved: false,
+    studioPromptIds: { 'en': 'en-04' },
+    texts: {
+      'en': 'Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again, or 0 to exit.',
+      'twi-asante': 'Afei selecte wo network. Sɛ MTN a, mia baako. Sɛ Telecel a, mia mmienu. Sɛ AirtelTigo a, mia mmiɛnsa.',
+      'mixed-twi-en': 'Select wo network. MTN press 1, Telecel press 2, AirtelTigo press 3.',
+      'twi-akuapem': 'Afei paw wo network. Sɛ MTN a, mia baako. Sɛ Telecel a, mia mmienu. Sɛ AirtelTigo a, mia mmiɛnsa.',
+    },
+  },
+  momo_menu: {
+    key: 'momo_menu',
+    kind: 'clarify_intent',
+    approved: false,
+    studioPromptIds: { 'en': 'en-05', 'twi-asante': 'tw-04' },
+    texts: {
+      'en': 'To send money to a mobile money user, press 1. To pay utility bills, press 2. To buy airtime or internet bundle, press 3. To allow cash-out, press 4. To check account status, press 5. Press 8 to go back, or 0 to exit.',
+      'twi-asante': 'Sɛ wopɛ sɛ wosend sika kɔ ma MoMo user a, mia 1. Sɛ wopɛ sɛ wotua bills a, mia 2. Sɛ wopɛ sɛ wotɔ airtime anaa bundle a, mia 3. Sɛ wopɛ sɛ woallow-i cash out a, mia 4. Sɛ wopɛ sɛ wocheck-i wo account no a, mia 5. Mia 8 na kɔ back. Mia 0 na firi ha.',
+      'mixed-twi-en': 'Sɛ wopɛ sɛ wosend sika kɔ ma MoMo user a, mia 1. Sɛ wopɛ sɛ wotua bills a, mia 2. Sɛ wopɛ sɛ wotɔ airtime anaa bundle a, mia 3.',
+      'twi-akuapem': 'Sɛ wopɛ sɛ wosoma sika kɔ ma MoMo user a, mia 1. Sɛ wopɛ sɛ wotua bills a, mia 2. Sɛ wopɛ sɛ wotɔ airtime anaa bundle a, mia 3.',
+    },
+  },
+  enter_recipient_phone: {
+    key: 'enter_recipient_phone',
+    kind: 'clarify_slot',
+    approved: false,
+    studioPromptIds: { 'en': 'en-06', 'twi-asante': 'tw-05' },
+    texts: {
+      'en': 'Please enter the ten-digit mobile phone number of the recipient, followed by hash. Press 0 to go back.',
+      'twi-asante': 'Afei, bɔ nɔmba no a wopɛ sɛ wosende sika no to so no. Wowie a, fa hash ka ho. Mia zero na san akyi.',
+      'mixed-twi-en': 'Enter recipient phone number na fa hash ka ho. Press 0 to go back.',
+      'twi-akuapem': 'Afei, bɔ nɔmba no a wopɛ sɛ wosoma sika no kɔ so no. Wowie a, fa hash ka ho.',
+    },
+  },
+  demo_recipient_digits: {
+    key: 'demo_recipient_digits',
+    kind: 'confirm',
+    approved: false,
+    studioPromptIds: { 'en': 'en-07' },
+    texts: {
+      'en': 'You entered 0 5 5 3 8 3 8 4 6 4. If this is correct, press 1. To re-enter, press 2.',
+      'twi-asante': 'Wobɔɔ nɔmba hwee enum enum mmiɛnsa nwɔtwe mmiɛnsa nwɔtwe ɛnan nsia ɛnan. Sɛ ɛyɛ pɛpɛɛpɛ a, mia baako.',
+      'mixed-twi-en': 'You entered 0 5 5 3 8 3 8 4 6 4. Sɛ ɛyɛ correct a, mia 1.',
+      'twi-akuapem': 'Wobɔɔ nɔmba hwee enum enum mmiɛnsa nwɔtwe mmiɛnsa nwɔtwe ɛnan nsia ɛnan. Sɛ ɛyɛ pɛpɛɛpɛ a, mia baako.',
+    },
+  },
+  verify_recipient_name: {
+    key: 'verify_recipient_name',
+    kind: 'confirm',
+    approved: false,
+    studioPromptIds: { 'en': 'en-08', 'twi-asante': 'tw-06' },
+    texts: {
+      'en': 'You are about to send money to Kwame Nyamebere on phone number ending with 8464. If this name matches, press 1. To cancel, press 2. To exit, press 0.',
+      'twi-asante': 'Me pɛ sɛ wo bɛ sendi sika kɔ Kwame Nyamebrɛ fɔn so, anaa number 8464 ɛna ɛtɔ. Sɛ wo pɛ sɛ wo gye tum na wo sendi sika ma me a baako (1). Sɛ wo pɛ sɛ wo cancel a mia mmienu (2). Sɛ wo pɛ sɛ wo firi mu a mia zero (0).',
+      'mixed-twi-en': 'You are sending money to Kwame Nyamebere. Sɛ ɛyɛ a, press 1. To cancel, press 2.',
+      'twi-akuapem': 'Worebɛsoma sika akɔ Kwame Nyamebere nɔmba a ɛwie 8464 so. Sɛ ɛyɛ nokware a, mia baako.',
+    },
+  },
+  enter_amount_cedis: {
+    key: 'enter_amount_cedis',
+    kind: 'clarify_slot',
+    approved: false,
+    studioPromptIds: { 'en': 'en-09', 'twi-asante': 'tw-07' },
+    texts: {
+      'en': 'Please enter the amount in Ghana Cedis that you want to send, followed by hash. Press 0 to go back.',
+      'twi-asante': 'Mepa wo kyɛw, si di amount a wo pɛ sɛ wo send ɛkɔ Kwame Nyame Brɛfo so, woyɛ a fa hash ɛntua to.',
+      'mixed-twi-en': 'Enter amount in Ghana cedis na fa hash ka ho.',
+      'twi-akuapem': 'Mepa wo kyɛw, bɔ sika dodoɔ a wopɛ sɛ wosoma no, fa hash ka ho.',
+    },
+  },
+  confirm_transfer_summary: {
+    key: 'confirm_transfer_summary',
+    kind: 'confirm',
+    approved: false,
+    studioPromptIds: { 'en': 'en-10', 'twi-asante': 'tw-08' },
+    texts: {
+      'en': 'You are about to send 500 Ghana cedis to Kwame Nyamebere. To confirm and proceed, press 1. To cancel, press 2.',
+      'twi-asante': "Me pɛ sɛ wo sendi 500 Ghana cedis asɛm a kɔ m'abɛɛ na namba so. Sɛ wopɛ sɛ woyi tum na wo sendi a, mia baako (1). Sɛ wopɛ sɛ wo cancel a, mia mmienu (2).",
+      'mixed-twi-en': 'Worebɛsend 500 cedis kɔma Kwame Nyamebere. To confirm, press 1. To cancel, press 2.',
+      'twi-akuapem': 'Worebɛsoma 500 Ghana cedis akɔ Kwame Nyamebere so. Sɛ wopene so a, mia baako.',
+    },
+  },
+  zero_pin_handoff: {
+    key: 'zero_pin_handoff',
+    kind: 'clarify_slot',
+    approved: false,
+    studioPromptIds: { 'en': 'en-11', 'twi-asante': 'tw-09' },
+    texts: {
+      'en': 'For your security, please approve the transaction on your phone. Do not speak your PIN.',
+      'twi-asante': 'Me pɛ sɛ ɔfa ɛsi wo phone no so na bɔ wo MoMo PIN.',
+      'mixed-twi-en': 'Please approve the transaction on your phone. Bɔ wo MoMo PIN wɔ wo phone so.',
+      'twi-akuapem': 'Mepa wo kyɛw gye dwumadie no to mu wɔ wo fon so. Mfa wo PIN nka ano.',
+    },
+  },
+  receipt_summary: {
+    key: 'receipt_summary',
+    kind: 'confirm',
+    approved: false,
+    studioPromptIds: { 'en': 'en-12', 'twi-asante': 'tw-10' },
+    texts: {
+      'en': 'Congratulations! You have successfully sent 500 Ghana cedis to Kwame Nyamebere. Your transaction was completed on 17 September 2026 at 5:00 PM. Your reference number is OKP-847291. Your transaction details have also been sent to you. Would you like to do anything else?',
+      'twi-asante': 'Congratulations! 500 Ghana Cedis a wosendee to Kwame Nyamebrɛ namba no so no yɛ successful. Wo transaction no yɛ completed wɔ 17th September 2026...',
+      'mixed-twi-en': 'Congratulations! W\'atumi asend 500 Ghana cedis kɔma Kwame Nyamebere. Reference number ne OKP-847291.',
+      'twi-akuapem': 'Mo ne yɔ! Woatumi asoma 500 Ghana cedis akɔ Kwame Nyamebere nɔmba so.',
+    },
+  },
+  cancellation_not_available: {
+    key: 'cancellation_not_available',
+    kind: 'smalltalk',
+    approved: false,
+    studioPromptIds: { 'twi-asante': 'tw-11' },
+    texts: {
+      'en': 'This option is not available right now. Thank you for using Okwankyerefo Pa. Goodbye.',
+      'twi-asante': 'Mpanimfoɔ, fakyɛ yɛn sɛ option yi nni hɔ bio. Yɛdaase sɛ woayɛ use wɔ Ɔkwankyerɛfo Pa. Goodbye.',
+      'mixed-twi-en': 'Option yi nni hɔ bio. Medaase sɛ wode Ɔkwankyerɛfo Pa dii dwuma.',
+      'twi-akuapem': 'Mpanimfoɔ, fakyɛ yɛn sɛ dwumadie yi nni hɔ bio. Yɛda ase. Nante yiye.',
+    },
+  },
+  closing_signoff: {
+    key: 'closing_signoff',
+    kind: 'smalltalk',
+    approved: false,
+    studioPromptIds: { 'en': 'en-13', 'twi-asante': 'tw-12' },
+    texts: {
+      'en': 'Thank you for using Ɔkwankyerɛfo Pa. Goodbye.',
+      'twi-asante': 'Yɛda wo ase sɛ wode Ɔkwankyerɛfo Pa adi dwuma. Nante yie.',
+      'mixed-twi-en': 'Thank you for using Ɔkwankyerɛfo Pa. Nante yie.',
+      'twi-akuapem': 'Yɛda wo ase sɛ wode Ɔkwankyerɛfo Pa adi dwuma. Nante yiye.',
+    },
+  },
   clarify_intent: {
     key: 'clarify_intent',
     kind: 'clarify_intent',
@@ -472,11 +684,6 @@ export const APPROVED_REPLY_TEMPLATES: Record<string, ApprovedTemplateDefinition
     },
   },
 };
-
-// Synchronize template approval flags from reviewed data repository (data/reviewed_templates.json)
-for (const [key, tpl] of Object.entries(APPROVED_REPLY_TEMPLATES)) {
-  tpl.approved = approvalWorkflow.isTemplateApproved(key);
-}
 
 /**
  * Gets an approved template text for a key and language.

@@ -29,6 +29,7 @@ describe('Phase 3d: Approval Workflow & Build Gate', () => {
           approved: true,
           reviewer: 'Dr. Kofi Mensah',
           reviewedAt: '2026-10-04T12:00:00Z',
+          contentHash: '3514b8ce998c71b6932e650ef802353160a0a520427dae9e7b2ff9f688e1465d',
         },
       },
     };
