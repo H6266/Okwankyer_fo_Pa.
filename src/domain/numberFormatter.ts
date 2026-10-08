@@ -352,3 +352,22 @@ export function formatSpokenNumbersAsDigits(text: string): string {
   return result.replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Decodes and normalizes DTMF keypad input for amount entry.
+ * Handles * (clear / correction / decimal) and # (termination / submit).
+ * e.g.:
+ *  "50#" -> 50
+ *  "*50#" -> 50
+ *  "20*50#" -> 50 (correction: cleared 20, then entered 50)
+ *  "100" -> 100
+ */
+export function decodeDtmfAmount(dtmf: string): number | null {
+  if (!dtmf || typeof dtmf !== "string") return null;
+  const trimmed = dtmf.trim();
+  const parts = trimmed.split("*");
+  const lastPart = parts[parts.length - 1];
+  const digitsOnly = lastPart.replace(/#/g, "").trim();
+  const parsed = parseFloat(digitsOnly);
+  return isNaN(parsed) || parsed <= 0 ? null : parsed;
+}
+

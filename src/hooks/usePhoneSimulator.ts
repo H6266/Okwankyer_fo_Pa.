@@ -479,6 +479,16 @@ export function usePhoneSimulator() {
   const [lastTurnDiagnostic, setLastTurnDiagnostic] = useState<TurnDiffDiagnostic | null>(null);
   const [accuracyResult, setAccuracyResult] = useState<AccuracyTestResult | null>(null);
 
+  // Chunk 3 Turn Diagnostic Panel & Saga State
+  const [turnDiagnostic, setTurnDiagnostic] = useState<any>(null);
+  const [sagaState, setSagaState] = useState<any>(null);
+
+  // Chunk 3 Panel Toggles
+  const [offlineMode, setOfflineMode] = useState<boolean>(false);
+  const [modelEnabled, setModelEnabled] = useState<boolean>(true);
+  const [languageOverride, setLanguageOverride] = useState<string>("");
+  const [injectNoise, setInjectNoise] = useState<boolean>(false);
+
   // Audio Playback & Microphone
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const recognitionRef = useRef<any>(null);
@@ -1215,12 +1225,23 @@ export function usePhoneSimulator() {
         sessionId,
         channel,
         input: normalizedInput,
-        language,
+        language: (languageOverride || language) as any,
         currentScreen: overrideScreen || currentScreen,
         currentStep: overrideStep || currentStep,
         executionMode,
         callDurationSec,
+        offlineMode,
+        modelEnabled,
+        languageOverride: languageOverride || undefined,
+        injectNoise,
       });
+
+      if (resp.turnDiagnostic) {
+        setTurnDiagnostic(resp.turnDiagnostic);
+      }
+      if (resp.saga) {
+        setSagaState(resp.saga);
+      }
 
       const res = resp.result;
 
@@ -2408,5 +2429,17 @@ export function usePhoneSimulator() {
     clearAtLogs,
     startAtCall,
     runAtPresetScenario,
+
+    // Chunk 3 Panel & Diagnostic States
+    turnDiagnostic,
+    sagaState,
+    offlineMode,
+    setOfflineMode,
+    modelEnabled,
+    setModelEnabled,
+    languageOverride,
+    setLanguageOverride,
+    injectNoise,
+    setInjectNoise,
   };
 }

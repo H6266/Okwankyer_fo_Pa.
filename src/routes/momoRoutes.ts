@@ -13,6 +13,7 @@ import { validateGhanaPhoneNumber } from "../domain/validation";
 import { momoProvider } from "../integrations/momo";
 import { voicePaymentService } from "../integrations/momo/voicePaymentService";
 import { evidenceStore } from "../integrations/momo/evidenceStore";
+import { paymentSaga } from "../integrations/momo/paymentSaga";
 
 export const momoRouter = Router();
 
@@ -776,3 +777,86 @@ momoRouter.post("/api/momo/switch-env", adminRateLimiter, requireAdminAuth, (req
     res.status(500).json({ error: err.message });
   }
 });
+
+// ── Payment Saga Endpoints (MTN Sandbox & Mock Provider) ───────────────
+momoRouter.get("/api/momo/saga/latest", (req: Request, res: Response) => {
+  const sessionId = req.query.sessionId as string;
+  if (!sessionId) {
+    return res.status(400).json({ error: "sessionId query parameter is required." });
+  }
+  const saga = paymentSaga.getLatestSagaForSession(sessionId);
+  if (!saga) {
+    return res.status(404).json({ error: "No saga found for session." });
+  }
+  res.json({ success: true, saga });
+});
+
+momoRouter.get("/api/momo/saga/:sagaId", (req: Request, res: Response) => {
+  const saga = paymentSaga.getSaga(req.params.sagaId);
+  if (!saga) {
+    return res.status(404).json({ error: "Saga not found." });
+  }
+  res.json({ success: true, saga });
+});
+
+momoRouter.post("/api/momo/saga/execute", async (req: Request, res: Response) => {
+  try {
+    const { sessionId, senderPhone, recipientPhone, recipientName, amount, network, confirmedDraftHash, timeoutMs, simulateOutcome } = req.body;
+    if (!sessionId || !recipientPhone || !amount) {
+      return res.status(400).json({ error: "sessionId, recipientPhone, and amount are required." });
+    }
+    const result = await paymentSaga.executeConfirmedTransferSaga({
+      sessionId,
+      senderPhone: senderPhone || "0244123456",
+      recipientPhone,
+      recipientName,
+      amount: Number(amount),
+      network,
+      confirmedDraftHash,
+      timeoutMs,
+      simulateOutcome,
+    });
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+momoRouter.post("/api/momo/saga/resolve-mock", (req: Request, res: Response) => {
+  try {
+    const { sagaId, outcome } = req.body;
+    if (!sagaId) {
+      return res.status(400).json({ error: "sagaId is required." });
+    }
+    const saga = paymentSaga.getSaga(sagaId);
+    if (!saga) {
+      return res.status(404).json({ error: "Saga not found." });
+    }
+    if (outcome === "SUCCESS") {
+      paymentSaga.recordCollectionResult(sagaId, {
+        status: "SUCCESSFUL",
+        provider: "MOCK_PROVIDER",
+        financialTransactionId: `MOCK_FIN_COLL_${Date.now()}`,
+        httpStatus: 200,
+      });
+      paymentSaga.initiateDisbursement(sagaId, `mock-disb-${Date.now()}`, {
+        provider: "MOCK_PROVIDER",
+        providerStatus: "SUCCESSFUL",
+        httpStatus: 200,
+      });
+      paymentSaga.finalizeDisbursement(sagaId, true, undefined, `MOCK_FIN_DISB_${Date.now()}`);
+    } else {
+      paymentSaga.recordCollectionResult(sagaId, {
+        status: "FAILED",
+        provider: "MOCK_PROVIDER",
+        reason: "Customer declined payment authorization on handset.",
+        httpStatus: 400,
+      });
+    }
+    const updated = paymentSaga.getSaga(sagaId);
+    res.json({ success: true, saga: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+

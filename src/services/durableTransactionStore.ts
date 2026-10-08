@@ -324,6 +324,19 @@ export class DurableTransactionStore {
   }
 
   public deleteSaga(sagaId: string): void {
+    const existing = this.sagas.get(sagaId);
+    if (
+      existing &&
+      (existing.state === "WAITING_FOR_CUSTOMER_AUTHORIZATION" ||
+        existing.state === "REQUEST_TO_PAY_SENT" ||
+        existing.state === "DISBURSEMENT_INITIATED" ||
+        existing.state === "CONFIRMED" ||
+        existing.state === "RECONCILIATION_REQUIRED")
+    ) {
+      throw new Error(
+        `CANNOT_PRUNE_PENDING_SAGA: Saga ${sagaId} is in protected state '${existing.state}' and must never be pruned.`
+      );
+    }
     this.sagas.delete(sagaId);
     try {
       const sanitizedId = sagaId.replace(/[^a-zA-Z0-9_\-]/g, "_");

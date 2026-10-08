@@ -7,6 +7,7 @@
 
 import { IntentId, ServiceDefinition, SlotSpec } from './types';
 import { ALL_INTENTS } from './intentTaxonomy';
+import { paymentSaga } from '../../integrations/momo/paymentSaga';
 
 export class ServiceRegistry {
   private services = new Map<IntentId, ServiceDefinition>();
@@ -21,10 +22,25 @@ export class ServiceRegistry {
       intent: 'momo.transfer',
       status: 'ready',
       requiredSlots: ALL_INTENTS['momo.transfer'].requiredSlots,
-      handler: async () => ({
-        success: true,
-        result: { acknowledged: true },
-      }),
+      handler: async (context: any) => {
+        const slots = context?.slots || {};
+        const amount = typeof slots.amount === 'number' ? slots.amount : 0;
+        const recipientPhone = slots.recipient?.phone || slots.recipientPhone || '';
+        const recipientName = slots.recipient?.name || slots.recipientName || 'Subscriber';
+        const callerPhone = context?.callerNumber || '0244123456';
+        const sagaResult = await paymentSaga.executeConfirmedTransferSaga({
+          sessionId: context?.sessionId || 'session',
+          senderPhone: callerPhone,
+          recipientPhone,
+          recipientName,
+          amount,
+          confirmedDraftHash: context?.confirmedDraftHash,
+        });
+        return {
+          success: sagaResult.status === 'COMPLETED' || sagaResult.status === 'PENDING',
+          result: sagaResult,
+        };
+      },
     });
 
     // 2. momo.check_balance (Unbuilt in voice IVR - directs caller to *170# for Zero-PIN truth integrity)

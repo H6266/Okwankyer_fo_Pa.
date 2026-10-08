@@ -596,6 +596,11 @@ export interface SimulatorTurnRequest {
   callerPhone?: string;
   calledPhone?: string;
   dtmf?: string;
+  draft?: any;
+  offlineMode?: boolean;
+  modelEnabled?: boolean;
+  languageOverride?: string;
+  injectNoise?: boolean;
   audio?: {
     mimeType?: string;
     dataBase64?: string;
@@ -612,6 +617,10 @@ export interface SimulatorTurnResponse {
   latency?: Record<string, number>;
   provider?: ProviderEvidence;
   truth?: TruthResult;
+  brain?: any;
+  tts?: any;
+  saga?: any;
+  turnDiagnostic?: any;
 }
 
 export interface TelephonyTurnRequest {
