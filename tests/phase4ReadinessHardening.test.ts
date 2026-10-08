@@ -47,9 +47,9 @@ describe('Phase 4: Readiness Hardening', () => {
       });
 
       expect(res.decision.kind).toBe('confirm');
-      expect(res.decision.intent).toBe('momo.transfer');
-      expect(res.decision.slots.amount).toBe(50);
-      expect(res.decision.slots.recipient?.phone).toBe('0553838464');
+      expect((res.decision as any).intent).toBe('momo.transfer');
+      expect((res.decision as any).slots.amount).toBe(50);
+      expect((res.decision as any).slots.recipient?.phone).toBe('0553838464');
       expect(res.modelOutput).toBeUndefined();
     });
 
@@ -73,8 +73,8 @@ describe('Phase 4: Readiness Hardening', () => {
 
       // Returns offline decision as authority
       expect(res.decision.kind).toBe('confirm');
-      expect(res.decision.intent).toBe('momo.transfer');
-      expect(res.decision.slots.amount).toBe(100);
+      expect((res.decision as any).intent).toBe('momo.transfer');
+      expect((res.decision as any).slots.amount).toBe(100);
 
       // Verify shadow comparison record was received without PII
       const shadowEntry = shadowEngine.compareAndLog({
@@ -113,9 +113,9 @@ describe('Phase 4: Readiness Hardening', () => {
 
       // Validates grounding and produces confirmed draft
       expect(res.decision.kind).toBe('confirm');
-      expect(res.decision.intent).toBe('momo.transfer');
-      expect(res.decision.slots.amount).toBe(25);
-      expect(res.decision.slots.recipient?.phone).toBe('0501122334');
+      expect((res.decision as any).intent).toBe('momo.transfer');
+      expect((res.decision as any).slots.amount).toBe(25);
+      expect((res.decision as any).slots.recipient?.phone).toBe('0501122334');
     });
   });
 
@@ -124,7 +124,11 @@ describe('Phase 4: Readiness Hardening', () => {
     it('persists shadow disagreements to disk with strict ZERO PII', () => {
       shadowEngine.clear();
       const entry = shadowEngine.compareAndLog({
-        offlineDecision: { kind: 'confirm', intent: 'momo.transfer' },
+        offlineDecision: {
+          kind: 'confirm',
+          intent: 'momo.transfer',
+          slots: { amount: 75, recipient: { phone: '0553838464', name: 'Ama' } },
+        },
         offlineDraft: {
           intent: 'momo.transfer',
           slots: { amount: 75, recipient: { phone: '0553838464', name: 'Ama' } },
@@ -447,8 +451,8 @@ describe('Phase 4: Readiness Hardening', () => {
       });
 
       expect(res.decision.kind).toBe('not_ready');
-      expect(res.decision.intent).toBe('momo.buy_data');
-      expect(res.decision.intent).not.toBe('momo.transfer');
+      expect((res.decision as any).intent).toBe('momo.buy_data');
+      expect((res.decision as any).intent).not.toBe('momo.transfer');
       expect(res.reply.text).toContain('Data bundle purchasing is not ready yet');
     });
 
@@ -462,8 +466,8 @@ describe('Phase 4: Readiness Hardening', () => {
       });
 
       expect(res.decision.kind).toBe('not_ready');
-      expect(res.decision.intent).toBe('momo.reverse_transaction');
-      expect(res.decision.intent).not.toBe('momo.transfer');
+      expect((res.decision as any).intent).toBe('momo.reverse_transaction');
+      expect((res.decision as any).intent).not.toBe('momo.transfer');
       expect(res.reply.text).toContain('Transaction reversal is not ready yet');
     });
 
@@ -477,8 +481,8 @@ describe('Phase 4: Readiness Hardening', () => {
       });
 
       expect(res.decision.kind).toBe('not_ready');
-      expect(res.decision.intent).toBe('momo.customer_care');
-      expect(res.decision.intent).not.toBe('momo.transfer');
+      expect((res.decision as any).intent).toBe('momo.customer_care');
+      expect((res.decision as any).intent).not.toBe('momo.transfer');
       expect(res.reply.text).toContain('Customer care connection is not ready yet');
     });
 
@@ -492,8 +496,8 @@ describe('Phase 4: Readiness Hardening', () => {
       });
 
       expect(res.decision.kind).toBe('not_ready');
-      expect(res.decision.intent).toBe('momo.loan');
-      expect(res.decision.intent).not.toBe('momo.transfer');
+      expect((res.decision as any).intent).toBe('momo.loan');
+      expect((res.decision as any).intent).not.toBe('momo.transfer');
       expect(res.reply.text).toContain('Mobile Money loan requests are not ready yet');
     });
   });

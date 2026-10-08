@@ -536,6 +536,8 @@ code, pre { font-family: var(--font-mono); }
 }
 
 .phone-screen {
+  position: relative;
+  overflow: hidden;
   background: var(--surface);
   border-radius: 20px;
   padding: 16px;
@@ -2080,6 +2082,96 @@ code, pre { font-family: var(--font-mono); }
 .log-line {
   margin-bottom: 4px;
   word-break: break-all;
+}
+
+/* ── Phone Simulator Enhanced States ── */
+.call-badge-chip.state-connected {
+  background: #0284c7 !important;
+  color: #ffffff !important;
+}
+
+.call-badge-chip.state-listening {
+  background: #10b981 !important;
+  color: #ffffff !important;
+  animation: pulseListeningBadge 2s infinite;
+}
+
+.call-badge-chip.state-ended {
+  background: #ef4444 !important;
+  color: #ffffff !important;
+}
+
+@keyframes pulseListeningBadge {
+  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6); }
+  70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+.waiting-for-card {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.waiting-for-card .waiting-label {
+  font-weight: 700;
+  color: #10b981;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.waiting-for-card .waiting-text {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.tts-pending-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #d97706;
+  background: rgba(217, 158, 31, 0.15);
+  border: 1px solid rgba(217, 158, 31, 0.3);
+  padding: 2px 7px;
+  border-radius: 4px;
+  margin-top: 5px;
+}
+
+.key-btn.key-dimmed {
+  opacity: 0.36;
+  filter: grayscale(0.5);
+  cursor: pointer;
+}
+
+.key-btn.key-dimmed:hover {
+  opacity: 0.65;
+  filter: grayscale(0.2);
+}
+
+.key-btn.key-active {
+  opacity: 1;
+  background: rgba(16, 185, 129, 0.16) !important;
+  border-color: rgba(52, 211, 153, 0.5) !important;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
+}
+
+.key-btn.key-active .key-digit {
+  color: #34d399 !important;
+}
+
+.key-btn.key-active .key-sub {
+  color: #a7f3d0 !important;
+  font-weight: 700 !important;
 }
 
 

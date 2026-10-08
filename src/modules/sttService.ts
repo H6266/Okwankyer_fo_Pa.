@@ -467,7 +467,7 @@ export async function speechToText(
   audioBuffer: Buffer | string,
   mimeType?: string,
   step?: string
-): Promise<{ text: string; confidence: number; languageDetected?: "en" | "twi"; pinDiscarded?: boolean }> {
+): Promise<{ text: string; confidence: number; languageDetected?: "en" | "twi" | string; pinDiscarded?: boolean }> {
   const result = await speechToTextService.transcribe(audioBuffer, mimeType, step);
   return {
     text: result.text,

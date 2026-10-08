@@ -24,7 +24,6 @@ describe('Phase 3c: Shadow Mode & Observability', () => {
     const offlineDecision: BrainDecision = {
       kind: 'clarify_slot',
       slot: 'recipient',
-      intent: 'momo.transfer',
     };
 
     const offlineDraft: DraftState = {
@@ -84,6 +83,7 @@ describe('Phase 3c: Shadow Mode & Observability', () => {
     const offlineDecision: BrainDecision = {
       kind: 'confirm',
       intent: 'momo.transfer',
+      slots: { amount: 10, recipient: { phone: '0553838464' } },
     };
 
     const offlineDraft: DraftState = {
@@ -93,7 +93,7 @@ describe('Phase 3c: Shadow Mode & Observability', () => {
 
     const modelOutput: ModelOutputContract = {
       intent: { id: 'momo.pay_bill', confidence: 0.90 }, // Disagrees on intent
-      slots: { biller: 'ECG' },
+      slots: { biller: 'ECG' } as any,
       signals: { user_confirmed: false, correction: false, interruption: false },
       reply: {
         text_en: 'Pay bill',
@@ -122,6 +122,7 @@ describe('Phase 3c: Shadow Mode & Observability', () => {
     const offlineDecision: BrainDecision = {
       kind: 'confirm',
       intent: 'momo.transfer',
+      slots: { amount: 20, recipient: { phone: '0553838464' } },
     };
 
     const offlineDraft: DraftState = {

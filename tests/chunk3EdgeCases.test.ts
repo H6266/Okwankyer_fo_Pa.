@@ -39,7 +39,7 @@ describe("Chunk 3: Edge Cases Test Suite", () => {
 
     testBrain = new Brain({
       ...DEFAULT_BRAIN_CONFIG,
-      mode: "offline",
+      mode: "offline_only",
     });
   });
 
@@ -198,7 +198,7 @@ describe("Chunk 3: Edge Cases Test Suite", () => {
     });
     // Cap violation prompts clarify_slot for amount within limit
     expect(turn.decision.kind).toBe("clarify_slot");
-    expect(turn.decision.slot).toBe("amount");
+    expect((turn.decision as any).slot).toBe("amount");
   });
 
   // ── 8. UNBUILT SERVICE (NOT_READY, NO CLARIFICATION) ──────────────────────
@@ -212,7 +212,7 @@ describe("Chunk 3: Edge Cases Test Suite", () => {
 
     // Invariant: status is not_ready, does NOT ask clarifying questions about the loan
     expect(turn.decision.kind).toBe("not_ready");
-    expect(turn.decision.intent).toBe("momo.loan");
+    expect((turn.decision as any).intent).toBe("momo.loan");
     expect(turn.reply.text).toBeDefined();
   });
 

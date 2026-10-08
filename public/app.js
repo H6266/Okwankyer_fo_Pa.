@@ -64,9 +64,124 @@
     }
   }
 
+  // ── Single Audio Controller (Single Voice Channel Queue & Barge-In) ──
+  class AudioController {
+    constructor() {
+      this.audioEl = null;
+      this.currentPlayId = 0;
+      this.isPlaying = false;
+      this.onEndCallback = null;
+      this.silenceTimer = null;
+    }
+
+    init(el) {
+      this.audioEl = el || document.getElementById('phoneAudioElement');
+    }
+
+    stop() {
+      this.currentPlayId++;
+      this.isPlaying = false;
+      if (this.silenceTimer) {
+        clearTimeout(this.silenceTimer);
+        this.silenceTimer = null;
+      }
+      if (this.audioEl) {
+        this.audioEl.onended = null;
+        this.audioEl.onerror = null;
+        try {
+          this.audioEl.pause();
+          this.audioEl.currentTime = 0;
+        } catch (e) {}
+      }
+      // Never use browser speechSynthesis
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        try { window.speechSynthesis.cancel(); } catch (e) {}
+      }
+      this.onEndCallback = null;
+    }
+
+    bargeIn() {
+      this.stop();
+    }
+
+    play({ audioUrl, caption, isTtsPending = false, durationMs = 2800, onEnd }) {
+      this.stop();
+      const playId = ++this.currentPlayId;
+      this.isPlaying = true;
+      this.onEndCallback = onEnd || null;
+
+      if (!this.audioEl) {
+        this.audioEl = document.getElementById('phoneAudioElement');
+      }
+
+      if (audioUrl) {
+        if (this.audioEl) {
+          // Normalize URL relative path
+          let cleanUrl = audioUrl;
+          if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) {
+            try {
+              const u = new URL(cleanUrl);
+              cleanUrl = u.pathname + u.search;
+            } catch (e) {}
+          }
+          if (this.audioEl.src !== cleanUrl && !this.audioEl.src.endsWith(cleanUrl)) {
+            this.audioEl.src = cleanUrl;
+          }
+          this.audioEl.load();
+
+          const finish = () => {
+            if (this.currentPlayId !== playId) return;
+            this.isPlaying = false;
+            if (this.audioEl) {
+              this.audioEl.onended = null;
+              this.audioEl.onerror = null;
+            }
+            if (this.onEndCallback) {
+              const cb = this.onEndCallback;
+              this.onEndCallback = null;
+              cb();
+            }
+          };
+
+          this.audioEl.onended = finish;
+          this.audioEl.onerror = (err) => {
+            console.warn('[AudioController] Audio element playback error:', err);
+            finish();
+          };
+
+          const p = this.audioEl.play();
+          if (p && typeof p.then === 'function') {
+            p.catch((err) => {
+              console.warn('[AudioController] Playback deferred/blocked:', err);
+              if (this.currentPlayId === playId) {
+                setTimeout(finish, 800);
+              }
+            });
+          }
+        } else {
+          if (this.onEndCallback) this.onEndCallback();
+        }
+      } else {
+        // Dynamic text without pre-recorded prompt (UG HCI Lab TTS pending)
+        // Show visual indicator with courtesy silence
+        this.silenceTimer = setTimeout(() => {
+          if (this.currentPlayId !== playId) return;
+          this.isPlaying = false;
+          this.silenceTimer = null;
+          if (this.onEndCallback) {
+            const cb = this.onEndCallback;
+            this.onEndCallback = null;
+            cb();
+          }
+        }, durationMs);
+      }
+    }
+  }
+
   // ── Main Application Controller ───────────────────────────────────────
   const app = {
     dtmf: new DtmfSynthesizer(),
+    audioController: new AudioController(),
     callState: {
       active: false,
       step: 'idle',
@@ -116,6 +231,7 @@
 
     // ── Initialization ──────────────────────────────────────────────────
     init() {
+      this.audioController.init(document.getElementById('phoneAudioElement'));
       this.bindKeyboard();
       this.loadStatus();
       this.checkRenderStatus();
@@ -474,7 +590,7 @@
     },
 
     // ── Dedicated Voice Audio Suite Selection (Twi / English / Interactive) ──
-    setVoiceMode(mode) {
+    setVoiceMode(mode, reloadStep = false) {
       this.voiceMode = mode; // 'twi' | 'en' | 'auto'
 
       if (mode === 'twi') {
@@ -508,8 +624,8 @@
         }
       }
 
-      // Re-trigger current step audio with new language engine
-      if (this.callState.active && this.callState.step !== 'idle') {
+      // Re-trigger current step audio with new language engine ONLY if requested explicitly (e.g. user clicked toolbar button)
+      if (reloadStep && this.callState.active && this.callState.step !== 'idle') {
         this.goToStep(this.callState.step);
       }
     },

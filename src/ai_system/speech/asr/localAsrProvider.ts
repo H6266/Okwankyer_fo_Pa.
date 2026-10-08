@@ -27,7 +27,7 @@ export class LocalAsrProvider implements OfflineSpeechRecognizer {
       : audioPayload;
 
     // 1. Audio Normalization
-    const normalized = audioNormalizer.normalize(rawBuffer);
+    const normalized = await audioNormalizer.normalize(rawBuffer);
     if (normalized.isSilent) {
       return {
         text: "",

@@ -406,7 +406,7 @@ export function usePhoneSimulator() {
 
   // Real-Time Speech Transcription & AI Processing Telemetry
   const [interimTranscript, setInterimTranscript] = useState<string>("");
-  const [transcriptionStatus, setTranscriptionStatus] = useState<"IDLE" | "LISTENING" | "PROCESSING" | "TRANSCRIBED" | "ERROR">("IDLE");
+  const [transcriptionStatus, setTranscriptionStatus] = useState<"IDLE" | "LISTENING" | "PROCESSING" | "TRANSCRIBED" | "ERROR" | "PAUSED">("IDLE");
   const [aiProcessingPhase, setAiProcessingPhase] = useState<
     "IDLE" | "SPEECH_IN" | "LANGUAGE_DETECTION" | "INTENT_EXTRACTION" | "SECURITY_CHECK" | "HANDOFF" | "SPEECH_SYNTHESIS" | "READY"
   >("IDLE");
@@ -1760,8 +1760,20 @@ export function usePhoneSimulator() {
               });
 
               setInterimTranscript(textToSend);
-              setLastTranscription(textToSend);
-              setPipelineLatency(latency);
+              setLastTranscription({
+                text: textToSend,
+                confidence: 0.95,
+                language: language,
+                timestamp: Date.now(),
+                channel: "VOICE",
+              });
+              setPipelineLatency({
+                totalMs: latency,
+                asrMs: latency,
+                nluMs: 0,
+                ttsMs: 0,
+                timestamp: Date.now(),
+              });
               setLastCompletedTurnText(textToSend);
               setTranscriptionStatus("PROCESSING");
               setAiProcessingPhase("LANGUAGE_DETECTION");

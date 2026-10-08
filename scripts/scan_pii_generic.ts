@@ -113,11 +113,11 @@ function scanText(source: string, text: string): ScanFinding[] {
   return findings;
 }
 
-export function runFullPiiScan(): { totalFindings: number; findings: ScanFinding[]; summary: Record<string, number> } {
+export function runFullPiiScan(): { totalFindings: number; findings: ScanFinding[]; summary: Record<string, number>; perSource: Record<string, number> } {
   const allFindings: ScanFinding[] = [];
 
   // A. Scan aiTrace
-  const traces = aiTrace.getAllTraces ? aiTrace.getAllTraces() : [];
+  const traces = (aiTrace as any).getAllTraces ? (aiTrace as any).getAllTraces() : [];
   for (const t of traces) {
     const serialized = JSON.stringify(t);
     allFindings.push(...scanText('aiTrace', serialized));

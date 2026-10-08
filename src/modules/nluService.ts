@@ -15,6 +15,7 @@ import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { isPhoneNumber, normalizePhoneNumber } from "../domain/phoneUtils";
 import { geminiClient as unifiedGeminiClient } from "../services/geminiClient";
+import { findContact } from "./mockContacts";
 
 const NluModelOutputSchema = z.object({
   intent: z.enum([
@@ -185,9 +186,10 @@ export function extractRecipient(text: string): { name: string | null; phone: st
   if (phoneMatch) {
     const norm = normalizePhoneNumber(phoneMatch[0]);
     if (isPhoneNumber(norm)) {
+      const contact = findContact(norm);
       return {
         phone: norm,
-        name: null,
+        name: contact ? contact.name : null,
       };
     }
   }
@@ -195,9 +197,10 @@ export function extractRecipient(text: string): { name: string | null; phone: st
   // 2. Check for spoken digits (e.g. "zero five five three eight..." or Akan "hwee enum enum...")
   const normPhone = normalizePhoneNumber(text);
   if (isPhoneNumber(normPhone)) {
+    const contact = findContact(normPhone);
     return {
       phone: normPhone,
-      name: null,
+      name: contact ? contact.name : null,
     };
   }
 
@@ -208,11 +211,27 @@ export function extractRecipient(text: string): { name: string | null; phone: st
   for (const match of recipientMatches) {
     const candidateName = match[1].trim();
     if (!stopWords.has(candidateName.toLowerCase())) {
+      const contact = findContact(candidateName);
+      if (contact) {
+        return {
+          name: contact.name,
+          phone: contact.phoneNumber,
+        };
+      }
       return {
         name: candidateName,
         phone: null,
       };
     }
+  }
+
+  // 4. Check for standalone contact names (e.g. "Ama" or "Kwame")
+  const directContact = findContact(text.trim());
+  if (directContact) {
+    return {
+      name: directContact.name,
+      phone: directContact.phoneNumber,
+    };
   }
 
   return { name: null, phone: null };

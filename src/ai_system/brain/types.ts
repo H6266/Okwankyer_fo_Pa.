@@ -145,8 +145,8 @@ export interface DraftState {
 export interface BrainInput {
   transcript: string;
   language: LanguageId;
-  languageConfidence: number;
-  sessionLanguage: LanguageId;
+  languageConfidence?: number;
+  sessionLanguage?: LanguageId;
   draft: DraftState;
   callerNumber?: string;
   sessionId?: string;

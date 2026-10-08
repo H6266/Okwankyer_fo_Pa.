@@ -287,8 +287,8 @@ export class Brain {
     const langRes = languagePolicy.resolveLanguage({
       transcript: rawTranscript,
       detectedLanguage: input.language,
-      detectedConfidence: input.languageConfidence,
-      currentSessionLanguage: input.sessionLanguage,
+      detectedConfidence: input.languageConfidence ?? 1.0,
+      currentSessionLanguage: input.sessionLanguage ?? input.language ?? 'en',
     });
     const activeLanguage = langRes.replyLanguage;
     const sessionLanguage = langRes.sessionLanguage;
