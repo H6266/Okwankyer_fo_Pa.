@@ -28,6 +28,9 @@ import {
   stripSystemEchoFromTranscript,
   isBackgroundNoiseOrStatic,
 } from "../domain/echoFilter";
+import { asrOrchestrator } from "../ai_system/speech/asr/asrOrchestrator";
+import { longConversationAsr } from "../ai_system/speech/asr/longConversationAsr";
+import { feedbackService } from "../ai_system/speech/asr/feedbackService";
 
 export const aiRouter = Router();
 
@@ -666,18 +669,131 @@ aiRouter.post("/api/ai/transcribe", publicApiRateLimiter, async (req: Request, r
       expectedLanguage: language || "bilingual",
       step: hintText || step || "",
     });
-    if (result && result.text) {
-      result.text = formatSpokenNumbersAsDigits(result.text);
-      if (isBackgroundNoiseOrStatic(result.text)) {
-        result.text = "";
-      } else if (isAcousticSystemEcho(result.text, hintText || step)) {
-        const stripped = stripSystemEchoFromTranscript(result.text, hintText || step);
-        result.text = (!stripped || isAcousticSystemEcho(stripped, hintText || step)) ? "" : stripped;
-      }
-    }
     res.json({ success: true, result });
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Failed to transcribe audio" });
+  }
+});
+
+// ── Continuous / Long-Form Session ASR Endpoints (Item 13 & 14) ────────
+aiRouter.post("/api/ai/asr/session/start", publicApiRateLimiter, (req: Request, res: Response) => {
+  try {
+    const { sessionId, language, metadata } = req.body || {};
+    const createdSessionId = longConversationAsr.startSession({
+      sessionId,
+      language: language || "twi",
+      metadata,
+    });
+    res.json({ success: true, sessionId: createdSessionId });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to start ASR session" });
+  }
+});
+
+aiRouter.post("/api/ai/asr/session/:sessionId/chunk", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { sessionId } = req.params;
+    const { audioBase64, mimeType, step } = req.body || {};
+    if (!audioBase64) {
+      return res.status(400).json({ error: "Missing 'audioBase64' audio chunk payload." });
+    }
+    const chunkResult = await longConversationAsr.appendAudioChunk(
+      sessionId,
+      audioBase64,
+      mimeType || "audio/wav",
+      step
+    );
+    res.json(chunkResult);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to append audio chunk" });
+  }
+});
+
+aiRouter.post("/api/ai/asr/session/:sessionId/end", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { sessionId } = req.params;
+    const session = await longConversationAsr.endSession(sessionId);
+    res.json({ success: true, session });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to end ASR session" });
+  }
+});
+
+aiRouter.get("/api/ai/asr/session/:sessionId", publicApiRateLimiter, (req: Request, res: Response) => {
+  try {
+    const { sessionId } = req.params;
+    const session = longConversationAsr.getSession(sessionId);
+    if (!session) {
+      return res.status(404).json({ error: "Session not found" });
+    }
+    res.json({ success: true, session });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to retrieve ASR session" });
+  }
+});
+
+aiRouter.post("/api/ai/asr/file/process", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { audioBase64, mimeType, language } = req.body || {};
+    if (!audioBase64) {
+      return res.status(400).json({ error: "Missing 'audioBase64' audio payload." });
+    }
+    const result = await longConversationAsr.processLongAudioFile(
+      audioBase64,
+      mimeType || "audio/wav",
+      language || "twi"
+    );
+    res.json({ success: true, result });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to process long audio file" });
+  }
+});
+
+// ── User ASR Feedback & Ground-Truth Corrections (Item 15 & 16) ────────
+aiRouter.post("/api/ai/asr/feedback", publicApiRateLimiter, (req: Request, res: Response) => {
+  try {
+    const {
+      sessionId,
+      chunkId,
+      provider,
+      language,
+      originalTranscript,
+      correctedTranscript,
+      reason,
+      userNotes,
+      userConsent,
+    } = req.body || {};
+
+    if (!sessionId || !originalTranscript || !correctedTranscript || !reason) {
+      return res.status(400).json({
+        error: "Missing required fields: sessionId, originalTranscript, correctedTranscript, and reason are required.",
+      });
+    }
+
+    const entry = feedbackService.submitCorrection({
+      sessionId,
+      chunkId,
+      provider: provider || "unknown",
+      language: language || "twi",
+      originalTranscript,
+      correctedTranscript,
+      reason,
+      userNotes,
+      userConsent,
+    });
+
+    res.json({ success: true, feedback: entry });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to submit ASR correction feedback" });
+  }
+});
+
+aiRouter.get("/api/ai/asr/feedback/metrics", publicApiRateLimiter, (_req: Request, res: Response) => {
+  try {
+    const metrics = feedbackService.getMetrics();
+    res.json({ success: true, metrics });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to retrieve ASR feedback metrics" });
   }
 });
 

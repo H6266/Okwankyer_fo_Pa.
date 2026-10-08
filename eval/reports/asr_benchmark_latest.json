@@ -1,0 +1,80 @@
+{
+  "timestamp": "2026-10-08T12:20:14.660Z",
+  "totalItems": 6,
+  "averageWer": 1.0396,
+  "averageCer": 1.0196,
+  "exactMatchRate": 0,
+  "averageLatencyMs": 37,
+  "providerCoverage": {
+    "local-goertzel-dtmf": 5,
+    "local-ghanaian-acoustic-asr": 1
+  },
+  "items": [
+    {
+      "id": "tw-001",
+      "reference": "Akwaaba kɔ Ɔkwankyerɛfo Pa so",
+      "hypothesis": "2",
+      "language": "tw",
+      "wer": 1,
+      "cer": 1,
+      "exactMatch": false,
+      "latencyMs": 2,
+      "provider": "local-goertzel-dtmf"
+    },
+    {
+      "id": "tw-002",
+      "reference": "Sɛ worepɛ telecom anaa mobile money dwumadie a mia baako",
+      "hypothesis": "A",
+      "language": "tw",
+      "wer": 0.9,
+      "cer": 0.9787,
+      "exactMatch": false,
+      "latencyMs": 2,
+      "provider": "local-goertzel-dtmf"
+    },
+    {
+      "id": "tw-003",
+      "reference": "Hyɛ sika dodoɔ a worepɛ sɛ womane no",
+      "hypothesis": "2",
+      "language": "tw",
+      "wer": 1,
+      "cer": 1,
+      "exactMatch": false,
+      "latencyMs": 1,
+      "provider": "local-goertzel-dtmf"
+    },
+    {
+      "id": "en-001",
+      "reference": "Welcome to Ɔkwankyerɛfo Pa an easy financial transaction service",
+      "hypothesis": "2",
+      "language": "en",
+      "wer": 1,
+      "cer": 1,
+      "exactMatch": false,
+      "latencyMs": 1,
+      "provider": "local-goertzel-dtmf"
+    },
+    {
+      "id": "en-002",
+      "reference": "Select your network For MTN press 1 For Telecel press 2",
+      "hypothesis": "2",
+      "language": "en",
+      "wer": 0.9091,
+      "cer": 0.9778,
+      "exactMatch": false,
+      "latencyMs": 0,
+      "provider": "local-goertzel-dtmf"
+    },
+    {
+      "id": "en-003",
+      "reference": "Enter the amount you wish to transfer",
+      "hypothesis": "Mepa wo kyɛw, mane sika 20 kɔma Ama wɔ 0553838464",
+      "language": "en",
+      "wer": 1.4286,
+      "cer": 1.1613,
+      "exactMatch": false,
+      "latencyMs": 216,
+      "provider": "local-ghanaian-acoustic-asr"
+    }
+  ]
+}

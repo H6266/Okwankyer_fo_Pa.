@@ -83,6 +83,10 @@ export const PhoneSimulatorPage: React.FC = () => {
   const [typedInput, setTypedInput] = useState<string>("");
   const [inScreenSpeechText, setInScreenSpeechText] = useState<string>("");
   const [pressedKey, setPressedKey] = useState<string | null>(null);
+  const [showTelemetryModal, setShowTelemetryModal] = useState<boolean>(false);
+  const [correctionText, setCorrectionText] = useState<string>("");
+  const [correctionCategory, setCorrectionCategory] = useState<"name" | "number" | "amount" | "word" | "language">("word");
+  const [correctionReason, setCorrectionReason] = useState<string>("dialect_pronunciation");
   const [activeCenterTab, setActiveCenterTab] = useState<
     | "turn_inspector"
     | "transcript"
@@ -977,88 +981,188 @@ export const PhoneSimulatorPage: React.FC = () => {
                   </div>
                 )}
 
-                {/* C. Clear Microphone Error / Fallback Guidance Notice */}
-                {sim.transcriptionStatus === "ERROR" && (
-                  <div className="p-2.5 rounded-2xl bg-amber-950/95 border border-amber-500/80 text-amber-200 text-xs shadow-md space-y-2 animate-fadeIn">
+                {/* C. Conversational Voice & Microphone Console */}
+                {sim.micState === "MIC_PERMISSION_REQUIRED" && (
+                  <div className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-950/95 via-slate-950/95 to-emerald-950/95 border border-emerald-500/70 text-slate-200 text-xs shadow-xl space-y-2 animate-fadeIn">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 font-bold text-amber-300 text-[11px]">
-                        <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Microphone Access Notice (Preview iFrame)</span>
+                      <div className="flex items-center gap-1.5 font-bold text-emerald-400 text-[11px]">
+                        <Mic className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+                        <span>Continuous Conversational Voice</span>
+                      </div>
+                      <span className="px-2 py-0.5 rounded text-[8px] font-mono bg-emerald-950 border border-emerald-600/70 text-emerald-300 font-bold">
+                        ACTIVATION REQUIRED
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-300 leading-tight">
+                      Enable browser microphone once to start hands-free conversational listening with GhanaNLP ASR, automatic end-of-speech detection, and barge-in interruption.
+                    </p>
+                    <div className="flex items-center gap-2 pt-0.5">
+                      <button
+                        onClick={sim.enableConversationalVoice}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-extrabold shadow-md flex items-center gap-1.5 transition-colors"
+                      >
+                        <Mic className="w-3 h-3" />
+                        <span>Enable Live Microphone</span>
+                      </button>
+                      <button
+                        onClick={() => audioFileInputRef.current?.click()}
+                        className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-bold transition-colors flex items-center gap-1"
+                      >
+                        <FileAudio className="w-3 h-3 text-cyan-400" />
+                        <span>Upload Audio</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {sim.micState === "MIC_ACTIVE" && (
+                  <div className="p-3 rounded-2xl bg-gradient-to-r from-slate-900/98 via-slate-950/98 to-slate-900/98 border border-emerald-500/60 text-slate-200 text-xs shadow-xl space-y-2 animate-fadeIn">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 font-bold text-emerald-400 text-[11px]">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
+                        <span>Live Continuous Microphone</span>
+                        <span className={`px-1.5 py-0.2 rounded text-[8px] font-mono border font-bold ${
+                          sim.vadState === "SPEECH"
+                            ? "bg-emerald-950 text-emerald-300 border-emerald-600"
+                            : "bg-slate-900 text-slate-400 border-slate-700"
+                        }`}>
+                          {sim.vadState === "SPEECH" ? "VAD: SPEECH" : "VAD: LISTENING"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => setShowTelemetryModal(true)}
+                          className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[10px] font-bold border border-cyan-800/60 transition-colors"
+                          title="View Live Audio & ASR Telemetry"
+                        >
+                          📊 Telemetry
+                        </button>
+                        <button
+                          onClick={sim.toggleMic}
+                          className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 text-[10px] font-bold transition-colors"
+                          title="Mute microphone"
+                        >
+                          Pause
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Real-time audio waveform equalizer (purely driven by actual mic audio frames) */}
+                    <div className="flex items-center gap-2 bg-slate-950 p-2 rounded-xl border border-slate-800/80">
+                      <span className="text-[9px] font-mono text-slate-400">RMS Level:</span>
+                      <div className="flex-1 bg-slate-900 h-2 rounded-full overflow-hidden">
+                        <div
+                          className="bg-emerald-400 h-full transition-all duration-75"
+                          style={{ width: `${Math.min(100, sim.audioLevel)}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] font-mono text-emerald-400 font-bold">{sim.audioLevel}%</span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[9px] text-slate-400">
+                      <span>GhanaNLP Primary ASR · Auto-Endpointing Active</span>
+                      <span className="text-amber-400/90 font-medium">Barge-in: Speak while assistant talks to interrupt</span>
+                    </div>
+                  </div>
+                )}
+
+                {sim.isBargeInActive && (
+                  <div className="p-2.5 rounded-xl bg-amber-950/80 border border-amber-500/80 text-amber-200 text-xs flex items-center gap-2 animate-bounce">
+                    <Zap className="w-4 h-4 text-amber-400 animate-spin" />
+                    <span className="font-bold text-[11px]">⚡ Caller Barge-In Detected! Interrupted assistant audio · Prioritizing caller.</span>
+                  </div>
+                )}
+
+                {sim.micState === "MIC_UNAVAILABLE" && (
+                  <div className="p-3 rounded-2xl bg-slate-900 border border-rose-500/60 text-slate-200 text-xs space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 font-bold text-rose-400 text-[11px]">
+                        <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                        <span>Microphone Restricted</span>
                       </div>
                       <div className="flex items-center gap-1">
                         <button
-                          onClick={sim.toggleMic}
-                          className="px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-500 text-slate-950 text-[10px] font-bold transition-colors"
+                          onClick={sim.retryHardwareMic}
+                          className="px-2 py-0.5 rounded bg-emerald-700 hover:bg-emerald-600 text-white text-[10px] font-bold"
                         >
                           Retry Mic
                         </button>
                         <button
                           onClick={() => audioFileInputRef.current?.click()}
-                          className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold transition-colors flex items-center gap-1"
+                          className="px-2 py-0.5 rounded bg-cyan-700 hover:bg-cyan-600 text-white text-[10px] font-bold"
                         >
-                          <FileAudio className="w-3 h-3" />
-                          <span>Upload Audio</span>
-                        </button>
-                        <button
-                          onClick={() => sim.setTranscriptionStatus("IDLE")}
-                          className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold transition-colors"
-                          title="Dismiss"
-                        >
-                          ✕
+                          Upload Audio
                         </button>
                       </div>
                     </div>
-                    <p className="text-[10px] text-amber-200/90 leading-tight">
-                      Browser blocked mic access in preview iframe. Tap any Ghanaian voice chip below or type in the speech bar to test speech & AI understanding!
+                    <p className="text-[10px] text-slate-400 leading-tight">
+                      {sim.micStateReason || "Browser or preview iframe restricted microphone access. You can upload audio files or test Ghanaian voice phrases below."}
                     </p>
-                    <div className="flex flex-wrap gap-1 pt-0.5">
+                  </div>
+                )}
+
+                {/* User ASR Correction Pill (Non-invasive evaluation data collection) */}
+                {sim.lastCompletedTurnText && (
+                  <div className="p-2 px-3 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between text-[11px] animate-fadeIn">
+                    <div className="truncate max-w-[200px]">
+                      <span className="text-slate-400">Heard: </span>
+                      <span className="text-white font-medium">"{sim.lastCompletedTurnText}"</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setCorrectionText(sim.lastCompletedTurnText || "");
+                        sim.setShowCorrectionDialog(true);
+                      }}
+                      className="text-emerald-400 hover:text-emerald-300 font-bold text-[10px] underline ml-2 shrink-0"
+                    >
+                      Did I hear you correctly?
+                    </button>
+                  </div>
+                )}
+
+                {/* Synthetic Voice Clips for ASR Testing (Clearly Distinguished from Real Mic) */}
+                {(sim.isVirtualVoiceMode || sim.micState !== "MIC_ACTIVE") && (
+                  <div className="p-2.5 rounded-2xl bg-slate-950/80 border border-slate-800 text-slate-300 text-xs space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        Synthetic Voice Clips (ASR Testing)
+                      </span>
+                      <span className="text-[9px] text-slate-500 font-mono">SIMULATION</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
                       <button
                         onClick={() => sim.simulateAsrSample("1", "en")}
-                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-emerald-300 rounded text-[9px] font-bold border border-emerald-700/50"
-                        title="Say or send Option 1 (English / MoMo / Yes)"
+                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-emerald-300 rounded text-[9px] font-bold border border-emerald-800/50"
                       >
                         🎙️ Option 1
                       </button>
                       <button
                         onClick={() => sim.simulateAsrSample("2", "tw")}
-                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-amber-300 rounded text-[9px] font-bold border border-amber-700/50"
-                        title="Say or send Option 2 (Twi / Banking / Cancel)"
+                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-amber-300 rounded text-[9px] font-bold border border-amber-800/50"
                       >
                         🎙️ Option 2
                       </button>
                       <button
                         onClick={() => sim.simulateAsrSample("Send 20 cedis to 0553838464", "en")}
-                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-emerald-300 rounded text-[9px] font-bold border border-emerald-700/50"
+                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-emerald-300 rounded text-[9px] font-bold border border-emerald-800/50"
                       >
                         🎙️ Send 20 Cedis (EN)
                       </button>
                       <button
                         onClick={() => sim.simulateAsrSample("Mepa wo kyɛw, mane sika aduonu kɔma Ama wɔ 0553838464", "tw")}
-                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-amber-300 rounded text-[9px] font-bold border border-amber-700/50"
+                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-amber-300 rounded text-[9px] font-bold border border-amber-800/50"
                       >
                         🎙️ Mane Sika (Twi)
                       </button>
                       <button
                         onClick={() => sim.simulateAsrSample("Check my mobile money wallet balance", "en")}
-                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-cyan-300 rounded text-[9px] font-bold border border-cyan-700/50"
+                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-cyan-300 rounded text-[9px] font-bold border border-cyan-800/50"
                       >
                         🎙️ Check Balance
                       </button>
                       <button
-                        onClick={() => sim.simulateAsrSample("Buy 5 cedis airtime for my phone", "en")}
-                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-indigo-300 rounded text-[9px] font-bold border border-indigo-700/50"
-                      >
-                        🎙️ Buy Airtime
-                      </button>
-                      <button
-                        onClick={() => sim.simulateAsrSample("Aane, pene so", "tw")}
-                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-emerald-400 rounded text-[9px] font-bold border border-emerald-700/50"
-                      >
-                        🎙️ Aane (Confirm)
-                      </button>
-                      <button
                         onClick={() => sim.simulateAsrSample("Dabi, gyae mu", "tw")}
-                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-rose-300 rounded text-[9px] font-bold border border-rose-700/50"
+                        className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-rose-300 rounded text-[9px] font-bold border border-rose-800/50"
                       >
                         🎙️ Dabi (Cancel)
                       </button>
@@ -1456,9 +1560,9 @@ export const PhoneSimulatorPage: React.FC = () => {
                     onSubmit={(e) => {
                       e.preventDefault();
                       if (inScreenSpeechText.trim()) {
-                        if (!sim.isActive) sim.startCall(sim.language === "tw" ? "tw" : "en");
-                        sim.sendInputTurn(inScreenSpeechText.trim(), "VOICE");
+                        const txt = inScreenSpeechText.trim();
                         setInScreenSpeechText("");
+                        sim.simulateAsrSample(txt, sim.language === "tw" ? "tw" : "en");
                       }
                     }}
                     className="flex items-center gap-1.5"
@@ -2267,27 +2371,41 @@ export const PhoneSimulatorPage: React.FC = () => {
               {/* Live Microphone Test Box */}
               <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-slate-800">Live Microphone Ingestion</span>
+                  <span className="font-bold text-slate-800">Live Voice &amp; Microphone</span>
                   <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                     sim.isMicActive ? "bg-amber-100 text-amber-800 animate-pulse" : "bg-slate-200 text-slate-700"
                   }`}>
-                    {sim.isMicActive ? "MICROPHONE ACTIVE" : "IDLE"}
+                    {sim.isMicActive
+                      ? sim.isHardwareMicGranted
+                        ? "LIVE HARDWARE MIC"
+                        : "VOICE ENGINE ACTIVE"
+                      : "IDLE"}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500">
-                  Speak into your microphone in Ghanaian English or Akan Twi to test real-time ASR audio capture.
+                  Dual-channel acoustic processing with Ghanaian English and Akan Twi. Tap to activate live microphone or Smart Voice mode.
                 </p>
-                <button
-                  onClick={sim.toggleMic}
-                  className={`w-full py-2 rounded-xl flex items-center justify-center gap-2 font-bold text-xs transition-all ${
-                    sim.isMicActive
-                      ? "bg-amber-500 hover:bg-amber-600 text-slate-950"
-                      : "bg-emerald-700 hover:bg-emerald-600 text-white"
-                  }`}
-                >
-                  {sim.isMicActive ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                  <span>{sim.isMicActive ? "Stop Recording & Transcribe" : "Start Live Voice Recording"}</span>
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={sim.toggleMic}
+                    className={`flex-1 py-2 rounded-xl flex items-center justify-center gap-2 font-bold text-xs transition-all ${
+                      sim.isMicActive
+                        ? "bg-amber-500 hover:bg-amber-600 text-slate-950 ring-2 ring-amber-400"
+                        : "bg-emerald-700 hover:bg-emerald-600 text-white"
+                    }`}
+                  >
+                    <Mic className={`w-4 h-4 ${sim.isMicActive ? "animate-bounce" : ""}`} />
+                    <span>{sim.isMicActive ? "Stop Voice Mode" : "Start Live Voice"}</span>
+                  </button>
+                  <button
+                    onClick={() => audioFileInputRef.current?.click()}
+                    className="px-3 py-2 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 font-bold text-xs flex items-center gap-1.5 transition-colors"
+                    title="Upload Ghanaian Audio File"
+                  >
+                    <FileAudio className="w-4 h-4 text-cyan-600" />
+                    <span>Upload Audio</span>
+                  </button>
+                </div>
               </div>
 
               {/* Sample ASR Utterances */}
@@ -2926,6 +3044,187 @@ export const PhoneSimulatorPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* ── Modal 1: Live ASR & Audio Telemetry Inspector ── */}
+      {showTelemetryModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 max-w-xl w-full shadow-2xl space-y-4 text-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2 font-bold text-white text-base">
+                <Activity className="w-5 h-5 text-emerald-400" />
+                <span>Real-Time Speech & ASR Telemetry</span>
+              </div>
+              <button
+                onClick={() => setShowTelemetryModal(false)}
+                className="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-colors"
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800">
+                <span className="text-[10px] text-slate-400 font-mono block">MICROPHONE STATUS</span>
+                <span className="font-bold text-emerald-400 text-sm mt-0.5 block">{sim.micState}</span>
+                <span className="text-[10px] text-slate-400">AudioContext: {sim.voiceTelemetry.audioContextState}</span>
+              </div>
+
+              <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800">
+                <span className="text-[10px] text-slate-400 font-mono block">AUDIO FORMAT</span>
+                <span className="font-bold text-cyan-400 text-sm mt-0.5 block">{sim.voiceTelemetry.sampleRate} Hz</span>
+                <span className="text-[10px] text-slate-400">{sim.voiceTelemetry.channels} Channel(s) Mono PCM</span>
+              </div>
+
+              <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800">
+                <span className="text-[10px] text-slate-400 font-mono block">PCM FRAMES RECEIVED</span>
+                <span className="font-bold text-white text-sm mt-0.5 block">{sim.voiceTelemetry.framesReceived}</span>
+                <span className="text-[10px] text-slate-400">{sim.voiceTelemetry.bytesReceived.toLocaleString()} Audio Bytes</span>
+              </div>
+
+              <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800">
+                <span className="text-[10px] text-slate-400 font-mono block">VAD STATE & SPEECH DURATION</span>
+                <span className="font-bold text-purple-400 text-sm mt-0.5 block">{sim.voiceTelemetry.currentVADState}</span>
+                <span className="text-[10px] text-slate-400">{Math.round(sim.voiceTelemetry.speechDurationMs / 1000)}s Speech / {Math.round(sim.voiceTelemetry.noiseDurationMs / 1000)}s Silence</span>
+              </div>
+
+              <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800">
+                <span className="text-[10px] text-slate-400 font-mono block">PRIMARY ASR PROVIDER</span>
+                <span className="font-bold text-amber-400 text-sm mt-0.5 block">{sim.voiceTelemetry.currentASRProvider}</span>
+                <span className="text-[10px] text-slate-400">Fallbacks Used: {sim.voiceTelemetry.fallbackCount}</span>
+              </div>
+
+              <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800">
+                <span className="text-[10px] text-slate-400 font-mono block">BARGE-IN INTERRUPTIONS</span>
+                <span className="font-bold text-rose-400 text-sm mt-0.5 block">{sim.voiceTelemetry.bargeIns}</span>
+                <span className="text-[10px] text-slate-400">Caller cuts assistant playback</span>
+              </div>
+
+              <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 col-span-2">
+                <span className="text-[10px] text-slate-400 font-mono block">LATENCY & CHUNKS</span>
+                <div className="flex justify-between items-center mt-1">
+                  <span>Last Chunk Latency: <b className="text-white">{sim.voiceTelemetry.lastASRLatencyMs} ms</b></span>
+                  <span>Chunks Completed: <b className="text-emerald-400">{sim.voiceTelemetry.chunksCompleted}</b></span>
+                  <span>Chunks Failed: <b className="text-rose-400">{sim.voiceTelemetry.chunksFailed}</b></span>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
+              <span>Authentic hardware-verified telemetry without mock numbers.</span>
+              <Link to="/asr-lab" className="text-emerald-400 hover:text-emerald-300 font-bold underline">
+                Open ASR Quality Lab →
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal 2: User ASR Correction Dialog ── */}
+      {sim.showCorrectionDialog && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 text-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2 font-bold text-white text-base">
+                <HelpCircle className="w-5 h-5 text-emerald-400" />
+                <span>Did I hear you correctly?</span>
+              </div>
+              <button
+                onClick={() => sim.setShowCorrectionDialog(false)}
+                className="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300">
+              Help improve Ghanaian speech recognition by providing the ground-truth phrase. Sensitive credentials and PINs are automatically discarded.
+            </p>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block mb-1">
+                  Original Speech Output:
+                </label>
+                <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-300">
+                  "{sim.lastCompletedTurnText}"
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block mb-1">
+                  Corrected Target Phrase:
+                </label>
+                <input
+                  type="text"
+                  value={correctionText}
+                  onChange={(e) => setCorrectionText(e.target.value)}
+                  placeholder="Enter exact spoken phrase in Twi or English..."
+                  className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block mb-1">
+                    Category:
+                  </label>
+                  <select
+                    value={correctionCategory}
+                    onChange={(e: any) => setCorrectionCategory(e.target.value)}
+                    className="w-full p-2 rounded-xl bg-slate-950 border border-slate-700 text-slate-200"
+                  >
+                    <option value="word">Word</option>
+                    <option value="name">Ghanaian Name</option>
+                    <option value="number">Phone Number</option>
+                    <option value="amount">Currency Amount</option>
+                    <option value="language">Language Dialect</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block mb-1">
+                    Reason:
+                  </label>
+                  <select
+                    value={correctionReason}
+                    onChange={(e) => setCorrectionReason(e.target.value)}
+                    className="w-full p-2 rounded-xl bg-slate-950 border border-slate-700 text-slate-200"
+                  >
+                    <option value="dialect_pronunciation">Dialect Accent</option>
+                    <option value="number_format">Digit Formatting</option>
+                    <option value="background_noise">Background Noise</option>
+                    <option value="code_switch">Code-Switching</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+              <button
+                onClick={() => sim.setShowCorrectionDialog(false)}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (correctionText.trim()) {
+                    sim.submitAsrCorrection({
+                      originalTranscript: sim.lastCompletedTurnText || "",
+                      correctedTranscript: correctionText.trim(),
+                      reason: correctionReason,
+                      category: correctionCategory,
+                    });
+                  }
+                }}
+                className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md transition-colors"
+              >
+                Save Correction
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

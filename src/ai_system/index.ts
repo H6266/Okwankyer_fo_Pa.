@@ -129,6 +129,7 @@ import { reasoningEngine } from "./understanding/reasoningEngine";
 import { ttsService } from "./speech/tts/ttsService";
 import { audioIngestor } from "./perception/audioIngestor";
 import { offlineAIEngine } from "./core/offlineAIEngine";
+import { asrOrchestrator } from "./speech/asr/asrOrchestrator";
 
 export const aiSystem = {
   process: async (input: any) => {
@@ -155,12 +156,25 @@ export const aiSystem = {
   },
 
   transcribe: async (params: { audioBuffer: string | Buffer; mimeType?: string; expectedLanguage?: string; step?: string }) => {
-    const res = await audioIngestor.transcribe(params.audioBuffer, params.mimeType, params.step);
+    const res = await asrOrchestrator.transcribe(params.audioBuffer, params.mimeType, {
+      languageHint: params.expectedLanguage,
+      step: params.step,
+    });
     return {
       text: res.text,
+      rawTranscript: res.rawTranscript,
+      normalizedTranscript: res.normalizedTranscript,
+      numericNormalizedTranscript: res.numericNormalizedTranscript,
       confidence: res.confidence,
-      languageDetected: res.language,
-      provider: "gemini-3.5-transcribe",
+      confidenceSource: res.confidenceSource,
+      languageDetected: res.languageDetected,
+      provider: res.providerUsed,
+      providerAttempted: res.providerAttempted,
+      fallbackUsed: res.fallbackUsed,
+      fallbackReason: res.fallbackReason,
+      latencyMs: res.latencyMs,
+      audioQuality: res.audioQuality,
+      pinDiscarded: res.pinDiscarded,
     };
   },
 

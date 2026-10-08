@@ -97,16 +97,19 @@ export interface AudioFrame {
 
 export interface TranscriptPartial {
   text: string;
-  confidence: number;
+  confidence: number | null;
   isFinal: false;
   timestamp: number;
 }
 
 export interface TranscriptFinal {
   text: string;
-  confidence: number;
+  confidence: number | null;
+  confidenceSource?: "provider" | "calibrated" | "provider_unreported" | "unavailable";
+  provider?: string;
+  fallbackUsed?: boolean;
   isFinal: true;
-  language?: AiLanguage;
+  language?: AiLanguage | string;
   timestamp: number;
 }
 

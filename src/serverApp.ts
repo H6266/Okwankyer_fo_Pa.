@@ -53,6 +53,7 @@ app.use((req: Request, res: Response, next) => {
   }
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD");
   res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, x-reference-id, x-reference_id");
+  res.header("Permissions-Policy", "microphone=*");
   if (req.method === "OPTIONS") {
     return res.sendStatus(200);
   }

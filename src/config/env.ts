@@ -28,6 +28,18 @@ export interface AppConfig {
     apiKey: string;
     baseUrl: string;
     configured: boolean;
+    timeoutMs: number;
+    retries: number;
+  };
+  asr: {
+    chunkMs: number;
+    overlapMs: number;
+    minSpeechMs: number;
+    silenceSplitMs: number;
+    maxConcurrentChunks: number;
+    feedbackEnabled: boolean;
+    feedbackRetentionDays: number;
+    languageIdEnabled: boolean;
   };
   at: {
     username: string;
@@ -160,6 +172,18 @@ export function loadConfig(): AppConfig {
       apiKey: (process.env.GHANANLP_API_KEY || "").trim(),
       baseUrl: (process.env.GHANANLP_BASE_URL || "https://translation-api.ghananlp.org").trim().replace(/\/+$/, ""),
       configured: Boolean((process.env.GHANANLP_API_KEY || "").trim()),
+      timeoutMs: Math.max(2000, parseInt(process.env.GHANANLP_ASR_TIMEOUT_MS || "15000", 10)),
+      retries: Math.max(0, Math.min(5, parseInt(process.env.GHANANLP_ASR_RETRIES || "2", 10))),
+    },
+    asr: {
+      chunkMs: Math.max(3000, parseInt(process.env.ASR_CHUNK_MS || "12000", 10)),
+      overlapMs: Math.max(200, parseInt(process.env.ASR_OVERLAP_MS || "1000", 10)),
+      minSpeechMs: Math.max(300, parseInt(process.env.ASR_MIN_SPEECH_MS || "1200", 10)),
+      silenceSplitMs: Math.max(200, parseInt(process.env.ASR_SILENCE_SPLIT_MS || "650", 10)),
+      maxConcurrentChunks: Math.max(1, Math.min(5, parseInt(process.env.ASR_MAX_CONCURRENT_CHUNKS || "2", 10))),
+      feedbackEnabled: process.env.ASR_FEEDBACK_ENABLED !== "false",
+      feedbackRetentionDays: Math.max(1, parseInt(process.env.ASR_FEEDBACK_RETENTION_DAYS || "90", 10)),
+      languageIdEnabled: process.env.ASR_LANGUAGE_ID_ENABLED !== "false",
     },
     at: {
       username: atUsername,

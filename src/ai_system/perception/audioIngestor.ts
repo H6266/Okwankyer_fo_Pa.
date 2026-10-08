@@ -84,8 +84,11 @@ export class AudioIngestor {
     return {
       text,
       confidence: sttResult.confidence,
+      confidenceSource: sttResult.confidenceSource,
+      provider: sttResult.provider,
+      fallbackUsed: sttResult.fallbackUsed,
       isFinal: true,
-      language: sttResult.languageDetected === "twi" ? "tw" : "en",
+      language: sttResult.languageDetected?.includes("tw") ? "tw" : "en",
       timestamp: Date.now(),
     };
   }

@@ -16,6 +16,11 @@ import {
   stripSystemEchoFromTranscript,
   isBackgroundNoiseOrStatic,
 } from "../domain/echoFilter";
+import {
+  ContinuousVoiceCapture,
+  MicrophoneState,
+  VoiceTelemetry,
+} from "../lib/audio/continuousVoiceCapture";
 import type {
   NavigationOutput,
   ActionOutput,
@@ -488,6 +493,45 @@ export function usePhoneSimulator() {
   const [modelEnabled, setModelEnabled] = useState<boolean>(true);
   const [languageOverride, setLanguageOverride] = useState<string>("");
   const [injectNoise, setInjectNoise] = useState<boolean>(false);
+  const [isVirtualVoiceMode, setIsVirtualVoiceMode] = useState<boolean>(false);
+  const [isHardwareMicGranted, setIsHardwareMicGranted] = useState<boolean | null>(null);
+
+  // Conversational Voice Subsystem States (Continuous AudioWorklet & Intelligent VAD)
+  const [micState, setMicState] = useState<MicrophoneState>("MIC_PERMISSION_REQUIRED");
+  const [micStateReason, setMicStateReason] = useState<string | null>(null);
+  const [vadState, setVadState] = useState<"SPEECH" | "SILENCE" | "NOISE_ADAPTING">("SILENCE");
+  const [isBargeInActive, setIsBargeInActive] = useState<boolean>(false);
+  const [voiceModeActive, setVoiceModeActive] = useState<"REAL_MIC" | "SIMULATED_VOICE">("REAL_MIC");
+  const [lastCompletedTurnText, setLastCompletedTurnText] = useState<string | null>(null);
+  const [showCorrectionDialog, setShowCorrectionDialog] = useState<boolean>(false);
+  const [voiceTelemetry, setVoiceTelemetry] = useState<VoiceTelemetry>({
+    micPermission: "unknown",
+    micActive: false,
+    streamActive: false,
+    audioContextState: "closed",
+    sampleRate: 16000,
+    channels: 1,
+    framesReceived: 0,
+    bytesReceived: 0,
+    speechFrames: 0,
+    noiseFrames: 0,
+    speechDurationMs: 0,
+    noiseDurationMs: 0,
+    currentVADState: "SILENCE",
+    currentASRProvider: "GhanaNLP_ASR_v3",
+    chunksCreated: 0,
+    chunksCompleted: 0,
+    chunksFailed: 0,
+    lastTranscript: "",
+    lastFinalTranscript: "",
+    lastASRLatencyMs: 0,
+    averageASRLatencyMs: 0,
+    p95ASRLatencyMs: 0,
+    bargeIns: 0,
+    fallbackCount: 0,
+  });
+
+  const voiceCaptureRef = useRef<ContinuousVoiceCapture | null>(null);
 
   // Audio Playback & Microphone
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -518,6 +562,9 @@ export function usePhoneSimulator() {
   const updateAiSpeaking = useCallback((speaking: boolean, promptText?: string) => {
     setIsAiSpeaking(speaking);
     isAiSpeakingRef.current = speaking;
+    if (voiceCaptureRef.current) {
+      voiceCaptureRef.current.setAiSpeaking(speaking);
+    }
     if (promptText) {
       activePromptTextRef.current = promptText;
     } else if (!speaking) {
@@ -1615,368 +1662,301 @@ export function usePhoneSimulator() {
   }, [gatewayMode, digitsBuffer, atCurrentCallbackUrl, atSessionId, atCallerPhone, processAtVoiceResponse, sendInputTurn]);
 
   /**
-   * Stop microphone, finalize captured speech, and submit to AI brain
+   * Continuous Conversational Voice Engine: Start listening with real microphone,
+   * AudioWorklet PCM streaming, adaptive VAD, and barge-in handling.
    */
-  const stopMicAndSubmit = useCallback(async (explicitText?: string) => {
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-    if (micTimeoutRef.current) {
-      clearTimeout(micTimeoutRef.current);
-      micTimeoutRef.current = null;
-    }
-    if (animFrameRef.current) {
-      cancelAnimationFrame(animFrameRef.current);
-      animFrameRef.current = null;
-    }
-    if (audioContextRef.current) {
-      try { audioContextRef.current.close(); } catch {}
-      audioContextRef.current = null;
-    }
-    setAudioLevel(0);
-
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.onresult = null;
-        recognitionRef.current.onerror = null;
-        recognitionRef.current.onend = null;
-        recognitionRef.current.abort();
-      } catch {}
-      recognitionRef.current = null;
-    }
-
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
-      try {
-        mediaRecorderRef.current.stop();
-      } catch {}
-    }
-
-    if (mediaStreamRef.current) {
-      try {
-        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-      } catch {}
-      mediaStreamRef.current = null;
-    }
-
-    setIsMicActive(false);
-    isMicActiveRef.current = false;
-
-    const rawCollected = (explicitText || capturedSpeechTextRef.current || interimTranscript || "").trim();
-    let textToSend = formatSpokenNumbersAsDigits(rawCollected);
-    capturedSpeechTextRef.current = "";
-
-    if (textToSend) {
-      if (isAcousticSystemEcho(textToSend, activePromptTextRef.current, isAiSpeakingRef.current)) {
-        const stripped = stripSystemEchoFromTranscript(textToSend, activePromptTextRef.current);
-        if (!stripped || isAcousticSystemEcho(stripped, activePromptTextRef.current)) {
-          setInterimTranscript("");
-          setTranscriptionStatus("IDLE");
-          setAiProcessingDetail("Ignored system voice echo · Focus on caller voice only");
-          return;
-        }
-        textToSend = stripped;
-      }
-      if (isBackgroundNoiseOrStatic(textToSend, audioLevelRef.current)) {
-        setInterimTranscript("");
-        setTranscriptionStatus("IDLE");
-        setAiProcessingDetail("Filtered background noise · Ready for voice");
-        return;
-      }
-
-      speechTurnSubmittedRef.current = true;
-      setInterimTranscript("");
-      setTranscriptionStatus("PROCESSING");
-      setAiProcessingPhase("LANGUAGE_DETECTION");
-      setAiProcessingDetail(`Transcribed: "${textToSend}" · Processing with AI...`);
-      await sendInputTurn(textToSend, "VOICE");
-    } else if (mediaRecorderRef.current) {
-      // Waiting for backend audio stream transcription to complete
-      setInterimTranscript("");
-      setTranscriptionStatus("PROCESSING");
-      setAiProcessingPhase("SPEECH_IN");
-      setAiProcessingDetail("Transcribing voice audio with Ghanaian Speech Recognition...");
-    } else {
-      setInterimTranscript("");
-      if (!speechTurnSubmittedRef.current) {
-        setTranscriptionStatus("IDLE");
-        setAiProcessingDetail("No speech detected. Tap mic to retry, tap a Ghanaian voice phrase, or type below!");
-      }
-    }
-  }, [interimTranscript, sendInputTurn]);
-
-  /**
-   * Toggle microphone with Real-time Speech-To-Text & Ghanaian ASR
-   */
-  const toggleMic = useCallback(async () => {
-    if (isMicActiveRef.current || isMicActive) {
-      await stopMicAndSubmit();
-      return;
-    }
+  const startContinuousVoice = useCallback(async () => {
+    setVoiceModeActive("REAL_MIC");
 
     // Auto-connect call immediately if not active
     if (!isActive) {
       await startCall(language === "tw" ? "tw" : "en");
     }
 
-    speechTurnSubmittedRef.current = false;
-    capturedSpeechTextRef.current = "";
-    setInterimTranscript("");
-    setIsMicActive(true);
-    isMicActiveRef.current = true;
-    setTranscriptionStatus("LISTENING");
-    setAiProcessingPhase("SPEECH_IN");
-    setAiProcessingDetail("Listening... Speak now in Ghanaian English or Akan Twi");
-
-    // 1. Web Speech Recognition for Real-Time Streaming
-    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    let recStarted = false;
-
-    if (SpeechRec) {
-      try {
-        if (recognitionRef.current) {
-          try {
-            recognitionRef.current.onresult = null;
-            recognitionRef.current.onerror = null;
-            recognitionRef.current.onend = null;
-            recognitionRef.current.abort();
-          } catch {}
-          recognitionRef.current = null;
-        }
-
-        const rec = new SpeechRec();
-        rec.continuous = true;
-        rec.interimResults = true;
-        // en-GH is the standard Ghanaian English locale with phonetic recognition for Ghanaian names/cedis
-        rec.lang = "en-GH";
-
-        rec.onstart = () => {
-          recStarted = true;
-          setTranscriptionStatus("LISTENING");
-          setAiProcessingPhase("SPEECH_IN");
-          setAiProcessingDetail("Microphone active · Speak now in Ghanaian accent...");
-        };
-
-        rec.onresult = (e: any) => {
-          let interim = "";
-          let final = "";
-          for (let i = 0; i < e.results.length; i++) {
-            const item = e.results[i];
-            if (item.isFinal) {
-              final += " " + item[0].transcript;
-            } else {
-              interim += item[0].transcript;
-            }
+    if (!voiceCaptureRef.current) {
+      voiceCaptureRef.current = new ContinuousVoiceCapture({
+        onStateChange: (newState, reason) => {
+          setMicState(newState);
+          if (reason) setMicStateReason(reason);
+          if (newState === "MIC_ACTIVE") {
+            setIsMicActive(true);
+            isMicActiveRef.current = true;
+            setIsHardwareMicGranted(true);
+            setIsVirtualVoiceMode(false);
+            setTranscriptionStatus("LISTENING");
+            setAiProcessingPhase("SPEECH_IN");
+            setAiProcessingDetail("🎙️ Listening continuously... Speak in Ghanaian English or Akan Twi");
+          } else if (newState === "MIC_INTERRUPTED") {
+            setIsBargeInActive(true);
+            setTranscriptionStatus("LISTENING");
+            setAiProcessingDetail("Interrupted assistant · Prioritizing caller speech");
+            setTimeout(() => setIsBargeInActive(false), 800);
+          } else if (newState === "MIC_MUTED" || newState === "MIC_STOPPED") {
+            setIsMicActive(false);
+            isMicActiveRef.current = false;
           }
-          let combined = (final + " " + interim).trim();
-          if (!combined) return;
+        },
+        onAudioLevel: (level) => {
+          setAudioLevel(level);
+          audioLevelRef.current = level;
+        },
+        onVadUpdate: (vad) => {
+          setVadState(vad.speechActive ? "SPEECH" : "SILENCE");
+        },
+        onBargeIn: () => {
+          // Instantly pause assistant audio or cancel speech synthesis
+          if (audioRef.current) {
+            try { audioRef.current.pause(); } catch {}
+          }
+          if ("speechSynthesis" in window) {
+            try { window.speechSynthesis.cancel(); } catch {}
+          }
+          setIsAiSpeaking(false);
+          isAiSpeakingRef.current = false;
+        },
+        onUtteranceComplete: async (wavBase64, durationMs) => {
+          // Automatic end of user speech turn detected by VAD!
+          setTranscriptionStatus("PROCESSING");
+          setAiProcessingPhase("SPEECH_IN");
+          setAiProcessingDetail("Transcribing voice audio with GhanaNLP Primary ASR...");
 
-          // 1. Background noise and acoustic non-verbal filter
-          if (isBackgroundNoiseOrStatic(combined, audioLevelRef.current)) {
+          const startTime = performance.now();
+          try {
+            const asrRes = await api.transcribeAudio(wavBase64, "audio/wav", language, currentStep);
+            const latency = Math.round(performance.now() - startTime);
+            const rawText = asrRes?.result?.text || "";
+            const provider = asrRes?.result?.provider || "GhanaNLP_ASR_v3";
+
+            voiceCaptureRef.current?.updateTelemetry({
+              chunksCompleted: (voiceCaptureRef.current.getTelemetry().chunksCompleted || 0) + 1,
+              lastASRLatencyMs: latency,
+              currentASRProvider: provider,
+            });
+
+            if (rawText && rawText !== "empty" && rawText.trim().length > 0) {
+              let textToSend = formatSpokenNumbersAsDigits(rawText);
+
+              // Echo suppression against assistant prompt
+              if (isAcousticSystemEcho(textToSend, activePromptTextRef.current, isAiSpeakingRef.current)) {
+                const stripped = stripSystemEchoFromTranscript(textToSend, activePromptTextRef.current);
+                if (!stripped || isAcousticSystemEcho(stripped, activePromptTextRef.current)) {
+                  setTranscriptionStatus("LISTENING");
+                  setAiProcessingDetail("Ignored system voice echo · Resuming listening");
+                  return;
+                }
+                textToSend = stripped;
+              }
+
+              // Background noise suppression
+              if (isBackgroundNoiseOrStatic(textToSend, audioLevelRef.current)) {
+                setTranscriptionStatus("LISTENING");
+                setAiProcessingDetail("Filtered background noise · Ready for speech");
+                return;
+              }
+
+              voiceCaptureRef.current?.updateTelemetry({
+                lastTranscript: textToSend,
+                lastFinalTranscript: textToSend,
+              });
+
+              setInterimTranscript(textToSend);
+              setLastTranscription(textToSend);
+              setPipelineLatency(latency);
+              setLastCompletedTurnText(textToSend);
+              setTranscriptionStatus("PROCESSING");
+              setAiProcessingPhase("LANGUAGE_DETECTION");
+              setAiProcessingDetail(`Heard: "${textToSend}" · Processing with AI Brain...`);
+
+              // Automatically submit turn to AI Brain without requiring Send click!
+              await sendInputTurn(textToSend, "VOICE");
+            } else {
+              setTranscriptionStatus("LISTENING");
+              setAiProcessingDetail("Listening continuously... Speak in Ghanaian English or Akan Twi");
+            }
+          } catch (err: any) {
+            console.warn("[VoiceCapture] ASR error:", err);
+            voiceCaptureRef.current?.updateTelemetry({
+              chunksFailed: (voiceCaptureRef.current.getTelemetry().chunksFailed || 0) + 1,
+            });
+            setTranscriptionStatus("LISTENING");
+            setAiProcessingDetail("Listening continuously... Speak when ready");
+          }
+        },
+        onTelemetryUpdate: (telemetry) => {
+          setVoiceTelemetry(telemetry);
+        },
+      });
+    }
+
+    const success = await voiceCaptureRef.current.start();
+    if (success) {
+      sessionStorage.setItem("okwankyer_voice_active", "true");
+    } else {
+      // If hardware microphone is denied or restricted by iframe permissions policy,
+      // fallback to Ghanaian Smart Voice Mode without freezing the UI!
+      setIsHardwareMicGranted(false);
+      setIsVirtualVoiceMode(true);
+      setAiProcessingDetail("🎙️ Smart Voice Mode Active · Choose a Ghanaian voice phrase or upload audio");
+    }
+    return success;
+  }, [isActive, language, currentStep, startCall, sendInputTurn]);
+
+  const startContinuousVoiceRef = useRef(startContinuousVoice);
+  useEffect(() => {
+    startContinuousVoiceRef.current = startContinuousVoice;
+  }, [startContinuousVoice]);
+
+  // ── Automatic Conversational Voice Startup & Capability Check ──
+  useEffect(() => {
+    let unmounted = false;
+
+    const probeAndAutoStartVoice = async () => {
+      if (typeof window === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+        if (!unmounted) {
+          setMicState("MIC_UNAVAILABLE");
+          setMicStateReason("Microphone hardware access is not supported in this browser environment.");
+        }
+        return;
+      }
+
+      // Check browser permissions query if available
+      let permissionGranted = false;
+      if (navigator.permissions && navigator.permissions.query) {
+        try {
+          const status = await navigator.permissions.query({ name: "microphone" as PermissionName });
+          if (status.state === "granted") {
+            permissionGranted = true;
+          } else if (status.state === "denied") {
+            if (!unmounted) {
+              setMicState("MIC_UNAVAILABLE");
+              setMicStateReason("Browser blocked microphone permission.");
+            }
             return;
           }
-
-          // 2. Acoustic echo filter: Ignore system audio / prompt playback picked up by the microphone
-          if (isAcousticSystemEcho(combined, activePromptTextRef.current, isAiSpeakingRef.current)) {
-            const stripped = stripSystemEchoFromTranscript(combined, activePromptTextRef.current);
-            if (!stripped || stripped === combined || isAcousticSystemEcho(stripped, activePromptTextRef.current)) {
-              // Utterance is purely system audio echoing back from speaker. Silently discard!
-              return;
-            }
-            combined = stripped;
-          }
-
-          // 3. User barge-in detection: If caller speaks an authentic command while system is speaking,
-          // pause the system audio playback so the user has the floor cleanly!
-          if (isAiSpeakingRef.current) {
-            if (audioRef.current) {
-              try { audioRef.current.pause(); } catch {}
-            }
-            if ("speechSynthesis" in window) {
-              try { window.speechSynthesis.cancel(); } catch {}
-            }
-            updateAiSpeaking(false);
-          }
-
-          // 4. Format all spoken numbers as numeric digits (e.g. "2" not "two", "1" not "one", "baako" -> "1")
-          const normalizedCombined = formatSpokenNumbersAsDigits(combined);
-          capturedSpeechTextRef.current = normalizedCombined;
-          setInterimTranscript(normalizedCombined);
-          setTranscriptionStatus("LISTENING");
-          setAiProcessingDetail(`Heard: "${normalizedCombined}"`);
-
-          // 5. Adaptive Fast-Submit Timer:
-          // Single digits or quick commands submit in 800ms for instantaneous response; longer input gets 1600ms
-          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-          const isShortCommand = /^(?:\d{1,2}|aane|dabi|yes|no|confirm|cancel|stop|back|mtn|telecel|at)$/i.test(normalizedCombined);
-          const silenceDelay = isShortCommand ? 800 : 1600;
-
-          silenceTimerRef.current = setTimeout(() => {
-            if (isMicActiveRef.current) {
-              stopMicAndSubmit();
-            }
-          }, silenceDelay);
-        };
-
-        rec.onerror = (e: any) => {
-          console.warn("[PhoneSimulator ASR] Event notice:", e.error);
-          if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-            // Note: in cross-origin / sandboxed iframes, Web Speech API throws not-allowed.
-            // Do NOT cancel recording here; MediaRecorder & getUserMedia will continue!
-            recognitionRef.current = null;
-            if (!mediaStreamRef.current && !mediaRecorderRef.current) {
-              setAiProcessingDetail("Web Speech restricted in iframe · Recording speech audio stream...");
-            }
-          } else if (e.error === "language-not-supported") {
-            try {
-              rec.lang = "en-US";
-              rec.start();
-            } catch {}
-          } else if (e.error === "no-speech") {
-            // Do not abort, let user speak or let silence timer finish
-          }
-        };
-
-        rec.onend = () => {
-          // Prevent infinite restart loops on error or after submission
-          if (isMicActiveRef.current && recognitionRef.current && recStarted && !speechTurnSubmittedRef.current) {
-            try {
-              recognitionRef.current.start();
-            } catch {}
-          }
-        };
-
-        recognitionRef.current = rec;
-        rec.start();
-        recStarted = true;
-      } catch (err) {
-        console.warn("[PhoneSimulator ASR] SpeechRecognition could not start:", err);
-      }
-    }
-
-    // 2. Hardware Audio Stream with Live Volume Equalizer & Fallback
-    try {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-            channelCount: 1,
-            sampleRate: 16000,
-          },
-        }).catch(async () => {
-          return await navigator.mediaDevices.getUserMedia({ audio: true }).catch((err) => {
-            console.warn("[PhoneSimulator] getUserMedia permission notice:", err);
-            return null;
-          });
-        });
-
-        if (stream) {
-          mediaStreamRef.current = stream;
-
-          // Equalizer animation
-          try {
-            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-            if (AudioCtx) {
-              const ctx = new AudioCtx();
-              audioContextRef.current = ctx;
-              const analyser = ctx.createAnalyser();
-              analyser.fftSize = 32;
-              analyserRef.current = analyser;
-              const source = ctx.createMediaStreamSource(stream);
-              source.connect(analyser);
-
-              const buffer = new Uint8Array(analyser.frequencyBinCount);
-              const checkVolume = () => {
-                if (!analyserRef.current || !isMicActiveRef.current) return;
-                analyserRef.current.getByteFrequencyData(buffer);
-                let total = 0;
-                for (let i = 0; i < buffer.length; i++) total += buffer[i];
-                const score = Math.min(100, Math.round((total / buffer.length) * 1.8));
-                audioLevelRef.current = score;
-                setAudioLevel(score);
-                animFrameRef.current = requestAnimationFrame(checkVolume);
-              };
-              checkVolume();
-            }
-          } catch {}
-
-          // Fallback MediaRecorder
-          if (typeof MediaRecorder !== "undefined") {
-            const recorder = new MediaRecorder(stream);
-            const chunks: Blob[] = [];
-            recorder.ondataavailable = (e) => {
-              if (e.data.size > 0) chunks.push(e.data);
-            };
-            recorder.onstop = async () => {
-              if (!speechTurnSubmittedRef.current && chunks.length > 0) {
-                const blob = new Blob(chunks, { type: "audio/webm" });
-                const reader = new FileReader();
-                reader.onloadend = async () => {
-                  const base64 = (reader.result as string)?.split(",")[1];
-                  if (base64 && !speechTurnSubmittedRef.current) {
-                    try {
-                      setTranscriptionStatus("PROCESSING");
-                      setAiProcessingDetail("Transcribing with Ghanaian Neural ASR...");
-                      const asrRes = await api.transcribeAudio(base64, "audio/webm", language, currentStep);
-                      const rawRecognized = asrRes?.result?.text;
-                      const recognized = rawRecognized && rawRecognized !== "empty" ? formatSpokenNumbersAsDigits(rawRecognized) : rawRecognized;
-                      if (recognized && recognized !== "empty" && recognized.trim().length > 0) {
-                        if (isAcousticSystemEcho(recognized, activePromptTextRef.current, isAiSpeakingRef.current)) {
-                          console.log("[ASR] Filtered out acoustic system echo from audio stream:", recognized);
-                          setTranscriptionStatus("IDLE");
-                          setAiProcessingDetail("Ignored system voice echo · Focus on caller voice only");
-                          return;
-                        }
-                        if (isBackgroundNoiseOrStatic(recognized, audioLevelRef.current)) {
-                          setTranscriptionStatus("IDLE");
-                          return;
-                        }
-                        speechTurnSubmittedRef.current = true;
-                        setAiProcessingDetail(`Transcribed: "${recognized}"`);
-                        await sendInputTurn(recognized, "VOICE");
-                      } else {
-                        setTranscriptionStatus("IDLE");
-                        setAiProcessingDetail("No words detected. Tap mic or a voice chip to try again!");
-                      }
-                    } catch (err) {
-                      console.warn("[PhoneSimulator ASR] Backend transcription fallback:", err);
-                      setTranscriptionStatus("IDLE");
-                    }
-                  }
-                };
-                reader.readAsDataURL(blob);
-              }
-            };
-            recorder.start();
-            mediaRecorderRef.current = recorder;
-          }
-        } else if (!recStarted) {
-          // Neither Web Speech nor getUserMedia succeeded
-          setTranscriptionStatus("ERROR");
-          setAiProcessingDetail("Browser blocked mic in preview iframe. Tap a Ghanaian voice chip, upload audio, or type below!");
-          setIsMicActive(false);
-          isMicActiveRef.current = false;
+        } catch {
+          // Permissions query not supported for mic on some browsers
         }
       }
-    } catch (micErr: any) {
-      console.warn("[PhoneSimulator] getUserMedia exception:", micErr);
-      if (!recStarted) {
-        setTranscriptionStatus("ERROR");
-        setAiProcessingDetail("Microphone blocked in browser. Tap a voice test chip below!");
-        setIsMicActive(false);
-        isMicActiveRef.current = false;
-      }
-    }
 
-    // Safety timeout: auto stop after 8s to ensure mic is never stuck indefinitely
-    micTimeoutRef.current = setTimeout(() => {
-      if (isMicActiveRef.current) {
-        stopMicAndSubmit();
+      // Check session storage preference
+      const sessionPref = sessionStorage.getItem("okwankyer_voice_active");
+      if (sessionPref === "true" || permissionGranted) {
+        // Auto-start continuous conversational listening without requiring button press!
+        if (!unmounted) {
+          startContinuousVoiceRef.current();
+        }
+      } else {
+        if (!unmounted) {
+          setMicState("MIC_PERMISSION_REQUIRED");
+          setMicStateReason("First-use activation: click to enable continuous conversational microphone.");
+        }
       }
-    }, 8000);
-  }, [isActive, isMicActive, language, currentStep, startCall, stopMicAndSubmit, sendInputTurn]);
+    };
+
+    probeAndAutoStartVoice();
+
+    return () => {
+      unmounted = true;
+      if (voiceCaptureRef.current) {
+        voiceCaptureRef.current.stop();
+      }
+    };
+  }, []);
+
+  /**
+   * Toggle microphone state: active -> muted, muted -> active, stopped -> start
+   */
+  const toggleMic = useCallback(async () => {
+    if (micState === "MIC_ACTIVE") {
+      voiceCaptureRef.current?.mute();
+      setIsMicActive(false);
+      isMicActiveRef.current = false;
+      setTranscriptionStatus("PAUSED");
+      setAiProcessingDetail("Microphone paused. Tap to resume conversational listening.");
+    } else if (micState === "MIC_MUTED") {
+      voiceCaptureRef.current?.unmute();
+      setIsMicActive(true);
+      isMicActiveRef.current = true;
+      setTranscriptionStatus("LISTENING");
+      setAiProcessingDetail("Listening continuously... Speak now in Ghanaian English or Akan Twi");
+    } else {
+      await startContinuousVoice();
+    }
+  }, [micState, startContinuousVoice]);
+
+  /**
+   * Stop microphone, finalize captured speech, and submit to AI brain (diagnostic or manual entry)
+   */
+  const stopMicAndSubmit = useCallback(async (explicitText?: string) => {
+    if (voiceCaptureRef.current) {
+      voiceCaptureRef.current.stop();
+    }
+    setIsMicActive(false);
+    isMicActiveRef.current = false;
+    setAudioLevel(0);
+
+    const rawCollected = (explicitText || capturedSpeechTextRef.current || interimTranscript || "").trim();
+    const textToSend = formatSpokenNumbersAsDigits(rawCollected);
+    capturedSpeechTextRef.current = "";
+
+    if (textToSend) {
+      setInterimTranscript("");
+      setTranscriptionStatus("PROCESSING");
+      setAiProcessingPhase("LANGUAGE_DETECTION");
+      setAiProcessingDetail(`Transcribed: "${textToSend}" · Processing with AI...`);
+      await sendInputTurn(textToSend, "VOICE");
+    } else {
+      setInterimTranscript("");
+      setTranscriptionStatus("IDLE");
+      setAiProcessingDetail("Listening paused. Tap mic to resume continuous conversation.");
+    }
+  }, [interimTranscript, sendInputTurn]);
+
+  /**
+   * One-click first-use activation handler
+   */
+  const enableConversationalVoice = useCallback(async () => {
+    await startContinuousVoice();
+  }, [startContinuousVoice]);
+
+  /**
+   * Retry hardware microphone connection
+   */
+  const retryHardwareMic = useCallback(async () => {
+    setIsHardwareMicGranted(null);
+    setIsVirtualVoiceMode(false);
+    await startContinuousVoice();
+  }, [startContinuousVoice]);
+
+  /**
+   * Submit sanitized ASR correction feedback (No PINs or secrets saved)
+   */
+  const submitAsrCorrection = useCallback(async (correction: {
+    originalTranscript: string;
+    correctedTranscript: string;
+    reason: string;
+    category?: "name" | "number" | "amount" | "word" | "language";
+  }) => {
+    try {
+      await fetch("/api/ai/asr/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId,
+          provider: voiceTelemetry.currentASRProvider || "GhanaNLP_ASR_v3",
+          language: language === "tw" ? "twi" : "eng",
+          originalTranscript: correction.originalTranscript,
+          correctedTranscript: correction.correctedTranscript,
+          reason: correction.reason,
+          userConsent: true,
+        }),
+      });
+      setShowCorrectionDialog(false);
+      setAiProcessingDetail("Thank you! Ground truth correction recorded for ASR evaluation.");
+    } catch (e) {
+      console.warn("Failed to submit ASR correction:", e);
+    }
+  }, [sessionId, language, voiceTelemetry.currentASRProvider]);
 
   /**
    * Upload audio file directly for Ghanaian Speech Recognition
@@ -2293,7 +2273,7 @@ export function usePhoneSimulator() {
   }, [isActive, language, startCall, sendInputTurn]);
 
   /**
-   * 1-Click Feature Trigger: Ingest ASR Voice Sample with Live Transcription Streaming
+   * 1-Click Feature Trigger: Ingest ASR Voice Sample with Live Transcription Streaming & Audible Voice
    */
   const simulateAsrSample = useCallback(async (text: string, lang: "en" | "tw" = "en") => {
     const normalizedText = formatSpokenNumbersAsDigits(text);
@@ -2303,7 +2283,18 @@ export function usePhoneSimulator() {
     setInterimTranscript(normalizedText);
     setAiProcessingPhase("SPEECH_IN");
     setAiProcessingDetail(`Streaming ASR: "${normalizedText}"`);
-    setAudioLevel(75);
+    setAudioLevel(85);
+
+    // Physical voice audio feedback: Caller speaks into phone call
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(normalizedText);
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        window.speechSynthesis.speak(utterance);
+      } catch {}
+    }
 
     setTimeout(() => {
       setAudioLevel(0);
@@ -2312,7 +2303,7 @@ export function usePhoneSimulator() {
       setAiProcessingPhase("INTENT_EXTRACTION");
       setAiProcessingDetail(`Transcribed: "${normalizedText}" · Routing through Ghanaian NLU & Zero-PIN guard...`);
       sendInputTurn(normalizedText, "VOICE");
-    }, 450);
+    }, 480);
   }, [isActive, startCall, sendInputTurn]);
 
   /**
@@ -2411,6 +2402,23 @@ export function usePhoneSimulator() {
     lastTranscription,
     pipelineLatency,
     audioLevel,
+    isVirtualVoiceMode,
+    isHardwareMicGranted,
+    retryHardwareMic,
+
+    // Conversational Voice & Real-Time ASR Engine Exports
+    micState,
+    micStateReason,
+    vadState,
+    voiceTelemetry,
+    isBargeInActive,
+    voiceModeActive,
+    lastCompletedTurnText,
+    showCorrectionDialog,
+    setShowCorrectionDialog,
+    enableConversationalVoice,
+    startContinuousVoice,
+    submitAsrCorrection,
 
     // Africa's Talking Telephony Mode & State
     gatewayMode,
