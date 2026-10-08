@@ -37,6 +37,10 @@ interface EvaluationResult {
   offlineSlotCorrect: number;
   liveIntentCorrect: number;
   liveSlotCorrect: number;
+  liveModelCalls: number;
+  liveFallbacks: number;
+  offlineFailedTranscripts: Array<{ id: string; transcript: string; reason: string }>;
+  liveFailedTranscripts: Array<{ id: string; transcript: string; reason: string }>;
   byScenario: Record<string, {
     total: number;
     offlineIntentCorrect: number;
@@ -64,6 +68,10 @@ export async function runEvaluation(datasetPath?: string): Promise<EvaluationRes
     offlineSlotCorrect: 0,
     liveIntentCorrect: 0,
     liveSlotCorrect: 0,
+    liveModelCalls: 0,
+    liveFallbacks: 0,
+    offlineFailedTranscripts: [],
+    liveFailedTranscripts: [],
     byScenario: {
       en: { total: 0, offlineIntentCorrect: 0, offlineSlotCorrect: 0, liveIntentCorrect: 0, liveSlotCorrect: 0 },
       twi: { total: 0, offlineIntentCorrect: 0, offlineSlotCorrect: 0, liveIntentCorrect: 0, liveSlotCorrect: 0 },
@@ -89,7 +97,7 @@ export async function runEvaluation(datasetPath?: string): Promise<EvaluationRes
     // 1. Evaluate Offline Engine
     const offlineOut = await offlineBrain.process(input);
     const offlineIntentMatch =
-      offlineOut.decision.intent === item.expectedIntent ||
+      ('intent' in offlineOut.decision && offlineOut.decision.intent === item.expectedIntent) ||
       offlineOut.updatedDraft.intent === item.expectedIntent;
 
     let offlineSlotsMatch = true;
@@ -112,6 +120,13 @@ export async function runEvaluation(datasetPath?: string): Promise<EvaluationRes
       result.offlineSlotCorrect++;
       scenarioStats.offlineSlotCorrect++;
     }
+    if (!offlineIntentMatch || !offlineSlotsMatch) {
+      result.offlineFailedTranscripts.push({
+        id: item.id,
+        transcript: item.transcript,
+        reason: !offlineIntentMatch ? `Intent mismatch: expected ${item.expectedIntent}` : `Slot mismatch`,
+      });
+    }
 
     // 2. Evaluate Live Model (or mirror offline when API unconfigured)
     let liveIntentMatch = false;
@@ -119,9 +134,10 @@ export async function runEvaluation(datasetPath?: string): Promise<EvaluationRes
 
     if (liveAvailable) {
       try {
+        result.liveModelCalls++;
         const liveOut = await liveBrain.process(input);
         liveIntentMatch =
-          liveOut.decision.intent === item.expectedIntent ||
+          ('intent' in liveOut.decision && liveOut.decision.intent === item.expectedIntent) ||
           liveOut.updatedDraft.intent === item.expectedIntent;
 
         liveSlotsMatch = true;
@@ -136,12 +152,12 @@ export async function runEvaluation(datasetPath?: string): Promise<EvaluationRes
           }
         }
       } catch {
-        // Fallback to offline match on network failure
+        result.liveFallbacks++;
         liveIntentMatch = offlineIntentMatch;
         liveSlotsMatch = offlineSlotsMatch;
       }
     } else {
-      // When live model key is unset, live brain transparently executes with offline fallback
+      result.liveFallbacks++;
       liveIntentMatch = offlineIntentMatch;
       liveSlotsMatch = offlineSlotsMatch;
     }
@@ -153,6 +169,13 @@ export async function runEvaluation(datasetPath?: string): Promise<EvaluationRes
     if (liveSlotsMatch) {
       result.liveSlotCorrect++;
       scenarioStats.liveSlotCorrect++;
+    }
+    if (!liveIntentMatch || !liveSlotsMatch) {
+      result.liveFailedTranscripts.push({
+        id: item.id,
+        transcript: item.transcript,
+        reason: !liveIntentMatch ? `Intent mismatch: expected ${item.expectedIntent}` : `Slot mismatch`,
+      });
     }
   }
 
@@ -170,7 +193,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       console.log(`Offline Overall Intent Accuracy : ${((res.offlineIntentCorrect / res.total) * 100).toFixed(1)}%`);
       console.log(`Offline Overall Slot Accuracy   : ${((res.offlineSlotCorrect / res.total) * 100).toFixed(1)}%`);
       console.log(`Live Model Intent Accuracy      : ${((res.liveIntentCorrect / res.total) * 100).toFixed(1)}%`);
-      console.log(`Live Model Slot Accuracy        : ${((res.liveSlotCorrect / res.total) * 100).toFixed(1)}%\n`);
+      console.log(`Live Model Slot Accuracy        : ${((res.liveSlotCorrect / res.total) * 100).toFixed(1)}%`);
+      console.log(`Live Model Calls Executed       : ${res.liveModelCalls}`);
+      console.log(`Live Model Fallback Count       : ${res.liveFallbacks}\n`);
 
       console.log('--- Breakdown by Scenario ---');
       for (const [scenario, stats] of Object.entries(res.byScenario)) {
@@ -178,6 +203,16 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         const pctSlot = ((stats.offlineSlotCorrect / stats.total) * 100).toFixed(1);
         console.log(`[${scenario.toUpperCase().padEnd(14)}] Count: ${stats.total} | Intent: ${pctIntent}% | Slot: ${pctSlot}%`);
       }
+
+      console.log('\n--- Failed Transcripts (Offline) ---');
+      res.offlineFailedTranscripts.forEach((f) => {
+        console.log(`  • [${f.id}] "${f.transcript}" -> ${f.reason}`);
+      });
+
+      console.log('\n--- Failed Transcripts (Live Model) ---');
+      res.liveFailedTranscripts.forEach((f) => {
+        console.log(`  • [${f.id}] "${f.transcript}" -> ${f.reason}`);
+      });
       console.log('========================================================================');
     })
     .catch((err) => {

@@ -567,7 +567,7 @@ export class AiEngine {
       traceId: `tr_${Date.now()}`,
       sessionId: ctx.sessionId,
       timestamp: Date.now(),
-      input: ctx.rawInput,
+      input: ctx.sanitizedInput,
       normalizedInput: ctx.normalizedInput,
       detectedLanguage: ctx.detectedLanguage,
       intent,

@@ -68,21 +68,42 @@ export class GhanaianNumberDecoder {
 
     // 2. Check for Spoken Ghanaian Phone Sequence ("zero five five..." or "hwee num num...")
     const rawTokens = text.split(/\s+/).filter(Boolean);
-    const potentialPhoneDigits: string[] = [];
-    for (const t of rawTokens) {
-      const norm = normalizeAkanToken(t);
-      if (/^[0-9]$/.test(t)) {
-        potentialPhoneDigits.push(t);
-      } else {
-        const val = SHARED_TOKEN_VALUES[norm];
-        if (val !== undefined && val <= 9) {
-          potentialPhoneDigits.push(val.toString());
+
+    // Scan for a contiguous run of 10 spoken digits starting with 0 (e.g. 055...)
+    let spokenPhoneTokensIndex = -1;
+    let spokenPhoneDigits: string | undefined;
+
+    for (let i = 0; i <= rawTokens.length - 10; i++) {
+      const slice = rawTokens.slice(i, i + 10);
+      const digits: string[] = [];
+      for (const t of slice) {
+        const norm = normalizeAkanToken(t);
+        if (/^[0-9]$/.test(t)) {
+          digits.push(t);
+        } else if (norm === 'nnum') {
+          digits.push('5');
+        } else {
+          const val = SHARED_TOKEN_VALUES[norm];
+          if (val !== undefined && val <= 9) {
+            digits.push(val.toString());
+          } else {
+            break;
+          }
         }
+      }
+      if (digits.length === 10 && digits[0] === '0') {
+        spokenPhoneTokensIndex = i;
+        spokenPhoneDigits = digits.join('');
+        break;
       }
     }
 
-    if (potentialPhoneDigits.length === 10 && potentialPhoneDigits[0] === "0" && letterTokensCount <= 35) {
-      const reconstructedPhone = potentialPhoneDigits.join("");
+    if (spokenPhoneDigits && !embeddedPhoneNumber) {
+      embeddedPhoneNumber = spokenPhoneDigits;
+    }
+
+    // Pure phone utterance check (entire input is just the 10 spoken phone digits)
+    if (spokenPhoneDigits && rawTokens.length === 10) {
       return {
         raw: input,
         value: null,
@@ -90,7 +111,7 @@ export class GhanaianNumberDecoder {
         ambiguous: false,
         candidates: [],
         isPhoneNumber: true,
-        phoneNumberDigits: reconstructedPhone,
+        phoneNumberDigits: spokenPhoneDigits,
         isCurrencyAmount: false,
         confidence: 0.95,
       };
@@ -99,7 +120,9 @@ export class GhanaianNumberDecoder {
     // 3. Check for Direct Digits (e.g. "50 cedis", "100 GHS")
     // Remove the embedded phone number so phone digits aren't treated as currency amounts
     const textWithoutPhone = embeddedPhoneNumber ? text.replace(embeddedPhoneNumber, ' ') : text;
-    const digitAmountMatch = textWithoutPhone.match(/(\d+(?:\.\d+)?)\s*(?:cedis?|ghs|sidi|pesewas?)?/i);
+    // Prefer explicit currency-tagged number (e.g. "40 cedis" over untagged meter number "123456")
+    const currencyTaggedMatch = textWithoutPhone.match(/\b(\d+(?:\.\d+)?)\s*(?:cedis?|ghs|sidi|pesewas?)\b/i);
+    const digitAmountMatch = currencyTaggedMatch || textWithoutPhone.match(/(\d+(?:\.\d+)?)\s*(?:cedis?|ghs|sidi|pesewas?)?/i);
     const hasCurrencyWord = /(?:cedis?|ghs|sidi|pesewas?|kaprɛ)/i.test(text);
 
     if (digitAmountMatch && digitAmountMatch[1]) {
@@ -121,7 +144,10 @@ export class GhanaianNumberDecoder {
     }
 
     // 4. Decode Spoken Number in Twi or English
-    const tokensForSpoken = textWithoutPhone.split(/\s+/).filter(Boolean);
+    // CRITICAL INVARIANT: Strip spoken phone digits from amount token stream so phone digits NEVER leak into amount!
+    const tokensForSpoken = spokenPhoneTokensIndex !== -1
+      ? rawTokens.filter((_, idx) => idx < spokenPhoneTokensIndex || idx >= spokenPhoneTokensIndex + 10)
+      : textWithoutPhone.split(/\s+/).filter(Boolean);
     const spokenResult = this.parseSpokenNumber(tokensForSpoken);
 
     if (spokenResult.ambiguous) {

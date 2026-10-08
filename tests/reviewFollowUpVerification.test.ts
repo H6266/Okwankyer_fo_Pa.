@@ -19,7 +19,7 @@ describe('Review Follow-Up Verification Tests', () => {
 
   // ── 1. A9 Invariant: Dispatch is IMPOSSIBLE without complete readback ───────
   describe('1. A9 Read-back Security Invariant', () => {
-    it('refuses to dispatch if previous reply was a keypad fallback prompt without reading back amount and recipient', async () => {
+    it('keypad-fallback reply -> no readback record -> DTMF 1 cannot dispatch', async () => {
       // Simulate draft where amount was diverted to keypad fallback prompt
       const fallbackDraft = {
         intent: 'momo.transfer' as const,
@@ -29,7 +29,9 @@ describe('Review Follow-Up Verification Tests', () => {
         },
         confirmed: false,
         lastReplyKind: 'confirm' as const,
-        lastConfirmReadbackText: APPROVED_KEYPAD_FALLBACK_PROMPT, // "Please enter the amount on your phone keypad."
+        lastConfirmReadbackText: APPROVED_KEYPAD_FALLBACK_PROMPT,
+        // No readback record stored because amount/recipient were not spoken
+        readback: undefined,
         confirmedDraftHash: 'hash_test_123',
       };
 
@@ -42,10 +44,50 @@ describe('Review Follow-Up Verification Tests', () => {
         draft: fallbackDraft as any,
       });
 
-      // INVARIANT: Cannot dispatch! Must refuse confirmation because amount was never read back
+      // INVARIANT: Cannot dispatch without readback record!
       expect(result.decision.kind).toBe('confirm');
       expect(result.updatedDraft.confirmed).toBe(false);
       expect(result.decision.kind).not.toBe('dispatch');
+    });
+
+    it('changed amount -> hash mismatch -> no dispatch', async () => {
+      const offlineBrain = new Brain({ mode: 'offline_only' });
+      // Turn 1: genuine read-back for 50 cedis
+      const turn1 = await offlineBrain.process({
+        transcript: 'Send 50 cedis to 0553838464',
+        language: 'en',
+        languageConfidence: 0.95,
+        sessionLanguage: 'en',
+        draft: { slots: {} },
+      });
+
+      expect(turn1.decision.kind).toBe('confirm');
+      expect(turn1.updatedDraft.readback).toBeDefined();
+      expect(turn1.updatedDraft.readback?.amount).toBe(50);
+      const originalReadbackHash = turn1.updatedDraft.readback?.draftHash;
+
+      // Turn 2: Caller changes amount to 70 cedis
+      const tamperedDraft = {
+        ...turn1.updatedDraft,
+        slots: {
+          ...turn1.updatedDraft.slots,
+          amount: 70, // amount changed!
+        },
+      };
+
+      // Turn 3: DTMF 1 pressed while draft amount is 70 but readback was for 50
+      const turn3 = await offlineBrain.process({
+        transcript: '1',
+        language: 'en',
+        languageConfidence: 0.95,
+        sessionLanguage: 'en',
+        draft: tamperedDraft,
+      });
+
+      // INVARIANT: Hash mismatch between readback (50) and current draft (70) prevents dispatch!
+      expect(turn3.decision.kind).toBe('confirm');
+      expect(turn3.updatedDraft.confirmed).toBe(false);
+      expect(turn3.decision.kind).not.toBe('dispatch');
     });
 
     it('allows dispatch when previous reply was a genuine read-back containing amount and recipient', async () => {
@@ -130,6 +172,152 @@ describe('Review Follow-Up Verification Tests', () => {
       if (result.decision.kind === 'clarify_slot') {
         expect(result.decision.slot).toBe('recipient');
       }
+    });
+  });
+
+  // ── 8. Regression Tests for Eval Transcripts ─────────────────────────────────
+  describe('8. Regression Tests for Previously Failing Transcripts', () => {
+    const offlineBrain = new Brain({ mode: 'offline_only' });
+
+    it('eval-en-01: phonetic ASR ("sen 50 sedis") resolves to momo.transfer', async () => {
+      const res = await offlineBrain.process({
+        transcript: 'i wanna sen 50 sedis to 0553838464',
+        language: 'en',
+        languageConfidence: 0.95,
+        sessionLanguage: 'en',
+        draft: { slots: {} },
+      });
+      expect(res.updatedDraft.intent).toBe('momo.transfer');
+      expect(res.updatedDraft.slots.amount).toBe(50);
+      expect(res.updatedDraft.slots.recipient?.phone).toBe('0553838464');
+    });
+
+    it('eval-en-02: spoken phone digits never leak into the amount (100 vs 146)', async () => {
+      const res = await offlineBrain.process({
+        transcript: 'transfer one hundred ghana cedis to zero five five three eight three eight four six four',
+        language: 'en',
+        languageConfidence: 0.95,
+        sessionLanguage: 'en',
+        draft: { slots: {} },
+      });
+      expect(res.updatedDraft.intent).toBe('momo.transfer');
+      expect(res.updatedDraft.slots.amount).toBe(100);
+      expect(res.updatedDraft.slots.recipient?.phone).toBe('0553838464');
+    });
+
+    it('eval-en-07: bill / ECG / meter utterance resolves to momo.pay_bill', async () => {
+      const res = await offlineBrain.process({
+        transcript: 'i want to pay my ecg electricity bill meter 123456 40 cedis',
+        language: 'en',
+        languageConfidence: 0.95,
+        sessionLanguage: 'en',
+        draft: { slots: {} },
+      });
+      expect(res.decision.kind).toBe('not_ready');
+      expect(res.updatedDraft.intent).toBe('momo.pay_bill');
+      expect(res.updatedDraft.slots.amount).toBe(40);
+    });
+
+    it('eval-twi-02: Twi compound spoken phone sequence isolates amount to 100', async () => {
+      const res = await offlineBrain.process({
+        transcript: 'mena sika cedi ɔha kɔma kofi wɔ hwee nnum nnum mmiɛnsa nwɔtwe mmiɛnsa nwɔtwe nan nsia nan so',
+        language: 'twi-asante',
+        languageConfidence: 0.95,
+        sessionLanguage: 'twi-asante',
+        draft: { slots: {} },
+      });
+      expect(res.updatedDraft.intent).toBe('momo.transfer');
+      expect(res.updatedDraft.slots.amount).toBe(100);
+      expect(res.updatedDraft.slots.recipient?.phone).toBe('0553838464');
+    });
+
+    it('eval-twi-05: balance phrase ("hwɛ me sika dodoɔ a aka") resolves to momo.check_balance', async () => {
+      const res = await offlineBrain.process({
+        transcript: 'mepa wo kyɛw hwɛ me sika dodoɔ a aka wɔ me momo mu',
+        language: 'twi-asante',
+        languageConfidence: 0.95,
+        sessionLanguage: 'twi-asante',
+        draft: { slots: {} },
+      });
+      expect(res.decision.kind).toBe('not_ready');
+      expect(res.updatedDraft.intent).toBe('momo.check_balance');
+    });
+  });
+
+  // ── 9. Negative Intent Scoring Invariants ──────────────────────────────────
+  describe('9. Negative Intent Scoring Invariants', () => {
+    const offlineBrain = new Brain({ mode: 'offline_only' });
+
+    it('transfer sentence containing "light" is still momo.transfer', async () => {
+      const res = await offlineBrain.process({
+        transcript: 'send 50 cedis to 0553838464 for the light bulb',
+        language: 'en',
+        languageConfidence: 0.95,
+        sessionLanguage: 'en',
+        draft: { slots: {} },
+      });
+      expect(res.updatedDraft.intent).toBe('momo.transfer');
+      expect(res.decision.kind).toBe('confirm');
+    });
+
+    it('transfer sentence containing "water" is still momo.transfer', async () => {
+      const res = await offlineBrain.process({
+        transcript: 'send 30 cedis to ama on 0501122334 to buy water',
+        language: 'en',
+        languageConfidence: 0.95,
+        sessionLanguage: 'en',
+        draft: { slots: {} },
+      });
+      expect(res.updatedDraft.intent).toBe('momo.transfer');
+      expect(res.decision.kind).toBe('confirm');
+    });
+
+    it('transfer sentence containing "meter" is still momo.transfer', async () => {
+      const res = await offlineBrain.process({
+        transcript: 'transfer 100 cedis to kofi 0553838464 near the meter',
+        language: 'en',
+        languageConfidence: 0.95,
+        sessionLanguage: 'en',
+        draft: { slots: {} },
+      });
+      expect(res.updatedDraft.intent).toBe('momo.transfer');
+      expect(res.decision.kind).toBe('confirm');
+    });
+
+    it('transfer sentence containing "refund" is still momo.transfer', async () => {
+      const res = await offlineBrain.process({
+        transcript: 'send 50 cedis to 0553838464 as a refund for the shoes',
+        language: 'en',
+        languageConfidence: 0.95,
+        sessionLanguage: 'en',
+        draft: { slots: {} },
+      });
+      expect(res.updatedDraft.intent).toBe('momo.transfer');
+      expect(res.decision.kind).toBe('confirm');
+    });
+
+    it('transfer sentence containing "wrong number" is still momo.transfer', async () => {
+      const res = await offlineBrain.process({
+        transcript: 'transfer 40 cedis to 0244112233 because previous was a wrong number',
+        language: 'en',
+        languageConfidence: 0.95,
+        sessionLanguage: 'en',
+        draft: { slots: {} },
+      });
+      expect(res.updatedDraft.intent).toBe('momo.transfer');
+      expect(res.decision.kind).toBe('confirm');
+    });
+
+    it('"turn off the light" must NOT be classified as pay_bill', async () => {
+      const res = await offlineBrain.process({
+        transcript: 'turn off the light',
+        language: 'en',
+        languageConfidence: 0.95,
+        sessionLanguage: 'en',
+        draft: { slots: {} },
+      });
+      expect(res.updatedDraft.intent).not.toBe('momo.pay_bill');
+      expect(res.decision.kind).not.toBe('not_ready');
     });
   });
 });

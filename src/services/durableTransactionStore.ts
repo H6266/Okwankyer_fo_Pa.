@@ -9,6 +9,9 @@ import fs from "fs";
 import path from "path";
 import { TransactionSession } from "../domain/stateMachine";
 import { TransactionResult, SagaTransaction } from "../integrations/momo/types";
+import { fieldEncryption } from "../ai_system/security/fieldEncryption";
+
+export const SAGA_RETENTION_MS = 30 * 24 * 60 * 60 * 1000; // 30-day retention rule for saga records
 
 export interface VelocityAttempt {
   timestamp: number;
@@ -114,13 +117,27 @@ export class DurableTransactionStore {
         }
       }
 
-      // 4. Hydrate sagas
+      // 4. Hydrate sagas with retention rule (30 days) and AES-256-GCM decryption at rest
       if (fs.existsSync(this.sagasDir)) {
         const files = fs.readdirSync(this.sagasDir).filter((f) => f.endsWith(".json"));
+        const retentionCutoff = Date.now() - SAGA_RETENTION_MS;
         for (const file of files) {
           try {
-            const raw = fs.readFileSync(path.join(this.sagasDir, file), "utf-8");
-            const saga: SagaTransaction = JSON.parse(raw);
+            const raw = fs.readFileSync(path.join(this.sagasDir, file), "utf-8").trim();
+            let saga: SagaTransaction;
+            if (raw.startsWith("{")) {
+              // Legacy unencrypted plaintext record
+              saga = JSON.parse(raw);
+            } else {
+              // Authenticated AES-256-GCM encrypted record (iv:tag:cipher)
+              const decrypted = fieldEncryption.decrypt(raw);
+              saga = JSON.parse(decrypted);
+            }
+            if (saga.createdAt < retentionCutoff) {
+              // Prune expired saga per retention policy
+              try { fs.unlinkSync(path.join(this.sagasDir, file)); } catch {}
+              continue;
+            }
             this.sagas.set(saga.sagaId, saga);
           } catch {}
         }
@@ -298,7 +315,9 @@ export class DurableTransactionStore {
     try {
       const sanitizedId = saga.sagaId.replace(/[^a-zA-Z0-9_\-]/g, "_");
       const filePath = path.join(this.sagasDir, `${sanitizedId}.json`);
-      this.atomicWriteFileSync(filePath, JSON.stringify(saga, null, 2));
+      // Encrypt saga payload at rest using authenticated AES-256-GCM
+      const encrypted = fieldEncryption.encrypt(JSON.stringify(saga));
+      this.atomicWriteFileSync(filePath, encrypted);
     } catch (err) {
       console.error(`[DurableTransactionStore] Failed to write saga ${saga.sagaId} to disk:`, err);
     }

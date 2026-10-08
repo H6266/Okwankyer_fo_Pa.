@@ -144,7 +144,7 @@ async function transcribeAudioBufferWithHedgedGemini(
   buffer: Buffer,
   mime: string,
   step?: string,
-  deadlineMs: number = 3000
+  deadlineMs: number = 1200
 ): Promise<SttResult> {
   const primaryModel = (AI_CONFIG.transcriptionModel && AI_CONFIG.transcriptionModel !== "gemini-3.5-transcribe")
     ? AI_CONFIG.transcriptionModel
@@ -256,7 +256,7 @@ Instructions:
         return resp.text || "{}";
       },
       deadlineMs,
-      1200 // Hedge delay: start secondary after 1.2s if primary hasn't responded
+      Math.min(800, Math.floor(deadlineMs * 0.67)) // Hedge delay: start secondary after 800ms if primary hasn't responded
     );
 
     let cleanJson = (rawJsonText || "").trim();
@@ -370,7 +370,7 @@ async function transcribeAudioBufferUnified(
   buffer: Buffer,
   mime: string,
   step?: string,
-  deadlineMs: number = 3000
+  deadlineMs: number = 1200
 ): Promise<SttResult> {
   // Tier 1: Authentic Ghana NLP ASR v3
   if (ghanaNlpAsrService.isConfigured()) {

@@ -76,12 +76,15 @@ export function validateProductionModelConfig(): void {
   }
 }
 
+export const PER_TURN_MAX_BUDGET_MS = 3800; // Strict turn budget strictly under 4.0s
+export const FILLER_PROMPT_TRIGGER_MS = 1500; // Trigger comfort prompt at 1.5s if turn processing is still in flight
+
 export const DEFAULT_BRAIN_CONFIG: BrainConfig = {
   mode: (process.env.BRAIN_MODE as BrainMode) || 'shadow',
   shadowSamplingRate: 1.0,
   confidenceThreshold: 0.65,
   ambiguityMargin: 0.15,
-  modelTimeoutMs: 1500,
+  modelTimeoutMs: 1200,
   skipModelTierConfidence: 0.85,
   maxTransferAmount: 5000,
   modelName: process.env.GEMINI_MODEL || (process.env.NODE_ENV === 'production' ? '' : 'gemini-2.5-flash'),
@@ -192,7 +195,7 @@ export class Brain {
     this.currentTurnId = 0;
   }
 
-  constructor(config: BrainConfig = DEFAULT_BRAIN_CONFIG) {
+  constructor(config: Partial<BrainConfig> = DEFAULT_BRAIN_CONFIG) {
     this.config = { ...DEFAULT_BRAIN_CONFIG, ...config };
   }
 
@@ -213,6 +216,7 @@ export class Brain {
       turnCount: (input.draft?.turnCount || 0) + 1,
       lastReplyKind: input.draft?.lastReplyKind,
       lastConfirmReadbackText: input.draft?.lastConfirmReadbackText,
+      readback: input.draft?.readback ? { ...input.draft.readback } : undefined,
       draftHash: input.draft?.draftHash,
       confirmedDraftHash: input.draft?.confirmedDraftHash,
     };
@@ -710,25 +714,12 @@ export class Brain {
     // and the draft hash is unchanged! Accept DTMF 1 (confirm) and 2 (cancel).
     const currentDraftHash = computeDraftHash(draft);
     draft.draftHash = currentDraftHash;
-    const prevText = draft.lastConfirmReadbackText || '';
-    const readbackHasAmount =
-      Boolean(prevText) &&
-      !prevText.includes(APPROVED_KEYPAD_FALLBACK_PROMPT) &&
-      (prevText.toLowerCase().includes('cedi') || (typeof draft.slots.amount === 'number' && prevText.includes(String(draft.slots.amount))));
-    const readbackHasRecipient =
-      Boolean(prevText) &&
-      (
-        (draft.slots.recipient?.phone && (
-          prevText.includes(draft.slots.recipient.phone) ||
-          prevText.includes(draft.slots.recipient.phone.slice(-4)) ||
-          /\b(?:zero|one|two|three|four|five|six|seven|eight|nine|hwee|baako|mmienu)\b/i.test(prevText)
-        )) ||
-        (draft.slots.recipient?.name && prevText.toLowerCase().includes(draft.slots.recipient.name.toLowerCase()))
-      );
-
+    // Requirement A9: Dispatch requires that the previous turn actually read back amount and recipient,
+    // storing a draft.readback record whose draftHash matches currentDraftHash. Zero string-matching heuristics.
     const isPreviousReplyReadback =
       draft.lastReplyKind === 'confirm' &&
-      (draft.lastConfirmReadbackText !== undefined ? (readbackHasAmount && readbackHasRecipient) : true);
+      Boolean(draft.readback) &&
+      draft.readback?.draftHash === currentDraftHash;
     const isDraftHashUnchanged = Boolean(draft.confirmedDraftHash && draft.confirmedDraftHash === currentDraftHash);
 
     if (draft.confirmationRevokedReason) {
@@ -792,6 +783,19 @@ export class Brain {
     });
     draft.lastConfirmReadbackText = reply.text;
 
+    // Requirement A9: Record readback ONLY when amount and recipient were actually spoken!
+    const recipientRef = draft.slots.recipient?.phone || draft.slots.recipient?.name;
+    if (reply.readbackSpoken && typeof draft.slots.amount === 'number' && recipientRef) {
+      draft.readback = {
+        amount: draft.slots.amount,
+        recipientRef: String(recipientRef),
+        spokenAt: Date.now(),
+        draftHash: currentDraftHash,
+      };
+    } else {
+      draft.readback = undefined;
+    }
+
     return finalizeOutput({
       decision,
       modelOutput: modelOutput || undefined,
@@ -841,7 +845,8 @@ export class Brain {
     rawTranscript: string,
     targetLanguage: TargetLanguageId,
     draft: DraftState,
-    turnId: number
+    turnId: number,
+    turnStartTime: number = Date.now()
   ): Promise<ModelOutputContract | null> {
     const profile = getLanguageProfile(targetLanguage);
     const profileSection = formatProfilePromptSection(profile);
@@ -878,7 +883,12 @@ Output format: Return ONLY valid JSON with keys: intent, slots, signals, reply.`
       return result;
     }
 
-    // Attempt 2 (Exactly one retry if malformed or invalid contract)
+    // Attempt 2 (Exactly one retry if malformed or invalid contract, only if remaining budget permits)
+    const elapsed = Date.now() - turnStartTime;
+    if (PER_TURN_MAX_BUDGET_MS - elapsed < 500) {
+      return null; // Budget exhausted: fail fast to offline engine to prevent telephony silence
+    }
+
     const retryPrompt = `${prompt}\n\nATTENTION: Your previous response was invalid. Return ONLY valid raw JSON with exact contract keys.`;
     const retryResult = await this.executeModelWithTimeout(retryPrompt, this.config.modelTimeoutMs, turnId);
     if (retryResult && this.validateModelContract(retryResult)) {
@@ -967,34 +977,42 @@ Output format: Return ONLY valid JSON with keys: intent, slots, signals, reply.`
       'unknown': 0.1,
     };
 
-    const isBill = /\b(?:bill|ecg|gwcl|water|light|electricity|tua\s+ka)\b/i.test(lower);
+    const isBill = /\b(?:bill|bills|ecg|gwcl|tua\s+ka|tua\s+bills?|electricity\s+bill|water\s+bill|light\s+bill|meter\s+bill|prepaid\s+meter|postpaid|pay\s+(?:[a-z]+\s+)?(?:bill|bills|ecg|gwcl|electricity|water|light|meter))\b/i.test(lower);
     const isAirtime = /\b(?:airtime|credit|kɔkɔɔ|topup|recharge|tɔ\s+airtime|tɔ\s+credit)\b/i.test(lower);
     const isData = /\b(?:buy\s+data|data\s+bundle|internet\s+bundle|bundle|megabytes|gigabytes|wifi\s+bundle|tɔ\s+data|tɔ\s+bundle|intanɛt)\b/i.test(lower);
-    const isReverse = /\b(?:reverse|reversal|wrong\s+number|wrong\s+transfer|sent\s+by\s+mistake|refund|sesa\s+transaction|nɔmba\s+mfomsoɔ|san\s+fa\s+sika|mfomsoɔ)\b/i.test(lower);
+
+    // Negative Intent Invariant: A genuine transfer utterance ("send 50 cedis to 055... as a refund")
+    // must NOT be classified as a reversal simply because it mentions "refund" or "wrong number".
+    const hasTransferAction = (/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && /\b(?:to|kɔma|give)\b/i.test(lower)) ||
+      (/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && (Boolean(draft.slots.recipient?.phone) || /\b0[235]\d{8}\b/.test(lower)));
+
+    const isReverse = !hasTransferAction && /\b(?:reverse|reversal|sent\s+by\s+mistake|sesa\s+transaction|nɔmba\s+mfomsoɔ|san\s+fa\s+sika|mfomsoɔ|wrong\s+(?:number|transfer)|refund)\b/i.test(lower);
     const isCare = /\b(?:customer\s+care|agent|talk\s+to\s+agent|speak\s+to\s+person|human\s+support|help\s+desk|kasa\s+kyerɛ\s+agent|customer\s+service)\b/i.test(lower);
     const isLoan = /\b(?:loan|quick\s+loan|qwickloan|borrow\s+money|borrow|bosea|gye\s+bosea|fɛm\s+me\s+sika)\b/i.test(lower);
-    const isBalance = /\b(?:balance|check\s+balance|sika\s+dodoɔ|akontaabu|hwɛ\s+balance)\b/i.test(lower);
+    const isBalance = /\b(?:balance|check\s+balance|hwɛ\s+balance|sika\s+dodoɔ\s+a\s+aka|sika\s+a\s+aka|hwɛ\s+me\s+sika|how\s+much\s+(?:do\s+i\s+have|in\s+my\s+account|in\s+my\s+wallet)|akontaabu)\b/i.test(lower);
 
-    if (isBill) scores['momo.pay_bill'] += 0.85;
-    if (isAirtime) scores['momo.buy_airtime'] += 0.85;
-    if (isData) scores['momo.buy_data'] += 0.85;
-    if (isReverse) scores['momo.reverse_transaction'] += 0.85;
-    if (isCare) scores['momo.customer_care'] += 0.85;
-    if (isLoan) scores['momo.loan'] += 0.85;
-    if (isBalance) scores['momo.check_balance'] += 0.85;
+    if (isBill) scores['momo.pay_bill'] += 0.95;
+    if (isAirtime) scores['momo.buy_airtime'] += 0.95;
+    if (isData) scores['momo.buy_data'] += 0.95;
+    if (isReverse) scores['momo.reverse_transaction'] += 0.95;
+    if (isCare) scores['momo.customer_care'] += 0.95;
+    if (isLoan) scores['momo.loan'] += 0.95;
+    if (isBalance) scores['momo.check_balance'] += 0.95;
 
-    const hasTransferWord = /\b(?:send|transfer|mane|kɔma)\b/i.test(lower);
-    const hasCurrencyWord = /\b(?:sika|cedi|cedis|ghs)\b/i.test(lower);
+    const hasTransferWord = !isReverse && /\b(?:send|sen|transfer|mane|kɔma|soma)\b/i.test(lower);
+    const hasCurrencyWord = /\b(?:sika|cedi|cedis|sedis|ghs)\b/i.test(lower);
 
     const isNonTransferSpecific = isBill || isAirtime || isData || isReverse || isCare || isLoan || isBalance;
 
-    if (hasTransferWord && !isReverse && !isLoan && !isData) {
-      scores['momo.transfer'] += 0.80;
-    } else if (!isNonTransferSpecific && hasCurrencyWord) {
+    if (hasTransferAction) {
+      scores['momo.transfer'] += 0.95;
+    } else if (hasTransferWord) {
+      scores['momo.transfer'] += 0.85;
+    } else if (hasCurrencyWord && !isNonTransferSpecific) {
       scores['momo.transfer'] += 0.70;
     }
 
-    if (draft.intent === 'momo.transfer' || (draft.slots.amount && draft.slots.recipient?.phone)) {
+    if (!isNonTransferSpecific && (draft.intent === 'momo.transfer' || (draft.slots.amount && draft.slots.recipient?.phone))) {
       scores['momo.transfer'] += 0.20;
     }
 
@@ -1033,8 +1051,9 @@ Output format: Return ONLY valid JSON with keys: intent, slots, signals, reply.`
     }
 
     // 2. Amount extraction
-    const amountRegex = /\b(\d+(?:\.\d{1,2})?)\s*(?:ghs|cedis?|sidi)?\b/i;
-    const amtMatch = text.match(amountRegex);
+    const currencyAmountRegex = /\b(\d+(?:\.\d{1,2})?)\s*(?:ghs|cedis?|sedis|sidi)\b/i;
+    const genericAmountRegex = /\b(\d+(?:\.\d{1,2})?)\b/i;
+    const amtMatch = text.match(currencyAmountRegex) || text.match(genericAmountRegex);
     if (amtMatch && !currentSlots.recipient.phone?.includes(amtMatch[1])) {
       const parsed = parseFloat(amtMatch[1]);
       if (!isNaN(parsed) && parsed > 0 && parsed <= this.config.maxTransferAmount) {

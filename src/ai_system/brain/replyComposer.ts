@@ -43,6 +43,7 @@ export interface ComposeReplyResult {
   promptId?: string;
   source: 'DETERMINISTIC_TEMPLATE' | 'MODEL_GENERATED' | 'OFFLINE_FALLBACK';
   validationPassed: boolean;
+  readbackSpoken?: boolean;
 }
 
 // ── DETERMINISTIC NUMBER TO SPOKEN WORDS CONVERSION ─────────────────────────
@@ -260,12 +261,17 @@ export class ReplyComposer {
     const preInjectionTemplate = getApprovedTemplateText(templateKey, 'en');
     sentenceTracker.record(preInjectionTemplate);
 
+    const hasAmount = typeof slots.amount === 'number';
+    const hasRecipient = Boolean(slots.recipient?.phone || slots.recipient?.name || (slots as any).recipientName || (slots as any).recipientPhone);
+    const readbackSpoken = decision.kind === 'confirm' && translationResult.template_key === 'confirm' && hasAmount && hasRecipient;
+
     return {
       text: translationResult.text,
       language,
       promptId,
       source: translationResult.source === 'TEMPLATE_SHORT_CIRCUIT' ? 'DETERMINISTIC_TEMPLATE' : 'OFFLINE_FALLBACK',
       validationPassed: translationResult.validationPassed,
+      readbackSpoken,
     };
   }
 }

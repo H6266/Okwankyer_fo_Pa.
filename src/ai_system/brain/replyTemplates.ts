@@ -151,6 +151,17 @@ export const APPROVED_REPLY_TEMPLATES: Record<string, ApprovedTemplateDefinition
       'twi-akuapem': 'Bosea gye dwumadie no nnya nnsiesieeɛ, nanso wotumi soma sika seesei ara.',
     },
   },
+  filler_hold: {
+    key: 'filler_hold',
+    kind: 'smalltalk',
+    approved: false,
+    texts: {
+      'en': 'One moment please, processing your request.',
+      'twi-asante': 'Twɛn kakra, mepa wo kyɛw yɛresiesie wo dwumadie no.',
+      'mixed-twi-en': 'One moment please, twɛn kakra.',
+      'twi-akuapem': 'Twɛn kakra, mepa wo kyɛw yɛreyɛ wo dwumadie no.',
+    },
+  },
   not_ready_default: {
     key: 'not_ready_default',
     kind: 'not_ready',

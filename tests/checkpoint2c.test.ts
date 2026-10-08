@@ -248,6 +248,7 @@ describe('Checkpoint 2c: Model Wiring, Safety Hardening & Fallbacks', () => {
       // Configure a short 10ms timeout on Brain
       const fastTimeoutBrain = new Brain({
         ...DEFAULT_BRAIN_CONFIG,
+        mode: 'live',
         modelTimeoutMs: 10,
         skipModelTierConfidence: 1.0, // Force model attempt
       });
@@ -285,7 +286,8 @@ describe('Checkpoint 2c: Model Wiring, Safety Hardening & Fallbacks', () => {
         draft: { slots: {} },
       };
 
-      const result = await brain.process(input);
+      const liveBrain = new Brain({ mode: 'live' });
+      const result = await liveBrain.process(input);
       expect(result.decision.kind).toBe('confirm');
       // Invariant: High deterministic confidence skips model to guarantee low latency!
       expect(spy).not.toHaveBeenCalled();
@@ -427,6 +429,7 @@ describe('Checkpoint 2c: Model Wiring, Safety Hardening & Fallbacks', () => {
 
       const testBrain = new Brain({
         ...DEFAULT_BRAIN_CONFIG,
+        mode: 'live',
         skipModelTierConfidence: 1.5,
       });
 
@@ -469,6 +472,7 @@ describe('Checkpoint 2c: Model Wiring, Safety Hardening & Fallbacks', () => {
 
       const testBrain = new Brain({
         ...DEFAULT_BRAIN_CONFIG,
+        mode: 'live',
         skipModelTierConfidence: 1.0,
       });
 
@@ -499,6 +503,7 @@ describe('Checkpoint 2c: Model Wiring, Safety Hardening & Fallbacks', () => {
 
       const testBrain = new Brain({
         ...DEFAULT_BRAIN_CONFIG,
+        mode: 'live',
         skipModelTierConfidence: 1.0,
       });
 
@@ -563,6 +568,7 @@ describe('Checkpoint 2c: Model Wiring, Safety Hardening & Fallbacks', () => {
 
       const testBrain = new Brain({
         ...DEFAULT_BRAIN_CONFIG,
+        mode: 'live',
         skipModelTierConfidence: 1.0,
         modelTimeoutMs: 20, // Short timeout for turn 1
       });
@@ -641,6 +647,7 @@ describe('Checkpoint 2c: Model Wiring, Safety Hardening & Fallbacks', () => {
 
       const testBrain = new Brain({
         ...DEFAULT_BRAIN_CONFIG,
+        mode: 'live',
         skipModelTierConfidence: 1.0,
       });
 

@@ -117,6 +117,13 @@ export interface TurnHistoryItem {
   text: string;
 }
 
+export interface ReadbackRecord {
+  amount: number;
+  recipientRef: string;
+  spokenAt: number;
+  draftHash: string;
+}
+
 export interface DraftState {
   intent?: IntentId;
   slots: Slots;
@@ -130,6 +137,7 @@ export interface DraftState {
   turnCount?: number;
   lastReplyKind?: ReplyKind;
   lastConfirmReadbackText?: string;
+  readback?: ReadbackRecord;
   draftHash?: string;
   confirmedDraftHash?: string;
 }
