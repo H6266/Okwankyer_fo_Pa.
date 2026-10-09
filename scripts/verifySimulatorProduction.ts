@@ -150,11 +150,10 @@ async function runAcceptanceChecks() {
 
   // State in PhoneSimulatorPage:
   let digitsBuffer = "";
-  let lastSubmitted10Digit = 0;
   const activeCallbackUrl = `https://${publicHost}/api/simulator/verify-recipient?sessionId=SIM_CALL_1728470000003&lang=en`;
   const activeStepName = "enter-recipient";
   const activeFinishOnKey = "#";
-  const activeNumDigits = 10;
+  const activeNumDigits: number = 10;
 
   const simulateKeypadPress = (digit: string) => {
     // Exact logic from PhoneSimulatorPage.tsx handleKeypadPress:
@@ -165,9 +164,6 @@ async function runAcceptanceChecks() {
     }
 
     if (digit === activeFinishOnKey) {
-      if (Date.now() - lastSubmitted10Digit < 5000) {
-        return; // Ignored: just auto-submitted
-      }
       if (digitsBuffer.trim()) {
         const submitted = digitsBuffer.trim();
         digitsBuffer = "";
@@ -179,8 +175,8 @@ async function runAcceptanceChecks() {
     const nextBuf = digitsBuffer + digit;
     digitsBuffer = nextBuf;
 
-    if (activeStepName.includes("recipient") && nextBuf.length === 10) {
-      lastSubmitted10Digit = Date.now();
+    // Only auto-submit if finishOnKey is not configured/empty and buffer reaches activeNumDigits
+    if (!activeFinishOnKey && nextBuf.length >= activeNumDigits) {
       digitsBuffer = "";
       mockDispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: nextBuf });
     }

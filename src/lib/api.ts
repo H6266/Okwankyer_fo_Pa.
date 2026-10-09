@@ -25,8 +25,9 @@ let activeAdminToken: string | null =
 
 function getAdminAuthHeaders(customHeaders: Record<string, string> = {}): Record<string, string> {
   const headers: Record<string, string> = { ...customHeaders };
-  if (activeAdminToken) {
-    headers["Authorization"] = `Bearer ${activeAdminToken}`;
+  const token = activeAdminToken || (typeof localStorage !== "undefined" ? localStorage.getItem("okw_admin_token") : null);
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
   }
   return headers;
 }
@@ -773,7 +774,7 @@ export const api = {
 
   async getAdminSession(): Promise<{ authenticated: boolean; isDev?: boolean; hint?: string }> {
     const res = await fetch("/api/admin/session", {
-      credentials: "same-origin",
+      credentials: "include",
       headers: getAdminAuthHeaders(),
     });
     return res.json();
@@ -782,7 +783,7 @@ export const api = {
   async adminLogin(token: string): Promise<any> {
     const res = await fetch("/api/admin/login", {
       method: "POST",
-      credentials: "same-origin",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
       },
@@ -817,7 +818,7 @@ export const api = {
     }
     const res = await fetch("/api/admin/logout", {
       method: "POST",
-      credentials: "same-origin",
+      credentials: "include",
     });
 
     return res.json();

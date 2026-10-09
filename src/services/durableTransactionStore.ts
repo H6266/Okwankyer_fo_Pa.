@@ -174,7 +174,7 @@ export class DurableTransactionStore {
     }
 
     try {
-      const sanitizedId = session.sessionId.replace(/[^a-zA-Z0-9_\-]/g, "_");
+      const sanitizedId = String(session.sessionId).replace(/[^a-zA-Z0-9_\-]/g, "_");
       const filePath = path.join(this.sessionsDir, `${sanitizedId}.json`);
       this.atomicWriteFileSync(filePath, JSON.stringify(session, null, 2));
     } catch (err) {

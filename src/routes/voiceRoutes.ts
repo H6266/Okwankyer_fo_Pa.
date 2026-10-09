@@ -118,17 +118,13 @@ export function getBaseUrl(req: Request): string {
   const forwardedProto = ((req.headers["x-forwarded-proto"] as string) || "").split(",")[0]?.trim();
   const proto = forwardedProto || req.protocol || "http";
 
-  if (host && !host.startsWith("localhost") && !host.startsWith("127.0.0.1")) {
+  if (host) {
     return `${proto}://${host}`.replace(/\/+$/, "");
   }
 
   const envBase = (process.env.BASE_URL || process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || "").trim().replace(/\/+$/, "");
-  if (envBase && !envBase.includes("localhost") && !envBase.includes("127.0.0.1")) {
+  if (envBase) {
     return envBase;
-  }
-
-  if (host) {
-    return `${proto}://${host}`.replace(/\/+$/, "");
   }
 
   return "";
@@ -336,7 +332,7 @@ ivrRouter.all("/enter-recipient", (req: Request, res: Response) => {
 ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
-  const rawDigits = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
+  const rawDigits = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim().replace(/#+$/, "");
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getOrCreateSession(sessionId);
 
@@ -436,7 +432,7 @@ ivrRouter.all("/enter-amount", (req: Request, res: Response) => {
 ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
-  const rawDigits = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
+  const rawDigits = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim().replace(/#+$/, "");
   const baseUrl = getBaseUrl(req);
 
   if (rawDigits === "0") {
@@ -578,9 +574,15 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
 
     transactionStateMachine.transition(sessionId, "CONFIRMED");
 
-    const paymentResult = await voicePaymentService.initiatePayment(session.callerPhone, session.amount);
-    const collectionRef = paymentResult.fields.referenceId || session.referenceId;
-    const mode = paymentResult.momoEnv === "production" ? "LIVE" : "SANDBOX";
+    const isSimulated = sessionId.startsWith("SIM_CALL_") || (req.baseUrl && req.baseUrl.startsWith("/api/simulator"));
+    let collectionRef = session.referenceId;
+    let mode = "SIMULATOR";
+
+    if (!isSimulated) {
+      const paymentResult = await voicePaymentService.initiatePayment(session.callerPhone, session.amount);
+      collectionRef = paymentResult.fields.referenceId || session.referenceId;
+      mode = paymentResult.momoEnv === "production" ? "LIVE" : "SANDBOX";
+    }
 
     transactionStateMachine.transition(sessionId, "PIN_PENDING", {
       momoReferenceId: collectionRef,

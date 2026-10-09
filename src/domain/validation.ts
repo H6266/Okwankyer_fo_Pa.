@@ -160,7 +160,7 @@ export function parseAndValidateAmount(raw: string): AmountValidationResult {
     return { valid: false, error: "Amount cannot be empty." };
   }
 
-  const trimmed = raw.trim();
+  const trimmed = raw.trim().replace(/#+$/, "");
 
   // Reject multiple asterisks (e.g. "5*0*1", "50**20")
   const starCount = (trimmed.match(/\*/g) || []).length;

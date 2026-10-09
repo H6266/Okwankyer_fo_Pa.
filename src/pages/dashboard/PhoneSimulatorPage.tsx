@@ -110,7 +110,53 @@ export const PhoneSimulatorPage: React.FC = () => {
   const lastUtteranceTimeRef = useRef<number>(0);
   const lastUtteranceTextRef = useRef<string>("");
   const silenceCountRef = useRef<number>(0);
-  const lastSubmitted10DigitRef = useRef<number>(0);
+
+  // Admin authentication state for hosted preview & production
+  const [adminAuthenticated, setAdminAuthenticated] = useState<boolean>(true);
+  const [adminTokenInput, setAdminTokenInput] = useState<string>("");
+  const [adminConnecting, setAdminConnecting] = useState<boolean>(false);
+  const [adminAuthError, setAdminAuthError] = useState<string>("");
+  const [devHint, setDevHint] = useState<string>("");
+
+  // Check admin session on mount
+  useEffect(() => {
+    let cancelled = false;
+    const checkSession = async () => {
+      try {
+        const session = await api.getAdminSession();
+        if (cancelled) return;
+        if (session?.hint) setDevHint(session.hint);
+        if (session?.authenticated) {
+          setAdminAuthenticated(true);
+        } else if (session?.isDev && session?.hint) {
+          try {
+            await api.adminLogin(session.hint);
+            if (!cancelled) setAdminAuthenticated(true);
+          } catch {
+            if (!cancelled) setAdminAuthenticated(false);
+          }
+        } else {
+          const stored = typeof localStorage !== "undefined" ? localStorage.getItem("okw_admin_token") : null;
+          if (stored) {
+            try {
+              await api.adminLogin(stored);
+              if (!cancelled) setAdminAuthenticated(true);
+            } catch {
+              if (!cancelled) setAdminAuthenticated(false);
+            }
+          } else {
+            setAdminAuthenticated(false);
+          }
+        }
+      } catch (err: any) {
+        console.warn("Simulator session check:", err);
+      }
+    };
+    checkSession();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Clock timer
   useEffect(() => {
@@ -372,15 +418,18 @@ export const PhoneSimulatorPage: React.FC = () => {
       }
 
       const bodyParams = new URLSearchParams();
-      bodyParams.append("sessionId", sessionId || `call_${Date.now()}`);
-      bodyParams.append("callerNumber", callerNumber);
-      bodyParams.append("phoneNumber", callerNumber);
-      bodyParams.append("isActive", "1");
-      bodyParams.append("direction", "Inbound");
+      const combinedParams: Record<string, string> = {
+        sessionId: sessionId || `call_${Date.now()}`,
+        callerNumber,
+        phoneNumber: callerNumber,
+        isActive: "1",
+        direction: "Inbound",
+        ...params,
+      };
 
-      for (const [k, v] of Object.entries(params)) {
+      for (const [k, v] of Object.entries(combinedParams)) {
         if (v !== undefined && v !== null) {
-          bodyParams.append(k, v);
+          bodyParams.set(k, String(v));
         }
       }
 
@@ -411,6 +460,9 @@ export const PhoneSimulatorPage: React.FC = () => {
             if (json.error) errorMsg += `: ${json.error}`;
           } catch {
             if (text) errorMsg += `: ${text.slice(0, 100)}`;
+          }
+          if (res.status === 401) {
+            setAdminAuthenticated(false);
           }
           const rejectReasonDesc = guardReason
             ? `Call rejected: ${guardReason} (HTTP ${res.status})`
@@ -664,11 +716,6 @@ export const PhoneSimulatorPage: React.FC = () => {
       // ── Multi-digit input (Recipient phone or Amount) ──
       // Finish on key (#)
       if (digit === activeFinishOnKey) {
-        // Guard: if user just auto-submitted 10 digits within 5000ms, ignore stray #
-        if (Date.now() - lastSubmitted10DigitRef.current < 5000) {
-          return;
-        }
-
         if (digitsBuffer.trim()) {
           const submitted = digitsBuffer.trim();
           setDigitsBuffer("");
@@ -681,11 +728,10 @@ export const PhoneSimulatorPage: React.FC = () => {
       const nextBuf = digitsBuffer + digit;
       setDigitsBuffer(nextBuf);
 
-      // Auto-submit 10-digit Ghanaian phone numbers if at recipient step
-      if (activeStepName.includes("recipient") && nextBuf.length === 10) {
-        lastSubmitted10DigitRef.current = Date.now();
+      // Only auto-submit if finishOnKey is not set and buffer reaches activeNumDigits
+      if (!activeFinishOnKey && nextBuf.length >= activeNumDigits) {
         setDigitsBuffer("");
-        addLog("caller", `Keypad '${nextBuf}' (10 Digits)`);
+        addLog("caller", `Keypad '${nextBuf}'`);
         dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: nextBuf });
       }
     },
@@ -814,8 +860,73 @@ export const PhoneSimulatorPage: React.FC = () => {
     }
   };
 
+  const handleAdminLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminTokenInput.trim()) return;
+    setAdminConnecting(true);
+    setAdminAuthError("");
+    try {
+      await api.adminLogin(adminTokenInput.trim());
+      setAdminAuthenticated(true);
+      setAdminTokenInput("");
+      addLog("system", "Administrator authentication established. Simulator ready.");
+    } catch (err: any) {
+      setAdminAuthError(err.message || "Admin login failed.");
+    } finally {
+      setAdminConnecting(false);
+    }
+  };
+
   return (
     <div className="w-full max-w-7xl mx-auto px-4 py-6">
+      {/* Admin Authentication Banner for Preview/Production Mode */}
+      {!adminAuthenticated && (
+        <div className="mb-6 p-4 rounded-xl border border-amber-500/30 bg-amber-950/20 text-amber-200">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div>
+              <div className="font-bold text-xs flex items-center gap-2 text-amber-300">
+                <ShieldCheck className="w-4 h-4 text-amber-400" />
+                Administrator Authentication Required
+              </div>
+              <p className="text-[11px] text-amber-200/80 mt-0.5">
+                The phone simulator routes (/api/simulator/*) require admin authentication in production preview mode.
+              </p>
+            </div>
+            <form onSubmit={handleAdminLoginSubmit} className="flex items-center gap-2 w-full sm:w-auto">
+              <input
+                type="password"
+                placeholder="ADMIN_TOKEN..."
+                value={adminTokenInput}
+                onChange={(e) => setAdminTokenInput(e.target.value)}
+                className="px-3 py-1.5 text-xs bg-slate-900 border border-slate-700 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono w-full sm:w-56"
+              />
+              <button
+                type="submit"
+                disabled={adminConnecting || !adminTokenInput.trim()}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold disabled:opacity-40 whitespace-nowrap min-h-[32px]"
+              >
+                {adminConnecting ? "Authenticating..." : "Connect"}
+              </button>
+            </form>
+          </div>
+          {devHint && (
+            <div className="mt-2 text-[10px] text-slate-400 flex items-center gap-2">
+              <span>Dev hint:</span>
+              <button
+                type="button"
+                onClick={() => setAdminTokenInput(devHint)}
+                className="text-emerald-400 hover:underline font-mono"
+              >
+                {devHint}
+              </button>
+            </div>
+          )}
+          {adminAuthError && (
+            <div className="mt-2 text-[11px] text-rose-400 font-semibold">{adminAuthError}</div>
+          )}
+        </div>
+      )}
+
       {/* Handset + Terminal side-by-side (stacks at phone width) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* LEFT COLUMN: Traditional Phone Handset */}
