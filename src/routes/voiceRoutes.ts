@@ -27,6 +27,8 @@ import { aiSystem } from "../ai_system";
 import { brain } from "../ai_system/brain/brain";
 import { resolvePrompt } from "../modules/ttsService";
 import { extractAmount, extractRecipient, extractNetwork } from "../modules/nluService";
+import { getStepDefinition, validateKeypadInput } from "../domain/stepRegistry";
+import { ivrDecisionEngine, IvrDecision } from "../ai_system/brain/ivrDecisionEngine";
 
 export const voiceRouter = Router();
 export const ivrRouter = Router();
@@ -81,8 +83,15 @@ voiceRouter.use((req: Request, res: Response, next) => {
   return next();
 });
 
-function xmlResponse(res: Response, content: string): void {
+function xmlResponse(res: Response, content: string, decision?: IvrDecision): void {
   let xml = content;
+  if (decision) {
+    res.set("X-AI-Decision-Type", decision.type);
+    res.set("X-AI-Decision-Reason", decision.reason);
+    res.set("X-AI-Reply-Text", decision.replyText);
+    res.set("X-AI-Reply-Key", decision.replyKey);
+    res.set("Access-Control-Expose-Headers", "X-AI-Decision-Type, X-AI-Decision-Reason, X-AI-Reply-Text, X-AI-Reply-Key, x-telephony-guard-reason");
+  }
   const req = res.req as Request | undefined;
   if (req && req.baseUrl && req.baseUrl.startsWith("/api/simulator")) {
     const base = getBaseUrl(req);
@@ -169,19 +178,54 @@ ivrRouter.all("/language-selection", (req: Request, res: Response) => {
     return xmlResponse(res, xml);
   }
 
-  if (dtmf === "0") {
-    transactionStateMachine.transition(sessionId, "CANCELLED");
-    return xmlResponse(res, `    <Say voice="female">Goodbye.</Say>\n    <Reject/>`);
+  const stepDef = getStepDefinition("language-selection")!;
+  const validation = validateKeypadInput(stepDef, dtmf, "en");
+
+  if (validation.valid) {
+    if (validation.isNavigation && validation.navAction === "cancel") {
+      transactionStateMachine.transition(sessionId, "CANCELLED");
+      return xmlResponse(res, `    <Say voice="female">Goodbye.</Say>\n    <Reject/>`);
+    }
+    if (validation.isNavigation && validation.navAction === "repeat") {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/voice-menu?sessionId=${sessionId}</Redirect>`);
+    }
+    const lang = dtmf === "2" ? "twi" : "en";
+    session.language = lang;
+    session.retryCount = 0;
+    auditLogger.log("info", "TELEPHONY", `Language selected: ${lang.toUpperCase()}`, sessionId);
+
+    // Twi flows directly to provider-select (Audio_prompt_twi_02.mp3); English goes to service-select (Audio_prompt_02.mp3)
+    const nextRoute = lang === "twi" ? "provider-select" : "service-select";
+    const decision: IvrDecision = {
+      type: "understood_intent",
+      reason: `Language chosen: ${lang === "twi" ? "Twi" : "English"} (${dtmf})`,
+      replyText: lang === "twi" ? "Paw wo network." : "Select your service.",
+      replyKey: lang === "twi" ? "provider_select" : "service_select",
+      action: "advance",
+      nextStep: nextRoute,
+    };
+    return xmlResponse(res, `    <Redirect>${baseUrl}/${nextRoute}?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, decision);
   }
 
-  const lang = dtmf === "2" ? "twi" : "en";
-  session.language = lang;
-  session.retryCount = 0;
-  auditLogger.log("info", "TELEPHONY", `Language selected: ${lang.toUpperCase()}`, sessionId);
-
-  // Twi flows directly to provider-select (Audio_prompt_twi_02.mp3); English goes to service-select (Audio_prompt_02.mp3)
-  const nextRoute = lang === "twi" ? "provider-select" : "service-select";
-  xmlResponse(res, `    <Redirect>${baseUrl}/${nextRoute}?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  // Invalid keypad input at language selection (e.g. 3, 4, 5, 6)
+  session.retryCount = (session.retryCount || 0) + 1;
+  const decision = ivrDecisionEngine.decide({
+    stepId: "language-selection",
+    language: "en",
+    input: dtmf,
+    inputMethod: "keypad",
+    retryCount: session.retryCount,
+    sessionId,
+  });
+  if (decision.action === "hangup") {
+    transactionStateMachine.transition(sessionId, "FAILED", { failureReason: decision.reason });
+    return xmlResponse(res, `    <Say voice="female">${decision.replyText}</Say>\n    <Reject/>`, decision);
+  }
+  return xmlResponse(
+    res,
+    `    <Say voice="female">${decision.replyText}</Say>\n    <Redirect>${baseUrl}/voice-menu?sessionId=${sessionId}&amp;err=invalid</Redirect>`,
+    decision
+  );
 });
 
 // ── Step 3: Service Selection (Telecom / Banking) ─────────────────────
@@ -204,20 +248,95 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getBaseUrl(req);
+  const session = transactionStateMachine.getOrCreateSession(sessionId);
 
-  if (dtmf === "0") {
-    transactionStateMachine.transition(sessionId, "CANCELLED");
-    return xmlResponse(res, `    <Say voice="female">${lang === "twi" ? "Yɛatwa mu. Nante yie." : "Transaction cancelled. Goodbye."}</Say>\n    <Reject/>`);
-  }
-  if (dtmf === "8") {
-    return xmlResponse(res, `    <Redirect>${baseUrl}/language-selection?sessionId=${sessionId}</Redirect>`);
-  }
-  if (dtmf === "9") {
-    return xmlResponse(res, `    <Redirect>${baseUrl}/service-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  const stepDef = getStepDefinition("service-select")!;
+  const validation = validateKeypadInput(stepDef, dtmf, lang);
+
+  if (validation.valid) {
+    if (validation.isNavigation && validation.navAction === "cancel") {
+      transactionStateMachine.transition(sessionId, "CANCELLED");
+      const navDecision: IvrDecision = {
+        type: "understood_intent",
+        reason: "Caller pressed 0 to cancel transaction.",
+        replyText: lang === "twi" ? "Yɛatwa mu. Nante yie." : "Transaction cancelled. Goodbye.",
+        replyKey: "cancelled",
+        action: "hangup",
+      };
+      return xmlResponse(res, `    <Say voice="female">${navDecision.replyText}</Say>\n    <Reject/>`, navDecision);
+    }
+    if (validation.isNavigation && validation.navAction === "back") {
+      const navDecision: IvrDecision = {
+        type: "clarify",
+        reason: "Caller pressed 8 to return to language selection.",
+        replyText: lang === "twi" ? "Yɛresan akɔ akyi." : "Going back to previous menu.",
+        replyKey: "going_back",
+        action: "back",
+        nextStep: "language-selection",
+      };
+      return xmlResponse(res, `    <Redirect>${baseUrl}/language-selection?sessionId=${sessionId}</Redirect>`, navDecision);
+    }
+    if (validation.isNavigation && validation.navAction === "repeat") {
+      const navDecision: IvrDecision = {
+        type: "clarify",
+        reason: "Caller pressed 9 to replay service options.",
+        replyText: lang === "twi" ? "Mema woate nkyerɛkyerɛmu no bio." : "Let me repeat the options for you.",
+        replyKey: "let_me_repeat",
+        action: "repeat",
+        nextStep: "service-select",
+      };
+      return xmlResponse(res, `    <Redirect>${baseUrl}/service-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, navDecision);
+    }
+    if (dtmf === "1") {
+      session.retryCount = 0;
+      const validDecision: IvrDecision = {
+        type: "understood_intent",
+        reason: "Selected Mobile Money service (1).",
+        replyText: lang === "twi" ? "Paw wo network." : "Select your network provider.",
+        replyKey: "provider_select",
+        action: "advance",
+        nextStep: "provider-select",
+      };
+      return xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, validDecision);
+    }
+    if (dtmf === "2") {
+      // Banking is not supported in this pilot
+      session.retryCount = (session.retryCount || 0) + 1;
+      const decision = ivrDecisionEngine.decide({
+        stepId: "service-select",
+        language: lang,
+        input: "banking",
+        inputMethod: "keypad",
+        retryCount: session.retryCount,
+        sessionId,
+      });
+      return xmlResponse(
+        res,
+        `    <Say voice="female">${decision.replyText}</Say>\n    <Redirect>${baseUrl}/service-select?sessionId=${sessionId}&amp;lang=${lang}&amp;err=unsupported</Redirect>`,
+        decision
+      );
+    }
   }
 
-  // 1 = Mobile Money / Telecom
-  xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  // Invalid key at service selection (e.g. 5, 6, 7)
+  session.retryCount = (session.retryCount || 0) + 1;
+  const decision = ivrDecisionEngine.decide({
+    stepId: "service-select",
+    language: lang,
+    input: dtmf,
+    inputMethod: "keypad",
+    retryCount: session.retryCount,
+    sessionId,
+  });
+  if (decision.action === "hangup") {
+    transactionStateMachine.transition(sessionId, "FAILED", { failureReason: decision.reason });
+    return xmlResponse(res, `    <Say voice="female">${decision.replyText}</Say>\n    <Reject/>`, decision);
+  }
+  return xmlResponse(
+    res,
+    `    <Say voice="female">${decision.replyText}</Say>\n    <Redirect>${baseUrl}/service-select?sessionId=${sessionId}&amp;lang=${lang}&amp;err=invalid</Redirect>`,
+    decision
+  );
 });
 
 // ── Step 4: Provider Selection (MTN, Telecel, AT) ─────────────────────
@@ -247,21 +366,77 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
     return xmlResponse(res, xml);
   }
 
-  if (dtmf === "0") {
-    transactionStateMachine.transition(sessionId, "CANCELLED");
-    return xmlResponse(res, `    <Say voice="female">${lang === "twi" ? "Yɛatwa mu. Nante yie." : "Cancelled. Goodbye."}</Say>\n    <Reject/>`);
-  }
-  if (dtmf === "8") {
-    const prev = lang === "twi" ? "language-selection" : "service-select";
-    return xmlResponse(res, `    <Redirect>${baseUrl}/${prev}?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
-  }
-  if (dtmf === "9" || (lang === "twi" && dtmf === "4")) {
-    return xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  const stepDef = getStepDefinition("provider-select")!;
+  const validation = validateKeypadInput(stepDef, dtmf, lang);
+
+  if (validation.valid) {
+    if (validation.isNavigation && validation.navAction === "cancel") {
+      transactionStateMachine.transition(sessionId, "CANCELLED");
+      const navDecision: IvrDecision = {
+        type: "understood_intent",
+        reason: "Caller pressed 0 to cancel call.",
+        replyText: lang === "twi" ? "Yɛatwa mu. Nante yie." : "Cancelled. Goodbye.",
+        replyKey: "cancelled",
+        action: "hangup",
+      };
+      return xmlResponse(res, `    <Say voice="female">${navDecision.replyText}</Say>\n    <Reject/>`, navDecision);
+    }
+    if (validation.isNavigation && validation.navAction === "back") {
+      const prev = lang === "twi" ? "language-selection" : "service-select";
+      const navDecision: IvrDecision = {
+        type: "clarify",
+        reason: `Caller pressed 8 to return to ${prev}.`,
+        replyText: lang === "twi" ? "Yɛresan akɔ akyi." : "Going back to previous menu.",
+        replyKey: "going_back",
+        action: "back",
+        nextStep: prev,
+      };
+      return xmlResponse(res, `    <Redirect>${baseUrl}/${prev}?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, navDecision);
+    }
+    if (validation.isNavigation && (validation.navAction === "repeat" || (lang === "twi" && dtmf === "4"))) {
+      const navDecision: IvrDecision = {
+        type: "clarify",
+        reason: "Caller pressed 9 to replay network provider options.",
+        replyText: lang === "twi" ? "Mema woate nkyerɛkyerɛmu no bio." : "Replaying network provider options.",
+        replyKey: "provider_select",
+        action: "repeat",
+        nextStep: "provider-select",
+      };
+      return xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, navDecision);
+    }
+
+    session.network = dtmf === "2" ? "Telecel" : dtmf === "3" ? "AT" : "MTN";
+    session.retryCount = 0;
+    const validDecision: IvrDecision = {
+      type: "understood_intent",
+      reason: `Selected network provider: ${session.network} (${dtmf}).`,
+      replyText: lang === "twi" ? "Sɛ wopɛ sɛ womane sika a mia 1. Sɛ wopɛ sɛ wohwɛ wo sika dodow a mia 2." : "To send money, press 1. To check balance, press 2.",
+      replyKey: "action_select",
+      action: "advance",
+      nextStep: "action-select",
+    };
+    return xmlResponse(res, `    <Redirect>${baseUrl}/action-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, validDecision);
   }
 
-  session.network = dtmf === "2" ? "Telecel" : dtmf === "3" ? "AT" : "MTN";
-
-  xmlResponse(res, `    <Redirect>${baseUrl}/action-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  // Invalid key at provider selection (e.g. 4, 5, 6, 7)
+  session.retryCount = (session.retryCount || 0) + 1;
+  const decision = ivrDecisionEngine.decide({
+    stepId: "provider-select",
+    language: lang,
+    input: dtmf,
+    inputMethod: "keypad",
+    retryCount: session.retryCount,
+    sessionId,
+  });
+  if (decision.action === "hangup") {
+    transactionStateMachine.transition(sessionId, "FAILED", { failureReason: decision.reason });
+    return xmlResponse(res, `    <Say voice="female">${decision.replyText}</Say>\n    <Reject/>`, decision);
+  }
+  return xmlResponse(
+    res,
+    `    <Say voice="female">${decision.replyText}</Say>\n    <Redirect>${baseUrl}/provider-select?sessionId=${sessionId}&amp;lang=${lang}&amp;err=invalid</Redirect>`,
+    decision
+  );
 });
 
 // ── Step 5: Action Menu (Send Money, Balance) ─────────────────────────
@@ -284,32 +459,95 @@ ivrRouter.all("/action-choice", async (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "1").trim() as string;
   const baseUrl = getBaseUrl(req);
+  const session = transactionStateMachine.getOrCreateSession(sessionId);
 
-  if (dtmf === "0") {
-    transactionStateMachine.transition(sessionId, "CANCELLED");
-    return xmlResponse(res, `    <Say voice="female">${lang === "twi" ? "Yɛatwa mu. Nante yie." : "Cancelled. Goodbye."}</Say>\n    <Reject/>`);
-  }
-  if (dtmf === "8") {
-    return xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
-  }
-  if (dtmf === "9") {
-    return xmlResponse(res, `    <Redirect>${baseUrl}/action-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  const stepDef = getStepDefinition("action-select")!;
+  const validation = validateKeypadInput(stepDef, dtmf, lang);
+
+  if (validation.valid) {
+    if (validation.isNavigation && validation.navAction === "cancel") {
+      transactionStateMachine.transition(sessionId, "CANCELLED");
+      const navDecision: IvrDecision = {
+        type: "understood_intent",
+        reason: "Caller pressed 0 to cancel call.",
+        replyText: lang === "twi" ? "Yɛatwa mu. Nante yie." : "Cancelled. Goodbye.",
+        replyKey: "cancelled",
+        action: "hangup",
+      };
+      return xmlResponse(res, `    <Say voice="female">${navDecision.replyText}</Say>\n    <Reject/>`, navDecision);
+    }
+    if (validation.isNavigation && validation.navAction === "back") {
+      const navDecision: IvrDecision = {
+        type: "clarify",
+        reason: "Caller pressed 8 to return to network provider menu.",
+        replyText: lang === "twi" ? "Yɛresan akɔ akyi." : "Going back to provider menu.",
+        replyKey: "going_back",
+        action: "back",
+        nextStep: "provider-select",
+      };
+      return xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, navDecision);
+    }
+    if (validation.isNavigation && validation.navAction === "repeat") {
+      const navDecision: IvrDecision = {
+        type: "clarify",
+        reason: "Caller pressed 9 to replay action options.",
+        replyText: lang === "twi" ? "Mema woate nkyerɛkyerɛmu no bio." : "Replaying action menu.",
+        replyKey: "action_select",
+        action: "repeat",
+        nextStep: "action-select",
+      };
+      return xmlResponse(res, `    <Redirect>${baseUrl}/action-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, navDecision);
+    }
+
+    // 1 = Send Money
+    if (dtmf === "1") {
+      session.retryCount = 0;
+      const validDecision: IvrDecision = {
+        type: "understood_intent",
+        reason: "Selected Send Money (1).",
+        replyText: lang === "twi" ? "Yɛsrɛ wo, bɔ obi a woremane no sika no fon nɔmba a ɛyɛ du na fa hash ka ho." : "Please enter the recipient's ten-digit phone number, followed by the hash key.",
+        replyKey: "enter_recipient",
+        action: "advance",
+        nextStep: "enter-recipient",
+      };
+      return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, validDecision);
+    }
+
+    // Balance query option
+    if (dtmf === "5" || dtmf === "2") {
+      const spoken = lang === "twi"
+        ? "Mentumi nhwɛ wo wallet balance. Sɛ wopɛ sɛ wohwɛ wo deɛ a, bɔ star baako nson hwee hash wɔ wo fon so."
+        : "I can't check wallet balances. To check yours, dial star one seven zero hash on your handset.";
+      const unsuppDecision: IvrDecision = {
+        type: "unsupported",
+        reason: "Direct wallet balance check over voice is not supported due to telco PIN security policies.",
+        replyText: spoken,
+        replyKey: "balance_inquiry_unsupported",
+        action: "hangup",
+      };
+      return xmlResponse(res, `    <Say voice="female">${spoken}</Say>\n    <Reject/>`, unsuppDecision);
+    }
   }
 
-  // 1 = Send Money
-  if (dtmf === "1") {
-    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  // Invalid key at action-choice (e.g. 3, 4, 6, 7)
+  session.retryCount = (session.retryCount || 0) + 1;
+  const decision = ivrDecisionEngine.decide({
+    stepId: "action-select",
+    language: lang,
+    input: dtmf,
+    inputMethod: "keypad",
+    retryCount: session.retryCount,
+    sessionId,
+  });
+  if (decision.action === "hangup") {
+    transactionStateMachine.transition(sessionId, "FAILED", { failureReason: decision.reason });
+    return xmlResponse(res, `    <Say voice="female">${decision.replyText}</Say>\n    <Reject/>`, decision);
   }
-
-  // Balance query option
-  if (dtmf === "5" || dtmf === "2") {
-    const spoken = lang === "twi"
-      ? "Mentumi nhwɛ wo wallet balance. Sɛ wopɛ sɛ wohwɛ wo deɛ a, bɔ star baako nson hwee hash wɔ wo fon so."
-      : "I can't check wallet balances. To check yours, dial star one seven zero hash on your handset.";
-    return xmlResponse(res, `    <Say voice="female">${spoken}</Say>\n    <Reject/>`);
-  }
-
-  xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  return xmlResponse(
+    res,
+    `    <Say voice="female">${decision.replyText}</Say>\n    <Redirect>${baseUrl}/action-select?sessionId=${sessionId}&amp;lang=${lang}&amp;err=invalid</Redirect>`,
+    decision
+  );
 });
 
 // ── Step 6: Recipient Phone Number Entry ──────────────────────────────
@@ -343,13 +581,35 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
   if (rawDigits === "8") {
     return xmlResponse(res, `    <Redirect>${baseUrl}/action-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
   }
+  if (rawDigits === "9") {
+    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  }
 
   // Validate phone number format and prefix
   const phoneValidation = validateGhanaPhoneNumber(rawDigits);
   if (!phoneValidation.valid || !phoneValidation.normalized) {
-    auditLogger.log("warn", "TELEPHONY", `Invalid recipient phone entered: ${rawDigits} (${phoneValidation.error})`, sessionId);
-    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}&amp;err=invalid</Redirect>`);
+    session.retryCount = (session.retryCount || 0) + 1;
+    const decision = ivrDecisionEngine.decide({
+      stepId: "enter-recipient",
+      language: lang,
+      input: rawDigits,
+      inputMethod: "keypad",
+      retryCount: session.retryCount,
+      sessionId,
+    });
+    auditLogger.log("warn", "TELEPHONY", `Invalid recipient phone entered: ${rawDigits} (${decision.reason})`, sessionId);
+    if (decision.action === "hangup") {
+      transactionStateMachine.transition(sessionId, "FAILED", { failureReason: decision.reason });
+      return xmlResponse(res, `    <Say voice="female">${decision.replyText}</Say>\n    <Reject/>`, decision);
+    }
+    return xmlResponse(
+      res,
+      `    <Say voice="female">${decision.replyText}</Say>\n    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}&amp;err=invalid</Redirect>`,
+      decision
+    );
   }
+
+  session.retryCount = 0;
 
   // Resolve recipient using active provider (Sandbox or real MTN)
   const resolution = await recipientResolver.resolve(phoneValidation.normalized);
@@ -371,7 +631,6 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
   const last4Spaced = phoneValidation.last4Spaced;
   const nameSpoken = resolution.name || (lang === "twi" ? `nɔmba a ɛwie ${last4Spaced}` : `subscriber ending in ${last4Spaced}`);
 
-  // TODO(ug-hci-tts): Replace dynamic readback prompt with UG HCI Lab TTS when connected
   let readbackPrompt = "";
   if (lang === "twi") {
     readbackPrompt = resolution.verified
@@ -395,21 +654,48 @@ ivrRouter.all("/recipient-verify-choice", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getBaseUrl(req);
+  const session = transactionStateMachine.getOrCreateSession(sessionId);
 
   if (dtmf === "0") {
     transactionStateMachine.transition(sessionId, "CANCELLED");
     return xmlResponse(res, `    <Say voice="female">${lang === "twi" ? "Yɛatwa mu. Nante yie." : "Cancelled. Goodbye."}</Say>\n    <Reject/>`);
   }
+  if (dtmf === "8") {
+    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  }
+  if (dtmf === "9") {
+    return xmlResponse(res, `    <Redirect>${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${session.recipientPhone || ""}</Redirect>`);
+  }
   if (dtmf === "2") {
     // Re-enter recipient number
+    session.retryCount = 0;
     return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
   }
   if (dtmf === "1") {
     // Confirmed recipient -> proceed to amount input
+    session.retryCount = 0;
     return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
   }
 
-  xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  // Invalid key at recipient confirmation
+  session.retryCount = (session.retryCount || 0) + 1;
+  const decision = ivrDecisionEngine.decide({
+    stepId: "recipient-verify-choice",
+    language: lang,
+    input: dtmf,
+    inputMethod: "keypad",
+    retryCount: session.retryCount,
+    sessionId,
+  });
+  if (decision.action === "hangup") {
+    transactionStateMachine.transition(sessionId, "FAILED", { failureReason: decision.reason });
+    return xmlResponse(res, `    <Say voice="female">${decision.replyText}</Say>\n    <Reject/>`, decision);
+  }
+  return xmlResponse(
+    res,
+    `    <Say voice="female">${decision.replyText}</Say>\n    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}&amp;err=invalid</Redirect>`,
+    decision
+  );
 });
 
 // ── Step 8: Amount Input ──────────────────────────────────────────────
@@ -434,6 +720,7 @@ ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const rawDigits = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim().replace(/#+$/, "");
   const baseUrl = getBaseUrl(req);
+  const session = transactionStateMachine.getOrCreateSession(sessionId);
 
   if (rawDigits === "0") {
     transactionStateMachine.transition(sessionId, "CANCELLED");
@@ -442,13 +729,34 @@ ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
   if (rawDigits === "8") {
     return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
   }
+  if (rawDigits === "9") {
+    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  }
 
   const amountValidation = parseAndValidateAmount(rawDigits);
   if (!amountValidation.valid || amountValidation.amount === undefined) {
-    auditLogger.log("warn", "TELEPHONY", `Invalid amount entered: "${rawDigits}" (${amountValidation.error})`, sessionId);
-    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}&amp;err=invalid</Redirect>`);
+    session.retryCount = (session.retryCount || 0) + 1;
+    const decision = ivrDecisionEngine.decide({
+      stepId: "enter-amount",
+      language: lang,
+      input: rawDigits,
+      inputMethod: "keypad",
+      retryCount: session.retryCount,
+      sessionId,
+    });
+    auditLogger.log("warn", "TELEPHONY", `Invalid amount entered: "${rawDigits}" (${decision.reason})`, sessionId);
+    if (decision.action === "hangup") {
+      transactionStateMachine.transition(sessionId, "FAILED", { failureReason: decision.reason });
+      return xmlResponse(res, `    <Say voice="female">${decision.replyText}</Say>\n    <Reject/>`, decision);
+    }
+    return xmlResponse(
+      res,
+      `    <Say voice="female">${decision.replyText}</Say>\n    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}&amp;err=invalid</Redirect>`,
+      decision
+    );
   }
 
+  session.retryCount = 0;
   // Transition state machine to AMOUNT_ENTERED
   transactionStateMachine.transition(sessionId, "AMOUNT_ENTERED", {
     amount: amountValidation.amount,
@@ -465,7 +773,6 @@ ivrRouter.all("/safe-confirmation", (req: Request, res: Response) => {
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getOrCreateSession(sessionId);
 
-  // TODO(ug-hci-tts): Replace dynamic readback prompt with UG HCI Lab TTS when connected
   if (!session.amount || !session.recipientPhone) {
     const promptText = lang === "twi"
       ? "Sika no ano anaa nipa no fon nɔma nni hɔ yie. Mepa wo kyɛw, san hyɛ aseɛ bio."
@@ -504,7 +811,16 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
 
   if (dtmf === "2") {
     // Re-enter recipient number and amount
-    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+    session.retryCount = 0;
+    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  }
+
+  if (dtmf === "8") {
+    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  }
+
+  if (dtmf === "9") {
+    return xmlResponse(res, `    <Redirect>${baseUrl}/safe-confirmation?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
   }
 
   if (dtmf === "0") {
@@ -516,7 +832,20 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
   }
 
   if (dtmf !== "1") {
-    return xmlResponse(res, `    <Redirect>${baseUrl}/safe-confirmation?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+    session.retryCount = (session.retryCount || 0) + 1;
+    const decision = ivrDecisionEngine.decide({
+      stepId: "safe-confirmation",
+      language: lang,
+      input: dtmf,
+      inputMethod: "keypad",
+      retryCount: session.retryCount,
+      sessionId,
+    });
+    return xmlResponse(
+      res,
+      `    <Say voice="female">${decision.replyText}</Say>\n    <Redirect>${baseUrl}/safe-confirmation?sessionId=${sessionId}&amp;lang=${lang}&amp;err=invalid</Redirect>`,
+      decision
+    );
   }
 
   // 1 = CONFIRMED: initiate real Zero-PIN handoff to handset
@@ -786,165 +1115,48 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   xmlResponse(res, `    <Redirect>${baseUrl}/${step || "voice-menu"}?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
 });
 
-// ── Step 12: New Cognitive IVR Understand Endpoint ───────────────────
+// ── Step 12: Cognitive IVR Understand Endpoint ───────────────────────
 ivrRouter.post("/api/ivr/understand", async (req: Request, res: Response) => {
-  const { utterance, currentStep, callState } = req.body || {};
+  const { utterance, currentStep, callState, sessionId } = req.body || {};
   const text = typeof utterance === "string" ? utterance.trim() : "";
   const step = typeof currentStep === "string" ? currentStep : "welcome";
-  const lang = (callState?.lang || "en") as "en" | "twi";
-  const cleanLower = text.toLowerCase().replace(/[.,!?;:]/g, "").trim();
+  const lang = (callState?.lang || req.body?.language || "en") as "en" | "twi";
+  const sid = (sessionId || req.body?.sessionId || callState?.sessionId) as string;
 
-  if (!text) {
-    return res.json({
-      type: "unknown",
-      promptKey: "wrong_figure",
-      promptAudio: resolvePrompt("wrong_figure", lang),
-      promptText: lang === "twi"
-        ? "Wobɔɔ nɔmba a ɛnyɛ pɛpɛɛpɛ."
-        : "You have entered an incorrect figure.",
-    });
+  const decision = ivrDecisionEngine.decide({
+    stepId: step,
+    language: lang,
+    input: text,
+    inputMethod: "speech",
+    sessionId: sid,
+  });
+
+  auditLogger.log("info", "IVR_BRAIN", `Cognitive decision: ${decision.type} (${decision.reason})`, sid);
+
+  // If slots were gathered, persist them to session
+  if (sid && decision.updatedSlots) {
+    const session = transactionStateMachine.getOrCreateSession(sid);
+    if (decision.updatedSlots.amount !== undefined) session.amount = decision.updatedSlots.amount;
+    if (decision.updatedSlots.recipientPhone) session.recipientPhone = decision.updatedSlots.recipientPhone;
+    if (decision.updatedSlots.recipientName) session.recipientName = decision.updatedSlots.recipientName;
+    if (decision.updatedSlots.network) session.network = decision.updatedSlots.network;
   }
 
-  // 1. Clarification & Navigation commands:
-  // "what is this", "i don't understand", "repeat", "go back", "pardon", "what do i do"
-  if (/\b(back|go back|previous|san|akyiri)\b/i.test(cleanLower)) {
-    return res.json({
-      type: "clarify",
-      action: "back",
-      replyKey: "going_back",
-      replyText: lang === "twi" ? "Yɛresan akɔ akyi." : "Going back to previous menu.",
-      promptKey: "going_back",
-      promptAudio: resolvePrompt("going_back", lang),
-    });
-  }
+  const promptAudioUrl = decision.promptReplayKey ? resolvePrompt(decision.promptReplayKey, lang) : null;
 
-  if (/\b(repeat|again|say again|what did you say|what\?|what did u say|tie wei bio)\b/i.test(cleanLower)) {
-    return res.json({
-      type: "clarify",
-      action: "repeat",
-      replyKey: "let_me_repeat",
-      replyText: lang === "twi" ? "Mema woate bio." : "Let me repeat the options.",
-      promptKey: "let_me_repeat",
-      promptAudio: resolvePrompt("let_me_repeat", lang),
-    });
-  }
-
-  if (/\b(what is this|i don't understand|i dont understand|help|what do i do|muntumi nte ase)\b/i.test(cleanLower)) {
-    return res.json({
-      type: "clarify",
-      action: "help",
-      replyKey: "sorry_did_not_catch",
-      replyText: lang === "twi"
-        ? "Mepa wo kyɛw, tie wei na fa wo fon keypad bɔ nɔmba a wopɛ."
-        : "Sorry, I did not catch that. Please listen and press a number on your keypad.",
-      promptKey: "sorry_did_not_catch",
-      promptAudio: resolvePrompt("sorry_did_not_catch", lang),
-    });
-  }
-
-  if (/\b(cancel|exit|stop|abort|quit|gyae)\b/i.test(cleanLower)) {
-    return res.json({
-      type: "dtmf",
-      dtmf: "0",
-      reason: "cancel",
-    });
-  }
-
-  // 2. Multi-slot extraction (Menu skipping e.g. "send 500 to Kwame", "transfer 50 cedis to 0553838464")
-  const amt = extractAmount(text);
-  const rec = extractRecipient(text);
-  const net = extractNetwork(text);
-
-  if ((amt !== null && (rec.phone || rec.name)) || (rec.phone && net) || rec.phone || (amt !== null && net)) {
-    const targetStep = amt !== null && (rec.phone || rec.name) ? "safe-confirmation" : (rec.phone ? "enter-amount" : "enter-recipient");
-    const sessionId = (req.body?.sessionId || callState?.sessionId) as string;
-    if (sessionId) {
-      const session = transactionStateMachine.getOrCreateSession(sessionId);
-      if (amt !== null) session.amount = amt;
-      if (rec.phone) session.recipientPhone = rec.phone;
-      if (rec.name) session.recipientName = rec.name;
-      if (net) session.network = net;
-    }
-    return res.json({
-      type: "skip",
-      targetStep,
-      slots: {
-        amount: amt || undefined,
-        recipientPhone: rec.phone || undefined,
-        recipientName: rec.name || undefined,
-        network: net || undefined,
-      },
-      promptKey: targetStep === "safe-confirmation" ? "safe_confirmation" : "enter_amount",
-      promptAudio: resolvePrompt(targetStep === "safe-confirmation" ? "safe_confirmation" : "enter_amount", lang),
-      promptText: targetStep === "safe-confirmation"
-        ? (lang === "twi" ? `Worebɛsend ${amt || 500} cedis kɔma ${rec.name || "recipient"}.` : `You are about to send ${amt || 500} cedis to ${rec.name || "recipient"}.`)
-        : (lang === "twi" ? "Bɔ sika dodow a wopɛ sɛ womane no." : "Enter the amount you want to send."),
-    });
-  }
-
-  // 3. Step-specific DTMF resolution:
-  if (step === "welcome" || step === "language-selection") {
-    if (/\b(1|one|english|baako|bako)\b/i.test(cleanLower)) {
-      return res.json({ type: "dtmf", dtmf: "1" });
-    }
-    if (/\b(2|two|twi|mmienu|mienu|akan)\b/i.test(cleanLower)) {
-      return res.json({ type: "dtmf", dtmf: "2" });
-    }
-  } else if (step === "service-select" || step === "service-choice") {
-    if (/\b(1|one|momo|mobile money|telecom|baako)\b/i.test(cleanLower)) {
-      return res.json({ type: "dtmf", dtmf: "1" });
-    }
-    if (/\b(2|two|bank|banking|sikakorabea|mmienu)\b/i.test(cleanLower)) {
-      return res.json({ type: "dtmf", dtmf: "2" });
-    }
-  } else if (step === "provider-select" || step === "provider-choice") {
-    if (/\b(1|one|mtn|baako)\b/i.test(cleanLower)) {
-      return res.json({ type: "dtmf", dtmf: "1" });
-    }
-    if (/\b(2|two|telecel|vodafone|voda|mmienu)\b/i.test(cleanLower)) {
-      return res.json({ type: "dtmf", dtmf: "2" });
-    }
-    if (/\b(3|three|airteltigo|at|mmiɛnsa)\b/i.test(cleanLower)) {
-      return res.json({ type: "dtmf", dtmf: "3" });
-    }
-  } else if (step === "action-select" || step === "action-choice") {
-    if (/\b(1|one|send|send money|transfer|baako|mane)\b/i.test(cleanLower)) {
-      return res.json({ type: "dtmf", dtmf: "1" });
-    }
-    if (/\b(2|two|balance|check balance|my balance|mmienu)\b/i.test(cleanLower)) {
-      return res.json({ type: "dtmf", dtmf: "2" });
-    }
-  } else if (step === "enter-recipient" || step === "recipient") {
-    const rawDigits = cleanLower.replace(/[^0-9]/g, "");
-    if (rawDigits.length === 10) {
-      return res.json({ type: "dtmf", dtmf: rawDigits });
-    }
-  } else if (step === "enter-amount" || step === "amount") {
-    if (amt !== null) {
-      return res.json({ type: "dtmf", dtmf: String(amt) });
-    }
-    const rawDigits = cleanLower.replace(/[^0-9.]/g, "");
-    if (rawDigits.length > 0 && !isNaN(Number(rawDigits))) {
-      return res.json({ type: "dtmf", dtmf: rawDigits });
-    }
-  } else if (step === "recipient-verify" || step === "recipient-verify-choice" || step === "safe-confirmation") {
-    if (/\b(1|one|yes|confirm|aane|pene so|yie|ampa|proceed|baako)\b/i.test(cleanLower)) {
-      return res.json({ type: "dtmf", dtmf: "1" });
-    }
-    if (/\b(2|two|no|dabi|sesa|change|cancel|mmienu)\b/i.test(cleanLower)) {
-      return res.json({ type: "dtmf", dtmf: "2" });
-    }
-  }
-
-  // 4. Default: fallback to unknown with prompt 11 audio
   return res.json({
-    type: "unknown",
-    promptKey: "wrong_figure",
-    replyKey: "sorry_did_not_catch",
-    promptAudio: resolvePrompt("wrong_figure", lang),
-    promptText: lang === "twi"
-      ? "Wobɔɔ nɔmba a ɛnyɛ pɛpɛɛpɛ."
-      : "You have entered an incorrect figure.",
+    type: decision.type,
+    reason: decision.reason,
+    replyText: decision.replyText,
+    replyKey: decision.replyKey,
+    nextStep: decision.nextStep,
+    action: decision.action,
+    slots: decision.updatedSlots,
+    promptKey: decision.promptReplayKey,
+    promptAudio: promptAudioUrl,
+    promptText: decision.replyText,
+    // Backwards-compatible mappings for client simulator interpreter
+    targetStep: decision.nextStep,
   });
 });
 

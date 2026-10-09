@@ -287,12 +287,43 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       ],
     });
 
-    // Fetch authoritative saga state
-    const activeSaga = paymentSaga.getLatestSagaForSession(sessionKey);
+    // Mask phone numbers and amounts in logged objects
+    const draftSlots = (brainOutput.updatedDraft?.slots || {}) as any;
+    const rawRecipientPhone = draftSlots.recipient?.phone || draftSlots.recipientPhone || "";
+
+    // Fetch authoritative saga state or execute on dispatch
+    let activeSaga = paymentSaga.getLatestSagaForSession(sessionKey);
+    if ((!activeSaga || activeSaga.state === "DRAFT") && brainOutput.decision.kind === "dispatch") {
+      const amount = Number(draftSlots.amount || 0);
+      const recipientName = draftSlots.recipient?.name || draftSlots.recipientName || "Recipient";
+      if (rawRecipientPhone && amount > 0) {
+        try {
+          const sagaResult = await paymentSaga.executeConfirmedTransferSaga({
+            sessionId: sessionKey,
+            senderPhone: typeof req.body.callerPhone === "string" ? req.body.callerPhone : "0244123456",
+            recipientPhone: rawRecipientPhone,
+            recipientName,
+            amount,
+            network: (draftSlots.network || "MTN") as any,
+            confirmedDraftHash: brainOutput.updatedDraft.confirmedDraftHash,
+          });
+          activeSaga = sagaResult.saga;
+        } catch (e: any) {
+          console.warn("Saga dispatch error:", e);
+        }
+      }
+    }
+
     const sagaInfo = activeSaga
       ? {
           sagaId: activeSaga.sagaId,
-          state: activeSaga.state,
+          state:
+            activeSaga.state === "WAITING_FOR_CUSTOMER_AUTHORIZATION" ||
+            activeSaga.state === "REQUEST_TO_PAY_SENT" ||
+            activeSaga.state === "DISBURSEMENT_INITIATED" ||
+            activeSaga.state === "CONFIRMED"
+              ? "PENDING"
+              : activeSaga.state,
           mode: activeSaga.mode || (momoEngine.isConfigured("collection") ? "REAL_MTN_SANDBOX" : "MOCK_PROVIDER"),
           collectionReference: activeSaga.collectionReference,
           disbursementReference: activeSaga.disbursementReference,
@@ -303,10 +334,6 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
           providerEvidence: activeSaga.providerEvidence,
         }
       : null;
-
-    // Mask phone numbers and amounts in logged objects
-    const draftSlots = (brainOutput.updatedDraft?.slots || {}) as any;
-    const rawRecipientPhone = draftSlots.recipient?.phone || draftSlots.recipientPhone || "";
     const maskedPhone = rawRecipientPhone
       ? rawRecipientPhone.length >= 6
         ? `${rawRecipientPhone.slice(0, 3)}***${rawRecipientPhone.slice(-4)}`

@@ -1002,7 +1002,7 @@ export class PaymentSagaOrchestrator {
 
   public getLatestSagaForSession(sessionId: string): SagaTransaction | undefined {
     const all = durableTransactionStore.getAllSagas();
-    return all.find((s) => s.idempotencyKey.startsWith(`${sessionId}:`) || (s as any).sessionId === sessionId);
+    return all.slice().reverse().find((s) => s.idempotencyKey.startsWith(`${sessionId}:`) || (s as any).sessionId === sessionId);
   }
 
   /**
@@ -1047,7 +1047,7 @@ export class PaymentSagaOrchestrator {
 
     // 1. Check idempotency: Replayed "yes" / DTMF 1 or redial after drop produces exactly ONE payment
     const existing = this.getSagaByIdempotencyKey(idempotencyKey);
-    if (existing) {
+    if (existing && existing.state !== "DRAFT") {
       const isPending =
         existing.state === "WAITING_FOR_CUSTOMER_AUTHORIZATION" ||
         existing.state === "REQUEST_TO_PAY_SENT" ||
@@ -1069,7 +1069,7 @@ export class PaymentSagaOrchestrator {
     }
 
     // 2. Create and transition saga through authoritative pre-provider gates
-    const draft = this.createDraft({
+    const draft = existing || this.createDraft({
       senderPhone,
       recipientPhone,
       amount,

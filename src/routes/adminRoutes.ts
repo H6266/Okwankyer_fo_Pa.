@@ -80,6 +80,7 @@ adminRouter.get(
       success: true,
       authenticated: isAdminAuthenticated(req),
       isDev,
+      enableSimulator: config.enableSimulator,
       hint: isDev ? defaultHint : undefined,
     });
   }

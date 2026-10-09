@@ -118,6 +118,20 @@ export const PhoneSimulatorPage: React.FC = () => {
   const [adminAuthError, setAdminAuthError] = useState<string>("");
   const [devHint, setDevHint] = useState<string>("");
 
+  // Helper to append a single chronological line to the terminal
+  const addLog = useCallback((source: TerminalLog["source"], message: string) => {
+    const time = new Date().toTimeString().slice(0, 8);
+    setTerminalLogs((prev) => [
+      ...prev,
+      {
+        id: `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        time,
+        source,
+        message,
+      },
+    ]);
+  }, []);
+
   // Check admin session on mount
   useEffect(() => {
     let cancelled = false;
@@ -126,6 +140,9 @@ export const PhoneSimulatorPage: React.FC = () => {
         const session = await api.getAdminSession();
         if (cancelled) return;
         if (session?.hint) setDevHint(session.hint);
+        if (session && (session as any).enableSimulator === false) {
+          addLog("system", "[Phone Simulator Disabled] Voice sandbox is inactive in this environment.");
+        }
         if (session?.authenticated) {
           setAdminAuthenticated(true);
         } else if (session?.isDev && session?.hint) {
@@ -133,7 +150,10 @@ export const PhoneSimulatorPage: React.FC = () => {
             await api.adminLogin(session.hint);
             if (!cancelled) setAdminAuthenticated(true);
           } catch {
-            if (!cancelled) setAdminAuthenticated(false);
+            if (!cancelled) {
+              setAdminAuthenticated(false);
+              addLog("system", "[Phone Simulator Disabled] Voice sandbox is inactive in this environment.");
+            }
           }
         } else {
           const stored = typeof localStorage !== "undefined" ? localStorage.getItem("okw_admin_token") : null;
@@ -142,10 +162,14 @@ export const PhoneSimulatorPage: React.FC = () => {
               await api.adminLogin(stored);
               if (!cancelled) setAdminAuthenticated(true);
             } catch {
-              if (!cancelled) setAdminAuthenticated(false);
+              if (!cancelled) {
+                setAdminAuthenticated(false);
+                addLog("system", "[Phone Simulator Disabled] Voice sandbox is inactive in this environment.");
+              }
             }
           } else {
             setAdminAuthenticated(false);
+            addLog("system", "[Phone Simulator Disabled] Voice sandbox is inactive in this environment.");
           }
         }
       } catch (err: any) {
@@ -156,7 +180,7 @@ export const PhoneSimulatorPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [addLog]);
 
   // Clock timer
   useEffect(() => {
@@ -199,20 +223,6 @@ export const PhoneSimulatorPage: React.FC = () => {
     });
     return () => unsubscribe();
   }, [callActive, isMicMuted, zeroPinOverlay]);
-
-  // Helper to append a single chronological line to the terminal
-  const addLog = useCallback((source: TerminalLog["source"], message: string) => {
-    const time = new Date().toTimeString().slice(0, 8);
-    setTerminalLogs((prev) => [
-      ...prev,
-      {
-        id: `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        time,
-        source,
-        message,
-      },
-    ]);
-  }, []);
 
   // Format MM:SS timer
   const formatTimer = (sec: number) => {
@@ -450,10 +460,24 @@ export const PhoneSimulatorPage: React.FC = () => {
           body: bodyParams.toString(),
         });
         const guardReason = res.headers.get("x-telephony-guard-reason") || undefined;
+        const aiDecisionType = res.headers.get("x-ai-decision-type");
+        const aiDecisionReason = res.headers.get("x-ai-decision-reason");
+        const aiReplyText = res.headers.get("x-ai-reply-text");
+
+        if (aiDecisionType) {
+          addLog(
+            "AI",
+            `[AI Decision] type=${aiDecisionType} reason="${aiDecisionReason || ""}" reply="${aiReplyText || ""}"`
+          );
+        }
+
         const text = await res.text();
         if (text.includes("<Response>") || text.includes("<Reject")) {
           await executeVoiceXml(text, targetUrl, { httpStatus: res.status, guardReason });
         } else if (!res.ok) {
+          if (res.status === 401 || res.status === 403 || (res.status === 404 && targetUrl.includes("/api/simulator"))) {
+            addLog("system", "[Phone Simulator Disabled] Voice sandbox is inactive in this environment.");
+          }
           let errorMsg = `HTTP ${res.status}`;
           try {
             const json = JSON.parse(text);

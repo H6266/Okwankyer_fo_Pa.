@@ -168,7 +168,7 @@ export function isSpokenPinPresent(raw: string): boolean {
 
 // ── CONFIRMATION & CANCELLATION INTENT DETECTOR (Verbal + DTMF 1 / 2) ────────
 
-const EXPLICIT_CONFIRM_WORDS = /\b(confirm|yes|proceed|send it|aane|yoo|kɔ so|okay|ok|sure|ɛyɛ)\b/i;
+const EXPLICIT_CONFIRM_WORDS = /\b(confirm|yes|proceed|send it|aane|yoo|kɔ so|okay|ok|sure|ɛyɛ|pene so|pene)\b/i;
 const EXPLICIT_CANCEL_WORDS = /\b(cancel|stop|abort|gyae|daabi|dabi|don't send|mompɛ)\b/i;
 
 export function isExplicitConfirmation(raw: string): boolean {
@@ -611,6 +611,10 @@ export class Brain {
         draft.intent = settledIntent;
       } else if (draft.intent) {
         settledIntent = draft.intent;
+      } else if (top1[1] === 0 && top2[1] === 0) {
+        // Unrecognized noise / no-match falls back to primary transfer service to clarify required slot
+        settledIntent = 'momo.transfer';
+        draft.intent = settledIntent;
       } else {
         draft.lastReplyKind = 'clarify_intent';
         const decision: BrainDecision = {
@@ -1012,15 +1016,16 @@ Output format: Return ONLY valid JSON with keys: intent, slots, signals, reply.`
       scores['momo.transfer'] += 0.70;
     }
 
-    if (!isNonTransferSpecific && (draft.intent === 'momo.transfer' || (draft.slots.amount && draft.slots.recipient?.phone))) {
-      scores['momo.transfer'] += 0.20;
+    const hasTransferSlots = Boolean(draft.slots.amount || draft.slots.recipient?.phone);
+    if (!isNonTransferSpecific && (draft.intent === 'momo.transfer' || hasTransferSlots)) {
+      scores['momo.transfer'] += hasTransferSlots ? 0.90 : 0.20;
     }
 
-    if (draft.intent && scores[draft.intent] !== undefined && !isNonTransferSpecific) {
+    if (draft.intent && scores[draft.intent] !== undefined && !isNonTransferSpecific && !hasTransferSlots) {
       scores[draft.intent] += 0.15;
     }
 
-    if (/^(hello|hi|akwaaba|good\s+morning|good\s+afternoon|how\s+are\s+you|thank\s+you|help)\b/i.test(lower) && !isCare) {
+    if (/^(hello|hi|akwaaba|good\s+morning|good\s+afternoon|how\s+are\s+you|thank\s+you|help)\b/i.test(lower) && !isCare && !hasTransferSlots) {
       scores['smalltalk'] += 0.75;
     }
 
