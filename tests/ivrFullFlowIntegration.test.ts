@@ -17,6 +17,7 @@ import { voiceRouter } from "../src/routes/voiceRoutes";
 import { transactionStateMachine } from "../src/domain/stateMachine";
 
 import { durableTransactionStore } from "../src/services/durableTransactionStore";
+import { momoSagaOrchestrator } from "../src/services/momoSagaOrchestrator";
 
 function createTestApp() {
   const app = express();
@@ -98,9 +99,18 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(safeConfRes.text).not.toContain("500 Ghana cedis"); // Mismatch check!
 
     // 10. Confirm Transfer (1) -> Handoff to USSD Prompt & Zero-PIN Safety Gate (Item 1.1)
+    // Simulate the accepted MoMo handoff; never call MTN from this IVR test.
+    const sagaSpy = vi
+      .spyOn(momoSagaOrchestrator, "startSaga")
+      .mockResolvedValueOnce({
+        collectionRef: "TEST-MOMO-COLLECTION-REF",
+        mode: "SANDBOX_SIMULATOR",
+      });
+
     const outcomeRes = await request(app)
       .post("/safe-outcome")
       .send({ sessionId, lang: "en", dtmfDigits: "1" });
+    sagaSpy.mockRestore();
     expect(outcomeRes.text).toContain("check your phone screen");
     expect(outcomeRes.text).not.toContain("Congratulations");
     expect(outcomeRes.text).not.toContain("<Record");
