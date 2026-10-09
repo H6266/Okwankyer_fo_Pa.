@@ -1,67 +1,35 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   Phone,
   PhoneOff,
   Mic,
   MicOff,
   Volume2,
-  Trash2,
-  ChevronDown,
-  ChevronUp,
+  VolumeX,
+  Radio,
+  RotateCcw,
+  Download,
+  FileText,
+  Sparkles,
   ShieldCheck,
   CheckCircle2,
+  AlertCircle,
+  Play,
+  Pause,
+  Clock,
+  Send,
+  Terminal,
+  ArrowRight,
+  RefreshCw,
+  Sliders,
+  Square,
+  CircleDot,
+  Zap,
+  Check,
+  Trash2,
+  Layers,
 } from "lucide-react";
-import { audioPlaybackController } from "../../audio/audioPlaybackController";
-import { isAcousticSystemEcho } from "../../domain/echoFilter";
-import { resolvePrompt } from "../../modules/ttsService";
-import { api } from "../../lib/api";
-
-interface TerminalLog {
-  id: string;
-  time: string;
-  source: "caller" | "state" | "AI" | "reply" | "audio" | "system";
-  message: string;
-}
-
-interface ParsedVoiceXml {
-  raw: string;
-  redirectUrl?: string;
-  isReject: boolean;
-  httpStatus?: number;
-  guardReason?: string;
-  playUrl?: string;
-  sayText?: string;
-  getDigits?: {
-    callbackUrl?: string;
-    numDigits?: number;
-    finishOnKey?: string;
-    timeout?: number;
-  };
-  record?: {
-    callbackUrl?: string;
-    maxLength?: number;
-    finishOnKey?: string;
-    timeout?: number;
-  };
-}
-
-const STEP_OPTIONS_MAP: Record<string, string> = {
-  "voice-menu": "1=English, 2=Twi, 0=Exit",
-  "language-selection": "1=English, 2=Twi, 0=Exit",
-  "service-select": "1=Mobile Money, 2=Banking, 9=Repeat, 0=Exit",
-  "service-choice": "1=Mobile Money, 2=Banking, 9=Repeat, 0=Exit",
-  "provider-select": "1=MTN, 2=Telecel, 3=AT, 9=Repeat, 0=Exit",
-  "provider-choice": "1=MTN, 2=Telecel, 3=AT, 9=Repeat, 0=Exit",
-  "action-select": "1=Send Money, 2=Check Balance, 8=Back, 9=Repeat, 0=Exit",
-  "action-choice": "1=Send Money, 2=Check Balance, 8=Back, 9=Repeat, 0=Exit",
-  "enter-recipient": "10 Digits followed by #, 0=Exit",
-  "verify-recipient": "10 Digits followed by #, 0=Exit",
-  "recipient-verify-choice": "1=Confirm Recipient, 2=Re-enter, 8=Back, 9=Repeat, 0=Exit",
-  "enter-amount": "Amount followed by # (* for pesewas), 0=Exit",
-  "verify-amount": "Amount followed by #, 0=Exit",
-  "safe-confirmation": "1=Confirm & Authorize, 2=Edit Amount, 9=Repeat, 0=Exit",
-  "safe-outcome": "1=Confirm & Authorize, 0=Cancel",
-};
+import { usePhoneSimulator, AT_PRESET_SCENARIOS, PRESET_SCENARIOS } from "../../hooks/usePhoneSimulator";
 
 const KEYPAD_BUTTONS = [
   { digit: "1", sub: "" },
@@ -79,1140 +47,726 @@ const KEYPAD_BUTTONS = [
 ];
 
 export const PhoneSimulatorPage: React.FC = () => {
-  // Call session state
-  const [callActive, setCallActive] = useState<boolean>(false);
-  const [callStatus, setCallStatus] = useState<string>("Idle");
-  const [sessionId, setSessionId] = useState<string>("");
-  const [callerNumber] = useState<string>("0543546010");
-  const [language, setLanguage] = useState<"en" | "twi" | null>(null);
-  const [currentPrompt, setCurrentPrompt] = useState<string>("Lift handset or press Call to begin.");
-  const [digitsBuffer, setDigitsBuffer] = useState<string>("");
-  const [callDuration, setCallDuration] = useState<number>(0);
-  const [isMicMuted, setIsMicMuted] = useState<boolean>(false);
-  const [micUnavailable, setMicUnavailable] = useState<boolean>(false);
-  const [clock, setClock] = useState<string>("10:00");
-  const [zeroPinOverlay, setZeroPinOverlay] = useState<boolean>(false);
+  const {
+    isActive,
+    callDurationSec,
+    sessionId,
+    executionMode,
+    language,
+    gatewayMode,
+    setGatewayMode,
+    atCallerPhone,
+    atExpectedDigits,
+    atFinishOnKey,
+    atInstruction,
+    atHttpLogs,
+    clearAtLogs,
+    ussdPushPrompt,
+    dismissUssdPrompt,
+    currentStep,
+    digitsBuffer,
+    setDigitsBuffer,
+    isMicActive,
+    isAiSpeaking,
+    isLoading,
+    enableTts,
+    setEnableTts,
+    interimTranscript,
+    transcriptionStatus,
+    aiProcessingDetail,
+    audioLevel,
+    transcript,
+    aiResponse,
+    intent,
+    startCall,
+    endCall,
+    handleKeypadDigit,
+    submitKeypadBuffer,
+    sendInputTurn,
+    toggleMic,
+    replayCurrentSpeech,
+    runScenario,
+    runAtPresetScenario,
+    refreshSyncStatus,
+    // Long conversation recording
+    isRecording,
+    recordingDurationSec,
+    recordedAudioUrl,
+    recordedChunksCount,
+    rollingSummary,
+    startRecording,
+    stopRecording,
+    downloadRecording,
+    exportTranscript,
+  } = usePhoneSimulator();
 
-  // XML / Backend routing state
-  const [activeCallbackUrl, setActiveCallbackUrl] = useState<string | null>(null);
-  const [activeNumDigits, setActiveNumDigits] = useState<number>(1);
-  const [activeFinishOnKey, setActiveFinishOnKey] = useState<string>("#");
-  const [activeStepName, setActiveStepName] = useState<string>("idle");
-  const [rawVoiceXml, setRawVoiceXml] = useState<string>("");
-  const [showDevView, setShowDevView] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<"transcript" | "telephony_logs">("transcript");
+  const [typedUtterance, setTypedUtterance] = useState("");
+  const [selectedScenarioId, setSelectedScenarioId] = useState("");
+  const [isPlayingRecordedAudio, setIsPlayingRecordedAudio] = useState(false);
+  const recordedAudioPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const transcriptEndRef = useRef<HTMLDivElement | null>(null);
 
-  // Terminal log
-  const [terminalLogs, setTerminalLogs] = useState<TerminalLog[]>([
-    {
-      id: "init",
-      time: new Date().toTimeString().slice(0, 8),
-      source: "system",
-      message: "Ɔkwankyerɛfo Pa phone simulator initialized. Keypad and terminal active.",
-    },
-  ]);
-
-  const terminalEndRef = useRef<HTMLDivElement | null>(null);
-  const recognitionRef = useRef<any>(null);
-  const lastUtteranceTimeRef = useRef<number>(0);
-  const lastUtteranceTextRef = useRef<string>("");
-  const silenceCountRef = useRef<number>(0);
-
-  // Admin authentication state for hosted preview & production
-  const [adminAuthenticated, setAdminAuthenticated] = useState<boolean>(true);
-  const [adminTokenInput, setAdminTokenInput] = useState<string>("");
-  const [adminConnecting, setAdminConnecting] = useState<boolean>(false);
-  const [adminAuthError, setAdminAuthError] = useState<string>("");
-  const [devHint, setDevHint] = useState<string>("");
-
-  // Helper to append a single chronological line to the terminal
-  const addLog = useCallback((source: TerminalLog["source"], message: string) => {
-    const time = new Date().toTimeString().slice(0, 8);
-    setTerminalLogs((prev) => [
-      ...prev,
-      {
-        id: `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        time,
-        source,
-        message,
-      },
-    ]);
-  }, []);
-
-  // Check admin session on mount
+  // Auto-scroll transcript on new turns
   useEffect(() => {
-    let cancelled = false;
-    const checkSession = async () => {
-      try {
-        const session = await api.getAdminSession();
-        if (cancelled) return;
-        if (session?.hint) setDevHint(session.hint);
-        if (session && (session as any).enableSimulator === false) {
-          addLog("system", "[Phone Simulator Disabled] Voice sandbox is inactive in this environment.");
-        }
-        if (session?.authenticated) {
-          setAdminAuthenticated(true);
-        } else if (session?.isDev && session?.hint) {
-          try {
-            await api.adminLogin(session.hint);
-            if (!cancelled) setAdminAuthenticated(true);
-          } catch {
-            if (!cancelled) {
-              setAdminAuthenticated(false);
-              addLog("system", "[Phone Simulator Disabled] Voice sandbox is inactive in this environment.");
-            }
-          }
-        } else {
-          const stored = typeof localStorage !== "undefined" ? localStorage.getItem("okw_admin_token") : null;
-          if (stored) {
-            try {
-              await api.adminLogin(stored);
-              if (!cancelled) setAdminAuthenticated(true);
-            } catch {
-              if (!cancelled) {
-                setAdminAuthenticated(false);
-                addLog("system", "[Phone Simulator Disabled] Voice sandbox is inactive in this environment.");
-              }
-            }
-          } else {
-            setAdminAuthenticated(false);
-            addLog("system", "[Phone Simulator Disabled] Voice sandbox is inactive in this environment.");
-          }
-        }
-      } catch (err: any) {
-        console.warn("Simulator session check:", err);
-      }
-    };
-    checkSession();
-    return () => {
-      cancelled = true;
-    };
-  }, [addLog]);
+    transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [transcript]);
 
-  // Clock timer
-  useEffect(() => {
-    const updateClock = () => {
-      const now = new Date();
-      setClock(now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
-    };
-    updateClock();
-    const interval = setInterval(updateClock, 10000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Call duration counter
-  useEffect(() => {
-    let timer: any = null;
-    if (callActive) {
-      timer = setInterval(() => {
-        setCallDuration((prev) => prev + 1);
-      }, 1000);
-    } else {
-      setCallDuration(0);
-    }
-    return () => clearInterval(timer);
-  }, [callActive]);
-
-  // Auto-scroll terminal
-  useEffect(() => {
-    terminalEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [terminalLogs]);
-
-  // Audio controller subscription
-  useEffect(() => {
-    const unsubscribe = audioPlaybackController.subscribe((state) => {
-      if (!callActive) return;
-      if (state.isPlaying) {
-        setCallStatus("Speaking");
-      } else if (!isMicMuted && !zeroPinOverlay) {
-        setCallStatus("Listening");
-      }
-    });
-    return () => unsubscribe();
-  }, [callActive, isMicMuted, zeroPinOverlay]);
-
-  // Format MM:SS timer
-  const formatTimer = (sec: number) => {
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  // Format seconds to mm:ss
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  /**
-   * Client-side VoiceXML parser for Africa's Talking XML
-   */
-  const parseVoiceXml = (xml: string): ParsedVoiceXml => {
-    const result: ParsedVoiceXml = {
-      raw: xml,
-      isReject: xml.includes("<Reject/>") || xml.includes("<Reject />"),
-    };
-
-    // <Redirect>url</Redirect>
-    const redirMatch = xml.match(/<Redirect[^>]*>([^<]+)<\/Redirect>/i);
-    if (redirMatch) {
-      result.redirectUrl = redirMatch[1].trim().replace(/&amp;/g, "&");
+  const handleSendTyped = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!typedUtterance.trim()) return;
+    const text = typedUtterance.trim();
+    setTypedUtterance("");
+    if (!isActive) {
+      startCall(language === "tw" ? "tw" : "en");
     }
-
-    // <GetDigits attributes>
-    const digitsMatch = xml.match(/<GetDigits\s+([^>]+)>/i);
-    if (digitsMatch) {
-      const attrs = digitsMatch[1];
-      const timeout = attrs.match(/timeout=["'](\d+)["']/i);
-      const finishOnKey = attrs.match(/finishOnKey=["']([^"']+)["']/i);
-      const numDigits = attrs.match(/numDigits=["'](\d+)["']/i);
-      const callbackUrl = attrs.match(/callbackUrl=["']([^"']+)["']/i);
-
-      result.getDigits = {
-        timeout: timeout ? parseInt(timeout[1], 10) : undefined,
-        finishOnKey: finishOnKey ? finishOnKey[1] : undefined,
-        numDigits: numDigits ? parseInt(numDigits[1], 10) : undefined,
-        callbackUrl: callbackUrl ? callbackUrl[1].replace(/&amp;/g, "&") : undefined,
-      };
-    }
-
-    // <Play url="..."/> or <Play>...</Play>
-    const playUrlMatch = xml.match(/<Play[^>]*\s+url=["']([^"']+)["'][^>]*>/i);
-    if (playUrlMatch) {
-      result.playUrl = playUrlMatch[1].trim();
-    } else {
-      const playInnerMatch = xml.match(/<Play[^>]*>([^<]+)<\/Play>/i);
-      if (playInnerMatch) {
-        result.playUrl = playInnerMatch[1].trim();
-      }
-    }
-
-    // <Say voice="...">text</Say>
-    const sayMatch = xml.match(/<Say[^>]*>([\s\S]*?)<\/Say>/i);
-    if (sayMatch) {
-      result.sayText = sayMatch[1].trim();
-    }
-
-    // <Record attributes>
-    const recordMatch = xml.match(/<Record\s+([^>]+)>/i);
-    if (recordMatch) {
-      const attrs = recordMatch[1];
-      const timeout = attrs.match(/timeout=["'](\d+)["']/i);
-      const finishOnKey = attrs.match(/finishOnKey=["']([^"']+)["']/i);
-      const maxLength = attrs.match(/maxLength=["'](\d+)["']/i);
-      const callbackUrl = attrs.match(/callbackUrl=["']([^"']+)["']/i);
-      result.record = {
-        timeout: timeout ? parseInt(timeout[1], 10) : undefined,
-        finishOnKey: finishOnKey ? finishOnKey[1] : undefined,
-        maxLength: maxLength ? parseInt(maxLength[1], 10) : undefined,
-        callbackUrl: callbackUrl ? callbackUrl[1].replace(/&amp;/g, "&") : undefined,
-      };
-    }
-
-    return result;
+    sendInputTurn(text, "SIMULATOR");
   };
 
-  /**
-   * Executes the returned Africa's Talking VoiceXML
-   */
-  const executeVoiceXml = useCallback(
-    async (
-      xmlText: string,
-      effectiveUrl: string,
-      meta?: { httpStatus?: number; guardReason?: string }
-    ) => {
-      setRawVoiceXml(xmlText);
-      const parsed = parseVoiceXml(xmlText);
-      if (meta?.httpStatus) parsed.httpStatus = meta.httpStatus;
-      if (meta?.guardReason) parsed.guardReason = meta.guardReason;
-
-      // Extract step name from URL
-      let stepName = "voice-menu";
-      try {
-        const u = new URL(effectiveUrl, window.location.origin);
-        stepName = u.pathname.replace(/^\//, "") || "voice-menu";
-        const langParam = u.searchParams.get("lang");
-        if (langParam === "twi") setLanguage("twi");
-        else if (langParam === "en") setLanguage("en");
-      } catch {
-        // Fallback step name
-        const match = effectiveUrl.match(/\/([a-zA-Z0-9_-]+)(?:\?|$)/);
-        if (match) stepName = match[1];
-      }
-      setActiveStepName(stepName);
-
-      // 1. Follow <Redirect> immediately
-      if (parsed.redirectUrl) {
-        addLog("state", `Redirecting to ${parsed.redirectUrl}`);
-        return dispatchVoiceWebhook(parsed.redirectUrl);
-      }
-
-      // 2. Handle <Reject/>
-      if (parsed.isReject) {
-        audioPlaybackController.stop();
-        if (recognitionRef.current) {
-          try {
-            recognitionRef.current.stop();
-          } catch {}
-        }
-
-        const isPinHandoff =
-          effectiveUrl.includes("safe-outcome") ||
-          (parsed.sayText && parsed.sayText.toLowerCase().includes("momo pin")) ||
-          (parsed.sayText && parsed.sayText.toLowerCase().includes("phone screen"));
-
-        if (isPinHandoff) {
-          setZeroPinOverlay(true);
-          setCallStatus("Ended (PIN Handoff)");
-          setCurrentPrompt("Please check phone screen & enter MoMo PIN.");
-          addLog("state", "Zero-PIN Handoff: Telco USSD push sent to phone screen. Mic muted.");
-        } else {
-          setCallStatus("Ended");
-          setCurrentPrompt("Call ended. Goodbye.");
-
-          // Display specific rejection reason from telephony guard or HTTP status
-          const rejectReasonDesc = parsed.guardReason
-            ? `Call rejected: ${parsed.guardReason} (HTTP ${parsed.httpStatus || 401})`
-            : parsed.httpStatus && parsed.httpStatus !== 200
-            ? `Call rejected with HTTP ${parsed.httpStatus} (<Reject/>)`
-            : "Call rejected: Telephony reject response (<Reject/>)";
-          addLog("state", rejectReasonDesc);
-        }
-
-        setCallActive(false);
-        setActiveCallbackUrl(null);
-        return;
-      }
-
-      // 3. Configure GetDigits expectations
-      if (parsed.getDigits) {
-        setActiveCallbackUrl(parsed.getDigits.callbackUrl || null);
-        setActiveNumDigits(parsed.getDigits.numDigits || 1);
-        setActiveFinishOnKey(parsed.getDigits.finishOnKey || "#");
-      }
-
-      // 4. Determine display prompt text
-      let promptText = "";
-      if (parsed.sayText) {
-        promptText = parsed.sayText;
-      } else if (parsed.playUrl) {
-        const filename = parsed.playUrl.split("/").pop() || "";
-        if (filename.includes("Welcome_prompt_01")) {
-          promptText = "Welcome to Ɔkwankyerɛfo Pa. For English press 1, for Twi press 2.";
-        } else if (filename.includes("02")) {
-          promptText = language === "twi" ? "Afei paw wo network." : "Select your service.";
-        } else if (filename.includes("03")) {
-          promptText = language === "twi" ? "Sɛ wopɛ sɛ wosend sika kɔ ma momo user a mia 1." : "Select your network provider.";
-        } else if (filename.includes("04") || filename.includes("05")) {
-          promptText = language === "twi" ? "Afei bɔ nɔmba a wopɛ sɛ wosend sika no kɔ ma no." : "Action menu: Press 1 to send money.";
-        } else if (filename.includes("06")) {
-          promptText = language === "twi" ? "Bɔ nɔma no na fa # ka ho." : "Enter 10-digit recipient phone number followed by #.";
-        } else if (filename.includes("07") || filename.includes("09")) {
-          promptText = language === "twi" ? "Bɔ sika dodow a wopɛ sɛ womane no." : "Enter the amount in Cedis followed by #.";
-        } else if (filename.includes("10")) {
-          promptText = language === "twi" ? "Bammbɔ Nkaebɔ: Sɛ ɛyɛ ampa a mia 1." : "Safe confirmation: Press 1 to confirm transfer.";
-        } else if (filename.includes("11")) {
-          promptText = language === "twi" ? "Wobɔɔ nɔmba a ɛnyɛ pɛpɛɛpɛ." : "Incorrect figure entered. Please listen carefully.";
-        } else {
-          promptText = "Listening for your response...";
-        }
-      }
-      setCurrentPrompt(promptText);
-
-      // 5. Log reply text and options
-      if (promptText) {
-        addLog("reply", `"${promptText}"`);
-      }
-      const choices = STEP_OPTIONS_MAP[stepName] || "Keypad or Speech";
-      addLog("state", `step=${stepName}, options: [${choices}]`);
-
-      // 6. Audio playback through AudioPlaybackController
-      if (parsed.playUrl) {
-        addLog("audio", parsed.playUrl);
-        await audioPlaybackController.play(parsed.playUrl, promptText);
-      } else {
-        const keyTag = stepName;
-        addLog("audio", `no audio: ${keyTag}`);
-      }
-    },
-    [addLog, language]
-  );
-
-  /**
-   * Webhook dispatcher to backend
-   */
-  const dispatchVoiceWebhook = useCallback(
-    async (url: string, params: Record<string, string> = {}) => {
-      let targetUrl = url;
-      if (targetUrl.startsWith("http://") || targetUrl.startsWith("https://")) {
-        try {
-          const u = new URL(targetUrl);
-          targetUrl = u.pathname + u.search;
-        } catch {}
-      }
-
-      // Route all telephony requests through the simulator proxy /api/simulator
-      if (!targetUrl.startsWith("/api/simulator")) {
-        targetUrl = `/api/simulator${targetUrl.startsWith("/") ? "" : "/"}${targetUrl}`;
-      }
-
-      const bodyParams = new URLSearchParams();
-      const combinedParams: Record<string, string> = {
-        sessionId: sessionId || `call_${Date.now()}`,
-        callerNumber,
-        phoneNumber: callerNumber,
-        isActive: "1",
-        direction: "Inbound",
-        ...params,
-      };
-
-      for (const [k, v] of Object.entries(combinedParams)) {
-        if (v !== undefined && v !== null) {
-          bodyParams.set(k, String(v));
-        }
-      }
-
-      const headers: Record<string, string> = {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Accept: "application/xml, text/xml, */*",
-      };
-      const token = typeof localStorage !== "undefined" ? localStorage.getItem("okw_admin_token") : null;
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-
-      try {
-        const res = await fetch(targetUrl, {
-          method: "POST",
-          headers,
-          credentials: "include",
-          body: bodyParams.toString(),
-        });
-        const guardReason = res.headers.get("x-telephony-guard-reason") || undefined;
-        const aiDecisionType = res.headers.get("x-ai-decision-type");
-        const aiDecisionReason = res.headers.get("x-ai-decision-reason");
-        const aiReplyText = res.headers.get("x-ai-reply-text");
-        const aiReplyKey = res.headers.get("x-ai-reply-key");
-
-        if (aiDecisionType) {
-          addLog(
-            "AI",
-            `[AI Decision] type=${aiDecisionType} reason="${aiDecisionReason || ""}" reply="${aiReplyText || ""}"`
-          );
-          if (aiReplyKey) {
-            const clip = resolvePrompt(aiReplyKey, language || "en");
-            if (!clip) {
-              addLog("audio", `no audio: ${aiReplyKey}`);
-            }
-          }
-        }
-
-        const text = await res.text();
-        if (text.includes("<Response>") || text.includes("<Reject")) {
-          await executeVoiceXml(text, targetUrl, { httpStatus: res.status, guardReason });
-        } else if (!res.ok) {
-          if (res.status === 404 && targetUrl.includes("/api/simulator")) {
-            if (adminAuthenticated || Boolean(token)) {
-              addLog("system", "Simulator disabled on this server (ENABLE_SIMULATOR is not true)");
-            } else {
-              addLog("system", "[Phone Simulator Disabled] Voice sandbox is inactive in this environment.");
-            }
-          } else if (res.status === 401 || res.status === 403) {
-            addLog("system", "[Phone Simulator Disabled] Voice sandbox is inactive in this environment.");
-          }
-          let errorMsg = `HTTP ${res.status}`;
-          try {
-            const json = JSON.parse(text);
-            if (json.error) errorMsg += `: ${json.error}`;
-          } catch {
-            if (text) errorMsg += `: ${text.slice(0, 100)}`;
-          }
-          if (res.status === 401) {
-            setAdminAuthenticated(false);
-          }
-          const rejectReasonDesc = guardReason
-            ? `Call rejected: ${guardReason} (HTTP ${res.status})`
-            : `Call rejected: ${errorMsg}`;
-          addLog("state", rejectReasonDesc);
-          setCallStatus("Ended");
-          setCurrentPrompt("Call ended. Lift handset or press Call to begin.");
-          setCallActive(false);
-          audioPlaybackController.stop();
-        } else {
-          await executeVoiceXml(text, targetUrl, { httpStatus: res.status, guardReason });
-        }
-      } catch (err: any) {
-        addLog("system", `Backend network error: ${err.message}`);
-        setCallStatus("Error");
-      }
-    },
-    [callerNumber, executeVoiceXml, sessionId, addLog]
-  );
-
-  /**
-   * Start inbound call
-   */
-  const startCall = useCallback(async () => {
-    const newSession = `AT_CALL_${Date.now()}`;
-    setSessionId(newSession);
-    setCallActive(true);
-    setCallStatus("Connected");
-    setLanguage(null);
-    setDigitsBuffer("");
-    setZeroPinOverlay(false);
-
-    addLog("system", `Call initiated. Session ID: ${newSession}`);
-    addLog("state", "Connecting to phone simulator (/api/simulator/voice-menu)...");
-
-    // Start speech recognition once permission granted
-    if (!micUnavailable) {
-      startSpeechRecognition();
-    }
-
-    await dispatchVoiceWebhook("/api/simulator/voice-menu", { sessionId: newSession });
-  }, [dispatchVoiceWebhook, micUnavailable, addLog]);
-
-  /**
-   * Hang up the call
-   */
-  const endCall = useCallback(
-    async (reason = "User hung up") => {
-      setCallActive(false);
-      setCallStatus("Ended");
-      setCurrentPrompt("Call ended. Lift handset or press Call to begin.");
-      setDigitsBuffer("");
-      setZeroPinOverlay(false);
-      setActiveCallbackUrl(null);
-
-      audioPlaybackController.stop();
-
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-        } catch {}
-      }
-
-      addLog("caller", `Hangup: ${reason}`);
-      addLog("system", "Call ended. Audio and microphone stopped.");
-
-      // Notify backend if session active
-      if (sessionId) {
-        const endHeaders: Record<string, string> = { "Content-Type": "application/x-www-form-urlencoded" };
-        const token = typeof localStorage !== "undefined" ? localStorage.getItem("okw_admin_token") : null;
-        if (token) endHeaders["Authorization"] = `Bearer ${token}`;
-        fetch("/api/simulator/voice-menu", {
-          method: "POST",
-          headers: endHeaders,
-          credentials: "include",
-          body: new URLSearchParams({
-            sessionId,
-            callerNumber,
-            isActive: "0",
-          }).toString(),
-        }).catch(() => {});
-      }
-    },
-    [callerNumber, sessionId, addLog]
-  );
-
-  /**
-   * Fast path + Brain path for spoken utterances
-   */
-  const processSpokenUtterance = useCallback(
-    async (utterance: string) => {
-      if (!callActive || !activeCallbackUrl || zeroPinOverlay) return;
-
-      const clean = utterance.trim();
-      if (!clean) return;
-
-      // Echo filter check
-      if (isAcousticSystemEcho(clean, currentPrompt, audioPlaybackController.isSpeaking())) {
-        return;
-      }
-
-      // Debounce duplicate recognition events
-      const now = Date.now();
-      if (clean === lastUtteranceTextRef.current && now - lastUtteranceTimeRef.current < 1500) {
-        return;
-      }
-      lastUtteranceTextRef.current = clean;
-      lastUtteranceTimeRef.current = now;
-
-      addLog("caller", `Speech "${clean}"`);
-
-      // ── Fast path: direct match against current step's expected digits ──
-      const lower = clean.toLowerCase();
-      let matchedDtmf: string | null = null;
-
-      // Language selection
-      if (activeStepName.includes("welcome") || activeStepName.includes("language")) {
-        if (/^(1|one|english|baako|bako)$/i.test(lower)) matchedDtmf = "1";
-        else if (/^(2|two|twi|akan|mmienu|mienu)$/i.test(lower)) matchedDtmf = "2";
-      }
-      // Service selection
-      else if (activeStepName.includes("service")) {
-        if (/^(1|one|momo|mobile money|telecom|baako)$/i.test(lower)) matchedDtmf = "1";
-        else if (/^(2|two|bank|banking|sikakorabea|mmienu)$/i.test(lower)) matchedDtmf = "2";
-      }
-      // Provider selection
-      else if (activeStepName.includes("provider")) {
-        if (/^(1|one|mtn|baako)$/i.test(lower)) matchedDtmf = "1";
-        else if (/^(2|two|telecel|vodafone|voda|mmienu)$/i.test(lower)) matchedDtmf = "2";
-        else if (/^(3|three|airteltigo|at|mmiɛnsa)$/i.test(lower)) matchedDtmf = "3";
-      }
-      // Action menu
-      else if (activeStepName.includes("action")) {
-        if (/^(1|one|send|send money|transfer|baako|mane)$/i.test(lower)) matchedDtmf = "1";
-        else if (/^(2|two|balance|check balance|my balance|mmienu)$/i.test(lower)) matchedDtmf = "2";
-      }
-      // Affirmative / Negative confirmations
-      else if (activeStepName.includes("confirm") || activeStepName.includes("verify-choice")) {
-        if (/^(1|one|yes|confirm|aane|pene so|yie|ampa|proceed|baako)$/i.test(lower)) matchedDtmf = "1";
-        else if (/^(2|two|no|dabi|sesa|change|cancel|mmienu)$/i.test(lower)) matchedDtmf = "2";
-      }
-
-      // Universal navigation
-      if (!matchedDtmf) {
-        if (/^(back|go back|previous|san|san akyi)$/i.test(lower)) matchedDtmf = "8";
-        else if (/^(repeat|again|say again|tie bio)$/i.test(lower)) matchedDtmf = "9";
-        else if (/^(cancel|stop|abort|quit|exit|gyae|hwee)$/i.test(lower)) matchedDtmf = "0";
-      }
-
-      if (matchedDtmf) {
-        addLog("AI", `dtmf=${matchedDtmf} (fast path mapped from "${clean}")`);
-        return dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: matchedDtmf });
-      }
-
-      // ── Brain path: POST /api/ivr/understand ───────────────────────────
-      try {
-        const brainRes = await fetch("/api/ivr/understand", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            utterance: clean,
-            currentStep: activeStepName,
-            callState: { lang: language, sessionId },
-            sessionId,
-          }),
-        });
-
-        if (!brainRes.ok) {
-          throw new Error(`Brain response status ${brainRes.status}`);
-        }
-
-        const decision = await brainRes.json();
-
-        if (decision.type === "dtmf") {
-          addLog("AI", `dtmf=${decision.dtmf} (${decision.reason || "brain resolved option"})`);
-          return dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: decision.dtmf });
-        }
-
-        if (decision.type === "skip") {
-          const slotsDesc = Object.entries(decision.slots || {})
-            .map(([k, v]) => `${k}=${v}`)
-            .join(", ");
-          addLog("AI", `skip to ${decision.targetStep} (${slotsDesc})`);
-
-          // Follow target step directly on backend
-          const targetUrl = `/${decision.targetStep}?sessionId=${sessionId}&lang=${language || "en"}`;
-          return dispatchVoiceWebhook(targetUrl);
-        }
-
-        if (decision.type === "clarify") {
-          addLog("AI", `clarify (${decision.action || "repeat"}) - "${decision.replyText || "repeating"}"`);
-          if (decision.promptAudio) {
-            addLog("audio", decision.promptAudio);
-            await audioPlaybackController.play(decision.promptAudio, decision.replyText);
-          } else {
-            addLog("audio", "no audio: clarify_say");
-          }
-          return;
-        }
-
-        // Unknown: fallback to prompt 11 once
-        addLog("AI", "unknown (unmatched speech) -> playing prompt 11");
-        const prompt11Url = resolvePrompt("wrong_figure", language || "en");
-        if (prompt11Url) {
-          addLog("audio", prompt11Url);
-          await audioPlaybackController.play(prompt11Url, decision.promptText || "Incorrect figure");
-        } else {
-          addLog("audio", "no audio: wrong_figure");
-        }
-      } catch (err: any) {
-        addLog("system", `Cognitive brain error: ${err.message}`);
-      }
-    },
-    [
-      activeCallbackUrl,
-      activeStepName,
-      callActive,
-      currentPrompt,
-      dispatchVoiceWebhook,
-      language,
-      sessionId,
-      zeroPinOverlay,
-      addLog,
-    ]
-  );
-
-  /**
-   * Keypad digit handler
-   */
-  const handleKeypadPress = useCallback(
-    (digit: string) => {
-      // Barge-in: immediate playback stop
-      audioPlaybackController.stop();
-
-      // If call is inactive, pressing 1 or 2 dials in that language
-      if (!callActive) {
-        startCall();
-        return;
-      }
-
-      if (!activeCallbackUrl || zeroPinOverlay) return;
-
-      // ── Single-digit expectation (menu selection) ──
-      if (activeNumDigits === 1) {
-        setDigitsBuffer("");
-        addLog("caller", `Keypad '${digit}'`);
-        dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: digit });
-        return;
-      }
-
-      // ── Multi-digit input (Recipient phone or Amount) ──
-      // Finish on key (#)
-      if (digit === activeFinishOnKey) {
-        if (digitsBuffer.trim()) {
-          const submitted = digitsBuffer.trim();
-          setDigitsBuffer("");
-          addLog("caller", `Keypad '${submitted}#'`);
-          dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: submitted });
-        }
-        return;
-      }
-
-      const nextBuf = digitsBuffer + digit;
-      setDigitsBuffer(nextBuf);
-
-      // Only auto-submit if finishOnKey is not set and buffer reaches activeNumDigits
-      if (!activeFinishOnKey && nextBuf.length >= activeNumDigits) {
-        setDigitsBuffer("");
-        addLog("caller", `Keypad '${nextBuf}'`);
-        dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: nextBuf });
-      }
-    },
-    [
-      activeCallbackUrl,
-      activeFinishOnKey,
-      activeNumDigits,
-      activeStepName,
-      callActive,
-      digitsBuffer,
-      dispatchVoiceWebhook,
-      startCall,
-      zeroPinOverlay,
-      addLog,
-    ]
-  );
-
-  /**
-   * Browser Speech Recognition Setup
-   */
-  const startSpeechRecognition = useCallback(() => {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      setMicUnavailable(true);
-      addLog("system", "Speech recognition unavailable in this browser. Keypad remains fully active.");
-      return;
-    }
-
-    try {
-      if (recognitionRef.current) {
-        recognitionRef.current.abort();
-      }
-
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = language === "twi" ? "ak-GH" : "en-US";
-
-      recognition.onstart = () => {
-        if (!zeroPinOverlay && !isMicMuted) {
-          setCallStatus("Listening");
-        }
-      };
-
-      recognition.onresult = (event: any) => {
-        if (isMicMuted || zeroPinOverlay) return; // Strict Zero-PIN muting
-
-        const lastIdx = event.results.length - 1;
-        const res = event.results[lastIdx];
-        const text = (res[0]?.transcript || "").trim();
-
-        // Interim barge-in: stop audio immediately on speech start
-        if (!res.isFinal && text.length > 1) {
-          audioPlaybackController.stop();
-          return;
-        }
-
-        // Final result: dispatch turn
-        if (res.isFinal && text) {
-          silenceCountRef.current = 0;
-          processSpokenUtterance(text);
-        }
-      };
-
-      recognition.onerror = (e: any) => {
-        if (e.error === "not-allowed" || e.error === "permission-denied") {
-          setMicUnavailable(true);
-          setCallStatus("Mic Denied");
-          addLog("system", "Microphone access denied. Telephone keypad remains fully operational.");
-        } else if (e.error === "no-speech") {
-          silenceCountRef.current += 1;
-          if (silenceCountRef.current >= 2 && callActive) {
-            addLog("system", "Silence timeout (no caller input twice). Hanging up.");
-            endCall("Silence timeout");
-          }
-        }
-      };
-
-      recognition.onend = () => {
-        // Automatically restart speech recognition while call is alive and unmuted
-        if (callActive && !isMicMuted && !zeroPinOverlay) {
-          try {
-            recognition.start();
-          } catch {}
-        }
-      };
-
-      recognition.start();
-      recognitionRef.current = recognition;
-    } catch (e: any) {
-      setMicUnavailable(true);
-      addLog("system", `Mic initialization warning: ${e.message}`);
-    }
-  }, [addLog, callActive, endCall, isMicMuted, language, processSpokenUtterance, zeroPinOverlay]);
-
-  // Physical keyboard listeners for telephone keypad
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (["INPUT", "TEXTAREA"].includes((e.target as HTMLElement).tagName)) return;
-      const key = e.key;
-      if (/^[0-9]$/.test(key) || key === "#" || key === "*") {
-        e.preventDefault();
-        handleKeypadPress(key);
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleKeypadPress]);
-
-  // Mic toggle handler
-  const toggleMic = () => {
-    const nextState = !isMicMuted;
-    setIsMicMuted(nextState);
-    if (nextState) {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-        } catch {}
-      }
-      addLog("caller", "Microphone muted.");
+  const handleToggleRecordedPlayback = () => {
+    if (!recordedAudioPlayerRef.current || !recordedAudioUrl) return;
+    if (isPlayingRecordedAudio) {
+      recordedAudioPlayerRef.current.pause();
+      setIsPlayingRecordedAudio(false);
     } else {
-      startSpeechRecognition();
-      addLog("caller", "Microphone unmuted.");
-    }
-  };
-
-  const handleAdminLoginSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!adminTokenInput.trim()) return;
-    setAdminConnecting(true);
-    setAdminAuthError("");
-    try {
-      await api.adminLogin(adminTokenInput.trim());
-      setAdminAuthenticated(true);
-      setAdminTokenInput("");
-      addLog("system", "Administrator authentication established. Simulator ready.");
-    } catch (err: any) {
-      setAdminAuthError(err.message || "Admin login failed.");
-    } finally {
-      setAdminConnecting(false);
+      recordedAudioPlayerRef.current.play().then(() => {
+        setIsPlayingRecordedAudio(true);
+      }).catch(() => {
+        setIsPlayingRecordedAudio(false);
+      });
     }
   };
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 py-6">
-      {/* Admin Authentication Banner for Preview/Production Mode */}
-      {!adminAuthenticated && (
-        <div className="mb-6 p-4 rounded-xl border border-amber-500/30 bg-amber-950/20 text-amber-200">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div>
-              <div className="font-bold text-xs flex items-center gap-2 text-amber-300">
-                <ShieldCheck className="w-4 h-4 text-amber-400" />
-                Administrator Authentication Required
-              </div>
-              <p className="text-[11px] text-amber-200/80 mt-0.5">
-                The phone simulator routes (/api/simulator/*) require admin authentication in production preview mode.
-              </p>
+    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+      {/* ── Top Header & Mode Controls ─────────────────────────────────── */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+        <div>
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg">
+              <Phone className="w-5 h-5" />
             </div>
-            <form onSubmit={handleAdminLoginSubmit} className="flex items-center gap-2 w-full sm:w-auto">
-              <input
-                type="password"
-                placeholder="ADMIN_TOKEN..."
-                value={adminTokenInput}
-                onChange={(e) => setAdminTokenInput(e.target.value)}
-                className="px-3 py-1.5 text-xs bg-slate-900 border border-slate-700 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono w-full sm:w-56"
-              />
-              <button
-                type="submit"
-                disabled={adminConnecting || !adminTokenInput.trim()}
-                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold disabled:opacity-40 whitespace-nowrap min-h-[32px]"
-              >
-                {adminConnecting ? "Authenticating..." : "Connect"}
-              </button>
-            </form>
+            <h1 className="text-xl font-bold text-white tracking-tight">Telephony & Voice Simulator</h1>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-800/60">
+              Live Gateway Active
+            </span>
           </div>
-          {devHint && (
-            <div className="mt-2 text-[10px] text-slate-400 flex items-center gap-2">
-              <span>Dev hint:</span>
-              <button
-                type="button"
-                onClick={() => setAdminTokenInput(devHint)}
-                className="text-emerald-400 hover:underline font-mono"
-              >
-                {devHint}
-              </button>
-            </div>
-          )}
-          {adminAuthError && (
-            <div className="mt-2 text-[11px] text-rose-400 font-semibold">{adminAuthError}</div>
-          )}
+          <p className="text-xs text-slate-400 mt-1">
+            Real-time Africa's Talking IVR Trunk & Ghanaian Voice AI (ASR, Neural TTS, Zero-PIN & Long Conversation Recording)
+          </p>
         </div>
-      )}
 
-      {/* Handset + Terminal side-by-side (stacks at phone width) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* LEFT COLUMN: Traditional Phone Handset */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Trunk / Gateway Mode Selector */}
+          <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+            <button
+              onClick={() => setGatewayMode("AFRICASTALKING_IVR")}
+              className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+                gatewayMode === "AFRICASTALKING_IVR"
+                  ? "bg-emerald-600 text-white shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              Africa's Talking IVR
+            </button>
+            <button
+              onClick={() => setGatewayMode("CANONICAL_AI")}
+              className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+                gatewayMode === "CANONICAL_AI"
+                  ? "bg-purple-600 text-white shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              AI Voice Agent
+            </button>
+          </div>
+
+          {/* Quick Refresh Status */}
+          <button
+            onClick={() => refreshSyncStatus()}
+            className="p-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-xl transition border border-slate-700/60"
+            title="Refresh status"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Main Cockpit: 2-Column Uncrowded Layout ─────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* ── Left Column: Clean Phone Handset ──────────────────────────── */}
         <div className="lg:col-span-5 flex justify-center">
-          <div className="w-full max-w-[340px] bg-slate-900 border-2 border-emerald-600 rounded-[32px] p-4 shadow-xl text-slate-100 flex flex-col items-center">
-            {/* Top Earpiece Slit */}
-            <div className="w-16 h-1.5 bg-slate-700 rounded-full mb-3" />
+          <div className="w-full max-w-[390px] bg-slate-950 border-4 border-slate-800 rounded-[44px] p-4 shadow-2xl relative flex flex-col items-center">
+            {/* Speaker & Sensor Bar */}
+            <div className="w-24 h-4 bg-slate-900 rounded-full mb-3 flex items-center justify-center">
+              <div className="w-10 h-1 bg-slate-700 rounded-full" />
+              <div className="w-2 h-2 rounded-full bg-slate-800 ml-2" />
+            </div>
 
-            {/* Handset Display Screen */}
-            <div className="w-full bg-slate-950 border border-emerald-500/40 rounded-xl p-3 flex flex-col justify-between min-h-[160px] text-emerald-400 font-mono shadow-inner relative">
-              {/* Top Status Header */}
-              <div className="flex items-center justify-between text-[11px] text-emerald-300 border-b border-emerald-500/20 pb-1 mb-1">
-                <span className="font-semibold tracking-wide">MTN GH</span>
-                <span>{clock}</span>
-                <span>{callActive ? formatTimer(callDuration) : "00:00"}</span>
-                <span className="bg-emerald-950/80 px-1 rounded border border-emerald-600/30">
-                  {language ? language.toUpperCase() : "—"}
+            {/* Handset Screen */}
+            <div className="w-full bg-slate-900 rounded-[28px] border border-slate-800/80 p-4 flex flex-col justify-between min-h-[540px] shadow-inner relative overflow-hidden">
+              {/* Screen Top Status Bar */}
+              <div className="flex items-center justify-between text-[11px] text-slate-400 mb-2 font-medium">
+                <span className="flex items-center gap-1">
+                  <Radio className="w-3 h-3 text-emerald-400" />
+                  MTN Ghana / AT
+                </span>
+                <span className="text-white font-semibold">
+                  {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                  100%
                 </span>
               </div>
 
-              {/* Center Display: Digits Buffer & Status */}
-              <div className="my-auto py-1">
-                {digitsBuffer ? (
-                  <div className="text-2xl font-bold tracking-widest text-emerald-200 text-center truncate">
-                    {digitsBuffer}
+              {/* Call State Display */}
+              <div className="flex-1 flex flex-col justify-between py-2">
+                {isActive ? (
+                  <div className="space-y-3">
+                    {/* Active Call Header */}
+                    <div className="text-center">
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-800/60 mb-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        Call Active · {formatTime(callDurationSec)}
+                      </div>
+                      <h3 className="text-base font-bold text-white tracking-wide">
+                        {gatewayMode === "AFRICASTALKING_IVR" ? "+233 30 804 8098" : "Ɔkwankyerɛfo Pa AI"}
+                      </h3>
+                      <p className="text-[11px] text-slate-400">
+                        {gatewayMode === "AFRICASTALKING_IVR"
+                          ? `IVR Step: ${currentStep} (${atInstruction})`
+                          : `Voice AI · Intent: ${intent || "Awaiting utterance"}`}
+                      </p>
+                    </div>
+
+                    {/* Audio Wave & Speaker Status Indicator */}
+                    <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-2.5 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {isAiSpeaking ? (
+                          <div className="flex items-center gap-1 text-purple-400 text-xs font-medium">
+                            <Volume2 className="w-4 h-4 animate-bounce" />
+                            <span>AI Speaking...</span>
+                          </div>
+                        ) : isMicActive ? (
+                          <div className="flex items-center gap-1 text-emerald-400 text-xs font-medium">
+                            <Mic className="w-4 h-4 animate-pulse" />
+                            <span>Listening...</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 text-slate-400 text-xs font-medium">
+                            <Clock className="w-4 h-4" />
+                            <span>Line Open</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Visual Waveform bars */}
+                      <div className="flex items-end gap-0.5 h-4">
+                        {[0.3, 0.7, 0.4, 0.9, 0.5, 0.8, 0.2].map((heightMultiplier, i) => (
+                          <div
+                            key={i}
+                            className={`w-1 rounded-full transition-all duration-150 ${
+                              isAiSpeaking
+                                ? "bg-purple-400 animate-pulse"
+                                : isMicActive && audioLevel > 0.05
+                                ? "bg-emerald-400 animate-pulse"
+                                : "bg-slate-700"
+                            }`}
+                            style={{
+                              height:
+                                isAiSpeaking || (isMicActive && audioLevel > 0.05)
+                                  ? `${Math.max(4, heightMultiplier * 16)}px`
+                                  : "4px",
+                            }}
+                          />
+                        ))}
+                      </div>
+
+                      {/* Replay Prompt Button */}
+                      <button
+                        onClick={() => replayCurrentSpeech()}
+                        className="px-2 py-1 text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition flex items-center gap-1"
+                        title="Replay audio prompt"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        Replay
+                      </button>
+                    </div>
+
+                    {/* Active Voice Prompt / Dialogue Card */}
+                    <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-3 shadow-sm">
+                      <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1 flex items-center justify-between">
+                        <span>Current Prompt</span>
+                        <span className="text-slate-500 font-normal">{language === "tw" ? "Akan Twi" : "English"}</span>
+                      </div>
+                      <p className="text-xs text-slate-200 leading-relaxed max-h-20 overflow-y-auto">
+                        {aiResponse || "Akwaaba! Welcome to Okwankyerɛfo Pa. Press 1 for English, 2 for Akan Twi."}
+                      </p>
+                    </div>
+
+                    {/* Live Interim Speech / Spoken Recognition */}
+                    {interimTranscript && (
+                      <div className="bg-emerald-950/60 border border-emerald-800/50 rounded-xl p-2.5">
+                        <div className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider mb-0.5 flex items-center gap-1">
+                          <Mic className="w-3 h-3 animate-pulse" />
+                          <span>Caller Speech (ASR)</span>
+                        </div>
+                        <p className="text-xs text-emerald-100 font-medium italic">"{interimTranscript}"</p>
+                      </div>
+                    )}
+
+                    {/* Keypad Buffer (if caller typed digits) */}
+                    {digitsBuffer && (
+                      <div className="bg-slate-950 border border-purple-800/50 rounded-xl p-2.5 flex items-center justify-between">
+                        <div>
+                          <div className="text-[10px] text-purple-400 font-bold uppercase tracking-wider">
+                            Keypad Buffer (Expected: {atExpectedDigits} digits)
+                          </div>
+                          <div className="text-sm font-mono text-white font-bold tracking-widest">{digitsBuffer}</div>
+                        </div>
+                        <button
+                          onClick={submitKeypadBuffer}
+                          className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-semibold"
+                        >
+                          Send ({atFinishOnKey})
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Zero-PIN USSD Push Screen Overlay */}
+                    {ussdPushPrompt?.active && (
+                      <div className="absolute inset-0 z-30 bg-black/90 rounded-[28px] p-5 flex flex-col justify-center items-center text-center animate-fadeIn">
+                        <div className="w-12 h-12 bg-amber-500/10 text-amber-400 rounded-full flex items-center justify-center mb-3">
+                          <ShieldCheck className="w-6 h-6" />
+                        </div>
+                        <h4 className="text-sm font-bold text-white mb-1">{ussdPushPrompt.title}</h4>
+                        <p className="text-xs text-slate-300 mb-3">{ussdPushPrompt.message}</p>
+                        <div className="bg-slate-900 border border-slate-800 rounded-xl p-2.5 w-full mb-4 text-xs font-mono text-amber-300">
+                          Transfer {ussdPushPrompt.amount} {ussdPushPrompt.currency} to {ussdPushPrompt.recipientName} ({ussdPushPrompt.recipientPhone})
+                        </div>
+                        <div className="flex gap-2 w-full">
+                          <button
+                            onClick={dismissUssdPrompt}
+                            className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold"
+                          >
+                            Authorize on Phone
+                          </button>
+                          <button
+                            onClick={dismissUssdPrompt}
+                            className="px-3 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-medium"
+                          >
+                            Dismiss
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
-                  <div className="text-xs uppercase tracking-wider text-emerald-400/80 font-sans text-center">
-                    {callStatus}
+                  /* Idle Screen */
+                  <div className="space-y-4 my-auto text-center">
+                    <div className="w-12 h-12 bg-slate-800/80 rounded-full mx-auto flex items-center justify-center text-slate-400 border border-slate-700/50">
+                      <Phone className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-white">Telephone Ready</h3>
+                      <p className="text-xs text-slate-400 mt-1 max-w-[260px] mx-auto">
+                        Bilingual trunk (+233 30 804 8098). Press Call or dial any number.
+                      </p>
+                    </div>
+
+                    {/* Dial Display with Destination and Backspace */}
+                    <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
+                      <div className="flex-1 text-left">
+                        <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-semibold">
+                          {digitsBuffer ? "Dialed Number" : "Trunk Destination"}
+                        </span>
+                        <span className="text-base font-mono text-emerald-400 font-bold tracking-wider">
+                          {digitsBuffer || "+233 30 804 8098"}
+                        </span>
+                      </div>
+                      {digitsBuffer && (
+                        <button
+                          type="button"
+                          onClick={() => setDigitsBuffer((prev) => prev.slice(0, -1))}
+                          className="px-2 py-1 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg text-xs transition"
+                          title="Backspace"
+                        >
+                          ⌫
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="pt-1">
+                      <button
+                        onClick={() => startCall()}
+                        className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-950/50 transition flex items-center justify-center gap-2"
+                      >
+                        <Phone className="w-4 h-4" />
+                        {digitsBuffer ? `Call ${digitsBuffer}` : "Call (+233 30 804 8098)"}
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
 
-              {/* Bottom Display: Current Prompt Text (One short line) */}
-              <div className="text-[12px] text-slate-200 leading-tight border-t border-emerald-500/20 pt-1.5 font-sans line-clamp-2">
-                {currentPrompt}
+              {/* ── Keypad Grid ────────────────────────────────────────── */}
+              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800/60">
+                {KEYPAD_BUTTONS.map((btn) => (
+                  <button
+                    key={btn.digit}
+                    onClick={() => handleKeypadDigit(btn.digit)}
+                    className="h-11 bg-slate-800/60 hover:bg-slate-700/70 active:bg-slate-600 rounded-xl flex flex-col items-center justify-center text-white transition border border-slate-700/30"
+                  >
+                    <span className="text-sm font-bold leading-none">{btn.digit}</span>
+                    {btn.sub && <span className="text-[9px] text-slate-400 leading-none mt-0.5">{btn.sub}</span>}
+                  </button>
+                ))}
               </div>
 
-              {/* Zero-PIN Screen Authorization Notice Overlay */}
-              {zeroPinOverlay && (
-                <div className="absolute inset-0 bg-slate-950/95 rounded-xl p-3 flex flex-col justify-between text-center border-2 border-emerald-400 z-10 font-sans">
-                  <div className="flex items-center justify-center gap-1.5 text-emerald-400 font-bold text-xs">
-                    <ShieldCheck className="w-4 h-4" />
-                    MTN MoMo PIN Screen
-                  </div>
-                  <div className="text-[11px] text-slate-200 leading-tight">
-                    Check phone screen & enter secret MoMo PIN securely. Voice is muted (Zero-PIN).
-                  </div>
+              {/* ── Call Action Buttons ────────────────────────────────── */}
+              <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-800/60 mt-2">
+                {/* Microphone Toggle Button */}
+                <button
+                  onClick={toggleMic}
+                  className={`p-3 rounded-2xl transition border ${
+                    isMicActive
+                      ? "bg-emerald-600/20 text-emerald-400 border-emerald-500/40 shadow-sm"
+                      : "bg-slate-800/80 text-slate-400 border-slate-700 hover:text-white"
+                  }`}
+                  title={isMicActive ? "Mute Microphone" : "Unmute Microphone"}
+                >
+                  {isMicActive ? <Mic className="w-5 h-5 animate-pulse" /> : <MicOff className="w-5 h-5" />}
+                </button>
+
+                {/* Primary Call / Hang Up Button */}
+                {isActive ? (
                   <button
-                    onClick={() => {
-                      setZeroPinOverlay(false);
-                      addLog("state", "MoMo PIN authorized on handset screen. Transaction dispatched.");
-                      addLog("reply", "SMS confirmation and reference code dispatched. Goodbye.");
-                    }}
-                    className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold"
+                    onClick={() => endCall("User hung up")}
+                    className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-red-950/50 transition"
                   >
-                    Authorize on Handset
+                    <PhoneOff className="w-4 h-4" />
+                    End Call
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => startCall()}
+                    className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/50 transition"
+                  >
+                    <Phone className="w-4 h-4" />
+                    Start Call
+                  </button>
+                )}
+
+                {/* Speaker / TTS Output Toggle */}
+                <button
+                  onClick={() => setEnableTts(!enableTts)}
+                  className={`p-3 rounded-2xl transition border ${
+                    enableTts
+                      ? "bg-purple-600/20 text-purple-400 border-purple-500/40 shadow-sm"
+                      : "bg-slate-800/80 text-slate-400 border-slate-700 hover:text-white"
+                  }`}
+                  title={enableTts ? "Mute Voice Prompt Playback" : "Enable Voice Prompt Playback"}
+                >
+                  {enableTts ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Right Column: Activity Cockpit & Long Conversation Controls ── */}
+        <div className="lg:col-span-7 space-y-4">
+          {/* ── Conversation Recording & Long-Session Control Bar ───────── */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <div
+                  className={`p-2 rounded-xl ${
+                    isRecording
+                      ? "bg-red-500/20 text-red-400 animate-pulse border border-red-500/30"
+                      : "bg-slate-800 text-slate-400"
+                  }`}
+                >
+                  <CircleDot className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    Long Conversation Recording
+                    {isRecording && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-950 text-red-400 border border-red-800 animate-pulse">
+                        ● REC {formatTime(recordingDurationSec)}
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    {isRecording
+                      ? `Streaming audio chunks to /api/ai/asr/session (${recordedChunksCount} chunks processed)`
+                      : "Record entire multi-minute telephone calls and save full audio & transcripts"}
+                  </p>
+                </div>
+              </div>
+
+              {/* Record / Stop Recording Button */}
+              <div className="flex items-center gap-2">
+                {isRecording ? (
+                  <button
+                    onClick={stopRecording}
+                    className="px-3.5 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition"
+                  >
+                    <Square className="w-3.5 h-3.5 fill-white" />
+                    Stop Recording
+                  </button>
+                ) : (
+                  <button
+                    onClick={startRecording}
+                    className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
+                  >
+                    <CircleDot className="w-3.5 h-3.5 text-red-400" />
+                    Record Call
+                  </button>
+                )}
+
+                <button
+                  onClick={() => exportTranscript("txt")}
+                  disabled={transcript.length === 0}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 rounded-xl text-xs font-medium flex items-center gap-1.5 border border-slate-700/60 transition"
+                  title="Export Transcript as TXT"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  Transcript
+                </button>
+              </div>
+            </div>
+
+            {/* Recorded Audio Playback & Download Bar (if audio was recorded) */}
+            {recordedAudioUrl && (
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <button
+                    onClick={handleToggleRecordedPlayback}
+                    className="p-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl transition shadow-sm"
+                  >
+                    {isPlayingRecordedAudio ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                  </button>
+                  <div>
+                    <span className="text-xs font-semibold text-white block">Recorded Call Audio</span>
+                    <span className="text-[11px] text-slate-400">
+                      Duration: {formatTime(recordingDurationSec)} · {recordedChunksCount} chunks
+                    </span>
+                  </div>
+                  <audio
+                    ref={recordedAudioPlayerRef}
+                    src={recordedAudioUrl}
+                    onEnded={() => setIsPlayingRecordedAudio(false)}
+                    className="hidden"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={downloadRecording}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-slate-700 transition"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Download Audio (.webm)
                   </button>
                 </div>
-              )}
-            </div>
-
-            {/* Microphone Toggle & Soft Keys Under Display */}
-            <div className="w-full flex items-center justify-between mt-3 px-1">
-              <button
-                type="button"
-                onClick={toggleMic}
-                disabled={!callActive || zeroPinOverlay}
-                aria-label={isMicMuted ? "Unmute microphone" : "Mute microphone"}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold min-h-[44px] transition-colors border ${
-                  isMicMuted
-                    ? "bg-amber-950/40 border-amber-500/50 text-amber-300 hover:bg-amber-900/60"
-                    : "bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/60"
-                } disabled:opacity-40 disabled:cursor-not-allowed`}
-              >
-                {isMicMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                <span>{isMicMuted ? "Mic Off" : "Mic On"}</span>
-              </button>
-
-              <div className="text-[11px] text-slate-400 font-sans">
-                {activeNumDigits > 1 ? `Enter #${activeFinishOnKey}` : "1-Key"}
               </div>
-            </div>
-
-            {/* Green Call & Red End Keys */}
-            <div className="w-full grid grid-cols-2 gap-3 mt-3">
-              <button
-                type="button"
-                onClick={startCall}
-                disabled={callActive}
-                aria-label="Start Call"
-                className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl min-h-[48px] shadow transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <Phone className="w-5 h-5 fill-current" />
-                <span>Call</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => endCall("User pressed End Call key")}
-                disabled={!callActive}
-                aria-label="End Call"
-                className="flex items-center justify-center gap-2 bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl min-h-[48px] shadow transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <PhoneOff className="w-5 h-5 fill-current" />
-                <span>End</span>
-              </button>
-            </div>
-
-            {/* 4x3 Keypad Grid */}
-            <div className="w-full grid grid-cols-3 gap-2.5 mt-4">
-              {KEYPAD_BUTTONS.map(({ digit, sub }) => (
-                <button
-                  key={digit}
-                  type="button"
-                  onClick={() => handleKeypadPress(digit)}
-                  aria-label={`Key ${digit} ${sub}`}
-                  className="bg-slate-800 hover:bg-slate-700 active:bg-emerald-700 active:scale-95 text-slate-100 rounded-xl min-h-[50px] flex flex-col items-center justify-center border border-slate-700 shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
-                >
-                  <span className="text-lg font-bold leading-none">{digit}</span>
-                  {sub && <span className="text-[9px] text-slate-400 font-semibold tracking-widest mt-0.5">{sub}</span>}
-                </button>
-              ))}
-            </div>
-
-            {/* Bottom Microphone Hole */}
-            <div className="w-2 h-2 rounded-full bg-slate-700 mt-4" />
-          </div>
-        </div>
-
-        {/* RIGHT COLUMN: Chronological Call Terminal */}
-        <div className="lg:col-span-7 flex flex-col bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden h-[620px]">
-          {/* Terminal Top Bar */}
-          <div className="bg-slate-50 border-b border-slate-200 px-4 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="font-semibold text-sm text-slate-800">Call Terminal Log</span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setTerminalLogs([])}
-                aria-label="Clear Terminal Logs"
-                className="flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900 px-2 py-1 rounded hover:bg-slate-200/60 min-h-[32px]"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Clear</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Terminal Events Body (Chronological) */}
-          <div className="flex-1 p-4 font-mono text-xs overflow-y-auto bg-slate-950 text-slate-200 space-y-1.5">
-            {terminalLogs.length === 0 ? (
-              <div className="text-slate-500 italic py-8 text-center">
-                Terminal idle. Start a call to observe live telephony events.
-              </div>
-            ) : (
-              terminalLogs.map((log) => {
-                let badgeClass = "text-slate-400 bg-slate-800";
-                if (log.source === "caller") badgeClass = "text-emerald-300 bg-emerald-950/80 border border-emerald-600/40";
-                if (log.source === "state") badgeClass = "text-sky-300 bg-sky-950/80 border border-sky-600/40";
-                if (log.source === "AI") badgeClass = "text-amber-300 bg-amber-950/80 border border-amber-600/40";
-                if (log.source === "reply") badgeClass = "text-violet-300 bg-violet-950/80 border border-violet-600/40";
-                if (log.source === "audio") badgeClass = "text-teal-300 bg-teal-950/80 border border-teal-600/40";
-
-                return (
-                  <div key={log.id} className="flex items-start gap-2 leading-relaxed break-words">
-                    <span className="text-slate-500 select-none shrink-0">[{log.time}]</span>
-                    <span className={`px-1.5 py-0.2 rounded text-[10px] font-semibold uppercase tracking-wider shrink-0 ${badgeClass}`}>
-                      {log.source}
-                    </span>
-                    <span className="text-slate-200">{log.message}</span>
-                  </div>
-                );
-              })
             )}
-            <div ref={terminalEndRef} />
+
+            {/* Rolling Summary (if present from long conversation engine) */}
+            {rollingSummary && (
+              <div className="bg-purple-950/40 border border-purple-800/40 rounded-xl p-3 text-xs text-purple-200">
+                <span className="font-bold text-purple-300 block mb-0.5 flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Rolling Conversation Summary
+                </span>
+                {rollingSummary}
+              </div>
+            )}
           </div>
 
-          {/* Terminal Footer Info */}
-          <div className="bg-slate-50 border-t border-slate-200 px-4 py-2 text-[11px] text-slate-500 flex items-center justify-between">
-            <span>Authoritative Africa&apos;s Talking Webhook Engine</span>
-            <span>Zero-PIN &amp; Echo Filter Enforced</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Developer Diagnostics View (Hidden by Default) */}
-      <div className="mt-8 border border-slate-200 rounded-xl overflow-hidden bg-white">
-        <button
-          type="button"
-          onClick={() => setShowDevView((prev) => !prev)}
-          className="w-full px-4 py-3 bg-slate-50 hover:bg-slate-100 flex items-center justify-between text-left text-xs font-semibold text-slate-700 min-h-[44px]"
-        >
-          <span>Developer Diagnostics &amp; Raw VoiceXML</span>
-          {showDevView ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-        </button>
-
-        {showDevView && (
-          <div className="p-4 bg-slate-900 text-slate-200 font-mono text-xs border-t border-slate-200">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 text-[11px]">
-              <div>
-                <span className="text-slate-400">Active Session:</span>{" "}
-                <span className="text-emerald-400">{sessionId || "none"}</span>
-              </div>
-              <div>
-                <span className="text-slate-400">Callback URL:</span>{" "}
-                <span className="text-emerald-400">{activeCallbackUrl || "none"}</span>
-              </div>
-              <div>
-                <span className="text-slate-400">Expected Digits:</span>{" "}
-                <span className="text-emerald-400">{activeNumDigits}</span>
-              </div>
-              <div>
-                <span className="text-slate-400">Finish Key:</span>{" "}
-                <span className="text-emerald-400">{activeFinishOnKey}</span>
-              </div>
+          {/* ── Preset Scenarios Quick Runner ───────────────────────────── */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Zap className="w-4 h-4 text-amber-400" />
+              <span className="text-xs font-bold text-white">Preset Scenarios:</span>
             </div>
 
-            <div className="text-[11px] text-slate-400 mb-1">Latest VoiceXML Response:</div>
-            <pre className="p-3 bg-slate-950 rounded-lg border border-slate-800 overflow-x-auto text-emerald-300 max-h-48">
-              {rawVoiceXml || "<!-- No VoiceXML captured yet -->"}
-            </pre>
+            <div className="flex items-center gap-2 flex-1 max-w-md">
+              <select
+                value={selectedScenarioId}
+                onChange={(e) => setSelectedScenarioId(e.target.value)}
+                className="flex-1 bg-slate-950 border border-slate-700 text-slate-200 rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:border-emerald-500"
+              >
+                <option value="">Select a test scenario...</option>
+                <optgroup label="Africa's Talking IVR Scenarios">
+                  {AT_PRESET_SCENARIOS.map((sc) => (
+                    <option key={sc.id} value={`at:${sc.id}`}>
+                      {sc.title}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="Canonical AI Scenarios">
+                  {PRESET_SCENARIOS.map((sc) => (
+                    <option key={sc.id} value={`ai:${sc.id}`}>
+                      {sc.title}
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+
+              <button
+                onClick={() => {
+                  if (!selectedScenarioId) return;
+                  if (selectedScenarioId.startsWith("at:")) {
+                    runAtPresetScenario(selectedScenarioId.replace("at:", ""));
+                  } else {
+                    runScenario(selectedScenarioId.replace("ai:", ""));
+                  }
+                }}
+                disabled={!selectedScenarioId}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-xl text-xs font-semibold transition"
+              >
+                Run
+              </button>
+            </div>
           </div>
-        )}
+
+          {/* ── Cockpit Tabs & Live Conversation Feed ──────────────────── */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-sm overflow-hidden flex flex-col h-[520px]">
+            {/* Tab Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-950">
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setActiveTab("transcript")}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
+                    activeTab === "transcript"
+                      ? "bg-slate-800 text-white"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  Call Transcript ({transcript.length})
+                </button>
+                <button
+                  onClick={() => setActiveTab("telephony_logs")}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
+                    activeTab === "telephony_logs"
+                      ? "bg-slate-800 text-white"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  Telephony Logs ({atHttpLogs.length})
+                </button>
+              </div>
+
+              <span className="text-[11px] text-slate-500 font-mono">
+                Session: {sessionId.slice(0, 16)}
+              </span>
+            </div>
+
+            {/* Tab Content */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {activeTab === "transcript" ? (
+                transcript.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 py-12">
+                    <Phone className="w-8 h-8 mb-2 opacity-30" />
+                    <p className="text-sm font-medium">No conversation turns recorded yet.</p>
+                    <p className="text-xs text-slate-600 mt-1">Start a call or speak to begin live transcription.</p>
+                  </div>
+                ) : (
+                  transcript.map((item) => (
+                    <div
+                      key={item.id}
+                      className={`flex flex-col ${
+                        item.role === "caller"
+                          ? "items-end"
+                          : item.role === "ai"
+                          ? "items-start"
+                          : "items-center"
+                      }`}
+                    >
+                      {item.role === "system" ? (
+                        <div className="my-1 px-3 py-1 bg-slate-950/80 border border-slate-800 rounded-full text-[11px] text-slate-400 font-mono">
+                          {item.text}
+                        </div>
+                      ) : (
+                        <div
+                          className={`max-w-[85%] rounded-2xl p-3 text-xs leading-relaxed shadow-sm ${
+                            item.role === "caller"
+                              ? "bg-emerald-600 text-white rounded-br-none"
+                              : "bg-slate-800 text-slate-100 border border-slate-700/60 rounded-bl-none"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-4 mb-1 text-[10px] opacity-75">
+                            <span className="font-bold">
+                              {item.role === "caller" ? "CALLER" : "ƆKWANKYERƐFO PA (IVR)"}
+                            </span>
+                            <span>{new Date(item.timestamp).toLocaleTimeString()}</span>
+                          </div>
+                          <p>{item.text}</p>
+                          {item.intent && item.role === "ai" && (
+                            <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[9px] bg-slate-900/60 text-slate-300">
+                              Intent: {item.intent}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )
+              ) : (
+                /* Africa's Talking HTTP & VoiceXML Logs */
+                atHttpLogs.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 py-12">
+                    <Terminal className="w-8 h-8 mb-2 opacity-30" />
+                    <p className="text-sm font-medium">No HTTP webhook traces yet.</p>
+                    <p className="text-xs text-slate-600 mt-1">Telemetry triggers automatically upon DTMF or call steps.</p>
+                  </div>
+                ) : (
+                  atHttpLogs.map((log) => (
+                    <div key={log.id} className="bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-xs">
+                      <div className="flex items-center justify-between text-slate-400 mb-1.5">
+                        <span className="text-emerald-400 font-bold">{log.method} {log.endpoint}</span>
+                        <span className="text-slate-500">{log.timestamp}</span>
+                      </div>
+                      <div className="text-slate-300 text-[11px] bg-slate-900 p-2 rounded-lg overflow-x-auto whitespace-pre-wrap">
+                        {log.voiceXml}
+                      </div>
+                    </div>
+                  ))
+                )
+              )}
+              <div ref={transcriptEndRef} />
+            </div>
+
+            {/* Bottom Utterance / Spoken Input Bar */}
+            <form onSubmit={handleSendTyped} className="p-3 bg-slate-950 border-t border-slate-800 flex items-center gap-2">
+              <input
+                type="text"
+                value={typedUtterance}
+                onChange={(e) => setTypedUtterance(e.target.value)}
+                placeholder="Type spoken utterance to test (e.g. 'Mepɛ sɛ mesoma sika 20 cedis' or 'Send money')..."
+                className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+              />
+              <button
+                type="submit"
+                disabled={!typedUtterance.trim()}
+                className="p-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-xl transition"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </form>
+          </div>
+        </div>
       </div>
     </div>
   );

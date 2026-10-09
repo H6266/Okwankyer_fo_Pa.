@@ -120,25 +120,16 @@ export const VoiceTesterPage: React.FC = () => {
           </p>
         </div>
 
-        {/* Quick Language Starters */}
+        {/* Unified Call Controls */}
         <div className="flex items-center gap-2">
           {!session.isActive ? (
-            <>
-              <button
-                onClick={() => session.startCall("en")}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-[#0F382A] text-white hover:bg-[#1A543F] text-xs font-bold rounded-xl shadow-xs transition-colors"
-              >
-                <Phone className="w-3.5 h-3.5 text-[#D4AF37]" />
-                <span>Start Call (English)</span>
-              </button>
-              <button
-                onClick={() => session.startCall("twi")}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-[#D4AF37] text-[#0F382A] hover:bg-[#E2BC4B] text-xs font-bold rounded-xl shadow-xs transition-colors"
-              >
-                <Phone className="w-3.5 h-3.5" />
-                <span>Hyɛ Aseɛ (Twi)</span>
-              </button>
-            </>
+            <button
+              onClick={() => session.startCall()}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-[#0F382A] text-white hover:bg-[#1A543F] text-xs font-bold rounded-xl shadow-xs transition-colors"
+            >
+              <Phone className="w-3.5 h-3.5 text-[#D4AF37]" />
+              <span>Call (+233 30 804 8098)</span>
+            </button>
           ) : (
             <button
               onClick={() => session.endCall("CANCELLED")}
@@ -360,7 +351,7 @@ export const VoiceTesterPage: React.FC = () => {
             {/* Handset Physical Controls (Call / End / D-Pad) */}
             <div className="grid grid-cols-3 gap-2 px-2">
               <button
-                onClick={() => session.startCall(session.language || "en")}
+                onClick={() => session.startCall()}
                 className="py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl flex items-center justify-center font-bold shadow-xs active:scale-95"
                 title="Place Call"
               >

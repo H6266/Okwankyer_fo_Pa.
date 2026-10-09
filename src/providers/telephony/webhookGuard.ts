@@ -45,7 +45,8 @@ export function verifyAtWebhook(req: Request, res: Response, next: NextFunction)
 
   // Attach diagnostic response headers helper
   const rejectWithReason = (status: number, reason: string) => {
-    res.setHeader("X-Telephony-Guard-Reason", reason);
+    const safeReason = (reason || "").replace(/[\r\n]+/g, " ").replace(/[^\x20-\x7E]/g, "");
+    res.setHeader("X-Telephony-Guard-Reason", safeReason);
     res.setHeader("X-Telephony-Status", status.toString());
     res.status(status).send("<Response><Reject/></Response>");
   };

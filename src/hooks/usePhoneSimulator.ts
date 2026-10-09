@@ -551,6 +551,20 @@ export function usePhoneSimulator() {
   const activePromptTextRef = useRef<string>("");
   const audioLevelRef = useRef<number>(0);
 
+  // ── Long Conversation Audio Recording State ─────────────────────────────
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDurationSec, setRecordingDurationSec] = useState(0);
+  const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
+  const [recordedAudioBlob, setRecordedAudioBlob] = useState<Blob | null>(null);
+  const [asrSessionId, setAsrSessionId] = useState<string | null>(null);
+  const [recordedChunksCount, setRecordedChunksCount] = useState<number>(0);
+  const [rollingSummary, setRollingSummary] = useState<string>("");
+  const [longAsrTranscript, setLongAsrTranscript] = useState<string>("");
+
+  const recordingChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<any>(null);
+  const asrSessionIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     isMicActiveRef.current = isMicActive;
   }, [isMicActive]);
@@ -698,7 +712,12 @@ export function usePhoneSimulator() {
       setAtHttpLogs((prev) => [logItem, ...prev.slice(0, 39)]);
 
       // 2. Live VoiceXML Trace
-      const stepLabel = requestEndpoint.replace(/^\//, "").split("?")[0] || "voice-menu";
+      let cleanStep = requestEndpoint.split("?")[0].replace(/^\/+/, "");
+      if (cleanStep.includes("/")) {
+        const parts = cleanStep.split("/").filter(Boolean);
+        cleanStep = parts[parts.length - 1] || "voice-menu";
+      }
+      const stepLabel = cleanStep || "voice-menu";
       setVoiceXmlTraces((prev) => [
         {
           step: stepLabel,
@@ -912,15 +931,14 @@ export function usePhoneSimulator() {
       playTone(digit);
 
       if (!isActive) {
-        if (digit === "1") startAtCall("en");
-        else if (digit === "2") startAtCall("tw");
-        else startAtCall("en");
+        setDigitsBuffer((prev) => prev + digit);
         return;
       }
 
-      if (!atCurrentCallbackUrl) {
-        console.warn("[AT Telephony] No active Africa's Talking callback URL");
-        return;
+      let effectiveCallbackUrl = atCurrentCallbackUrl;
+      if (!effectiveCallbackUrl) {
+        effectiveCallbackUrl = `/language-selection?sessionId=${atSessionId}`;
+        setAtCurrentCallbackUrl(effectiveCallbackUrl);
       }
 
       // Finish on key (#)
@@ -939,14 +957,14 @@ export function usePhoneSimulator() {
           ]);
           setIsLoading(true);
           try {
-            const res = await api.dispatchAtVoiceWebhook(atCurrentCallbackUrl, {
+            const res = await api.dispatchAtVoiceWebhook(effectiveCallbackUrl, {
               sessionId: atSessionId,
               callerNumber: atCallerPhone,
               destinationNumber: "+233308048098",
               isActive: "1",
               dtmfDigits: submitted,
             });
-            await processAtVoiceResponse(res, atSessionId, atCurrentCallbackUrl, {
+            await processAtVoiceResponse(res, atSessionId, effectiveCallbackUrl, {
               dtmfDigits: submitted,
             });
           } catch (e: any) {
@@ -972,14 +990,14 @@ export function usePhoneSimulator() {
         ]);
         setIsLoading(true);
         try {
-          const res = await api.dispatchAtVoiceWebhook(atCurrentCallbackUrl, {
+          const res = await api.dispatchAtVoiceWebhook(effectiveCallbackUrl, {
             sessionId: atSessionId,
             callerNumber: atCallerPhone,
             destinationNumber: "+233308048098",
             isActive: "1",
             dtmfDigits: digit,
           });
-          await processAtVoiceResponse(res, atSessionId, atCurrentCallbackUrl, {
+          await processAtVoiceResponse(res, atSessionId, effectiveCallbackUrl, {
             dtmfDigits: digit,
           });
         } catch (e: any) {
@@ -1007,14 +1025,14 @@ export function usePhoneSimulator() {
         ]);
         setIsLoading(true);
         try {
-          const res = await api.dispatchAtVoiceWebhook(atCurrentCallbackUrl, {
+          const res = await api.dispatchAtVoiceWebhook(effectiveCallbackUrl, {
             sessionId: atSessionId,
             callerNumber: atCallerPhone,
             destinationNumber: "+233308048098",
             isActive: "1",
             dtmfDigits: nextBuf,
           });
-          await processAtVoiceResponse(res, atSessionId, atCurrentCallbackUrl, {
+          await processAtVoiceResponse(res, atSessionId, effectiveCallbackUrl, {
             dtmfDigits: nextBuf,
           });
         } catch (e: any) {
@@ -1065,17 +1083,56 @@ export function usePhoneSimulator() {
     const lower = (text || "").toLowerCase().replace(/[-_]/g, " ");
     const currentCheck = (step || "").toLowerCase();
 
-    if (currentCheck.includes("confirm") || currentCheck.includes("safe-confirm") || lower.includes("confirm and send") || lower.includes("woremane sika") || lower.includes("500 ghana cedis") || lower.includes("500 ghana cedi")) {
+    // 1. Recipient verification readback (e.g. "verify-recipient" / "recipient-verify-choice")
+    if (
+      currentCheck.includes("verify") ||
+      currentCheck.includes("recipient-verify") ||
+      lower.includes("about to send money") ||
+      lower.includes("worepɛ sɛ womane sika kɔma") ||
+      lower.includes("confirm this recipient") ||
+      lower.includes("whose phone number ends with") ||
+      lower.includes("nɔmba a ɛwie")
+    ) {
+      if (lower.includes("8464") || lower.includes("8 4 6 4") || lower.includes("kwame")) {
+        return isTwi ? "/audio/Twi/Audio_prompt_twi_06.mp3" : "/audio/English/Audio_prompt_08.mp3";
+      }
+      return null; // Allows dynamic TTS to speak real caller names and numbers
+    }
+
+    // 2. Safe transaction confirmation
+    if (
+      currentCheck.includes("safe-confirmation") ||
+      currentCheck.includes("safe-confirm") ||
+      (currentCheck.includes("confirm") && !currentCheck.includes("recipient")) ||
+      lower.includes("confirm and send") ||
+      lower.includes("500 ghana cedis")
+    ) {
       return isTwi ? "/audio/Twi/Audio_prompt_twi_08.mp3" : "/audio/English/Audio_prompt_10.mp3";
     }
-    if (currentCheck.includes("amount") || currentCheck.includes("enter-amount") || lower.includes("cedi amount") || lower.includes("enter amount") || lower.includes("sika dodoɔ") || lower.includes("sika dodow")) {
+
+    // 3. Amount entry (enter-amount)
+    if (
+      currentCheck.includes("enter-amount") ||
+      (currentCheck.includes("amount") && !currentCheck.includes("verify") && !currentCheck.includes("confirm")) ||
+      lower.includes("cedi amount") ||
+      lower.includes("enter amount") ||
+      lower.includes("sika dodoɔ") ||
+      lower.includes("sika dodow")
+    ) {
       return isTwi ? "/audio/Twi/Audio_prompt_twi_07.mp3" : "/audio/English/Audio_prompt_09.mp3";
     }
-    if (currentCheck.includes("recipient") || currentCheck.includes("phone") || currentCheck.includes("enter-recipient") || lower.includes("10-digit") || lower.includes("bɔ nɔmba") || lower.includes("number you want to send")) {
+
+    // 4. Recipient phone number entry (ONLY for enter-recipient step)
+    if (
+      currentCheck.includes("enter-recipient") ||
+      (currentCheck === "recipient" && !currentCheck.includes("verify")) ||
+      lower.includes("10-digit") ||
+      lower.includes("ten-digit") ||
+      lower.includes("bɔ obi a woremane no") ||
+      lower.includes("fon nɔmba a ɛyɛ du") ||
+      lower.includes("number you want to send")
+    ) {
       return isTwi ? "/audio/Twi/Audio_prompt_twi_05.mp3" : "/audio/English/Audio_prompt_06.mp3";
-    }
-    if (currentCheck.includes("verify") || lower.includes("about to send money to kwame") || lower.includes("kwame nyamebrɛ") || lower.includes("ends with 8464")) {
-      return isTwi ? "/audio/Twi/Audio_prompt_twi_06.mp3" : "/audio/English/Audio_prompt_08.mp3";
     }
     if (currentCheck.includes("receipt") || currentCheck.includes("outcome") || currentCheck.includes("safe-outcome") || lower.includes("congratulations") || lower.includes("akɔ yie") || lower.includes("successfully sent")) {
       return isTwi ? "/audio/Twi/Audio_prompt_twi_10.mp3" : "/audio/English/Audio_prompt_12.mp3";
@@ -1245,6 +1302,44 @@ export function usePhoneSimulator() {
       stage: currentStep,
     };
     setTranscript((prev) => [...prev, callerTurnItem]);
+
+    // Handle Africa's Talking IVR mode input routing
+    if (gatewayMode === "AFRICASTALKING_IVR" && atCurrentCallbackUrl) {
+      let dtmf = normalizedInput.replace(/[^0-9*#]/g, "");
+      const lower = normalizedInput.toLowerCase();
+      if (!dtmf) {
+        if (lower.includes("english") || lower.includes("momo") || lower.includes("send") || lower.includes("confirm") || lower.includes("yes") || lower.includes("aane") || lower.includes("one")) {
+          dtmf = "1";
+        } else if (lower.includes("twi") || lower.includes("bank") || lower.includes("telecel") || lower.includes("no") || lower.includes("dabi") || lower.includes("two")) {
+          dtmf = "2";
+        } else if (lower.includes("airtime") || lower.includes("three")) {
+          dtmf = "3";
+        } else if (lower.includes("back") || lower.includes("eight")) {
+          dtmf = "8";
+        } else if (lower.includes("repeat") || lower.includes("nine")) {
+          dtmf = "9";
+        } else if (lower.includes("cancel") || lower.includes("exit") || lower.includes("gyae") || lower.includes("zero")) {
+          dtmf = "0";
+        }
+      }
+      if (dtmf) {
+        try {
+          const res = await api.dispatchAtVoiceWebhook(atCurrentCallbackUrl, {
+            sessionId: atSessionId,
+            callerNumber: atCallerPhone,
+            destinationNumber: "+233308048098",
+            isActive: "1",
+            dtmfDigits: dtmf,
+          });
+          await processAtVoiceResponse(res, atSessionId, atCurrentCallbackUrl, { dtmfDigits: dtmf });
+        } catch (e: any) {
+          console.error("[AT Voice Input] Dispatch error:", e);
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+    }
 
     // Snapshot previous slots for "What changed?" diagnostic
     const prevSlotsSnapshot = { ...entities };
@@ -1460,6 +1555,180 @@ export function usePhoneSimulator() {
   ]);
 
   /**
+   * Start long conversation recording session (streams chunks to /api/ai/asr/session/:id/chunk)
+   */
+  const startRecording = useCallback(async () => {
+    try {
+      if (isRecording) return;
+      recordingChunksRef.current = [];
+      setRecordedChunksCount(0);
+      setRecordingDurationSec(0);
+      setRecordedAudioUrl(null);
+      setRecordedAudioBlob(null);
+
+      const activeSession = atSessionId || sessionId || `asr_${Date.now()}`;
+      asrSessionIdRef.current = activeSession;
+      setAsrSessionId(activeSession);
+
+      try {
+        await api.startAsrSession({
+          sessionId: activeSession,
+          language: language === "tw" ? "twi" : "en",
+          metadata: { channel: "phone_simulator", callerPhone: atCallerPhone },
+        });
+      } catch (err) {
+        console.warn("Backend ASR session start fallback:", err);
+      }
+
+      let stream = mediaStreamRef.current;
+      if (!stream || !stream.active) {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            channelCount: 1,
+            sampleRate: 16000,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+        mediaStreamRef.current = stream;
+      }
+
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/webm")
+        ? "audio/webm"
+        : "audio/ogg";
+
+      const recorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = async (e) => {
+        if (e.data && e.data.size > 0) {
+          recordingChunksRef.current.push(e.data);
+          setRecordedChunksCount((prev) => prev + 1);
+
+          try {
+            const reader = new FileReader();
+            reader.onloadend = async () => {
+              const base64Data = (reader.result as string)?.split(",")[1];
+              if (base64Data && asrSessionIdRef.current) {
+                const res = await api.appendAudioChunk(
+                  asrSessionIdRef.current,
+                  base64Data,
+                  mimeType,
+                  currentStep
+                );
+                if (res?.rollingSummary) setRollingSummary(res.rollingSummary);
+                if (res?.fullTranscript) setLongAsrTranscript(res.fullTranscript);
+              }
+            };
+            reader.readAsDataURL(e.data);
+          } catch (chunkErr) {
+            console.warn("Chunk append error:", chunkErr);
+          }
+        }
+      };
+
+      recorder.onstop = () => {
+        const fullBlob = new Blob(recordingChunksRef.current, { type: mimeType });
+        setRecordedAudioBlob(fullBlob);
+        const url = URL.createObjectURL(fullBlob);
+        setRecordedAudioUrl(url);
+      };
+
+      recorder.start(4000);
+      setIsRecording(true);
+
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDurationSec((prev) => prev + 1);
+      }, 1000);
+    } catch (err: any) {
+      console.error("Failed to start long conversation recording:", err);
+    }
+  }, [isRecording, atSessionId, sessionId, language, atCallerPhone, currentStep]);
+
+  /**
+   * Stop long conversation recording and compile audio blob
+   */
+  const stopRecording = useCallback(async () => {
+    setIsRecording(false);
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {}
+    }
+
+    if (asrSessionIdRef.current) {
+      try {
+        const res = await api.endAsrSession(asrSessionIdRef.current);
+        if (res?.session?.rollingSummary) setRollingSummary(res.session.rollingSummary);
+        if (res?.session?.fullTranscript) setLongAsrTranscript(res.session.fullTranscript);
+      } catch (endErr) {
+        console.warn("End ASR session notice:", endErr);
+      }
+    }
+  }, []);
+
+  /**
+   * Download the recorded conversation audio
+   */
+  const downloadRecording = useCallback(() => {
+    if (!recordedAudioBlob && !recordedAudioUrl) return;
+    const a = document.createElement("a");
+    a.href = recordedAudioUrl || URL.createObjectURL(recordedAudioBlob!);
+    a.download = `conversation_${sessionId || "call"}_${Date.now()}.webm`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }, [recordedAudioBlob, recordedAudioUrl, sessionId]);
+
+  /**
+   * Export conversation transcript
+   */
+  const exportTranscript = useCallback((format: "txt" | "json" = "txt") => {
+    let content = "";
+    if (format === "json") {
+      content = JSON.stringify(
+        {
+          sessionId,
+          date: new Date().toISOString(),
+          durationSec: callDurationSec,
+          transcript,
+          rollingSummary,
+          fullTranscript: longAsrTranscript,
+        },
+        null,
+        2
+      );
+    } else {
+      content = `--- ƆKWANKYERƐFO PA CALL TRANSCRIPT ---\nSession: ${sessionId}\nDate: ${new Date().toLocaleString()}\nDuration: ${callDurationSec}s\n\n`;
+      transcript.forEach((t) => {
+        const time = new Date(t.timestamp).toLocaleTimeString();
+        content += `[${time}] ${t.role.toUpperCase()}: ${t.text}\n`;
+      });
+      if (rollingSummary) {
+        content += `\n--- ROLLING SUMMARY ---\n${rollingSummary}\n`;
+      }
+    }
+
+    const blob = new Blob([content], { type: format === "json" ? "application/json" : "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `transcript_${sessionId || "call"}.${format}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [sessionId, callDurationSec, transcript, rollingSummary, longAsrTranscript]);
+
+  /**
    * Start a phone call
    */
   const startCall = useCallback(async (initialLang: "en" | "tw" = "en") => {
@@ -1481,9 +1750,7 @@ export function usePhoneSimulator() {
     setAccuracyResult(null);
     setLastTurnDiagnostic(null);
 
-    const welcomeGreeting = initialLang === "tw"
-      ? "Akwaaba! Ɔkwankyerɛfo Pa MoMo Ntentan so. Sika bɛn na wobɛpɛ sɛ womane anaa wobɛyɛ?"
-      : "Welcome to Ɔkwankyerɛfo Pa Voice Mobile Money! Who would you like to send money to today?";
+    const welcomeGreeting = "Akwaaba! Welcome to Ɔkwankyerɛfo Pa. Press 1 for English, Press 2 for Akan Twi.";
 
     const initialXml = `<Response>\n  <GetDigits timeout="2" finishOnKey="#" numDigits="10">\n    <Say voice="${initialLang === "tw" ? "woman" : "alice"}">${welcomeGreeting}</Say>\n  </GetDigits>\n</Response>`;
     setVoiceXmlTraces([
@@ -1536,6 +1803,9 @@ export function usePhoneSimulator() {
    * Hang up the call & synchronize completion to Call Logs
    */
   const endCall = useCallback(async (reason: string = "User ended call") => {
+    if (isRecording) {
+      stopRecording();
+    }
     setIsActive(false);
     setIsMicActive(false);
     setIsAiSpeaking(false);
@@ -1586,10 +1856,9 @@ export function usePhoneSimulator() {
 
     playTone(digit);
 
-    // If call not active, pressing 1 or 2 starts call in corresponding language
+    // If call not active, pressing keys dials the number
     if (!isActive) {
-      if (digit === "1") startCall("en");
-      else if (digit === "2") startCall("tw");
+      setDigitsBuffer((prev) => prev + digit);
       return;
     }
 
@@ -1602,21 +1871,27 @@ export function usePhoneSimulator() {
       return;
     }
 
-    // Cancellation on 0 if empty
-    if (digit === "0" && !digitsBuffer) {
+    // Single digit menu choices (Option 1, Option 2, etc.) during welcome and menu selection steps
+    const isMultiDigitStep =
+      currentStep.toLowerCase().includes("recipient") ||
+      currentStep.toLowerCase().includes("amount") ||
+      currentStep.toLowerCase().includes("phone") ||
+      atExpectedDigits > 1;
+
+    // Universal cancellation on 0 if empty AND NOT in a multi-digit input step (like phone number or amount)
+    if (digit === "0" && !digitsBuffer && !isMultiDigitStep) {
       sendInputTurn("0", "DTMF");
+      return;
+    }
+
+    if (!isMultiDigitStep && /^[0-9]$/.test(digit)) {
+      sendInputTurn(digit, "DTMF");
+      setDigitsBuffer("");
       return;
     }
 
     const nextBuffer = digitsBuffer + digit;
     setDigitsBuffer(nextBuffer);
-
-    // Single digit confirmation choices (1 = Yes, 2 = No) during confirmation step
-    if (currentStep === "confirm" && (digit === "1" || digit === "2")) {
-      sendInputTurn(digit, "DTMF");
-      setDigitsBuffer("");
-      return;
-    }
 
     // Auto submit complete 10-digit phone number
     if (nextBuffer.length === 10 && nextBuffer.startsWith("0")) {
@@ -2449,6 +2724,20 @@ export function usePhoneSimulator() {
     clearAtLogs,
     startAtCall,
     runAtPresetScenario,
+
+    // Long Conversation Recording
+    isRecording,
+    recordingDurationSec,
+    recordedAudioUrl,
+    recordedAudioBlob,
+    asrSessionId,
+    recordedChunksCount,
+    rollingSummary,
+    longAsrTranscript,
+    startRecording,
+    stopRecording,
+    downloadRecording,
+    exportTranscript,
 
     // Chunk 3 Panel & Diagnostic States
     turnDiagnostic,

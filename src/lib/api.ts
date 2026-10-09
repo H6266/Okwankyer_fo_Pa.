@@ -902,6 +902,50 @@ export const api = {
     return data;
   },
 
+  async startAsrSession(payload: { sessionId?: string; language?: string; metadata?: any }): Promise<{ success: boolean; sessionId: string }> {
+    const res = await fetch("/api/ai/asr/session/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to start ASR session");
+    return data;
+  },
+
+  async appendAudioChunk(
+    sessionId: string,
+    audioBase64: string,
+    mimeType: string = "audio/webm",
+    step?: string
+  ): Promise<{ success: boolean; chunk?: any; session?: any; rollingSummary?: string; fullTranscript?: string }> {
+    const res = await fetch(`/api/ai/asr/session/${encodeURIComponent(sessionId)}/chunk`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ audioBase64, mimeType, step }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to append audio chunk");
+    return data;
+  },
+
+  async endAsrSession(sessionId: string): Promise<{ success: boolean; session: any }> {
+    const res = await fetch(`/api/ai/asr/session/${encodeURIComponent(sessionId)}/end`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to end ASR session");
+    return data;
+  },
+
+  async getAsrSession(sessionId: string): Promise<{ success: boolean; session: any }> {
+    const res = await fetch(`/api/ai/asr/session/${encodeURIComponent(sessionId)}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to get ASR session");
+    return data;
+  },
+
   async endSimulatorCall(payload: { sessionId: string; durationSeconds?: number; reason?: string; outcome?: string }): Promise<any> {
     const res = await fetch("/api/ai/simulator/call-end", {
       method: "POST",

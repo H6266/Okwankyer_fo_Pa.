@@ -83,13 +83,26 @@ voiceRouter.use((req: Request, res: Response, next) => {
   return next();
 });
 
+function safeHeaderValue(val: unknown): string {
+  if (val === undefined || val === null) return "";
+  const str = String(val).replace(/[\r\n]+/g, " ").trim();
+  if (/^[\x20-\x7E]*$/.test(str)) {
+    return str;
+  }
+  try {
+    return encodeURIComponent(str);
+  } catch {
+    return str.replace(/[^\x20-\x7E]/g, "");
+  }
+}
+
 function xmlResponse(res: Response, content: string, decision?: IvrDecision): void {
   let xml = content;
   if (decision) {
-    res.set("X-AI-Decision-Type", decision.type);
-    res.set("X-AI-Decision-Reason", decision.reason);
-    res.set("X-AI-Reply-Text", decision.replyText);
-    res.set("X-AI-Reply-Key", decision.replyKey);
+    if (decision.type) res.set("X-AI-Decision-Type", safeHeaderValue(decision.type));
+    if (decision.reason) res.set("X-AI-Decision-Reason", safeHeaderValue(decision.reason));
+    if (decision.replyText) res.set("X-AI-Reply-Text", safeHeaderValue(decision.replyText));
+    if (decision.replyKey) res.set("X-AI-Reply-Key", safeHeaderValue(decision.replyKey));
     res.set("Access-Control-Expose-Headers", "X-AI-Decision-Type, X-AI-Decision-Reason, X-AI-Reply-Text, X-AI-Reply-Key, x-telephony-guard-reason");
   }
   const req = res.req as Request | undefined;
