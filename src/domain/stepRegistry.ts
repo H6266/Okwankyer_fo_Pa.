@@ -142,8 +142,7 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
       twi: "1 ma MTN, 2 ma Telecel, 3 ma AT",
     },
     navigation: {
-      allowBack: true,
-      getBackTarget: (lang) => (lang === "twi" ? "language-selection" : "service-select"),
+      allowBack: false,
       allowRepeat: true,
       allowCancel: true,
     },

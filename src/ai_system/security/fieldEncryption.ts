@@ -19,8 +19,9 @@ function getEncryptionKey(): Buffer {
   if (!envKey && process.env.NODE_ENV !== "production" && process.env.NODE_ENV !== "test") {
     console.warn("[security] ENCRYPTION_KEY is unset; using an ephemeral development-only key.");
   }
-  // Test/development encryption is process-local. Production requires an explicit secret.
-  const material = envKey || crypto.randomBytes(32).toString("hex");
+  // In test and development, use a stable fallback if ENCRYPTION_KEY is unset
+  // so multi-worker test suites and process restarts can consistently decrypt test records.
+  const material = envKey || "okwankyer-fo-pa-dev-test-encryption-key-32-bytes";
   return crypto.createHash("sha256").update(material).digest();
 }
 

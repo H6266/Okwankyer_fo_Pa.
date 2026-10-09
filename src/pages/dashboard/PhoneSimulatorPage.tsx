@@ -37,23 +37,29 @@ interface ParsedVoiceXml {
     finishOnKey?: string;
     timeout?: number;
   };
+  record?: {
+    callbackUrl?: string;
+    maxLength?: number;
+    finishOnKey?: string;
+    timeout?: number;
+  };
 }
 
 const STEP_OPTIONS_MAP: Record<string, string> = {
   "voice-menu": "1=English, 2=Twi, 0=Exit",
   "language-selection": "1=English, 2=Twi, 0=Exit",
-  "service-select": "1=Mobile Money, 2=Banking, 8=Back, 9=Repeat, 0=Exit",
-  "service-choice": "1=Mobile Money, 2=Banking, 8=Back, 9=Repeat, 0=Exit",
-  "provider-select": "1=MTN, 2=Telecel, 3=AT, 8=Back, 9=Repeat, 0=Exit",
-  "provider-choice": "1=MTN, 2=Telecel, 3=AT, 8=Back, 9=Repeat, 0=Exit",
+  "service-select": "1=Mobile Money, 2=Banking, 9=Repeat, 0=Exit",
+  "service-choice": "1=Mobile Money, 2=Banking, 9=Repeat, 0=Exit",
+  "provider-select": "1=MTN, 2=Telecel, 3=AT, 9=Repeat, 0=Exit",
+  "provider-choice": "1=MTN, 2=Telecel, 3=AT, 9=Repeat, 0=Exit",
   "action-select": "1=Send Money, 2=Check Balance, 8=Back, 9=Repeat, 0=Exit",
   "action-choice": "1=Send Money, 2=Check Balance, 8=Back, 9=Repeat, 0=Exit",
-  "enter-recipient": "10 Digits followed by #, 8=Back, 0=Exit",
-  "verify-recipient": "10 Digits followed by #, 8=Back, 0=Exit",
-  "recipient-verify-choice": "1=Confirm Recipient, 2=Re-enter, 8=Back, 0=Exit",
-  "enter-amount": "Amount followed by # (* for pesewas), 8=Back, 0=Exit",
-  "verify-amount": "Amount followed by #, 8=Back, 0=Exit",
-  "safe-confirmation": "1=Confirm & Authorize, 2=Edit Amount, 8=Back, 0=Exit",
+  "enter-recipient": "10 Digits followed by #, 0=Exit",
+  "verify-recipient": "10 Digits followed by #, 0=Exit",
+  "recipient-verify-choice": "1=Confirm Recipient, 2=Re-enter, 8=Back, 9=Repeat, 0=Exit",
+  "enter-amount": "Amount followed by # (* for pesewas), 0=Exit",
+  "verify-amount": "Amount followed by #, 0=Exit",
+  "safe-confirmation": "1=Confirm & Authorize, 2=Edit Amount, 9=Repeat, 0=Exit",
   "safe-outcome": "1=Confirm & Authorize, 0=Cancel",
 };
 
@@ -280,6 +286,22 @@ export const PhoneSimulatorPage: React.FC = () => {
       result.sayText = sayMatch[1].trim();
     }
 
+    // <Record attributes>
+    const recordMatch = xml.match(/<Record\s+([^>]+)>/i);
+    if (recordMatch) {
+      const attrs = recordMatch[1];
+      const timeout = attrs.match(/timeout=["'](\d+)["']/i);
+      const finishOnKey = attrs.match(/finishOnKey=["']([^"']+)["']/i);
+      const maxLength = attrs.match(/maxLength=["'](\d+)["']/i);
+      const callbackUrl = attrs.match(/callbackUrl=["']([^"']+)["']/i);
+      result.record = {
+        timeout: timeout ? parseInt(timeout[1], 10) : undefined,
+        finishOnKey: finishOnKey ? finishOnKey[1] : undefined,
+        maxLength: maxLength ? parseInt(maxLength[1], 10) : undefined,
+        callbackUrl: callbackUrl ? callbackUrl[1].replace(/&amp;/g, "&") : undefined,
+      };
+    }
+
     return result;
   };
 
@@ -463,19 +485,32 @@ export const PhoneSimulatorPage: React.FC = () => {
         const aiDecisionType = res.headers.get("x-ai-decision-type");
         const aiDecisionReason = res.headers.get("x-ai-decision-reason");
         const aiReplyText = res.headers.get("x-ai-reply-text");
+        const aiReplyKey = res.headers.get("x-ai-reply-key");
 
         if (aiDecisionType) {
           addLog(
             "AI",
             `[AI Decision] type=${aiDecisionType} reason="${aiDecisionReason || ""}" reply="${aiReplyText || ""}"`
           );
+          if (aiReplyKey) {
+            const clip = resolvePrompt(aiReplyKey, language || "en");
+            if (!clip) {
+              addLog("audio", `no audio: ${aiReplyKey}`);
+            }
+          }
         }
 
         const text = await res.text();
         if (text.includes("<Response>") || text.includes("<Reject")) {
           await executeVoiceXml(text, targetUrl, { httpStatus: res.status, guardReason });
         } else if (!res.ok) {
-          if (res.status === 401 || res.status === 403 || (res.status === 404 && targetUrl.includes("/api/simulator"))) {
+          if (res.status === 404 && targetUrl.includes("/api/simulator")) {
+            if (adminAuthenticated || Boolean(token)) {
+              addLog("system", "Simulator disabled on this server (ENABLE_SIMULATOR is not true)");
+            } else {
+              addLog("system", "[Phone Simulator Disabled] Voice sandbox is inactive in this environment.");
+            }
+          } else if (res.status === 401 || res.status === 403) {
             addLog("system", "[Phone Simulator Disabled] Voice sandbox is inactive in this environment.");
           }
           let errorMsg = `HTTP ${res.status}`;

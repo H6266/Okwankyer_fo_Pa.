@@ -13,4 +13,5 @@ export * from './replyComposer';
 export * from './replyTemplates';
 export * from './replyTranslator';
 export * from './replyExamples';
+export * from './ivrDecisionEngine';
 export * from './brain';

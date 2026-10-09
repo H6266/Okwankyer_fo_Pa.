@@ -429,7 +429,18 @@ export class TelephonySpeechService implements SpeechToTextProvider {
 
     // 3. Raw Buffer
     if (Buffer.isBuffer(audioPayload)) {
-      return await transcribeAudioBufferUnified(audioPayload, mimeType, step, 3000);
+      try {
+        return await transcribeAudioBufferUnified(audioPayload, mimeType, step, 3000);
+      } catch {
+        return {
+          text: "empty",
+          confidence: 0.0,
+          languageDetected: "en",
+          provider: "TelephonySpeechService",
+        };
+      } finally {
+        audioPayload.fill(0);
+      }
     }
 
     // 4. Direct text string (for testing or direct pipeline invocation)

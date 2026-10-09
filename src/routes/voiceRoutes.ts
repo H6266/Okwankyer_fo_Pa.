@@ -310,9 +310,10 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
         retryCount: session.retryCount,
         sessionId,
       });
+      const audioUrl = `${baseUrl}${resolvePrompt("service_select", lang)}`;
       return xmlResponse(
         res,
-        `    <Say voice="female">${decision.replyText}</Say>\n    <Redirect>${baseUrl}/service-select?sessionId=${sessionId}&amp;lang=${lang}&amp;err=unsupported</Redirect>`,
+        `    <Say voice="female">${decision.replyText}</Say>\n    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        <Play url="${audioUrl}"/>\n    </GetDigits>`,
         decision
       );
     }
@@ -332,9 +333,10 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
     transactionStateMachine.transition(sessionId, "FAILED", { failureReason: decision.reason });
     return xmlResponse(res, `    <Say voice="female">${decision.replyText}</Say>\n    <Reject/>`, decision);
   }
+  const audioUrl = `${baseUrl}${resolvePrompt("service_select", lang)}`;
   return xmlResponse(
     res,
-    `    <Say voice="female">${decision.replyText}</Say>\n    <Redirect>${baseUrl}/service-select?sessionId=${sessionId}&amp;lang=${lang}&amp;err=invalid</Redirect>`,
+    `    <Say voice="female">${decision.replyText}</Say>\n    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        <Play url="${audioUrl}"/>\n    </GetDigits>`,
     decision
   );
 });
@@ -432,9 +434,10 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
     transactionStateMachine.transition(sessionId, "FAILED", { failureReason: decision.reason });
     return xmlResponse(res, `    <Say voice="female">${decision.replyText}</Say>\n    <Reject/>`, decision);
   }
+  const audioUrl = `${baseUrl}${resolvePrompt("provider_select", lang)}`;
   return xmlResponse(
     res,
-    `    <Say voice="female">${decision.replyText}</Say>\n    <Redirect>${baseUrl}/provider-select?sessionId=${sessionId}&amp;lang=${lang}&amp;err=invalid</Redirect>`,
+    `    <Say voice="female">${decision.replyText}</Say>\n    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        <Play url="${audioUrl}"/>\n    </GetDigits>`,
     decision
   );
 });
@@ -543,9 +546,10 @@ ivrRouter.all("/action-choice", async (req: Request, res: Response) => {
     transactionStateMachine.transition(sessionId, "FAILED", { failureReason: decision.reason });
     return xmlResponse(res, `    <Say voice="female">${decision.replyText}</Say>\n    <Reject/>`, decision);
   }
+  const audioUrl = `${baseUrl}${resolvePrompt("action_select", lang)}`;
   return xmlResponse(
     res,
-    `    <Say voice="female">${decision.replyText}</Say>\n    <Redirect>${baseUrl}/action-select?sessionId=${sessionId}&amp;lang=${lang}&amp;err=invalid</Redirect>`,
+    `    <Say voice="female">${decision.replyText}</Say>\n    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        <Play url="${audioUrl}"/>\n    </GetDigits>`,
     decision
   );
 });
@@ -602,9 +606,10 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
       transactionStateMachine.transition(sessionId, "FAILED", { failureReason: decision.reason });
       return xmlResponse(res, `    <Say voice="female">${decision.replyText}</Say>\n    <Reject/>`, decision);
     }
+    const audioUrl = `${baseUrl}${resolvePrompt("enter_recipient", lang)}`;
     return xmlResponse(
       res,
-      `    <Say voice="female">${decision.replyText}</Say>\n    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}&amp;err=invalid</Redirect>`,
+      `    <Say voice="female">${decision.replyText}</Say>\n    <GetDigits timeout="40" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}">\n        <Play url="${audioUrl}"/>\n    </GetDigits>`,
       decision
     );
   }
@@ -749,9 +754,10 @@ ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
       transactionStateMachine.transition(sessionId, "FAILED", { failureReason: decision.reason });
       return xmlResponse(res, `    <Say voice="female">${decision.replyText}</Say>\n    <Reject/>`, decision);
     }
+    const audioUrl = `${baseUrl}${resolvePrompt("enter_amount", lang)}`;
     return xmlResponse(
       res,
-      `    <Say voice="female">${decision.replyText}</Say>\n    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}&amp;err=invalid</Redirect>`,
+      `    <Say voice="female">${decision.replyText}</Say>\n    <GetDigits timeout="25" finishOnKey="#" numDigits="6" callbackUrl="${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}&amp;ref=/enter-amount&amp;err=invalid">\n        <Play url="${audioUrl}"/>\n    </GetDigits>`,
       decision
     );
   }
@@ -841,9 +847,10 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
       retryCount: session.retryCount,
       sessionId,
     });
+    const audioUrl = `${baseUrl}${resolvePrompt("safe_confirmation", lang)}`;
     return xmlResponse(
       res,
-      `    <Say voice="female">${decision.replyText}</Say>\n    <Redirect>${baseUrl}/safe-confirmation?sessionId=${sessionId}&amp;lang=${lang}&amp;err=invalid</Redirect>`,
+      `    <Say voice="female">${decision.replyText}</Say>\n    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}">\n        <Play url="${audioUrl}"/>\n    </GetDigits>`,
       decision
     );
   }
@@ -1094,7 +1101,84 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
     }
   }
 
-  // Spoken recipients and amounts
+  // ── Cognitive IVR Decision Engine for Spoken Input ──
+  const ivrDecision = ivrDecisionEngine.decide({
+    stepId: step,
+    language: lang,
+    input: transcript,
+    inputMethod: "speech",
+    retryCount: 0,
+    sessionId,
+  });
+
+  // A) Understood Intent: e.g. "send money" -> move to enter-recipient
+  if (ivrDecision.type === "understood_intent") {
+    if (ivrDecision.action === "advance") {
+      if (ivrDecision.nextStep === "enter-recipient") {
+        const audioUrl = `${baseUrl}${resolvePrompt("enter_recipient", lang)}`;
+        return xmlResponse(
+          res,
+          `    <Say voice="female">${ivrDecision.replyText}</Say>\n    <GetDigits timeout="40" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}">\n        <Play url="${audioUrl}"/>\n    </GetDigits>`,
+          ivrDecision
+        );
+      }
+      if (ivrDecision.nextStep === "enter-amount") {
+        const audioUrl = `${baseUrl}${resolvePrompt("enter_amount", lang)}`;
+        return xmlResponse(
+          res,
+          `    <Say voice="female">${ivrDecision.replyText}</Say>\n    <GetDigits timeout="25" finishOnKey="#" numDigits="6" callbackUrl="${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}">\n        <Play url="${audioUrl}"/>\n    </GetDigits>`,
+          ivrDecision
+        );
+      }
+      if (ivrDecision.nextStep === "safe-confirmation") {
+        return xmlResponse(
+          res,
+          `    <Redirect>${baseUrl}/safe-confirmation?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`,
+          ivrDecision
+        );
+      }
+      if (ivrDecision.nextStep === "recipient-verify-choice" && ivrDecision.updatedSlots?.recipientPhone) {
+        return xmlResponse(
+          res,
+          `    <Redirect>${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${ivrDecision.updatedSlots.recipientPhone}</Redirect>`,
+          ivrDecision
+        );
+      }
+    }
+  }
+
+  // B) Unsupported: e.g. banking, crypto, loans, or balance inquiry
+  if (ivrDecision.type === "unsupported") {
+    return xmlResponse(
+      res,
+      `    <Say voice="female">${ivrDecision.replyText}</Say>\n    <Reject/>`,
+      ivrDecision
+    );
+  }
+
+  // C) Clarify: e.g. "repeat", "what did you say"
+  if (ivrDecision.type === "clarify") {
+    const promptKey = ivrDecision.promptReplayKey || "service_select";
+    const audioUrl = `${baseUrl}${resolvePrompt(promptKey, lang)}`;
+    const callbackStep = step === "service-select" ? "service-choice" : step === "provider-select" ? "provider-choice" : "action-choice";
+    return xmlResponse(
+      res,
+      `    <Say voice="female">${ivrDecision.replyText}</Say>\n    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/${callbackStep}?sessionId=${sessionId}&amp;lang=${lang}">\n        <Play url="${audioUrl}"/>\n    </GetDigits>`,
+      ivrDecision
+    );
+  }
+
+  // D) Invalid choice at recipient step: e.g. invalid phone number spoken
+  if (step === "enter-recipient" && ivrDecision.type === "invalid_choice") {
+    const audioUrl = `${baseUrl}${resolvePrompt("enter_recipient", lang)}`;
+    return xmlResponse(
+      res,
+      `    <Say voice="female">${ivrDecision.replyText}</Say>\n    <GetDigits timeout="40" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}">\n        <Play url="${audioUrl}"/>\n    </GetDigits>`,
+      ivrDecision
+    );
+  }
+
+  // Spoken recipients and amounts fallback
   if (step === "enter-recipient") {
     const cleanDigits = clean.replace(/[^0-9]/g, "");
     if (cleanDigits.length === 10) {

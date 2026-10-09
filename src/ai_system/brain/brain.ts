@@ -53,6 +53,7 @@ import {
   getApprovedTemplateText,
   findTemplateKeyByText,
 } from './replyTemplates';
+import { ivrDecisionEngine, type IvrDecision, type IvrTurnContext, type IvrDecisionType } from './ivrDecisionEngine';
 
 // Ensure MoMo services are registered
 import '../../services/momo';
@@ -197,6 +198,13 @@ export class Brain {
 
   constructor(config: Partial<BrainConfig> = DEFAULT_BRAIN_CONFIG) {
     this.config = { ...DEFAULT_BRAIN_CONFIG, ...config };
+  }
+
+  /**
+   * Cognitive IVR structured decision reasoning over off-script, invalid, or spoken input.
+   */
+  public decideIvr(context: import('./ivrDecisionEngine').IvrTurnContext): import('./ivrDecisionEngine').IvrDecision {
+    return ivrDecisionEngine.decide(context);
   }
 
   /**
@@ -1027,6 +1035,19 @@ Output format: Return ONLY valid JSON with keys: intent, slots, signals, reply.`
 
     if (/^(hello|hi|akwaaba|good\s+morning|good\s+afternoon|how\s+are\s+you|thank\s+you|help)\b/i.test(lower) && !isCare && !hasTransferSlots) {
       scores['smalltalk'] += 0.75;
+    }
+
+    // Ambiguous utterances between money transfer and account balance
+    const isAmbiguousMoneyAccount = /\b(?:help\s+with\s+(?:my\s+)?money\s+account|money\s+account|sika\s+akontaabu)\b/i.test(lower) ||
+      (/\b(?:money|sika)\b/i.test(lower) && /\b(?:account|wallet|akontaabu)\b/i.test(lower) && !hasTransferAction && !isBalance && !hasTransferWord);
+    if (isAmbiguousMoneyAccount) {
+      scores['momo.transfer'] = 0.45;
+      scores['momo.check_balance'] = 0.45;
+    }
+
+    // Invariant: Probability and confidence scores must not exceed 0.99
+    for (const key of Object.keys(scores) as IntentId[]) {
+      scores[key] = Math.min(0.99, Math.max(0, scores[key]));
     }
 
     return scores;
