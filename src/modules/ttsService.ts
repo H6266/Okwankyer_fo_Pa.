@@ -15,8 +15,8 @@ export interface PromptEntry {
 
 export const PROMPT_TABLE: Record<string, PromptEntry> = {
   welcome: {
-    en: "/audio/English/Welcome_prompt_01.mp3",
-    twi: "/audio/English/Welcome_prompt_01.mp3",
+    en: "/audio/Welcome_prompt_01.mp3",
+    twi: "/audio/Welcome_prompt_01.mp3",
   },
   service_select: {
     en: "/audio/English/Audio_prompt_02.mp3",

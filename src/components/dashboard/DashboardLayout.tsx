@@ -29,7 +29,6 @@ import { api, HealthResponse } from "../../lib/api";
 
 const NAV_ITEMS = [
   { path: "/dashboard", label: "Overview", icon: LayoutDashboard, exact: true },
-  { path: "/dashboard/preach", label: "📖 Preach Mode (Study)", icon: BookOpen, badge: "AI PEN" },
   { path: "/dashboard/momo", label: "🟢 MoMo Laboratory", icon: Code2, badge: "Phase 1" },
   { path: "/dashboard/asr", label: "⚪ ASR Laboratory", icon: Mic2, badge: "Phase 2" },
   { path: "/dashboard/tts", label: "⚪ TTS Laboratory", icon: FileAudio, badge: "Phase 3" },
@@ -209,15 +208,6 @@ export const DashboardLayout: React.FC = () => {
 
           {/* Right Action & Status Group */}
           <div className="flex items-center gap-2 sm:gap-3">
-            {/* Preach Mode Document Study Button */}
-            <Link
-              to="/dashboard/preach"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-2xs transition-colors"
-            >
-              <BookOpen className="w-3.5 h-3.5 text-slate-950" />
-              <span>Preach Mode</span>
-            </Link>
-
             {/* Quick Test MoMo API Button */}
             <Link
               to="/dashboard/api"

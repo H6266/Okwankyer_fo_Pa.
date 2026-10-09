@@ -43,19 +43,32 @@ export function verifyAtWebhook(req: Request, res: Response, next: NextFunction)
   const isProd = process.env.NODE_ENV === "production";
   const expectedSecret = process.env.AT_WEBHOOK_SECRET;
 
+  // Attach diagnostic response headers helper
+  const rejectWithReason = (status: number, reason: string) => {
+    res.setHeader("X-Telephony-Guard-Reason", reason);
+    res.setHeader("X-Telephony-Status", status.toString());
+    res.status(status).send("<Response><Reject/></Response>");
+  };
+
   const sessionId = (req.body?.sessionId || req.query?.sessionId || "") as string;
 
   // 1. Check required Africa's Talking session identifier
   if (!sessionId) {
+    if (!isProd) {
+      const fallbackSession = `dev-session-${Date.now()}`;
+      if (req.body && typeof req.body === "object") req.body.sessionId = fallbackSession;
+      if (req.query && typeof req.query === "object") (req.query as any).sessionId = fallbackSession;
+      return next();
+    }
     auditLogger.log("warn", "SECURITY", "Rejected telephony callback without sessionId", req.ip);
-    res.status(400).send("<Response><Reject/></Response>");
+    rejectWithReason(400, "Missing sessionId in telephony callback");
     return;
   }
 
   // 2. Validate format of sessionId (alphanumeric, dashes, colons, underscores)
   if (!/^[a-zA-Z0-9_\-.:]{3,128}$/.test(sessionId)) {
     auditLogger.log("warn", "SECURITY", `Rejected malformed sessionId: "${sessionId.slice(0, 32)}"`, req.ip);
-    res.status(400).send("<Response><Reject/></Response>");
+    rejectWithReason(400, `Malformed sessionId format: "${sessionId.slice(0, 32)}"`);
     return;
   }
 
@@ -67,13 +80,13 @@ export function verifyAtWebhook(req: Request, res: Response, next: NextFunction)
   if (expectedSecret) {
     if (!providedSecret || !safeCompare(providedSecret, expectedSecret)) {
       auditLogger.log("error", "SECURITY", `Telephony webhook signature verification failed for session ${sessionId}`, req.ip);
-      res.status(401).send("<Response><Reject/></Response>");
+      rejectWithReason(401, "Invalid or missing AT_WEBHOOK_SECRET signature");
       return;
     }
   } else if (isProd) {
-    // In production, expectedSecret is mandatory
+    // In production, expectedSecret is mandatory for real Africa's Talking webhooks
     auditLogger.log("error", "SECURITY", "Telephony webhook rejected: Missing server AT_WEBHOOK_SECRET in production", req.ip);
-    res.status(401).send("<Response><Reject/></Response>");
+    rejectWithReason(401, "Missing server AT_WEBHOOK_SECRET configuration in production");
     return;
   } else {
     // Explicit DEV bypass (strictly forbidden in production)

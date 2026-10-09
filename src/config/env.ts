@@ -21,6 +21,7 @@ export interface AppConfig {
   port: number;
   baseUrl: string;
   demoMode: boolean;
+  enableSimulator: boolean;
   adminToken: string;
   sessionSecret: string;
   corsOrigins: string[];
@@ -165,6 +166,7 @@ export function loadConfig(): AppConfig {
     port,
     baseUrl,
     demoMode,
+    enableSimulator: process.env.ENABLE_SIMULATOR === "true",
     adminToken,
     sessionSecret,
     corsOrigins,

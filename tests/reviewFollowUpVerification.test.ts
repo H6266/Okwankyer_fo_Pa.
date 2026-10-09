@@ -3,18 +3,20 @@ import { brain, Brain } from '../src/ai_system/brain/brain';
 import { serviceRegistry } from '../src/ai_system/brain/serviceRegistry';
 import { setRequireApprovedNumbers, APPROVED_KEYPAD_FALLBACK_PROMPT } from '../src/ai_system/linguistic/twiNumberWords';
 import { setAllowUnapprovedTemplates } from '../src/ai_system/brain/replyTemplates';
-import { geminiClient, studyGeminiClient, UnifiedGeminiClient } from '../src/services/geminiClient';
+import { geminiClient, UnifiedGeminiClient } from '../src/services/geminiClient';
 import { speechToText } from '../src/modules/sttService';
 import fs from 'fs';
 import path from 'path';
 
 describe('Review Follow-Up Verification Tests', () => {
+  const auxiliaryClient = UnifiedGeminiClient.getInstance('auxiliary');
+
   beforeEach(() => {
     serviceRegistry.resetToDefaults();
     setRequireApprovedNumbers(false);
     setAllowUnapprovedTemplates(true);
     geminiClient.resetCircuitBreaker();
-    studyGeminiClient.resetCircuitBreaker();
+    auxiliaryClient.resetCircuitBreaker();
   });
 
   // ── 1. A9 Invariant: Dispatch is IMPOSSIBLE without complete readback ───────
@@ -93,7 +95,9 @@ describe('Review Follow-Up Verification Tests', () => {
     it('allows dispatch when previous reply was a genuine read-back containing amount and recipient', async () => {
       // Step 1: Turn presenting full readback
       const offlineBrain = new Brain({ mode: 'offline_only' });
+      const testSessionId = `test-readback-${Date.now()}`;
       const turn1 = await offlineBrain.process({
+        sessionId: testSessionId,
         transcript: 'Send 50 cedis to 0553838464',
         language: 'en',
         languageConfidence: 0.95,
@@ -108,6 +112,7 @@ describe('Review Follow-Up Verification Tests', () => {
 
       // Step 2: Confirm with DTMF 1
       const turn2 = await offlineBrain.process({
+        sessionId: testSessionId,
         transcript: '1',
         language: 'en',
         languageConfidence: 0.95,
@@ -134,17 +139,17 @@ describe('Review Follow-Up Verification Tests', () => {
     });
   });
 
-  // ── 5. E2 Invariant: Study Breaker Trips While Telephony Stays Closed ───────
+  // ── 5. E2 Invariant: Circuit Breaker Lane Isolation ────────────────────────
   describe('5. E2 Circuit Breaker Lane Isolation', () => {
-    it('trips study circuit breaker and asserts telephony lane stays strictly CLOSED', () => {
-      expect(studyGeminiClient.getCircuitBreakerState()).toBe('CLOSED');
+    it('trips secondary circuit breaker and asserts telephony lane stays strictly CLOSED', () => {
+      expect(auxiliaryClient.getCircuitBreakerState()).toBe('CLOSED');
       expect(geminiClient.getCircuitBreakerState()).toBe('CLOSED');
 
-      // Trip study breaker directly
-      (studyGeminiClient as any).circuitBreaker.state = 'OPEN';
-      (studyGeminiClient as any).circuitBreaker.failureCount = 5;
+      // Trip auxiliary breaker directly
+      (auxiliaryClient as any).circuitBreaker.state = 'OPEN';
+      (auxiliaryClient as any).circuitBreaker.failureCount = 5;
 
-      expect(studyGeminiClient.getCircuitBreakerState()).toBe('OPEN');
+      expect(auxiliaryClient.getCircuitBreakerState()).toBe('OPEN');
       // Telephony lane MUST remain completely unaffected
       expect(geminiClient.getCircuitBreakerState()).toBe('CLOSED');
     });

@@ -12,14 +12,13 @@ import { WebSocketServer } from "ws";
 import { config } from "./config/env";
 import { auditLogger } from "./services/auditLogger";
 import { resolveSafeAudioPath, streamAudioFile, PathTraversalError } from "./audio/streaming";
-import { voiceRouter } from "./routes/voiceRoutes";
+import { voiceRouter, simulatorRouter } from "./routes/voiceRoutes";
 import { apiRouter } from "./routes/apiRoutes";
 import { dashboardRouter } from "./routes/dashboardRoutes";
 import { momoRouter } from "./routes/momoRoutes";
 import { shippingRouter } from "./routes/shippingRoutes";
 import { aiRouter } from "./routes/aiRoutes";
 import { adminRouter } from "./routes/adminRoutes";
-import { studyRouter } from "./routes/studyRoutes";
 import { liveVoiceGateway } from "./ai_system/voice/liveVoiceGateway";
 import { initialize as initAtClient } from "../africastalking";
 import { requireAdminAuth } from "./middleware/adminAuth";
@@ -29,7 +28,7 @@ import { aiBootstrap } from "./ai_system/core/aiBootstrap";
 import { validateProductionModelConfig } from "./ai_system/brain/brain";
 import { approvalWorkflow } from "./ai_system/brain/approvalWorkflow";
 
-const app = express();
+export const app = express();
 
 // Trust reverse proxy (Google Cloud Run / Load Balancers) to read X-Forwarded-For correctly
 app.set("trust proxy", 1);
@@ -128,6 +127,12 @@ app.post("/ussd-trigger", adminRateLimiter, requireAdminAuth, async (req: Reques
 });
 
 // ── Mount Routers ─────────────────────────────────────────────────────
+// Phone simulator routes (admin authenticated, simulated session)
+// Mounted only when ENABLE_SIMULATOR=true
+if (config.enableSimulator) {
+  app.use("/api/simulator", simulatorRouter);
+}
+
 // Telephony voice routes with Africa's Talking webhook verification
 app.use(voiceRouter);
 
@@ -138,7 +143,6 @@ app.use(momoRouter);
 app.use(shippingRouter);
 app.use(aiRouter);
 app.use(adminRouter);
-app.use("/api/study", studyRouter);
 
 // Fallback for unmatched API routes to ensure clean JSON responses
 app.all("/api/*", (_req: Request, res: Response) => {
@@ -219,7 +223,7 @@ export async function startServer() {
   const wss = new WebSocketServer({ server });
   liveVoiceGateway.attachServer(wss);
 
-  const activePort = 3000;
+  const activePort = Number(process.env.TEST_PORT || 3000);
   server.listen(activePort, "0.0.0.0", () => {
     console.log(`Ɔkwankyerɛfo Pa running on http://0.0.0.0:${activePort}`);
     auditLogger.log("info", "SYSTEM", `Server online on port ${activePort} (Env: ${config.nodeEnv})`);
@@ -228,8 +232,10 @@ export async function startServer() {
   return { app, server, wss };
 }
 
-// Auto-start if executed directly or bundled
-startServer().catch((err) => {
-  console.error("FATAL: Server startup failed:", err);
-  process.exit(1);
-});
+// Auto-start if executed directly or bundled (skip in unit test or programmatic import)
+if (process.env.NODE_ENV !== "test" && !process.env.SKIP_AUTO_START) {
+  startServer().catch((err) => {
+    console.error("FATAL: Server startup failed:", err);
+    process.exit(1);
+  });
+}

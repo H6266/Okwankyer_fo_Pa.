@@ -18,7 +18,10 @@ export interface HealthResponse {
   features: string[];
 }
 
-let activeAdminToken: string | null = null;
+let activeAdminToken: string | null =
+  typeof window !== "undefined" && typeof localStorage !== "undefined"
+    ? localStorage.getItem("okw_admin_token")
+    : null;
 
 function getAdminAuthHeaders(customHeaders: Record<string, string> = {}): Record<string, string> {
   const headers: Record<string, string> = { ...customHeaders };
@@ -270,6 +273,10 @@ export const api = {
       }
     }
 
+    if (!effectiveUrl.startsWith("/api/simulator")) {
+      effectiveUrl = `/api/simulator${effectiveUrl.startsWith("/") ? "" : "/"}${effectiveUrl}`;
+    }
+
     const formParams = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) {
       if (v !== undefined && v !== null) {
@@ -277,12 +284,19 @@ export const api = {
       }
     }
 
+    const headers: Record<string, string> = {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/xml, text/xml, */*",
+    };
+    const token = activeAdminToken || (typeof localStorage !== "undefined" ? localStorage.getItem("okw_admin_token") : null);
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
     const res = await fetch(effectiveUrl, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Accept: "application/xml, text/xml, */*",
-      },
+      headers,
+      credentials: "include",
       body: formParams.toString(),
     });
 
@@ -355,9 +369,16 @@ export const api = {
     if (payload.dtmfDigits !== undefined) params.append("dtmfDigits", payload.dtmfDigits);
     if (payload.step) params.append("step", payload.step);
 
-    const res = await fetch("/voice-menu", {
+    const headers: Record<string, string> = { "Content-Type": "application/x-www-form-urlencoded" };
+    const token = activeAdminToken || (typeof localStorage !== "undefined" ? localStorage.getItem("okw_admin_token") : null);
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    const res = await fetch("/api/simulator/voice-menu", {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      headers,
+      credentials: "include",
       body: params.toString(),
     });
     const xml = await res.text();
@@ -782,11 +803,18 @@ export const api = {
       activeAdminToken = token;
     }
 
+    if (typeof localStorage !== "undefined" && activeAdminToken) {
+      localStorage.setItem("okw_admin_token", activeAdminToken);
+    }
+
     return data;
   },
 
   async adminLogout(): Promise<any> {
     activeAdminToken = null;
+    if (typeof localStorage !== "undefined") {
+      localStorage.removeItem("okw_admin_token");
+    }
     const res = await fetch("/api/admin/logout", {
       method: "POST",
       credentials: "same-origin",

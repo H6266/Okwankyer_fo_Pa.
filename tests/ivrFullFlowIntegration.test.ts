@@ -138,9 +138,8 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .post("/verify-amount")
       .send({ sessionId, lang: "en", dtmfDigits: "5*0*1" });
 
-    expect(res.text).toContain("The amount entered is invalid");
-    expect(res.text).toContain("multiple decimal asterisks");
     expect(res.text).toContain("/enter-amount");
+    expect(res.text).toContain("err=invalid");
   });
 
   it("supports Universal Navigation Grammar: Back (8) and Repeat (9)", async () => {

@@ -9,7 +9,7 @@
  * 5. Strict language isolation (English and Akan Twi).
  */
 
-import { Router, Request, Response } from "express";
+import { Router, Request, Response, NextFunction } from "express";
 import { config } from "../config/env";
 import { recipientResolver } from "../providers/recipient/RecipientResolver";
 import { parseAndValidateAmount, validateGhanaPhoneNumber } from "../domain/validation";
@@ -21,13 +21,16 @@ import { auditLogger } from "../services/auditLogger";
 import { verifyAtWebhook } from "../providers/telephony/webhookGuard";
 import { voicePaymentService } from "../integrations/momo/voicePaymentService";
 import { durableTransactionStore } from "../services/durableTransactionStore";
-import { telephonyRateLimiter } from "../middleware/rateLimiter";
+import { telephonyRateLimiter, adminRateLimiter } from "../middleware/rateLimiter";
+import { requireAdminAuth } from "../middleware/adminAuth";
 import { aiSystem } from "../ai_system";
 import { brain } from "../ai_system/brain/brain";
 import { resolvePrompt } from "../modules/ttsService";
 import { extractAmount, extractRecipient, extractNetwork } from "../modules/nluService";
 
 export const voiceRouter = Router();
+export const ivrRouter = Router();
+export const simulatorRouter = Router();
 
 const TELEPHONY_ROUTES = new Set([
   "/voice-menu",
@@ -79,21 +82,60 @@ voiceRouter.use((req: Request, res: Response, next) => {
 });
 
 function xmlResponse(res: Response, content: string): void {
+  let xml = content;
+  const req = res.req as Request | undefined;
+  if (req && req.baseUrl && req.baseUrl.startsWith("/api/simulator")) {
+    const base = getBaseUrl(req);
+    xml = xml.replace(/(callbackUrl=["'])(https?:\/\/[^"'\s]+|\/[^"'\s]+)/gi, (match, attr, url) => {
+      if (url.includes("/api/simulator")) return match;
+      if (base && url.startsWith(base)) {
+        return `${attr}${url.replace(base, `${base}${req.baseUrl}`)}`;
+      }
+      if (url.startsWith("/")) {
+        return `${attr}${req.baseUrl}${url}`;
+      }
+      return match;
+    }).replace(/(<Redirect[^>]*>)(https?:\/\/[^<]+|\/[^<]+)(<\/Redirect>)/gi, (match, open, url, close) => {
+      if (url.includes("/api/simulator")) return match;
+      if (base && url.startsWith(base)) {
+        return `${open}${url.replace(base, `${base}${req.baseUrl}`)}${close}`;
+      }
+      if (url.startsWith("/")) {
+        return `${open}${req.baseUrl}${url}${close}`;
+      }
+      return match;
+    });
+  }
   res.set("Content-Type", "application/xml; charset=utf-8");
-  res.send(`<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n${content}\n</Response>`);
+  res.send(`<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n${xml}\n</Response>`);
 }
 
-function getBaseUrl(req: Request): string {
-  if (config.baseUrl && config.nodeEnv === "production") {
-    return config.baseUrl;
+export function getBaseUrl(req: Request): string {
+  const forwardedHost = ((req.headers["x-forwarded-host"] as string) || "").split(",")[0]?.trim();
+  const reqHost = req.get("host") || "";
+  const host = forwardedHost || reqHost;
+
+  const forwardedProto = ((req.headers["x-forwarded-proto"] as string) || "").split(",")[0]?.trim();
+  const proto = forwardedProto || req.protocol || "http";
+
+  if (host && !host.startsWith("localhost") && !host.startsWith("127.0.0.1")) {
+    return `${proto}://${host}`.replace(/\/+$/, "");
   }
-  const host = req.get("host") || `localhost:${config.port}`;
-  const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "http";
-  return `${proto}://${host}`.replace(/\/+$/, "");
+
+  const envBase = (process.env.BASE_URL || process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || "").trim().replace(/\/+$/, "");
+  if (envBase && !envBase.includes("localhost") && !envBase.includes("127.0.0.1")) {
+    return envBase;
+  }
+
+  if (host) {
+    return `${proto}://${host}`.replace(/\/+$/, "");
+  }
+
+  return "";
 }
 
 // ── Step 1: Inbound Call Entry Point ──────────────────────────────────
-voiceRouter.all("/voice-menu", (req: Request, res: Response) => {
+ivrRouter.all("/voice-menu", (req: Request, res: Response) => {
   const sessionId = (req.body?.sessionId || req.query?.sessionId || `call_${Date.now()}`) as string;
   const callerNumber = (req.body?.callerNumber || req.query?.callerNumber || req.body?.phoneNumber || "caller") as string;
   const isActive = req.body?.isActive ?? req.query?.isActive;
@@ -108,7 +150,7 @@ voiceRouter.all("/voice-menu", (req: Request, res: Response) => {
   const session = transactionStateMachine.getOrCreateSession(sessionId, "en", "VOICE");
   session.callerPhone = callerNumber;
 
-  const introAudioUrl = `${baseUrl}/audio/English/Welcome_prompt_01.mp3`;
+  const introAudioUrl = `${baseUrl}${resolvePrompt("welcome", "en")}`;
 
   // Dual-track barge-in: instant GetDigits with Record fallback
   const xml = `    <GetDigits timeout="3" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?sessionId=${sessionId}">
@@ -120,7 +162,7 @@ voiceRouter.all("/voice-menu", (req: Request, res: Response) => {
 });
 
 // ── Step 2: Language Selection ────────────────────────────────────────
-voiceRouter.all("/language-selection", (req: Request, res: Response) => {
+ivrRouter.all("/language-selection", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || `call_${Date.now()}`) as string;
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getBaseUrl(req);
@@ -147,14 +189,12 @@ voiceRouter.all("/language-selection", (req: Request, res: Response) => {
 });
 
 // ── Step 3: Service Selection (Telecom / Banking) ─────────────────────
-voiceRouter.all("/service-select", (req: Request, res: Response) => {
+ivrRouter.all("/service-select", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const baseUrl = getBaseUrl(req);
 
-  const audioUrl = lang === "twi"
-    ? `${baseUrl}/audio/Twi/Audio_prompt_twi_03.mp3`
-    : `${baseUrl}/audio/English/Audio_prompt_02.mp3`;
+  const audioUrl = `${baseUrl}${resolvePrompt("service_select", lang)}`;
 
   const xml = `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">
         <Play url="${audioUrl}"/>
@@ -163,7 +203,7 @@ voiceRouter.all("/service-select", (req: Request, res: Response) => {
   xmlResponse(res, xml);
 });
 
-voiceRouter.all("/service-choice", (req: Request, res: Response) => {
+ivrRouter.all("/service-choice", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
@@ -185,14 +225,12 @@ voiceRouter.all("/service-choice", (req: Request, res: Response) => {
 });
 
 // ── Step 4: Provider Selection (MTN, Telecel, AT) ─────────────────────
-voiceRouter.all("/provider-select", (req: Request, res: Response) => {
+ivrRouter.all("/provider-select", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const baseUrl = getBaseUrl(req);
 
-  const audioUrl = lang === "twi"
-    ? `${baseUrl}/audio/Twi/Audio_prompt_twi_02.mp3`
-    : `${baseUrl}/audio/English/Audio_prompt_03.mp3`;
+  const audioUrl = `${baseUrl}${resolvePrompt("provider_select", lang)}`;
 
   const xml = `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}">
         <Play url="${audioUrl}"/>
@@ -201,7 +239,7 @@ voiceRouter.all("/provider-select", (req: Request, res: Response) => {
   xmlResponse(res, xml);
 });
 
-voiceRouter.all("/provider-choice", (req: Request, res: Response) => {
+ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
@@ -231,14 +269,12 @@ voiceRouter.all("/provider-choice", (req: Request, res: Response) => {
 });
 
 // ── Step 5: Action Menu (Send Money, Balance) ─────────────────────────
-voiceRouter.all("/action-select", (req: Request, res: Response) => {
+ivrRouter.all("/action-select", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const baseUrl = getBaseUrl(req);
 
-  const audioUrl = lang === "twi"
-    ? `${baseUrl}/audio/Twi/Audio_prompt_twi_04.mp3`
-    : `${baseUrl}/audio/English/Audio_prompt_05.mp3`;
+  const audioUrl = `${baseUrl}${resolvePrompt("action_select", lang)}`;
 
   const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?sessionId=${sessionId}&amp;lang=${lang}">
         <Play url="${audioUrl}"/>
@@ -247,7 +283,7 @@ voiceRouter.all("/action-select", (req: Request, res: Response) => {
   xmlResponse(res, xml);
 });
 
-voiceRouter.all("/action-choice", async (req: Request, res: Response) => {
+ivrRouter.all("/action-choice", async (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "1").trim() as string;
@@ -281,7 +317,7 @@ voiceRouter.all("/action-choice", async (req: Request, res: Response) => {
 });
 
 // ── Step 6: Recipient Phone Number Entry ──────────────────────────────
-voiceRouter.all("/enter-recipient", (req: Request, res: Response) => {
+ivrRouter.all("/enter-recipient", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const baseUrl = getBaseUrl(req);
@@ -297,7 +333,7 @@ voiceRouter.all("/enter-recipient", (req: Request, res: Response) => {
 });
 
 // ── Step 7: Recipient Verification (Real Resolver) ────────────────────
-voiceRouter.all("/verify-recipient", async (req: Request, res: Response) => {
+ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const rawDigits = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
@@ -358,7 +394,7 @@ voiceRouter.all("/verify-recipient", async (req: Request, res: Response) => {
   xmlResponse(res, xml);
 });
 
-voiceRouter.all("/recipient-verify-choice", (req: Request, res: Response) => {
+ivrRouter.all("/recipient-verify-choice", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
@@ -381,7 +417,7 @@ voiceRouter.all("/recipient-verify-choice", (req: Request, res: Response) => {
 });
 
 // ── Step 8: Amount Input ──────────────────────────────────────────────
-voiceRouter.all("/enter-amount", (req: Request, res: Response) => {
+ivrRouter.all("/enter-amount", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const baseUrl = getBaseUrl(req);
@@ -397,7 +433,7 @@ voiceRouter.all("/enter-amount", (req: Request, res: Response) => {
 });
 
 // ── Step 9: Amount Verification & Routing to Safe Confirmation ────────
-voiceRouter.all("/verify-amount", (req: Request, res: Response) => {
+ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const rawDigits = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
@@ -427,7 +463,7 @@ voiceRouter.all("/verify-amount", (req: Request, res: Response) => {
 
 // ── Step 10: Safe Confirmation (DYNAMIC READBACK) ─────────────────────
 // CRITICAL: NEVER plays static 500 GHS audio. Generates dynamic VoiceXML for caller's exact inputs!
-voiceRouter.all("/safe-confirmation", (req: Request, res: Response) => {
+ivrRouter.all("/safe-confirmation", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const baseUrl = getBaseUrl(req);
@@ -463,7 +499,7 @@ voiceRouter.all("/safe-confirmation", (req: Request, res: Response) => {
 
 // ── Step 11: Safe Outcome & Zero-PIN Handset Handoff ───────────────────
 // CRITICAL: Never records or transmits PINs. Dispatches RequestToPay to handset and speaks dynamic receipt.
-voiceRouter.all("/safe-outcome", async (req: Request, res: Response) => {
+ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
@@ -579,7 +615,7 @@ voiceRouter.all("/safe-outcome", async (req: Request, res: Response) => {
 });
 
 // ── Speech Recognition Fallback Handler ───────────────────────────────
-voiceRouter.all("/speech-fallback", async (req: Request, res: Response) => {
+ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || `call_${Date.now()}`) as string;
   const step = (req.query?.step || req.body?.step || "language-selection") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
@@ -745,11 +781,11 @@ voiceRouter.all("/speech-fallback", async (req: Request, res: Response) => {
     return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
   }
 
-  xmlResponse(res, `    <Redirect>${baseUrl}/voice-menu?sessionId=${sessionId}</Redirect>`);
+  xmlResponse(res, `    <Redirect>${baseUrl}/${step || "voice-menu"}?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
 });
 
 // ── Step 12: New Cognitive IVR Understand Endpoint ───────────────────
-voiceRouter.post("/api/ivr/understand", async (req: Request, res: Response) => {
+ivrRouter.post("/api/ivr/understand", async (req: Request, res: Response) => {
   const { utterance, currentStep, callState } = req.body || {};
   const text = typeof utterance === "string" ? utterance.trim() : "";
   const step = typeof currentStep === "string" ? currentStep : "welcome";
@@ -817,7 +853,7 @@ voiceRouter.post("/api/ivr/understand", async (req: Request, res: Response) => {
   const rec = extractRecipient(text);
   const net = extractNetwork(text);
 
-  if ((amt !== null && rec.phone) || (amt !== null && rec.name) || (rec.phone && net)) {
+  if ((amt !== null && (rec.phone || rec.name)) || (rec.phone && net) || rec.phone || (amt !== null && net)) {
     const targetStep = amt !== null && (rec.phone || rec.name) ? "safe-confirmation" : (rec.phone ? "enter-amount" : "enter-recipient");
     const sessionId = (req.body?.sessionId || callState?.sessionId) as string;
     if (sessionId) {
@@ -909,3 +945,32 @@ voiceRouter.post("/api/ivr/understand", async (req: Request, res: Response) => {
       : "You have entered an incorrect figure.",
   });
 });
+
+// Telephony voice routes with Africa's Talking webhook verification
+voiceRouter.use(ivrRouter);
+
+// Simulator router behind dashboard adminAuth with simulated session
+simulatorRouter.use(adminRateLimiter);
+simulatorRouter.use(requireAdminAuth);
+simulatorRouter.use((req: Request, _res: Response, next: NextFunction) => {
+  if (!req.body || typeof req.body !== "object") {
+    req.body = {};
+  }
+  if (!req.body.sessionId && !req.query?.sessionId) {
+    req.body.sessionId = `SIM_CALL_${Date.now()}`;
+  }
+  if (!req.body.callerNumber && !req.query?.callerNumber) {
+    req.body.callerNumber = "+233244123456";
+  }
+  if (!req.body.phoneNumber && !req.query?.phoneNumber) {
+    req.body.phoneNumber = req.body.callerNumber;
+  }
+  if (req.body.isActive === undefined && req.query?.isActive === undefined) {
+    req.body.isActive = "1";
+  }
+  if (!req.body.direction && !req.query?.direction) {
+    req.body.direction = "Inbound";
+  }
+  next();
+});
+simulatorRouter.use(ivrRouter);
