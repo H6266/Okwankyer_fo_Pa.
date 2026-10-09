@@ -61,7 +61,8 @@ export class MoMoEngine {
 
   constructor(customConfig?: Partial<MoMoConfig>) {
     this.config = customConfig ? { ...loadConfigFromEnv(), ...customConfig } : loadConfigFromEnv();
-    if (this.config.targetEnv === "sandbox") {
+    const isTestRuntime = process.env.NODE_ENV === "test" || process.env.VITEST === "true";
+    if (!isTestRuntime && this.config.targetEnv === "sandbox") {
       if (!this.config.collection.apiKey && (process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY || process.env.MOMO_SUBSCRIPTION_KEY)) {
         this.ensureSandboxProvisioned("collection").catch((err) => {
           console.warn("[MoMoEngine] Collection auto-provision notice:", err.message);

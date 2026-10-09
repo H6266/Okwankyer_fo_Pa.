@@ -158,6 +158,9 @@ export function loadConfigFromEnv(): MoMoConfig {
     disbursementCredentials.apiKey
   );
 
+  // Prefer complete product-specific credentials. If they are incomplete,
+  // fall back to the complete legacy set as a whole; never mix individual
+  // fields between these sets.
   const collection = hasCompleteCollectionCredentials
     ? collectionCredentials
     : hasSharedCredentials

@@ -23,6 +23,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { brain, Brain, DEFAULT_BRAIN_CONFIG } from '../src/ai_system/brain/brain';
 import { serviceRegistry } from '../src/ai_system/brain/serviceRegistry';
+import { durableTransactionStore } from '../src/services/durableTransactionStore';
+import { durableIdempotencyLedger } from '../src/services/durableIdempotencyLedger';
 import { geminiClient } from '../src/services/geminiClient';
 import { setAllowUnapprovedTemplates } from '../src/ai_system/brain/replyTemplates';
 import { setRequireApprovedNumbers } from '../src/ai_system/linguistic/twiNumberWords';
@@ -32,6 +34,8 @@ import { ttsRouter } from '../src/ai_system/speech/tts/ttsRouter';
 describe('Phase 3b: End-to-End Scenarios with Golden Transcripts', () => {
 
   beforeEach(() => {
+    durableTransactionStore.clearAllForTesting();
+    durableIdempotencyLedger.clearAllForTesting();
     serviceRegistry.resetToDefaults();
     setAllowUnapprovedTemplates(true);
     setRequireApprovedNumbers(false);

@@ -1082,7 +1082,11 @@ export class PaymentSagaOrchestrator {
     const confirmedSaga = this.confirm(draft.sagaId);
 
     // 3. Check sandbox credentials
-    const hasRealCredentials = momoEngine.isConfigured("collection");
+    const isTestRuntime = process.env.NODE_ENV === "test" || process.env.VITEST === "true";
+    const hasRealCredentials =
+      !isTestRuntime &&
+      params.simulateOutcome === undefined &&
+      momoEngine.isConfigured("collection");
 
     if (hasRealCredentials) {
       confirmedSaga.mode = "REAL_MTN_SANDBOX";

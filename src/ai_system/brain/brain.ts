@@ -487,12 +487,23 @@ export class Brain {
 
       // Grounding Check for Amount:
       if (modelOutput.slots.amount !== undefined && modelOutput.slots.amount !== null) {
-        const hasUtteranceAmountMatch =
-          decoderResult.numericValue !== null ||
-          /\b(\d+(?:\.\d{1,2})?)\s*(?:ghs|cedis?|sidi)?\b/i.test(rawTranscript);
+        const explicitCurrencyAmountMatch = rawTranscript.match(
+          /\b(\d+(?:\.\d{1,2})?)\s*(?:ghs|cedis?|sidi)\b/i
+        );
+        const groundedUtteranceAmount =
+          explicitCurrencyAmountMatch
+            ? Number(explicitCurrencyAmountMatch[1])
+            : decoderResult.numericValue;
 
-        // (b) model amount disagrees with numberDecoder -> clarify_slot
-        if (decoderResult.numericValue !== null && decoderResult.numericValue !== modelOutput.slots.amount) {
+        const hasUtteranceAmountMatch =
+          groundedUtteranceAmount !== null ||
+          /\b(\d+(?:\.\d{1,2})?)\b/i.test(rawTranscript);
+
+        // A model cannot override an amount explicitly decoded from caller speech.
+        if (
+          groundedUtteranceAmount !== null &&
+          Number(groundedUtteranceAmount) !== Number(modelOutput.slots.amount)
+        ) {
           delete draft.slots.amount;
           draft.lastReplyKind = 'clarify_slot';
           const decision: BrainDecision = { kind: 'clarify_slot', slot: 'amount' };
@@ -620,7 +631,33 @@ export class Brain {
       } else if (draft.intent) {
         settledIntent = draft.intent;
       } else if (top1[1] === 0 && top2[1] === 0) {
-        // Unrecognized noise / no-match falls back to primary transfer service to clarify required slot
+        // Generic account-help requests need intent clarification, not an
+        // assumed money transfer. Preserve the transfer fallback for noise.
+        const isGenericAccountHelp =
+          /\b(?:help|account|wallet|money)\b/i.test(rawTranscript) &&
+          !/\b(?:send|transfer|mane|soma|kɔma|balance|check|airtime|data|bill|reverse|loan|borrow)\b/i.test(rawTranscript);
+
+        if (isGenericAccountHelp) {
+          draft.lastReplyKind = 'clarify_intent';
+          const decision: BrainDecision = {
+            kind: 'clarify_intent',
+            candidates: ['momo.transfer', 'momo.check_balance'],
+          };
+          const reply = await replyComposer.composeReply({
+            decision,
+            language: activeLanguage,
+            slots: draft.slots,
+          });
+          return {
+            decision,
+            reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
+            updatedDraft: draft,
+            sessionLanguage,
+          };
+        }
+
+        // Unrecognized noise / no-match retains the deterministic transfer
+        // fallback so the caller can be prompted for the required slot.
         settledIntent = 'momo.transfer';
         draft.intent = settledIntent;
       } else {

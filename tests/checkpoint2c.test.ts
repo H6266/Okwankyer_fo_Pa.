@@ -408,24 +408,32 @@ describe('Checkpoint 2c: Model Wiring, Safety Hardening & Fallbacks', () => {
 
     it('1b: model amount/phone disagrees with numberDecoder -> clarify_slot', async () => {
       vi.spyOn(geminiClient, 'isAvailable').mockReturnValue(true);
-      vi.spyOn(geminiClient, 'getRawClient').mockReturnValue({
-        models: {
-          generateContent: vi.fn().mockResolvedValue({
-            text: () =>
-              JSON.stringify({
-                intent: { id: 'momo.transfer', confidence: 0.95 },
-                slots: { amount: 100, recipient: { phone: '0553838464' } }, // Disagrees with transcript amount (20)
-                signals: { user_confirmed: false, correction: false, interruption: false },
-                reply: {
-                  text_en: 'Do you confirm sending {amount} to {recipient}?',
-                  target_language: 'en',
-                  reply_kind: 'confirm',
-                  template_key: 'confirm',
-                },
-              }),
-          }),
-        },
-      } as any);
+
+      // Mock the exact execution boundary used by Brain so the conflicting
+      // model response reaches the amount-grounding safety check.
+      const executeModelSpy = vi
+        .spyOn(geminiClient, 'executeWithTimeout')
+        .mockResolvedValue({
+          text: () =>
+            JSON.stringify({
+              intent: { id: 'momo.transfer', confidence: 0.95 },
+              slots: {
+                amount: 100,
+                recipient: { phone: '0553838464' },
+              },
+              signals: {
+                user_confirmed: false,
+                correction: false,
+                interruption: false,
+              },
+              reply: {
+                text_en: 'Do you confirm sending {amount} to {recipient}?',
+                target_language: 'en',
+                reply_kind: 'confirm',
+                template_key: 'confirm',
+              },
+            }),
+        } as any);
 
       const testBrain = new Brain({
         ...DEFAULT_BRAIN_CONFIG,
@@ -442,6 +450,7 @@ describe('Checkpoint 2c: Model Wiring, Safety Hardening & Fallbacks', () => {
       };
 
       const result = await testBrain.process(input);
+      expect(executeModelSpy).toHaveBeenCalled();
       // Invariant: Disagreement must clarify_slot('amount') instead of guessing!
       expect(result.decision.kind).toBe('clarify_slot');
       if (result.decision.kind === 'clarify_slot') {

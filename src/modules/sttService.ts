@@ -375,18 +375,43 @@ async function transcribeAudioBufferUnified(
   step?: string,
   _deadlineMs?: number
 ): Promise<SttResult> {
-  const orchResult = await asrOrchestrator.transcribe(buffer, mime, { step, allowFallback: true });
-  return {
-    text: orchResult.text.length > 0 ? orchResult.text : "empty",
-    confidence: orchResult.confidence,
-    confidenceSource: orchResult.confidenceSource,
-    languageDetected: orchResult.languageDetected.includes("tw") ? "twi" : "en",
-    provider: orchResult.providerUsed,
-    providerAttempted: orchResult.providerAttempted,
-    fallbackUsed: orchResult.fallbackUsed,
-    pinDiscarded: orchResult.pinDiscarded,
-    audioQuality: orchResult.audioQuality,
-  };
+  try {
+    const orchResult = await asrOrchestrator.transcribe(
+      buffer,
+      mime,
+      { step, allowFallback: true }
+    );
+    return {
+      text: orchResult.text.length > 0 ? orchResult.text : "empty",
+      confidence: orchResult.confidence,
+      confidenceSource: orchResult.confidenceSource,
+      languageDetected: orchResult.languageDetected.includes("tw") ? "twi" : "en",
+      provider: orchResult.providerUsed,
+      providerAttempted: orchResult.providerAttempted,
+      fallbackUsed: orchResult.fallbackUsed,
+      pinDiscarded: orchResult.pinDiscarded,
+      audioQuality: orchResult.audioQuality,
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    // Invalid or truncated recordings should safely fall back to an empty
+    // result, not crash the telephony request.
+    if (message.startsWith("EMPTY_AUDIO:") || message.startsWith("CORRUPT_AUDIO:")) {
+      return {
+        text: "empty",
+        confidence: 0,
+        languageDetected: "en",
+        provider: "AudioValidationFallback",
+      };
+    }
+
+    throw error;
+  } finally {
+    // Audio may contain sensitive speech. Clear the supplied buffer even
+    // when normalization, transcription, or validation throws.
+    buffer.fill(0);
+  }
 }
 
 export class TelephonySpeechService implements SpeechToTextProvider {

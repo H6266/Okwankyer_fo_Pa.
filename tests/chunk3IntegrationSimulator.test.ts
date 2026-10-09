@@ -196,10 +196,18 @@ describe("Chunk 3: Simulator Integration & End-to-End Smoke Tests", () => {
     expect(execRes.status).toBe(200);
     expect(execRes.body.success).toBe(true);
 
-    if (isMtnConfigured) {
+    const isTestRuntime =
+      process.env.NODE_ENV === "test" || process.env.VITEST === "true";
+
+    if (isTestRuntime) {
+      // Tests must never contact MTN, even when developer credentials exist locally.
+      expect(execRes.body.mode).toBe("MOCK_PROVIDER");
+      expect(execRes.body.status).toBe("PENDING");
+      expect(execRes.body.saga.state).toBe("WAITING_FOR_CUSTOMER_AUTHORIZATION");
+    } else if (isMtnConfigured) {
       expect(execRes.body.mode).toBe("REAL_MTN_SANDBOX");
     } else {
-      // Invariant: Missing sandbox credentials MUST show clear status badge and explicit mock-provider mode, NEVER silent fake success!
+      // Missing sandbox credentials must produce an explicit mock status, never fake success.
       expect(execRes.body.mode).toBe("MOCK_PROVIDER");
       expect(execRes.body.status).toBe("PENDING");
       expect(execRes.body.saga.state).toBe("WAITING_FOR_CUSTOMER_AUTHORIZATION");
