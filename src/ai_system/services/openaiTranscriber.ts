@@ -70,7 +70,8 @@ export class OpenAiTranscriber {
     // 1. Try Ghana NLP for Ghanaian speech
     if (this.ghanaNlp.isConfigured()) {
       try {
-        const ghanaRes = await this.ghanaNlp.transcribeAudio(audioBuffer, languageHint, mimeType);
+        const buf = Buffer.isBuffer(audioBuffer) ? audioBuffer : Buffer.from(audioBuffer, "base64");
+        const ghanaRes = await this.ghanaNlp.transcribe(buf, languageHint, mimeType);
         if (ghanaRes && ghanaRes.text && ghanaRes.text.trim().length > 0) {
           return {
             text: ghanaRes.text.trim(),

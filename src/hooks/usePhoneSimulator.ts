@@ -29,6 +29,7 @@ import type {
   EntitySlotMap,
 } from "../ai_system/core/aiTypes";
 import { audioPlaybackController, PlaybackRequest } from "../audio/audioPlaybackController";
+import { getConversationalPrompt, CONVERSATIONAL_PROMPT_CATALOG } from "../audio/catalog";
 
 export type SpeechOutput =
   | { kind: "recorded"; promptId: string; url: string; text: string; language: "en" | "tw" }
@@ -394,6 +395,28 @@ export function determineSpeechOutput(
   const stepLower = (step || "").toLowerCase().replace(/[-_]/g, " ");
   const textLower = (text || "").toLowerCase();
 
+  // Conversational Catalogue Prompts:
+  // Must ALWAYS be synthesized with natural conversational cadence or resolved to conversational catalog,
+  // NEVER hijacked by keypad menus!
+  if (
+    stepLower.includes("conversational") ||
+    textLower.includes("ready to help you") ||
+    textLower.includes("speak naturally") ||
+    textLower.includes("own words") ||
+    textLower.includes("mɛboa wo") ||
+    textLower.includes("w'anom asɛm") ||
+    textLower.includes("i am listening") ||
+    textLower.includes("meretie wo") ||
+    textLower.includes("say it again, slowly") ||
+    textLower.includes("ka bio brɛoo")
+  ) {
+    return {
+      kind: "tts",
+      text,
+      language: normLang,
+    };
+  }
+
   // Rule C: SENSITIVE PAYMENT CONFIRMATIONS & DYNAMIC ENTITIES MUST ALWAYS BE DYNAMIC TTS!
   // Any verification of recipient name, dynamic amount, custom confirmation readback, or receipt
   if (
@@ -418,13 +441,10 @@ export function determineSpeechOutput(
   }
 
   // Rule A: FIXED INSTRUCTIONS (Static menus and prompts without dynamic amounts/names)
-  // 1. Welcome / Language Selection
+  // 1. Welcome / Language Selection (Keypad menu only)
   if (
-    stepLower === "welcome" ||
-    stepLower === "language" ||
-    stepLower === "lang select" ||
-    (textLower.includes("akwaaba") && textLower.includes("press 1")) ||
-    (textLower.includes("welcome to okwankyer") && textLower.includes("press 1"))
+    (stepLower === "welcome" || stepLower === "language" || stepLower === "lang select") &&
+    (textLower.includes("press 1") || textLower.includes("mia baako") || textLower.includes("mia 1"))
   ) {
     return {
       kind: "recorded",
@@ -820,6 +840,12 @@ export function usePhoneSimulator() {
     };
   }, [isActive]);
 
+  const isActiveRef = useRef(isActive);
+  useEffect(() => {
+    isActiveRef.current = isActive;
+  }, [isActive]);
+  const isTurnInFlightRef = useRef(false);
+
   // Authoritative Audio Playback Controller Lifecycle Subscription
   useEffect(() => {
     const unsubscribe = audioPlaybackController.subscribe((st) => {
@@ -831,6 +857,18 @@ export function usePhoneSimulator() {
       }
       if (st.activeText) {
         activePromptTextRef.current = st.activeText;
+      }
+      // Step 3 transition: After AI response completes playback, automatically transition to LISTENING
+      if (!st.isPlaying && isActiveRef.current) {
+        setTranscriptionStatus("LISTENING");
+        setAiProcessingPhase("SPEECH_IN");
+        setAiProcessingDetail("🎙️ Listening... Speak naturally in Ghanaian English or Akan Twi");
+        if (voiceCaptureRef.current) {
+          voiceCaptureRef.current.setAiSpeaking(false);
+          if (voiceCaptureRef.current.getState() === "MIC_MUTED") {
+            voiceCaptureRef.current.unmute();
+          }
+        }
       }
     });
     return () => {
@@ -928,6 +966,7 @@ export function usePhoneSimulator() {
 
       // 4. Play audio prompt (<Play url="...">) OR spoken text (<Say voice="...">)
       // Fix 5: Exactly ONE audible source is selected per response - never overlapping
+      let spokenText = "";
       if (parsed.playUrl) {
         let audioUrl = parsed.playUrl;
         if (audioUrl.startsWith("http://") || audioUrl.startsWith("https://")) {
@@ -938,6 +977,7 @@ export function usePhoneSimulator() {
         }
         const promptName = audioUrl.split("/").pop() || "";
         const promptText = getPromptTranscript(promptName);
+        spokenText = promptText;
         setAiResponse(promptText);
         setTranscript((prev) => [
           ...prev,
@@ -961,7 +1001,7 @@ export function usePhoneSimulator() {
           });
         }
       } else {
-        const spokenText = parsed.say?.text || "";
+        spokenText = parsed.say?.text || "";
         if (spokenText) {
           setAiResponse(spokenText);
           setTranscript((prev) => [
@@ -1790,18 +1830,19 @@ export function usePhoneSimulator() {
     setAccuracyResult(null);
     setLastTurnDiagnostic(null);
 
-    const welcomeGreeting = "Akwaaba! Welcome to Ɔkwankyerɛfo Pa. Press 1 for English, Press 2 for Akan Twi.";
+    const promptMeta = getConversationalPrompt("welcome", initialLang);
+    const welcomeGreeting = promptMeta.spokenText;
 
-    const initialXml = `<Response>\n  <GetDigits timeout="2" finishOnKey="#" numDigits="10">\n    <Say voice="${initialLang === "tw" ? "woman" : "alice"}">${welcomeGreeting}</Say>\n  </GetDigits>\n</Response>`;
+    const initialXml = `<Response>\n  <GetDigits timeout="12" finishOnKey="#" numDigits="10">\n    <Say voice="${initialLang === "tw" ? "woman" : "alice"}">${welcomeGreeting}</Say>\n  </GetDigits>\n</Response>`;
     setVoiceXmlTraces([
-      { step: "welcome", xml: initialXml, timestamp: new Date().toLocaleTimeString() },
+      { step: "conversational_welcome", xml: initialXml, timestamp: new Date().toLocaleTimeString() },
     ]);
 
     setTranscript([
       {
         id: `sys_start_${Date.now()}`,
         role: "system",
-        text: `📱 Call Connected (+233 30 804 8098) · Mode: ${executionMode} · AI Engine Online`,
+        text: `📱 Call Connected (+233 30 804 8098) · Mode: Conversational AI · Hands-Free Mic Active`,
         timestamp: Date.now(),
       },
       {
@@ -1809,13 +1850,21 @@ export function usePhoneSimulator() {
         role: "ai",
         text: welcomeGreeting,
         timestamp: Date.now(),
-        stage: "welcome",
+        stage: "conversational_welcome",
         language: initialLang,
       },
     ]);
 
     setAiResponse(welcomeGreeting);
-    playAudioSynthesis(welcomeGreeting, initialLang, "welcome");
+    playAudioSynthesis(welcomeGreeting, initialLang, "conversational_welcome");
+
+    // Automatically initialize microphone and continuous voice capture loop immediately!
+    // Caller doesn't have to manually click the mic button
+    if (startContinuousVoiceRef.current) {
+      startContinuousVoiceRef.current().catch((micErr) => {
+        console.warn("[PhoneSimulator] Auto-microphone activation notice:", micErr);
+      });
+    }
 
     // Also trigger initial turn synchronization in background so Call Logs reflects call immediately
     api.processSimulatorTurn({
@@ -1850,6 +1899,8 @@ export function usePhoneSimulator() {
     setIsMicActive(false);
     setIsAiSpeaking(false);
     setAtCurrentCallbackUrl(null);
+    if (voiceCaptureRef.current) voiceCaptureRef.current.stop();
+    audioPlaybackController.stop();
     if (audioRef.current) audioRef.current.pause();
     if (recognitionRef.current) recognitionRef.current.abort();
     if (mediaStreamRef.current) {
@@ -1984,7 +2035,8 @@ export function usePhoneSimulator() {
     setVoiceModeActive("REAL_MIC");
 
     // Auto-connect call immediately if not active
-    if (!isActive) {
+    if (!isActive && !isActiveRef.current) {
+      isActiveRef.current = true;
       await startCall(language === "tw" ? "tw" : "en");
     }
 
@@ -2031,6 +2083,9 @@ export function usePhoneSimulator() {
         },
         onUtteranceComplete: async (wavBase64, durationMs) => {
           // Automatic end of user speech turn detected by VAD!
+          if (isTurnInFlightRef.current) return;
+          isTurnInFlightRef.current = true;
+
           setTranscriptionStatus("PROCESSING");
           setAiProcessingPhase("SPEECH_IN");
           setAiProcessingDetail("Transcribing voice audio with GhanaNLP Primary ASR...");
@@ -2097,16 +2152,51 @@ export function usePhoneSimulator() {
               // Automatically submit turn to AI Brain without requiring Send click!
               await sendInputTurn(textToSend, "VOICE");
             } else {
-              setTranscriptionStatus("LISTENING");
-              setAiProcessingDetail("Listening continuously... Speak in Ghanaian English or Akan Twi");
+              // If substantial speech was spoken (>900ms) but unparsed, play conversational retry prompt
+              if (durationMs > 900 && isActiveRef.current) {
+                const retryPrompt = getConversationalPrompt("retry", language).spokenText;
+                setAiResponse(retryPrompt);
+                setTranscript((prev) => [
+                  ...prev,
+                  {
+                    id: `ai_retry_${Date.now()}`,
+                    role: "ai",
+                    text: retryPrompt,
+                    timestamp: Date.now(),
+                    stage: "conversational_retry",
+                  },
+                ]);
+                playAudioSynthesis(retryPrompt, language, "conversational_retry");
+              } else {
+                setTranscriptionStatus("LISTENING");
+                setAiProcessingDetail("Listening continuously... Speak in Ghanaian English or Akan Twi");
+              }
             }
           } catch (err: any) {
             console.warn("[VoiceCapture] ASR error:", err);
             voiceCaptureRef.current?.updateTelemetry({
               chunksFailed: (voiceCaptureRef.current.getTelemetry().chunksFailed || 0) + 1,
             });
-            setTranscriptionStatus("LISTENING");
-            setAiProcessingDetail("Listening continuously... Speak when ready");
+            if (isActiveRef.current) {
+              const retryPrompt = getConversationalPrompt("retry", language).spokenText;
+              setAiResponse(retryPrompt);
+              setTranscript((prev) => [
+                ...prev,
+                {
+                  id: `ai_retry_${Date.now()}`,
+                  role: "ai",
+                  text: retryPrompt,
+                  timestamp: Date.now(),
+                  stage: "conversational_retry",
+                },
+              ]);
+              playAudioSynthesis(retryPrompt, language, "conversational_retry");
+            } else {
+              setTranscriptionStatus("LISTENING");
+              setAiProcessingDetail("Listening continuously... Speak when ready");
+            }
+          } finally {
+            isTurnInFlightRef.current = false;
           }
         },
         onTelemetryUpdate: (telemetry) => {

@@ -964,3 +964,47 @@ aiRouter.get("/api/ai/ghananlp/speakers", async (_req: Request, res: Response) =
     res.status(502).json({ error: err.message });
   }
 });
+
+// ── Unified Voice Interaction Controller Endpoints ────────────────────────
+aiRouter.post("/api/ai/voice-session/start", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { voiceInteractionController } = await import("../ai_system/voice/voiceInteractionController");
+    const { sessionId, mode, language, callerPhone } = req.body || {};
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing required 'sessionId'." });
+    }
+    const result = await voiceInteractionController.startSession(
+      sessionId,
+      mode || "conversational",
+      language === "tw" || language === "twi" ? "twi" : "en",
+      callerPhone || "0240000000"
+    );
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to start voice session" });
+  }
+});
+
+aiRouter.post("/api/ai/voice-session/turn", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { voiceInteractionController } = await import("../ai_system/voice/voiceInteractionController");
+    const { sessionId, mode, language, transcript, audioBase64, dtmfDigit, isBargeIn, callerPhone } = req.body || {};
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing required 'sessionId'." });
+    }
+    const result = await voiceInteractionController.processTurn({
+      sessionId,
+      mode: mode || "conversational",
+      language: language === "tw" || language === "twi" ? "twi" : "en",
+      transcript,
+      audioBuffer: audioBase64 ? Buffer.from(audioBase64, "base64") : undefined,
+      dtmfDigit,
+      isBargeIn,
+      callerPhone,
+    });
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to process voice session turn" });
+  }
+});
+

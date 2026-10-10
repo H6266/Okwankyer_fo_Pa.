@@ -49,7 +49,7 @@ export class AudioPlaybackController {
     token: 0,
   };
   private listeners: Set<StateListener> = new Set();
-  private activeResolver: (() => void) | null = null;
+  private activeResolver: ((success: boolean) => void) | null = null;
 
   constructor() {
     if (typeof window !== "undefined") {

@@ -27,11 +27,16 @@ import { openaiEmbeddings } from "../services/openaiEmbeddings";
 import { brain } from "../brain/brain";
 import { paymentSaga } from "../../integrations/momo/paymentSaga";
 import { auditLogger } from "../../services/auditLogger";
+import { getConversationalPrompt, ConversationalStage } from "../../audio/catalog";
 
 export type VoiceSessionState =
   | "IDLE"
+  | "PLAYING_RESPONSE"
   | "SPEAKING"
+  | "STARTING_LISTENER"
   | "LISTENING"
+  | "TRANSCRIBING"
+  | "PROCESSING_RESPONSE"
   | "PROCESSING"
   | "CONFIRMING"
   | "EXECUTING"
@@ -165,20 +170,21 @@ export class VoiceInteractionController {
     const session = this.getOrCreateSession(sessionId, mode, language);
     session.mode = mode;
     session.language = language;
-    session.state = "SPEAKING";
+    session.state = "PLAYING_RESPONSE";
     session.currentStep = "welcome";
 
     let welcomeText = "";
+    let promptId = "conversational_welcome_en";
     if (mode === "guided") {
       welcomeText =
         language === "twi"
           ? "Akwaaba kɔ Ɔkwankyerɛfo Pa. Dɛn dwumadie na wobɛpɛ? Wobɛtumi aka sɛ mane sika, tɔ airtime, anaa tua ka."
           : "Welcome to Ɔkwankyerɛfo Pa. What service would you like? You can say send money, buy airtime, buy data, or pay a bill.";
+      promptId = "guided_welcome";
     } else {
-      welcomeText =
-        language === "twi"
-          ? "Akwaaba kɔ Ɔkwankyerɛfo Pa. Mesie. Ka nea wobɛpɛ sɛ meyɛ kyerɛ me."
-          : "Welcome to Ɔkwankyerɛfo Pa. I am ready. Tell me what you would like to do.";
+      const promptMeta = getConversationalPrompt("welcome", language);
+      welcomeText = promptMeta.spokenText;
+      promptId = promptMeta.id;
     }
 
     session.lastPromptText = welcomeText;
@@ -191,17 +197,17 @@ export class VoiceInteractionController {
     const audio = await openaiTts.synthesize({
       text: welcomeText,
       language,
-      promptId: "welcome",
-      templateKey: "welcome",
+      promptId,
+      templateKey: promptId,
     });
     session.lastPromptAudio = audio;
     session.diagnostics.ttsEngine = audio.providerUsed;
-    session.diagnostics.state = "SPEAKING";
+    session.diagnostics.state = "PLAYING_RESPONSE";
     session.updatedAt = Date.now();
 
     return {
       sessionId,
-      state: "SPEAKING",
+      state: "PLAYING_RESPONSE",
       mode,
       language,
       replyText: welcomeText,
@@ -271,32 +277,41 @@ export class VoiceInteractionController {
       session.silenceCount += 1;
       const isTwi = session.language === "twi";
       let repeatPrompt = "";
+      let retryPromptId = isTwi ? "conversational_retry_tw" : "conversational_retry_en";
 
-      if (session.silenceCount === 1) {
-        repeatPrompt = isTwi
-          ? "Mente wo nka. Mesrɛ wo, ka nea wobɛpɛ sɛ meyɛ bio."
-          : "I did not hear you. Please say what you would like to do.";
-      } else if (session.silenceCount === 2) {
-        repeatPrompt = isTwi
-          ? `${session.lastPromptText}. Wobɛtumi nso afa wo fon so keypad no aka ho asɛm.`
-          : `${session.lastPromptText}. You can also use your keypad if preferred.`;
+      if (session.mode === "conversational") {
+        const retryMeta = getConversationalPrompt("retry", session.language);
+        repeatPrompt = retryMeta.spokenText;
+        retryPromptId = retryMeta.id;
       } else {
-        repeatPrompt = isTwi
-          ? "Sɛ worepɛ mmoa a, frɛ *170# anaa sɔ bio."
-          : "If you need assistance, please dial *170# or try again.";
+        if (session.silenceCount === 1) {
+          repeatPrompt = isTwi
+            ? "Mente wo nka. Mesrɛ wo, ka nea wobɛpɛ sɛ meyɛ bio."
+            : "I did not hear you. Please say what you would like to do.";
+        } else if (session.silenceCount === 2) {
+          repeatPrompt = isTwi
+            ? `${session.lastPromptText}. Wobɛtumi nso afa wo fon so keypad no aka ho asɛm.`
+            : `${session.lastPromptText}. You can also use your keypad if preferred.`;
+        } else {
+          repeatPrompt = isTwi
+            ? "Sɛ worepɛ mmoa a, frɛ *170# anaa sɔ bio."
+            : "If you need assistance, please dial *170# or try again.";
+        }
       }
 
       const audio = await openaiTts.synthesize({
         text: repeatPrompt,
         language: session.language,
+        promptId: retryPromptId,
+        templateKey: retryPromptId,
       });
 
-      session.state = "SPEAKING";
-      session.diagnostics.state = "SPEAKING";
+      session.state = "PLAYING_RESPONSE";
+      session.diagnostics.state = "PLAYING_RESPONSE";
 
       return {
         sessionId: session.sessionId,
-        state: "SPEAKING",
+        state: "PLAYING_RESPONSE",
         mode: session.mode,
         language: session.language,
         replyText: repeatPrompt,
@@ -601,13 +616,21 @@ export class VoiceInteractionController {
     session.state = "CONFIRMING";
     session.currentStep = "confirm_transfer";
     const nameLabel = session.draft.recipientName ? `${session.draft.recipientName} at ` : "";
-    const phoneEnding = session.draft.recipientPhone?.slice(-4) || "";
+    const phoneEnding = session.draft.recipientPhone?.slice(-4).split("").join(" ") || "";
+
+    const confirmPrefix = isTwi
+      ? "Mesrɛ wo, tie yiye berɛ a mereti nkyerɛkyerɛmu no mu."
+      : "Please listen carefully while I repeat the details.";
 
     const prompt = isTwi
-      ? `Metee ${session.draft.recipientPhone}. Wopɛ sɛ womane sika cedis ${session.draft.amount} ma ${session.draft.recipientName || ""} wɔ nɔma a ɛwie ${phoneEnding}. Ɛte saa?`
-      : `I heard ${session.draft.recipientPhone}. You want to send ${session.draft.amount} Ghana cedis to ${nameLabel}the number ending in ${phoneEnding}. Is that correct?`;
+      ? `${confirmPrefix} Worepɛ sɛ womane sika cedis ${session.draft.amount} kɔma ${session.draft.recipientName || "nɔmba"} a ɛwie ${phoneEnding}. Wopɛ sɛ wokɔ so yɛ saa dwumadie yi?`
+      : `${confirmPrefix} You want to send ${session.draft.amount} Ghana cedis to ${nameLabel}the number ending with ${phoneEnding}. Do you want to proceed with this transaction?`;
 
-    const audio = await openaiTts.synthesize({ text: prompt, language: session.language });
+    const audio = await openaiTts.synthesize({
+      text: prompt,
+      language: session.language,
+      promptId: isTwi ? "conversational_confirm_tw" : "conversational_confirm_en",
+    });
     return this.makeTurnResponse(session, prompt, audio, true, false);
   }
 
@@ -629,17 +652,13 @@ export class VoiceInteractionController {
 
       auditLogger.log("info", "MOMO_DISBURSEMENT", `Initiating transfer: ${amount} GHS to ${recipientPhone}`);
 
-      // Call payment saga with idempotency dispatch key
-      const sagaDraft = {
+      const sagaResult = paymentSaga.createDraft({
+        senderPhone: callerPhone,
+        recipientPhone,
         amount,
-        recipient: {
-          phone: recipientPhone,
-          name: recipientName,
-        },
-      };
-
-      const sagaResult = await paymentSaga.createDraft(session.sessionId, sagaDraft);
-      session.draft.transactionId = sagaResult.id;
+        network: "MTN",
+      });
+      session.draft.transactionId = sagaResult.sagaId;
       session.draft.financialReference = sagaResult.idempotencyKey;
 
       // Record successful transaction into semantic embeddings memory
@@ -656,11 +675,19 @@ export class VoiceInteractionController {
       session.currentStep = "completed";
       session.diagnostics.state = "COMPLETED";
 
-      const completionText = isTwi
-        ? `Wo sika cedis ${amount} a womanee ${recipientName} no akɔ pɛpɛɛpɛ. Wo transaction ID ne ${sagaResult.id.slice(-6)}. Meda wo ase.`
-        : `Your transaction of ${amount} Ghana cedis to ${recipientName} was completed successfully. Thank you for using Ɔkwankyerɛfo Pa.`;
+      const completionPrefix = isTwi
+        ? "Wo dwumadie no awie pɛpɛɛpɛ."
+        : "Your transaction has been completed successfully.";
 
-      const audio = await openaiTts.synthesize({ text: completionText, language: session.language });
+      const completionText = isTwi
+        ? `${completionPrefix} Wo sika cedis ${amount} a womanee ${recipientName} no akɔ. Wo reference nɔmba ne ${sagaResult.sagaId.slice(-6)}. Meda wo ase sɛ wode Ɔkwankyerɛfo Pa adi dwuma.`
+        : `${completionPrefix} Your transfer of ${amount} Ghana cedis to ${recipientName} was completed. Reference number: ${sagaResult.sagaId.slice(-6)}. Thank you for using Ɔkwankyerɛfo Pa.`;
+
+      const audio = await openaiTts.synthesize({
+        text: completionText,
+        language: session.language,
+        promptId: isTwi ? "conversational_complete_tw" : "conversational_complete_en",
+      });
       return this.makeTurnResponse(session, completionText, audio, false, false, true);
     } catch (err: any) {
       console.error("[VoiceInteractionController] Payment execution error:", err);
@@ -668,10 +695,14 @@ export class VoiceInteractionController {
       session.diagnostics.state = "ERROR";
 
       const errorText = isTwi
-        ? "Mpaemuka bi sii wɔ sika no mane mu. Mesrɛ wo, sɔ bio anaa fa *170# kɔ."
-        : "There was an error communicating with the payment network. Please try again later.";
+        ? "Mirentumi nsi so dua sɛ dwumadie no akɔ so yiye. Mesrɛ wo, hwɛ dwumadie no tebea ansa na woasɔ bio."
+        : "I cannot confirm that the transaction was successful. Please check the status before trying again.";
 
-      const audio = await openaiTts.synthesize({ text: errorText, language: session.language });
+      const audio = await openaiTts.synthesize({
+        text: errorText,
+        language: session.language,
+        promptId: isTwi ? "conversational_failed_tw" : "conversational_failed_en",
+      });
       return this.makeTurnResponse(session, errorText, audio, false, false, false);
     }
   }
@@ -687,6 +718,9 @@ export class VoiceInteractionController {
     session.lastPromptText = replyText;
     session.lastPromptAudio = audio;
     session.diagnostics.ttsEngine = audio.providerUsed;
+    if (autoListen && session.state !== "COMPLETED" && session.state !== "ERROR") {
+      session.state = "PLAYING_RESPONSE";
+    }
     session.diagnostics.state = session.state;
     session.turns.push({
       role: "ai",

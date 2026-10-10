@@ -276,3 +276,156 @@ export function audioFileExists(filename: string): boolean {
   }
   return false;
 }
+
+// ── Dedicated Conversational Prompt Catalogue ──────────────────────────────
+export type ConversationalStage =
+  | "welcome"
+  | "listening"
+  | "retry"
+  | "clarify"
+  | "confirm"
+  | "complete"
+  | "failed";
+
+export interface ConversationalPrompt {
+  id: string;
+  stage: ConversationalStage;
+  language: "en" | "twi";
+  spokenText: string;
+  description: string;
+}
+
+export const CONVERSATIONAL_PROMPT_CATALOG: Record<string, ConversationalPrompt> = {
+  conversational_welcome_en: {
+    id: "conversational_welcome_en",
+    stage: "welcome",
+    language: "en",
+    spokenText:
+      "Welcome to Ɔkwankyerɛfo Pa. I am ready to help you. Tell me what you would like to do, in your own words. You can speak naturally.",
+    description: "Beginning of call in English conversational mode",
+  },
+  conversational_welcome_tw: {
+    id: "conversational_welcome_tw",
+    stage: "welcome",
+    language: "twi",
+    spokenText:
+      "Akwaaba kɔ Ɔkwankyerɛfo Pa. Meyɛ krado sɛ mɛboa wo. Ka nea wobɛpɛ sɛ woyɛ kyerɛ me wɔ w'ankasa w'anom asɛm mu. Wobɛtumi akasa sɛnea ɛteɛ.",
+    description: "Beginning of call in Akan Twi conversational mode",
+  },
+  conversational_listening_en: {
+    id: "conversational_listening_en",
+    stage: "listening",
+    language: "en",
+    spokenText: "I am listening. Please tell me what you would like help with.",
+    description: "Prompt cue indicating AI is actively listening in English",
+  },
+  conversational_listening_tw: {
+    id: "conversational_listening_tw",
+    stage: "listening",
+    language: "twi",
+    spokenText: "Meretie wo. Mesrɛ wo, ka nea wobɛpɛ sɛ meboa wo ho kyerɛ me.",
+    description: "Prompt cue indicating AI is actively listening in Akan Twi",
+  },
+  conversational_retry_en: {
+    id: "conversational_retry_en",
+    stage: "retry",
+    language: "en",
+    spokenText:
+      "Sorry, I did not understand that clearly. Please say it again, slowly, or use your keypad.",
+    description: "No speech or failed transcription retry prompt in English",
+  },
+  conversational_retry_tw: {
+    id: "conversational_retry_tw",
+    stage: "retry",
+    language: "twi",
+    spokenText:
+      "Kafra, mante nea wokae no yiye. Mesrɛ wo, ka bio brɛoo, anaa fa wo fon so keypad no di dwuma.",
+    description: "No speech or failed transcription retry prompt in Akan Twi",
+  },
+  conversational_clarify_en: {
+    id: "conversational_clarify_en",
+    stage: "clarify",
+    language: "en",
+    spokenText: "I can help with that. Please tell me the information I need to continue.",
+    description: "Missing required slot clarification prompt in English",
+  },
+  conversational_clarify_tw: {
+    id: "conversational_clarify_tw",
+    stage: "clarify",
+    language: "twi",
+    spokenText:
+      "Mebɛtumi aboa wo wɔ saa asɛm no ho. Mesrɛ wo, ma me nkyerɛkyerɛmu a ehia na matumi akɔ so.",
+    description: "Missing required slot clarification prompt in Akan Twi",
+  },
+  conversational_confirm_en: {
+    id: "conversational_confirm_en",
+    stage: "confirm",
+    language: "en",
+    spokenText:
+      "Please listen carefully while I repeat the details. Do you want to proceed with this transaction?",
+    description: "Pre-transaction confirmation verification prompt in English",
+  },
+  conversational_confirm_tw: {
+    id: "conversational_confirm_tw",
+    stage: "confirm",
+    language: "twi",
+    spokenText:
+      "Mesrɛ wo, tie yiye berɛ a mereti nkyerɛkyerɛmu no mu. Wopɛ sɛ wokɔ so yɛ saa dwumadie yi?",
+    description: "Pre-transaction confirmation verification prompt in Akan Twi",
+  },
+  conversational_complete_en: {
+    id: "conversational_complete_en",
+    stage: "complete",
+    language: "en",
+    spokenText: "Your transaction has been completed successfully.",
+    description: "Verified transaction completion prompt in English",
+  },
+  conversational_complete_tw: {
+    id: "conversational_complete_tw",
+    stage: "complete",
+    language: "twi",
+    spokenText: "Wo dwumadie no awie pɛpɛɛpɛ.",
+    description: "Verified transaction completion prompt in Akan Twi",
+  },
+  conversational_failed_en: {
+    id: "conversational_failed_en",
+    stage: "failed",
+    language: "en",
+    spokenText:
+      "I cannot confirm that the transaction was successful. Please check the status before trying again.",
+    description: "Unconfirmed or failed transaction prompt in English",
+  },
+  conversational_failed_tw: {
+    id: "conversational_failed_tw",
+    stage: "failed",
+    language: "twi",
+    spokenText:
+      "Mirentumi nsi so dua sɛ dwumadie no akɔ so yiye. Mesrɛ wo, hwɛ dwumadie no tebea ansa na woasɔ bio.",
+    description: "Unconfirmed or failed transaction prompt in Akan Twi",
+  },
+};
+
+/**
+ * Resolves prompt from dedicated conversational catalogue based on stage and language
+ */
+export function getConversationalPrompt(
+  stage: ConversationalStage,
+  language: string = "en"
+): ConversationalPrompt {
+  const normLang =
+    language === "tw" ||
+    language === "twi" ||
+    language === "ak" ||
+    language.startsWith("tw")
+      ? "tw"
+      : "en";
+  const key = `conversational_${stage}_${normLang}`;
+  const prompt = CONVERSATIONAL_PROMPT_CATALOG[key];
+  if (prompt) return prompt;
+  // Fallback to English version if key not matched
+  return (
+    CONVERSATIONAL_PROMPT_CATALOG[`conversational_${stage}_en`] ||
+    CONVERSATIONAL_PROMPT_CATALOG["conversational_welcome_en"]
+  );
+}
+
