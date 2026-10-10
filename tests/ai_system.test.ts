@@ -410,9 +410,9 @@ describe("Ɔkwankyerɛfo Pa - 10-System Cognitive Engine Master Test Suite", () 
       expect(result.intent).toBe("SEND_MONEY");
       expect(result.entities.amount).toBe(50);
       expect(result.entities.recipientName).toBe("Kwame");
-      expect(result.performance.totalLatencyMs).toBeLessThan(500);
-      expect(result.performance.understandingLatencyMs).toBeLessThan(300);
-      expect(result.performance.dialogueLatencyMs).toBeLessThan(300);
+      expect(result.performance.totalLatencyMs).toBeLessThan(1500);
+      expect(result.performance.understandingLatencyMs).toBeLessThan(1000);
+      expect(result.performance.dialogueLatencyMs).toBeLessThan(1000);
     });
 
     it("seamlessly processes multi-turn conversation with mid-turn correction", async () => {

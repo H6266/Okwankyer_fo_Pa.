@@ -16,9 +16,11 @@ import {
   Search,
   Check,
   Delete,
+  ExternalLink,
 } from "lucide-react";
 import { usePhoneSimulator } from "../../hooks/usePhoneSimulator";
 import { useSimulatorLog, LogCategory, SimulatorLogEntry } from "../../lib/simulatorLog";
+import { MicTestRow } from "../../components/phone/MicTestRow";
 
 interface KeypadButtonDef {
   digit: string;
@@ -46,9 +48,14 @@ const CATEGORY_COLORS: Record<LogCategory, { text: string; bg: string; border: s
   MIC: { text: "text-emerald-400", bg: "bg-emerald-950/40", border: "border-emerald-800/40" },
   ASR: { text: "text-cyan-400", bg: "bg-cyan-950/40", border: "border-cyan-800/40" },
   MATCH: { text: "text-blue-400", bg: "bg-blue-950/40", border: "border-blue-800/40" },
+  UNDERSTAND: { text: "text-violet-400", bg: "bg-violet-950/40", border: "border-violet-800/40" },
+  PLAN: { text: "text-sky-400", bg: "bg-sky-950/40", border: "border-sky-800/40" },
+  PROCESS: { text: "text-lime-400", bg: "bg-lime-950/40", border: "border-lime-800/40" },
   BRAIN: { text: "text-indigo-400", bg: "bg-indigo-950/40", border: "border-indigo-800/40" },
-  TURN: { text: "text-yellow-300", bg: "bg-yellow-950/40", border: "border-yellow-800/40" },
+  REPLY: { text: "text-fuchsia-400", bg: "bg-fuchsia-950/40", border: "border-fuchsia-800/40" },
+  AUDIO_RESOLVE: { text: "text-orange-400", bg: "bg-orange-950/40", border: "border-orange-800/40" },
   TTS: { text: "text-pink-400", bg: "bg-pink-950/40", border: "border-pink-800/40" },
+  TURN: { text: "text-yellow-300", bg: "bg-yellow-950/40", border: "border-yellow-800/40" },
   STEP: { text: "text-teal-400", bg: "bg-teal-950/40", border: "border-teal-800/40" },
   ERROR: { text: "text-rose-400", bg: "bg-rose-950/40", border: "border-rose-800/40" },
 };
@@ -59,7 +66,13 @@ const ALL_CATEGORIES: LogCategory[] = [
   "MIC",
   "ASR",
   "MATCH",
+  "UNDERSTAND",
+  "PLAN",
+  "PROCESS",
   "BRAIN",
+  "REPLY",
+  "AUDIO_RESOLVE",
+  "TTS",
   "TURN",
   "STEP",
   "ERROR",
@@ -86,6 +99,8 @@ export function PhoneSimulatorPage() {
     aiProcessingDetail,
     micState,
     micErrorMessage,
+    asrProviderStatus,
+    asrErrorMessage,
     vadState,
   } = usePhoneSimulator();
 
@@ -252,63 +267,116 @@ export function PhoneSimulatorPage() {
     ? { color: "bg-amber-400 animate-pulse", text: "In flight" }
     : { color: "bg-emerald-500", text: "Idle" };
 
-  return (
-    <div className="flex flex-col lg:flex-row h-[calc(100vh-4rem)] w-full overflow-hidden bg-slate-900 text-slate-100 font-sans">
-      {/* ─────────────────────────────────────────────────────────── */}
-      {/* LEFT PANEL: THE TRADITIONAL HANDSET PHONE                  */}
-      {/* ─────────────────────────────────────────────────────────── */}
-      <div className="w-full lg:w-[420px] flex-shrink-0 bg-slate-900 border-r border-slate-800 flex flex-col items-center justify-center p-4 lg:p-6 overflow-y-auto">
-        {/* Handset Outer Body Chassis */}
-        <div className="w-[340px] bg-slate-950 rounded-[44px] p-4 border-4 border-slate-800 shadow-2xl flex flex-col items-center relative transition-all">
-          {/* Top Speaker / Ear Piece Grill */}
-          <div className="w-16 h-1.5 bg-slate-700 rounded-full mb-3 shadow-inner" />
+  const isInIframe = useMemo(() => {
+    try {
+      return typeof window !== "undefined" && window.self !== window.top;
+    } catch {
+      return true;
+    }
+  }, []);
 
-          {/* Handset OLED Screen */}
-          <div className="w-full bg-slate-900 border border-slate-700/80 rounded-2xl p-3 flex flex-col min-h-[175px] shadow-inner mb-4 relative overflow-hidden">
-            {/* Top Bar: Call Status & Timer */}
-            <div className="flex items-center justify-between text-xs text-slate-300 font-mono pb-2 border-b border-slate-800">
-              <div className="flex items-center gap-1.5">
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    isActive ? "bg-emerald-500 animate-pulse" : "bg-slate-500"
-                  }`}
-                />
-                <span className="font-semibold uppercase tracking-wide">
-                  {isActive ? "Connected" : "Idle"}
+  return (
+    <div className="flex flex-col h-[calc(100vh-4rem)] w-full overflow-hidden bg-slate-900 text-slate-100 font-sans">
+      {/* ─────────────────────────────────────────────────────────── */}
+      {/* TOP BANNER: IFRAME PERMISSIONS WARNING                      */}
+      {/* ─────────────────────────────────────────────────────────── */}
+      {isInIframe && (
+        <div
+          data-testid="iframe-mic-banner"
+          className="w-full bg-amber-950 border-b border-amber-600/80 px-4 py-2.5 flex items-center justify-between gap-3 text-amber-200 text-xs font-medium z-30 shadow-md"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-amber-400 text-base">⚠️</span>
+            <span>
+              Microphone is blocked inside an embedded preview. Open this page in its own tab.
+            </span>
+          </div>
+          <a
+            href={typeof window !== "undefined" ? window.location.href : "/dashboard/phone"}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold transition-colors shadow-sm"
+          >
+            <span>Open in new tab</span>
+            <ExternalLink size={13} />
+          </a>
+        </div>
+      )}
+
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+        {/* ─────────────────────────────────────────────────────────── */}
+        {/* LEFT PANEL: THE TRADITIONAL HANDSET PHONE                  */}
+        {/* ─────────────────────────────────────────────────────────── */}
+        <div className="w-full lg:w-[420px] flex-shrink-0 bg-slate-900 border-r border-slate-800 flex flex-col items-center justify-start p-4 lg:p-6 overflow-y-auto">
+          {/* Diagnostic Mic Test Row (behind VOICE_DEBUG) */}
+          <div className="w-[340px] mb-2">
+            <MicTestRow />
+          </div>
+
+          {/* Handset Outer Body Chassis */}
+          <div className="w-[340px] bg-slate-950 rounded-[44px] p-4 border-4 border-slate-800 shadow-2xl flex flex-col items-center relative transition-all">
+            {/* Top Speaker / Ear Piece Grill */}
+            <div className="w-16 h-1.5 bg-slate-700 rounded-full mb-3 shadow-inner" />
+
+            {/* Handset OLED Screen */}
+            <div className="w-full bg-slate-900 border border-slate-700/80 rounded-2xl p-3 flex flex-col min-h-[175px] shadow-inner mb-4 relative overflow-hidden">
+              {/* Top Bar: Call Status & Timer */}
+              <div className="flex items-center justify-between text-xs text-slate-300 font-mono pb-2 border-b border-slate-800">
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      isActive ? "bg-emerald-500 animate-pulse" : "bg-slate-500"
+                    }`}
+                  />
+                  <span className="font-semibold uppercase tracking-wide">
+                    {isActive ? "Connected" : "Idle"}
+                  </span>
+                </div>
+                <span className="font-mono text-emerald-400 font-bold">
+                  {isActive ? formatTimer(callDurationSec) : "00:00"}
                 </span>
               </div>
-              <span className="font-mono text-emerald-400 font-bold">
-                {isActive ? formatTimer(callDurationSec) : "00:00"}
-              </span>
-            </div>
 
-            {/* Prompt Text / Current Step Area */}
-            <div className="flex-1 py-2 flex flex-col justify-center">
-              <div className="text-[11px] font-mono uppercase tracking-wider text-amber-400 font-bold mb-1">
-                Step: {currentStep} · Lang: {language.toUpperCase()}
-              </div>
-              <div
-                className="text-xs text-slate-200 line-clamp-3 leading-relaxed font-sans"
-                title={aiResponse || "Welcome to Ɔkwankyerɛfo Pa"}
-              >
-                {isActive
-                  ? aiResponse || "Akwaaba! Welcome to Ɔkwankyerɛfo Pa."
-                  : "Phone ready. Press Call to start."}
-              </div>
-
-              {/* Noticeable Microphone Error Banner if error occurs */}
-              {micErrorMessage && (
-                <div
-                  data-testid="mic-error-banner"
-                  className="mt-2 p-2 bg-rose-950/90 border border-rose-500/80 rounded-lg text-[11px] text-rose-200 leading-snug shadow-md"
-                >
-                  <div className="font-bold text-rose-400 flex items-center gap-1 mb-0.5">
-                    <span>⚠️ Microphone Notice</span>
-                  </div>
-                  <div className="break-words">{micErrorMessage}</div>
+              {/* Prompt Text / Current Step Area */}
+              <div className="flex-1 py-2 flex flex-col justify-center">
+                <div className="text-[11px] font-mono uppercase tracking-wider text-amber-400 font-bold mb-1">
+                  Step: {currentStep} · Lang: {language.toUpperCase()}
                 </div>
-              )}
-            </div>
+                <div
+                  className="text-xs text-slate-200 line-clamp-3 leading-relaxed font-sans"
+                  title={aiResponse || "Welcome to Ɔkwankyerɛfo Pa"}
+                >
+                  {isActive
+                    ? aiResponse || "Akwaaba! Welcome to Ɔkwankyerɛfo Pa."
+                    : "Phone ready. Press Call to start."}
+                </div>
+
+                {/* Noticeable Microphone Error Banner if error occurs */}
+                {micErrorMessage && (
+                  <div
+                    data-testid="mic-error-banner"
+                    className="mt-2 p-2 bg-rose-950/90 border border-rose-500/80 rounded-lg text-[11px] text-rose-200 leading-snug shadow-md"
+                  >
+                    <div className="font-bold text-rose-400 flex items-center gap-1 mb-0.5">
+                      <span>⚠️ Microphone Notice</span>
+                    </div>
+                    <div className="break-words">{micErrorMessage}</div>
+                  </div>
+                )}
+
+                {/* Visible ASR Provider Error / Notice (including 429 quota) */}
+                {asrErrorMessage && (
+                  <div
+                    data-testid="asr-error-banner"
+                    className="mt-2 p-2 bg-amber-950/90 border border-amber-500/80 rounded-lg text-[11px] text-amber-200 leading-snug shadow-md"
+                  >
+                    <div className="font-bold text-amber-400 flex items-center gap-1 mb-0.5">
+                      <span>⚠️ ASR Provider Alert</span>
+                    </div>
+                    <div className="break-words">{asrErrorMessage}</div>
+                  </div>
+                )}
+              </div>
 
             {/* Hardware Status Strip */}
             <div className="grid grid-cols-3 gap-1 pt-2 border-t border-slate-800 text-[10px] font-mono">
@@ -682,6 +750,7 @@ export function PhoneSimulatorPage() {
             </button>
           )}
         </div>
+      </div>
       </div>
     </div>
   );

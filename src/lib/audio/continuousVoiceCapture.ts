@@ -51,13 +51,14 @@ export interface VoiceTelemetry {
 }
 
 export interface ContinuousVoiceCaptureCallbacks {
-  onStateChange: (state: MicrophoneState, reason?: string) => void;
+  onStateChange: (state: MicrophoneState, reason?: string, errorName?: string) => void;
   onAudioLevel: (level: number) => void;
   onVadUpdate: (vad: VadAnalysisResult) => void;
   onUtteranceComplete: (wavBase64: string, durationMs: number) => void;
   onBargeIn: () => void;
   onTelemetryUpdate: (telemetry: VoiceTelemetry) => void;
   onDiscard?: (reason: string) => void;
+  onNoAudioFlowing?: (message: string) => void;
 }
 
 export const VOICE_DEBUG = true;
@@ -142,6 +143,9 @@ export class ContinuousVoiceCapture {
   private isMuted: boolean = false;
   private retryAttempts: number = 0;
   private maxRetries: number = 3;
+  private hasReceivedFirstFrame: boolean = false;
+  private noAudioTimer: any = null;
+  private lastErrorName: string | null = null;
 
   // 500ms PCM ring buffer (8000 samples at 16kHz) to preserve speech onset before barge-in trigger
   private ringBuffer: Int16Array[] = [];
@@ -189,6 +193,10 @@ export class ContinuousVoiceCapture {
 
   public getState(): MicrophoneState {
     return this.state;
+  }
+
+  public getLastErrorName(): string | null {
+    return this.lastErrorName;
   }
 
   public getTelemetry(): VoiceTelemetry {
@@ -296,36 +304,46 @@ export class ContinuousVoiceCapture {
       return true;
     }
 
-    // 1. Check window.isSecureContext
+    // 1. Secure context check
+    const isSecure = typeof window !== "undefined" ? window.isSecureContext : false;
+    emitSimulatorLog({
+      category: "MIC",
+      message: `Secure context check: isSecureContext=${isSecure}`,
+    });
+    console.log(`[MIC] Secure context check: isSecureContext=${isSecure}`);
+
     if (typeof window !== "undefined" && window.isSecureContext === false) {
       const msg = "Insecure context: Microphone requires HTTPS or localhost. Please access the app over HTTPS.";
-      this.setState("MIC_UNAVAILABLE", msg);
+      this.lastErrorName = "InsecureContextError";
+      this.setState("MIC_UNAVAILABLE", msg, "InsecureContextError");
       emitSimulatorLog({
         category: "ERROR",
-        message: `[MIC] ${msg}`,
+        message: msg,
       });
       return false;
     }
 
-    // 2. Check navigator.mediaDevices and getUserMedia exist
+    // 2. Check navigator.mediaDevices presence
     if (typeof navigator === "undefined" || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       const msg = "Microphone API not supported: navigator.mediaDevices.getUserMedia is unavailable in this browser. Please use Chrome, Safari, Edge, or Firefox.";
-      this.setState("MIC_UNAVAILABLE", msg);
+      this.lastErrorName = "NotSupportedError";
+      this.setState("MIC_UNAVAILABLE", msg, "NotSupportedError");
       emitSimulatorLog({
         category: "ERROR",
-        message: `[MIC] ${msg}`,
+        message: msg,
       });
       return false;
     }
 
-    // 3. Create AudioContext synchronously inside user gesture call stack BEFORE any await
+    // 3. AudioContext created state (synchronously)
     const AudioCtx = typeof window !== "undefined" ? (window.AudioContext || (window as any).webkitAudioContext) : null;
     if (!AudioCtx) {
       const msg = "Web Audio API AudioContext is not supported in this browser environment.";
-      this.setState("MIC_UNAVAILABLE", msg);
+      this.lastErrorName = "NotSupportedError";
+      this.setState("MIC_UNAVAILABLE", msg, "NotSupportedError");
       emitSimulatorLog({
         category: "ERROR",
-        message: `[MIC] ${msg}`,
+        message: msg,
       });
       return false;
     }
@@ -336,57 +354,113 @@ export class ContinuousVoiceCapture {
     const ctx = this.audioContext;
     this.telemetry.sampleRate = ctx.sampleRate;
     this.telemetry.audioContextState = ctx.state;
-
     this.setState("MIC_STARTING");
 
-    // Await audioContext resume directly
+    emitSimulatorLog({
+      category: "MIC",
+      message: `AudioContext created/resumed state: state=${ctx.state}, sampleRate=${ctx.sampleRate}Hz`,
+    });
+    console.log(`[MIC] AudioContext created/resumed state: state=${ctx.state}, sampleRate=${ctx.sampleRate}Hz`);
+
+    // 4. Request getUserMedia immediately inside user gesture call stack (NO await before call!)
+    emitSimulatorLog({
+      category: "MIC",
+      message: "getUserMedia requested (no await before call)...",
+    });
+    console.log("[MIC] getUserMedia requested (no await before call)...");
+
+    const streamPromise = navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1,
+      },
+    });
+
+    let stream: MediaStream;
+    try {
+      stream = await streamPromise;
+    } catch (err: any) {
+      const errName = err?.name || "Error";
+      const errMsg = err?.message || String(err);
+      this.lastErrorName = errName;
+      let userActionMsg = "";
+
+      if (errName === "NotAllowedError" || errName === "PermissionDeniedError") {
+        userActionMsg = `Microphone permission denied: Browser blocked microphone access (${errName}). Click the lock or camera icon in the address bar to allow microphone access.`;
+      } else if (errName === "NotFoundError" || errName === "DevicesNotFoundError") {
+        userActionMsg = `Microphone not found (${errName}): No audio input device detected. Please connect a microphone or headset and try again.`;
+      } else if (errName === "NotReadableError" || errName === "TrackStartError") {
+        userActionMsg = `Microphone busy (${errName}): Another application is using your microphone. Please close other audio applications and try again.`;
+      } else if (errName === "SecurityError") {
+        userActionMsg = `Microphone security error (${errName}): iframe permissions policy blocked microphone. Open this page in its own tab.`;
+      } else {
+        userActionMsg = `Microphone error (${errName}): ${errMsg}. Please check microphone settings and try again.`;
+      }
+
+      this.setState("MIC_UNAVAILABLE", userActionMsg, errName);
+      emitSimulatorLog({
+        category: "ERROR",
+        message: userActionMsg,
+      });
+      console.error(`[MIC] getUserMedia failed with ${errName}:`, err);
+
+      this.cleanup();
+      return false;
+    }
+
+    this.mediaStream = stream;
+    this.telemetry.streamActive = true;
+    this.telemetry.micPermission = "granted";
+
+    const audioTrack = stream.getAudioTracks()[0];
+    if (!audioTrack) {
+      const msg = "No audio track present in MediaStream";
+      this.lastErrorName = "TrackNotFound";
+      this.setState("MIC_UNAVAILABLE", msg, "TrackNotFound");
+      emitSimulatorLog({
+        category: "ERROR",
+        message: msg,
+      });
+      this.cleanup();
+      return false;
+    }
+
+    const settings = audioTrack.getSettings ? audioTrack.getSettings() : {};
+    this.telemetry.channels = settings.channelCount || 1;
+    const trackLabel = audioTrack.label || "default-audio-input";
+
+    emitSimulatorLog({
+      category: "MIC",
+      message: `getUserMedia resolved: track="${trackLabel}", settings=${JSON.stringify(settings)}`,
+    });
+    console.log(`[MIC] getUserMedia resolved: track="${trackLabel}", settings=`, settings);
+
+    audioTrack.onended = () => {
+      this.handleTrackEnded();
+    };
+
+    this.sourceNode = ctx.createMediaStreamSource(stream);
+
     if (ctx.state === "suspended") {
       try {
         await ctx.resume();
         this.telemetry.audioContextState = ctx.state;
+        emitSimulatorLog({
+          category: "MIC",
+          message: `AudioContext resumed state: state=${ctx.state}`,
+        });
+        console.log(`[MIC] AudioContext resumed state: state=${ctx.state}`);
       } catch (resumeErr: any) {
-        console.warn("[VoiceCapture] AudioContext resume failed:", resumeErr);
+        console.warn("[VoiceCapture] AudioContext resume notice:", resumeErr);
       }
     }
 
+    // Try AudioWorklet first; fall back to ScriptProcessorNode
+    let workletReady = false;
     try {
-      emitSimulatorLog({
-        category: "MIC",
-        message: "Requesting microphone permission (navigator.mediaDevices.getUserMedia)...",
-      });
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: 1,
-        },
-      });
-
-      this.mediaStream = stream;
-      this.telemetry.streamActive = true;
-      this.telemetry.micPermission = "granted";
-
-      const audioTrack = stream.getAudioTracks()[0];
-      if (!audioTrack) {
-        throw new Error("No audio track present in MediaStream");
-      }
-
-      const settings = audioTrack.getSettings ? audioTrack.getSettings() : {};
-      this.telemetry.channels = settings.channelCount || 1;
-
-      // Handle unexpected track end (auto-recovery)
-      audioTrack.onended = () => {
-        this.handleTrackEnded();
-      };
-
-      this.sourceNode = ctx.createMediaStreamSource(stream);
-
-      // Try AudioWorklet first; fall back to ScriptProcessorNode
-      let workletReady = false;
-      try {
-        const workletCode = `
+      const workletCode = `
 class PcmCaptureProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
@@ -416,92 +490,98 @@ class PcmCaptureProcessor extends AudioWorkletProcessor {
 }
 registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
 `;
-        const blob = new Blob([workletCode], { type: "application/javascript" });
-        const blobUrl = URL.createObjectURL(blob);
-        await ctx.audioWorklet.addModule(blobUrl);
-        URL.revokeObjectURL(blobUrl);
+      const blob = new Blob([workletCode], { type: "application/javascript" });
+      const blobUrl = URL.createObjectURL(blob);
+      await ctx.audioWorklet.addModule(blobUrl);
+      URL.revokeObjectURL(blobUrl);
 
-        const worklet = new AudioWorkletNode(ctx, "pcm-capture-processor");
-        worklet.port.onmessage = (event) => {
-          if (event.data?.pcm) {
-            const pcm16 = new Int16Array(event.data.pcm);
-            this.handlePcmFrame(pcm16);
-          }
-        };
-
-        this.sourceNode.connect(worklet);
-        this.workletNode = worklet;
-        workletReady = true;
-      } catch (workletErr: any) {
-        const wName = workletErr?.name || "AudioWorkletError";
-        const wMsg = workletErr?.message || String(workletErr);
-        emitSimulatorLog({
-          category: "ERROR",
-          message: `[MIC] audioWorklet.addModule failed (${wName}: ${wMsg}). Falling back to ScriptProcessor.`,
-        });
-        console.warn("[VoiceCapture] AudioWorklet init failed; using ScriptProcessor fallback:", workletErr);
-      }
-
-      // ScriptProcessor fallback
-      if (!workletReady) {
-        const bufferSize = 2048;
-        const scriptNode = ctx.createScriptProcessor(bufferSize, 1, 1);
-        const nativeSampleRate = ctx.sampleRate;
-        const targetSampleRate = 16000;
-        const downsampleRatio = nativeSampleRate / targetSampleRate;
-
-        scriptNode.onaudioprocess = (e) => {
-          const inputData = e.inputBuffer.getChannelData(0);
-          const outSamples = Math.floor(inputData.length / downsampleRatio);
-          const pcm16 = new Int16Array(outSamples);
-
-          for (let i = 0; i < outSamples; i++) {
-            const srcIdx = Math.floor(i * downsampleRatio);
-            const s = Math.max(-1, Math.min(1, inputData[srcIdx]));
-            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-          }
-
+      const worklet = new AudioWorkletNode(ctx, "pcm-capture-processor");
+      worklet.port.onmessage = (event) => {
+        if (event.data?.pcm) {
+          const pcm16 = new Int16Array(event.data.pcm);
           this.handlePcmFrame(pcm16);
-        };
+        }
+      };
 
-        this.sourceNode.connect(scriptNode);
-        scriptNode.connect(ctx.destination);
-        this.scriptProcessor = scriptNode;
-      }
+      this.sourceNode.connect(worklet);
+      this.workletNode = worklet;
+      workletReady = true;
 
-      this.retryAttempts = 0;
-      this.setState("MIC_ACTIVE");
       emitSimulatorLog({
         category: "MIC",
-        message: "Microphone started successfully: 16kHz continuous capture active",
+        message: "Worklet module loaded: pcm-capture-processor registered",
       });
-      return true;
-    } catch (err: any) {
-      const errName = err?.name || "Error";
-      const errMsg = err?.message || String(err);
-      let userActionMsg = "";
-
-      if (errName === "NotAllowedError" || errName === "PermissionDeniedError") {
-        userActionMsg = "Microphone permission denied: Browser blocked microphone access. Click the lock or camera icon in the address bar to allow microphone access, then click Call again.";
-      } else if (errName === "NotFoundError" || errName === "DevicesNotFoundError") {
-        userActionMsg = "Microphone not found: No audio input device detected. Please connect a microphone or headset and try again.";
-      } else if (errName === "NotReadableError" || errName === "TrackStartError") {
-        userActionMsg = "Microphone busy: Another application is using your microphone. Please close other audio applications and try again.";
-      } else if (errName === "SecurityError") {
-        userActionMsg = "Microphone security error: iframe permissions policy blocked microphone. Ensure allow='microphone' is configured.";
-      } else {
-        userActionMsg = `Microphone error (${errName}): ${errMsg}. Please check microphone settings and try again.`;
-      }
-
-      this.setState("MIC_UNAVAILABLE", userActionMsg);
+      console.log("[MIC] Worklet module loaded: pcm-capture-processor registered");
+    } catch (workletErr: any) {
+      const wName = workletErr?.name || "AudioWorkletError";
+      const wMsg = workletErr?.message || String(workletErr);
       emitSimulatorLog({
-        category: "ERROR",
-        message: `[MIC] ${userActionMsg}`,
+        category: "MIC",
+        message: `Worklet module failed (${wName}: ${wMsg}). ScriptProcessor fallback used.`,
       });
-
-      this.cleanup();
-      return false;
+      console.warn("[VoiceCapture] AudioWorklet init failed; using ScriptProcessor fallback:", workletErr);
     }
+
+    // ScriptProcessor fallback
+    if (!workletReady) {
+      const bufferSize = 2048;
+      const scriptNode = ctx.createScriptProcessor(bufferSize, 1, 1);
+      const nativeSampleRate = ctx.sampleRate;
+      const targetSampleRate = 16000;
+      const downsampleRatio = nativeSampleRate / targetSampleRate;
+
+      scriptNode.onaudioprocess = (e) => {
+        const inputData = e.inputBuffer.getChannelData(0);
+        const outSamples = Math.floor(inputData.length / downsampleRatio);
+        const pcm16 = new Int16Array(outSamples);
+
+        for (let i = 0; i < outSamples; i++) {
+          const srcIdx = Math.floor(i * downsampleRatio);
+          const s = Math.max(-1, Math.min(1, inputData[srcIdx]));
+          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+
+        this.handlePcmFrame(pcm16);
+      };
+
+      this.sourceNode.connect(scriptNode);
+      scriptNode.connect(ctx.destination);
+      this.scriptProcessor = scriptNode;
+
+      emitSimulatorLog({
+        category: "MIC",
+        message: "ScriptProcessor fallback used (bufferSize=2048, 16kHz downsampling)",
+      });
+      console.log("[MIC] ScriptProcessor fallback used");
+    }
+
+    // 2-second audio flow watchdog
+    this.hasReceivedFirstFrame = false;
+    if (this.noAudioTimer) {
+      clearTimeout(this.noAudioTimer);
+      this.noAudioTimer = null;
+    }
+    this.noAudioTimer = setTimeout(() => {
+      if (!this.hasReceivedFirstFrame && (this.state === "MIC_ACTIVE" || this.state === "MIC_STARTING")) {
+        const errorMsg = "Microphone capture started but no audio is flowing (0 PCM frames received in 2 seconds).";
+        this.lastErrorName = "NoAudioFlowingError";
+        emitSimulatorLog({
+          category: "ERROR",
+          message: errorMsg,
+        });
+        console.error(`[MIC] ${errorMsg}`);
+        this.setState("MIC_UNAVAILABLE", errorMsg, "NoAudioFlowingError");
+        this.callbacks.onNoAudioFlowing?.(errorMsg);
+      }
+    }, 2000);
+
+    this.retryAttempts = 0;
+    this.setState("MIC_ACTIVE");
+    emitSimulatorLog({
+      category: "MIC",
+      message: "Microphone started successfully: 16kHz continuous capture active",
+    });
+    return true;
   }
 
   /**
@@ -511,6 +591,25 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
     if (this.isMuted || this.state === "MIC_MUTED") {
       logVoiceDebug(`[VOICE] frame dropped: mic is MIC_MUTED (samples: ${pcm16.length})`);
       return;
+    }
+
+    // First PCM frame logging with RMS and 2s watchdog cancel
+    if (!this.hasReceivedFirstFrame) {
+      this.hasReceivedFirstFrame = true;
+      if (this.noAudioTimer) {
+        clearTimeout(this.noAudioTimer);
+        this.noAudioTimer = null;
+      }
+      let sumSq = 0;
+      for (let i = 0; i < pcm16.length; i++) {
+        sumSq += pcm16[i] * pcm16[i];
+      }
+      const rms = Math.round(Math.sqrt(sumSq / pcm16.length));
+      emitSimulatorLog({
+        category: "MIC",
+        message: `First PCM frame received: samples=${pcm16.length}, RMS=${rms}`,
+      });
+      console.log(`[MIC] First PCM frame received: samples=${pcm16.length}, RMS=${rms}`);
     }
 
     // Always push incoming PCM into continuous 500ms ring buffer
@@ -711,20 +810,28 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
     this.setState("MIC_ACTIVE");
   }
 
-  private setState(newState: MicrophoneState, reason?: string): void {
+  private setState(newState: MicrophoneState, reason?: string, errorName?: string): void {
     const fromState = this.state;
     this.state = newState;
+    if (errorName) {
+      this.lastErrorName = errorName;
+    }
     logVoiceDebug(`[VOICE] mic state change: ${fromState} -> ${newState}${reason ? ` (${reason})` : ""}`);
     emitSimulatorLog({
       category: "MIC",
       message: `Microphone state: ${fromState} -> ${newState}${reason ? ` (${reason})` : ""}`,
     });
     this.telemetry.micActive = newState === "MIC_ACTIVE";
-    this.callbacks.onStateChange(newState, reason);
+    this.callbacks.onStateChange(newState, reason, errorName || this.lastErrorName || undefined);
     this.callbacks.onTelemetryUpdate({ ...this.telemetry });
   }
 
   private cleanup(): void {
+    if (this.noAudioTimer) {
+      clearTimeout(this.noAudioTimer);
+      this.noAudioTimer = null;
+    }
+    this.hasReceivedFirstFrame = false;
     if (this.workletNode) {
       try { this.workletNode.disconnect(); } catch {}
       this.workletNode = null;

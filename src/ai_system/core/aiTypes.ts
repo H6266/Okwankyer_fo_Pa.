@@ -609,6 +609,15 @@ export interface SimulatorTurnRequest {
     dataBase64?: string;
     durationMs?: number;
   };
+  turnId?: string;
+  source?: "DTMF" | "VOICE" | "TEXT";
+}
+
+export interface SimulatorTraceItem {
+  category: string;
+  message: string;
+  durationMs?: number;
+  data?: any;
 }
 
 export interface SimulatorTurnResponse {
@@ -624,6 +633,11 @@ export interface SimulatorTurnResponse {
   tts?: any;
   saga?: any;
   turnDiagnostic?: any;
+  trace?: SimulatorTraceItem[];
+  plan?: any;
+  processResult?: any;
+  audioResolution?: any;
+  dropped?: boolean;
 }
 
 export interface TelephonyTurnRequest {

@@ -236,7 +236,7 @@ export async function startServer() {
   const wss = new WebSocketServer({ server });
   liveVoiceGateway.attachServer(wss);
 
-  const activePort = Number(process.env.TEST_PORT || 3000);
+  const activePort = Number(process.env.PORT || process.env.TEST_PORT || 3000);
   server.listen(activePort, "0.0.0.0", () => {
     console.log(`Ɔkwankyerɛfo Pa running on http://0.0.0.0:${activePort}`);
     auditLogger.log("info", "SYSTEM", `Server online on port ${activePort} (Env: ${config.nodeEnv})`);

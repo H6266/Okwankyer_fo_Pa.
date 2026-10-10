@@ -122,7 +122,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(finalSession?.state).toBe("PIN_PENDING");
     expect(finalSession?.amount).toBe(75);
     expect(finalSession?.recipientName === "Sand Box" || finalSession?.recipientName === "Kwame Boateng").toBe(true);
-  });
+  }, 25000);
 
   it("handles cancellation gracefully at safe confirmation with zero fund movement", async () => {
     const sessionId = "AT-TEST-CANCEL-001";

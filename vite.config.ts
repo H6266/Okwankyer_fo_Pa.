@@ -12,8 +12,7 @@ export default defineConfig(() => ({
   },
   server: {
     host: '0.0.0.0',
-    // Vite's development frontend uses 5173; the API backend defaults to 3000.
-    port: 5173,
+    port: 3000,
     allowedHosts: true as const,
     proxy: {
       '/api': {

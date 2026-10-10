@@ -30,6 +30,9 @@ import { extractAmount, extractRecipient, extractNetwork } from "../modules/nluS
 import { getStepDefinition, validateKeypadInput } from "../domain/stepRegistry";
 import { ivrDecisionEngine, IvrDecision } from "../ai_system/brain/ivrDecisionEngine";
 import { resolveTurn } from "../domain/resolveTurn";
+import { planNext } from "../domain/flowPlanner";
+import { runProcess } from "../domain/processRunner";
+import { resolveAudio } from "../audio/audioResolver";
 
 export const voiceRouter = Router();
 export const ivrRouter = Router();
@@ -1158,6 +1161,17 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
     sessionId,
   });
 
+  // Shared Flow Planner & Process Runner & Audio Resolver pipeline
+  const plan = planNext({
+    session,
+    understood: {
+      intent: session.action || session.intent,
+      slots: { recipientPhone: session.recipientPhone, amount: session.amount },
+    },
+  });
+  const proc = await runProcess({ process: plan.process, session, language: lang });
+  const audio = await resolveAudio({ replyKey: proc.replyKey, replyText: proc.replyText, language: lang });
+
   if (resolution.action === "hangup") {
     transactionStateMachine.transition(sessionId, "FAILED", { failureReason: resolution.decision?.reason });
     return xmlResponse(res, `    <Say voice="female">${resolution.replyText || "Goodbye."}</Say>\n    <Reject/>`, resolution.decision, { sessionId, step });
@@ -1165,19 +1179,25 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
 
   if (resolution.action === "advance") {
     if (resolution.targetStep === "enter-recipient") {
-      const audioUrl = `${baseUrl}${resolvePrompt("enter_recipient", lang)}`;
+      const audioUrl = audio.kind === "library" ? `${baseUrl}${audio.url}` : `${baseUrl}${resolvePrompt("enter_recipient", lang)}`;
+      const playOrSay = audio.kind === "library"
+        ? `    <Play url="${audioUrl}"/>`
+        : `    <Say voice="female">${resolution.replyText || proc.replyText}</Say>`;
       return xmlResponse(
         res,
-        `    <Say voice="female">${resolution.replyText || (lang === "twi" ? "Yɛsrɛ wo, bɔ obi a woremane no sika no fon nɔmba a ɛyɛ du na fa hash ka ho." : "Please enter the recipient's ten-digit phone number, followed by the hash key.")}</Say>\n    <GetDigits timeout="40" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}">\n        <Play url="${audioUrl}"/>\n    </GetDigits>`,
+        `    <Say voice="female">${resolution.replyText || (lang === "twi" ? "Yɛsrɛ wo, bɔ obi a woremane no sika no fon nɔmba a ɛyɛ du na fa hash ka ho." : "Please enter the recipient's ten-digit phone number, followed by the hash key.")}</Say>\n    <GetDigits timeout="40" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}">\n    ${playOrSay}\n    </GetDigits>`,
         resolution.decision,
         { sessionId, step }
       );
     }
     if (resolution.targetStep === "enter-amount") {
-      const audioUrl = `${baseUrl}${resolvePrompt("enter_amount", lang)}`;
+      const audioUrl = audio.kind === "library" ? `${baseUrl}${audio.url}` : `${baseUrl}${resolvePrompt("enter_amount", lang)}`;
+      const playOrSay = audio.kind === "library"
+        ? `    <Play url="${audioUrl}"/>`
+        : `    <Say voice="female">${resolution.replyText || proc.replyText}</Say>`;
       return xmlResponse(
         res,
-        `    <Say voice="female">${resolution.replyText || (lang === "twi" ? "Yɛsrɛ wo, bɔ sika dodow no." : "Please enter the amount.")}</Say>\n    <GetDigits timeout="25" finishOnKey="#" numDigits="6" callbackUrl="${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}">\n        <Play url="${audioUrl}"/>\n    </GetDigits>`,
+        `    <Say voice="female">${resolution.replyText || (lang === "twi" ? "Yɛsrɛ wo, bɔ sika dodow no." : "Please enter the amount.")}</Say>\n    <GetDigits timeout="25" finishOnKey="#" numDigits="6" callbackUrl="${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}">\n    ${playOrSay}\n    </GetDigits>`,
         resolution.decision,
         { sessionId, step }
       );

@@ -16,9 +16,14 @@ export type LogCategory =
   | "MIC"
   | "ASR"
   | "MATCH"
+  | "UNDERSTAND"
+  | "PLAN"
+  | "PROCESS"
   | "BRAIN"
-  | "TURN"
+  | "REPLY"
+  | "AUDIO_RESOLVE"
   | "TTS"
+  | "TURN"
   | "STEP"
   | "ERROR";
 

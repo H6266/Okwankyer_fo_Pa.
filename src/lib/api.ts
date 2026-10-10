@@ -971,7 +971,7 @@ export const api = {
     language?: string,
     step?: string,
     hintText?: string
-  ): Promise<{ success: boolean; result: { text: string; confidence: number; languageDetected: string; provider?: string } }> {
+  ): Promise<{ success: boolean; result: { text: string; confidence: number; languageDetected: string; provider?: string; fallbackReason?: string } }> {
     const res = await fetch("/api/ai/transcribe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1074,6 +1074,23 @@ export const api = {
   async getGhanaNlpSpeakers(): Promise<any> {
     const res = await fetch("/api/ai/ghananlp/speakers");
     return parseJsonResponse(res);
+  },
+
+  async getAiStatus(): Promise<{
+    status: string;
+    geminiConfigured: boolean;
+    ghanaNlpConfigured: boolean;
+    openAiConfigured?: boolean;
+    offlineCapable?: boolean;
+    languages?: string[];
+  }> {
+    try {
+      const res = await fetch("/api/ai/status");
+      if (!res.ok) return { status: "unknown", geminiConfigured: false, ghanaNlpConfigured: false };
+      return parseJsonResponse(res);
+    } catch {
+      return { status: "offline", geminiConfigured: false, ghanaNlpConfigured: false };
+    }
   },
 };
 
