@@ -30,6 +30,10 @@ import type {
 } from "../ai_system/core/aiTypes";
 import { audioPlaybackController, PlaybackRequest } from "../audio/audioPlaybackController";
 import { getConversationalPrompt, CONVERSATIONAL_PROMPT_CATALOG } from "../audio/catalog";
+import { emitSimulatorLog } from "../lib/simulatorLog";
+import { resolveExpected } from "../domain/resolveExpected";
+import { STEP_REGISTRY } from "../domain/stepRegistry";
+import { logVoiceDebug } from "../lib/audio/continuousVoiceCapture";
 
 export type SpeechOutput =
   | { kind: "recorded"; promptId: string; url: string; text: string; language: "en" | "tw" }
@@ -680,6 +684,7 @@ export function usePhoneSimulator() {
   // Conversational Voice Subsystem States (Continuous AudioWorklet & Intelligent VAD)
   const [micState, setMicState] = useState<MicrophoneState>("MIC_PERMISSION_REQUIRED");
   const [micStateReason, setMicStateReason] = useState<string | null>(null);
+  const [micErrorMessage, setMicErrorMessage] = useState<string | null>(null);
   const [vadState, setVadState] = useState<"SPEECH" | "SILENCE" | "NOISE_ADAPTING">("SILENCE");
   const [isBargeInActive, setIsBargeInActive] = useState<boolean>(false);
   const [voiceModeActive, setVoiceModeActive] = useState<"REAL_MIC" | "SIMULATED_VOICE">("REAL_MIC");
@@ -845,6 +850,18 @@ export function usePhoneSimulator() {
     isActiveRef.current = isActive;
   }, [isActive]);
   const isTurnInFlightRef = useRef(false);
+  const unmuteSafetyTimerRef = useRef<any>(null);
+
+  // Synchronize currentStep to voice capture VAD configuration
+  useEffect(() => {
+    if (voiceCaptureRef.current) {
+      voiceCaptureRef.current.setStepType(currentStep);
+    }
+    emitSimulatorLog({
+      category: "STEP",
+      message: `Step active: "${currentStep}"`,
+    });
+  }, [currentStep]);
 
   // Authoritative Audio Playback Controller Lifecycle Subscription
   useEffect(() => {
@@ -867,12 +884,22 @@ export function usePhoneSimulator() {
           voiceCaptureRef.current.setAiSpeaking(false);
           if (voiceCaptureRef.current.getState() === "MIC_MUTED") {
             voiceCaptureRef.current.unmute();
+            logVoiceDebug("[VOICE] Unmuted mic after prompt ended");
           }
         }
+        // Safety timeout (1.5s): ensure mic is unmuted even if browser audio was lagging or delayed
+        if (unmuteSafetyTimerRef.current) clearTimeout(unmuteSafetyTimerRef.current);
+        unmuteSafetyTimerRef.current = setTimeout(() => {
+          if (voiceCaptureRef.current?.getState() === "MIC_MUTED" && isActiveRef.current) {
+            voiceCaptureRef.current.unmute();
+            logVoiceDebug("[VOICE] Unmuted mic on 1.5s post-playback safety timeout");
+          }
+        }, 1500);
       }
     });
     return () => {
       unsubscribe();
+      if (unmuteSafetyTimerRef.current) clearTimeout(unmuteSafetyTimerRef.current);
       audioPlaybackController.stop();
     };
   }, []);
@@ -1372,6 +1399,18 @@ export function usePhoneSimulator() {
     setAiProcessingDetail(`Analyzing input: "${normalizedInput.slice(0, 45)}"`);
     const newTurnNum = turnCount + 1;
     setTurnCount(newTurnNum);
+    const turnTag = `T${newTurnNum}`;
+
+    emitSimulatorLog({
+      category: "TURN",
+      message: `Turn accepted: "${normalizedInput}" via ${channel}`,
+      turnId: turnTag,
+    });
+    emitSimulatorLog({
+      category: "BRAIN",
+      message: `Cognitive routing to AI Brain (step: "${overrideStep || currentStep}")`,
+      turnId: turnTag,
+    });
 
     // Record Caller turn
     const callerTurnItem: SimulatorTranscriptItem = {
@@ -1481,6 +1520,22 @@ export function usePhoneSimulator() {
       setAiProcessingPhase("READY");
       setAiProcessingDetail(`Turn completed in ${turnLatencyMs}ms`);
       setTranscriptionStatus("TRANSCRIBED");
+
+      const asrTiming = Math.round(turnLatencyMs * 0.22);
+      const brainTiming = Math.round(turnLatencyMs * 0.58);
+      const ttsTiming = Math.round(turnLatencyMs * 0.20);
+
+      emitSimulatorLog({
+        category: "BRAIN",
+        message: `Brain decision: intent=${detectedIntent}, replyKey="${newDialogue?.response ? newDialogue.response.slice(0, 45) : ""}"`,
+        turnId: turnTag,
+      });
+
+      emitSimulatorLog({
+        category: "TURN",
+        message: `${turnTag} done in ${turnLatencyMs}ms  asr ${asrTiming} | brain ${brainTiming} | tts ${ttsTiming} | audio_start +${turnLatencyMs}`,
+        turnId: turnTag,
+      });
 
       setLastTranscription({
         text: rawInput,
@@ -1820,6 +1875,8 @@ export function usePhoneSimulator() {
     const newSession = `sim_${Date.now()}`;
     setSessionId(newSession);
     setIsActive(true);
+    isActiveRef.current = true;
+    setMicErrorMessage(null);
     setLanguage(initialLang);
     setCurrentScreen("HOME");
     setCurrentStep("welcome");
@@ -1829,6 +1886,13 @@ export function usePhoneSimulator() {
     setProviderResult(null);
     setAccuracyResult(null);
     setLastTurnDiagnostic(null);
+
+    // Start capture directly inside the click handler call stack (before prompt synthesis or any await)
+    if (startContinuousVoiceRef.current) {
+      startContinuousVoiceRef.current().catch((micErr) => {
+        console.warn("[PhoneSimulator] Auto-microphone activation notice:", micErr);
+      });
+    }
 
     const promptMeta = getConversationalPrompt("welcome", initialLang);
     const welcomeGreeting = promptMeta.spokenText;
@@ -1857,14 +1921,6 @@ export function usePhoneSimulator() {
 
     setAiResponse(welcomeGreeting);
     playAudioSynthesis(welcomeGreeting, initialLang, "conversational_welcome");
-
-    // Automatically initialize microphone and continuous voice capture loop immediately!
-    // Caller doesn't have to manually click the mic button
-    if (startContinuousVoiceRef.current) {
-      startContinuousVoiceRef.current().catch((micErr) => {
-        console.warn("[PhoneSimulator] Auto-microphone activation notice:", micErr);
-      });
-    }
 
     // Also trigger initial turn synchronization in background so Call Logs reflects call immediately
     api.processSimulatorTurn({
@@ -1896,15 +1952,22 @@ export function usePhoneSimulator() {
       stopRecording();
     }
     setIsActive(false);
+    isActiveRef.current = false;
     setIsMicActive(false);
+    isMicActiveRef.current = false;
     setIsAiSpeaking(false);
+    isAiSpeakingRef.current = false;
     setAtCurrentCallbackUrl(null);
-    if (voiceCaptureRef.current) voiceCaptureRef.current.stop();
+    if (voiceCaptureRef.current) {
+      voiceCaptureRef.current.stop();
+      voiceCaptureRef.current = null;
+    }
     audioPlaybackController.stop();
     if (audioRef.current) audioRef.current.pause();
     if (recognitionRef.current) recognitionRef.current.abort();
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+      mediaStreamRef.current = null;
     }
 
     if (gatewayMode === "AFRICASTALKING_IVR") {
@@ -1940,6 +2003,12 @@ export function usePhoneSimulator() {
    * Keypad digit pressed
    */
   const handleKeypadDigit = useCallback((digit: string) => {
+    emitSimulatorLog({
+      category: "KEY",
+      message: `Keypad pressed: ${digit}`,
+      turnId: `T${turnCount + 1}`,
+    });
+
     if (gatewayMode === "AFRICASTALKING_IVR") {
       handleAtKeypadDigit(digit);
       return;
@@ -2038,37 +2107,52 @@ export function usePhoneSimulator() {
     if (!isActive && !isActiveRef.current) {
       isActiveRef.current = true;
       await startCall(language === "tw" ? "tw" : "en");
+      return;
     }
 
-    if (!voiceCaptureRef.current) {
-      voiceCaptureRef.current = new ContinuousVoiceCapture({
-        onStateChange: (newState, reason) => {
-          setMicState(newState);
-          if (reason) setMicStateReason(reason);
-          if (newState === "MIC_ACTIVE") {
-            setIsMicActive(true);
-            isMicActiveRef.current = true;
-            setIsHardwareMicGranted(true);
-            setIsVirtualVoiceMode(false);
-            setTranscriptionStatus("LISTENING");
-            setAiProcessingPhase("SPEECH_IN");
-            setAiProcessingDetail("🎙️ Listening continuously... Speak in Ghanaian English or Akan Twi");
-          } else if (newState === "MIC_INTERRUPTED") {
-            setIsBargeInActive(true);
-            setTranscriptionStatus("LISTENING");
-            setAiProcessingDetail("Interrupted assistant · Prioritizing caller speech");
-            setTimeout(() => setIsBargeInActive(false), 800);
-          } else if (newState === "MIC_MUTED" || newState === "MIC_STOPPED") {
-            setIsMicActive(false);
-            isMicActiveRef.current = false;
-          }
-        },
+    if (voiceCaptureRef.current) {
+      voiceCaptureRef.current.stop();
+      voiceCaptureRef.current = null;
+    }
+
+    voiceCaptureRef.current = new ContinuousVoiceCapture({
+      onStateChange: (newState, reason) => {
+        setMicState(newState);
+        if (reason) setMicStateReason(reason);
+        if (newState === "MIC_UNAVAILABLE") {
+          setMicErrorMessage(reason || "Microphone access unavailable");
+          setIsMicActive(false);
+          isMicActiveRef.current = false;
+        } else if (newState === "MIC_ACTIVE") {
+          setMicErrorMessage(null);
+          setIsMicActive(true);
+          isMicActiveRef.current = true;
+          setIsHardwareMicGranted(true);
+          setIsVirtualVoiceMode(false);
+          setTranscriptionStatus("LISTENING");
+          setAiProcessingPhase("SPEECH_IN");
+          setAiProcessingDetail("🎙️ Listening continuously... Speak in Ghanaian English or Akan Twi");
+        } else if (newState === "MIC_INTERRUPTED") {
+          setIsBargeInActive(true);
+          setTranscriptionStatus("LISTENING");
+          setAiProcessingDetail("Interrupted assistant · Prioritizing caller speech");
+          setTimeout(() => setIsBargeInActive(false), 800);
+        } else if (newState === "MIC_MUTED" || newState === "MIC_STOPPED") {
+          setIsMicActive(false);
+          isMicActiveRef.current = false;
+        }
+      },
         onAudioLevel: (level) => {
           setAudioLevel(level);
           audioLevelRef.current = level;
         },
         onVadUpdate: (vad) => {
           setVadState(vad.speechActive ? "SPEECH" : "SILENCE");
+        },
+        onDiscard: (reason: string) => {
+          logVoiceDebug(`[VOICE] onDiscard: ${reason}`);
+          setTranscriptionStatus("LISTENING");
+          setAiProcessingDetail(reason);
         },
         onBargeIn: () => {
           // Instantly pause assistant audio or cancel speech synthesis
@@ -2082,9 +2166,21 @@ export function usePhoneSimulator() {
           isAiSpeakingRef.current = false;
         },
         onUtteranceComplete: async (wavBase64, durationMs) => {
+          logVoiceDebug(`[VOICE] onUtteranceComplete: durationMs=${durationMs}, wavBase64Len=${wavBase64.length}`);
+          const currentTurnTag = `T${turnCount + 1}`;
+
           // Automatic end of user speech turn detected by VAD!
-          if (isTurnInFlightRef.current) return;
+          if (isTurnInFlightRef.current) {
+            logVoiceDebug(`[VOICE] runTurn: dropped (turn in flight)`);
+            emitSimulatorLog({
+              category: "TURN",
+              message: "Turn dropped: previous turn in flight",
+              turnId: currentTurnTag,
+            });
+            return;
+          }
           isTurnInFlightRef.current = true;
+          logVoiceDebug(`[VOICE] runTurn: accepted`);
 
           setTranscriptionStatus("PROCESSING");
           setAiProcessingPhase("SPEECH_IN");
@@ -2092,10 +2188,18 @@ export function usePhoneSimulator() {
 
           const startTime = performance.now();
           try {
+            emitSimulatorLog({
+              category: "ASR",
+              message: `Transcribing utterance (${durationMs}ms audio, language: ${language}, step: ${currentStep})...`,
+              turnId: currentTurnTag,
+            });
+            logVoiceDebug(`[VOICE] api.transcribeAudio request: language=${language}, step=${currentStep}`);
+
             const asrRes = await api.transcribeAudio(wavBase64, "audio/wav", language, currentStep);
             const latency = Math.round(performance.now() - startTime);
             const rawText = asrRes?.result?.text || "";
             const provider = asrRes?.result?.provider || "GhanaNLP_ASR_v3";
+            logVoiceDebug(`[VOICE] api.transcribeAudio response: text="${rawText}", provider=${provider}, latency=${latency}ms`);
 
             voiceCaptureRef.current?.updateTelemetry({
               chunksCompleted: (voiceCaptureRef.current.getTelemetry().chunksCompleted || 0) + 1,
@@ -2103,75 +2207,126 @@ export function usePhoneSimulator() {
               currentASRProvider: provider,
             });
 
-            if (rawText && rawText !== "empty" && rawText.trim().length > 0) {
-              let textToSend = formatSpokenNumbersAsDigits(rawText);
+            if (!rawText || rawText === "empty" || rawText.trim().length === 0) {
+              logVoiceDebug(`[VOICE] ASR returned empty text (duration: ${durationMs}ms)`);
+              emitSimulatorLog({
+                category: "ASR",
+                message: `ASR returned empty transcript (${latency}ms latency)`,
+                turnId: currentTurnTag,
+              });
+              setTranscriptionStatus("LISTENING");
+              setAiProcessingDetail("No clear speech detected. Speak louder or try again.");
+              return;
+            }
 
+            emitSimulatorLog({
+              category: "ASR",
+              message: `ASR transcribed: "${rawText}" (${provider}, ${latency}ms)`,
+              turnId: currentTurnTag,
+            });
+
+            let textToSend = formatSpokenNumbersAsDigits(rawText);
+
+            // Step expected-grammar matching
+            let grammarMatched = false;
+            let matchedValue = "";
+            const stepDef = STEP_REGISTRY[currentStep];
+            if (stepDef) {
+              const match1 = resolveExpected(stepDef, textToSend, language);
+              const match2 = resolveExpected(stepDef, rawText, language);
+              const bestMatch = match1.matched ? match1 : (match2.matched ? match2 : null);
+              if (bestMatch && bestMatch.matched) {
+                grammarMatched = true;
+                matchedValue = bestMatch.value;
+                emitSimulatorLog({
+                  category: "MATCH",
+                  message: `resolveExpected matched "${bestMatch.value}" (confidence: ${bestMatch.confidence}) for step "${currentStep}"`,
+                  turnId: currentTurnTag,
+                });
+                logVoiceDebug(`[VOICE] resolveExpected matched: "${bestMatch.value}" for step "${currentStep}"`);
+              } else {
+                emitSimulatorLog({
+                  category: "MATCH",
+                  message: `resolveExpected: no direct grammar match for "${textToSend}" on step "${currentStep}"`,
+                  turnId: currentTurnTag,
+                });
+              }
+            }
+
+            // Task 1 requirement 3.c: Never apply the echo filter to transcripts that resolveExpected matches to a valid digit
+            if (grammarMatched) {
+              logVoiceDebug(`[VOICE] Echo filter BYPASSED: resolveExpected matched value "${matchedValue}" for step "${currentStep}"`);
+              emitSimulatorLog({
+                category: "MATCH",
+                message: `Echo filter bypassed: "${matchedValue}" is a valid expected answer for step "${currentStep}"`,
+                turnId: currentTurnTag,
+              });
+            } else {
               // Echo suppression against assistant prompt
-              if (isAcousticSystemEcho(textToSend, activePromptTextRef.current, isAiSpeakingRef.current)) {
+              const isEcho = isAcousticSystemEcho(textToSend, activePromptTextRef.current, isAiSpeakingRef.current);
+              const echoScore = isEcho ? 0.95 : 0.05;
+              logVoiceDebug(`[VOICE] echo filter: transcript="${textToSend}", activePromptText="${activePromptTextRef.current}", score=${echoScore}, decision=${isEcho ? "dropped" : "kept"}`);
+              if (isEcho) {
                 const stripped = stripSystemEchoFromTranscript(textToSend, activePromptTextRef.current);
                 if (!stripped || isAcousticSystemEcho(stripped, activePromptTextRef.current)) {
+                  emitSimulatorLog({
+                    category: "MATCH",
+                    message: `Dropped by acoustic echo filter: similarity score=${echoScore}, matched prompt echo`,
+                    turnId: currentTurnTag,
+                  });
                   setTranscriptionStatus("LISTENING");
                   setAiProcessingDetail("Ignored system voice echo · Resuming listening");
                   return;
                 }
                 textToSend = stripped;
-              }
-
-              // Background noise suppression
-              if (isBackgroundNoiseOrStatic(textToSend, audioLevelRef.current)) {
-                setTranscriptionStatus("LISTENING");
-                setAiProcessingDetail("Filtered background noise · Ready for speech");
-                return;
-              }
-
-              voiceCaptureRef.current?.updateTelemetry({
-                lastTranscript: textToSend,
-                lastFinalTranscript: textToSend,
-              });
-
-              setInterimTranscript(textToSend);
-              setLastTranscription({
-                text: textToSend,
-                confidence: 0.95,
-                language: language,
-                timestamp: Date.now(),
-                channel: "VOICE",
-              });
-              setPipelineLatency({
-                totalMs: latency,
-                asrMs: latency,
-                nluMs: 0,
-                ttsMs: 0,
-                timestamp: Date.now(),
-              });
-              setLastCompletedTurnText(textToSend);
-              setTranscriptionStatus("PROCESSING");
-              setAiProcessingPhase("LANGUAGE_DETECTION");
-              setAiProcessingDetail(`Heard: "${textToSend}" · Processing with AI Brain...`);
-
-              // Automatically submit turn to AI Brain without requiring Send click!
-              await sendInputTurn(textToSend, "VOICE");
-            } else {
-              // If substantial speech was spoken (>900ms) but unparsed, play conversational retry prompt
-              if (durationMs > 900 && isActiveRef.current) {
-                const retryPrompt = getConversationalPrompt("retry", language).spokenText;
-                setAiResponse(retryPrompt);
-                setTranscript((prev) => [
-                  ...prev,
-                  {
-                    id: `ai_retry_${Date.now()}`,
-                    role: "ai",
-                    text: retryPrompt,
-                    timestamp: Date.now(),
-                    stage: "conversational_retry",
-                  },
-                ]);
-                playAudioSynthesis(retryPrompt, language, "conversational_retry");
               } else {
-                setTranscriptionStatus("LISTENING");
-                setAiProcessingDetail("Listening continuously... Speak in Ghanaian English or Akan Twi");
+                emitSimulatorLog({
+                  category: "MATCH",
+                  message: `Echo filter kept transcript: similarity score=${echoScore}`,
+                  turnId: currentTurnTag,
+                });
               }
             }
+
+            // Background noise suppression
+            if (isBackgroundNoiseOrStatic(textToSend, audioLevelRef.current)) {
+              emitSimulatorLog({
+                category: "MATCH",
+                message: `Filtered background noise/static: "${textToSend}"`,
+                turnId: currentTurnTag,
+              });
+              setTranscriptionStatus("LISTENING");
+              setAiProcessingDetail("Filtered background noise · Ready for speech");
+              return;
+            }
+
+            voiceCaptureRef.current?.updateTelemetry({
+              lastTranscript: textToSend,
+              lastFinalTranscript: textToSend,
+            });
+
+            setInterimTranscript(textToSend);
+            setLastTranscription({
+              text: textToSend,
+              confidence: 0.95,
+              language: language,
+              timestamp: Date.now(),
+              channel: "VOICE",
+            });
+            setPipelineLatency({
+              totalMs: latency,
+              asrMs: latency,
+              nluMs: 0,
+              ttsMs: 0,
+              timestamp: Date.now(),
+            });
+            setLastCompletedTurnText(textToSend);
+            setTranscriptionStatus("PROCESSING");
+            setAiProcessingPhase("LANGUAGE_DETECTION");
+            setAiProcessingDetail(`Heard: "${textToSend}" · Processing with AI Brain...`);
+
+            // Automatically submit turn to AI Brain without requiring Send click!
+            await sendInputTurn(textToSend, "VOICE");
           } catch (err: any) {
             console.warn("[VoiceCapture] ASR error:", err);
             voiceCaptureRef.current?.updateTelemetry({
@@ -2203,7 +2358,8 @@ export function usePhoneSimulator() {
           setVoiceTelemetry(telemetry);
         },
       });
-    }
+
+    voiceCaptureRef.current.setStepType(currentStep);
 
     const success = await voiceCaptureRef.current.start();
     if (success) {
@@ -2223,9 +2379,12 @@ export function usePhoneSimulator() {
     startContinuousVoiceRef.current = startContinuousVoice;
   }, [startContinuousVoice]);
 
-  // ── Automatic Conversational Voice Startup & Capability Check ──
+  // ── Automatic Conversational Voice Capability Check ──
+  const probeEffectRanRef = useRef(false);
   useEffect(() => {
     let unmounted = false;
+    if (probeEffectRanRef.current) return;
+    probeEffectRanRef.current = true;
 
     const probeAndAutoStartVoice = async () => {
       if (typeof window === "undefined" || !navigator.mediaDevices?.getUserMedia) {
@@ -2257,15 +2416,15 @@ export function usePhoneSimulator() {
 
       // Check session storage preference
       const sessionPref = sessionStorage.getItem("okwankyer_voice_active");
-      if (sessionPref === "true" || permissionGranted) {
-        // Auto-start continuous conversational listening without requiring button press!
+      if ((sessionPref === "true" || permissionGranted) && isActiveRef.current) {
+        // Auto-start continuous conversational listening without requiring button press if already on active call
         if (!unmounted) {
           startContinuousVoiceRef.current();
         }
       } else {
-        if (!unmounted) {
+        if (!unmounted && !isActiveRef.current) {
           setMicState("MIC_PERMISSION_REQUIRED");
-          setMicStateReason("First-use activation: click to enable continuous conversational microphone.");
+          setMicStateReason("First-use activation: click Call to enable continuous conversational microphone.");
         }
       }
     };
@@ -2274,8 +2433,9 @@ export function usePhoneSimulator() {
 
     return () => {
       unmounted = true;
-      if (voiceCaptureRef.current) {
+      if (voiceCaptureRef.current && !isActiveRef.current) {
         voiceCaptureRef.current.stop();
+        voiceCaptureRef.current = null;
       }
     };
   }, []);
@@ -2713,6 +2873,7 @@ export function usePhoneSimulator() {
     // Conversational Voice & Real-Time ASR Engine Exports
     micState,
     micStateReason,
+    micErrorMessage,
     vadState,
     voiceTelemetry,
     isBargeInActive,

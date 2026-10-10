@@ -12,6 +12,8 @@
  * 8. Zero browser speechSynthesis or other browser TTS.
  */
 
+import { emitSimulatorLog } from "../lib/simulatorLog";
+
 export type PlaybackSourceType = "STUDIO_PROMPT" | "SYNTHESIZED_TTS" | "REMOTE_URL";
 
 export interface PlaybackState {
@@ -206,6 +208,9 @@ export class AudioPlaybackController {
       return Promise.resolve(false);
     }
 
+    const clipSource = typeof target === "object" && target.sourceType ? target.sourceType : (typeof target === "object" && target.audioBase64 ? "SYNTHESIZED_TTS" : "STUDIO_PROMPT");
+    const clipLabel = typeof target === "object" && target.id ? target.id : (url.split("/").pop() || "audio");
+
     return new Promise<boolean>((resolve) => {
       this.activeResolver = () => {
         resolve(false);
@@ -216,6 +221,11 @@ export class AudioPlaybackController {
         activeClip: url,
         activeText: promptText,
         token,
+      });
+
+      emitSimulatorLog({
+        category: "AUDIO",
+        message: `Prompt playback started: clip="${clipLabel}", source=${clipSource}${promptText ? `, text="${promptText.slice(0, 45)}..."` : ""}`,
       });
 
       options?.onStart?.();
@@ -229,6 +239,10 @@ export class AudioPlaybackController {
           activeText: null,
           token,
         });
+        emitSimulatorLog({
+          category: "AUDIO",
+          message: `Prompt playback finished: clip="${clipLabel}"`,
+        });
         options?.onEnd?.();
         resolve(true);
       };
@@ -241,6 +255,10 @@ export class AudioPlaybackController {
           activeClip: null,
           activeText: null,
           token,
+        });
+        emitSimulatorLog({
+          category: "AUDIO",
+          message: `Prompt playback error: clip="${clipLabel}"`,
         });
         options?.onError?.(new Error("Audio load/decode error"));
         resolve(false);

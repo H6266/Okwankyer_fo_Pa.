@@ -11,6 +11,7 @@
  */
 
 import { AdaptiveStreamingVad, DEFAULT_VAD_CONFIG, VadAnalysisResult } from "../../ai_system/speech/asr/audioQuality";
+import { emitSimulatorLog } from "../simulatorLog";
 
 export type MicrophoneState =
   | "MIC_UNAVAILABLE"
@@ -109,11 +110,17 @@ export function encodePcmToWav(pcm16: Int16Array, sampleRate: number = 16000): A
  * Converts ArrayBuffer to Base64 string safely
  */
 export function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(buffer).toString("base64");
+  }
   let binary = "";
   const bytes = new Uint8Array(buffer);
   const len = bytes.byteLength;
   for (let i = 0; i < len; i++) {
     binary += String.fromCharCode(bytes[i]);
+  }
+  if (typeof btoa === "function") {
+    return btoa(binary);
   }
   return window.btoa(binary);
 }
@@ -208,7 +215,19 @@ export class ContinuousVoiceCapture {
     this.minSpeechMs = isSingleDigit ? 250 : 700;
     this.bargeInThresholdMs = isSingleDigit ? 80 : 140;
     this.vad.setMinSpeechMs(this.minSpeechMs);
+    this.vad.setEndSilenceMs(isSingleDigit ? 350 : 650);
     logVoiceDebug(`[VOICE] setStepType: step="${stepType}", isSingleDigit=${isSingleDigit}, minUtteranceMs=${this.minUtteranceMs}, bargeInThresholdMs=${this.bargeInThresholdMs}`);
+  }
+
+  public getEndSilenceMs(): number {
+    return this.vad.getEndSilenceMs();
+  }
+
+  /**
+   * Directly feeds a PCM Int16 frame into the capture/VAD pipeline (used in testing and audio processors)
+   */
+  public feedPcmFrame(pcm16: Int16Array): void {
+    this.handlePcmFrame(pcm16);
   }
 
   public setMinUtteranceMs(ms: number): void {
@@ -277,9 +296,65 @@ export class ContinuousVoiceCapture {
       return true;
     }
 
+    // 1. Check window.isSecureContext
+    if (typeof window !== "undefined" && window.isSecureContext === false) {
+      const msg = "Insecure context: Microphone requires HTTPS or localhost. Please access the app over HTTPS.";
+      this.setState("MIC_UNAVAILABLE", msg);
+      emitSimulatorLog({
+        category: "ERROR",
+        message: `[MIC] ${msg}`,
+      });
+      return false;
+    }
+
+    // 2. Check navigator.mediaDevices and getUserMedia exist
+    if (typeof navigator === "undefined" || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      const msg = "Microphone API not supported: navigator.mediaDevices.getUserMedia is unavailable in this browser. Please use Chrome, Safari, Edge, or Firefox.";
+      this.setState("MIC_UNAVAILABLE", msg);
+      emitSimulatorLog({
+        category: "ERROR",
+        message: `[MIC] ${msg}`,
+      });
+      return false;
+    }
+
+    // 3. Create AudioContext synchronously inside user gesture call stack BEFORE any await
+    const AudioCtx = typeof window !== "undefined" ? (window.AudioContext || (window as any).webkitAudioContext) : null;
+    if (!AudioCtx) {
+      const msg = "Web Audio API AudioContext is not supported in this browser environment.";
+      this.setState("MIC_UNAVAILABLE", msg);
+      emitSimulatorLog({
+        category: "ERROR",
+        message: `[MIC] ${msg}`,
+      });
+      return false;
+    }
+
+    if (!this.audioContext || this.audioContext.state === "closed") {
+      this.audioContext = new AudioCtx({ latencyHint: "interactive" });
+    }
+    const ctx = this.audioContext;
+    this.telemetry.sampleRate = ctx.sampleRate;
+    this.telemetry.audioContextState = ctx.state;
+
     this.setState("MIC_STARTING");
 
+    // Await audioContext resume directly
+    if (ctx.state === "suspended") {
+      try {
+        await ctx.resume();
+        this.telemetry.audioContextState = ctx.state;
+      } catch (resumeErr: any) {
+        console.warn("[VoiceCapture] AudioContext resume failed:", resumeErr);
+      }
+    }
+
     try {
+      emitSimulatorLog({
+        category: "MIC",
+        message: "Requesting microphone permission (navigator.mediaDevices.getUserMedia)...",
+      });
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -305,22 +380,6 @@ export class ContinuousVoiceCapture {
       audioTrack.onended = () => {
         this.handleTrackEnded();
       };
-
-      // Initialize Web Audio Context
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtx) {
-        throw new Error("Web Audio API AudioContext not supported");
-      }
-
-      const ctx = new AudioCtx({ latencyHint: "interactive" });
-      this.audioContext = ctx;
-      this.telemetry.sampleRate = ctx.sampleRate;
-      this.telemetry.audioContextState = ctx.state;
-
-      if (ctx.state === "suspended") {
-        await ctx.resume();
-        this.telemetry.audioContextState = ctx.state;
-      }
 
       this.sourceNode = ctx.createMediaStreamSource(stream);
 
@@ -373,7 +432,13 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
         this.sourceNode.connect(worklet);
         this.workletNode = worklet;
         workletReady = true;
-      } catch (workletErr) {
+      } catch (workletErr: any) {
+        const wName = workletErr?.name || "AudioWorkletError";
+        const wMsg = workletErr?.message || String(workletErr);
+        emitSimulatorLog({
+          category: "ERROR",
+          message: `[MIC] audioWorklet.addModule failed (${wName}: ${wMsg}). Falling back to ScriptProcessor.`,
+        });
         console.warn("[VoiceCapture] AudioWorklet init failed; using ScriptProcessor fallback:", workletErr);
       }
 
@@ -405,18 +470,34 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
       }
 
       this.retryAttempts = 0;
+      this.setState("MIC_ACTIVE");
+      emitSimulatorLog({
+        category: "MIC",
+        message: "Microphone started successfully: 16kHz continuous capture active",
+      });
       return true;
     } catch (err: any) {
       const errName = err?.name || "Error";
       const errMsg = err?.message || String(err);
+      let userActionMsg = "";
 
       if (errName === "NotAllowedError" || errName === "PermissionDeniedError") {
-        this.setState("MIC_UNAVAILABLE", "Permission denied: Caller blocked mic access in browser/iframe.");
+        userActionMsg = "Microphone permission denied: Browser blocked microphone access. Click the lock or camera icon in the address bar to allow microphone access, then click Call again.";
+      } else if (errName === "NotFoundError" || errName === "DevicesNotFoundError") {
+        userActionMsg = "Microphone not found: No audio input device detected. Please connect a microphone or headset and try again.";
+      } else if (errName === "NotReadableError" || errName === "TrackStartError") {
+        userActionMsg = "Microphone busy: Another application is using your microphone. Please close other audio applications and try again.";
       } else if (errName === "SecurityError") {
-        this.setState("MIC_UNAVAILABLE", "Security policy violation: iframe missing allow='microphone' attribute.");
+        userActionMsg = "Microphone security error: iframe permissions policy blocked microphone. Ensure allow='microphone' is configured.";
       } else {
-        this.setState("MIC_UNAVAILABLE", `Microphone init error (${errName}): ${errMsg}`);
+        userActionMsg = `Microphone error (${errName}): ${errMsg}. Please check microphone settings and try again.`;
       }
+
+      this.setState("MIC_UNAVAILABLE", userActionMsg);
+      emitSimulatorLog({
+        category: "ERROR",
+        message: `[MIC] ${userActionMsg}`,
+      });
 
       this.cleanup();
       return false;
@@ -479,6 +560,10 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
       this.telemetry.bargeIns++;
       this.isAiSpeaking = false;
       this.setState("MIC_INTERRUPTED");
+      emitSimulatorLog({
+        category: "MIC",
+        message: `Barge-in detected: speech active for ${vadResult.speechDurationMs}ms (threshold: ${this.bargeInThresholdMs}ms) while assistant speaking`,
+      });
       this.callbacks.onBargeIn();
       // Prepend ring buffer to utterance if not already started to avoid dropping opening consonant
       if (this.utteranceSampleCount === 0 && this.ringBuffer.length > 0) {
@@ -526,10 +611,15 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
         );
         this.finalizeUtterance();
       } else {
+        const discardedDurationMs = Math.round((this.utteranceSampleCount / 16000) * 1000);
         logVoiceDebug(
           `[VOICE] finalizeUtterance(): skipped (utteranceSampleCount=${this.utteranceSampleCount} < threshold=${minSamples} [${this.minUtteranceMs}ms], reason=utterance_too_short)`
         );
-        this.callbacks.onDiscard?.("Too short, try again");
+        emitSimulatorLog({
+          category: "MIC",
+          message: `MIC utterance discarded: ${discardedDurationMs}ms < ${this.minUtteranceMs}ms minimum threshold`,
+        });
+        this.callbacks.onDiscard?.(`Too short (${discardedDurationMs}ms < ${this.minUtteranceMs}ms), try again`);
         this.utteranceChunks = [];
         this.utteranceSampleCount = 0;
         this.vad.resetTurn();
@@ -566,6 +656,11 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
     const wavBase64 = arrayBufferToBase64(wavBuffer);
 
     this.telemetry.chunksCreated++;
+
+    emitSimulatorLog({
+      category: "MIC",
+      message: `Speech utterance captured: ${durationMs}ms (${wavBuffer.byteLength} bytes WAV, threshold: ${this.minUtteranceMs}ms)`,
+    });
 
     // Reset utterance buffer & VAD for the next turn
     this.utteranceChunks = [];
@@ -620,6 +715,10 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
     const fromState = this.state;
     this.state = newState;
     logVoiceDebug(`[VOICE] mic state change: ${fromState} -> ${newState}${reason ? ` (${reason})` : ""}`);
+    emitSimulatorLog({
+      category: "MIC",
+      message: `Microphone state: ${fromState} -> ${newState}${reason ? ` (${reason})` : ""}`,
+    });
     this.telemetry.micActive = newState === "MIC_ACTIVE";
     this.callbacks.onStateChange(newState, reason);
     this.callbacks.onTelemetryUpdate({ ...this.telemetry });
