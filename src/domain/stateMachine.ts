@@ -44,6 +44,9 @@ export interface TransactionSession {
   completedAt?: number;
   failureReason?: string;
   retryCount: number;
+  currency?: string;
+  service?: string;
+  stepRetries?: Record<string, number>;
 }
 
 const VALID_TRANSITIONS: Record<TransactionState, TransactionState[]> = {

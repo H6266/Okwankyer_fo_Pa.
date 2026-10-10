@@ -45,6 +45,10 @@ export interface StepDefinition {
   nextStepMap?: Record<string, string>;
   /** Custom resolver when transition depends on language or session */
   resolveNextStep?: (input: string, language: "en" | "twi") => string;
+  /** Spoken aliases per accepted digit or navigation key (Ghanaian-English and Twi, including ASR confusions) */
+  spoken?: Record<string, string[]>;
+  /** Maximum retry attempts before fallback / hangup (default 2) */
+  maxRetries?: number;
 }
 
 export const STEP_REGISTRY: Record<string, StepDefinition> = {
@@ -72,6 +76,13 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
       "1": "service-select",
       "2": "provider-select",
     },
+    maxRetries: 2,
+    spoken: {
+      "1": ["1", "one", "won", "first", "english", "borofo", "borɔfo", "baako"],
+      "2": ["2", "two", "to", "too", "second", "twi", "mmienu", "asante", "akuapem"],
+      "9": ["9", "nine", "repeat", "hear again", "tie bio", "te bio", "nkron"],
+      "0": ["0", "zero", "exit", "cancel", "twa mu", "gyae", "hwee"],
+    },
   },
 
   "language-selection": {
@@ -97,6 +108,13 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
     nextStepMap: {
       "1": "service-select",
       "2": "provider-select",
+    },
+    maxRetries: 2,
+    spoken: {
+      "1": ["1", "one", "won", "first", "english", "borofo", "borɔfo", "baako"],
+      "2": ["2", "two", "to", "too", "second", "twi", "mmienu", "asante", "akuapem"],
+      "9": ["9", "nine", "repeat", "hear again", "tie bio", "te bio", "nkron"],
+      "0": ["0", "zero", "exit", "cancel", "twa mu", "gyae", "hwee"],
     },
   },
 
@@ -125,6 +143,14 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
       "1": "provider-select",
       "2": "unsupported-banking",
     },
+    maxRetries: 2,
+    spoken: {
+      "1": ["1", "one", "won", "first", "telecom", "mobile money", "momo", "baako"],
+      "2": ["2", "two", "to", "too", "second", "banking", "bank", "sikakorabea", "mmienu"],
+      "8": ["8", "eight", "ate", "back", "san kɔ akyi", "san ko akyi", "nwɔtwe", "nwotwe"],
+      "9": ["9", "nine", "repeat", "hear again", "tie bio", "te bio", "nkron"],
+      "0": ["0", "zero", "exit", "cancel", "twa mu", "gyae", "hwee"],
+    },
   },
 
   "provider-select": {
@@ -151,6 +177,14 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
       "1": "action-select",
       "2": "action-select",
       "3": "action-select",
+    },
+    maxRetries: 2,
+    spoken: {
+      "1": ["1", "one", "won", "first", "mtn", "baako"],
+      "2": ["2", "two", "to", "too", "second", "telecel", "vodafone", "voda", "mmienu"],
+      "3": ["3", "three", "tree", "third", "airteltigo", "airtel", "tigo", "at", "mmiensa", "mmiɛnsa"],
+      "9": ["9", "nine", "repeat", "hear again", "tie bio", "te bio", "nkron"],
+      "0": ["0", "zero", "exit", "cancel", "twa mu", "gyae", "hwee"],
     },
   },
 
@@ -179,6 +213,14 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
       "1": "enter-recipient",
       "2": "check-balance",
     },
+    maxRetries: 2,
+    spoken: {
+      "1": ["1", "one", "won", "first", "send money", "send", "transfer", "mane sika", "mane", "soma sika", "baako"],
+      "2": ["2", "two", "to", "too", "second", "check balance", "balance", "sika dodow", "hwɛ sika", "mmienu"],
+      "8": ["8", "eight", "ate", "back", "san kɔ akyi", "san ko akyi", "nwɔtwe", "nwotwe"],
+      "9": ["9", "nine", "repeat", "hear again", "tie bio", "te bio", "nkron"],
+      "0": ["0", "zero", "exit", "cancel", "twa mu", "gyae", "hwee"],
+    },
   },
 
   "enter-recipient": {
@@ -202,6 +244,12 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
     },
     collects: "recipientPhone",
     resolveNextStep: () => "recipient-verify-choice",
+    maxRetries: 2,
+    spoken: {
+      "8": ["8", "eight", "ate", "back", "san kɔ akyi", "san ko akyi", "nwɔtwe", "nwotwe"],
+      "9": ["9", "nine", "repeat", "hear again", "tie bio", "te bio", "nkron"],
+      "0": ["0", "zero", "exit", "cancel", "twa mu", "gyae", "hwee"],
+    },
   },
 
   "recipient-verify-choice": {
@@ -229,6 +277,14 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
       "1": "enter-amount",
       "2": "enter-recipient",
     },
+    maxRetries: 2,
+    spoken: {
+      "1": ["1", "one", "won", "confirm", "yes", "pene so", "aane", "correct", "baako"],
+      "2": ["2", "two", "to", "too", "re-enter", "change", "edit", "no", "dabi", "sesa", "mmienu"],
+      "8": ["8", "eight", "ate", "back", "san kɔ akyi", "san ko akyi", "nwɔtwe", "nwotwe"],
+      "9": ["9", "nine", "repeat", "hear again", "tie bio", "te bio", "nkron"],
+      "0": ["0", "zero", "exit", "cancel", "twa mu", "gyae", "hwee"],
+    },
   },
 
   "enter-amount": {
@@ -252,6 +308,12 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
     },
     collects: "amount",
     resolveNextStep: () => "safe-confirmation",
+    maxRetries: 2,
+    spoken: {
+      "8": ["8", "eight", "ate", "back", "san kɔ akyi", "san ko akyi", "nwɔtwe", "nwotwe"],
+      "9": ["9", "nine", "repeat", "hear again", "tie bio", "te bio", "nkron"],
+      "0": ["0", "zero", "exit", "cancel", "twa mu", "gyae", "hwee"],
+    },
   },
 
   "safe-confirmation": {
@@ -278,6 +340,14 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
     nextStepMap: {
       "1": "safe-outcome",
       "2": "enter-amount",
+    },
+    maxRetries: 2,
+    spoken: {
+      "1": ["1", "one", "won", "confirm", "send", "yes", "pene so", "aane", "ɛyɛ ampa", "eye ampa", "baako"],
+      "2": ["2", "two", "to", "too", "edit", "change", "cancel", "no", "dabi", "sesa", "mmienu"],
+      "8": ["8", "eight", "ate", "back", "san kɔ akyi", "san ko akyi", "nwɔtwe", "nwotwe"],
+      "9": ["9", "nine", "repeat", "hear again", "tie bio", "te bio", "nkron"],
+      "0": ["0", "zero", "exit", "cancel", "twa mu", "gyae", "hwee"],
     },
   },
 };

@@ -78,6 +78,14 @@ export class AdaptiveStreamingVad {
     this.config = { ...DEFAULT_VAD_CONFIG, ...config };
   }
 
+  public setMinSpeechMs(ms: number): void {
+    this.config.ASR_MIN_SPEECH_MS = ms;
+  }
+
+  public setEndSilenceMs(ms: number): void {
+    this.config.ASR_END_SILENCE_MS = ms;
+  }
+
   /**
    * Resets VAD tracking state for a new turn.
    */

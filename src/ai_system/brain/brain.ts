@@ -48,6 +48,8 @@ import {
   formatProfilePromptSection,
 } from './languageProfiles';
 import { geminiClient } from '../../services/geminiClient';
+import { pilotControls } from '../../services/pilotControls';
+import { pilotMetrics } from '../../services/pilotMetrics';
 import {
   APPROVED_REPLY_TEMPLATES,
   getApprovedTemplateText,
@@ -227,6 +229,7 @@ export class Brain {
       readback: input.draft?.readback ? { ...input.draft.readback } : undefined,
       draftHash: input.draft?.draftHash,
       confirmedDraftHash: input.draft?.confirmedDraftHash,
+      clarificationLoops: input.draft?.clarificationLoops ?? 0,
     };
 
     // Normalize legacy recipientPhone / recipientName at input boundary only, then delete them.
@@ -713,6 +716,30 @@ export class Brain {
     const missingSlot = this.recomputeMissingSlots(settledIntent, draft.slots);
 
     if (missingSlot) {
+      draft.clarificationLoops = (draft.clarificationLoops ?? 0) + 1;
+      const maxAttempts = pilotControls.getMaxClarificationAttempts();
+
+      if (draft.clarificationLoops >= maxAttempts) {
+        pilotMetrics.recordDtmfFallback();
+        draft.lastReplyKind = 'clarify_slot';
+        const decision: BrainDecision = {
+          kind: 'clarify_slot',
+          slot: 'keypad_fallback' as any,
+        };
+        const replyText = sessionLanguage?.startsWith('twi')
+          ? "Yɛpa wo kyɛw, fa keypad no di dwuma anaa frɛ customer care."
+          : "Please use your keypad to enter the details or contact customer care.";
+        return finalizeOutput({
+          decision,
+          reply: {
+            text: replyText,
+            language: sessionLanguage || 'en',
+          },
+          updatedDraft: draft,
+          sessionLanguage,
+        });
+      }
+
       // Code recomputes missing slots: If model asked about a filled slot, code overrides it.
       draft.lastReplyKind = 'clarify_slot';
       const decision: BrainDecision = {

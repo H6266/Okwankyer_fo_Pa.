@@ -17,7 +17,7 @@
 import { momoAuthService, MoMoAuthService } from "./momoAuthService";
 import { momoAccountService, MoMoAccountService } from "./momoAccountService";
 import { momoTransactionService, MoMoTransactionService } from "./momoTransactionService";
-import { momoStatusService, MoMoStatusService } from "./momoStatusService";
+import { momoStatusService, MoMoStatusService, ProviderStatusResult } from "./momoStatusService";
 import { momoCallbackService, MoMoCallbackService } from "./momoCallbackService";
 import {
   InternalTransaction,
@@ -93,6 +93,17 @@ export class MomoProvider {
    */
   public getTransaction(id: string): InternalTransaction | null {
     return this.transaction.getTransaction(id);
+  }
+
+  /**
+   * Retrieves transaction status by MTN reference ID
+   */
+  public async getTransactionStatus(id: string): Promise<ProviderStatusResult> {
+    try {
+      return await this.status.getRequestToPayStatus(id);
+    } catch {
+      return await this.status.getTransferStatus(id);
+    }
   }
 
   /**

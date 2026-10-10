@@ -113,11 +113,11 @@ export class PaymentReconciliationService {
 
     // 2. Reconcile Sagas in PENDING
     for (const saga of sagas) {
-      if (saga.status === "PENDING") {
+      if (saga.state === "REQUEST_TO_PAY_SENT" || saga.state === "WAITING_FOR_CUSTOMER_AUTHORIZATION") {
         const ageMs = now - (saga.updatedAt || saga.createdAt || now);
         if (ageMs >= pendingTimeoutMs) {
           const ageMinutes = Math.round(ageMs / 60000);
-          saga.status = "FAILED";
+          saga.state = "COLLECTION_TIMEOUT";
           saga.updatedAt = now;
           durableTransactionStore.saveSaga(saga);
 

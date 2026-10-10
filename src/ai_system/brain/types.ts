@@ -140,6 +140,7 @@ export interface DraftState {
   readback?: ReadbackRecord;
   draftHash?: string;
   confirmedDraftHash?: string;
+  clarificationLoops?: number;
 }
 
 export interface BrainInput {

@@ -54,3 +54,6 @@ export const TWI_CONNECTIVES = {
   and: ["ne", "na"],
   instead_of: ["na mmom", "sen sɛ"],
 };
+
+export const TWI_AFFIRMATIONS = TWI_INTENT_KEYWORDS.CONFIRM;
+export const TWI_REJECTIONS = TWI_INTENT_KEYWORDS.DENY;

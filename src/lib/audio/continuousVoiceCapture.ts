@@ -56,6 +56,15 @@ export interface ContinuousVoiceCaptureCallbacks {
   onUtteranceComplete: (wavBase64: string, durationMs: number) => void;
   onBargeIn: () => void;
   onTelemetryUpdate: (telemetry: VoiceTelemetry) => void;
+  onDiscard?: (reason: string) => void;
+}
+
+export const VOICE_DEBUG = true;
+
+export function logVoiceDebug(...args: any[]): void {
+  if (VOICE_DEBUG) {
+    console.debug(...args);
+  }
 }
 
 /**
@@ -127,6 +136,17 @@ export class ContinuousVoiceCapture {
   private retryAttempts: number = 0;
   private maxRetries: number = 3;
 
+  // 500ms PCM ring buffer (8000 samples at 16kHz) to preserve speech onset before barge-in trigger
+  private ringBuffer: Int16Array[] = [];
+  private ringBufferSampleCount: number = 0;
+  private readonly RING_BUFFER_MAX_SAMPLES: number = 8000;
+
+  // Configurable thresholds per step type
+  private minUtteranceMs: number = 700;
+  private minSpeechMs: number = 700;
+  private bargeInThresholdMs: number = 140;
+  private lastVadSummaryLogTime: number = 0;
+
   // Telemetry state
   private telemetry: VoiceTelemetry = {
     micPermission: "unknown",
@@ -170,6 +190,47 @@ export class ContinuousVoiceCapture {
 
   public setAiSpeaking(speaking: boolean): void {
     this.isAiSpeaking = speaking;
+  }
+
+  public setStepType(stepType: string): void {
+    const isSingleDigit =
+      stepType === "single_digit" ||
+      stepType === "welcome" ||
+      stepType === "voice-menu" ||
+      stepType === "language-selection" ||
+      stepType === "service-select" ||
+      stepType === "provider-select" ||
+      stepType === "action-select" ||
+      stepType === "recipient-verify-choice" ||
+      stepType === "safe-confirmation";
+
+    this.minUtteranceMs = isSingleDigit ? 250 : 700;
+    this.minSpeechMs = isSingleDigit ? 250 : 700;
+    this.bargeInThresholdMs = isSingleDigit ? 80 : 140;
+    this.vad.setMinSpeechMs(this.minSpeechMs);
+    logVoiceDebug(`[VOICE] setStepType: step="${stepType}", isSingleDigit=${isSingleDigit}, minUtteranceMs=${this.minUtteranceMs}, bargeInThresholdMs=${this.bargeInThresholdMs}`);
+  }
+
+  public setMinUtteranceMs(ms: number): void {
+    this.minUtteranceMs = ms;
+    this.minSpeechMs = ms;
+    this.vad.setMinSpeechMs(ms);
+    logVoiceDebug(`[VOICE] setMinUtteranceMs: ms=${ms}`);
+  }
+
+  public getMinUtteranceMs(): number {
+    return this.minUtteranceMs;
+  }
+
+  private pushToRingBuffer(pcm16: Int16Array): void {
+    this.ringBuffer.push(pcm16);
+    this.ringBufferSampleCount += pcm16.length;
+    while (this.ringBufferSampleCount > this.RING_BUFFER_MAX_SAMPLES && this.ringBuffer.length > 0) {
+      const removed = this.ringBuffer.shift();
+      if (removed) {
+        this.ringBufferSampleCount -= removed.length;
+      }
+    }
   }
 
   public updateTelemetry(partial: Partial<VoiceTelemetry>): void {
@@ -366,7 +427,13 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
    * Processes a single 16-bit PCM chunk from AudioWorklet/ScriptProcessor
    */
   private handlePcmFrame(pcm16: Int16Array): void {
-    if (this.isMuted) return;
+    if (this.isMuted || this.state === "MIC_MUTED") {
+      logVoiceDebug(`[VOICE] frame dropped: mic is MIC_MUTED (samples: ${pcm16.length})`);
+      return;
+    }
+
+    // Always push incoming PCM into continuous 500ms ring buffer
+    this.pushToRingBuffer(pcm16);
 
     // Transition to MIC_ACTIVE once real audio frames actually arrive
     if (this.state === "MIC_STARTING" || this.state === "MIC_RECOVERING") {
@@ -381,6 +448,15 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
     // Run VAD on the incoming frame
     const vadResult = this.vad.processFrame(pcm16);
     this.callbacks.onVadUpdate(vadResult);
+
+    // Per-frame VAD result summary every ~250ms
+    const now = performance.now();
+    if (now - this.lastVadSummaryLogTime >= 250) {
+      this.lastVadSummaryLogTime = now;
+      logVoiceDebug(
+        `[VOICE] VAD summary (~250ms): speechActive=${vadResult.speechActive}, speechDurationMs=${vadResult.speechDurationMs}, rms/energy=${vadResult.signalLevel}, isAiSpeaking=${this.isAiSpeaking}, turnCompleted=${Boolean(vadResult.turnCompleted)}`
+      );
+    }
 
     // Audio level for UI visualizer (normalized 0-100 real RMS)
     const normalizedLevel = Math.min(100, Math.round((vadResult.signalLevel / 2800) * 100));
@@ -398,12 +474,19 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
 
     // ── TRUE BARGE-IN DETECTION ──
     // If assistant is currently speaking and caller voice crosses the threshold:
-    if (this.isAiSpeaking && vadResult.speechActive && vadResult.speechDurationMs >= 140) {
+    if (this.isAiSpeaking && vadResult.speechActive && vadResult.speechDurationMs >= this.bargeInThresholdMs) {
       // Caller interrupted!
       this.telemetry.bargeIns++;
       this.isAiSpeaking = false;
       this.setState("MIC_INTERRUPTED");
       this.callbacks.onBargeIn();
+      // Prepend ring buffer to utterance if not already started to avoid dropping opening consonant
+      if (this.utteranceSampleCount === 0 && this.ringBuffer.length > 0) {
+        for (const chunk of this.ringBuffer) {
+          this.utteranceChunks.push(chunk);
+          this.utteranceSampleCount += chunk.length;
+        }
+      }
       setTimeout(() => {
         if (this.state === "MIC_INTERRUPTED") {
           this.setState("MIC_ACTIVE");
@@ -411,23 +494,46 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
       }, 80);
     }
 
-    // Utterance accumulation
+    // Utterance accumulation: start collecting on speech or keep collecting trailing silence
     if (vadResult.speechActive || this.utteranceSampleCount > 0) {
+      // If beginning a fresh utterance, prepend ring buffer onset
+      if (this.utteranceSampleCount === 0 && this.ringBuffer.length > 0) {
+        for (const chunk of this.ringBuffer) {
+          this.utteranceChunks.push(chunk);
+          this.utteranceSampleCount += chunk.length;
+        }
+      }
+
       this.utteranceChunks.push(pcm16);
       this.utteranceSampleCount += pcm16.length;
 
       // Check max utterance threshold (safety split at 15s)
       const currentDurationMs = (this.utteranceSampleCount / 16000) * 1000;
       if (currentDurationMs >= DEFAULT_VAD_CONFIG.ASR_MAX_UTTERANCE_MS) {
+        logVoiceDebug(`[VOICE] finalizeUtterance(): called (max utterance duration reached: ${Math.round(currentDurationMs)}ms)`);
         this.finalizeUtterance();
         return;
       }
     }
 
     // ── NATURAL END-OF-TURN DETECTION ──
-    if (vadResult.turnCompleted && this.utteranceSampleCount >= 16000 * 0.7) {
-      // Natural silence following user speech turn
-      this.finalizeUtterance();
+    // Trailing silence counts toward turn completion; min threshold is configurable per step type
+    const minSamples = Math.round(16000 * (this.minUtteranceMs / 1000));
+    if (vadResult.turnCompleted) {
+      if (this.utteranceSampleCount >= minSamples) {
+        logVoiceDebug(
+          `[VOICE] finalizeUtterance(): called (utteranceSampleCount=${this.utteranceSampleCount}, threshold=${minSamples} [${this.minUtteranceMs}ms], speechDurationMs=${vadResult.speechDurationMs})`
+        );
+        this.finalizeUtterance();
+      } else {
+        logVoiceDebug(
+          `[VOICE] finalizeUtterance(): skipped (utteranceSampleCount=${this.utteranceSampleCount} < threshold=${minSamples} [${this.minUtteranceMs}ms], reason=utterance_too_short)`
+        );
+        this.callbacks.onDiscard?.("Too short, try again");
+        this.utteranceChunks = [];
+        this.utteranceSampleCount = 0;
+        this.vad.resetTurn();
+      }
     }
   }
 
@@ -436,9 +542,14 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
    */
   private finalizeUtterance(): void {
     if (this.utteranceSampleCount === 0 || this.utteranceChunks.length === 0) {
+      logVoiceDebug(`[VOICE] finalizeUtterance(): skipped (utteranceSampleCount=0, reason=empty_buffer)`);
       this.vad.resetTurn();
       return;
     }
+
+    logVoiceDebug(
+      `[VOICE] finalizeUtterance(): processing ${this.utteranceSampleCount} samples (${Math.round((this.utteranceSampleCount / 16000) * 1000)}ms), threshold=${this.minUtteranceMs}ms`
+    );
 
     // Merge accumulated PCM chunks
     const merged = new Int16Array(this.utteranceSampleCount);
@@ -506,7 +617,9 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
   }
 
   private setState(newState: MicrophoneState, reason?: string): void {
+    const fromState = this.state;
     this.state = newState;
+    logVoiceDebug(`[VOICE] mic state change: ${fromState} -> ${newState}${reason ? ` (${reason})` : ""}`);
     this.telemetry.micActive = newState === "MIC_ACTIVE";
     this.callbacks.onStateChange(newState, reason);
     this.callbacks.onTelemetryUpdate({ ...this.telemetry });
