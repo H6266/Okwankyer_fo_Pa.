@@ -1162,11 +1162,17 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   });
 
   // Shared Flow Planner & Process Runner & Audio Resolver pipeline
+  const plannerSession = {
+    ...session,
+    intent: (session as any).action || (session as any).intent || "send_money",
+    recipientPhone: session.recipientPhone || undefined,
+    amount: session.amount,
+  };
   const plan = planNext({
-    session,
+    session: plannerSession,
     understood: {
-      intent: session.action || session.intent,
-      slots: { recipientPhone: session.recipientPhone, amount: session.amount },
+      intent: (session as any).action || (session as any).intent || "send_money",
+      slots: { recipientPhone: session.recipientPhone || undefined, amount: session.amount },
     },
   });
   const proc = await runProcess({ process: plan.process, session, language: lang });

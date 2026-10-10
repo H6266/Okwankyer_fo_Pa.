@@ -137,6 +137,10 @@ class SimulatorLogBus {
       })
       .join("\n");
   }
+
+  public exportJson(): string {
+    return JSON.stringify(this.entries, null, 2);
+  }
 }
 
 export const simulatorLog = new SimulatorLogBus();
@@ -165,10 +169,15 @@ export function useSimulatorLog() {
     return simulatorLog.exportText();
   }, []);
 
+  const exportJson = useCallback(() => {
+    return simulatorLog.exportJson();
+  }, []);
+
   return {
     logs,
     clear,
     exportText,
+    exportJson,
     count: logs.length,
   };
 }

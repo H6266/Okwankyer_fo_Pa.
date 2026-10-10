@@ -415,6 +415,7 @@ export interface DialogueOutput {
     | "ERROR_RECOVERY"
     | "ZERO_PIN_SECURITY_ALERT";
   response: string;
+  promptId?: string;
   promptLanguage: AiLanguage;
   audioPromptUrl?: string;
   needsClarification: boolean;

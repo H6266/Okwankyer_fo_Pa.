@@ -56,8 +56,13 @@ describe("SimulatorLog Event Bus", () => {
     expect(text).toContain("[T2] [STEP ]  Step changed to service-select");
     expect(text).toContain("[T2] [TURN ]  Turn accepted");
 
+    const json = simulatorLog.exportJson();
+    expect(json).toContain('"category": "STEP"');
+    expect(json).toContain('"category": "TURN"');
+
     simulatorLog.clear();
     expect(simulatorLog.getEntries()).toHaveLength(0);
     expect(simulatorLog.exportText()).toBe("");
+    expect(simulatorLog.exportJson()).toBe("[]");
   });
 });

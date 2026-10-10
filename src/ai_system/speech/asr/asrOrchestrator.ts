@@ -140,11 +140,24 @@ export class AsrOrchestrator {
     // ── STEP 5: Explicit Fallback Provider (Gemini / Offline) ──
     if (!rawText && allowFallback) {
       fallbackUsed = true;
-      const modelCandidates = [
-        AI_CONFIG.transcriptionModel,
-        process.env.GEMINI_MODEL,
-        "gemini-2.5-flash",
-      ].filter((m): m is string => Boolean(m && geminiClient.isModelAvailable(m)));
+      const modelCandidates = Array.from(
+        new Set([
+          AI_CONFIG.transcriptionModel,
+          process.env.GEMINI_TRANSCRIBE_MODEL,
+          process.env.GEMINI_MODEL,
+          "gemini-3.5-transcribe",
+          "gemini-3.8-flash",
+        ])
+      ).filter(
+        (m): m is string =>
+          Boolean(
+            m &&
+              !m.includes("2.5") &&
+              !m.includes("2.0") &&
+              !m.includes("1.5") &&
+              geminiClient.isModelAvailable(m)
+          )
+      );
 
       // Iterate over available candidates; if one hits quota or errors, proceed to next candidate
       for (const modelName of modelCandidates) {
@@ -186,6 +199,13 @@ export class AsrOrchestrator {
           }
         } catch (gemErr: any) {
           const msg = String(gemErr?.message || "");
+          const isNotFound =
+            gemErr?.status === 404 ||
+            gemErr?.error?.code === 404 ||
+            gemErr?.code === 404 ||
+            msg.includes("404") ||
+            msg.includes("not found") ||
+            msg.includes("no longer");
           const isQuota =
             gemErr?.status === 429 ||
             gemErr?.error?.code === 429 ||
@@ -194,7 +214,11 @@ export class AsrOrchestrator {
             msg.includes("RESOURCE_EXHAUSTED") ||
             msg.includes("Quota exceeded") ||
             msg.includes("exceeded your current quota");
-          if (isQuota) {
+
+          if (isNotFound) {
+            geminiClient.recordModelQuotaExhausted(modelName, 24 * 60 * 60 * 1000);
+            auditLogger.log("warn", "ASR_ORCHESTRATOR", `Gemini model ${modelName} unavailable/deprecated (${msg.slice(0, 80)}). Disabled for 24h.`);
+          } else if (isQuota) {
             let cooldownMs = 60 * 60 * 1000;
             const retrySecMatch = msg.match(/retryDelay['":\s]+([0-9]+)/i) || msg.match(/retry in\s+([0-9]+)s/i);
             if (retrySecMatch && retrySecMatch[1]) {

@@ -412,7 +412,7 @@ describe('Phase 4: Readiness Hardening', () => {
 
     it('production accepts explicit GEMINI_MODEL definition', () => {
       process.env.NODE_ENV = 'production';
-      process.env.GEMINI_MODEL = 'gemini-2.5-flash';
+      process.env.GEMINI_MODEL = 'gemini-3.8-flash';
 
       expect(() => {
         validateProductionModelConfig();

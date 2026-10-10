@@ -406,7 +406,7 @@ export async function parseUserIntent(text: string): Promise<ExtractedEntities> 
   const ai = getGeminiClient();
   if (ai) {
     const candidateModels = [
-      process.env.GEMINI_REASONING_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash",
+      process.env.GEMINI_REASONING_MODEL || process.env.GEMINI_MODEL || "gemini-3.8-flash",
       "gemini-flash-latest",
     ];
 

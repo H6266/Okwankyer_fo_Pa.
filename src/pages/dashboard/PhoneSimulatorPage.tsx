@@ -292,7 +292,7 @@ export function PhoneSimulatorPage() {
             </span>
           </div>
           <a
-            href={typeof window !== "undefined" ? window.location.href : "/dashboard/phone"}
+            href={typeof window !== "undefined" && window.location?.href ? window.location.href : "/dashboard/phone"}
             target="_blank"
             rel="noopener noreferrer"
             className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold transition-colors shadow-sm"
@@ -307,7 +307,10 @@ export function PhoneSimulatorPage() {
         {/* ─────────────────────────────────────────────────────────── */}
         {/* LEFT PANEL: THE TRADITIONAL HANDSET PHONE                  */}
         {/* ─────────────────────────────────────────────────────────── */}
-        <div className="w-full lg:w-[420px] flex-shrink-0 bg-slate-900 border-r border-slate-800 flex flex-col items-center justify-start p-4 lg:p-6 overflow-y-auto">
+        <div
+          data-testid="phone-handset-panel"
+          className="w-full lg:w-[420px] flex-shrink-0 bg-slate-900 border-r border-slate-800 flex flex-col items-center justify-start p-4 lg:p-6 overflow-y-auto"
+        >
           {/* Diagnostic Mic Test Row (behind VOICE_DEBUG) */}
           <div className="w-[340px] mb-2">
             <MicTestRow />
@@ -319,9 +322,9 @@ export function PhoneSimulatorPage() {
             <div className="w-16 h-1.5 bg-slate-700 rounded-full mb-3 shadow-inner" />
 
             {/* Handset OLED Screen */}
-            <div className="w-full bg-slate-900 border border-slate-700/80 rounded-2xl p-3 flex flex-col min-h-[175px] shadow-inner mb-4 relative overflow-hidden">
+            <div className="w-full bg-slate-900 border border-slate-700/80 rounded-2xl p-3 flex flex-col min-h-[190px] shadow-inner mb-3 relative overflow-hidden">
               {/* Top Bar: Call Status & Timer */}
-              <div className="flex items-center justify-between text-xs text-slate-300 font-mono pb-2 border-b border-slate-800">
+              <div className="flex items-center justify-between text-xs text-slate-300 font-mono pb-1.5 border-b border-slate-800">
                 <div className="flex items-center gap-1.5">
                   <span
                     className={`w-2 h-2 rounded-full ${
@@ -338,7 +341,7 @@ export function PhoneSimulatorPage() {
               </div>
 
               {/* Prompt Text / Current Step Area */}
-              <div className="flex-1 py-2 flex flex-col justify-center">
+              <div className="flex-1 py-1.5 flex flex-col justify-center">
                 <div className="text-[11px] font-mono uppercase tracking-wider text-amber-400 font-bold mb-1">
                   Step: {currentStep} · Lang: {language.toUpperCase()}
                 </div>
@@ -378,151 +381,197 @@ export function PhoneSimulatorPage() {
                 )}
               </div>
 
-            {/* Hardware Status Strip */}
-            <div className="grid grid-cols-3 gap-1 pt-2 border-t border-slate-800 text-[10px] font-mono">
-              <div className="flex items-center gap-1 bg-slate-950/60 px-1.5 py-0.5 rounded border border-slate-800">
-                <span className={`w-1.5 h-1.5 rounded-full ${speakerStatus.color}`} />
-                <span className="text-slate-400 truncate">SPK: {speakerStatus.text}</span>
+              {/* Digits Display Line inside OLED Display */}
+              <div className="w-full h-8 bg-slate-950/80 border border-slate-800 rounded-lg px-2 flex items-center justify-between font-mono my-1">
+                <span className="text-emerald-400 text-sm font-bold tracking-widest overflow-hidden text-ellipsis whitespace-nowrap">
+                  {digitsBuffer || <span className="text-slate-600 text-xs tracking-normal">Digits: None</span>}
+                </span>
+                {digitsBuffer.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleBackspace}
+                    aria-label="Backspace"
+                    className="text-slate-400 hover:text-rose-400 p-0.5 rounded transition-colors focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  >
+                    <Delete size={13} />
+                  </button>
+                )}
               </div>
-              <div className="flex items-center gap-1 bg-slate-950/60 px-1.5 py-0.5 rounded border border-slate-800">
-                <span className={`w-1.5 h-1.5 rounded-full ${micStatus.color}`} />
-                <span className="text-slate-400 truncate">MIC: {micStatus.text}</span>
-              </div>
-              <div className="flex items-center gap-1 bg-slate-950/60 px-1.5 py-0.5 rounded border border-slate-800">
-                <span className={`w-1.5 h-1.5 rounded-full ${networkStatus.color}`} />
-                <span className="text-slate-400 truncate">NET: {networkStatus.text}</span>
+
+              {/* Hardware Status Strip */}
+              <div className="grid grid-cols-3 gap-1 pt-1.5 border-t border-slate-800 text-[10px] font-mono">
+                <div className="flex items-center gap-1 bg-slate-950/60 px-1 py-0.5 rounded border border-slate-800">
+                  <span className={`w-1.5 h-1.5 rounded-full ${speakerStatus.color}`} />
+                  <span className="text-slate-400 truncate">SPK: {speakerStatus.text}</span>
+                </div>
+                <div className="flex items-center gap-1 bg-slate-950/60 px-1 py-0.5 rounded border border-slate-800">
+                  <span className={`w-1.5 h-1.5 rounded-full ${micStatus.color}`} />
+                  <span className="text-slate-400 truncate">MIC: {micStatus.text}</span>
+                </div>
+                <div className="flex items-center gap-1 bg-slate-950/60 px-1 py-0.5 rounded border border-slate-800">
+                  <span className={`w-1.5 h-1.5 rounded-full ${networkStatus.color}`} />
+                  <span className="text-slate-400 truncate">NET: {networkStatus.text}</span>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Digits Display Line */}
-          <div className="w-full h-11 bg-slate-900/90 border border-slate-800 rounded-xl px-3 flex items-center justify-between font-mono mb-4">
-            <span className="text-emerald-400 text-lg font-bold tracking-widest overflow-hidden text-ellipsis whitespace-nowrap">
-              {digitsBuffer || <span className="text-slate-600 text-sm tracking-normal">Enter digits...</span>}
-            </span>
-            {digitsBuffer.length > 0 && (
+            {/* Soft-Key & D-Pad Navigation Cluster */}
+            <div className="w-full grid grid-cols-3 gap-2 items-center mb-3">
+              {/* Left Soft Key */}
               <button
                 type="button"
-                onClick={handleBackspace}
-                aria-label="Backspace"
-                className="text-slate-400 hover:text-rose-400 p-1 rounded transition-colors focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                aria-label="Left Soft Key Menu"
+                onClick={() => {
+                  if (isActive) {
+                    handleKeypadDigit("9"); // Repeat prompt
+                  }
+                }}
+                className="h-8 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-white text-[11px] font-bold font-mono shadow transition-all active:scale-95 flex items-center justify-center focus:outline-none focus:ring-1 focus:ring-emerald-400"
               >
-                <Delete size={16} />
+                Menu
               </button>
-            )}
-          </div>
 
-          {/* Classic 12-Key Physical Keypad */}
-          <div className="grid grid-cols-3 gap-3 w-full mb-4">
-            {KEYPAD_BUTTONS.map((btn) => {
-              const isPushed = pressedKey === btn.digit;
-              return (
+              {/* D-Pad Cluster (Center OK / Arrows) */}
+              <div className="flex items-center justify-center">
                 <button
-                  key={btn.digit}
                   type="button"
-                  aria-label={`Key ${btn.digit} ${btn.sub}`}
+                  aria-label="D-Pad Center OK"
                   onClick={() => {
-                    setPressedKey(btn.digit);
-                    setTimeout(() => setPressedKey(null), 120);
-                    handleKeypadDigit(btn.digit);
+                    if (digitsBuffer.trim()) {
+                      handleKeypadDigit("#");
+                    }
                   }}
-                  className={`h-12 rounded-2xl flex flex-col items-center justify-center border transition-all duration-75 select-none focus:outline-none focus:ring-2 focus:ring-emerald-400 ${
-                    isPushed
-                      ? "bg-emerald-600 border-emerald-400 text-white scale-95 shadow-inner"
-                      : "bg-slate-900 border-slate-700/70 text-slate-100 hover:bg-slate-800 hover:border-slate-500 active:scale-95 shadow-md"
+                  className="w-10 h-10 rounded-full bg-slate-800 hover:bg-slate-700 border-2 border-slate-600 text-emerald-400 font-bold text-xs flex items-center justify-center shadow-inner active:scale-90 transition-all focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                >
+                  OK
+                </button>
+              </div>
+
+              {/* Right Soft Key (Clear / Back) */}
+              <button
+                type="button"
+                aria-label="Right Soft Key Clear"
+                onClick={handleBackspace}
+                className="h-8 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-white text-[11px] font-bold font-mono shadow transition-all active:scale-95 flex items-center justify-center focus:outline-none focus:ring-1 focus:ring-emerald-400"
+              >
+                Clear
+              </button>
+            </div>
+
+            {/* Action Row: Green Call & Red End */}
+            <div className="grid grid-cols-2 gap-3 w-full mb-3">
+              <button
+                type="button"
+                aria-label="Start Call"
+                disabled={isActive}
+                onClick={() => startCall(language === "tw" ? "tw" : "en")}
+                className={`h-11 rounded-2xl flex items-center justify-center gap-2 font-bold text-sm tracking-wide transition-all shadow-lg active:scale-95 focus:outline-none focus:ring-2 focus:ring-emerald-400 ${
+                  isActive
+                    ? "bg-slate-800 text-slate-600 border border-slate-700 cursor-not-allowed"
+                    : "bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400 shadow-emerald-950/40"
+                }`}
+              >
+                <Phone size={17} />
+                <span>Call</span>
+              </button>
+
+              <button
+                type="button"
+                aria-label="Hang Up"
+                disabled={!isActive}
+                onClick={() => endCall("User pressed hang up")}
+                className={`h-11 rounded-2xl flex items-center justify-center gap-2 font-bold text-sm tracking-wide transition-all shadow-lg active:scale-95 focus:outline-none focus:ring-2 focus:ring-rose-400 ${
+                  !isActive
+                    ? "bg-slate-800 text-slate-600 border border-slate-700 cursor-not-allowed"
+                    : "bg-rose-600 hover:bg-rose-500 text-white border border-rose-400 shadow-rose-950/40"
+                }`}
+              >
+                <PhoneOff size={17} />
+                <span>End</span>
+              </button>
+            </div>
+
+            {/* Classic 12-Key Physical Keypad */}
+            <div className="grid grid-cols-3 gap-2.5 w-full mb-3">
+              {KEYPAD_BUTTONS.map((btn) => {
+                const isPushed = pressedKey === btn.digit;
+                return (
+                  <button
+                    key={btn.digit}
+                    type="button"
+                    aria-label={`Key ${btn.digit} ${btn.sub}`}
+                    onClick={() => {
+                      setPressedKey(btn.digit);
+                      setTimeout(() => setPressedKey(null), 120);
+                      handleKeypadDigit(btn.digit);
+                    }}
+                    className={`h-11 rounded-2xl flex flex-col items-center justify-center border transition-all duration-75 select-none focus:outline-none focus:ring-2 focus:ring-emerald-400 ${
+                      isPushed
+                        ? "bg-emerald-600 border-emerald-400 text-white scale-95 shadow-inner"
+                        : "bg-slate-900 border-slate-700/70 text-slate-100 hover:bg-slate-800 hover:border-slate-500 active:scale-95 shadow-md"
+                    }`}
+                  >
+                    <span className="text-base font-bold leading-none font-mono">{btn.digit}</span>
+                    {btn.sub && (
+                      <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-tighter leading-none mt-0.5">
+                        {btn.sub}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Sub-bar: Language Toggle & Mic Mute Toggle */}
+            <div className="flex items-center justify-between w-full pt-2 border-t border-slate-800 text-xs">
+              {/* Language Selection */}
+              <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setLanguage("en")}
+                  className={`px-2 py-1 rounded text-[11px] font-semibold transition-colors ${
+                    language === "en" ? "bg-emerald-600 text-white" : "text-slate-400 hover:text-slate-200"
                   }`}
                 >
-                  <span className="text-lg font-bold leading-none font-mono">{btn.digit}</span>
-                  {btn.sub && (
-                    <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-tighter leading-none mt-0.5">
-                      {btn.sub}
-                    </span>
-                  )}
+                  English
                 </button>
-              );
-            })}
-          </div>
+                <button
+                  type="button"
+                  onClick={() => setLanguage("tw")}
+                  className={`px-2 py-1 rounded text-[11px] font-semibold transition-colors ${
+                    language === "tw" ? "bg-emerald-600 text-white" : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  Twi
+                </button>
+              </div>
 
-          {/* Action Row: Green Call & Red Hang Up */}
-          <div className="grid grid-cols-2 gap-3 w-full mb-4">
-            <button
-              type="button"
-              aria-label="Start Call"
-              disabled={isActive}
-              onClick={() => startCall(language === "tw" ? "tw" : "en")}
-              className={`h-12 rounded-2xl flex items-center justify-center gap-2 font-bold text-sm tracking-wide transition-all shadow-lg active:scale-95 focus:outline-none focus:ring-2 focus:ring-emerald-400 ${
-                isActive
-                  ? "bg-slate-800 text-slate-600 border border-slate-700 cursor-not-allowed"
-                  : "bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400 shadow-emerald-950/40"
-              }`}
-            >
-              <Phone size={18} />
-              <span>Call</span>
-            </button>
-
-            <button
-              type="button"
-              aria-label="Hang Up"
-              disabled={!isActive}
-              onClick={() => endCall("User pressed hang up")}
-              className={`h-12 rounded-2xl flex items-center justify-center gap-2 font-bold text-sm tracking-wide transition-all shadow-lg active:scale-95 focus:outline-none focus:ring-2 focus:ring-rose-400 ${
-                !isActive
-                  ? "bg-slate-800 text-slate-600 border border-slate-700 cursor-not-allowed"
-                  : "bg-rose-600 hover:bg-rose-500 text-white border border-rose-400 shadow-rose-950/40"
-              }`}
-            >
-              <PhoneOff size={18} />
-              <span>Hang up</span>
-            </button>
-          </div>
-
-          {/* Sub-bar: Language Toggle & Mic Mute Toggle */}
-          <div className="flex items-center justify-between w-full pt-2 border-t border-slate-800 text-xs">
-            {/* Language Selection */}
-            <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-0.5">
+              {/* Mic Mute Toggle */}
               <button
                 type="button"
-                onClick={() => setLanguage("en")}
-                className={`px-2 py-1 rounded text-[11px] font-semibold transition-colors ${
-                  language === "en" ? "bg-emerald-600 text-white" : "text-slate-400 hover:text-slate-200"
+                onClick={toggleMic}
+                aria-label={micState === "MIC_MUTED" ? "Unmute microphone" : "Mute microphone"}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-colors ${
+                  micState === "MIC_MUTED"
+                    ? "bg-rose-950/60 border-rose-700 text-rose-400"
+                    : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white"
                 }`}
               >
-                English
-              </button>
-              <button
-                type="button"
-                onClick={() => setLanguage("tw")}
-                className={`px-2 py-1 rounded text-[11px] font-semibold transition-colors ${
-                  language === "tw" ? "bg-emerald-600 text-white" : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                Twi
+                {micState === "MIC_MUTED" ? <MicOff size={13} /> : <Mic size={13} />}
+                <span>{micState === "MIC_MUTED" ? "Muted" : "Mute Mic"}</span>
               </button>
             </div>
-
-            {/* Mic Mute Toggle */}
-            <button
-              type="button"
-              onClick={toggleMic}
-              aria-label={micState === "MIC_MUTED" ? "Unmute microphone" : "Mute microphone"}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-colors ${
-                micState === "MIC_MUTED"
-                  ? "bg-rose-950/60 border-rose-700 text-rose-400"
-                  : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white"
-              }`}
-            >
-              {micState === "MIC_MUTED" ? <MicOff size={13} /> : <Mic size={13} />}
-              <span>{micState === "MIC_MUTED" ? "Muted" : "Mute Mic"}</span>
-            </button>
           </div>
         </div>
-      </div>
 
-      {/* ─────────────────────────────────────────────────────────── */}
-      {/* RIGHT PANEL: LIVE SYSTEM LOG TERMINAL                      */}
-      {/* ─────────────────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col h-[50vh] lg:h-full bg-slate-950 overflow-hidden">
-        {/* Terminal Header Bar */}
+        {/* ─────────────────────────────────────────────────────────── */}
+        {/* RIGHT PANEL: LIVE SYSTEM LOG TERMINAL                      */}
+        {/* ─────────────────────────────────────────────────────────── */}
+        <div
+          data-testid="call-log-terminal"
+          className="flex-1 flex flex-col h-[50vh] lg:h-full bg-slate-950 overflow-hidden"
+        >
+          {/* Terminal Header Bar */}
         <div className="h-14 bg-slate-900/90 border-b border-slate-800 px-4 flex items-center justify-between flex-shrink-0 gap-3">
           <div className="flex items-center gap-2">
             <span

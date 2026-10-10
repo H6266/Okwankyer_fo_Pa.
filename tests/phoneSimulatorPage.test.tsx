@@ -10,8 +10,12 @@ describe("PhoneSimulatorPage UI Redesign", () => {
     simulatorLog.clear();
   });
 
-  it("renders the phone handset with exactly 12 keypad buttons", () => {
+  it("renders the phone handset with exactly 12 keypad buttons and both panels present", () => {
     const html = renderToString(<PhoneSimulatorPage />);
+
+    // Check for both panels present
+    expect(html).toContain('data-testid="phone-handset-panel"');
+    expect(html).toContain('data-testid="call-log-terminal"');
 
     // Check for all 12 phone keypad keys
     const expectedKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
@@ -20,13 +24,38 @@ describe("PhoneSimulatorPage UI Redesign", () => {
     });
 
     // Check Call and Hang up buttons
-    expect(html).toContain("aria-label=\"Start Call\"");
-    expect(html).toContain("aria-label=\"Hang Up\"");
+    expect(html).toContain('aria-label="Start Call"');
+    expect(html).toContain('aria-label="Hang Up"');
 
     // Check status strip indicators
     expect(html).toContain("SPK:");
     expect(html).toContain("MIC:");
     expect(html).toContain("NET:");
+  });
+
+  it("shows iframe warning banner when rendered inside an iframe", () => {
+    const originalWindowDesc = Object.getOwnPropertyDescriptor(globalThis, "window");
+    const fakeTop = {};
+    const fakeSelf = {};
+    Object.defineProperty(globalThis, "window", {
+      value: {
+        self: fakeSelf,
+        top: fakeTop,
+        isSecureContext: true,
+      },
+      configurable: true,
+      writable: true,
+    });
+
+    try {
+      const html = renderToString(<PhoneSimulatorPage />);
+      expect(html).toContain('data-testid="iframe-mic-banner"');
+      expect(html).toContain("Microphone is blocked inside an embedded preview. Open this page in its own tab.");
+    } finally {
+      if (originalWindowDesc) {
+        Object.defineProperty(globalThis, "window", originalWindowDesc);
+      }
+    }
   });
 
   it("displays emitted log events as terminal lines in the right panel", () => {

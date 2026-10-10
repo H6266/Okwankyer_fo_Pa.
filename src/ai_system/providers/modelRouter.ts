@@ -93,7 +93,7 @@ export class ModelRouter {
           "GEMINI_REASONING_ROUTER",
           async (client, s) => {
             const resp = await client.models.generateContent({
-              model: process.env.GEMINI_REASONING_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash",
+              model: process.env.GEMINI_REASONING_MODEL || process.env.GEMINI_MODEL || "gemini-3.8-flash",
               contents: payload.prompt,
               config: payload.config || { responseMimeType: "application/json" },
             });

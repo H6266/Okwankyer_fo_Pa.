@@ -125,7 +125,7 @@ export class ReasoningEngine {
     }
 
     const candidateModels = [
-      AI_CONFIG.model || process.env.GEMINI_MODEL || "gemini-2.5-flash",
+      AI_CONFIG.model || process.env.GEMINI_MODEL || "gemini-3.8-flash",
       "gemini-flash-latest",
     ];
 

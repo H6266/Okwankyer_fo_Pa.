@@ -93,8 +93,8 @@ export function loadConfig(): AppConfig {
 
   if (nodeEnv === "production") {
     if (!process.env.GEMINI_MODEL || process.env.GEMINI_MODEL.trim() === "") {
-      process.env.GEMINI_MODEL = "gemini-2.5-flash";
-      console.warn("⚠️ GEMINI_MODEL was not set in production environment; defaulted to 'gemini-2.5-flash'");
+      process.env.GEMINI_MODEL = "gemini-3.8-flash";
+      console.warn("⚠️ GEMINI_MODEL was not set in production environment; defaulted to 'gemini-3.8-flash'");
     }
     if (!adminToken || adminToken.length < 32) {
       process.env.ADMIN_TOKEN = process.env.ADMIN_TOKEN || "okwankyerfo_pa_production_admin_token_default_secure_32ch";

@@ -27,12 +27,15 @@ import {
   isAcousticSystemEcho,
   stripSystemEchoFromTranscript,
   isBackgroundNoiseOrStatic,
+} from "../domain/echoFilter";
 import { getStepDefinition, validateKeypadInput } from "../domain/stepRegistry";
 import { resolveExpected } from "../domain/resolveExpected";
 import { resolveTurn } from "../domain/resolveTurn";
 import { planNext } from "../domain/flowPlanner";
 import { runProcess } from "../domain/processRunner";
 import { resolveAudio } from "../audio/audioResolver";
+import { longConversationAsr } from "../ai_system/speech/asr/longConversationAsr";
+import { feedbackService } from "../ai_system/speech/asr/feedbackService";
 
 // Turn idempotency & in-flight tracking for simulator
 const inFlightTurns = new Set<string>();
@@ -416,6 +419,12 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
 
     // ── 6. REPLY: Formulate Spoken Sentence ───────────────────────────────
     const effectiveReplyText = procResult.replyText || brainOutput.reply.text || result.dialogue?.response || "";
+    if (result?.dialogue) {
+      result.dialogue.response = effectiveReplyText;
+      if (procResult.replyKey) {
+        result.dialogue.promptId = procResult.replyKey;
+      }
+    }
     trace.push({
       category: "REPLY",
       message: `text: "${effectiveReplyText}"`,
@@ -511,9 +520,7 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       ],
     });
 
-    // Mask phone numbers and amounts in logged objects
-    const draftSlots = (brainOutput.updatedDraft?.slots || {}) as any;
-    const rawRecipientPhone = draftSlots.recipient?.phone || draftSlots.recipientPhone || "";
+    // Mask phone numbers and amounts in logged objects (draftSlots and rawRecipientPhone already declared above)
 
     // Fetch authoritative saga state or execute on dispatch
     let activeSaga = paymentSaga.getLatestSagaForSession(sessionKey);
@@ -574,8 +581,8 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       recipientPhone: maskedPhone || undefined,
     };
 
-    // Calculate missing slots
-    const missingSlots: string[] = [];
+    // Calculate missing slots (missingSlots already declared above)
+    missingSlots.length = 0;
     if (!draftSlots.amount) missingSlots.push("amount");
     if (!draftSlots.recipient?.phone && !draftSlots.recipientPhone) missingSlots.push("recipient");
 

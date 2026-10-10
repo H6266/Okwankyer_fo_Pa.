@@ -1541,21 +1541,32 @@ export function usePhoneSimulator() {
       setAiProcessingDetail(`Turn completed in ${turnLatencyMs}ms`);
       setTranscriptionStatus("TRANSCRIBED");
 
-      const asrTiming = Math.round(turnLatencyMs * 0.22);
-      const brainTiming = Math.round(turnLatencyMs * 0.58);
-      const ttsTiming = Math.round(turnLatencyMs * 0.20);
+      if (resp.trace && Array.isArray(resp.trace) && resp.trace.length > 0) {
+        for (const item of resp.trace) {
+          emitSimulatorLog({
+            category: item.category as any,
+            message: item.message,
+            turnId: turnTag,
+            data: item.data,
+          });
+        }
+      } else {
+        const asrTiming = Math.round(turnLatencyMs * 0.22);
+        const brainTiming = Math.round(turnLatencyMs * 0.58);
+        const ttsTiming = Math.round(turnLatencyMs * 0.20);
 
-      emitSimulatorLog({
-        category: "BRAIN",
-        message: `Brain decision: intent=${detectedIntent}, replyKey="${newDialogue?.response ? newDialogue.response.slice(0, 45) : ""}"`,
-        turnId: turnTag,
-      });
+        emitSimulatorLog({
+          category: "BRAIN",
+          message: `Brain decision: intent=${detectedIntent}, replyKey="${newDialogue?.response ? newDialogue.response.slice(0, 45) : ""}"`,
+          turnId: turnTag,
+        });
 
-      emitSimulatorLog({
-        category: "TURN",
-        message: `${turnTag} done in ${turnLatencyMs}ms  asr ${asrTiming} | brain ${brainTiming} | tts ${ttsTiming} | audio_start +${turnLatencyMs}`,
-        turnId: turnTag,
-      });
+        emitSimulatorLog({
+          category: "TURN",
+          message: `${turnTag} done in ${turnLatencyMs}ms  asr ${asrTiming} | brain ${brainTiming} | tts ${ttsTiming} | audio_start +${turnLatencyMs}`,
+          turnId: turnTag,
+        });
+      }
 
       setLastTranscription({
         text: rawInput,
