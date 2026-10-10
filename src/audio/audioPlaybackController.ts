@@ -12,8 +12,6 @@
  * 8. Zero browser speechSynthesis or other browser TTS.
  */
 
-import { emitSimulatorLog } from "../lib/simulatorLog";
-
 export type PlaybackSourceType = "STUDIO_PROMPT" | "SYNTHESIZED_TTS" | "REMOTE_URL";
 
 export interface PlaybackState {
@@ -51,11 +49,28 @@ export class AudioPlaybackController {
     token: 0,
   };
   private listeners: Set<StateListener> = new Set();
-  private activeResolver: ((success: boolean) => void) | null = null;
+  private activeResolver: (() => void) | null = null;
+  private preloadElements: Map<string, HTMLAudioElement> = new Map();
 
   constructor() {
     if (typeof window !== "undefined") {
       this.initAudioElement();
+    }
+  }
+
+  /**
+   * Preload audio files into browser memory for zero-latency instant playback.
+   */
+  public preload(urls: string[]): void {
+    if (typeof window === "undefined" || typeof Audio === "undefined") return;
+    for (const url of urls) {
+      if (!url || this.preloadElements.has(url)) continue;
+      try {
+        const audio = new Audio();
+        audio.preload = "auto";
+        audio.src = url;
+        this.preloadElements.set(url, audio);
+      } catch {}
     }
   }
 
@@ -110,21 +125,11 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Stop active audio immediately, cancel browser speech synthesis, resolve pending promise, increment token.
+   * Stop active audio immediately, resolve pending promise, increment token.
    */
   public stop(): void {
     const token = ++this.currentToken;
 
-    // 1. Cancel browser speech synthesis across all windows/contexts
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      try {
-        window.speechSynthesis.cancel();
-      } catch {
-        // Silently ignore browser speech cancellation error
-      }
-    }
-
-    // 2. Pause and reset the authoritative <audio> element
     if (this.audioElement) {
       try {
         this.audioElement.pause();
@@ -140,7 +145,7 @@ export class AudioPlaybackController {
     if (this.activeResolver) {
       const resolve = this.activeResolver;
       this.activeResolver = null;
-      resolve(false);
+      resolve();
     }
 
     this.setState({
@@ -152,14 +157,14 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Plays a single audio url or PlaybackRequest (supporting studio URLs and synthesized Base64 payloads).
-   * Returns a Promise that resolves when audio ends (or resolves false if stopped/superseded).
+   * Plays a single audio url. Accepts either a url string or a PlaybackRequest object.
+   * Returns a Promise that resolves when audio ends (or resolves immediately if stopped).
    */
   public play(
     target: string | PlaybackRequest,
     optionsOrText?: PlayOptions | string
   ): Promise<boolean> {
-    // 1. Stop any current playback (including any active speech synthesis) and increment token
+    // 1. Stop any current playback and increment token
     this.stop();
     const token = ++this.currentToken;
 
@@ -176,11 +181,6 @@ export class AudioPlaybackController {
       }
     } else if (target && typeof target === "object") {
       url = target.url || "";
-      // Fix 4: Support generated Base64 TTS audio seamlessly
-      if (!url && target.audioBase64) {
-        const mime = target.audioMimeType || "audio/mp3";
-        url = `data:${mime};base64,${target.audioBase64}`;
-      }
       promptText = target.text || null;
       if (typeof optionsOrText === "object") {
         options = optionsOrText;
@@ -208,9 +208,6 @@ export class AudioPlaybackController {
       return Promise.resolve(false);
     }
 
-    const clipSource = typeof target === "object" && target.sourceType ? target.sourceType : (typeof target === "object" && target.audioBase64 ? "SYNTHESIZED_TTS" : "STUDIO_PROMPT");
-    const clipLabel = typeof target === "object" && target.id ? target.id : (url.split("/").pop() || "audio");
-
     return new Promise<boolean>((resolve) => {
       this.activeResolver = () => {
         resolve(false);
@@ -223,11 +220,6 @@ export class AudioPlaybackController {
         token,
       });
 
-      emitSimulatorLog({
-        category: "AUDIO",
-        message: `Prompt playback started: clip="${clipLabel}", source=${clipSource}${promptText ? `, text="${promptText.slice(0, 45)}..."` : ""}`,
-      });
-
       options?.onStart?.();
 
       audio.onended = () => {
@@ -238,10 +230,6 @@ export class AudioPlaybackController {
           activeClip: null,
           activeText: null,
           token,
-        });
-        emitSimulatorLog({
-          category: "AUDIO",
-          message: `Prompt playback finished: clip="${clipLabel}"`,
         });
         options?.onEnd?.();
         resolve(true);
@@ -256,16 +244,14 @@ export class AudioPlaybackController {
           activeText: null,
           token,
         });
-        emitSimulatorLog({
-          category: "AUDIO",
-          message: `Prompt playback error: clip="${clipLabel}"`,
-        });
         options?.onError?.(new Error("Audio load/decode error"));
         resolve(false);
       };
 
       try {
-        audio.src = url;
+        if (!audio.src.endsWith(url)) {
+          audio.src = url;
+        }
         audio.currentTime = 0;
         const playPromise = audio.play();
         if (playPromise !== undefined) {

@@ -48,8 +48,6 @@ import {
   formatProfilePromptSection,
 } from './languageProfiles';
 import { geminiClient } from '../../services/geminiClient';
-import { pilotControls } from '../../services/pilotControls';
-import { pilotMetrics } from '../../services/pilotMetrics';
 import {
   APPROVED_REPLY_TEMPLATES,
   getApprovedTemplateText,
@@ -90,7 +88,7 @@ export const DEFAULT_BRAIN_CONFIG: BrainConfig = {
   modelTimeoutMs: 1200,
   skipModelTierConfidence: 0.85,
   maxTransferAmount: 5000,
-  modelName: process.env.GEMINI_MODEL || (process.env.NODE_ENV === 'production' ? '' : 'gemini-3.8-flash'),
+  modelName: process.env.GEMINI_MODEL || (process.env.NODE_ENV === 'production' ? '' : 'gemini-2.5-flash'),
 };
 
 // ── SANITIZATION & MASKING HELPERS ──────────────────────────────────────────
@@ -229,7 +227,6 @@ export class Brain {
       readback: input.draft?.readback ? { ...input.draft.readback } : undefined,
       draftHash: input.draft?.draftHash,
       confirmedDraftHash: input.draft?.confirmedDraftHash,
-      clarificationLoops: input.draft?.clarificationLoops ?? 0,
     };
 
     // Normalize legacy recipientPhone / recipientName at input boundary only, then delete them.
@@ -490,23 +487,12 @@ export class Brain {
 
       // Grounding Check for Amount:
       if (modelOutput.slots.amount !== undefined && modelOutput.slots.amount !== null) {
-        const explicitCurrencyAmountMatch = rawTranscript.match(
-          /\b(\d+(?:\.\d{1,2})?)\s*(?:ghs|cedis?|sidi)\b/i
-        );
-        const groundedUtteranceAmount =
-          explicitCurrencyAmountMatch
-            ? Number(explicitCurrencyAmountMatch[1])
-            : decoderResult.numericValue;
-
         const hasUtteranceAmountMatch =
-          groundedUtteranceAmount !== null ||
-          /\b(\d+(?:\.\d{1,2})?)\b/i.test(rawTranscript);
+          decoderResult.numericValue !== null ||
+          /\b(\d+(?:\.\d{1,2})?)\s*(?:ghs|cedis?|sidi)?\b/i.test(rawTranscript);
 
-        // A model cannot override an amount explicitly decoded from caller speech.
-        if (
-          groundedUtteranceAmount !== null &&
-          Number(groundedUtteranceAmount) !== Number(modelOutput.slots.amount)
-        ) {
+        // (b) model amount disagrees with numberDecoder -> clarify_slot
+        if (decoderResult.numericValue !== null && decoderResult.numericValue !== modelOutput.slots.amount) {
           delete draft.slots.amount;
           draft.lastReplyKind = 'clarify_slot';
           const decision: BrainDecision = { kind: 'clarify_slot', slot: 'amount' };
@@ -634,33 +620,7 @@ export class Brain {
       } else if (draft.intent) {
         settledIntent = draft.intent;
       } else if (top1[1] === 0 && top2[1] === 0) {
-        // Generic account-help requests need intent clarification, not an
-        // assumed money transfer. Preserve the transfer fallback for noise.
-        const isGenericAccountHelp =
-          /\b(?:help|account|wallet|money)\b/i.test(rawTranscript) &&
-          !/\b(?:send|transfer|mane|soma|kɔma|balance|check|airtime|data|bill|reverse|loan|borrow)\b/i.test(rawTranscript);
-
-        if (isGenericAccountHelp) {
-          draft.lastReplyKind = 'clarify_intent';
-          const decision: BrainDecision = {
-            kind: 'clarify_intent',
-            candidates: ['momo.transfer', 'momo.check_balance'],
-          };
-          const reply = await replyComposer.composeReply({
-            decision,
-            language: activeLanguage,
-            slots: draft.slots,
-          });
-          return {
-            decision,
-            reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
-            updatedDraft: draft,
-            sessionLanguage,
-          };
-        }
-
-        // Unrecognized noise / no-match retains the deterministic transfer
-        // fallback so the caller can be prompted for the required slot.
+        // Unrecognized noise / no-match falls back to primary transfer service to clarify required slot
         settledIntent = 'momo.transfer';
         draft.intent = settledIntent;
       } else {
@@ -716,30 +676,6 @@ export class Brain {
     const missingSlot = this.recomputeMissingSlots(settledIntent, draft.slots);
 
     if (missingSlot) {
-      draft.clarificationLoops = (draft.clarificationLoops ?? 0) + 1;
-      const maxAttempts = pilotControls.getMaxClarificationAttempts();
-
-      if (draft.clarificationLoops >= maxAttempts) {
-        pilotMetrics.recordDtmfFallback();
-        draft.lastReplyKind = 'clarify_slot';
-        const decision: BrainDecision = {
-          kind: 'clarify_slot',
-          slot: 'keypad_fallback' as any,
-        };
-        const replyText = sessionLanguage?.startsWith('twi')
-          ? "Yɛpa wo kyɛw, fa keypad no di dwuma anaa frɛ customer care."
-          : "Please use your keypad to enter the details or contact customer care.";
-        return finalizeOutput({
-          decision,
-          reply: {
-            text: replyText,
-            language: sessionLanguage || 'en',
-          },
-          updatedDraft: draft,
-          sessionLanguage,
-        });
-      }
-
       // Code recomputes missing slots: If model asked about a filled slot, code overrides it.
       draft.lastReplyKind = 'clarify_slot';
       const decision: BrainDecision = {

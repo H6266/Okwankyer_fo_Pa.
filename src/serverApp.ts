@@ -77,19 +77,6 @@ app.use((err: any, _req: Request, res: Response, next: any) => {
 // Static public directory (disable index to let Vite/SPA handle index.html)
 app.use(express.static(path.resolve(process.cwd(), "public"), { index: false }));
 
-// ── Dynamic Ephemeral Audio Streaming (Telephony <Play> & Web TTS) ───
-app.get("/audio/dynamic/:id", (req: Request, res: Response) => {
-  const { dynamicAudioStore } = require("./audio/dynamicAudioStore");
-  const audioItem = dynamicAudioStore.get(req.params.id);
-  if (!audioItem) {
-    return res.status(404).send("Dynamic audio prompt expired or not found.");
-  }
-  res.set("Content-Type", audioItem.mimeType);
-  res.set("Content-Length", String(audioItem.buffer.length));
-  res.set("Cache-Control", "private, no-cache, no-store");
-  return res.send(audioItem.buffer);
-});
-
 // ── Safe Audio Streaming (HTTP 206 Partial Content + Path Traversal Guard) ─
 app.all("/audio/*", (req: Request, res: Response) => {
   const rawSubpath = decodeURIComponent((req.params as any)[0] || "");
@@ -236,7 +223,7 @@ export async function startServer() {
   const wss = new WebSocketServer({ server });
   liveVoiceGateway.attachServer(wss);
 
-  const activePort = Number(process.env.PORT || process.env.TEST_PORT || 3000);
+  const activePort = Number(process.env.TEST_PORT || 3000);
   server.listen(activePort, "0.0.0.0", () => {
     console.log(`Ɔkwankyerɛfo Pa running on http://0.0.0.0:${activePort}`);
     auditLogger.log("info", "SYSTEM", `Server online on port ${activePort} (Env: ${config.nodeEnv})`);

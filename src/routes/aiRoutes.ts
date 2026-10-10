@@ -28,18 +28,17 @@ import {
   stripSystemEchoFromTranscript,
   isBackgroundNoiseOrStatic,
 } from "../domain/echoFilter";
-import { getStepDefinition, validateKeypadInput } from "../domain/stepRegistry";
-import { resolveExpected } from "../domain/resolveExpected";
-import { resolveTurn } from "../domain/resolveTurn";
-import { planNext } from "../domain/flowPlanner";
-import { runProcess } from "../domain/processRunner";
-import { resolveAudio } from "../audio/audioResolver";
+import { asrOrchestrator } from "../ai_system/speech/asr/asrOrchestrator";
 import { longConversationAsr } from "../ai_system/speech/asr/longConversationAsr";
 import { feedbackService } from "../ai_system/speech/asr/feedbackService";
-
-// Turn idempotency & in-flight tracking for simulator
-const inFlightTurns = new Set<string>();
-const recentCompletedTurns = new Map<string, { timestamp: number; response: any }>();
+import {
+  GHANAIAN_ACOUSTIC_TOKENS,
+  GHANAIAN_DIALECT_PROFILES,
+  ACOUSTIC_NOISE_BENCHMARKS,
+  repairNoisyAcousticTranscript,
+} from "../ai_system/speech/acousticModels/ghanaAcousticDataset";
+import { parseLongDiscussion } from "../ai_system/brain/longDiscussionParser";
+import { acousticNoiseFilterModel } from "../ai_system/speech/acousticModels/noiseFilterModel";
 
 export const aiRouter = Router();
 
@@ -47,8 +46,7 @@ aiRouter.get("/api/ai/status", (_req: Request, res: Response) => {
   res.json({
     status: "ok",
     system: "Ɔkwankyerɛfo Pa AI Subsystem",
-    geminiConfigured: Boolean(config.gemini?.configured || process.env.GEMINI_API_KEY),
-    ghanaNlpConfigured: Boolean(config.ghanaNlp?.configured || process.env.GHANANLP_API_KEY),
+    geminiConfigured: config.gemini.configured,
     openAiConfigured: Boolean(process.env.OPENAI_API_KEY),
     offlineCapable: true,
     languages: ["en", "tw", "ak"],
@@ -171,8 +169,6 @@ aiRouter.post("/api/ai/process", publicApiRateLimiter, async (req: Request, res:
 
 // ── Dedicated Authoritative Phone Simulator Turn Endpoint ──────────────
 aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
-  const turnStartTime = performance.now();
-  let activeTurnKey: string | null = null;
   try {
     const {
       sessionId,
@@ -188,8 +184,6 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       modelEnabled,
       languageOverride,
       injectNoise,
-      turnId,
-      source: inputSource,
     } = req.body;
 
     // Mode B (MTN SANDBOX) guard: require authenticated admin session
@@ -204,32 +198,6 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
     }
     const sessionKey = sessionId.trim();
 
-    // ── Turn Idempotency & In-Flight Gate ────────────────────────────────
-    if (turnId && typeof turnId === "string") {
-      activeTurnKey = `${sessionKey}:${turnId}`;
-      if (inFlightTurns.has(activeTurnKey)) {
-        return res.json({
-          success: true,
-          dropped: true,
-          turnId,
-          trace: [
-            { category: "TURN", message: `${turnId} dropped: turn already in flight` },
-          ],
-        });
-      }
-      const recent = recentCompletedTurns.get(activeTurnKey);
-      if (recent && Date.now() - recent.timestamp < 10000) {
-        return res.json({
-          ...recent.response,
-          dropped: true,
-          trace: [
-            { category: "TURN", message: `${turnId} dropped: duplicate turnId` },
-          ],
-        });
-      }
-      inFlightTurns.add(activeTurnKey);
-    }
-
     // Noise injection simulation for noisy ASR text testing
     let effectiveInput = input !== undefined && input !== null ? String(input) : "";
     if (injectNoise && effectiveInput.trim().length > 0) {
@@ -238,58 +206,6 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
         .replace(/\bcedis\b/gi, "sedis")
         .replace(/\bsend\b/gi, "sen")
         .replace(/\bmane\b/gi, "mame");
-    }
-
-    const trace: Array<{ category: string; message: string; durationMs?: number; data?: any }> = [];
-    const source: "DTMF" | "VOICE" | "TEXT" = inputSource || (channel === "DTMF" || req.body.dtmf ? "DTMF" : "VOICE");
-
-    if (source === "DTMF" && effectiveInput) {
-      trace.push({
-        category: "KEY",
-        message: `Keypad input: ${effectiveInput}`,
-      });
-    }
-
-    // ── 1. Deterministic Grammar Evaluation BEFORE Brain ─────────────────
-    const stepDef = getStepDefinition(currentStep || "welcome");
-    const activeStepDef = stepDef || getStepDefinition("voice-menu")!;
-    const selectedLang = languageOverride || language || "en";
-    const normLang = selectedLang.startsWith("tw") || selectedLang.startsWith("ak") ? "twi" : "en";
-
-    const matchStart = performance.now();
-    let grammarMatched = false;
-    let grammarValue: string | undefined;
-
-    if (source === "DTMF") {
-      const keypadRes = validateKeypadInput(activeStepDef, effectiveInput, normLang);
-      if (keypadRes.valid) {
-        grammarMatched = true;
-        grammarValue = String(keypadRes.normalizedValue);
-        trace.push({
-          category: "MATCH",
-          message: `Keypad matched grammar for step '${activeStepDef.id}' -> '${grammarValue}'`,
-          durationMs: Math.round(performance.now() - matchStart),
-        });
-      }
-    } else {
-      const expected = resolveExpected(activeStepDef, effectiveInput, normLang);
-      if (expected.matched) {
-        grammarMatched = true;
-        grammarValue = expected.value;
-        trace.push({
-          category: "MATCH",
-          message: `Spoken grammar matched for step '${activeStepDef.id}' -> DTMF '${expected.value}'`,
-          durationMs: Math.round(performance.now() - matchStart),
-        });
-      }
-    }
-
-    if (!grammarMatched) {
-      trace.push({
-        category: "MATCH",
-        message: `no grammar match for step ${currentStep || "welcome"}, sending to brain`,
-        durationMs: Math.round(performance.now() - matchStart),
-      });
     }
 
     const result = await aiSystem.process({
@@ -303,7 +219,12 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       userProfile,
     });
 
-    // ── 2. Canonical Brain Reasoning ────────────────────────────────────
+    // ── Live Synchronization 1: Call Session Repository ──────────────────
+    const targetStep = result.navigation?.targetStep || currentStep || "welcome";
+    const outcome = result.intent === "CANCEL" ? "CANCELLED" : "IN_PROGRESS";
+
+    // ── Canonical Brain Reasoning & Reply Composition ───────────────────
+    const selectedLang = languageOverride || language;
     const brainLanguage =
       selectedLang === "tw" || selectedLang === "ak" || selectedLang === "twi-asante"
         ? "twi-asante"
@@ -312,12 +233,6 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
         : selectedLang === "mixed-twi-en" || selectedLang === "code-switched"
         ? "mixed-twi-en"
         : "en";
-
-    const brainStart = performance.now();
-    trace.push({
-      category: "BRAIN",
-      message: `request (transcript: "${effectiveInput}", session slots)`,
-    });
 
     const brainOutput = await brain.process({
       transcript: effectiveInput,
@@ -328,178 +243,38 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       sessionId: sessionKey,
       callerNumber: typeof req.body.callerPhone === "string" ? req.body.callerPhone : undefined,
     });
-    const brainDurationMs = Math.round(performance.now() - brainStart);
 
-    // ── 3. UNDERSTAND: Extract Intent & Slots ─────────────────────────────
-    const draftSlots = (brainOutput.updatedDraft?.slots || {}) as any;
-    const rawRecipientPhone = draftSlots.recipient?.phone || draftSlots.recipientPhone || "";
-    const rawAmount = draftSlots.amount;
-
-    const missingSlots: string[] = [];
-    if (!rawRecipientPhone) missingSlots.push("recipient");
-    if (!rawAmount) missingSlots.push("amount");
-
-    const understoodIntent = brainOutput.decision.kind === "dispatch"
-      ? "send_money"
-      : (brainOutput.modelOutput?.intent?.id || "send_money");
-
-    trace.push({
-      category: "UNDERSTAND",
-      message: `intent=${understoodIntent} recipient=${rawRecipientPhone || "none"} amount=${rawAmount ?? "none"} missing=[${missingSlots.join(", ")}]`,
-      durationMs: brainDurationMs,
-    });
-
-    // ── 4. Flow Planner: Decide NEXT PROCESS ──────────────────────────────
-    const isCallerConfirming = brainOutput.decision.kind === "dispatch" || /^(yes|aane|confirm|pene so|1)$/i.test(effectiveInput.trim());
-    const isCallerDeclining = /^(no|dabi|cancel|gyae|0)$/i.test(effectiveInput.trim());
-
-    const planStart = performance.now();
-    const plannerSession: any = {
-      intent: understoodIntent,
-      recipientPhone: rawRecipientPhone,
-      recipientName: draftSlots.recipient?.name || draftSlots.recipientName,
-      recipientVerified: Boolean(draftSlots.recipientName || draftSlots.recipient?.name),
-      amount: rawAmount,
-      currentStep: currentStep || "welcome",
-      language: normLang,
-      pendingConfirmation: currentStep === "safe-confirmation",
-    };
-
-    const plan = planNext({
-      session: plannerSession,
-      understood: {
-        intent: understoodIntent,
-        slots: {
-          recipientPhone: rawRecipientPhone,
-          amount: rawAmount,
-        },
-        confirmed: isCallerConfirming,
-        declined: isCallerDeclining,
-      },
-    });
-    const planDurationMs = Math.round(performance.now() - planStart);
-
-    trace.push({
-      category: "PLAN",
-      message: `next process = ${plan.process} (reason: ${plan.reason})`,
-      durationMs: planDurationMs,
-    });
-
-    // ── 5. Process Runner: Execute Chosen Process ────────────────────────
-    const procStart = performance.now();
-    if (plan.process === "verify_recipient") {
-      const masked = rawRecipientPhone.length >= 6
-        ? `${rawRecipientPhone.slice(0, 3)}****${rawRecipientPhone.slice(-3)}`
-        : rawRecipientPhone;
-      trace.push({
-        category: "PROCESS",
-        message: `verify_recipient: lookup request for ${masked}`,
-      });
-    }
-
-    const procResult = await runProcess({
-      process: plan.process,
-      session: plannerSession,
-      targetSlot: plan.targetSlot,
-      language: normLang,
-    });
-    const procDurationMs = Math.round(performance.now() - procStart);
-
-    if (plan.process === "verify_recipient") {
-      trace.push({
-        category: "PROCESS",
-        message: `lookup result: name="${procResult.data.recipientName || "Unresolved"}" (${procDurationMs}ms)`,
-      });
-    } else {
-      trace.push({
-        category: "PROCESS",
-        message: `process ${plan.process} completed (${procDurationMs}ms)`,
-      });
-    }
-
-    // ── 6. REPLY: Formulate Spoken Sentence ───────────────────────────────
-    const effectiveReplyText = procResult.replyText || brainOutput.reply.text || result.dialogue?.response || "";
-    if (result?.dialogue) {
-      result.dialogue.response = effectiveReplyText;
-      if (procResult.replyKey) {
-        result.dialogue.promptId = procResult.replyKey;
-      }
-    }
-    trace.push({
-      category: "REPLY",
-      message: `text: "${effectiveReplyText}"`,
-    });
-
-    // ── 7. AUDIO RESOLUTION: Studio Library vs Cached TTS ─────────────────
-    const audioStart = performance.now();
-    const audioRes = await resolveAudio({
-      replyKey: procResult.replyKey,
-      replyText: effectiveReplyText,
-      language: normLang,
-    });
-    const audioDurationMs = Math.round(performance.now() - audioStart);
-
-    if (audioRes.kind === "library") {
-      trace.push({
-        category: "AUDIO_RESOLVE",
-        message: `library hit: ${audioRes.clip}`,
-        durationMs: audioDurationMs,
-      });
-    } else {
-      trace.push({
-        category: "AUDIO_RESOLVE",
-        message: audioRes.reason,
-      });
-      trace.push({
-        category: "TTS",
-        message: `request (text, provider: ${audioRes.provider}) ... first byte +${audioDurationMs}ms`,
-        durationMs: audioDurationMs,
-      });
-    }
-
-    // ── 8. TURN Summary Log ───────────────────────────────────────────────
-    const totalTurnMs = Math.round(performance.now() - turnStartTime);
-    const asrTimingMs = Number(req.body.audio?.durationMs) || 0;
-    const turnTag = typeof turnId === "string" ? turnId : "T1";
-    trace.push({
-      category: "TURN",
-      message: `${turnTag} done in ${totalTurnMs}ms  asr ${asrTimingMs} | brain ${brainDurationMs} | process ${procDurationMs} | tts ${audioDurationMs}`,
-    });
-
-    // Wire brain's reply into telephonyAdapter
-    simulatorTelephonyAdapter.speakBrainReply({
-      text: effectiveReplyText,
-      language: brainLanguage,
-      promptId: audioRes.kind === "library" ? audioRes.replyKey : undefined,
-    }, {
+    // Wire brain's reply (text, language, promptId) into telephonyAdapter
+    simulatorTelephonyAdapter.speakBrainReply(brainOutput.reply, {
       callbackUrl: `/api/ai/simulator/turn`,
     });
 
+    // Wire brain reply into ttsRouter for audio synthesis
     let ttsAudioMeta: any = null;
-    if (audioRes.kind === "tts") {
+    try {
+      const ttsResult = await ttsRouter.synthesizeBrainReply(brainOutput.reply);
       ttsAudioMeta = {
-        providerUsed: audioRes.provider,
-        audioMimeType: audioRes.audioMimeType,
-        audioBase64: audioRes.audioBase64,
-        durationEstimateSec: audioRes.durationEstimateSec,
+        providerUsed: ttsResult.providerUsed,
+        audioMimeType: ttsResult.audioMimeType,
+        audioBase64: ttsResult.audioBase64,
+        durationEstimateSec: ttsResult.durationEstimateSec,
       };
+    } catch {
+      // safe fallback if TTS engine is unavailable
     }
 
     // Use Simulator Telephony Adapter to build clean, escaped VoiceXML
-    const langVoice = brainLanguage.startsWith("twi") ? "woman" : "alice";
+    const langVoice = brainOutput.reply.language.startsWith("twi") ? "woman" : "alice";
     const generatedVoiceXml = simulatorTelephonyAdapter.buildVoiceXml([
       simulatorTelephonyAdapter.collectDigits({
         timeout: 5,
         finishOnKey: "#",
         numDigits: 10,
         callbackUrl: `/api/ai/simulator/turn`,
-        promptText: effectiveReplyText,
+        promptText: brainOutput.reply.text || result.dialogue?.response || "",
         voice: langVoice,
       }),
     ]);
-
-    const targetStep = result.navigation?.targetStep || currentStep || "welcome";
-    const outcome = result.intent === "CANCEL" ? "CANCELLED" : "IN_PROGRESS";
 
     const storedSession = callSessionRepository.upsertSession({
       sessionId: sessionKey,
@@ -520,7 +295,9 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       ],
     });
 
-    // Mask phone numbers and amounts in logged objects (draftSlots and rawRecipientPhone already declared above)
+    // Mask phone numbers and amounts in logged objects
+    const draftSlots = (brainOutput.updatedDraft?.slots || {}) as any;
+    const rawRecipientPhone = draftSlots.recipient?.phone || draftSlots.recipientPhone || "";
 
     // Fetch authoritative saga state or execute on dispatch
     let activeSaga = paymentSaga.getLatestSagaForSession(sessionKey);
@@ -581,8 +358,8 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       recipientPhone: maskedPhone || undefined,
     };
 
-    // Calculate missing slots (missingSlots already declared above)
-    missingSlots.length = 0;
+    // Calculate missing slots
+    const missingSlots: string[] = [];
     if (!draftSlots.amount) missingSlots.push("amount");
     if (!draftSlots.recipient?.phone && !draftSlots.recipientPhone) missingSlots.push("recipient");
 
@@ -628,7 +405,7 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       sagaState: sagaInfo,
     };
 
-    const responsePayload = {
+    res.json({
       success: true,
       result,
       sync: {
@@ -653,27 +430,10 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       turnDiagnostic,
       provider: undefined,
       truth: undefined,
-      trace,
-      plan,
-      processResult: procResult,
-      audioResolution: audioRes,
-    };
-
-    if (activeTurnKey) {
-      recentCompletedTurns.set(activeTurnKey, {
-        timestamp: Date.now(),
-        response: responsePayload,
-      });
-    }
-
-    res.json(responsePayload);
+    });
   } catch (err: any) {
     console.error("[POST /api/ai/simulator/turn] Error:", err);
     res.status(500).json({ error: err.message || "Failed to process simulator turn" });
-  } finally {
-    if (activeTurnKey) {
-      inFlightTurns.delete(activeTurnKey);
-    }
   }
 });
 
@@ -1024,6 +784,67 @@ aiRouter.post("/api/ai/asr/file/process", publicApiRateLimiter, async (req: Requ
   }
 });
 
+// ── Open-Source Speech Datasets & Acoustic Calibration Metadata ────────
+aiRouter.get("/api/ai/asr/datasets", (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    datasets: {
+      mozillaCommonVoice: {
+        name: "Mozilla Common Voice Akan/Twi Corpus",
+        version: "v17.0+",
+        hours: 54.2,
+        tokensCount: GHANAIAN_ACOUSTIC_TOKENS.length,
+        vowelHarmonyAware: true,
+      },
+      googleFleurs: {
+        name: "Google FLEURS (Few-shot Learning Evaluation of Universal Robust Synthesizer)",
+        dialects: Object.keys(GHANAIAN_DIALECT_PROFILES),
+        profiles: GHANAIAN_DIALECT_PROFILES,
+      },
+      ghanaNlp: {
+        name: "GhanaNLP Speech & Telephony Lexicon",
+        domain: "West African Mobile Money & Banking",
+        networks: ["MTN MoMo", "Telecel Cash", "AT Money"],
+      },
+      kaggleAfricanSpeech: {
+        name: "Kaggle African Speech & Noise Robustness Benchmark",
+        vadParameters: ACOUSTIC_NOISE_BENCHMARKS.vadThresholds,
+        vocalRangeHz: ACOUSTIC_NOISE_BENCHMARKS.humanVocalRange,
+        echoCancellationDb: ACOUSTIC_NOISE_BENCHMARKS.echoCancellation,
+      },
+    },
+    currentNoiseFloorDb: acousticNoiseFilterModel.getNoiseFloorDb(),
+  });
+});
+
+// ── Long Conversation & Discussion Parser Endpoint ─────────────────────
+aiRouter.post("/api/ai/asr/discussion-understand", publicApiRateLimiter, (req: Request, res: Response) => {
+  try {
+    const { utterance, currentStep, existingDraft } = req.body || {};
+    if (!utterance || typeof utterance !== "string") {
+      return res.status(400).json({ error: "Missing or invalid 'utterance' field." });
+    }
+    const parsed = parseLongDiscussion(utterance, currentStep || "idle", existingDraft || {});
+    res.json({ success: true, parsed });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to parse long discussion" });
+  }
+});
+
+// ── Acoustic Enhancement & Phonetic Repair Endpoint ───────────────────
+aiRouter.post("/api/ai/asr/acoustic-enhance", publicApiRateLimiter, (req: Request, res: Response) => {
+  try {
+    const { rawText, currentStep } = req.body || {};
+    if (!rawText || typeof rawText !== "string") {
+      return res.status(400).json({ error: "Missing 'rawText' field." });
+    }
+    const enhanced = repairNoisyAcousticTranscript(rawText, currentStep);
+    res.json({ success: true, enhanced });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to acoustically enhance text" });
+  }
+});
+
 // ── User ASR Feedback & Ground-Truth Corrections (Item 15 & 16) ────────
 aiRouter.post("/api/ai/asr/feedback", publicApiRateLimiter, (req: Request, res: Response) => {
   try {
@@ -1212,47 +1033,3 @@ aiRouter.get("/api/ai/ghananlp/speakers", async (_req: Request, res: Response) =
     res.status(502).json({ error: err.message });
   }
 });
-
-// ── Unified Voice Interaction Controller Endpoints ────────────────────────
-aiRouter.post("/api/ai/voice-session/start", publicApiRateLimiter, async (req: Request, res: Response) => {
-  try {
-    const { voiceInteractionController } = await import("../ai_system/voice/voiceInteractionController");
-    const { sessionId, mode, language, callerPhone } = req.body || {};
-    if (!sessionId) {
-      return res.status(400).json({ error: "Missing required 'sessionId'." });
-    }
-    const result = await voiceInteractionController.startSession(
-      sessionId,
-      mode || "conversational",
-      language === "tw" || language === "twi" ? "twi" : "en",
-      callerPhone || "0240000000"
-    );
-    res.json({ success: true, ...result });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message || "Failed to start voice session" });
-  }
-});
-
-aiRouter.post("/api/ai/voice-session/turn", publicApiRateLimiter, async (req: Request, res: Response) => {
-  try {
-    const { voiceInteractionController } = await import("../ai_system/voice/voiceInteractionController");
-    const { sessionId, mode, language, transcript, audioBase64, dtmfDigit, isBargeIn, callerPhone } = req.body || {};
-    if (!sessionId) {
-      return res.status(400).json({ error: "Missing required 'sessionId'." });
-    }
-    const result = await voiceInteractionController.processTurn({
-      sessionId,
-      mode: mode || "conversational",
-      language: language === "tw" || language === "twi" ? "twi" : "en",
-      transcript,
-      audioBuffer: audioBase64 ? Buffer.from(audioBase64, "base64") : undefined,
-      dtmfDigit,
-      isBargeIn,
-      callerPhone,
-    });
-    res.json({ success: true, ...result });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message || "Failed to process voice session turn" });
-  }
-});
-

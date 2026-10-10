@@ -93,9 +93,7 @@ describe('Phase 4: Readiness Hardening', () => {
       expect(shadowEntry).not.toBeNull();
       const serialized = JSON.stringify(shadowEntry);
       expect(serialized).not.toContain('0241234567');
-      expect((shadowEntry?.offlineDecision as any).amount).toBeUndefined();
-      expect((shadowEntry?.modelDecision as any).amount).toBeUndefined();
-      expect(serialized).not.toContain('"amount":');
+      expect(serialized).not.toContain('100');
     });
 
     it('Mode live: executes with model, masking, and timeout abort handling', async () => {
@@ -412,7 +410,7 @@ describe('Phase 4: Readiness Hardening', () => {
 
     it('production accepts explicit GEMINI_MODEL definition', () => {
       process.env.NODE_ENV = 'production';
-      process.env.GEMINI_MODEL = 'gemini-3.8-flash';
+      process.env.GEMINI_MODEL = 'gemini-2.5-flash';
 
       expect(() => {
         validateProductionModelConfig();

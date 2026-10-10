@@ -145,12 +145,13 @@ function isStandaloneCallerIntent(normalizedText: string): boolean {
   // Single digits or simple digits (e.g. "1", "2", "3", "0", "8", "9", "5", "0553838464")
   if (/^[0-9]+$/.test(normalizedText)) return true;
 
-  // Single word affirmative / navigation / selection commands
+  // Single word or common two-word affirmative / navigation / selection commands
   const callerKeywords = new Set([
     "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
     "aane", "dabi", "yes", "no", "confirm", "cancel", "stop", "back",
     "mtn", "telecel", "airteltigo", "at", "vodafone",
     "balance", "sika", "mane", "send", "transfer", "airtime", "bundle",
+    "send money", "mane sika", "check balance", "my balance", "mobile money", "banking",
     "kwame", "ama", "kofi", "akua", "yaw", "abena", "mensah",
     "yoo", "ampa", "ɛyɛ", "sesa", "tie bio", "san akyi"
   ]);
@@ -163,7 +164,7 @@ function isStandaloneCallerIntent(normalizedText: string): boolean {
   }
 
   // Recipient entry phrases like "send to kwame", "send 50 to ama", "send money to kwame"
-  if (/^(?:send|mane|soma)\s+(?:\d+|sika|to|kɔma)\b/i.test(normalizedText)) {
+  if (/^(?:send|mane|soma)\s+(?:money|\d+|sika|to|kɔma)\b/i.test(normalizedText)) {
     return true;
   }
 

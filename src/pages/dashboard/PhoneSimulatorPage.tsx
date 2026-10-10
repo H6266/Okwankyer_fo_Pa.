@@ -1,33 +1,74 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Phone,
   PhoneOff,
   Mic,
   MicOff,
   Volume2,
-  VolumeX,
-  Radio,
-  Download,
-  Copy,
   Trash2,
-  Pause,
-  Play,
-  ArrowDown,
-  Search,
-  Check,
-  Delete,
-  ExternalLink,
+  ChevronDown,
+  ChevronUp,
+  ShieldCheck,
+  CheckCircle2,
 } from "lucide-react";
-import { usePhoneSimulator } from "../../hooks/usePhoneSimulator";
-import { useSimulatorLog, LogCategory, SimulatorLogEntry } from "../../lib/simulatorLog";
-import { MicTestRow } from "../../components/phone/MicTestRow";
+import { audioPlaybackController } from "../../audio/audioPlaybackController";
+import { isAcousticSystemEcho } from "../../domain/echoFilter";
+import { resolvePrompt } from "../../modules/ttsService";
+import { api } from "../../lib/api";
+import { continuousAudioEngine, ContinuousAudioState } from "../../audio/continuousAudioEngine";
+import { AcousticVisualizer } from "../../components/audio/AcousticVisualizer";
+import { LiveDiscussionMonitor } from "../../components/audio/LiveDiscussionMonitor";
+import { parseLongDiscussion, ParsedDiscussionState } from "../../ai_system/brain/longDiscussionParser";
+import { normalizeSpokenDigits } from "../../ai_system/speech/acousticModels/ghanaAcousticDataset";
 
-interface KeypadButtonDef {
-  digit: string;
-  sub: string;
+interface TerminalLog {
+  id: string;
+  time: string;
+  source: "caller" | "state" | "AI" | "reply" | "audio" | "system";
+  message: string;
 }
 
-const KEYPAD_BUTTONS: KeypadButtonDef[] = [
+interface ParsedVoiceXml {
+  raw: string;
+  redirectUrl?: string;
+  isReject: boolean;
+  httpStatus?: number;
+  guardReason?: string;
+  playUrl?: string;
+  sayText?: string;
+  getDigits?: {
+    callbackUrl?: string;
+    numDigits?: number;
+    finishOnKey?: string;
+    timeout?: number;
+  };
+  record?: {
+    callbackUrl?: string;
+    maxLength?: number;
+    finishOnKey?: string;
+    timeout?: number;
+  };
+}
+
+const STEP_OPTIONS_MAP: Record<string, string> = {
+  "voice-menu": "1=English, 2=Twi, 0=Exit",
+  "language-selection": "1=English, 2=Twi, 0=Exit",
+  "service-select": "1=Mobile Money, 2=Banking, 9=Repeat, 0=Exit",
+  "service-choice": "1=Mobile Money, 2=Banking, 9=Repeat, 0=Exit",
+  "provider-select": "1=MTN, 2=Telecel, 3=AT, 9=Repeat, 0=Exit",
+  "provider-choice": "1=MTN, 2=Telecel, 3=AT, 9=Repeat, 0=Exit",
+  "action-select": "1=Send Money, 2=Check Balance, 8=Back, 9=Repeat, 0=Exit",
+  "action-choice": "1=Send Money, 2=Check Balance, 8=Back, 9=Repeat, 0=Exit",
+  "enter-recipient": "10 Digits followed by #, 0=Exit",
+  "verify-recipient": "10 Digits followed by #, 0=Exit",
+  "recipient-verify-choice": "1=Confirm Recipient, 2=Re-enter, 8=Back, 9=Repeat, 0=Exit",
+  "enter-amount": "Amount followed by # (* for pesewas), 0=Exit",
+  "verify-amount": "Amount followed by #, 0=Exit",
+  "safe-confirmation": "1=Confirm & Authorize, 2=Edit Amount, 9=Repeat, 0=Exit",
+  "safe-outcome": "1=Confirm & Authorize, 0=Cancel",
+};
+
+const KEYPAD_BUTTONS = [
   { digit: "1", sub: "" },
   { digit: "2", sub: "ABC" },
   { digit: "3", sub: "DEF" },
@@ -42,767 +83,1378 @@ const KEYPAD_BUTTONS: KeypadButtonDef[] = [
   { digit: "#", sub: "" },
 ];
 
-const CATEGORY_COLORS: Record<LogCategory, { text: string; bg: string; border: string }> = {
-  KEY: { text: "text-amber-400", bg: "bg-amber-950/40", border: "border-amber-800/40" },
-  AUDIO: { text: "text-purple-400", bg: "bg-purple-950/40", border: "border-purple-800/40" },
-  MIC: { text: "text-emerald-400", bg: "bg-emerald-950/40", border: "border-emerald-800/40" },
-  ASR: { text: "text-cyan-400", bg: "bg-cyan-950/40", border: "border-cyan-800/40" },
-  MATCH: { text: "text-blue-400", bg: "bg-blue-950/40", border: "border-blue-800/40" },
-  UNDERSTAND: { text: "text-violet-400", bg: "bg-violet-950/40", border: "border-violet-800/40" },
-  PLAN: { text: "text-sky-400", bg: "bg-sky-950/40", border: "border-sky-800/40" },
-  PROCESS: { text: "text-lime-400", bg: "bg-lime-950/40", border: "border-lime-800/40" },
-  BRAIN: { text: "text-indigo-400", bg: "bg-indigo-950/40", border: "border-indigo-800/40" },
-  REPLY: { text: "text-fuchsia-400", bg: "bg-fuchsia-950/40", border: "border-fuchsia-800/40" },
-  AUDIO_RESOLVE: { text: "text-orange-400", bg: "bg-orange-950/40", border: "border-orange-800/40" },
-  TTS: { text: "text-pink-400", bg: "bg-pink-950/40", border: "border-pink-800/40" },
-  TURN: { text: "text-yellow-300", bg: "bg-yellow-950/40", border: "border-yellow-800/40" },
-  STEP: { text: "text-teal-400", bg: "bg-teal-950/40", border: "border-teal-800/40" },
-  ERROR: { text: "text-rose-400", bg: "bg-rose-950/40", border: "border-rose-800/40" },
-};
+export const PhoneSimulatorPage: React.FC = () => {
+  // Call session state
+  const [callActive, setCallActive] = useState<boolean>(false);
+  const [callStatus, setCallStatus] = useState<string>("Idle");
+  const [sessionId, setSessionId] = useState<string>("");
+  const [callerNumber] = useState<string>("0543546010");
+  const [language, setLanguage] = useState<"en" | "twi" | null>(null);
+  const [currentPrompt, setCurrentPrompt] = useState<string>("Lift handset or press Call to begin.");
+  const [digitsBuffer, setDigitsBuffer] = useState<string>("");
+  const [callDuration, setCallDuration] = useState<number>(0);
+  const [isMicMuted, setIsMicMuted] = useState<boolean>(false);
+  const [micUnavailable, setMicUnavailable] = useState<boolean>(false);
+  const [clock, setClock] = useState<string>("10:00");
+  const [zeroPinOverlay, setZeroPinOverlay] = useState<boolean>(false);
 
-const ALL_CATEGORIES: LogCategory[] = [
-  "KEY",
-  "AUDIO",
-  "MIC",
-  "ASR",
-  "MATCH",
-  "UNDERSTAND",
-  "PLAN",
-  "PROCESS",
-  "BRAIN",
-  "REPLY",
-  "AUDIO_RESOLVE",
-  "TTS",
-  "TURN",
-  "STEP",
-  "ERROR",
-];
+  // XML / Backend routing state
+  const [activeCallbackUrl, setActiveCallbackUrl] = useState<string | null>(null);
+  const [activeNumDigits, setActiveNumDigits] = useState<number>(1);
+  const [activeFinishOnKey, setActiveFinishOnKey] = useState<string>("#");
+  const [activeStepName, setActiveStepName] = useState<string>("idle");
+  const [rawVoiceXml, setRawVoiceXml] = useState<string>("");
+  const [showDevView, setShowDevView] = useState<boolean>(false);
 
-export function PhoneSimulatorPage() {
-  const {
-    isActive,
-    callDurationSec,
-    currentStep,
-    digitsBuffer,
-    setDigitsBuffer,
-    isMicActive,
-    isAiSpeaking,
-    isLoading,
-    language,
-    setLanguage,
-    startCall,
-    endCall,
-    handleKeypadDigit,
-    toggleMic,
-    aiResponse,
-    transcriptionStatus,
-    aiProcessingDetail,
-    micState,
-    micErrorMessage,
-    asrProviderStatus,
-    asrErrorMessage,
-    vadState,
-  } = usePhoneSimulator();
+  // Continuous Speech & Long Discussion State
+  const [interimTranscript, setInterimTranscript] = useState<string>("");
+  const [finalizedTranscript, setFinalizedTranscript] = useState<string>("");
+  const [parsedDiscussion, setParsedDiscussion] = useState<ParsedDiscussionState | null>(null);
 
-  const { logs, clear, exportText } = useSimulatorLog();
+  // Terminal log
+  const [terminalLogs, setTerminalLogs] = useState<TerminalLog[]>([
+    {
+      id: "init",
+      time: new Date().toTimeString().slice(0, 8),
+      source: "system",
+      message: "Ɔkwankyerɛfo Pa phone simulator initialized. Keypad and terminal active.",
+    },
+  ]);
 
-  // Terminal state
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCategories, setSelectedCategories] = useState<Set<LogCategory>>(
-    () => new Set(ALL_CATEGORIES)
-  );
-  const [isAutoScrollPaused, setIsAutoScrollPaused] = useState(false);
-  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
-  const [copiedSuccess, setCopiedSuccess] = useState(false);
-  const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
-  const [pressedKey, setPressedKey] = useState<string | null>(null);
+  const terminalEndRef = useRef<HTMLDivElement | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const lastUtteranceTimeRef = useRef<number>(0);
+  const lastUtteranceTextRef = useRef<string>("");
+  const silenceCountRef = useRef<number>(0);
 
-  const terminalScrollRef = useRef<HTMLDivElement>(null);
+  // Admin authentication state for hosted preview & production
+  const [adminAuthenticated, setAdminAuthenticated] = useState<boolean>(true);
+  const [adminTokenInput, setAdminTokenInput] = useState<string>("");
+  const [adminConnecting, setAdminConnecting] = useState<boolean>(false);
+  const [adminAuthError, setAdminAuthError] = useState<string>("");
+  const [devHint, setDevHint] = useState<string>("");
 
-  // Format call timer mm:ss
-  const formatTimer = (totalSeconds: number) => {
-    const mins = Math.floor(totalSeconds / 60);
-    const secs = totalSeconds % 60;
-    return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
-  };
+  // Helper to append a single chronological line to the terminal
+  const addLog = useCallback((source: TerminalLog["source"], message: string) => {
+    const time = new Date().toTimeString().slice(0, 8);
+    setTerminalLogs((prev) => [
+      ...prev,
+      {
+        id: `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        time,
+        source,
+        message,
+      },
+    ]);
+  }, []);
 
-  // Handle backspace on digits buffer
-  const handleBackspace = () => {
-    setDigitsBuffer((prev) => prev.slice(0, -1));
-  };
-
-  // Physical keyboard support
+  // Check admin session on mount
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't intercept if user is typing in search input
-      if (
-        document.activeElement?.tagName === "INPUT" ||
-        document.activeElement?.tagName === "TEXTAREA"
-      ) {
+    let cancelled = false;
+    const checkSession = async () => {
+      try {
+        const session = await api.getAdminSession();
+        if (cancelled) return;
+        if (session?.hint) setDevHint(session.hint);
+        if (session && (session as any).enableSimulator === false) {
+          addLog("system", "[Phone Simulator Disabled] Voice sandbox is inactive in this environment.");
+        }
+        if (session?.authenticated) {
+          setAdminAuthenticated(true);
+        } else if (session?.isDev && session?.hint) {
+          try {
+            await api.adminLogin(session.hint);
+            if (!cancelled) setAdminAuthenticated(true);
+          } catch {
+            if (!cancelled) {
+              setAdminAuthenticated(false);
+              addLog("system", "[Phone Simulator Disabled] Voice sandbox is inactive in this environment.");
+            }
+          }
+        } else {
+          const stored = typeof localStorage !== "undefined" ? localStorage.getItem("okw_admin_token") : null;
+          if (stored) {
+            try {
+              await api.adminLogin(stored);
+              if (!cancelled) setAdminAuthenticated(true);
+            } catch {
+              if (!cancelled) {
+                setAdminAuthenticated(false);
+                addLog("system", "[Phone Simulator Disabled] Voice sandbox is inactive in this environment.");
+              }
+            }
+          } else {
+            setAdminAuthenticated(false);
+            addLog("system", "[Phone Simulator Disabled] Voice sandbox is inactive in this environment.");
+          }
+        }
+      } catch (err: any) {
+        console.warn("Simulator session check:", err);
+      }
+    };
+    checkSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [addLog]);
+
+  // Clock timer
+  useEffect(() => {
+    const updateClock = () => {
+      const now = new Date();
+      setClock(now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+    };
+    updateClock();
+    const interval = setInterval(updateClock, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Preload studio audio prompts for instant 0ms playback
+  useEffect(() => {
+    audioPlaybackController.preload([
+      "/audio/Welcome_prompt_01.mp3",
+      "/audio/English/Audio_prompt_02.mp3",
+      "/audio/English/Audio_prompt_03.mp3",
+      "/audio/English/Audio_prompt_04.mp3",
+      "/audio/English/Audio_prompt_06.mp3",
+      "/audio/English/Audio_prompt_07.mp3",
+      "/audio/English/Audio_prompt_09.mp3",
+      "/audio/English/Audio_prompt_10.mp3",
+      "/audio/English/Audio_prompt_11.mp3",
+      "/audio/English/Audio_prompt_12.mp3",
+      "/audio/Twi/Audio_prompt_01.mp3",
+      "/audio/Twi/Audio_prompt_02.mp3",
+      "/audio/Twi/Audio_prompt_03.mp3",
+      "/audio/Twi/Audio_prompt_04.mp3",
+      "/audio/Twi/Audio_prompt_06.mp3",
+      "/audio/Twi/Audio_prompt_07.mp3",
+      "/audio/Twi/Audio_prompt_09.mp3",
+      "/audio/Twi/Audio_prompt_10.mp3",
+      "/audio/Twi/Audio_prompt_11.mp3",
+      "/audio/Twi/Audio_prompt_12.mp3",
+    ]);
+  }, []);
+
+  // Call duration counter
+  useEffect(() => {
+    let timer: any = null;
+    if (callActive) {
+      timer = setInterval(() => {
+        setCallDuration((prev) => prev + 1);
+      }, 1000);
+    } else {
+      setCallDuration(0);
+    }
+    return () => clearInterval(timer);
+  }, [callActive]);
+
+  // Auto-scroll terminal
+  useEffect(() => {
+    terminalEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [terminalLogs]);
+
+  // Audio controller subscription
+  useEffect(() => {
+    const unsubscribe = audioPlaybackController.subscribe((state) => {
+      if (!callActive) return;
+      if (state.isPlaying) {
+        setCallStatus("Speaking");
+      } else if (!isMicMuted && !zeroPinOverlay) {
+        setCallStatus("Listening");
+      }
+    });
+    return () => unsubscribe();
+  }, [callActive, isMicMuted, zeroPinOverlay]);
+
+  // Format MM:SS timer
+  const formatTimer = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  };
+
+  /**
+   * Client-side VoiceXML parser for Africa's Talking XML
+   */
+  const parseVoiceXml = (xml: string): ParsedVoiceXml => {
+    const result: ParsedVoiceXml = {
+      raw: xml,
+      isReject: xml.includes("<Reject/>") || xml.includes("<Reject />"),
+    };
+
+    // <Redirect>url</Redirect>
+    const redirMatch = xml.match(/<Redirect[^>]*>([^<]+)<\/Redirect>/i);
+    if (redirMatch) {
+      result.redirectUrl = redirMatch[1].trim().replace(/&amp;/g, "&");
+    }
+
+    // <GetDigits attributes>
+    const digitsMatch = xml.match(/<GetDigits\s+([^>]+)>/i);
+    if (digitsMatch) {
+      const attrs = digitsMatch[1];
+      const timeout = attrs.match(/timeout=["'](\d+)["']/i);
+      const finishOnKey = attrs.match(/finishOnKey=["']([^"']+)["']/i);
+      const numDigits = attrs.match(/numDigits=["'](\d+)["']/i);
+      const callbackUrl = attrs.match(/callbackUrl=["']([^"']+)["']/i);
+
+      result.getDigits = {
+        timeout: timeout ? parseInt(timeout[1], 10) : undefined,
+        finishOnKey: finishOnKey ? finishOnKey[1] : undefined,
+        numDigits: numDigits ? parseInt(numDigits[1], 10) : undefined,
+        callbackUrl: callbackUrl ? callbackUrl[1].replace(/&amp;/g, "&") : undefined,
+      };
+    }
+
+    // <Play url="..."/> or <Play>...</Play>
+    const playUrlMatch = xml.match(/<Play[^>]*\s+url=["']([^"']+)["'][^>]*>/i);
+    if (playUrlMatch) {
+      result.playUrl = playUrlMatch[1].trim();
+    } else {
+      const playInnerMatch = xml.match(/<Play[^>]*>([^<]+)<\/Play>/i);
+      if (playInnerMatch) {
+        result.playUrl = playInnerMatch[1].trim();
+      }
+    }
+
+    // <Say voice="...">text</Say>
+    const sayMatch = xml.match(/<Say[^>]*>([\s\S]*?)<\/Say>/i);
+    if (sayMatch) {
+      result.sayText = sayMatch[1].trim();
+    }
+
+    // <Record attributes>
+    const recordMatch = xml.match(/<Record\s+([^>]+)>/i);
+    if (recordMatch) {
+      const attrs = recordMatch[1];
+      const timeout = attrs.match(/timeout=["'](\d+)["']/i);
+      const finishOnKey = attrs.match(/finishOnKey=["']([^"']+)["']/i);
+      const maxLength = attrs.match(/maxLength=["'](\d+)["']/i);
+      const callbackUrl = attrs.match(/callbackUrl=["']([^"']+)["']/i);
+      result.record = {
+        timeout: timeout ? parseInt(timeout[1], 10) : undefined,
+        finishOnKey: finishOnKey ? finishOnKey[1] : undefined,
+        maxLength: maxLength ? parseInt(maxLength[1], 10) : undefined,
+        callbackUrl: callbackUrl ? callbackUrl[1].replace(/&amp;/g, "&") : undefined,
+      };
+    }
+
+    return result;
+  };
+
+  /**
+   * Executes the returned Africa's Talking VoiceXML
+   */
+  const executeVoiceXml = useCallback(
+    async (
+      xmlText: string,
+      effectiveUrl: string,
+      meta?: { httpStatus?: number; guardReason?: string }
+    ) => {
+      setRawVoiceXml(xmlText);
+      const parsed = parseVoiceXml(xmlText);
+      if (meta?.httpStatus) parsed.httpStatus = meta.httpStatus;
+      if (meta?.guardReason) parsed.guardReason = meta.guardReason;
+
+      // Extract step name from URL
+      let stepName = "voice-menu";
+      try {
+        const u = new URL(effectiveUrl, window.location.origin);
+        stepName = u.pathname.replace(/^\//, "") || "voice-menu";
+        const langParam = u.searchParams.get("lang");
+        if (langParam === "twi") setLanguage("twi");
+        else if (langParam === "en") setLanguage("en");
+      } catch {
+        // Fallback step name
+        const match = effectiveUrl.match(/\/([a-zA-Z0-9_-]+)(?:\?|$)/);
+        if (match) stepName = match[1];
+      }
+      setActiveStepName(stepName);
+
+      // 1. Follow <Redirect> immediately
+      if (parsed.redirectUrl) {
+        addLog("state", `Redirecting to ${parsed.redirectUrl}`);
+        return dispatchVoiceWebhook(parsed.redirectUrl);
+      }
+
+      // 2. Handle <Reject/>
+      if (parsed.isReject) {
+        audioPlaybackController.stop();
+        if (recognitionRef.current) {
+          try {
+            recognitionRef.current.stop();
+          } catch {}
+        }
+
+        const isPinHandoff =
+          effectiveUrl.includes("safe-outcome") ||
+          (parsed.sayText && parsed.sayText.toLowerCase().includes("momo pin")) ||
+          (parsed.sayText && parsed.sayText.toLowerCase().includes("phone screen"));
+
+        if (isPinHandoff) {
+          setZeroPinOverlay(true);
+          setCallStatus("Ended (PIN Handoff)");
+          setCurrentPrompt("Please check phone screen & enter MoMo PIN.");
+          addLog("state", "Zero-PIN Handoff: Telco USSD push sent to phone screen. Mic muted.");
+        } else {
+          setCallStatus("Ended");
+          setCurrentPrompt("Call ended. Goodbye.");
+
+          // Display specific rejection reason from telephony guard or HTTP status
+          const rejectReasonDesc = parsed.guardReason
+            ? `Call rejected: ${parsed.guardReason} (HTTP ${parsed.httpStatus || 401})`
+            : parsed.httpStatus && parsed.httpStatus !== 200
+            ? `Call rejected with HTTP ${parsed.httpStatus} (<Reject/>)`
+            : "Call rejected: Telephony reject response (<Reject/>)";
+          addLog("state", rejectReasonDesc);
+        }
+
+        setCallActive(false);
+        setActiveCallbackUrl(null);
         return;
       }
 
-      if (/^[0-9*#]$/.test(e.key)) {
-        e.preventDefault();
-        setPressedKey(e.key);
-        setTimeout(() => setPressedKey(null), 150);
-        handleKeypadDigit(e.key);
-      } else if (e.key === "Backspace") {
-        e.preventDefault();
-        handleBackspace();
+      // 3. Configure GetDigits expectations
+      if (parsed.getDigits) {
+        setActiveCallbackUrl(parsed.getDigits.callbackUrl || null);
+        setActiveNumDigits(parsed.getDigits.numDigits || 1);
+        setActiveFinishOnKey(parsed.getDigits.finishOnKey || "#");
       }
-    };
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleKeypadDigit]);
-
-  // Filter logs by search and active category chips
-  const filteredLogs = useMemo(() => {
-    return logs.filter((log) => {
-      if (!selectedCategories.has(log.category)) {
-        return false;
-      }
-      if (searchQuery.trim()) {
-        const query = searchQuery.toLowerCase();
-        const matchesMsg = log.message.toLowerCase().includes(query);
-        const matchesCategory = log.category.toLowerCase().includes(query);
-        const matchesTurn = log.turnId?.toLowerCase().includes(query) || false;
-        if (!matchesMsg && !matchesCategory && !matchesTurn) {
-          return false;
+      // 4. Determine display prompt text
+      let promptText = "";
+      if (parsed.sayText) {
+        promptText = parsed.sayText;
+      } else if (parsed.playUrl) {
+        const filename = parsed.playUrl.split("/").pop() || "";
+        if (filename.includes("Welcome_prompt_01")) {
+          promptText = "Welcome to Ɔkwankyerɛfo Pa. For English press 1, for Twi press 2.";
+        } else if (filename.includes("02")) {
+          promptText = language === "twi" ? "Afei paw wo network." : "Select your service.";
+        } else if (filename.includes("03")) {
+          promptText = language === "twi" ? "Sɛ wopɛ sɛ wosend sika kɔ ma momo user a mia 1." : "Select your network provider.";
+        } else if (filename.includes("04") || filename.includes("05")) {
+          promptText = language === "twi" ? "Afei bɔ nɔmba a wopɛ sɛ wosend sika no kɔ ma no." : "Action menu: Press 1 to send money.";
+        } else if (filename.includes("06")) {
+          promptText = language === "twi" ? "Bɔ nɔma no na fa # ka ho." : "Enter 10-digit recipient phone number followed by #.";
+        } else if (filename.includes("07") || filename.includes("09")) {
+          promptText = language === "twi" ? "Bɔ sika dodow a wopɛ sɛ womane no." : "Enter the amount in Cedis followed by #.";
+        } else if (filename.includes("10")) {
+          promptText = language === "twi" ? "Bammbɔ Nkaebɔ: Sɛ ɛyɛ ampa a mia 1." : "Safe confirmation: Press 1 to confirm transfer.";
+        } else if (filename.includes("11")) {
+          promptText = language === "twi" ? "Wobɔɔ nɔmba a ɛnyɛ pɛpɛɛpɛ." : "Incorrect figure entered. Please listen carefully.";
+        } else {
+          promptText = "Listening for your response...";
         }
       }
-      return true;
-    });
-  }, [logs, selectedCategories, searchQuery]);
+      setCurrentPrompt(promptText);
 
-  // Auto-scroll terminal to bottom unless paused or scrolled up
-  useEffect(() => {
-    if (!isAutoScrollPaused && !isUserScrolledUp && terminalScrollRef.current) {
-      terminalScrollRef.current.scrollTop = terminalScrollRef.current.scrollHeight;
-    }
-  }, [filteredLogs, isAutoScrollPaused, isUserScrolledUp]);
-
-  const handleScroll = () => {
-    if (!terminalScrollRef.current) return;
-    const { scrollTop, scrollHeight, clientHeight } = terminalScrollRef.current;
-    const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
-    setIsUserScrolledUp(!isAtBottom);
-  };
-
-  const scrollToBottom = () => {
-    if (terminalScrollRef.current) {
-      terminalScrollRef.current.scrollTop = terminalScrollRef.current.scrollHeight;
-      setIsUserScrolledUp(false);
-    }
-  };
-
-  const toggleCategoryFilter = (cat: LogCategory) => {
-    setSelectedCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(cat)) {
-        if (next.size > 1) next.delete(cat);
-      } else {
-        next.add(cat);
+      // 5. Log reply text and options
+      if (promptText) {
+        addLog("reply", `"${promptText}"`);
       }
-      return next;
+      const choices = STEP_OPTIONS_MAP[stepName] || "Keypad or Speech";
+      addLog("state", `step=${stepName}, options: [${choices}]`);
+
+      // 6. Audio playback through AudioPlaybackController (asynchronous to eliminate UI lag)
+      if (parsed.playUrl) {
+        addLog("audio", parsed.playUrl);
+        audioPlaybackController.play(parsed.playUrl, promptText).catch(() => {});
+      } else {
+        const keyTag = stepName;
+        addLog("audio", `no audio: ${keyTag}`);
+      }
+    },
+    [addLog, language]
+  );
+
+  /**
+   * Webhook dispatcher to backend
+   */
+  const dispatchVoiceWebhook = useCallback(
+    async (url: string, params: Record<string, string> = {}) => {
+      let targetUrl = url;
+      if (targetUrl.startsWith("http://") || targetUrl.startsWith("https://")) {
+        try {
+          const u = new URL(targetUrl);
+          targetUrl = u.pathname + u.search;
+        } catch {}
+      }
+
+      // Route all telephony requests through the simulator proxy /api/simulator
+      if (!targetUrl.startsWith("/api/simulator")) {
+        targetUrl = `/api/simulator${targetUrl.startsWith("/") ? "" : "/"}${targetUrl}`;
+      }
+
+      const bodyParams = new URLSearchParams();
+      const combinedParams: Record<string, string> = {
+        sessionId: sessionId || `call_${Date.now()}`,
+        callerNumber,
+        phoneNumber: callerNumber,
+        isActive: "1",
+        direction: "Inbound",
+        ...params,
+      };
+
+      for (const [k, v] of Object.entries(combinedParams)) {
+        if (v !== undefined && v !== null) {
+          bodyParams.set(k, String(v));
+        }
+      }
+
+      const headers: Record<string, string> = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/xml, text/xml, */*",
+      };
+      const token = typeof localStorage !== "undefined" ? localStorage.getItem("okw_admin_token") : null;
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      try {
+        const res = await fetch(targetUrl, {
+          method: "POST",
+          headers,
+          credentials: "include",
+          body: bodyParams.toString(),
+        });
+        const guardReason = res.headers.get("x-telephony-guard-reason") || undefined;
+        const aiDecisionType = res.headers.get("x-ai-decision-type");
+        const aiDecisionReason = res.headers.get("x-ai-decision-reason");
+        const aiReplyText = res.headers.get("x-ai-reply-text");
+        const aiReplyKey = res.headers.get("x-ai-reply-key");
+
+        if (aiDecisionType) {
+          addLog(
+            "AI",
+            `[AI Decision] type=${aiDecisionType} reason="${aiDecisionReason || ""}" reply="${aiReplyText || ""}"`
+          );
+          if (aiReplyKey) {
+            const clip = resolvePrompt(aiReplyKey, language || "en");
+            if (!clip) {
+              addLog("audio", `no audio: ${aiReplyKey}`);
+            }
+          }
+        }
+
+        const text = await res.text();
+        if (text.includes("<Response>") || text.includes("<Reject")) {
+          await executeVoiceXml(text, targetUrl, { httpStatus: res.status, guardReason });
+        } else if (!res.ok) {
+          if (res.status === 404 && targetUrl.includes("/api/simulator")) {
+            if (adminAuthenticated || Boolean(token)) {
+              addLog("system", "Simulator disabled on this server (ENABLE_SIMULATOR is not true)");
+            } else {
+              addLog("system", "[Phone Simulator Disabled] Voice sandbox is inactive in this environment.");
+            }
+          } else if (res.status === 401 || res.status === 403) {
+            addLog("system", "[Phone Simulator Disabled] Voice sandbox is inactive in this environment.");
+          }
+          let errorMsg = `HTTP ${res.status}`;
+          try {
+            const json = JSON.parse(text);
+            if (json.error) errorMsg += `: ${json.error}`;
+          } catch {
+            if (text) errorMsg += `: ${text.slice(0, 100)}`;
+          }
+          if (res.status === 401) {
+            setAdminAuthenticated(false);
+          }
+          const rejectReasonDesc = guardReason
+            ? `Call rejected: ${guardReason} (HTTP ${res.status})`
+            : `Call rejected: ${errorMsg}`;
+          addLog("state", rejectReasonDesc);
+          setCallStatus("Ended");
+          setCurrentPrompt("Call ended. Lift handset or press Call to begin.");
+          setCallActive(false);
+          audioPlaybackController.stop();
+        } else {
+          await executeVoiceXml(text, targetUrl, { httpStatus: res.status, guardReason });
+        }
+      } catch (err: any) {
+        addLog("system", `Backend network error: ${err.message}`);
+        setCallStatus("Error");
+      }
+    },
+    [callerNumber, executeVoiceXml, sessionId, addLog]
+  );
+
+  /**
+   * Start inbound call with 0ms instant preloaded audio start
+   */
+  const startCall = useCallback(async () => {
+    const newSession = `AT_CALL_${Date.now()}`;
+    setSessionId(newSession);
+    setCallActive(true);
+    setCallStatus("Connected");
+    setLanguage(null);
+    setDigitsBuffer("");
+    setZeroPinOverlay(false);
+
+    addLog("system", `Call initiated. Session ID: ${newSession}`);
+    addLog("state", "Connecting to phone simulator (/api/simulator/voice-menu)...");
+
+    // Launch Always-On Continuous Audio Engine & Web Speech
+    continuousAudioEngine.startAlwaysOnMic(language || "en", "voice-menu");
+    continuousAudioEngine.resetDiscussionBuffer();
+    setInterimTranscript("");
+    setFinalizedTranscript("");
+    setParsedDiscussion(null);
+
+    // Initial step expectations for instant 0ms speech & DTMF readiness
+    setActiveStepName("voice-menu");
+    setActiveCallbackUrl(`/api/simulator/language-selection?sessionId=${newSession}`);
+    setActiveNumDigits(1);
+    setActiveFinishOnKey("#");
+
+    // Instant preloaded audio start (0ms latency - nothing slows it down)
+    const welcomeUrl = "/audio/Welcome_prompt_01.mp3";
+    const welcomePromptText = "Welcome to Ɔkwankyerɛfo Pa. For English press 1, for Twi press 2.";
+    setCurrentPrompt(welcomePromptText);
+    addLog("reply", `"${welcomePromptText}"`);
+    addLog("audio", welcomeUrl);
+    addLog("state", "step=voice-menu, options: [1=English, 2=Twi, 0=Exit]");
+    audioPlaybackController.play(welcomeUrl, welcomePromptText).catch(() => {});
+
+    if (!micUnavailable) {
+      startSpeechRecognition();
+    }
+
+    await dispatchVoiceWebhook("/api/simulator/voice-menu", { sessionId: newSession });
+  }, [dispatchVoiceWebhook, language, micUnavailable, addLog]);
+
+  /**
+   * Hang up the call
+   */
+  const endCall = useCallback(
+    async (reason = "User hung up") => {
+      setCallActive(false);
+      setCallStatus("Ended");
+      setCurrentPrompt("Call ended. Lift handset or press Call to begin.");
+      setDigitsBuffer("");
+      setZeroPinOverlay(false);
+      setActiveCallbackUrl(null);
+
+      audioPlaybackController.stop();
+
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch {}
+      }
+
+      addLog("caller", `Hangup: ${reason}`);
+      addLog("system", "Call ended. Audio and microphone stopped.");
+
+      // Notify backend if session active
+      if (sessionId) {
+        const endHeaders: Record<string, string> = { "Content-Type": "application/x-www-form-urlencoded" };
+        const token = typeof localStorage !== "undefined" ? localStorage.getItem("okw_admin_token") : null;
+        if (token) endHeaders["Authorization"] = `Bearer ${token}`;
+        fetch("/api/simulator/voice-menu", {
+          method: "POST",
+          headers: endHeaders,
+          credentials: "include",
+          body: new URLSearchParams({
+            sessionId,
+            callerNumber,
+            isActive: "0",
+          }).toString(),
+        }).catch(() => {});
+      }
+    },
+    [callerNumber, sessionId, addLog]
+  );
+
+  /**
+   * Shortcut handler for one-click completion from long discussions
+   */
+  const handleApplyShortcut = useCallback(
+    async (shortcutStep: string, slots: ParsedDiscussionState["slots"]) => {
+      if (!sessionId) return;
+      addLog("state", `Applying discussion shortcut to ${shortcutStep}...`);
+      try {
+        if (slots.recipientPhone) {
+          await fetch(`/api/simulator/verify-recipient?sessionId=${sessionId}&lang=${language || "en"}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ dtmfDigits: slots.recipientPhone + "#" }),
+          });
+        }
+        if (slots.amount) {
+          await fetch(`/api/simulator/enter-amount?sessionId=${sessionId}&lang=${language || "en"}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ dtmfDigits: String(slots.amount) + "#" }),
+          });
+        }
+        dispatchVoiceWebhook(`/api/simulator/${shortcutStep}?sessionId=${sessionId}&lang=${language || "en"}`);
+      } catch (err: any) {
+        addLog("system", `Shortcut application error: ${err.message}`);
+      }
+    },
+    [dispatchVoiceWebhook, language, sessionId, addLog]
+  );
+
+  /**
+   * Fast path + Brain path for spoken utterances with Long-Discussion Support
+   */
+  const processSpokenUtterance = useCallback(
+    async (utterance: string, parsedDiscussion?: ParsedDiscussionState) => {
+      if (!callActive || !activeCallbackUrl || zeroPinOverlay) return;
+
+      const clean = normalizeSpokenDigits(utterance.trim());
+      if (!clean) return;
+
+      // Echo filter check
+      if (isAcousticSystemEcho(clean, currentPrompt, audioPlaybackController.isSpeaking())) {
+        return;
+      }
+
+      // Debounce duplicate recognition events (fast 350ms threshold)
+      const now = Date.now();
+      if (clean === lastUtteranceTextRef.current && now - lastUtteranceTimeRef.current < 350) {
+        return;
+      }
+      lastUtteranceTextRef.current = clean;
+      lastUtteranceTimeRef.current = now;
+
+      addLog("caller", `Speech "${clean}"`);
+
+      // ── Long discussion fast-track support ──
+      const discussion = parsedDiscussion || parseLongDiscussion(clean, activeStepName);
+      if (
+        discussion.shortcutSuggestedStep === "safe-confirmation" &&
+        discussion.slots.recipientPhone &&
+        discussion.slots.amount
+      ) {
+        addLog(
+          "AI",
+          `Long discussion detected: Transfer ${discussion.slots.amount} GHS to ${
+            discussion.slots.recipientName || discussion.slots.recipientPhone
+          }`
+        );
+        try {
+          await fetch(`/api/simulator/verify-recipient?sessionId=${sessionId}&lang=${language || "en"}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ dtmfDigits: discussion.slots.recipientPhone + "#" }),
+          });
+          await fetch(`/api/simulator/enter-amount?sessionId=${sessionId}&lang=${language || "en"}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ dtmfDigits: String(discussion.slots.amount) + "#" }),
+          });
+          return dispatchVoiceWebhook(
+            `/api/simulator/safe-confirmation?sessionId=${sessionId}&lang=${language || "en"}`
+          );
+        } catch {}
+      }
+
+      if (activeStepName.includes("recipient") && discussion.slots.recipientPhone) {
+        addLog("AI", `Spoken recipient phone detected: ${discussion.slots.recipientPhone}`);
+        return dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: discussion.slots.recipientPhone + "#" });
+      }
+
+      if (activeStepName.includes("amount") && discussion.slots.amount) {
+        addLog("AI", `Spoken amount detected: ${discussion.slots.amount} Cedis`);
+        return dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: String(discussion.slots.amount) + "#" });
+      }
+
+      // ── Fast path: direct match against current step's expected digits ──
+      const lower = clean.toLowerCase();
+      let matchedDtmf: string | null = null;
+
+      // Language selection & Welcome Menu
+      if (
+        activeStepName.includes("welcome") ||
+        activeStepName.includes("language") ||
+        activeStepName.includes("voice-menu") ||
+        activeStepName === "voice-menu"
+      ) {
+        if (/^(1|one|won|wan|english|baako|bako)$/i.test(lower)) matchedDtmf = "1";
+        else if (/^(2|two|tu|twi|akan|mmienu|mienu)$/i.test(lower)) matchedDtmf = "2";
+      }
+      // Service selection
+      else if (activeStepName.includes("service")) {
+        if (/^(1|one|momo|mobile money|telecom|baako)$/i.test(lower)) matchedDtmf = "1";
+        else if (/^(2|two|bank|banking|sikakorabea|mmienu)$/i.test(lower)) matchedDtmf = "2";
+      }
+      // Provider selection
+      else if (activeStepName.includes("provider")) {
+        if (/^(1|one|mtn|baako)$/i.test(lower)) matchedDtmf = "1";
+        else if (/^(2|two|telecel|vodafone|voda|mmienu)$/i.test(lower)) matchedDtmf = "2";
+        else if (/^(3|three|airteltigo|at|mmiɛnsa)$/i.test(lower)) matchedDtmf = "3";
+      }
+      // Action menu
+      else if (activeStepName.includes("action")) {
+        if (/^(1|one|send|send money|transfer|baako|mane)$/i.test(lower)) matchedDtmf = "1";
+        else if (/^(2|two|balance|check balance|my balance|mmienu)$/i.test(lower)) matchedDtmf = "2";
+      }
+      // Affirmative / Negative confirmations
+      else if (activeStepName.includes("confirm") || activeStepName.includes("verify-choice")) {
+        if (/^(1|one|yes|confirm|aane|pene so|yie|ampa|proceed|baako)$/i.test(lower)) matchedDtmf = "1";
+        else if (/^(2|two|no|dabi|sesa|change|cancel|mmienu)$/i.test(lower)) matchedDtmf = "2";
+      }
+
+      // Universal navigation
+      if (!matchedDtmf) {
+        if (/^(back|go back|previous|san|san akyi)$/i.test(lower)) matchedDtmf = "8";
+        else if (/^(repeat|again|say again|tie bio)$/i.test(lower)) matchedDtmf = "9";
+        else if (/^(cancel|stop|abort|quit|exit|gyae|hwee)$/i.test(lower)) matchedDtmf = "0";
+        else if (activeNumDigits === 1 && /^[0-9]$/.test(lower)) matchedDtmf = lower;
+      }
+
+      if (matchedDtmf) {
+        addLog("AI", `dtmf=${matchedDtmf} (fast path mapped from "${clean}")`);
+        return dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: matchedDtmf });
+      }
+
+      // ── Brain path: POST /api/ivr/understand ───────────────────────────
+      try {
+        const brainRes = await fetch("/api/ivr/understand", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            utterance: clean,
+            currentStep: activeStepName,
+            callState: { lang: language, sessionId },
+            sessionId,
+          }),
+        });
+
+        if (!brainRes.ok) {
+          throw new Error(`Brain response status ${brainRes.status}`);
+        }
+
+        const decision = await brainRes.json();
+
+        if (decision.type === "dtmf") {
+          addLog("AI", `dtmf=${decision.dtmf} (${decision.reason || "brain resolved option"})`);
+          return dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: decision.dtmf });
+        }
+
+        if (decision.type === "skip") {
+          const slotsDesc = Object.entries(decision.slots || {})
+            .map(([k, v]) => `${k}=${v}`)
+            .join(", ");
+          addLog("AI", `skip to ${decision.targetStep} (${slotsDesc})`);
+
+          // Follow target step directly on backend
+          const targetUrl = `/${decision.targetStep}?sessionId=${sessionId}&lang=${language || "en"}`;
+          return dispatchVoiceWebhook(targetUrl);
+        }
+
+        if (decision.type === "clarify") {
+          addLog("AI", `clarify (${decision.action || "repeat"}) - "${decision.replyText || "repeating"}"`);
+          if (decision.promptAudio) {
+            addLog("audio", decision.promptAudio);
+            await audioPlaybackController.play(decision.promptAudio, decision.replyText);
+          } else {
+            addLog("audio", "no audio: clarify_say");
+          }
+          return;
+        }
+
+        // Unknown: fallback to prompt 11 once
+        addLog("AI", "unknown (unmatched speech) -> playing prompt 11");
+        const prompt11Url = resolvePrompt("wrong_figure", language || "en");
+        if (prompt11Url) {
+          addLog("audio", prompt11Url);
+          await audioPlaybackController.play(prompt11Url, decision.promptText || "Incorrect figure");
+        } else {
+          addLog("audio", "no audio: wrong_figure");
+        }
+      } catch (err: any) {
+        addLog("system", `Cognitive brain error: ${err.message}`);
+      }
+    },
+    [
+      activeCallbackUrl,
+      activeStepName,
+      callActive,
+      currentPrompt,
+      dispatchVoiceWebhook,
+      language,
+      sessionId,
+      zeroPinOverlay,
+      addLog,
+    ]
+  );
+
+  // Continuous Audio Engine subscriptions (always-on state, utterances, and discussion updates)
+  useEffect(() => {
+    const unsubState = continuousAudioEngine.subscribeState((audioState) => {
+      if (audioState.currentInterimTranscript) {
+        setInterimTranscript(audioState.currentInterimTranscript);
+      }
+      if (audioState.finalizedTranscript) {
+        setFinalizedTranscript(audioState.finalizedTranscript);
+      }
+      if (audioState.lastParsedDiscussion) {
+        setParsedDiscussion(audioState.lastParsedDiscussion);
+      }
     });
-  };
 
-  const selectAllCategories = () => {
-    setSelectedCategories(new Set(ALL_CATEGORIES));
-  };
+    const unsubUtterance = continuousAudioEngine.subscribeUtterance((utterance, parsed) => {
+      if (callActive && !isMicMuted && !zeroPinOverlay) {
+        processSpokenUtterance(utterance, parsed);
+      }
+    });
 
-  const handleCopyLogs = async () => {
+    return () => {
+      unsubState();
+      unsubUtterance();
+    };
+  }, [callActive, isMicMuted, zeroPinOverlay, processSpokenUtterance]);
+
+  // Keep continuous audio engine context synced with current step and language
+  useEffect(() => {
+    continuousAudioEngine.setContext(activeStepName, (language as "en" | "twi") || "en");
+  }, [activeStepName, language]);
+
+  /**
+   * Keypad digit handler
+   */
+  const handleKeypadPress = useCallback(
+    (digit: string) => {
+      // Barge-in: immediate playback stop
+      audioPlaybackController.stop();
+
+      // If call is inactive, pressing 1 or 2 dials in that language
+      if (!callActive) {
+        startCall();
+        return;
+      }
+
+      if (!activeCallbackUrl || zeroPinOverlay) return;
+
+      // ── Single-digit expectation (menu selection) ──
+      if (activeNumDigits === 1) {
+        setDigitsBuffer("");
+        addLog("caller", `Keypad '${digit}'`);
+        dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: digit });
+        return;
+      }
+
+      // ── Multi-digit input (Recipient phone or Amount) ──
+      // Finish on key (#)
+      if (digit === activeFinishOnKey) {
+        if (digitsBuffer.trim()) {
+          const submitted = digitsBuffer.trim();
+          setDigitsBuffer("");
+          addLog("caller", `Keypad '${submitted}#'`);
+          dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: submitted });
+        }
+        return;
+      }
+
+      const nextBuf = digitsBuffer + digit;
+      setDigitsBuffer(nextBuf);
+
+      // Only auto-submit if finishOnKey is not set and buffer reaches activeNumDigits
+      if (!activeFinishOnKey && nextBuf.length >= activeNumDigits) {
+        setDigitsBuffer("");
+        addLog("caller", `Keypad '${nextBuf}'`);
+        dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: nextBuf });
+      }
+    },
+    [
+      activeCallbackUrl,
+      activeFinishOnKey,
+      activeNumDigits,
+      activeStepName,
+      callActive,
+      digitsBuffer,
+      dispatchVoiceWebhook,
+      startCall,
+      zeroPinOverlay,
+      addLog,
+    ]
+  );
+
+  /**
+   * Browser Speech Recognition Setup
+   */
+  const startSpeechRecognition = useCallback(() => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setMicUnavailable(true);
+      addLog("system", "Speech recognition unavailable in this browser. Keypad remains fully active.");
+      return;
+    }
+
     try {
-      await navigator.clipboard.writeText(exportText());
-      setCopiedSuccess(true);
-      setTimeout(() => setCopiedSuccess(false), 2000);
-    } catch {
-      // Fallback
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+      }
+
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = language === "twi" ? "ak-GH" : "en-US";
+
+      recognition.onstart = () => {
+        if (!zeroPinOverlay && !isMicMuted) {
+          setCallStatus("Listening");
+        }
+      };
+
+      recognition.onresult = (event: any) => {
+        if (isMicMuted || zeroPinOverlay) return; // Strict Zero-PIN muting
+
+        let interim = "";
+        let final = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const res = event.results[i];
+          const transcriptChunk = res[0]?.transcript || "";
+          if (res.isFinal) {
+            final += " " + transcriptChunk;
+          } else {
+            interim += " " + transcriptChunk;
+          }
+        }
+
+        interim = interim.trim();
+        final = final.trim();
+
+        if (interim) {
+          // Immediate barge-in: stop system audio on speech start
+          audioPlaybackController.stop();
+
+          // Phonetically normalize spoken digits so "one" writes "1" and processes "1"
+          const normalizedInterim = normalizeSpokenDigits(interim);
+          setInterimTranscript(normalizedInterim);
+
+          // Instant early dispatch on unambiguous interim commands (0ms latency, eliminates silence wait)
+          const lowerInterim = normalizedInterim.toLowerCase().trim();
+          const isInstantCmd = /^(?:[0-9]|one|won|wan|two|too|three|tree|four|five|six|seven|eight|nine|zero|english|twi|akan|baako|mmienu|mmiɛnsa|send money|mane sika|confirm|pene so|yes|aane|no|dabi|cancel|back|repeat)$/i.test(lowerInterim);
+          const now = Date.now();
+          if (isInstantCmd && now - lastUtteranceTimeRef.current > 250) {
+            lastUtteranceTimeRef.current = now;
+            setInterimTranscript("");
+            setFinalizedTranscript(normalizedInterim);
+            silenceCountRef.current = 0;
+            processSpokenUtterance(normalizedInterim);
+            return;
+          }
+        }
+
+        // Final result: dispatch turn with numeral normalization
+        if (final) {
+          audioPlaybackController.stop();
+          const normalizedFinal = normalizeSpokenDigits(final);
+          setInterimTranscript("");
+          setFinalizedTranscript(normalizedFinal);
+          silenceCountRef.current = 0;
+          processSpokenUtterance(normalizedFinal);
+        }
+      };
+
+      recognition.onerror = (e: any) => {
+        if (e.error === "not-allowed" || e.error === "permission-denied") {
+          setMicUnavailable(true);
+          setCallStatus("Mic Denied");
+          addLog("system", "Microphone access denied. Telephone keypad remains fully operational.");
+        } else if (e.error === "no-speech") {
+          // Continuous Always-On Listening: normal pause between sentences, keep mic alive!
+          silenceCountRef.current = 0;
+        }
+      };
+
+      recognition.onend = () => {
+        // Automatically restart speech recognition while call is alive and unmuted
+        if (callActive && !isMicMuted && !zeroPinOverlay) {
+          try {
+            recognition.start();
+          } catch {}
+        }
+      };
+
+      recognition.start();
+      recognitionRef.current = recognition;
+    } catch (e: any) {
+      setMicUnavailable(true);
+      addLog("system", `Mic initialization warning: ${e.message}`);
+    }
+  }, [addLog, callActive, isMicMuted, language, processSpokenUtterance, zeroPinOverlay]);
+
+  // Synchronize active step and language with Continuous Audio Engine
+  useEffect(() => {
+    continuousAudioEngine.setContext(activeStepName, language || "en");
+    continuousAudioEngine.setZeroPinMuted(zeroPinOverlay || isMicMuted);
+  }, [activeStepName, language, zeroPinOverlay, isMicMuted]);
+
+  // Subscribe to Continuous Audio Engine state and transcripts
+  useEffect(() => {
+    const unsubState = continuousAudioEngine.subscribeState((cState) => {
+      setInterimTranscript(cState.currentInterimTranscript);
+      if (cState.finalizedTranscript) {
+        setFinalizedTranscript(cState.finalizedTranscript);
+      }
+      if (cState.lastParsedDiscussion) {
+        setParsedDiscussion(cState.lastParsedDiscussion);
+      }
+    });
+
+    const unsubUtterance = continuousAudioEngine.subscribeUtterance((utterance, disc) => {
+      processSpokenUtterance(utterance, disc);
+    });
+
+    return () => {
+      unsubState();
+      unsubUtterance();
+    };
+  }, [processSpokenUtterance]);
+
+  // Physical keyboard listeners for telephone keypad
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (["INPUT", "TEXTAREA"].includes((e.target as HTMLElement).tagName)) return;
+      const key = e.key;
+      if (/^[0-9]$/.test(key) || key === "#" || key === "*") {
+        e.preventDefault();
+        handleKeypadPress(key);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleKeypadPress]);
+
+  // Mic toggle handler
+  const toggleMic = () => {
+    const nextState = !isMicMuted;
+    setIsMicMuted(nextState);
+    continuousAudioEngine.setZeroPinMuted(nextState);
+    if (nextState) {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch {}
+      }
+      addLog("caller", "Microphone muted (user override).");
+    } else {
+      continuousAudioEngine.startAlwaysOnMic(language || "en", activeStepName);
+      startSpeechRecognition();
+      addLog("caller", "Microphone unmuted (always-on active).");
     }
   };
 
-  const handleDownloadLogs = () => {
-    const text = exportText();
-    const blob = new Blob([text], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `call_log_${Date.now()}.log`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  // Derive status strip indicators
-  const speakerStatus = isAiSpeaking
-    ? { color: "bg-emerald-500", text: "Playing" }
-    : { color: "bg-slate-400", text: "Silent" };
-
-  const micStatus = (() => {
-    if (micErrorMessage || micState === "MIC_UNAVAILABLE") {
-      return { color: "bg-rose-500", text: "Error" };
-    }
-    if (micState === "MIC_STARTING") {
-      return { color: "bg-amber-400 animate-pulse", text: "Starting" };
-    }
-    if (micState === "MIC_MUTED") {
-      return { color: "bg-rose-500", text: "Muted" };
-    }
-    if (transcriptionStatus === "PROCESSING") {
-      return { color: "bg-amber-500", text: "Processing" };
-    }
-    if (vadState === "SPEECH") {
-      return { color: "bg-emerald-400 animate-pulse", text: "Hearing speech" };
-    }
-    if (isMicActive) {
-      return { color: "bg-emerald-500", text: "Listening" };
-    }
-    return { color: "bg-slate-400", text: "Off" };
-  })();
-
-  const networkStatus = isLoading
-    ? { color: "bg-amber-400 animate-pulse", text: "In flight" }
-    : { color: "bg-emerald-500", text: "Idle" };
-
-  const isInIframe = useMemo(() => {
+  const handleAdminLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminTokenInput.trim()) return;
+    setAdminConnecting(true);
+    setAdminAuthError("");
     try {
-      return typeof window !== "undefined" && window.self !== window.top;
-    } catch {
-      return true;
+      await api.adminLogin(adminTokenInput.trim());
+      setAdminAuthenticated(true);
+      setAdminTokenInput("");
+      addLog("system", "Administrator authentication established. Simulator ready.");
+    } catch (err: any) {
+      setAdminAuthError(err.message || "Admin login failed.");
+    } finally {
+      setAdminConnecting(false);
     }
-  }, []);
+  };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] w-full overflow-hidden bg-slate-900 text-slate-100 font-sans">
-      {/* ─────────────────────────────────────────────────────────── */}
-      {/* TOP BANNER: IFRAME PERMISSIONS WARNING                      */}
-      {/* ─────────────────────────────────────────────────────────── */}
-      {isInIframe && (
-        <div
-          data-testid="iframe-mic-banner"
-          className="w-full bg-amber-950 border-b border-amber-600/80 px-4 py-2.5 flex items-center justify-between gap-3 text-amber-200 text-xs font-medium z-30 shadow-md"
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-amber-400 text-base">⚠️</span>
-            <span>
-              Microphone is blocked inside an embedded preview. Open this page in its own tab.
-            </span>
+    <div className="w-full max-w-7xl mx-auto px-4 py-6">
+      {/* Admin Authentication Banner for Preview/Production Mode */}
+      {!adminAuthenticated && (
+        <div className="mb-6 p-4 rounded-xl border border-amber-500/30 bg-amber-950/20 text-amber-200">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div>
+              <div className="font-bold text-xs flex items-center gap-2 text-amber-300">
+                <ShieldCheck className="w-4 h-4 text-amber-400" />
+                Administrator Authentication Required
+              </div>
+              <p className="text-[11px] text-amber-200/80 mt-0.5">
+                The phone simulator routes (/api/simulator/*) require admin authentication in production preview mode.
+              </p>
+            </div>
+            <form onSubmit={handleAdminLoginSubmit} className="flex items-center gap-2 w-full sm:w-auto">
+              <input
+                type="password"
+                placeholder="ADMIN_TOKEN..."
+                value={adminTokenInput}
+                onChange={(e) => setAdminTokenInput(e.target.value)}
+                className="px-3 py-1.5 text-xs bg-slate-900 border border-slate-700 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono w-full sm:w-56"
+              />
+              <button
+                type="submit"
+                disabled={adminConnecting || !adminTokenInput.trim()}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold disabled:opacity-40 whitespace-nowrap min-h-[32px]"
+              >
+                {adminConnecting ? "Authenticating..." : "Connect"}
+              </button>
+            </form>
           </div>
-          <a
-            href={typeof window !== "undefined" && window.location?.href ? window.location.href : "/dashboard/phone"}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold transition-colors shadow-sm"
-          >
-            <span>Open in new tab</span>
-            <ExternalLink size={13} />
-          </a>
+          {devHint && (
+            <div className="mt-2 text-[10px] text-slate-400 flex items-center gap-2">
+              <span>Dev hint:</span>
+              <button
+                type="button"
+                onClick={() => setAdminTokenInput(devHint)}
+                className="text-emerald-400 hover:underline font-mono"
+              >
+                {devHint}
+              </button>
+            </div>
+          )}
+          {adminAuthError && (
+            <div className="mt-2 text-[11px] text-rose-400 font-semibold">{adminAuthError}</div>
+          )}
         </div>
       )}
 
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-        {/* ─────────────────────────────────────────────────────────── */}
-        {/* LEFT PANEL: THE TRADITIONAL HANDSET PHONE                  */}
-        {/* ─────────────────────────────────────────────────────────── */}
-        <div
-          data-testid="phone-handset-panel"
-          className="w-full lg:w-[420px] flex-shrink-0 bg-slate-900 border-r border-slate-800 flex flex-col items-center justify-start p-4 lg:p-6 overflow-y-auto"
-        >
-          {/* Diagnostic Mic Test Row (behind VOICE_DEBUG) */}
-          <div className="w-[340px] mb-2">
-            <MicTestRow />
-          </div>
+      {/* Handset + Terminal side-by-side (stacks at phone width) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        {/* LEFT COLUMN: Traditional Phone Handset */}
+        <div className="lg:col-span-5 flex justify-center">
+          <div className="w-full max-w-[340px] bg-slate-900 border-2 border-emerald-600 rounded-[32px] p-4 shadow-xl text-slate-100 flex flex-col items-center">
+            {/* Top Earpiece Slit */}
+            <div className="w-16 h-1.5 bg-slate-700 rounded-full mb-3" />
 
-          {/* Handset Outer Body Chassis */}
-          <div className="w-[340px] bg-slate-950 rounded-[44px] p-4 border-4 border-slate-800 shadow-2xl flex flex-col items-center relative transition-all">
-            {/* Top Speaker / Ear Piece Grill */}
-            <div className="w-16 h-1.5 bg-slate-700 rounded-full mb-3 shadow-inner" />
-
-            {/* Handset OLED Screen */}
-            <div className="w-full bg-slate-900 border border-slate-700/80 rounded-2xl p-3 flex flex-col min-h-[190px] shadow-inner mb-3 relative overflow-hidden">
-              {/* Top Bar: Call Status & Timer */}
-              <div className="flex items-center justify-between text-xs text-slate-300 font-mono pb-1.5 border-b border-slate-800">
-                <div className="flex items-center gap-1.5">
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      isActive ? "bg-emerald-500 animate-pulse" : "bg-slate-500"
-                    }`}
-                  />
-                  <span className="font-semibold uppercase tracking-wide">
-                    {isActive ? "Connected" : "Idle"}
-                  </span>
-                </div>
-                <span className="font-mono text-emerald-400 font-bold">
-                  {isActive ? formatTimer(callDurationSec) : "00:00"}
+            {/* Handset Display Screen */}
+            <div className="w-full bg-slate-950 border border-emerald-500/40 rounded-xl p-3 flex flex-col justify-between min-h-[160px] text-emerald-400 font-mono shadow-inner relative">
+              {/* Top Status Header */}
+              <div className="flex items-center justify-between text-[11px] text-emerald-300 border-b border-emerald-500/20 pb-1 mb-1">
+                <span className="font-semibold tracking-wide">MTN GH</span>
+                <span>{clock}</span>
+                <span>{callActive ? formatTimer(callDuration) : "00:00"}</span>
+                <span className="bg-emerald-950/80 px-1 rounded border border-emerald-600/30">
+                  {language ? language.toUpperCase() : "—"}
                 </span>
               </div>
 
-              {/* Prompt Text / Current Step Area */}
-              <div className="flex-1 py-1.5 flex flex-col justify-center">
-                <div className="text-[11px] font-mono uppercase tracking-wider text-amber-400 font-bold mb-1">
-                  Step: {currentStep} · Lang: {language.toUpperCase()}
-                </div>
-                <div
-                  className="text-xs text-slate-200 line-clamp-3 leading-relaxed font-sans"
-                  title={aiResponse || "Welcome to Ɔkwankyerɛfo Pa"}
-                >
-                  {isActive
-                    ? aiResponse || "Akwaaba! Welcome to Ɔkwankyerɛfo Pa."
-                    : "Phone ready. Press Call to start."}
-                </div>
-
-                {/* Noticeable Microphone Error Banner if error occurs */}
-                {micErrorMessage && (
-                  <div
-                    data-testid="mic-error-banner"
-                    className="mt-2 p-2 bg-rose-950/90 border border-rose-500/80 rounded-lg text-[11px] text-rose-200 leading-snug shadow-md"
-                  >
-                    <div className="font-bold text-rose-400 flex items-center gap-1 mb-0.5">
-                      <span>⚠️ Microphone Notice</span>
-                    </div>
-                    <div className="break-words">{micErrorMessage}</div>
+              {/* Center Display: Digits Buffer & Status */}
+              <div className="my-auto py-1">
+                {digitsBuffer ? (
+                  <div className="text-2xl font-bold tracking-widest text-emerald-200 text-center truncate">
+                    {digitsBuffer}
                   </div>
-                )}
-
-                {/* Visible ASR Provider Error / Notice (including 429 quota) */}
-                {asrErrorMessage && (
-                  <div
-                    data-testid="asr-error-banner"
-                    className="mt-2 p-2 bg-amber-950/90 border border-amber-500/80 rounded-lg text-[11px] text-amber-200 leading-snug shadow-md"
-                  >
-                    <div className="font-bold text-amber-400 flex items-center gap-1 mb-0.5">
-                      <span>⚠️ ASR Provider Alert</span>
-                    </div>
-                    <div className="break-words">{asrErrorMessage}</div>
+                ) : (
+                  <div className="text-xs uppercase tracking-wider text-emerald-400/80 font-sans text-center">
+                    {callStatus}
                   </div>
                 )}
               </div>
 
-              {/* Digits Display Line inside OLED Display */}
-              <div className="w-full h-8 bg-slate-950/80 border border-slate-800 rounded-lg px-2 flex items-center justify-between font-mono my-1">
-                <span className="text-emerald-400 text-sm font-bold tracking-widest overflow-hidden text-ellipsis whitespace-nowrap">
-                  {digitsBuffer || <span className="text-slate-600 text-xs tracking-normal">Digits: None</span>}
-                </span>
-                {digitsBuffer.length > 0 && (
+              {/* Bottom Display: Current Prompt Text (One short line) */}
+              <div className="text-[12px] text-slate-200 leading-tight border-t border-emerald-500/20 pt-1.5 font-sans line-clamp-2">
+                {currentPrompt}
+              </div>
+
+              {/* Zero-PIN Screen Authorization Notice Overlay */}
+              {zeroPinOverlay && (
+                <div className="absolute inset-0 bg-slate-950/95 rounded-xl p-3 flex flex-col justify-between text-center border-2 border-emerald-400 z-10 font-sans">
+                  <div className="flex items-center justify-center gap-1.5 text-emerald-400 font-bold text-xs">
+                    <ShieldCheck className="w-4 h-4" />
+                    MTN MoMo PIN Screen
+                  </div>
+                  <div className="text-[11px] text-slate-200 leading-tight">
+                    Check phone screen & enter secret MoMo PIN securely. Voice is muted (Zero-PIN).
+                  </div>
                   <button
-                    type="button"
-                    onClick={handleBackspace}
-                    aria-label="Backspace"
-                    className="text-slate-400 hover:text-rose-400 p-0.5 rounded transition-colors focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    onClick={() => {
+                      setZeroPinOverlay(false);
+                      addLog("state", "MoMo PIN authorized on handset screen. Transaction dispatched.");
+                      addLog("reply", "SMS confirmation and reference code dispatched. Goodbye.");
+                    }}
+                    className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold"
                   >
-                    <Delete size={13} />
+                    Authorize on Handset
                   </button>
-                )}
-              </div>
+                </div>
+              )}
+            </div>
 
-              {/* Hardware Status Strip */}
-              <div className="grid grid-cols-3 gap-1 pt-1.5 border-t border-slate-800 text-[10px] font-mono">
-                <div className="flex items-center gap-1 bg-slate-950/60 px-1 py-0.5 rounded border border-slate-800">
-                  <span className={`w-1.5 h-1.5 rounded-full ${speakerStatus.color}`} />
-                  <span className="text-slate-400 truncate">SPK: {speakerStatus.text}</span>
-                </div>
-                <div className="flex items-center gap-1 bg-slate-950/60 px-1 py-0.5 rounded border border-slate-800">
-                  <span className={`w-1.5 h-1.5 rounded-full ${micStatus.color}`} />
-                  <span className="text-slate-400 truncate">MIC: {micStatus.text}</span>
-                </div>
-                <div className="flex items-center gap-1 bg-slate-950/60 px-1 py-0.5 rounded border border-slate-800">
-                  <span className={`w-1.5 h-1.5 rounded-full ${networkStatus.color}`} />
-                  <span className="text-slate-400 truncate">NET: {networkStatus.text}</span>
-                </div>
+            {/* Microphone Toggle & Soft Keys Under Display */}
+            <div className="w-full flex items-center justify-between mt-3 px-1">
+              <button
+                type="button"
+                onClick={toggleMic}
+                disabled={!callActive || zeroPinOverlay}
+                aria-label={isMicMuted ? "Unmute microphone" : "Mute microphone"}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold min-h-[44px] transition-colors border ${
+                  isMicMuted
+                    ? "bg-amber-950/40 border-amber-500/50 text-amber-300 hover:bg-amber-900/60"
+                    : "bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/60"
+                } disabled:opacity-40 disabled:cursor-not-allowed`}
+              >
+                {isMicMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                <span>{isMicMuted ? "Mic Off" : "Mic On"}</span>
+              </button>
+
+              <div className="text-[11px] text-slate-400 font-sans">
+                {activeNumDigits > 1 ? `Enter #${activeFinishOnKey}` : "1-Key"}
               </div>
             </div>
 
-            {/* Soft-Key & D-Pad Navigation Cluster */}
-            <div className="w-full grid grid-cols-3 gap-2 items-center mb-3">
-              {/* Left Soft Key */}
+            {/* Green Call & Red End Keys */}
+            <div className="w-full grid grid-cols-2 gap-3 mt-3">
               <button
                 type="button"
-                aria-label="Left Soft Key Menu"
-                onClick={() => {
-                  if (isActive) {
-                    handleKeypadDigit("9"); // Repeat prompt
-                  }
-                }}
-                className="h-8 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-white text-[11px] font-bold font-mono shadow transition-all active:scale-95 flex items-center justify-center focus:outline-none focus:ring-1 focus:ring-emerald-400"
-              >
-                Menu
-              </button>
-
-              {/* D-Pad Cluster (Center OK / Arrows) */}
-              <div className="flex items-center justify-center">
-                <button
-                  type="button"
-                  aria-label="D-Pad Center OK"
-                  onClick={() => {
-                    if (digitsBuffer.trim()) {
-                      handleKeypadDigit("#");
-                    }
-                  }}
-                  className="w-10 h-10 rounded-full bg-slate-800 hover:bg-slate-700 border-2 border-slate-600 text-emerald-400 font-bold text-xs flex items-center justify-center shadow-inner active:scale-90 transition-all focus:outline-none focus:ring-2 focus:ring-emerald-400"
-                >
-                  OK
-                </button>
-              </div>
-
-              {/* Right Soft Key (Clear / Back) */}
-              <button
-                type="button"
-                aria-label="Right Soft Key Clear"
-                onClick={handleBackspace}
-                className="h-8 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-white text-[11px] font-bold font-mono shadow transition-all active:scale-95 flex items-center justify-center focus:outline-none focus:ring-1 focus:ring-emerald-400"
-              >
-                Clear
-              </button>
-            </div>
-
-            {/* Action Row: Green Call & Red End */}
-            <div className="grid grid-cols-2 gap-3 w-full mb-3">
-              <button
-                type="button"
+                onClick={startCall}
+                disabled={callActive}
                 aria-label="Start Call"
-                disabled={isActive}
-                onClick={() => startCall(language === "tw" ? "tw" : "en")}
-                className={`h-11 rounded-2xl flex items-center justify-center gap-2 font-bold text-sm tracking-wide transition-all shadow-lg active:scale-95 focus:outline-none focus:ring-2 focus:ring-emerald-400 ${
-                  isActive
-                    ? "bg-slate-800 text-slate-600 border border-slate-700 cursor-not-allowed"
-                    : "bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400 shadow-emerald-950/40"
-                }`}
+                className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl min-h-[48px] shadow transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                <Phone size={17} />
+                <Phone className="w-5 h-5 fill-current" />
                 <span>Call</span>
               </button>
 
               <button
                 type="button"
-                aria-label="Hang Up"
-                disabled={!isActive}
-                onClick={() => endCall("User pressed hang up")}
-                className={`h-11 rounded-2xl flex items-center justify-center gap-2 font-bold text-sm tracking-wide transition-all shadow-lg active:scale-95 focus:outline-none focus:ring-2 focus:ring-rose-400 ${
-                  !isActive
-                    ? "bg-slate-800 text-slate-600 border border-slate-700 cursor-not-allowed"
-                    : "bg-rose-600 hover:bg-rose-500 text-white border border-rose-400 shadow-rose-950/40"
-                }`}
+                onClick={() => endCall("User pressed End Call key")}
+                disabled={!callActive}
+                aria-label="End Call"
+                className="flex items-center justify-center gap-2 bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl min-h-[48px] shadow transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                <PhoneOff size={17} />
+                <PhoneOff className="w-5 h-5 fill-current" />
                 <span>End</span>
               </button>
             </div>
 
-            {/* Classic 12-Key Physical Keypad */}
-            <div className="grid grid-cols-3 gap-2.5 w-full mb-3">
-              {KEYPAD_BUTTONS.map((btn) => {
-                const isPushed = pressedKey === btn.digit;
-                return (
-                  <button
-                    key={btn.digit}
-                    type="button"
-                    aria-label={`Key ${btn.digit} ${btn.sub}`}
-                    onClick={() => {
-                      setPressedKey(btn.digit);
-                      setTimeout(() => setPressedKey(null), 120);
-                      handleKeypadDigit(btn.digit);
-                    }}
-                    className={`h-11 rounded-2xl flex flex-col items-center justify-center border transition-all duration-75 select-none focus:outline-none focus:ring-2 focus:ring-emerald-400 ${
-                      isPushed
-                        ? "bg-emerald-600 border-emerald-400 text-white scale-95 shadow-inner"
-                        : "bg-slate-900 border-slate-700/70 text-slate-100 hover:bg-slate-800 hover:border-slate-500 active:scale-95 shadow-md"
-                    }`}
-                  >
-                    <span className="text-base font-bold leading-none font-mono">{btn.digit}</span>
-                    {btn.sub && (
-                      <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-tighter leading-none mt-0.5">
-                        {btn.sub}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+            {/* 4x3 Keypad Grid */}
+            <div className="w-full grid grid-cols-3 gap-2.5 mt-4">
+              {KEYPAD_BUTTONS.map(({ digit, sub }) => (
+                <button
+                  key={digit}
+                  type="button"
+                  onClick={() => handleKeypadPress(digit)}
+                  aria-label={`Key ${digit} ${sub}`}
+                  className="bg-slate-800 hover:bg-slate-700 active:bg-emerald-700 active:scale-95 text-slate-100 rounded-xl min-h-[50px] flex flex-col items-center justify-center border border-slate-700 shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                >
+                  <span className="text-lg font-bold leading-none">{digit}</span>
+                  {sub && <span className="text-[9px] text-slate-400 font-semibold tracking-widest mt-0.5">{sub}</span>}
+                </button>
+              ))}
             </div>
 
-            {/* Sub-bar: Language Toggle & Mic Mute Toggle */}
-            <div className="flex items-center justify-between w-full pt-2 border-t border-slate-800 text-xs">
-              {/* Language Selection */}
-              <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-0.5">
-                <button
-                  type="button"
-                  onClick={() => setLanguage("en")}
-                  className={`px-2 py-1 rounded text-[11px] font-semibold transition-colors ${
-                    language === "en" ? "bg-emerald-600 text-white" : "text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  English
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setLanguage("tw")}
-                  className={`px-2 py-1 rounded text-[11px] font-semibold transition-colors ${
-                    language === "tw" ? "bg-emerald-600 text-white" : "text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  Twi
-                </button>
+            {/* Bottom Microphone Hole */}
+            <div className="w-2 h-2 rounded-full bg-slate-700 mt-4" />
+
+            {/* Real-Time Acoustic Radar & Spectrum Visualizer */}
+            <div className="w-full mt-4">
+              <AcousticVisualizer
+                isCallActive={callActive}
+                isZeroPinMuted={zeroPinOverlay || isMicMuted}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT COLUMN: Live Discussion Monitor & Call Terminal */}
+        <div className="lg:col-span-7 flex flex-col gap-4">
+          {/* Live Speech & Discussion Intelligence Monitor */}
+          <LiveDiscussionMonitor
+            interimTranscript={interimTranscript}
+            finalizedTranscript={finalizedTranscript}
+            parsedDiscussion={parsedDiscussion}
+            onApplyShortcut={handleApplyShortcut}
+          />
+
+          {/* Chronological Call Terminal */}
+          <div className="flex flex-col bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden h-[490px]">
+            {/* Terminal Top Bar */}
+            <div className="bg-slate-50 border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="font-semibold text-sm text-slate-800">Call Terminal Log</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setTerminalLogs([])}
+                aria-label="Clear Terminal Logs"
+                className="flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900 px-2 py-1 rounded hover:bg-slate-200/60 min-h-[32px]"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Clear</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Terminal Events Body (Chronological) */}
+          <div className="flex-1 p-4 font-mono text-xs overflow-y-auto bg-slate-950 text-slate-200 space-y-1.5">
+            {terminalLogs.length === 0 ? (
+              <div className="text-slate-500 italic py-8 text-center">
+                Terminal idle. Start a call to observe live telephony events.
               </div>
+            ) : (
+              terminalLogs.map((log) => {
+                let badgeClass = "text-slate-400 bg-slate-800";
+                if (log.source === "caller") badgeClass = "text-emerald-300 bg-emerald-950/80 border border-emerald-600/40";
+                if (log.source === "state") badgeClass = "text-sky-300 bg-sky-950/80 border border-sky-600/40";
+                if (log.source === "AI") badgeClass = "text-amber-300 bg-amber-950/80 border border-amber-600/40";
+                if (log.source === "reply") badgeClass = "text-violet-300 bg-violet-950/80 border border-violet-600/40";
+                if (log.source === "audio") badgeClass = "text-teal-300 bg-teal-950/80 border border-teal-600/40";
 
-              {/* Mic Mute Toggle */}
-              <button
-                type="button"
-                onClick={toggleMic}
-                aria-label={micState === "MIC_MUTED" ? "Unmute microphone" : "Mute microphone"}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-colors ${
-                  micState === "MIC_MUTED"
-                    ? "bg-rose-950/60 border-rose-700 text-rose-400"
-                    : "bg-slate-900 border-slate-800 text-slate-300 hover:text-white"
-                }`}
-              >
-                {micState === "MIC_MUTED" ? <MicOff size={13} /> : <Mic size={13} />}
-                <span>{micState === "MIC_MUTED" ? "Muted" : "Mute Mic"}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* ─────────────────────────────────────────────────────────── */}
-        {/* RIGHT PANEL: LIVE SYSTEM LOG TERMINAL                      */}
-        {/* ─────────────────────────────────────────────────────────── */}
-        <div
-          data-testid="call-log-terminal"
-          className="flex-1 flex flex-col h-[50vh] lg:h-full bg-slate-950 overflow-hidden"
-        >
-          {/* Terminal Header Bar */}
-        <div className="h-14 bg-slate-900/90 border-b border-slate-800 px-4 flex items-center justify-between flex-shrink-0 gap-3">
-          <div className="flex items-center gap-2">
-            <span
-              className={`w-2.5 h-2.5 rounded-full ${
-                isActive ? "bg-emerald-400 animate-pulse" : "bg-slate-600"
-              }`}
-            />
-            <h2 className="font-mono text-sm font-bold text-slate-100 uppercase tracking-wider">
-              Call Log
-            </h2>
-            <span className="text-[11px] font-mono text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded-full border border-slate-700">
-              {filteredLogs.length} events
-            </span>
-          </div>
-
-          {/* Action Toolbar */}
-          <div className="flex items-center gap-2">
-            {/* Search filter input */}
-            <div className="relative hidden sm:block w-44">
-              <Search
-                size={13}
-                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"
-              />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Filter logs..."
-                className="w-full h-8 bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-2 text-xs font-mono text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-              />
-            </div>
-
-            {/* Clear Button */}
-            <button
-              type="button"
-              onClick={clear}
-              title="Clear all logs"
-              className="h-8 px-2.5 rounded-lg border border-slate-800 bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-mono flex items-center gap-1.5 transition-colors"
-            >
-              <Trash2 size={13} />
-              <span className="hidden md:inline">Clear</span>
-            </button>
-
-            {/* Pause / Resume Auto-scroll */}
-            <button
-              type="button"
-              onClick={() => setIsAutoScrollPaused((prev) => !prev)}
-              title={isAutoScrollPaused ? "Resume auto-scroll" : "Pause auto-scroll"}
-              className={`h-8 px-2.5 rounded-lg border text-xs font-mono flex items-center gap-1.5 transition-colors ${
-                isAutoScrollPaused
-                  ? "bg-amber-950/60 border-amber-800 text-amber-400"
-                  : "bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-800"
-              }`}
-            >
-              {isAutoScrollPaused ? <Play size={13} /> : <Pause size={13} />}
-              <span className="hidden md:inline">
-                {isAutoScrollPaused ? "Resume" : "Pause"}
-              </span>
-            </button>
-
-            {/* Copy All */}
-            <button
-              type="button"
-              onClick={handleCopyLogs}
-              title="Copy entire log stream"
-              className="h-8 px-2.5 rounded-lg border border-slate-800 bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-mono flex items-center gap-1.5 transition-colors"
-            >
-              {copiedSuccess ? (
-                <>
-                  <Check size={13} className="text-emerald-400" />
-                  <span className="hidden md:inline text-emerald-400">Copied</span>
-                </>
-              ) : (
-                <>
-                  <Copy size={13} />
-                  <span className="hidden md:inline">Copy</span>
-                </>
-              )}
-            </button>
-
-            {/* Download Log */}
-            <button
-              type="button"
-              onClick={handleDownloadLogs}
-              title="Download log file"
-              className="h-8 px-2.5 rounded-lg border border-slate-800 bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-mono flex items-center gap-1.5 transition-colors"
-            >
-              <Download size={13} />
-              <span className="hidden md:inline">.log</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Filter Chips Bar */}
-        <div className="bg-slate-900/60 border-b border-slate-800/80 px-4 py-1.5 flex items-center gap-1.5 overflow-x-auto flex-shrink-0 text-xs font-mono">
-          <button
-            type="button"
-            onClick={selectAllCategories}
-            className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors ${
-              selectedCategories.size === ALL_CATEGORIES.length
-                ? "bg-slate-700 text-white"
-                : "text-slate-400 hover:bg-slate-800"
-            }`}
-          >
-            ALL
-          </button>
-          {ALL_CATEGORIES.map((cat) => {
-            const isSelected = selectedCategories.has(cat);
-            const color = CATEGORY_COLORS[cat];
-            return (
-              <button
-                key={cat}
-                type="button"
-                onClick={() => toggleCategoryFilter(cat)}
-                className={`px-2 py-0.5 rounded text-[11px] border font-semibold transition-all ${
-                  isSelected
-                    ? `${color.bg} ${color.text} ${color.border}`
-                    : "bg-slate-950/60 border-slate-800 text-slate-500 hover:border-slate-700"
-                }`}
-              >
-                {cat}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Terminal Main Log Stream */}
-        <div
-          ref={terminalScrollRef}
-          onScroll={handleScroll}
-          className="flex-1 p-4 overflow-y-auto font-mono text-[12px] leading-relaxed text-slate-300 space-y-1 relative"
-        >
-          {filteredLogs.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-slate-500 space-y-2 select-none">
-              <Radio size={28} className="text-slate-600 animate-pulse" />
-              <p className="text-xs">Press Call to start. Events will appear here.</p>
-            </div>
-          ) : (
-            filteredLogs.map((log, index) => {
-              const prevLog = filteredLogs[index - 1];
-              const isNewTurn = log.turnId && log.turnId !== prevLog?.turnId;
-              const catColor = CATEGORY_COLORS[log.category] || {
-                text: "text-slate-300",
-                bg: "bg-slate-900",
-                border: "border-slate-800",
-              };
-              const isSummary = log.message.includes("done in") && log.category === "TURN";
-              const isExpanded = expandedLogId === log.id;
-
-              return (
-                <React.Fragment key={log.id}>
-                  {/* Subtle Turn Separator */}
-                  {isNewTurn && (
-                    <div className="pt-2 pb-1 my-1 border-t border-slate-800/80 flex items-center gap-2 text-[10px] text-amber-500/80 font-bold tracking-wider uppercase">
-                      <span>── Turn {log.turnId} ──</span>
-                    </div>
-                  )}
-
-                  <div
-                    onClick={() => {
-                      if (log.data) {
-                        setExpandedLogId(isExpanded ? null : log.id);
-                      }
-                    }}
-                    className={`group flex items-start gap-2.5 px-2 py-1 rounded transition-colors ${
-                      isSummary
-                        ? "bg-slate-900/90 border-l-2 border-yellow-400 pl-3 font-semibold text-yellow-200"
-                        : "hover:bg-slate-900/60"
-                    } ${log.data ? "cursor-pointer" : ""}`}
-                  >
-                    {/* Timestamp */}
-                    <span className="text-slate-500 select-none flex-shrink-0 text-[11px]">
-                      {log.formattedTime}
+                return (
+                  <div key={log.id} className="flex items-start gap-2 leading-relaxed break-words">
+                    <span className="text-slate-500 select-none shrink-0">[{log.time}]</span>
+                    <span className={`px-1.5 py-0.2 rounded text-[10px] font-semibold uppercase tracking-wider shrink-0 ${badgeClass}`}>
+                      {log.source}
                     </span>
-
-                    {/* Turn tag if present */}
-                    {log.turnId ? (
-                      <span className="text-amber-400/90 font-bold select-none flex-shrink-0 text-[11px] w-6">
-                        {log.turnId}
-                      </span>
-                    ) : (
-                      <span className="w-6 flex-shrink-0" />
-                    )}
-
-                    {/* Category Badge */}
-                    <span
-                      className={`px-1.5 py-0.2 rounded text-[10px] font-bold border flex-shrink-0 select-none ${catColor.bg} ${catColor.text} ${catColor.border}`}
-                    >
-                      {log.category.padEnd(5)}
-                    </span>
-
-                    {/* Log Message */}
-                    <span className="flex-1 break-words text-slate-200">
-                      {log.message}
-                    </span>
-
-                    {/* Delta ms indicator */}
-                    <span className="text-slate-600 group-hover:text-slate-400 text-[10px] select-none flex-shrink-0">
-                      +{log.deltaMs}ms
-                    </span>
+                    <span className="text-slate-200">{log.message}</span>
                   </div>
+                );
+              })
+            )}
+            <div ref={terminalEndRef} />
+          </div>
 
-                  {/* Expanded JSON payload if clicked */}
-                  {isExpanded && log.data && (
-                    <div className="ml-16 mr-4 my-1 p-2 bg-slate-900 border border-slate-800 rounded-lg text-[11px] text-slate-400 overflow-x-auto">
-                      <pre className="text-emerald-400">
-                        {JSON.stringify(log.data, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-                </React.Fragment>
-              );
-            })
-          )}
-
-          {/* Jump to Latest Floating Pill when scrolled up */}
-          {isUserScrolledUp && (
-            <button
-              type="button"
-              onClick={scrollToBottom}
-              className="sticky bottom-3 left-1/2 -translate-x-1/2 bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-xs px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1.5 transition-all z-20"
-            >
-              <ArrowDown size={13} />
-              <span>Jump to latest</span>
-            </button>
-          )}
+          {/* Terminal Footer Info */}
+          <div className="bg-slate-50 border-t border-slate-200 px-4 py-2 text-[11px] text-slate-500 flex items-center justify-between">
+            <span>Authoritative Africa&apos;s Talking Webhook Engine</span>
+            <span>Zero-PIN &amp; Echo Filter Enforced</span>
+          </div>
         </div>
       </div>
+    </div>
+
+      {/* Developer Diagnostics View (Hidden by Default) */}
+      <div className="mt-8 border border-slate-200 rounded-xl overflow-hidden bg-white">
+        <button
+          type="button"
+          onClick={() => setShowDevView((prev) => !prev)}
+          className="w-full px-4 py-3 bg-slate-50 hover:bg-slate-100 flex items-center justify-between text-left text-xs font-semibold text-slate-700 min-h-[44px]"
+        >
+          <span>Developer Diagnostics &amp; Raw VoiceXML</span>
+          {showDevView ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+
+        {showDevView && (
+          <div className="p-4 bg-slate-900 text-slate-200 font-mono text-xs border-t border-slate-200">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 text-[11px]">
+              <div>
+                <span className="text-slate-400">Active Session:</span>{" "}
+                <span className="text-emerald-400">{sessionId || "none"}</span>
+              </div>
+              <div>
+                <span className="text-slate-400">Callback URL:</span>{" "}
+                <span className="text-emerald-400">{activeCallbackUrl || "none"}</span>
+              </div>
+              <div>
+                <span className="text-slate-400">Expected Digits:</span>{" "}
+                <span className="text-emerald-400">{activeNumDigits}</span>
+              </div>
+              <div>
+                <span className="text-slate-400">Finish Key:</span>{" "}
+                <span className="text-emerald-400">{activeFinishOnKey}</span>
+              </div>
+            </div>
+
+            <div className="text-[11px] text-slate-400 mb-1">Latest VoiceXML Response:</div>
+            <pre className="p-3 bg-slate-950 rounded-lg border border-slate-800 overflow-x-auto text-emerald-300 max-h-48">
+              {rawVoiceXml || "<!-- No VoiceXML captured yet -->"}
+            </pre>
+          </div>
+        )}
       </div>
     </div>
   );
-}
-
-export default PhoneSimulatorPage;
+};

@@ -30,7 +30,7 @@ export function validateWebhookSecurityConfig(): void {
 /**
  * Constant-time string equality check to prevent timing side-channel attacks.
  */
-export function safeCompare(a: string, b: string): boolean {
+function safeCompare(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
   const bufB = Buffer.from(b);
   if (bufA.length !== bufB.length) {
@@ -39,63 +39,13 @@ export function safeCompare(a: string, b: string): boolean {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
-// Replay and Rate Limit caches
-const replayNonceCache = new Map<string, number>();
-const callerRateMap = new Map<string, { count: number; windowStart: number }>();
-
-export function resetReplayCache(): void {
-  replayNonceCache.clear();
-}
-
-export function resetCallerRateLimits(): void {
-  callerRateMap.clear();
-}
-
-export function checkReplayGuard(req: { body?: Record<string, any>; query?: Record<string, any>; headers?: Record<string, any> }): { valid: boolean; reason?: string } {
-  const nonce = req.body?.nonce || req.query?.nonce || req.headers?.["x-nonce"];
-  const timestampStr = req.body?.timestamp || req.query?.timestamp || req.headers?.["x-timestamp"];
-
-  if (timestampStr) {
-    const ts = Number(timestampStr);
-    if (!isNaN(ts) && Date.now() - ts > 5 * 60 * 1000) {
-      return { valid: false, reason: "STALE_TIMESTAMP_REPLAY" };
-    }
-  }
-
-  if (nonce) {
-    if (replayNonceCache.has(nonce)) {
-      return { valid: false, reason: "DUPLICATE_NONCE_REPLAY" };
-    }
-    replayNonceCache.set(nonce, Date.now());
-  }
-
-  return { valid: true };
-}
-
-export function checkCallerRateLimit(caller: string, limit: number = 10, windowMs: number = 60000): { allowed: boolean; remaining: number } {
-  const now = Date.now();
-  const entry = callerRateMap.get(caller);
-  if (!entry || now - entry.windowStart > windowMs) {
-    callerRateMap.set(caller, { count: 1, windowStart: now });
-    return { allowed: true, remaining: limit - 1 };
-  }
-
-  if (entry.count >= limit) {
-    return { allowed: false, remaining: 0 };
-  }
-
-  entry.count++;
-  return { allowed: true, remaining: limit - entry.count };
-}
-
 export function verifyAtWebhook(req: Request, res: Response, next: NextFunction): void {
   const isProd = process.env.NODE_ENV === "production";
   const expectedSecret = process.env.AT_WEBHOOK_SECRET;
 
   // Attach diagnostic response headers helper
   const rejectWithReason = (status: number, reason: string) => {
-    const safeReason = (reason || "").replace(/[\r\n]+/g, " ").replace(/[^\x20-\x7E]/g, "");
-    res.setHeader("X-Telephony-Guard-Reason", safeReason);
+    res.setHeader("X-Telephony-Guard-Reason", reason);
     res.setHeader("X-Telephony-Status", status.toString());
     res.status(status).send("<Response><Reject/></Response>");
   };

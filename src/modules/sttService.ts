@@ -151,8 +151,10 @@ async function transcribeAudioBufferWithHedgedGemini(
   step?: string,
   deadlineMs: number = 1200
 ): Promise<SttResult> {
-  const primaryModel = process.env.GEMINI_TRANSCRIBE_MODEL || AI_CONFIG.transcriptionModel || "gemini-3.5-transcribe";
-  const secondaryModel = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+  const primaryModel = (AI_CONFIG.transcriptionModel && AI_CONFIG.transcriptionModel !== "gemini-3.5-transcribe")
+    ? AI_CONFIG.transcriptionModel
+    : "gemini-3.8-flash";
+  const secondaryModel = "gemini-flash-latest";
 
   const hasAnyModel = geminiClient.isAvailable() && (
     geminiClient.isModelAvailable(primaryModel) ||
@@ -373,43 +375,18 @@ async function transcribeAudioBufferUnified(
   step?: string,
   _deadlineMs?: number
 ): Promise<SttResult> {
-  try {
-    const orchResult = await asrOrchestrator.transcribe(
-      buffer,
-      mime,
-      { step, allowFallback: true }
-    );
-    return {
-      text: orchResult.text.length > 0 ? orchResult.text : "empty",
-      confidence: orchResult.confidence,
-      confidenceSource: orchResult.confidenceSource,
-      languageDetected: orchResult.languageDetected.includes("tw") ? "twi" : "en",
-      provider: orchResult.providerUsed,
-      providerAttempted: orchResult.providerAttempted,
-      fallbackUsed: orchResult.fallbackUsed,
-      pinDiscarded: orchResult.pinDiscarded,
-      audioQuality: orchResult.audioQuality,
-    };
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-
-    // Invalid or truncated recordings should safely fall back to an empty
-    // result, not crash the telephony request.
-    if (message.startsWith("EMPTY_AUDIO:") || message.startsWith("CORRUPT_AUDIO:")) {
-      return {
-        text: "empty",
-        confidence: 0,
-        languageDetected: "en",
-        provider: "AudioValidationFallback",
-      };
-    }
-
-    throw error;
-  } finally {
-    // Audio may contain sensitive speech. Clear the supplied buffer even
-    // when normalization, transcription, or validation throws.
-    buffer.fill(0);
-  }
+  const orchResult = await asrOrchestrator.transcribe(buffer, mime, { step, allowFallback: true });
+  return {
+    text: orchResult.text.length > 0 ? orchResult.text : "empty",
+    confidence: orchResult.confidence,
+    confidenceSource: orchResult.confidenceSource,
+    languageDetected: orchResult.languageDetected.includes("tw") ? "twi" : "en",
+    provider: orchResult.providerUsed,
+    providerAttempted: orchResult.providerAttempted,
+    fallbackUsed: orchResult.fallbackUsed,
+    pinDiscarded: orchResult.pinDiscarded,
+    audioQuality: orchResult.audioQuality,
+  };
 }
 
 export class TelephonySpeechService implements SpeechToTextProvider {

@@ -28,16 +28,6 @@ import type {
   DialogueOutput,
   EntitySlotMap,
 } from "../ai_system/core/aiTypes";
-import { audioPlaybackController, PlaybackRequest } from "../audio/audioPlaybackController";
-import { getConversationalPrompt, CONVERSATIONAL_PROMPT_CATALOG } from "../audio/catalog";
-import { emitSimulatorLog } from "../lib/simulatorLog";
-import { resolveExpected } from "../domain/resolveExpected";
-import { STEP_REGISTRY } from "../domain/stepRegistry";
-import { logVoiceDebug } from "../lib/audio/continuousVoiceCapture";
-
-export type SpeechOutput =
-  | { kind: "recorded"; promptId: string; url: string; text: string; language: "en" | "tw" }
-  | { kind: "tts"; text: string; language: "en" | "tw" };
 
 export interface SimulatorTranscriptItem {
   id: string;
@@ -383,181 +373,6 @@ export const PRESET_SCENARIOS: SimulatorScenario[] = [
   },
 ];
 
-/**
- * Authoritative Speech Output Determination (Fix 3):
- * Explicitly decides the speech source for any dialogue response:
- * A. Fixed instructions -> prerecorded studio audio (welcome, menus, static entry instructions).
- * B. Dynamic responses -> actual TTS audio (verified name, amount, personalized confirmations).
- * C. Sensitive payment confirmations -> controlled dynamic speech (never generic historical recordings).
- */
-export function determineSpeechOutput(
-  text: string,
-  lang: string = "en",
-  step?: string
-): SpeechOutput {
-  const normLang: "en" | "tw" = (lang === "tw" || lang === "ak") ? "tw" : "en";
-  const stepLower = (step || "").toLowerCase().replace(/[-_]/g, " ");
-  const textLower = (text || "").toLowerCase();
-
-  // Conversational Catalogue Prompts:
-  // Must ALWAYS be synthesized with natural conversational cadence or resolved to conversational catalog,
-  // NEVER hijacked by keypad menus!
-  if (
-    stepLower.includes("conversational") ||
-    textLower.includes("ready to help you") ||
-    textLower.includes("speak naturally") ||
-    textLower.includes("own words") ||
-    textLower.includes("mɛboa wo") ||
-    textLower.includes("w'anom asɛm") ||
-    textLower.includes("i am listening") ||
-    textLower.includes("meretie wo") ||
-    textLower.includes("say it again, slowly") ||
-    textLower.includes("ka bio brɛoo")
-  ) {
-    return {
-      kind: "tts",
-      text,
-      language: normLang,
-    };
-  }
-
-  // Rule C: SENSITIVE PAYMENT CONFIRMATIONS & DYNAMIC ENTITIES MUST ALWAYS BE DYNAMIC TTS!
-  // Any verification of recipient name, dynamic amount, custom confirmation readback, or receipt
-  if (
-    stepLower.includes("verify") ||
-    stepLower.includes("confirm") ||
-    stepLower.includes("safe") ||
-    stepLower.includes("receipt") ||
-    stepLower.includes("outcome") ||
-    stepLower.includes("balance") ||
-    stepLower.includes("clarif") ||
-    stepLower.includes("error") ||
-    textLower.includes("ghs") ||
-    textLower.includes("cedis") ||
-    (textLower.includes("sika") && /\d+/.test(textLower)) ||
-    /\b(024|054|055|059|027|057|026|020|050)\d{7}\b/.test(text)
-  ) {
-    return {
-      kind: "tts",
-      text,
-      language: normLang,
-    };
-  }
-
-  // Rule A: FIXED INSTRUCTIONS (Static menus and prompts without dynamic amounts/names)
-  // 1. Welcome / Language Selection (Keypad menu only)
-  if (
-    (stepLower === "welcome" || stepLower === "language" || stepLower === "lang select") &&
-    (textLower.includes("press 1") || textLower.includes("mia baako") || textLower.includes("mia 1"))
-  ) {
-    return {
-      kind: "recorded",
-      promptId: "welcome",
-      url: normLang === "tw" ? "/audio/Twi/Welcome_prompt_01.mp3" : "/audio/Welcome_prompt_01.mp3",
-      text,
-      language: normLang,
-    };
-  }
-
-  // 2. Service Selection Menu (Mobile Money vs Telecom)
-  if (
-    stepLower === "service" ||
-    stepLower === "service select" ||
-    (textLower.includes("press 1 for mobile money") && textLower.includes("2 for banking"))
-  ) {
-    return {
-      kind: "recorded",
-      promptId: "service_select",
-      url: normLang === "tw" ? "/audio/Twi/Audio_prompt_twi_03.mp3" : "/audio/English/Audio_prompt_02.mp3",
-      text,
-      language: normLang,
-    };
-  }
-
-  // 3. Provider / Network Selection Menu (MTN, Telecel, AT)
-  if (
-    stepLower === "provider" ||
-    stepLower === "network" ||
-    stepLower === "network select" ||
-    (textLower.includes("press 1 for mtn") && textLower.includes("2 for telecel"))
-  ) {
-    return {
-      kind: "recorded",
-      promptId: "provider_select",
-      url: normLang === "tw" ? "/audio/Twi/Audio_prompt_twi_02.mp3" : "/audio/English/Audio_prompt_03.mp3",
-      text,
-      language: normLang,
-    };
-  }
-
-  // 4. Action Selection Menu (Send Money, Pay Bills, Buy Airtime, Cash Out)
-  if (
-    stepLower === "action" ||
-    stepLower === "action select" ||
-    (textLower.includes("press 1 to send money") && textLower.includes("2 to check balance"))
-  ) {
-    return {
-      kind: "recorded",
-      promptId: "action_select",
-      url: normLang === "tw" ? "/audio/Twi/Audio_prompt_twi_04.mp3" : "/audio/English/Audio_prompt_05.mp3",
-      text,
-      language: normLang,
-    };
-  }
-
-  // 5. Instruction to Enter 10-Digit Recipient Phone Number
-  if (
-    (stepLower === "enter recipient" || stepLower === "recipient entry" || stepLower === "recipient") &&
-    !textLower.includes("ending in") &&
-    !textLower.includes("055") &&
-    !textLower.includes("024")
-  ) {
-    return {
-      kind: "recorded",
-      promptId: "enter_recipient",
-      url: normLang === "tw" ? "/audio/Twi/Audio_prompt_twi_05.mp3" : "/audio/English/Audio_prompt_06.mp3",
-      text,
-      language: normLang,
-    };
-  }
-
-  // 6. Instruction to Enter Amount
-  if (
-    (stepLower === "enter amount" || stepLower === "amount entry" || stepLower === "amount") &&
-    !/\d+/.test(textLower)
-  ) {
-    return {
-      kind: "recorded",
-      promptId: "enter_amount",
-      url: normLang === "tw" ? "/audio/Twi/Audio_prompt_twi_07.mp3" : "/audio/English/Audio_prompt_09.mp3",
-      text,
-      language: normLang,
-    };
-  }
-
-  // 7. Goodbye / Thank You
-  if (
-    stepLower === "goodbye" ||
-    stepLower === "hangup" ||
-    (textLower.includes("thank you for using") && textLower.includes("goodbye"))
-  ) {
-    return {
-      kind: "recorded",
-      promptId: "goodbye",
-      url: normLang === "tw" ? "/audio/Twi/Audio_prompt_twi_11.mp3" : "/audio/English/Audio_prompt_13.mp3",
-      text,
-      language: normLang,
-    };
-  }
-
-  // Rule B: Everything else is DYNAMIC TTS!
-  return {
-    kind: "tts",
-    text,
-    language: normLang,
-  };
-}
-
 export function usePhoneSimulator() {
   const { playTone } = useDtmf();
 
@@ -684,9 +499,6 @@ export function usePhoneSimulator() {
   // Conversational Voice Subsystem States (Continuous AudioWorklet & Intelligent VAD)
   const [micState, setMicState] = useState<MicrophoneState>("MIC_PERMISSION_REQUIRED");
   const [micStateReason, setMicStateReason] = useState<string | null>(null);
-  const [micErrorMessage, setMicErrorMessage] = useState<string | null>(null);
-  const [asrProviderStatus, setAsrProviderStatus] = useState<{ ghanaNlp: boolean; gemini: boolean } | null>(null);
-  const [asrErrorMessage, setAsrErrorMessage] = useState<string | null>(null);
   const [vadState, setVadState] = useState<"SPEECH" | "SILENCE" | "NOISE_ADAPTING">("SILENCE");
   const [isBargeInActive, setIsBargeInActive] = useState<boolean>(false);
   const [voiceModeActive, setVoiceModeActive] = useState<"REAL_MIC" | "SIMULATED_VOICE">("REAL_MIC");
@@ -739,20 +551,6 @@ export function usePhoneSimulator() {
   const activePromptTextRef = useRef<string>("");
   const audioLevelRef = useRef<number>(0);
 
-  // ── Long Conversation Audio Recording State ─────────────────────────────
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingDurationSec, setRecordingDurationSec] = useState(0);
-  const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
-  const [recordedAudioBlob, setRecordedAudioBlob] = useState<Blob | null>(null);
-  const [asrSessionId, setAsrSessionId] = useState<string | null>(null);
-  const [recordedChunksCount, setRecordedChunksCount] = useState<number>(0);
-  const [rollingSummary, setRollingSummary] = useState<string>("");
-  const [longAsrTranscript, setLongAsrTranscript] = useState<string>("");
-
-  const recordingChunksRef = useRef<Blob[]>([]);
-  const recordingTimerRef = useRef<any>(null);
-  const asrSessionIdRef = useRef<string | null>(null);
-
   useEffect(() => {
     isMicActiveRef.current = isMicActive;
   }, [isMicActive]);
@@ -760,24 +558,6 @@ export function usePhoneSimulator() {
   useEffect(() => {
     isAiSpeakingRef.current = isAiSpeaking;
   }, [isAiSpeaking]);
-
-  // Query and report ASR provider availability (GHANANLP_API_KEY & GEMINI_API_KEY names only)
-  useEffect(() => {
-    api.getAiStatus().then((status) => {
-      if (status) {
-        const gha = Boolean(status.ghanaNlpConfigured);
-        const gem = Boolean(status.geminiConfigured);
-        setAsrProviderStatus({ ghanaNlp: gha, gemini: gem });
-        emitSimulatorLog({
-          category: "ASR",
-          message: `ASR Provider Status: GHANANLP_API_KEY is ${gha ? "configured" : "NOT configured"}, GEMINI_API_KEY is ${gem ? "configured" : "NOT configured"}`,
-        });
-        console.log(`[ASR] Provider availability check: GHANANLP_API_KEY=${gha ? "CONFIGURED" : "NOT CONFIGURED"}, GEMINI_API_KEY=${gem ? "CONFIGURED" : "NOT CONFIGURED"}`);
-      }
-    }).catch((err) => {
-      console.warn("[PhoneSimulator] AI status query notice:", err);
-    });
-  }, []);
 
   const updateAiSpeaking = useCallback((speaking: boolean, promptText?: string) => {
     setIsAiSpeaking(speaking);
@@ -865,63 +645,13 @@ export function usePhoneSimulator() {
     };
   }, [isActive]);
 
-  const isActiveRef = useRef(isActive);
+  // Audio element setup
   useEffect(() => {
-    isActiveRef.current = isActive;
-  }, [isActive]);
-  const isTurnInFlightRef = useRef(false);
-  const unmuteSafetyTimerRef = useRef<any>(null);
-
-  // Synchronize currentStep to voice capture VAD configuration
-  useEffect(() => {
-    if (voiceCaptureRef.current) {
-      voiceCaptureRef.current.setStepType(currentStep);
+    if (!audioRef.current && typeof window !== "undefined") {
+      audioRef.current = new Audio();
+      audioRef.current.onended = () => setIsAiSpeaking(false);
+      audioRef.current.onerror = () => setIsAiSpeaking(false);
     }
-    emitSimulatorLog({
-      category: "STEP",
-      message: `Step active: "${currentStep}"`,
-    });
-  }, [currentStep]);
-
-  // Authoritative Audio Playback Controller Lifecycle Subscription
-  useEffect(() => {
-    const unsubscribe = audioPlaybackController.subscribe((st) => {
-      setIsAiSpeaking(st.isPlaying);
-      isAiSpeakingRef.current = st.isPlaying;
-      setActiveAudioClip(st.activeClip);
-      if (voiceCaptureRef.current) {
-        voiceCaptureRef.current.setAiSpeaking(st.isPlaying);
-      }
-      if (st.activeText) {
-        activePromptTextRef.current = st.activeText;
-      }
-      // Step 3 transition: After AI response completes playback, automatically transition to LISTENING
-      if (!st.isPlaying && isActiveRef.current) {
-        setTranscriptionStatus("LISTENING");
-        setAiProcessingPhase("SPEECH_IN");
-        setAiProcessingDetail("🎙️ Listening... Speak naturally in Ghanaian English or Akan Twi");
-        if (voiceCaptureRef.current) {
-          voiceCaptureRef.current.setAiSpeaking(false);
-          if (voiceCaptureRef.current.getState() === "MIC_MUTED") {
-            voiceCaptureRef.current.unmute();
-            logVoiceDebug("[VOICE] Unmuted mic after prompt ended");
-          }
-        }
-        // Safety timeout (1.5s): ensure mic is unmuted even if browser audio was lagging or delayed
-        if (unmuteSafetyTimerRef.current) clearTimeout(unmuteSafetyTimerRef.current);
-        unmuteSafetyTimerRef.current = setTimeout(() => {
-          if (voiceCaptureRef.current?.getState() === "MIC_MUTED" && isActiveRef.current) {
-            voiceCaptureRef.current.unmute();
-            logVoiceDebug("[VOICE] Unmuted mic on 1.5s post-playback safety timeout");
-          }
-        }, 1500);
-      }
-    });
-    return () => {
-      unsubscribe();
-      if (unmuteSafetyTimerRef.current) clearTimeout(unmuteSafetyTimerRef.current);
-      audioPlaybackController.stop();
-    };
   }, []);
 
   function getPromptTranscript(filename: string): string {
@@ -968,12 +698,7 @@ export function usePhoneSimulator() {
       setAtHttpLogs((prev) => [logItem, ...prev.slice(0, 39)]);
 
       // 2. Live VoiceXML Trace
-      let cleanStep = requestEndpoint.split("?")[0].replace(/^\/+/, "");
-      if (cleanStep.includes("/")) {
-        const parts = cleanStep.split("/").filter(Boolean);
-        cleanStep = parts[parts.length - 1] || "voice-menu";
-      }
-      const stepLabel = cleanStep || "voice-menu";
+      const stepLabel = requestEndpoint.replace(/^\//, "").split("?")[0] || "voice-menu";
       setVoiceXmlTraces((prev) => [
         {
           step: stepLabel,
@@ -1011,9 +736,7 @@ export function usePhoneSimulator() {
         );
       }
 
-      // 4. Play audio prompt (<Play url="...">) OR spoken text (<Say voice="...">)
-      // Fix 5: Exactly ONE audible source is selected per response - never overlapping
-      let spokenText = "";
+      // 4. Play audio prompt (<Play url="...">)
       if (parsed.playUrl) {
         let audioUrl = parsed.playUrl;
         if (audioUrl.startsWith("http://") || audioUrl.startsWith("https://")) {
@@ -1022,9 +745,34 @@ export function usePhoneSimulator() {
             audioUrl = u.pathname;
           } catch {}
         }
-        const promptName = audioUrl.split("/").pop() || "";
+        setActiveAudioClip(audioUrl);
+        if (audioRef.current && enableTts) {
+          audioRef.current.src = audioUrl;
+          setIsAiSpeaking(true);
+          audioRef.current.play().catch(() => {});
+        }
+      }
+
+      // 5. Spoken text (<Say voice="...">)
+      const spokenText = parsed.say?.text || "";
+      if (spokenText) {
+        setAiResponse(spokenText);
+        setTranscript((prev) => [
+          ...prev,
+          {
+            id: `ai_${Date.now()}`,
+            role: "ai",
+            text: spokenText,
+            timestamp: Date.now(),
+            stage: stepLabel,
+          },
+        ]);
+        if (!parsed.playUrl && enableTts) {
+          playAudioSynthesis(spokenText, language);
+        }
+      } else if (parsed.playUrl) {
+        const promptName = parsed.playUrl.split("/").pop() || "";
         const promptText = getPromptTranscript(promptName);
-        spokenText = promptText;
         setAiResponse(promptText);
         setTranscript((prev) => [
           ...prev,
@@ -1036,35 +784,6 @@ export function usePhoneSimulator() {
             stage: stepLabel,
           },
         ]);
-
-        if (enableTts) {
-          audioPlaybackController.stop();
-          setActiveAudioClip(audioUrl);
-          setIsAiSpeaking(true);
-          audioPlaybackController.play({
-            url: audioUrl,
-            text: promptText,
-            sourceType: "STUDIO_PROMPT",
-          });
-        }
-      } else {
-        spokenText = parsed.say?.text || "";
-        if (spokenText) {
-          setAiResponse(spokenText);
-          setTranscript((prev) => [
-            ...prev,
-            {
-              id: `ai_${Date.now()}`,
-              role: "ai",
-              text: spokenText,
-              timestamp: Date.now(),
-              stage: stepLabel,
-            },
-          ]);
-          if (enableTts) {
-            playAudioSynthesis(spokenText, language, stepLabel);
-          }
-        }
       }
 
       // 6. GetDigits expectation
@@ -1193,14 +912,15 @@ export function usePhoneSimulator() {
       playTone(digit);
 
       if (!isActive) {
-        setDigitsBuffer((prev) => prev + digit);
+        if (digit === "1") startAtCall("en");
+        else if (digit === "2") startAtCall("tw");
+        else startAtCall("en");
         return;
       }
 
-      let effectiveCallbackUrl = atCurrentCallbackUrl;
-      if (!effectiveCallbackUrl) {
-        effectiveCallbackUrl = `/language-selection?sessionId=${atSessionId}`;
-        setAtCurrentCallbackUrl(effectiveCallbackUrl);
+      if (!atCurrentCallbackUrl) {
+        console.warn("[AT Telephony] No active Africa's Talking callback URL");
+        return;
       }
 
       // Finish on key (#)
@@ -1219,14 +939,14 @@ export function usePhoneSimulator() {
           ]);
           setIsLoading(true);
           try {
-            const res = await api.dispatchAtVoiceWebhook(effectiveCallbackUrl, {
+            const res = await api.dispatchAtVoiceWebhook(atCurrentCallbackUrl, {
               sessionId: atSessionId,
               callerNumber: atCallerPhone,
               destinationNumber: "+233308048098",
               isActive: "1",
               dtmfDigits: submitted,
             });
-            await processAtVoiceResponse(res, atSessionId, effectiveCallbackUrl, {
+            await processAtVoiceResponse(res, atSessionId, atCurrentCallbackUrl, {
               dtmfDigits: submitted,
             });
           } catch (e: any) {
@@ -1252,14 +972,14 @@ export function usePhoneSimulator() {
         ]);
         setIsLoading(true);
         try {
-          const res = await api.dispatchAtVoiceWebhook(effectiveCallbackUrl, {
+          const res = await api.dispatchAtVoiceWebhook(atCurrentCallbackUrl, {
             sessionId: atSessionId,
             callerNumber: atCallerPhone,
             destinationNumber: "+233308048098",
             isActive: "1",
             dtmfDigits: digit,
           });
-          await processAtVoiceResponse(res, atSessionId, effectiveCallbackUrl, {
+          await processAtVoiceResponse(res, atSessionId, atCurrentCallbackUrl, {
             dtmfDigits: digit,
           });
         } catch (e: any) {
@@ -1287,14 +1007,14 @@ export function usePhoneSimulator() {
         ]);
         setIsLoading(true);
         try {
-          const res = await api.dispatchAtVoiceWebhook(effectiveCallbackUrl, {
+          const res = await api.dispatchAtVoiceWebhook(atCurrentCallbackUrl, {
             sessionId: atSessionId,
             callerNumber: atCallerPhone,
             destinationNumber: "+233308048098",
             isActive: "1",
             dtmfDigits: nextBuf,
           });
-          await processAtVoiceResponse(res, atSessionId, effectiveCallbackUrl, {
+          await processAtVoiceResponse(res, atSessionId, atCurrentCallbackUrl, {
             dtmfDigits: nextBuf,
           });
         } catch (e: any) {
@@ -1319,16 +1039,15 @@ export function usePhoneSimulator() {
   );
 
   // Stop audio, recognition, and mic on unmount
-  // Stop audio, recognition, and mic on unmount
   useEffect(() => {
     return () => {
-      audioPlaybackController.stop();
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       if (micTimeoutRef.current) clearTimeout(micTimeoutRef.current);
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       if (audioContextRef.current) {
         try { audioContextRef.current.close(); } catch {}
       }
+      if (audioRef.current) audioRef.current.pause();
       if (recognitionRef.current) {
         try { recognitionRef.current.abort(); } catch {}
       }
@@ -1339,64 +1058,161 @@ export function usePhoneSimulator() {
   }, []);
 
   /**
-   * Play speech or studio prompts through the single authoritative AudioPlaybackController.
-   * Fix 1 & Fix 2: Exactly ONE audio output is played. Zero browser speechSynthesis fallback in normal path.
+   * Helper to map conversation dialogue turns or steps to authentic studio recordings
    */
-  const playAudioSynthesis = useCallback(async (text: string, lang: string, step?: string): Promise<boolean> => {
-    if (!enableTts || !text) return false;
+  const resolveStudioPrompt = useCallback((text: string, lang: string, step?: string): string | null => {
+    const isTwi = lang === "tw" || lang === "ak";
+    const lower = (text || "").toLowerCase().replace(/[-_]/g, " ");
+    const currentCheck = (step || "").toLowerCase();
 
-    // 1. Single playback controller is the only owner of speech: stop previous source immediately
-    audioPlaybackController.stop();
+    if (currentCheck.includes("confirm") || currentCheck.includes("safe-confirm") || lower.includes("confirm and send") || lower.includes("woremane sika") || lower.includes("500 ghana cedis") || lower.includes("500 ghana cedi")) {
+      return isTwi ? "/audio/Twi/Audio_prompt_twi_08.mp3" : "/audio/English/Audio_prompt_10.mp3";
+    }
+    if (currentCheck.includes("amount") || currentCheck.includes("enter-amount") || lower.includes("cedi amount") || lower.includes("enter amount") || lower.includes("sika dodoɔ") || lower.includes("sika dodow")) {
+      return isTwi ? "/audio/Twi/Audio_prompt_twi_07.mp3" : "/audio/English/Audio_prompt_09.mp3";
+    }
+    if (currentCheck.includes("recipient") || currentCheck.includes("phone") || currentCheck.includes("enter-recipient") || lower.includes("10-digit") || lower.includes("bɔ nɔmba") || lower.includes("number you want to send")) {
+      return isTwi ? "/audio/Twi/Audio_prompt_twi_05.mp3" : "/audio/English/Audio_prompt_06.mp3";
+    }
+    if (currentCheck.includes("verify") || lower.includes("about to send money to kwame") || lower.includes("kwame nyamebrɛ") || lower.includes("ends with 8464")) {
+      return isTwi ? "/audio/Twi/Audio_prompt_twi_06.mp3" : "/audio/English/Audio_prompt_08.mp3";
+    }
+    if (currentCheck.includes("receipt") || currentCheck.includes("outcome") || currentCheck.includes("safe-outcome") || lower.includes("congratulations") || lower.includes("akɔ yie") || lower.includes("successfully sent")) {
+      return isTwi ? "/audio/Twi/Audio_prompt_twi_10.mp3" : "/audio/English/Audio_prompt_12.mp3";
+    }
+    if (currentCheck.includes("pin") || lower.includes("secret pin") || lower.includes("momo pin") || lower.includes("nkyerɛwee")) {
+      return isTwi ? "/audio/Twi/Audio_prompt_twi_09.mp3" : "/audio/English/Audio_prompt_11.mp3";
+    }
+    if (currentCheck.includes("network") || currentCheck.includes("provider") || lower.includes("network") || lower.includes("mtn") || lower.includes("telecel") || lower.includes("airteltigo")) {
+      return isTwi ? "/audio/Twi/Audio_prompt_twi_02.mp3" : "/audio/English/Audio_prompt_03.mp3";
+    }
+    if (currentCheck.includes("service") || lower.includes("telecom") || lower.includes("banking") || lower.includes("sikakorabea")) {
+      return isTwi ? "/audio/Twi/Audio_prompt_twi_03.mp3" : "/audio/English/Audio_prompt_02.mp3";
+    }
+    if (currentCheck.includes("action") || lower.includes("momo user") || lower.includes("pay bills") || lower.includes("buy airtime") || lower.includes("cash out")) {
+      return isTwi ? "/audio/Twi/Audio_prompt_twi_04.mp3" : "/audio/English/Audio_prompt_05.mp3";
+    }
+    if (currentCheck.includes("welcome") || currentCheck.includes("language") || lower.includes("welcome") || lower.includes("akwaaba")) {
+      return isTwi ? "/audio/Twi/Welcome_prompt_01.mp3" : "/audio/Welcome_prompt_01.mp3";
+    }
+    if (lower.includes("thank you") || lower.includes("goodbye") || lower.includes("meda wo ase")) {
+      return isTwi ? "/audio/Twi/Audio_prompt_twi_11.mp3" : "/audio/English/Audio_prompt_13.mp3";
+    }
 
-    const speech = determineSpeechOutput(text, lang, step || currentStep);
-    updateAiSpeaking(true, text);
+    return null;
+  }, []);
 
-    if (speech.kind === "recorded") {
-      setActiveAudioClip(speech.url);
-      try {
-        const ok = await audioPlaybackController.play({
-          url: speech.url,
-          text: speech.text,
-          language: speech.language,
-          sourceType: "STUDIO_PROMPT",
-        });
-        return ok;
-      } catch (err) {
-        console.warn("[AudioPlayback] Studio prompt playback failed:", err);
-        audioPlaybackController.stop();
-        return false;
+  /**
+   * Play speech or studio prompts based on selected audio mode
+   */
+  const playAudioSynthesis = useCallback(async (text: string, lang: string, step?: string) => {
+    if (!enableTts || !text) return;
+    try {
+      updateAiSpeaking(true, text);
+      const isTwi = lang === "tw" || lang === "ak";
+
+      // 1. Studio Pre-Recorded Prompts Mode (Priority 1 for known workflow steps)
+      const matchedPrompt = resolveStudioPrompt(text, lang, step || currentStep);
+      if (matchedPrompt && voiceMode !== "BROWSER") {
+        if (audioRef.current) {
+          audioRef.current.src = matchedPrompt;
+          setActiveAudioClip(matchedPrompt);
+          audioRef.current.onended = () => {
+            updateAiSpeaking(false);
+            setActiveAudioClip(null);
+          };
+          audioRef.current.onerror = () => {
+            updateAiSpeaking(false);
+            setActiveAudioClip(null);
+          };
+          const playPromise = audioRef.current.play();
+          if (playPromise) {
+            await playPromise.catch((err) => {
+              console.warn("[TTS Play] Autoplay notice:", err);
+              if ("speechSynthesis" in window) {
+                try {
+                  window.speechSynthesis.resume();
+                  window.speechSynthesis.cancel();
+                  const utterance = new SpeechSynthesisUtterance(text);
+                  utterance.rate = 0.95;
+                  utterance.onend = () => updateAiSpeaking(false);
+                  utterance.onerror = () => updateAiSpeaking(false);
+                  window.speechSynthesis.speak(utterance);
+                } catch {
+                  updateAiSpeaking(false);
+                }
+              } else {
+                updateAiSpeaking(false);
+              }
+            });
+          }
+          return;
+        }
       }
-    } else {
-      // Dynamic TTS - request synthesis from backend and play generated Base64 audio once
-      setActiveAudioClip(null);
+
+      // 2. Dynamic Speech Synthesizer Service (for custom amounts, names, receipt numbers)
       try {
         const synth = await api.synthesizeSpeech({
-          text: speech.text,
-          language: speech.language === "tw" ? "tw" : "en",
+          text,
+          language: isTwi ? "tw" : "en",
           style: "ghanaian-warm",
         });
 
-        if (synth?.result?.audioBase64) {
-          const ok = await audioPlaybackController.play({
-            audioBase64: synth.result.audioBase64,
-            audioMimeType: synth.result.audioMimeType || "audio/mp3",
-            text: speech.text,
-            language: speech.language,
-            sourceType: "SYNTHESIZED_TTS",
-          });
-          return ok;
-        } else {
-          console.warn("[TTS] Dynamic synthesis returned no audio payload; speech ended cleanly without fallback.");
-          audioPlaybackController.stop();
-          return false;
+        if (synth?.result?.audioBase64 && audioRef.current) {
+          const mime = synth.result.audioMimeType || "audio/mp3";
+          audioRef.current.src = `data:${mime};base64,${synth.result.audioBase64}`;
+          audioRef.current.onended = () => {
+            updateAiSpeaking(false);
+            setActiveAudioClip(null);
+          };
+          audioRef.current.onerror = () => {
+            updateAiSpeaking(false);
+            setActiveAudioClip(null);
+          };
+          const playPromise = audioRef.current.play();
+          if (playPromise) {
+            await playPromise.catch(() => {
+              if ("speechSynthesis" in window) {
+                try {
+                  window.speechSynthesis.resume();
+                  window.speechSynthesis.cancel();
+                  const utterance = new SpeechSynthesisUtterance(text);
+                  utterance.rate = 0.95;
+                  utterance.onend = () => updateAiSpeaking(false);
+                  utterance.onerror = () => updateAiSpeaking(false);
+                  window.speechSynthesis.speak(utterance);
+                } catch {
+                  updateAiSpeaking(false);
+                }
+              } else {
+                updateAiSpeaking(false);
+              }
+            });
+          }
+          return;
         }
-      } catch (err: any) {
-        console.warn("[TTS] Dynamic speech synthesis error:", err?.message || err);
-        audioPlaybackController.stop();
-        return false;
+      } catch {}
+
+      // 3. Browser Speech Synthesis Fallback
+      if ("speechSynthesis" in window) {
+        try {
+          window.speechSynthesis.resume();
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.rate = 0.95;
+          utterance.onend = () => updateAiSpeaking(false);
+          utterance.onerror = () => updateAiSpeaking(false);
+          window.speechSynthesis.speak(utterance);
+        } catch {
+          updateAiSpeaking(false);
+        }
+      } else {
+        updateAiSpeaking(false);
       }
+    } catch {
+      updateAiSpeaking(false);
     }
-  }, [enableTts, currentStep, updateAiSpeaking]);
+  }, [enableTts, voiceMode, currentStep, resolveStudioPrompt, updateAiSpeaking]);
 
   /**
    * Process a single turn through the backend Canonical AI
@@ -1419,18 +1235,6 @@ export function usePhoneSimulator() {
     setAiProcessingDetail(`Analyzing input: "${normalizedInput.slice(0, 45)}"`);
     const newTurnNum = turnCount + 1;
     setTurnCount(newTurnNum);
-    const turnTag = `T${newTurnNum}`;
-
-    emitSimulatorLog({
-      category: "TURN",
-      message: `Turn accepted: "${normalizedInput}" via ${channel}`,
-      turnId: turnTag,
-    });
-    emitSimulatorLog({
-      category: "BRAIN",
-      message: `Cognitive routing to AI Brain (step: "${overrideStep || currentStep}")`,
-      turnId: turnTag,
-    });
 
     // Record Caller turn
     const callerTurnItem: SimulatorTranscriptItem = {
@@ -1441,44 +1245,6 @@ export function usePhoneSimulator() {
       stage: currentStep,
     };
     setTranscript((prev) => [...prev, callerTurnItem]);
-
-    // Handle Africa's Talking IVR mode input routing
-    if (gatewayMode === "AFRICASTALKING_IVR" && atCurrentCallbackUrl) {
-      let dtmf = normalizedInput.replace(/[^0-9*#]/g, "");
-      const lower = normalizedInput.toLowerCase();
-      if (!dtmf) {
-        if (lower.includes("english") || lower.includes("momo") || lower.includes("send") || lower.includes("confirm") || lower.includes("yes") || lower.includes("aane") || lower.includes("one")) {
-          dtmf = "1";
-        } else if (lower.includes("twi") || lower.includes("bank") || lower.includes("telecel") || lower.includes("no") || lower.includes("dabi") || lower.includes("two")) {
-          dtmf = "2";
-        } else if (lower.includes("airtime") || lower.includes("three")) {
-          dtmf = "3";
-        } else if (lower.includes("back") || lower.includes("eight")) {
-          dtmf = "8";
-        } else if (lower.includes("repeat") || lower.includes("nine")) {
-          dtmf = "9";
-        } else if (lower.includes("cancel") || lower.includes("exit") || lower.includes("gyae") || lower.includes("zero")) {
-          dtmf = "0";
-        }
-      }
-      if (dtmf) {
-        try {
-          const res = await api.dispatchAtVoiceWebhook(atCurrentCallbackUrl, {
-            sessionId: atSessionId,
-            callerNumber: atCallerPhone,
-            destinationNumber: "+233308048098",
-            isActive: "1",
-            dtmfDigits: dtmf,
-          });
-          await processAtVoiceResponse(res, atSessionId, atCurrentCallbackUrl, { dtmfDigits: dtmf });
-        } catch (e: any) {
-          console.error("[AT Voice Input] Dispatch error:", e);
-        } finally {
-          setIsLoading(false);
-        }
-        return;
-      }
-    }
 
     // Snapshot previous slots for "What changed?" diagnostic
     const prevSlotsSnapshot = { ...entities };
@@ -1540,33 +1306,6 @@ export function usePhoneSimulator() {
       setAiProcessingPhase("READY");
       setAiProcessingDetail(`Turn completed in ${turnLatencyMs}ms`);
       setTranscriptionStatus("TRANSCRIBED");
-
-      if (resp.trace && Array.isArray(resp.trace) && resp.trace.length > 0) {
-        for (const item of resp.trace) {
-          emitSimulatorLog({
-            category: item.category as any,
-            message: item.message,
-            turnId: turnTag,
-            data: item.data,
-          });
-        }
-      } else {
-        const asrTiming = Math.round(turnLatencyMs * 0.22);
-        const brainTiming = Math.round(turnLatencyMs * 0.58);
-        const ttsTiming = Math.round(turnLatencyMs * 0.20);
-
-        emitSimulatorLog({
-          category: "BRAIN",
-          message: `Brain decision: intent=${detectedIntent}, replyKey="${newDialogue?.response ? newDialogue.response.slice(0, 45) : ""}"`,
-          turnId: turnTag,
-        });
-
-        emitSimulatorLog({
-          category: "TURN",
-          message: `${turnTag} done in ${turnLatencyMs}ms  asr ${asrTiming} | brain ${brainTiming} | tts ${ttsTiming} | audio_start +${turnLatencyMs}`,
-          turnId: turnTag,
-        });
-      }
 
       setLastTranscription({
         text: rawInput,
@@ -1721,180 +1460,6 @@ export function usePhoneSimulator() {
   ]);
 
   /**
-   * Start long conversation recording session (streams chunks to /api/ai/asr/session/:id/chunk)
-   */
-  const startRecording = useCallback(async () => {
-    try {
-      if (isRecording) return;
-      recordingChunksRef.current = [];
-      setRecordedChunksCount(0);
-      setRecordingDurationSec(0);
-      setRecordedAudioUrl(null);
-      setRecordedAudioBlob(null);
-
-      const activeSession = atSessionId || sessionId || `asr_${Date.now()}`;
-      asrSessionIdRef.current = activeSession;
-      setAsrSessionId(activeSession);
-
-      try {
-        await api.startAsrSession({
-          sessionId: activeSession,
-          language: language === "tw" ? "twi" : "en",
-          metadata: { channel: "phone_simulator", callerPhone: atCallerPhone },
-        });
-      } catch (err) {
-        console.warn("Backend ASR session start fallback:", err);
-      }
-
-      let stream = mediaStreamRef.current;
-      if (!stream || !stream.active) {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            channelCount: 1,
-            sampleRate: 16000,
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-        });
-        mediaStreamRef.current = stream;
-      }
-
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : MediaRecorder.isTypeSupported("audio/webm")
-        ? "audio/webm"
-        : "audio/ogg";
-
-      const recorder = new MediaRecorder(stream, { mimeType });
-      mediaRecorderRef.current = recorder;
-
-      recorder.ondataavailable = async (e) => {
-        if (e.data && e.data.size > 0) {
-          recordingChunksRef.current.push(e.data);
-          setRecordedChunksCount((prev) => prev + 1);
-
-          try {
-            const reader = new FileReader();
-            reader.onloadend = async () => {
-              const base64Data = (reader.result as string)?.split(",")[1];
-              if (base64Data && asrSessionIdRef.current) {
-                const res = await api.appendAudioChunk(
-                  asrSessionIdRef.current,
-                  base64Data,
-                  mimeType,
-                  currentStep
-                );
-                if (res?.rollingSummary) setRollingSummary(res.rollingSummary);
-                if (res?.fullTranscript) setLongAsrTranscript(res.fullTranscript);
-              }
-            };
-            reader.readAsDataURL(e.data);
-          } catch (chunkErr) {
-            console.warn("Chunk append error:", chunkErr);
-          }
-        }
-      };
-
-      recorder.onstop = () => {
-        const fullBlob = new Blob(recordingChunksRef.current, { type: mimeType });
-        setRecordedAudioBlob(fullBlob);
-        const url = URL.createObjectURL(fullBlob);
-        setRecordedAudioUrl(url);
-      };
-
-      recorder.start(4000);
-      setIsRecording(true);
-
-      recordingTimerRef.current = setInterval(() => {
-        setRecordingDurationSec((prev) => prev + 1);
-      }, 1000);
-    } catch (err: any) {
-      console.error("Failed to start long conversation recording:", err);
-    }
-  }, [isRecording, atSessionId, sessionId, language, atCallerPhone, currentStep]);
-
-  /**
-   * Stop long conversation recording and compile audio blob
-   */
-  const stopRecording = useCallback(async () => {
-    setIsRecording(false);
-    if (recordingTimerRef.current) {
-      clearInterval(recordingTimerRef.current);
-      recordingTimerRef.current = null;
-    }
-
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-      try {
-        mediaRecorderRef.current.stop();
-      } catch {}
-    }
-
-    if (asrSessionIdRef.current) {
-      try {
-        const res = await api.endAsrSession(asrSessionIdRef.current);
-        if (res?.session?.rollingSummary) setRollingSummary(res.session.rollingSummary);
-        if (res?.session?.fullTranscript) setLongAsrTranscript(res.session.fullTranscript);
-      } catch (endErr) {
-        console.warn("End ASR session notice:", endErr);
-      }
-    }
-  }, []);
-
-  /**
-   * Download the recorded conversation audio
-   */
-  const downloadRecording = useCallback(() => {
-    if (!recordedAudioBlob && !recordedAudioUrl) return;
-    const a = document.createElement("a");
-    a.href = recordedAudioUrl || URL.createObjectURL(recordedAudioBlob!);
-    a.download = `conversation_${sessionId || "call"}_${Date.now()}.webm`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  }, [recordedAudioBlob, recordedAudioUrl, sessionId]);
-
-  /**
-   * Export conversation transcript
-   */
-  const exportTranscript = useCallback((format: "txt" | "json" = "txt") => {
-    let content = "";
-    if (format === "json") {
-      content = JSON.stringify(
-        {
-          sessionId,
-          date: new Date().toISOString(),
-          durationSec: callDurationSec,
-          transcript,
-          rollingSummary,
-          fullTranscript: longAsrTranscript,
-        },
-        null,
-        2
-      );
-    } else {
-      content = `--- ƆKWANKYERƐFO PA CALL TRANSCRIPT ---\nSession: ${sessionId}\nDate: ${new Date().toLocaleString()}\nDuration: ${callDurationSec}s\n\n`;
-      transcript.forEach((t) => {
-        const time = new Date(t.timestamp).toLocaleTimeString();
-        content += `[${time}] ${t.role.toUpperCase()}: ${t.text}\n`;
-      });
-      if (rollingSummary) {
-        content += `\n--- ROLLING SUMMARY ---\n${rollingSummary}\n`;
-      }
-    }
-
-    const blob = new Blob([content], { type: format === "json" ? "application/json" : "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `transcript_${sessionId || "call"}.${format}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, [sessionId, callDurationSec, transcript, rollingSummary, longAsrTranscript]);
-
-  /**
    * Start a phone call
    */
   const startCall = useCallback(async (initialLang: "en" | "tw" = "en") => {
@@ -1903,45 +1468,10 @@ export function usePhoneSimulator() {
       return;
     }
 
-    setLanguage(initialLang);
-    setMicErrorMessage(null);
-    setAsrErrorMessage(null);
-
-    // Synchronously initiate mic capture inside the click handler turn (NO await before getUserMedia!)
-    let micSuccess = false;
-    if (startContinuousVoiceRef.current) {
-      micSuccess = await startContinuousVoiceRef.current(initialLang);
-    }
-
-    if (!micSuccess) {
-      // Failed start: DO NOT leave call running as if mic were on!
-      setIsActive(false);
-      isActiveRef.current = false;
-      setIsMicActive(false);
-      isMicActiveRef.current = false;
-      const errorName = voiceCaptureRef.current?.getLastErrorName() || "MicrophoneError";
-      const failureReason = `[${errorName}] Microphone access failed or blocked. Call could not connect with live microphone.`;
-      setMicErrorMessage(failureReason);
-      emitSimulatorLog({
-        category: "ERROR",
-        message: `Call aborted: ${failureReason}`,
-      });
-      setTranscript([
-        {
-          id: `sys_err_${Date.now()}`,
-          role: "system",
-          text: `❌ Call Aborted: ${failureReason}`,
-          timestamp: Date.now(),
-        },
-      ]);
-      return;
-    }
-
-    // Microphone access granted! Connect call.
     const newSession = `sim_${Date.now()}`;
     setSessionId(newSession);
     setIsActive(true);
-    isActiveRef.current = true;
+    setLanguage(initialLang);
     setCurrentScreen("HOME");
     setCurrentStep("welcome");
     setTurnCount(0);
@@ -1951,19 +1481,20 @@ export function usePhoneSimulator() {
     setAccuracyResult(null);
     setLastTurnDiagnostic(null);
 
-    const promptMeta = getConversationalPrompt("welcome", initialLang);
-    const welcomeGreeting = promptMeta.spokenText;
+    const welcomeGreeting = initialLang === "tw"
+      ? "Akwaaba! Ɔkwankyerɛfo Pa MoMo Ntentan so. Sika bɛn na wobɛpɛ sɛ womane anaa wobɛyɛ?"
+      : "Welcome to Ɔkwankyerɛfo Pa Voice Mobile Money! Who would you like to send money to today?";
 
-    const initialXml = `<Response>\n  <GetDigits timeout="12" finishOnKey="#" numDigits="10">\n    <Say voice="${initialLang === "tw" ? "woman" : "alice"}">${welcomeGreeting}</Say>\n  </GetDigits>\n</Response>`;
+    const initialXml = `<Response>\n  <GetDigits timeout="2" finishOnKey="#" numDigits="10">\n    <Say voice="${initialLang === "tw" ? "woman" : "alice"}">${welcomeGreeting}</Say>\n  </GetDigits>\n</Response>`;
     setVoiceXmlTraces([
-      { step: "conversational_welcome", xml: initialXml, timestamp: new Date().toLocaleTimeString() },
+      { step: "welcome", xml: initialXml, timestamp: new Date().toLocaleTimeString() },
     ]);
 
     setTranscript([
       {
         id: `sys_start_${Date.now()}`,
         role: "system",
-        text: `📱 Call Connected (+233 30 804 8098) · Mode: Conversational AI · Hands-Free Mic Active`,
+        text: `📱 Call Connected (+233 30 804 8098) · Mode: ${executionMode} · AI Engine Online`,
         timestamp: Date.now(),
       },
       {
@@ -1971,13 +1502,13 @@ export function usePhoneSimulator() {
         role: "ai",
         text: welcomeGreeting,
         timestamp: Date.now(),
-        stage: "conversational_welcome",
+        stage: "welcome",
         language: initialLang,
       },
     ]);
 
     setAiResponse(welcomeGreeting);
-    playAudioSynthesis(welcomeGreeting, initialLang, "conversational_welcome");
+    playAudioSynthesis(welcomeGreeting, initialLang, "welcome");
 
     // Also trigger initial turn synchronization in background so Call Logs reflects call immediately
     api.processSimulatorTurn({
@@ -2005,26 +1536,14 @@ export function usePhoneSimulator() {
    * Hang up the call & synchronize completion to Call Logs
    */
   const endCall = useCallback(async (reason: string = "User ended call") => {
-    if (isRecording) {
-      stopRecording();
-    }
     setIsActive(false);
-    isActiveRef.current = false;
     setIsMicActive(false);
-    isMicActiveRef.current = false;
     setIsAiSpeaking(false);
-    isAiSpeakingRef.current = false;
     setAtCurrentCallbackUrl(null);
-    if (voiceCaptureRef.current) {
-      voiceCaptureRef.current.stop();
-      voiceCaptureRef.current = null;
-    }
-    audioPlaybackController.stop();
     if (audioRef.current) audioRef.current.pause();
     if (recognitionRef.current) recognitionRef.current.abort();
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((t) => t.stop());
-      mediaStreamRef.current = null;
     }
 
     if (gatewayMode === "AFRICASTALKING_IVR") {
@@ -2060,12 +1579,6 @@ export function usePhoneSimulator() {
    * Keypad digit pressed
    */
   const handleKeypadDigit = useCallback((digit: string) => {
-    emitSimulatorLog({
-      category: "KEY",
-      message: `Keypad pressed: ${digit}`,
-      turnId: `T${turnCount + 1}`,
-    });
-
     if (gatewayMode === "AFRICASTALKING_IVR") {
       handleAtKeypadDigit(digit);
       return;
@@ -2073,9 +1586,10 @@ export function usePhoneSimulator() {
 
     playTone(digit);
 
-    // If call not active, pressing keys dials the number
+    // If call not active, pressing 1 or 2 starts call in corresponding language
     if (!isActive) {
-      setDigitsBuffer((prev) => prev + digit);
+      if (digit === "1") startCall("en");
+      else if (digit === "2") startCall("tw");
       return;
     }
 
@@ -2088,27 +1602,21 @@ export function usePhoneSimulator() {
       return;
     }
 
-    // Single digit menu choices (Option 1, Option 2, etc.) during welcome and menu selection steps
-    const isMultiDigitStep =
-      currentStep.toLowerCase().includes("recipient") ||
-      currentStep.toLowerCase().includes("amount") ||
-      currentStep.toLowerCase().includes("phone") ||
-      atExpectedDigits > 1;
-
-    // Universal cancellation on 0 if empty AND NOT in a multi-digit input step (like phone number or amount)
-    if (digit === "0" && !digitsBuffer && !isMultiDigitStep) {
+    // Cancellation on 0 if empty
+    if (digit === "0" && !digitsBuffer) {
       sendInputTurn("0", "DTMF");
-      return;
-    }
-
-    if (!isMultiDigitStep && /^[0-9]$/.test(digit)) {
-      sendInputTurn(digit, "DTMF");
-      setDigitsBuffer("");
       return;
     }
 
     const nextBuffer = digitsBuffer + digit;
     setDigitsBuffer(nextBuffer);
+
+    // Single digit confirmation choices (1 = Yes, 2 = No) during confirmation step
+    if (currentStep === "confirm" && (digit === "1" || digit === "2")) {
+      sendInputTurn(digit, "DTMF");
+      setDigitsBuffer("");
+      return;
+    }
 
     // Auto submit complete 10-digit phone number
     if (nextBuffer.length === 10 && nextBuffer.startsWith("0")) {
@@ -2157,313 +1665,162 @@ export function usePhoneSimulator() {
    * Continuous Conversational Voice Engine: Start listening with real microphone,
    * AudioWorklet PCM streaming, adaptive VAD, and barge-in handling.
    */
-  const startContinuousVoice = useCallback(async (forcedLang?: "en" | "tw") => {
+  const startContinuousVoice = useCallback(async () => {
     setVoiceModeActive("REAL_MIC");
-    const activeLang = forcedLang || language;
 
-    if (voiceCaptureRef.current) {
-      voiceCaptureRef.current.stop();
-      voiceCaptureRef.current = null;
+    // Auto-connect call immediately if not active
+    if (!isActive) {
+      await startCall(language === "tw" ? "tw" : "en");
     }
 
-    voiceCaptureRef.current = new ContinuousVoiceCapture({
-      onStateChange: (newState, reason, errorName) => {
-        setMicState(newState);
-        if (reason) setMicStateReason(reason);
-        if (newState === "MIC_UNAVAILABLE") {
-          const errPrefix = errorName ? `[${errorName}] ` : "";
-          setMicErrorMessage(`${errPrefix}${reason || "Microphone access unavailable"}`);
-          setIsMicActive(false);
-          isMicActiveRef.current = false;
-        } else if (newState === "MIC_ACTIVE") {
-          setMicErrorMessage(null);
-          setIsMicActive(true);
-          isMicActiveRef.current = true;
-          setIsHardwareMicGranted(true);
-          setIsVirtualVoiceMode(false);
-          setTranscriptionStatus("LISTENING");
-          setAiProcessingPhase("SPEECH_IN");
-          setAiProcessingDetail("🎙️ Listening continuously... Speak in Ghanaian English or Akan Twi");
-        } else if (newState === "MIC_INTERRUPTED") {
-          setIsBargeInActive(true);
-          setTranscriptionStatus("LISTENING");
-          setAiProcessingDetail("Interrupted assistant · Prioritizing caller speech");
-          setTimeout(() => setIsBargeInActive(false), 800);
-        } else if (newState === "MIC_MUTED" || newState === "MIC_STOPPED") {
-          setIsMicActive(false);
-          isMicActiveRef.current = false;
-        }
-      },
-      onAudioLevel: (level) => {
-        setAudioLevel(level);
-        audioLevelRef.current = level;
-      },
-      onVadUpdate: (vad) => {
-        setVadState(vad.speechActive ? "SPEECH" : "SILENCE");
-      },
-      onDiscard: (reason: string) => {
-        logVoiceDebug(`[VOICE] onDiscard: ${reason}`);
-        setTranscriptionStatus("LISTENING");
-        setAiProcessingDetail(reason);
-      },
-      onNoAudioFlowing: (msg: string) => {
-        const errorLine = `[NoAudioFlowingError] ${msg}`;
-        setMicErrorMessage(errorLine);
-        setAiProcessingDetail(`⚠️ ${errorLine}`);
-      },
-      onBargeIn: () => {
-        // Instantly pause assistant audio or cancel speech synthesis
-        if (audioRef.current) {
-          try { audioRef.current.pause(); } catch {}
-        }
-        if ("speechSynthesis" in window) {
-          try { window.speechSynthesis.cancel(); } catch {}
-        }
-        setIsAiSpeaking(false);
-        isAiSpeakingRef.current = false;
-      },
-      onUtteranceComplete: async (wavBase64, durationMs) => {
-        logVoiceDebug(`[VOICE] onUtteranceComplete: durationMs=${durationMs}, wavBase64Len=${wavBase64.length}`);
-        const currentTurnTag = `T${turnCount + 1}`;
-
-        // Automatic end of user speech turn detected by VAD!
-        if (isTurnInFlightRef.current) {
-          logVoiceDebug(`[VOICE] runTurn: dropped (turn in flight)`);
-          emitSimulatorLog({
-            category: "TURN",
-            message: "Turn dropped: previous turn in flight",
-            turnId: currentTurnTag,
-          });
-          return;
-        }
-        isTurnInFlightRef.current = true;
-        logVoiceDebug(`[VOICE] runTurn: accepted`);
-
-        setTranscriptionStatus("PROCESSING");
-        setAiProcessingPhase("SPEECH_IN");
-        setAiProcessingDetail("Transcribing voice audio with GhanaNLP Primary ASR...");
-
-        const startTime = performance.now();
-        try {
-          emitSimulatorLog({
-            category: "ASR",
-            message: `Transcribing utterance (${durationMs}ms audio, language: ${activeLang}, step: ${currentStep})...`,
-            turnId: currentTurnTag,
-          });
-          logVoiceDebug(`[VOICE] api.transcribeAudio request: language=${activeLang}, step=${currentStep}`);
-
-          const asrRes = await api.transcribeAudio(wavBase64, "audio/wav", activeLang, currentStep);
-          const latency = Math.round(performance.now() - startTime);
-          const rawText = asrRes?.result?.text || "";
-          const provider = asrRes?.result?.provider || "GhanaNLP_ASR_v3";
-          const fallbackReason = asrRes?.result?.fallbackReason;
-
-          if (fallbackReason) {
-            const isQuota = /429|quota|resource_exhausted/i.test(fallbackReason);
-            const fbMsg = `ASR Provider Notice (${provider}): ${fallbackReason}${isQuota ? " [429 / Quota limit]" : ""}`;
-            emitSimulatorLog({
-              category: "ERROR",
-              message: `[ASR] ${fbMsg}`,
-              turnId: currentTurnTag,
-            });
-            setAsrErrorMessage(fbMsg);
-          }
-
-          logVoiceDebug(`[VOICE] api.transcribeAudio response: text="${rawText}", provider=${provider}, latency=${latency}ms`);
-
-          voiceCaptureRef.current?.updateTelemetry({
-            chunksCompleted: (voiceCaptureRef.current.getTelemetry().chunksCompleted || 0) + 1,
-            lastASRLatencyMs: latency,
-            currentASRProvider: provider,
-          });
-
-          if (!rawText || rawText === "empty" || rawText.trim().length === 0) {
-            logVoiceDebug(`[VOICE] ASR returned empty text (duration: ${durationMs}ms)`);
-            emitSimulatorLog({
-              category: "ASR",
-              message: `ASR returned empty transcript (${latency}ms latency)`,
-              turnId: currentTurnTag,
-            });
+    if (!voiceCaptureRef.current) {
+      voiceCaptureRef.current = new ContinuousVoiceCapture({
+        onStateChange: (newState, reason) => {
+          setMicState(newState);
+          if (reason) setMicStateReason(reason);
+          if (newState === "MIC_ACTIVE") {
+            setIsMicActive(true);
+            isMicActiveRef.current = true;
+            setIsHardwareMicGranted(true);
+            setIsVirtualVoiceMode(false);
             setTranscriptionStatus("LISTENING");
-            setAiProcessingDetail("No clear speech detected. Speak louder or try again.");
-            return;
+            setAiProcessingPhase("SPEECH_IN");
+            setAiProcessingDetail("🎙️ Listening continuously... Speak in Ghanaian English or Akan Twi");
+          } else if (newState === "MIC_INTERRUPTED") {
+            setIsBargeInActive(true);
+            setTranscriptionStatus("LISTENING");
+            setAiProcessingDetail("Interrupted assistant · Prioritizing caller speech");
+            setTimeout(() => setIsBargeInActive(false), 800);
+          } else if (newState === "MIC_MUTED" || newState === "MIC_STOPPED") {
+            setIsMicActive(false);
+            isMicActiveRef.current = false;
           }
-
-          emitSimulatorLog({
-            category: "ASR",
-            message: `ASR transcribed: "${rawText}" (${provider}, ${latency}ms)`,
-            turnId: currentTurnTag,
-          });
-
-          let textToSend = formatSpokenNumbersAsDigits(rawText);
-
-          // Step expected-grammar matching
-          let grammarMatched = false;
-          let matchedValue = "";
-          const stepDef = STEP_REGISTRY[currentStep];
-          if (stepDef) {
-            const match1 = resolveExpected(stepDef, textToSend, activeLang);
-            const match2 = resolveExpected(stepDef, rawText, activeLang);
-            const bestMatch = match1.matched ? match1 : (match2.matched ? match2 : null);
-            if (bestMatch && bestMatch.matched) {
-              grammarMatched = true;
-              matchedValue = bestMatch.value;
-              emitSimulatorLog({
-                category: "MATCH",
-                message: `resolveExpected matched "${bestMatch.value}" (confidence: ${bestMatch.confidence}) for step "${currentStep}"`,
-                turnId: currentTurnTag,
-              });
-              logVoiceDebug(`[VOICE] resolveExpected matched: "${bestMatch.value}" for step "${currentStep}"`);
-            } else {
-              emitSimulatorLog({
-                category: "MATCH",
-                message: `resolveExpected: no direct grammar match for "${textToSend}" on step "${currentStep}"`,
-                turnId: currentTurnTag,
-              });
-            }
+        },
+        onAudioLevel: (level) => {
+          setAudioLevel(level);
+          audioLevelRef.current = level;
+        },
+        onVadUpdate: (vad) => {
+          setVadState(vad.speechActive ? "SPEECH" : "SILENCE");
+        },
+        onBargeIn: () => {
+          // Instantly pause assistant audio or cancel speech synthesis
+          if (audioRef.current) {
+            try { audioRef.current.pause(); } catch {}
           }
+          if ("speechSynthesis" in window) {
+            try { window.speechSynthesis.cancel(); } catch {}
+          }
+          setIsAiSpeaking(false);
+          isAiSpeakingRef.current = false;
+        },
+        onUtteranceComplete: async (wavBase64, durationMs) => {
+          // Automatic end of user speech turn detected by VAD!
+          setTranscriptionStatus("PROCESSING");
+          setAiProcessingPhase("SPEECH_IN");
+          setAiProcessingDetail("Transcribing voice audio with GhanaNLP Primary ASR...");
 
-          // Task 1 requirement 3.c: Never apply the echo filter to transcripts that resolveExpected matches to a valid digit
-          if (grammarMatched) {
-            logVoiceDebug(`[VOICE] Echo filter BYPASSED: resolveExpected matched value "${matchedValue}" for step "${currentStep}"`);
-            emitSimulatorLog({
-              category: "MATCH",
-              message: `Echo filter bypassed: "${matchedValue}" is a valid expected answer for step "${currentStep}"`,
-              turnId: currentTurnTag,
+          const startTime = performance.now();
+          try {
+            const asrRes = await api.transcribeAudio(wavBase64, "audio/wav", language, currentStep);
+            const latency = Math.round(performance.now() - startTime);
+            const rawText = asrRes?.result?.text || "";
+            const provider = asrRes?.result?.provider || "GhanaNLP_ASR_v3";
+
+            voiceCaptureRef.current?.updateTelemetry({
+              chunksCompleted: (voiceCaptureRef.current.getTelemetry().chunksCompleted || 0) + 1,
+              lastASRLatencyMs: latency,
+              currentASRProvider: provider,
             });
-          } else {
-            // Echo suppression against assistant prompt
-            const isEcho = isAcousticSystemEcho(textToSend, activePromptTextRef.current, isAiSpeakingRef.current);
-            const echoScore = isEcho ? 0.95 : 0.05;
-            logVoiceDebug(`[VOICE] echo filter: transcript="${textToSend}", activePromptText="${activePromptTextRef.current}", score=${echoScore}, decision=${isEcho ? "dropped" : "kept"}`);
-            if (isEcho) {
-              const stripped = stripSystemEchoFromTranscript(textToSend, activePromptTextRef.current);
-              if (!stripped || isAcousticSystemEcho(stripped, activePromptTextRef.current)) {
-                emitSimulatorLog({
-                  category: "MATCH",
-                  message: `Dropped by acoustic echo filter: similarity score=${echoScore}, matched prompt echo`,
-                  turnId: currentTurnTag,
-                });
+
+            if (rawText && rawText !== "empty" && rawText.trim().length > 0) {
+              let textToSend = formatSpokenNumbersAsDigits(rawText);
+
+              // Echo suppression against assistant prompt
+              if (isAcousticSystemEcho(textToSend, activePromptTextRef.current, isAiSpeakingRef.current)) {
+                const stripped = stripSystemEchoFromTranscript(textToSend, activePromptTextRef.current);
+                if (!stripped || isAcousticSystemEcho(stripped, activePromptTextRef.current)) {
+                  setTranscriptionStatus("LISTENING");
+                  setAiProcessingDetail("Ignored system voice echo · Resuming listening");
+                  return;
+                }
+                textToSend = stripped;
+              }
+
+              // Background noise suppression
+              if (isBackgroundNoiseOrStatic(textToSend, audioLevelRef.current)) {
                 setTranscriptionStatus("LISTENING");
-                setAiProcessingDetail("Ignored system voice echo · Resuming listening");
+                setAiProcessingDetail("Filtered background noise · Ready for speech");
                 return;
               }
-              textToSend = stripped;
-            } else {
-              emitSimulatorLog({
-                category: "MATCH",
-                message: `Echo filter kept transcript: similarity score=${echoScore}`,
-                turnId: currentTurnTag,
+
+              voiceCaptureRef.current?.updateTelemetry({
+                lastTranscript: textToSend,
+                lastFinalTranscript: textToSend,
               });
-            }
-          }
 
-          // Background noise suppression
-          if (isBackgroundNoiseOrStatic(textToSend, audioLevelRef.current)) {
-            emitSimulatorLog({
-              category: "MATCH",
-              message: `Filtered background noise/static: "${textToSend}"`,
-              turnId: currentTurnTag,
-            });
-            setTranscriptionStatus("LISTENING");
-            setAiProcessingDetail("Filtered background noise · Ready for speech");
-            return;
-          }
-
-          voiceCaptureRef.current?.updateTelemetry({
-            lastTranscript: textToSend,
-            lastFinalTranscript: textToSend,
-          });
-
-          setInterimTranscript(textToSend);
-          setLastTranscription({
-            text: textToSend,
-            confidence: 0.95,
-            language: activeLang,
-            timestamp: Date.now(),
-            channel: "VOICE",
-          });
-          setPipelineLatency({
-            totalMs: latency,
-            asrMs: latency,
-            nluMs: 0,
-            ttsMs: 0,
-            timestamp: Date.now(),
-          });
-          setLastCompletedTurnText(textToSend);
-          setTranscriptionStatus("PROCESSING");
-          setAiProcessingPhase("LANGUAGE_DETECTION");
-          setAiProcessingDetail(`Heard: "${textToSend}" · Processing with AI Brain...`);
-
-          // Automatically submit turn to AI Brain without requiring Send click!
-          await sendInputTurn(textToSend, "VOICE");
-        } catch (err: any) {
-          console.error("[VoiceCapture] ASR error:", err);
-          const isQuota = /429|quota|resource_exhausted/i.test(err?.message || "");
-          const asrErrMsg = `ASR Error (${err?.name || "Error"}): ${err?.message || "Transcription failed"}${isQuota ? " [429 / Quota Exhausted]" : ""}`;
-          emitSimulatorLog({
-            category: "ERROR",
-            message: `[ASR] ${asrErrMsg}`,
-            turnId: currentTurnTag,
-          });
-          setAsrErrorMessage(asrErrMsg);
-          setAiProcessingDetail(`⚠️ ${asrErrMsg}`);
-
-          voiceCaptureRef.current?.updateTelemetry({
-            chunksFailed: (voiceCaptureRef.current.getTelemetry().chunksFailed || 0) + 1,
-          });
-          if (isActiveRef.current) {
-            const retryPrompt = getConversationalPrompt("retry", activeLang).spokenText;
-            setAiResponse(retryPrompt);
-            setTranscript((prev) => [
-              ...prev,
-              {
-                id: `ai_retry_${Date.now()}`,
-                role: "ai",
-                text: retryPrompt,
+              setInterimTranscript(textToSend);
+              setLastTranscription({
+                text: textToSend,
+                confidence: 0.95,
+                language: language,
                 timestamp: Date.now(),
-                stage: "conversational_retry",
-              },
-            ]);
-            playAudioSynthesis(retryPrompt, activeLang, "conversational_retry");
-          } else {
+                channel: "VOICE",
+              });
+              setPipelineLatency({
+                totalMs: latency,
+                asrMs: latency,
+                nluMs: 0,
+                ttsMs: 0,
+                timestamp: Date.now(),
+              });
+              setLastCompletedTurnText(textToSend);
+              setTranscriptionStatus("PROCESSING");
+              setAiProcessingPhase("LANGUAGE_DETECTION");
+              setAiProcessingDetail(`Heard: "${textToSend}" · Processing with AI Brain...`);
+
+              // Automatically submit turn to AI Brain without requiring Send click!
+              await sendInputTurn(textToSend, "VOICE");
+            } else {
+              setTranscriptionStatus("LISTENING");
+              setAiProcessingDetail("Listening continuously... Speak in Ghanaian English or Akan Twi");
+            }
+          } catch (err: any) {
+            console.warn("[VoiceCapture] ASR error:", err);
+            voiceCaptureRef.current?.updateTelemetry({
+              chunksFailed: (voiceCaptureRef.current.getTelemetry().chunksFailed || 0) + 1,
+            });
             setTranscriptionStatus("LISTENING");
             setAiProcessingDetail("Listening continuously... Speak when ready");
           }
-        } finally {
-          isTurnInFlightRef.current = false;
-        }
-      },
-      onTelemetryUpdate: (telemetry) => {
-        setVoiceTelemetry(telemetry);
-      },
-    });
-
-    voiceCaptureRef.current.setStepType(currentStep);
+        },
+        onTelemetryUpdate: (telemetry) => {
+          setVoiceTelemetry(telemetry);
+        },
+      });
+    }
 
     const success = await voiceCaptureRef.current.start();
     if (success) {
       sessionStorage.setItem("okwankyer_voice_active", "true");
     } else {
-      const errName = voiceCaptureRef.current?.getLastErrorName() || "MicrophoneError";
+      // If hardware microphone is denied or restricted by iframe permissions policy,
+      // fallback to Ghanaian Smart Voice Mode without freezing the UI!
       setIsHardwareMicGranted(false);
       setIsVirtualVoiceMode(true);
-      setAiProcessingDetail(`🎙️ Mic unavailable (${errName})`);
+      setAiProcessingDetail("🎙️ Smart Voice Mode Active · Choose a Ghanaian voice phrase or upload audio");
     }
     return success;
-  }, [language, currentStep, sendInputTurn]);
+  }, [isActive, language, currentStep, startCall, sendInputTurn]);
 
   const startContinuousVoiceRef = useRef(startContinuousVoice);
   useEffect(() => {
     startContinuousVoiceRef.current = startContinuousVoice;
   }, [startContinuousVoice]);
 
-  // ── Automatic Conversational Voice Capability Check ──
-  const probeEffectRanRef = useRef(false);
+  // ── Automatic Conversational Voice Startup & Capability Check ──
   useEffect(() => {
     let unmounted = false;
-    if (probeEffectRanRef.current) return;
-    probeEffectRanRef.current = true;
 
     const probeAndAutoStartVoice = async () => {
       if (typeof window === "undefined" || !navigator.mediaDevices?.getUserMedia) {
@@ -2495,15 +1852,15 @@ export function usePhoneSimulator() {
 
       // Check session storage preference
       const sessionPref = sessionStorage.getItem("okwankyer_voice_active");
-      if ((sessionPref === "true" || permissionGranted) && isActiveRef.current) {
-        // Auto-start continuous conversational listening without requiring button press if already on active call
+      if (sessionPref === "true" || permissionGranted) {
+        // Auto-start continuous conversational listening without requiring button press!
         if (!unmounted) {
           startContinuousVoiceRef.current();
         }
       } else {
-        if (!unmounted && !isActiveRef.current) {
+        if (!unmounted) {
           setMicState("MIC_PERMISSION_REQUIRED");
-          setMicStateReason("First-use activation: click Call to enable continuous conversational microphone.");
+          setMicStateReason("First-use activation: click to enable continuous conversational microphone.");
         }
       }
     };
@@ -2512,9 +1869,8 @@ export function usePhoneSimulator() {
 
     return () => {
       unmounted = true;
-      if (voiceCaptureRef.current && !isActiveRef.current) {
+      if (voiceCaptureRef.current) {
         voiceCaptureRef.current.stop();
-        voiceCaptureRef.current = null;
       }
     };
   }, []);
@@ -2720,37 +2076,150 @@ export function usePhoneSimulator() {
   /**
    * Play any authentic studio prompt clip from the Audio Library
    */
-  const playStudioClip = useCallback(async (target: string): Promise<boolean> => {
-    if (!target) return false;
-    audioPlaybackController.stop();
+  const playStudioClip = useCallback(async (target: string) => {
+    if (!target) return;
+    try {
+      const isAudioFile =
+        target.endsWith(".mp3") ||
+        target.endsWith(".wav") ||
+        target.startsWith("/audio/") ||
+        target.startsWith("audio/");
 
-    const isAudioFile =
-      target.endsWith(".mp3") ||
-      target.endsWith(".wav") ||
-      target.startsWith("/audio/") ||
-      target.startsWith("audio/");
+      if (isAudioFile) {
+        const promptName = target.split("/").pop() || "";
+        const promptTranscript = getPromptTranscript(promptName);
+        updateAiSpeaking(true, promptTranscript);
+        setActiveAudioClip(target);
+        const url = target.startsWith("/audio/")
+          ? target
+          : target.startsWith("audio/")
+          ? `/${target}`
+          : `/audio/${target}`;
 
-    if (isAudioFile) {
-      const promptName = target.split("/").pop() || "";
-      const promptTranscript = getPromptTranscript(promptName);
-      const url = target.startsWith("/audio/")
-        ? target
-        : target.startsWith("audio/")
-        ? `/${target}`
-        : `/audio/${target}`;
+        if (audioRef.current) {
+          audioRef.current.src = url;
+          audioRef.current.onended = () => {
+            updateAiSpeaking(false);
+            setActiveAudioClip(null);
+          };
+          audioRef.current.onerror = () => {
+            updateAiSpeaking(false);
+            setActiveAudioClip(null);
+          };
+          const playPromise = audioRef.current.play();
+          if (playPromise) {
+            await playPromise.catch((e) => {
+              console.warn("Audio file play notice:", e);
+              updateAiSpeaking(false);
+              setActiveAudioClip(null);
+            });
+          }
+        }
+        return;
+      }
 
-      setActiveAudioClip(url);
-      setIsAiSpeaking(true);
-      return await audioPlaybackController.play({
-        url,
-        text: promptTranscript,
-        sourceType: "STUDIO_PROMPT",
-      });
+      // If target is text (e.g. from chat replay or custom test sandbox), resolve studio prompt or synthesize
+      updateAiSpeaking(true, target);
+      const matched = resolveStudioPrompt(target, language);
+      if (matched && audioRef.current) {
+        setActiveAudioClip(matched);
+        audioRef.current.src = matched;
+        audioRef.current.onended = () => {
+          updateAiSpeaking(false);
+          setActiveAudioClip(null);
+        };
+        audioRef.current.onerror = () => {
+          updateAiSpeaking(false);
+          setActiveAudioClip(null);
+        };
+        const playPromise = audioRef.current.play();
+        if (playPromise) {
+          await playPromise.catch((e) => {
+            console.warn("Studio audio play notice:", e);
+            if ("speechSynthesis" in window) {
+              try {
+                window.speechSynthesis.resume();
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(target);
+                utterance.rate = 0.95;
+                utterance.onend = () => updateAiSpeaking(false);
+                utterance.onerror = () => updateAiSpeaking(false);
+                window.speechSynthesis.speak(utterance);
+              } catch {
+                updateAiSpeaking(false);
+              }
+            } else {
+              updateAiSpeaking(false);
+            }
+          });
+        }
+        return;
+      }
+
+      // Dynamic text: synthesize speech
+      try {
+        const synth = await api.synthesizeSpeech({
+          text: target,
+          language: language === "tw" ? "tw" : "en",
+          style: "ghanaian-warm",
+        });
+
+        if (synth?.result?.audioBase64 && audioRef.current) {
+          audioRef.current.src = `data:${synth.result.audioMimeType || "audio/mp3"};base64,${synth.result.audioBase64}`;
+          audioRef.current.onended = () => {
+            updateAiSpeaking(false);
+            setActiveAudioClip(null);
+          };
+          audioRef.current.onerror = () => {
+            updateAiSpeaking(false);
+            setActiveAudioClip(null);
+          };
+          const playPromise = audioRef.current.play();
+          if (playPromise) {
+            await playPromise.catch(() => {
+              if ("speechSynthesis" in window) {
+                try {
+                  window.speechSynthesis.resume();
+                  window.speechSynthesis.cancel();
+                  const utterance = new SpeechSynthesisUtterance(target);
+                  utterance.rate = 0.95;
+                  utterance.onend = () => updateAiSpeaking(false);
+                  utterance.onerror = () => updateAiSpeaking(false);
+                  window.speechSynthesis.speak(utterance);
+                } catch {
+                  updateAiSpeaking(false);
+                }
+              } else {
+                updateAiSpeaking(false);
+              }
+            });
+          }
+          return;
+        }
+      } catch {}
+
+      // Browser TTS fallback
+      if ("speechSynthesis" in window) {
+        try {
+          window.speechSynthesis.resume();
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(target);
+          utterance.rate = 0.95;
+          utterance.onend = () => updateAiSpeaking(false);
+          utterance.onerror = () => updateAiSpeaking(false);
+          window.speechSynthesis.speak(utterance);
+        } catch {
+          updateAiSpeaking(false);
+        }
+      } else {
+        updateAiSpeaking(false);
+      }
+    } catch (err) {
+      console.warn("Studio clip play notice:", err);
+      updateAiSpeaking(false);
+      setActiveAudioClip(null);
     }
-
-    // Dynamic text routed through authoritative playAudioSynthesis
-    return await playAudioSynthesis(target, language);
-  }, [language, playAudioSynthesis]);
+  }, [language, resolveStudioPrompt, updateAiSpeaking]);
 
   /**
    * 1-Click Feature Trigger: Test Zero-PIN Violation Interception
@@ -2952,9 +2421,6 @@ export function usePhoneSimulator() {
     // Conversational Voice & Real-Time ASR Engine Exports
     micState,
     micStateReason,
-    micErrorMessage,
-    asrProviderStatus,
-    asrErrorMessage,
     vadState,
     voiceTelemetry,
     isBargeInActive,
@@ -2983,20 +2449,6 @@ export function usePhoneSimulator() {
     clearAtLogs,
     startAtCall,
     runAtPresetScenario,
-
-    // Long Conversation Recording
-    isRecording,
-    recordingDurationSec,
-    recordedAudioUrl,
-    recordedAudioBlob,
-    asrSessionId,
-    recordedChunksCount,
-    rollingSummary,
-    longAsrTranscript,
-    startRecording,
-    stopRecording,
-    downloadRecording,
-    exportTranscript,
 
     // Chunk 3 Panel & Diagnostic States
     turnDiagnostic,

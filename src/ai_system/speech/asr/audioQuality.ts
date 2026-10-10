@@ -78,18 +78,6 @@ export class AdaptiveStreamingVad {
     this.config = { ...DEFAULT_VAD_CONFIG, ...config };
   }
 
-  public setMinSpeechMs(ms: number): void {
-    this.config.ASR_MIN_SPEECH_MS = ms;
-  }
-
-  public setEndSilenceMs(ms: number): void {
-    this.config.ASR_END_SILENCE_MS = ms;
-  }
-
-  public getEndSilenceMs(): number {
-    return this.config.ASR_END_SILENCE_MS;
-  }
-
   /**
    * Resets VAD tracking state for a new turn.
    */
@@ -167,8 +155,8 @@ export class AdaptiveStreamingVad {
     // Dynamic speech threshold: 2.2x noise floor or at least 400 RMS
     const speechThreshold = Math.max(380, this.noiseFloor * 2.2);
 
-    // Speech discrimination: both frame energy and smoothed energy match speech, and zero-crossing rate matches speech
-    const isSpeechFrame = frameRms >= speechThreshold * 0.7 && this.smoothedEnergy >= speechThreshold && zcr >= 0.015 && zcr <= 0.65;
+    // Speech discrimination: RMS above threshold AND zero-crossing rate matches speech (0.02 - 0.45)
+    const isSpeechFrame = this.smoothedEnergy >= speechThreshold && zcr >= 0.015 && zcr <= 0.65;
     const isProbableSpeech = this.smoothedEnergy >= speechThreshold * 0.8;
 
     const frameDurationMs = this.config.ASR_FRAME_MS;

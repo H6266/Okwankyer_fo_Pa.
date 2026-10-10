@@ -27,7 +27,6 @@ export interface RecipientResolutionResult {
 export interface RecipientResolver {
   readonly id: string;
   resolve(rawPhoneNumber: string): Promise<RecipientResolutionResult>;
-  isLiveConfigured?(): boolean;
 }
 
 /**
@@ -35,10 +34,6 @@ export interface RecipientResolver {
  */
 export class SandboxRecipientResolver implements RecipientResolver {
   readonly id = "SANDBOX";
-
-  isLiveConfigured(): boolean {
-    return false;
-  }
 
   async resolve(rawPhoneNumber: string): Promise<RecipientResolutionResult> {
     const val = validateGhanaPhoneNumber(rawPhoneNumber);
@@ -87,10 +82,6 @@ export class SandboxRecipientResolver implements RecipientResolver {
  */
 export class MtnRecipientResolver implements RecipientResolver {
   readonly id = "MTN_MOMO_API";
-
-  isLiveConfigured(): boolean {
-    return Boolean(config.momo.configured || config.momo.disbursementConfigured || config.momo.collectionConfigured);
-  }
 
   async resolve(rawPhoneNumber: string): Promise<RecipientResolutionResult> {
     const val = validateGhanaPhoneNumber(rawPhoneNumber);
@@ -178,5 +169,4 @@ export function getRecipientResolver(): RecipientResolver {
   return new SandboxRecipientResolver();
 }
 
-export const sandboxRecipientResolver = new SandboxRecipientResolver();
 export const recipientResolver = getRecipientResolver();

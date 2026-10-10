@@ -140,32 +140,9 @@ export class AsrOrchestrator {
     // ── STEP 5: Explicit Fallback Provider (Gemini / Offline) ──
     if (!rawText && allowFallback) {
       fallbackUsed = true;
-      const modelCandidates = Array.from(
-        new Set([
-          AI_CONFIG.transcriptionModel,
-          process.env.GEMINI_TRANSCRIBE_MODEL,
-          process.env.GEMINI_MODEL,
-          "gemini-3.5-transcribe",
-          "gemini-3.8-flash",
-        ])
-      ).filter(
-        (m): m is string =>
-          Boolean(
-            m &&
-              !m.includes("2.5") &&
-              !m.includes("2.0") &&
-              !m.includes("1.5") &&
-              geminiClient.isModelAvailable(m)
-          )
-      );
-
-      // Iterate over available candidates; if one hits quota or errors, proceed to next candidate
-      for (const modelName of modelCandidates) {
-        if (!geminiClient.isAvailable() || !geminiClient.isModelAvailable(modelName)) {
-          continue;
-        }
-
+      if (geminiClient.isAvailable()) {
         try {
+          const modelName = AI_CONFIG.transcriptionModel || "gemini-3.8-flash";
           const geminiPrompt = resolvedLanguage === "eng"
             ? "Transcribe this audio verbatim in Ghanaian English. Preserve numbers and names."
             : "Transcribe this audio verbatim in Akan Twi or Ghanaian English. Preserve Akan words, names, and numbers.";
@@ -195,40 +172,9 @@ export class AsrOrchestrator {
             providerUsed = modelName;
             confidence = null; // Do not invent probabilities
             confidenceSource = "provider_unreported";
-            break; // Successfully transcribed
           }
         } catch (gemErr: any) {
-          const msg = String(gemErr?.message || "");
-          const isNotFound =
-            gemErr?.status === 404 ||
-            gemErr?.error?.code === 404 ||
-            gemErr?.code === 404 ||
-            msg.includes("404") ||
-            msg.includes("not found") ||
-            msg.includes("no longer");
-          const isQuota =
-            gemErr?.status === 429 ||
-            gemErr?.error?.code === 429 ||
-            gemErr?.code === 429 ||
-            msg.includes("429") ||
-            msg.includes("RESOURCE_EXHAUSTED") ||
-            msg.includes("Quota exceeded") ||
-            msg.includes("exceeded your current quota");
-
-          if (isNotFound) {
-            geminiClient.recordModelQuotaExhausted(modelName, 24 * 60 * 60 * 1000);
-            auditLogger.log("warn", "ASR_ORCHESTRATOR", `Gemini model ${modelName} unavailable/deprecated (${msg.slice(0, 80)}). Disabled for 24h.`);
-          } else if (isQuota) {
-            let cooldownMs = 60 * 60 * 1000;
-            const retrySecMatch = msg.match(/retryDelay['":\s]+([0-9]+)/i) || msg.match(/retry in\s+([0-9]+)s/i);
-            if (retrySecMatch && retrySecMatch[1]) {
-              cooldownMs = Math.max(60 * 1000, parseInt(retrySecMatch[1], 10) * 1000);
-            }
-            geminiClient.recordModelQuotaExhausted(modelName, cooldownMs);
-            auditLogger.log("info", "ASR_ORCHESTRATOR", `Gemini model ${modelName} quota limit reached (${cooldownMs / 1000}s cooldown). Transitioning to next candidate or offline recognizer.`);
-          } else {
-            auditLogger.log("info", "ASR_ORCHESTRATOR", `Gemini transcription for ${modelName} unavailable (${msg.slice(0, 80)}). Transitioning to next candidate or offline recognizer.`);
-          }
+          auditLogger.log("warn", "ASR_ORCHESTRATOR", `Gemini fallback notice: ${gemErr.message}`);
         }
       }
 
