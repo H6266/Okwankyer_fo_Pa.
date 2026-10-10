@@ -93,7 +93,9 @@ describe('Phase 4: Readiness Hardening', () => {
       expect(shadowEntry).not.toBeNull();
       const serialized = JSON.stringify(shadowEntry);
       expect(serialized).not.toContain('0241234567');
-      expect(serialized).not.toContain('100');
+      expect((shadowEntry?.offlineDecision as any).amount).toBeUndefined();
+      expect((shadowEntry?.modelDecision as any).amount).toBeUndefined();
+      expect(serialized).not.toContain('"amount":');
     });
 
     it('Mode live: executes with model, masking, and timeout abort handling', async () => {

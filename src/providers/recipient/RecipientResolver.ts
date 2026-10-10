@@ -169,4 +169,5 @@ export function getRecipientResolver(): RecipientResolver {
   return new SandboxRecipientResolver();
 }
 
+export const sandboxRecipientResolver = new SandboxRecipientResolver();
 export const recipientResolver = getRecipientResolver();

@@ -108,11 +108,21 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Stop active audio immediately, resolve pending promise, increment token.
+   * Stop active audio immediately, cancel browser speech synthesis, resolve pending promise, increment token.
    */
   public stop(): void {
     const token = ++this.currentToken;
 
+    // 1. Cancel browser speech synthesis across all windows/contexts
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // Silently ignore browser speech cancellation error
+      }
+    }
+
+    // 2. Pause and reset the authoritative <audio> element
     if (this.audioElement) {
       try {
         this.audioElement.pause();
@@ -128,7 +138,7 @@ export class AudioPlaybackController {
     if (this.activeResolver) {
       const resolve = this.activeResolver;
       this.activeResolver = null;
-      resolve();
+      resolve(false);
     }
 
     this.setState({
@@ -140,14 +150,14 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Plays a single audio url. Accepts either a url string or a PlaybackRequest object.
-   * Returns a Promise that resolves when audio ends (or resolves immediately if stopped).
+   * Plays a single audio url or PlaybackRequest (supporting studio URLs and synthesized Base64 payloads).
+   * Returns a Promise that resolves when audio ends (or resolves false if stopped/superseded).
    */
   public play(
     target: string | PlaybackRequest,
     optionsOrText?: PlayOptions | string
   ): Promise<boolean> {
-    // 1. Stop any current playback and increment token
+    // 1. Stop any current playback (including any active speech synthesis) and increment token
     this.stop();
     const token = ++this.currentToken;
 
@@ -164,6 +174,11 @@ export class AudioPlaybackController {
       }
     } else if (target && typeof target === "object") {
       url = target.url || "";
+      // Fix 4: Support generated Base64 TTS audio seamlessly
+      if (!url && target.audioBase64) {
+        const mime = target.audioMimeType || "audio/mp3";
+        url = `data:${mime};base64,${target.audioBase64}`;
+      }
       promptText = target.text || null;
       if (typeof optionsOrText === "object") {
         options = optionsOrText;

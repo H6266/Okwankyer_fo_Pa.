@@ -786,7 +786,7 @@ ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
 
 // ── Step 10: Safe Confirmation (DYNAMIC READBACK) ─────────────────────
 // CRITICAL: NEVER plays static 500 GHS audio. Generates dynamic VoiceXML for caller's exact inputs!
-ivrRouter.all("/safe-confirmation", (req: Request, res: Response) => {
+ivrRouter.all("/safe-confirmation", async (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const baseUrl = getBaseUrl(req);
@@ -806,9 +806,10 @@ ivrRouter.all("/safe-confirmation", (req: Request, res: Response) => {
 
   const callbackUrl = `${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}`;
 
-  const { spokenText, voiceXml } = buildSafeConfirmationPrompt({
+  const { spokenText } = buildSafeConfirmationPrompt({
     language: lang,
     amount,
+    currency: session.currency || "GHS",
     recipientPhone,
     recipientName,
     isVerified,
@@ -816,6 +817,45 @@ ivrRouter.all("/safe-confirmation", (req: Request, res: Response) => {
   });
 
   auditLogger.log("info", "TELEPHONY", `Dynamic safe confirmation generated: "${spokenText}"`, sessionId);
+
+  // Attempt server-side neural TTS for high-fidelity speech on telephony trunk
+  let audioPlaySnippet = `<Say voice="female">${spokenText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</Say>`;
+  try {
+    const { variableSpeechService } = await import("../audio/variableSpeechService");
+    const { dynamicAudioStore } = await import("../audio/dynamicAudioStore");
+    const speechRes = await variableSpeechService.generateSpeech({
+      mode: "SYNTHESIZE",
+      language: lang,
+      text: spokenText,
+      purpose: "AMOUNT_READBACK",
+      metadata: {
+        amount,
+        currency: session.currency || "GHS",
+        recipientPhone,
+        recipientName,
+        isVerified,
+        referenceId: session.referenceId,
+        isDemoFixture: session.isRecipientVerified && !recipientResolver.isLiveConfigured?.(),
+      },
+    });
+
+    if (speechRes.audioBuffer && speechRes.audioBuffer.length > 64) {
+      const audioId = dynamicAudioStore.store(
+        speechRes.audioBuffer,
+        speechRes.audioMimeType || "audio/wav",
+        spokenText,
+        lang
+      );
+      audioPlaySnippet = `<Play url="${baseUrl}/audio/dynamic/${audioId}"/>`;
+    }
+  } catch (err: any) {
+    auditLogger.log("warn", "TELEPHONY", `Telephony dynamic TTS synthesis fallback to <Say>: ${err?.message || err}`, sessionId);
+  }
+
+  const voiceXml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
+        ${audioPlaySnippet}
+    </GetDigits>`;
+
   xmlResponse(res, voiceXml);
 });
 
@@ -944,12 +984,51 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
       sessionId
     );
 
-    // TODO(ug-hci-tts): Replace handoff notice with UG HCI Lab TTS when connected
-    const handoffNotice = lang === "twi"
-      ? "Yɛsrɛ wo, hwɛ wo fon screen so na fa wo MoMo PIN bɔ mu ahobammbɔ mu. Sɛ ɛwie pɛ a, yɛbɛmane wo SMS asɔ so. Nante yie."
-      : "Please check your phone screen and enter your Mobile Money PIN securely to authorize this transfer. We will send you an SMS confirmation once completed. Goodbye.";
+    // Build pending authorization message with canonical reference
+    const { spokenText: handoffNotice } = buildReceiptPrompt({
+      language: lang,
+      amount: session.amount,
+      currency: session.currency || "GHS",
+      recipientPhone: session.recipientPhone,
+      recipientName: session.recipientName,
+      referenceId: session.referenceId,
+      timestamp: new Date(),
+      status: "PENDING",
+    });
 
-    const xml = `    <Say voice="female">${handoffNotice}</Say>\n    <Reject/>`;
+    let handoffAudioSnippet = `<Say voice="female">${handoffNotice.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</Say>`;
+    try {
+      const { variableSpeechService } = await import("../audio/variableSpeechService");
+      const { dynamicAudioStore } = await import("../audio/dynamicAudioStore");
+      const speechRes = await variableSpeechService.generateSpeech({
+        mode: "SYNTHESIZE",
+        language: lang,
+        text: handoffNotice,
+        purpose: "TRANSACTION_STATUS",
+        metadata: {
+          amount: session.amount,
+          currency: session.currency || "GHS",
+          recipientPhone: session.recipientPhone,
+          recipientName: session.recipientName,
+          referenceId: session.referenceId,
+          status: "PENDING",
+        },
+      });
+
+      if (speechRes.audioBuffer && speechRes.audioBuffer.length > 64) {
+        const audioId = dynamicAudioStore.store(
+          speechRes.audioBuffer,
+          speechRes.audioMimeType || "audio/wav",
+          handoffNotice,
+          lang
+        );
+        handoffAudioSnippet = `<Play url="${baseUrl}/audio/dynamic/${audioId}"/>`;
+      }
+    } catch {
+      // Graceful fallback to VoiceXML <Say>
+    }
+
+    const xml = `    ${handoffAudioSnippet}\n    <Reject/>`;
 
     xmlResponse(res, xml);
   } catch (err: any) {

@@ -62,7 +62,7 @@ export class DiagnosticsEngine {
       },
       providers: {
         geminiApiKeyPresent: hasKey,
-        defaultModel: "gemini-3.8-flash",
+        defaultModel: process.env.GEMINI_MODEL || "gemini-2.5-flash",
         ttsModel: "gemini-3.8-flash-lite-tts",
         fallbackActive: !hasKey,
       },

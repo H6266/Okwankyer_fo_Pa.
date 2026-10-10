@@ -886,6 +886,42 @@ export const api = {
     return data;
   },
 
+  async startVoiceSession(payload: {
+    sessionId: string;
+    mode?: "guided" | "conversational";
+    language?: "en" | "twi";
+    callerPhone?: string;
+  }): Promise<any> {
+    const res = await fetch("/api/ai/voice-session/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to start voice session");
+    return data;
+  },
+
+  async processVoiceSessionTurn(payload: {
+    sessionId: string;
+    mode?: "guided" | "conversational";
+    language?: "en" | "twi";
+    transcript?: string;
+    audioBase64?: string;
+    dtmfDigit?: string;
+    isBargeIn?: boolean;
+    callerPhone?: string;
+  }): Promise<any> {
+    const res = await fetch("/api/ai/voice-session/turn", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to process voice session turn");
+    return data;
+  },
+
   async synthesizeSpeech(payload: {
     text: string;
     language?: string;

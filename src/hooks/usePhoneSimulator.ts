@@ -28,6 +28,11 @@ import type {
   DialogueOutput,
   EntitySlotMap,
 } from "../ai_system/core/aiTypes";
+import { audioPlaybackController, PlaybackRequest } from "../audio/audioPlaybackController";
+
+export type SpeechOutput =
+  | { kind: "recorded"; promptId: string; url: string; text: string; language: "en" | "tw" }
+  | { kind: "tts"; text: string; language: "en" | "tw" };
 
 export interface SimulatorTranscriptItem {
   id: string;
@@ -373,6 +378,162 @@ export const PRESET_SCENARIOS: SimulatorScenario[] = [
   },
 ];
 
+/**
+ * Authoritative Speech Output Determination (Fix 3):
+ * Explicitly decides the speech source for any dialogue response:
+ * A. Fixed instructions -> prerecorded studio audio (welcome, menus, static entry instructions).
+ * B. Dynamic responses -> actual TTS audio (verified name, amount, personalized confirmations).
+ * C. Sensitive payment confirmations -> controlled dynamic speech (never generic historical recordings).
+ */
+export function determineSpeechOutput(
+  text: string,
+  lang: string = "en",
+  step?: string
+): SpeechOutput {
+  const normLang: "en" | "tw" = (lang === "tw" || lang === "ak") ? "tw" : "en";
+  const stepLower = (step || "").toLowerCase().replace(/[-_]/g, " ");
+  const textLower = (text || "").toLowerCase();
+
+  // Rule C: SENSITIVE PAYMENT CONFIRMATIONS & DYNAMIC ENTITIES MUST ALWAYS BE DYNAMIC TTS!
+  // Any verification of recipient name, dynamic amount, custom confirmation readback, or receipt
+  if (
+    stepLower.includes("verify") ||
+    stepLower.includes("confirm") ||
+    stepLower.includes("safe") ||
+    stepLower.includes("receipt") ||
+    stepLower.includes("outcome") ||
+    stepLower.includes("balance") ||
+    stepLower.includes("clarif") ||
+    stepLower.includes("error") ||
+    textLower.includes("ghs") ||
+    textLower.includes("cedis") ||
+    (textLower.includes("sika") && /\d+/.test(textLower)) ||
+    /\b(024|054|055|059|027|057|026|020|050)\d{7}\b/.test(text)
+  ) {
+    return {
+      kind: "tts",
+      text,
+      language: normLang,
+    };
+  }
+
+  // Rule A: FIXED INSTRUCTIONS (Static menus and prompts without dynamic amounts/names)
+  // 1. Welcome / Language Selection
+  if (
+    stepLower === "welcome" ||
+    stepLower === "language" ||
+    stepLower === "lang select" ||
+    (textLower.includes("akwaaba") && textLower.includes("press 1")) ||
+    (textLower.includes("welcome to okwankyer") && textLower.includes("press 1"))
+  ) {
+    return {
+      kind: "recorded",
+      promptId: "welcome",
+      url: normLang === "tw" ? "/audio/Twi/Welcome_prompt_01.mp3" : "/audio/Welcome_prompt_01.mp3",
+      text,
+      language: normLang,
+    };
+  }
+
+  // 2. Service Selection Menu (Mobile Money vs Telecom)
+  if (
+    stepLower === "service" ||
+    stepLower === "service select" ||
+    (textLower.includes("press 1 for mobile money") && textLower.includes("2 for banking"))
+  ) {
+    return {
+      kind: "recorded",
+      promptId: "service_select",
+      url: normLang === "tw" ? "/audio/Twi/Audio_prompt_twi_03.mp3" : "/audio/English/Audio_prompt_02.mp3",
+      text,
+      language: normLang,
+    };
+  }
+
+  // 3. Provider / Network Selection Menu (MTN, Telecel, AT)
+  if (
+    stepLower === "provider" ||
+    stepLower === "network" ||
+    stepLower === "network select" ||
+    (textLower.includes("press 1 for mtn") && textLower.includes("2 for telecel"))
+  ) {
+    return {
+      kind: "recorded",
+      promptId: "provider_select",
+      url: normLang === "tw" ? "/audio/Twi/Audio_prompt_twi_02.mp3" : "/audio/English/Audio_prompt_03.mp3",
+      text,
+      language: normLang,
+    };
+  }
+
+  // 4. Action Selection Menu (Send Money, Pay Bills, Buy Airtime, Cash Out)
+  if (
+    stepLower === "action" ||
+    stepLower === "action select" ||
+    (textLower.includes("press 1 to send money") && textLower.includes("2 to check balance"))
+  ) {
+    return {
+      kind: "recorded",
+      promptId: "action_select",
+      url: normLang === "tw" ? "/audio/Twi/Audio_prompt_twi_04.mp3" : "/audio/English/Audio_prompt_05.mp3",
+      text,
+      language: normLang,
+    };
+  }
+
+  // 5. Instruction to Enter 10-Digit Recipient Phone Number
+  if (
+    (stepLower === "enter recipient" || stepLower === "recipient entry" || stepLower === "recipient") &&
+    !textLower.includes("ending in") &&
+    !textLower.includes("055") &&
+    !textLower.includes("024")
+  ) {
+    return {
+      kind: "recorded",
+      promptId: "enter_recipient",
+      url: normLang === "tw" ? "/audio/Twi/Audio_prompt_twi_05.mp3" : "/audio/English/Audio_prompt_06.mp3",
+      text,
+      language: normLang,
+    };
+  }
+
+  // 6. Instruction to Enter Amount
+  if (
+    (stepLower === "enter amount" || stepLower === "amount entry" || stepLower === "amount") &&
+    !/\d+/.test(textLower)
+  ) {
+    return {
+      kind: "recorded",
+      promptId: "enter_amount",
+      url: normLang === "tw" ? "/audio/Twi/Audio_prompt_twi_07.mp3" : "/audio/English/Audio_prompt_09.mp3",
+      text,
+      language: normLang,
+    };
+  }
+
+  // 7. Goodbye / Thank You
+  if (
+    stepLower === "goodbye" ||
+    stepLower === "hangup" ||
+    (textLower.includes("thank you for using") && textLower.includes("goodbye"))
+  ) {
+    return {
+      kind: "recorded",
+      promptId: "goodbye",
+      url: normLang === "tw" ? "/audio/Twi/Audio_prompt_twi_11.mp3" : "/audio/English/Audio_prompt_13.mp3",
+      text,
+      language: normLang,
+    };
+  }
+
+  // Rule B: Everything else is DYNAMIC TTS!
+  return {
+    kind: "tts",
+    text,
+    language: normLang,
+  };
+}
+
 export function usePhoneSimulator() {
   const { playTone } = useDtmf();
 
@@ -659,13 +820,23 @@ export function usePhoneSimulator() {
     };
   }, [isActive]);
 
-  // Audio element setup
+  // Authoritative Audio Playback Controller Lifecycle Subscription
   useEffect(() => {
-    if (!audioRef.current && typeof window !== "undefined") {
-      audioRef.current = new Audio();
-      audioRef.current.onended = () => setIsAiSpeaking(false);
-      audioRef.current.onerror = () => setIsAiSpeaking(false);
-    }
+    const unsubscribe = audioPlaybackController.subscribe((st) => {
+      setIsAiSpeaking(st.isPlaying);
+      isAiSpeakingRef.current = st.isPlaying;
+      setActiveAudioClip(st.activeClip);
+      if (voiceCaptureRef.current) {
+        voiceCaptureRef.current.setAiSpeaking(st.isPlaying);
+      }
+      if (st.activeText) {
+        activePromptTextRef.current = st.activeText;
+      }
+    });
+    return () => {
+      unsubscribe();
+      audioPlaybackController.stop();
+    };
   }, []);
 
   function getPromptTranscript(filename: string): string {
@@ -755,7 +926,8 @@ export function usePhoneSimulator() {
         );
       }
 
-      // 4. Play audio prompt (<Play url="...">)
+      // 4. Play audio prompt (<Play url="...">) OR spoken text (<Say voice="...">)
+      // Fix 5: Exactly ONE audible source is selected per response - never overlapping
       if (parsed.playUrl) {
         let audioUrl = parsed.playUrl;
         if (audioUrl.startsWith("http://") || audioUrl.startsWith("https://")) {
@@ -764,33 +936,7 @@ export function usePhoneSimulator() {
             audioUrl = u.pathname;
           } catch {}
         }
-        setActiveAudioClip(audioUrl);
-        if (audioRef.current && enableTts) {
-          audioRef.current.src = audioUrl;
-          setIsAiSpeaking(true);
-          audioRef.current.play().catch(() => {});
-        }
-      }
-
-      // 5. Spoken text (<Say voice="...">)
-      const spokenText = parsed.say?.text || "";
-      if (spokenText) {
-        setAiResponse(spokenText);
-        setTranscript((prev) => [
-          ...prev,
-          {
-            id: `ai_${Date.now()}`,
-            role: "ai",
-            text: spokenText,
-            timestamp: Date.now(),
-            stage: stepLabel,
-          },
-        ]);
-        if (!parsed.playUrl && enableTts) {
-          playAudioSynthesis(spokenText, language);
-        }
-      } else if (parsed.playUrl) {
-        const promptName = parsed.playUrl.split("/").pop() || "";
+        const promptName = audioUrl.split("/").pop() || "";
         const promptText = getPromptTranscript(promptName);
         setAiResponse(promptText);
         setTranscript((prev) => [
@@ -803,6 +949,35 @@ export function usePhoneSimulator() {
             stage: stepLabel,
           },
         ]);
+
+        if (enableTts) {
+          audioPlaybackController.stop();
+          setActiveAudioClip(audioUrl);
+          setIsAiSpeaking(true);
+          audioPlaybackController.play({
+            url: audioUrl,
+            text: promptText,
+            sourceType: "STUDIO_PROMPT",
+          });
+        }
+      } else {
+        const spokenText = parsed.say?.text || "";
+        if (spokenText) {
+          setAiResponse(spokenText);
+          setTranscript((prev) => [
+            ...prev,
+            {
+              id: `ai_${Date.now()}`,
+              role: "ai",
+              text: spokenText,
+              timestamp: Date.now(),
+              stage: stepLabel,
+            },
+          ]);
+          if (enableTts) {
+            playAudioSynthesis(spokenText, language, stepLabel);
+          }
+        }
       }
 
       // 6. GetDigits expectation
@@ -1057,15 +1232,16 @@ export function usePhoneSimulator() {
   );
 
   // Stop audio, recognition, and mic on unmount
+  // Stop audio, recognition, and mic on unmount
   useEffect(() => {
     return () => {
+      audioPlaybackController.stop();
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       if (micTimeoutRef.current) clearTimeout(micTimeoutRef.current);
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       if (audioContextRef.current) {
         try { audioContextRef.current.close(); } catch {}
       }
-      if (audioRef.current) audioRef.current.pause();
       if (recognitionRef.current) {
         try { recognitionRef.current.abort(); } catch {}
       }
@@ -1076,200 +1252,64 @@ export function usePhoneSimulator() {
   }, []);
 
   /**
-   * Helper to map conversation dialogue turns or steps to authentic studio recordings
+   * Play speech or studio prompts through the single authoritative AudioPlaybackController.
+   * Fix 1 & Fix 2: Exactly ONE audio output is played. Zero browser speechSynthesis fallback in normal path.
    */
-  const resolveStudioPrompt = useCallback((text: string, lang: string, step?: string): string | null => {
-    const isTwi = lang === "tw" || lang === "ak";
-    const lower = (text || "").toLowerCase().replace(/[-_]/g, " ");
-    const currentCheck = (step || "").toLowerCase();
+  const playAudioSynthesis = useCallback(async (text: string, lang: string, step?: string): Promise<boolean> => {
+    if (!enableTts || !text) return false;
 
-    // 1. Recipient verification readback (e.g. "verify-recipient" / "recipient-verify-choice")
-    if (
-      currentCheck.includes("verify") ||
-      currentCheck.includes("recipient-verify") ||
-      lower.includes("about to send money") ||
-      lower.includes("worepɛ sɛ womane sika kɔma") ||
-      lower.includes("confirm this recipient") ||
-      lower.includes("whose phone number ends with") ||
-      lower.includes("nɔmba a ɛwie")
-    ) {
-      if (lower.includes("8464") || lower.includes("8 4 6 4") || lower.includes("kwame")) {
-        return isTwi ? "/audio/Twi/Audio_prompt_twi_06.mp3" : "/audio/English/Audio_prompt_08.mp3";
+    // 1. Single playback controller is the only owner of speech: stop previous source immediately
+    audioPlaybackController.stop();
+
+    const speech = determineSpeechOutput(text, lang, step || currentStep);
+    updateAiSpeaking(true, text);
+
+    if (speech.kind === "recorded") {
+      setActiveAudioClip(speech.url);
+      try {
+        const ok = await audioPlaybackController.play({
+          url: speech.url,
+          text: speech.text,
+          language: speech.language,
+          sourceType: "STUDIO_PROMPT",
+        });
+        return ok;
+      } catch (err) {
+        console.warn("[AudioPlayback] Studio prompt playback failed:", err);
+        audioPlaybackController.stop();
+        return false;
       }
-      return null; // Allows dynamic TTS to speak real caller names and numbers
-    }
-
-    // 2. Safe transaction confirmation
-    if (
-      currentCheck.includes("safe-confirmation") ||
-      currentCheck.includes("safe-confirm") ||
-      (currentCheck.includes("confirm") && !currentCheck.includes("recipient")) ||
-      lower.includes("confirm and send") ||
-      lower.includes("500 ghana cedis")
-    ) {
-      return isTwi ? "/audio/Twi/Audio_prompt_twi_08.mp3" : "/audio/English/Audio_prompt_10.mp3";
-    }
-
-    // 3. Amount entry (enter-amount)
-    if (
-      currentCheck.includes("enter-amount") ||
-      (currentCheck.includes("amount") && !currentCheck.includes("verify") && !currentCheck.includes("confirm")) ||
-      lower.includes("cedi amount") ||
-      lower.includes("enter amount") ||
-      lower.includes("sika dodoɔ") ||
-      lower.includes("sika dodow")
-    ) {
-      return isTwi ? "/audio/Twi/Audio_prompt_twi_07.mp3" : "/audio/English/Audio_prompt_09.mp3";
-    }
-
-    // 4. Recipient phone number entry (ONLY for enter-recipient step)
-    if (
-      currentCheck.includes("enter-recipient") ||
-      (currentCheck === "recipient" && !currentCheck.includes("verify")) ||
-      lower.includes("10-digit") ||
-      lower.includes("ten-digit") ||
-      lower.includes("bɔ obi a woremane no") ||
-      lower.includes("fon nɔmba a ɛyɛ du") ||
-      lower.includes("number you want to send")
-    ) {
-      return isTwi ? "/audio/Twi/Audio_prompt_twi_05.mp3" : "/audio/English/Audio_prompt_06.mp3";
-    }
-    if (currentCheck.includes("receipt") || currentCheck.includes("outcome") || currentCheck.includes("safe-outcome") || lower.includes("congratulations") || lower.includes("akɔ yie") || lower.includes("successfully sent")) {
-      return isTwi ? "/audio/Twi/Audio_prompt_twi_10.mp3" : "/audio/English/Audio_prompt_12.mp3";
-    }
-    if (currentCheck.includes("pin") || lower.includes("secret pin") || lower.includes("momo pin") || lower.includes("nkyerɛwee")) {
-      return isTwi ? "/audio/Twi/Audio_prompt_twi_09.mp3" : "/audio/English/Audio_prompt_11.mp3";
-    }
-    if (currentCheck.includes("network") || currentCheck.includes("provider") || lower.includes("network") || lower.includes("mtn") || lower.includes("telecel") || lower.includes("airteltigo")) {
-      return isTwi ? "/audio/Twi/Audio_prompt_twi_02.mp3" : "/audio/English/Audio_prompt_03.mp3";
-    }
-    if (currentCheck.includes("service") || lower.includes("telecom") || lower.includes("banking") || lower.includes("sikakorabea")) {
-      return isTwi ? "/audio/Twi/Audio_prompt_twi_03.mp3" : "/audio/English/Audio_prompt_02.mp3";
-    }
-    if (currentCheck.includes("action") || lower.includes("momo user") || lower.includes("pay bills") || lower.includes("buy airtime") || lower.includes("cash out")) {
-      return isTwi ? "/audio/Twi/Audio_prompt_twi_04.mp3" : "/audio/English/Audio_prompt_05.mp3";
-    }
-    if (currentCheck.includes("welcome") || currentCheck.includes("language") || lower.includes("welcome") || lower.includes("akwaaba")) {
-      return isTwi ? "/audio/Twi/Welcome_prompt_01.mp3" : "/audio/Welcome_prompt_01.mp3";
-    }
-    if (lower.includes("thank you") || lower.includes("goodbye") || lower.includes("meda wo ase")) {
-      return isTwi ? "/audio/Twi/Audio_prompt_twi_11.mp3" : "/audio/English/Audio_prompt_13.mp3";
-    }
-
-    return null;
-  }, []);
-
-  /**
-   * Play speech or studio prompts based on selected audio mode
-   */
-  const playAudioSynthesis = useCallback(async (text: string, lang: string, step?: string) => {
-    if (!enableTts || !text) return;
-    try {
-      updateAiSpeaking(true, text);
-      const isTwi = lang === "tw" || lang === "ak";
-
-      // 1. Studio Pre-Recorded Prompts Mode (Priority 1 for known workflow steps)
-      const matchedPrompt = resolveStudioPrompt(text, lang, step || currentStep);
-      if (matchedPrompt && voiceMode !== "BROWSER") {
-        if (audioRef.current) {
-          audioRef.current.src = matchedPrompt;
-          setActiveAudioClip(matchedPrompt);
-          audioRef.current.onended = () => {
-            updateAiSpeaking(false);
-            setActiveAudioClip(null);
-          };
-          audioRef.current.onerror = () => {
-            updateAiSpeaking(false);
-            setActiveAudioClip(null);
-          };
-          const playPromise = audioRef.current.play();
-          if (playPromise) {
-            await playPromise.catch((err) => {
-              console.warn("[TTS Play] Autoplay notice:", err);
-              if ("speechSynthesis" in window) {
-                try {
-                  window.speechSynthesis.resume();
-                  window.speechSynthesis.cancel();
-                  const utterance = new SpeechSynthesisUtterance(text);
-                  utterance.rate = 0.95;
-                  utterance.onend = () => updateAiSpeaking(false);
-                  utterance.onerror = () => updateAiSpeaking(false);
-                  window.speechSynthesis.speak(utterance);
-                } catch {
-                  updateAiSpeaking(false);
-                }
-              } else {
-                updateAiSpeaking(false);
-              }
-            });
-          }
-          return;
-        }
-      }
-
-      // 2. Dynamic Speech Synthesizer Service (for custom amounts, names, receipt numbers)
+    } else {
+      // Dynamic TTS - request synthesis from backend and play generated Base64 audio once
+      setActiveAudioClip(null);
       try {
         const synth = await api.synthesizeSpeech({
-          text,
-          language: isTwi ? "tw" : "en",
+          text: speech.text,
+          language: speech.language === "tw" ? "tw" : "en",
           style: "ghanaian-warm",
         });
 
-        if (synth?.result?.audioBase64 && audioRef.current) {
-          const mime = synth.result.audioMimeType || "audio/mp3";
-          audioRef.current.src = `data:${mime};base64,${synth.result.audioBase64}`;
-          audioRef.current.onended = () => {
-            updateAiSpeaking(false);
-            setActiveAudioClip(null);
-          };
-          audioRef.current.onerror = () => {
-            updateAiSpeaking(false);
-            setActiveAudioClip(null);
-          };
-          const playPromise = audioRef.current.play();
-          if (playPromise) {
-            await playPromise.catch(() => {
-              if ("speechSynthesis" in window) {
-                try {
-                  window.speechSynthesis.resume();
-                  window.speechSynthesis.cancel();
-                  const utterance = new SpeechSynthesisUtterance(text);
-                  utterance.rate = 0.95;
-                  utterance.onend = () => updateAiSpeaking(false);
-                  utterance.onerror = () => updateAiSpeaking(false);
-                  window.speechSynthesis.speak(utterance);
-                } catch {
-                  updateAiSpeaking(false);
-                }
-              } else {
-                updateAiSpeaking(false);
-              }
-            });
-          }
-          return;
+        if (synth?.result?.audioBase64) {
+          const ok = await audioPlaybackController.play({
+            audioBase64: synth.result.audioBase64,
+            audioMimeType: synth.result.audioMimeType || "audio/mp3",
+            text: speech.text,
+            language: speech.language,
+            sourceType: "SYNTHESIZED_TTS",
+          });
+          return ok;
+        } else {
+          console.warn("[TTS] Dynamic synthesis returned no audio payload; speech ended cleanly without fallback.");
+          audioPlaybackController.stop();
+          return false;
         }
-      } catch {}
-
-      // 3. Browser Speech Synthesis Fallback
-      if ("speechSynthesis" in window) {
-        try {
-          window.speechSynthesis.resume();
-          window.speechSynthesis.cancel();
-          const utterance = new SpeechSynthesisUtterance(text);
-          utterance.rate = 0.95;
-          utterance.onend = () => updateAiSpeaking(false);
-          utterance.onerror = () => updateAiSpeaking(false);
-          window.speechSynthesis.speak(utterance);
-        } catch {
-          updateAiSpeaking(false);
-        }
-      } else {
-        updateAiSpeaking(false);
+      } catch (err: any) {
+        console.warn("[TTS] Dynamic speech synthesis error:", err?.message || err);
+        audioPlaybackController.stop();
+        return false;
       }
-    } catch {
-      updateAiSpeaking(false);
     }
-  }, [enableTts, voiceMode, currentStep, resolveStudioPrompt, updateAiSpeaking]);
+  }, [enableTts, currentStep, updateAiSpeaking]);
 
   /**
    * Process a single turn through the backend Canonical AI
@@ -2351,150 +2391,37 @@ export function usePhoneSimulator() {
   /**
    * Play any authentic studio prompt clip from the Audio Library
    */
-  const playStudioClip = useCallback(async (target: string) => {
-    if (!target) return;
-    try {
-      const isAudioFile =
-        target.endsWith(".mp3") ||
-        target.endsWith(".wav") ||
-        target.startsWith("/audio/") ||
-        target.startsWith("audio/");
+  const playStudioClip = useCallback(async (target: string): Promise<boolean> => {
+    if (!target) return false;
+    audioPlaybackController.stop();
 
-      if (isAudioFile) {
-        const promptName = target.split("/").pop() || "";
-        const promptTranscript = getPromptTranscript(promptName);
-        updateAiSpeaking(true, promptTranscript);
-        setActiveAudioClip(target);
-        const url = target.startsWith("/audio/")
-          ? target
-          : target.startsWith("audio/")
-          ? `/${target}`
-          : `/audio/${target}`;
+    const isAudioFile =
+      target.endsWith(".mp3") ||
+      target.endsWith(".wav") ||
+      target.startsWith("/audio/") ||
+      target.startsWith("audio/");
 
-        if (audioRef.current) {
-          audioRef.current.src = url;
-          audioRef.current.onended = () => {
-            updateAiSpeaking(false);
-            setActiveAudioClip(null);
-          };
-          audioRef.current.onerror = () => {
-            updateAiSpeaking(false);
-            setActiveAudioClip(null);
-          };
-          const playPromise = audioRef.current.play();
-          if (playPromise) {
-            await playPromise.catch((e) => {
-              console.warn("Audio file play notice:", e);
-              updateAiSpeaking(false);
-              setActiveAudioClip(null);
-            });
-          }
-        }
-        return;
-      }
+    if (isAudioFile) {
+      const promptName = target.split("/").pop() || "";
+      const promptTranscript = getPromptTranscript(promptName);
+      const url = target.startsWith("/audio/")
+        ? target
+        : target.startsWith("audio/")
+        ? `/${target}`
+        : `/audio/${target}`;
 
-      // If target is text (e.g. from chat replay or custom test sandbox), resolve studio prompt or synthesize
-      updateAiSpeaking(true, target);
-      const matched = resolveStudioPrompt(target, language);
-      if (matched && audioRef.current) {
-        setActiveAudioClip(matched);
-        audioRef.current.src = matched;
-        audioRef.current.onended = () => {
-          updateAiSpeaking(false);
-          setActiveAudioClip(null);
-        };
-        audioRef.current.onerror = () => {
-          updateAiSpeaking(false);
-          setActiveAudioClip(null);
-        };
-        const playPromise = audioRef.current.play();
-        if (playPromise) {
-          await playPromise.catch((e) => {
-            console.warn("Studio audio play notice:", e);
-            if ("speechSynthesis" in window) {
-              try {
-                window.speechSynthesis.resume();
-                window.speechSynthesis.cancel();
-                const utterance = new SpeechSynthesisUtterance(target);
-                utterance.rate = 0.95;
-                utterance.onend = () => updateAiSpeaking(false);
-                utterance.onerror = () => updateAiSpeaking(false);
-                window.speechSynthesis.speak(utterance);
-              } catch {
-                updateAiSpeaking(false);
-              }
-            } else {
-              updateAiSpeaking(false);
-            }
-          });
-        }
-        return;
-      }
-
-      // Dynamic text: synthesize speech
-      try {
-        const synth = await api.synthesizeSpeech({
-          text: target,
-          language: language === "tw" ? "tw" : "en",
-          style: "ghanaian-warm",
-        });
-
-        if (synth?.result?.audioBase64 && audioRef.current) {
-          audioRef.current.src = `data:${synth.result.audioMimeType || "audio/mp3"};base64,${synth.result.audioBase64}`;
-          audioRef.current.onended = () => {
-            updateAiSpeaking(false);
-            setActiveAudioClip(null);
-          };
-          audioRef.current.onerror = () => {
-            updateAiSpeaking(false);
-            setActiveAudioClip(null);
-          };
-          const playPromise = audioRef.current.play();
-          if (playPromise) {
-            await playPromise.catch(() => {
-              if ("speechSynthesis" in window) {
-                try {
-                  window.speechSynthesis.resume();
-                  window.speechSynthesis.cancel();
-                  const utterance = new SpeechSynthesisUtterance(target);
-                  utterance.rate = 0.95;
-                  utterance.onend = () => updateAiSpeaking(false);
-                  utterance.onerror = () => updateAiSpeaking(false);
-                  window.speechSynthesis.speak(utterance);
-                } catch {
-                  updateAiSpeaking(false);
-                }
-              } else {
-                updateAiSpeaking(false);
-              }
-            });
-          }
-          return;
-        }
-      } catch {}
-
-      // Browser TTS fallback
-      if ("speechSynthesis" in window) {
-        try {
-          window.speechSynthesis.resume();
-          window.speechSynthesis.cancel();
-          const utterance = new SpeechSynthesisUtterance(target);
-          utterance.rate = 0.95;
-          utterance.onend = () => updateAiSpeaking(false);
-          utterance.onerror = () => updateAiSpeaking(false);
-          window.speechSynthesis.speak(utterance);
-        } catch {
-          updateAiSpeaking(false);
-        }
-      } else {
-        updateAiSpeaking(false);
-      }
-    } catch (err) {
-      console.warn("Studio clip play notice:", err);
-      updateAiSpeaking(false);
-      setActiveAudioClip(null);
+      setActiveAudioClip(url);
+      setIsAiSpeaking(true);
+      return await audioPlaybackController.play({
+        url,
+        text: promptTranscript,
+        sourceType: "STUDIO_PROMPT",
+      });
     }
-  }, [language, resolveStudioPrompt, updateAiSpeaking]);
+
+    // Dynamic text routed through authoritative playAudioSynthesis
+    return await playAudioSynthesis(target, language);
+  }, [language, playAudioSynthesis]);
 
   /**
    * 1-Click Feature Trigger: Test Zero-PIN Violation Interception

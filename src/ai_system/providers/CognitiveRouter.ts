@@ -313,7 +313,7 @@ export class CognitiveRouter {
             routingDecision: "REMOTE_GEMINI_ESCALATED",
             providerUsed: "gemini-cloud-reasoner",
             reasoningLatencyMs: Math.round(performance.now() - reasoningStart),
-            model: process.env.GEMINI_REASONING_MODEL || "gemini-3.8-flash",
+            model: process.env.GEMINI_REASONING_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash",
             fallbackUsed: false,
             reasonForEscalation: "Complex semantic utterance exceeding local brain threshold",
             confidence: evidenceScore,

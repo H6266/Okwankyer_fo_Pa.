@@ -153,8 +153,8 @@ async function transcribeAudioBufferWithHedgedGemini(
 ): Promise<SttResult> {
   const primaryModel = (AI_CONFIG.transcriptionModel && AI_CONFIG.transcriptionModel !== "gemini-3.5-transcribe")
     ? AI_CONFIG.transcriptionModel
-    : "gemini-3.8-flash";
-  const secondaryModel = "gemini-flash-latest";
+    : (process.env.GEMINI_MODEL || "gemini-2.5-flash");
+  const secondaryModel = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 
   const hasAnyModel = geminiClient.isAvailable() && (
     geminiClient.isModelAvailable(primaryModel) ||

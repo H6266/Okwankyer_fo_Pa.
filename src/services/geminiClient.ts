@@ -212,10 +212,14 @@ export class UnifiedGeminiClient {
         clearTimeout(timeoutHandle);
         const msg = String(err?.message || "");
         const isQuotaExhausted =
-          err.status === 429 &&
-          (msg.includes("RESOURCE_EXHAUSTED") ||
-           msg.includes("Quota exceeded") ||
-           msg.includes("generativelanguage.googleapis.com"));
+          err.status === 429 ||
+          err?.error?.code === 429 ||
+          err?.code === 429 ||
+          msg.includes("429") ||
+          msg.includes("RESOURCE_EXHAUSTED") ||
+          msg.includes("Quota exceeded") ||
+          msg.includes("exceeded your current quota") ||
+          msg.includes("generativelanguage.googleapis.com");
 
         const isForbidden =
           err.status === 403 ||
@@ -231,15 +235,24 @@ export class UnifiedGeminiClient {
           throw err;
         }
 
-        // If daily quota is exhausted, retrying immediately is futile. Throw immediately.
+        // If daily quota is exhausted, retrying immediately is futile. Record cooldown and throw immediately.
         if (isQuotaExhausted) {
           let cooldownMs = 60 * 60 * 1000;
-          const retrySecMatch = msg.match(/retryDelay['":\s]+([0-9]+)/i);
+          const retrySecMatch = msg.match(/retryDelay['":\s]+([0-9]+)/i) || msg.match(/retry in\s+([0-9]+)s/i);
           if (retrySecMatch && retrySecMatch[1]) {
             cooldownMs = Math.max(60 * 1000, parseInt(retrySecMatch[1], 10) * 1000);
           }
-          this.recordQuotaExhausted(cooldownMs);
-          this.recordFailure();
+          // Extract specific model if available in quota violation
+          const modelMatch = msg.match(/model['":\s]+([a-zA-Z0-9.-]+)/i) || msg.match(/model:\s*([a-zA-Z0-9.-]+)/i);
+          if (modelMatch && modelMatch[1]) {
+            this.recordModelQuotaExhausted(modelMatch[1], cooldownMs);
+          } else {
+            this.recordQuotaExhausted(cooldownMs);
+          }
+          // For quota exhaustion on a specific model, don't trip circuit breaker for entire client
+          if (!modelMatch || !modelMatch[1]) {
+            this.recordFailure();
+          }
           throw err;
         }
 
@@ -347,9 +360,12 @@ export class UnifiedGeminiClient {
           const msg = String(activeErr?.message || "");
           const isQuota =
             activeErr?.status === 429 ||
+            activeErr?.error?.code === 429 ||
+            activeErr?.code === 429 ||
             msg.includes("429") ||
             msg.includes("RESOURCE_EXHAUSTED") ||
-            msg.includes("Quota exceeded");
+            msg.includes("Quota exceeded") ||
+            msg.includes("exceeded your current quota");
           const isForbidden =
             activeErr?.status === 403 ||
             msg.includes("403") ||
@@ -362,7 +378,12 @@ export class UnifiedGeminiClient {
             if (retrySecMatch && retrySecMatch[1]) {
               cooldownMs = Math.max(60 * 1000, parseInt(retrySecMatch[1], 10) * 1000);
             }
-            this.recordQuotaExhausted(cooldownMs);
+            const modelMatch = msg.match(/model['":\s]+([a-zA-Z0-9.-]+)/i);
+            if (modelMatch && modelMatch[1]) {
+              this.recordModelQuotaExhausted(modelMatch[1], cooldownMs);
+            } else {
+              this.recordQuotaExhausted(cooldownMs);
+            }
           } else if (isForbidden) {
             this.recordAccessDenied(msg);
           }

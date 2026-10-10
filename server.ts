@@ -9,6 +9,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const distServer = path.resolve(process.cwd(), "dist", "server.cjs");
 const isTsx =

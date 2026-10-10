@@ -190,3 +190,64 @@ export function formatAmountAsSpokenWords(
   const words = convertNumberToEnglishWords(rounded);
   return `${words} Ghana cedis`;
 }
+
+/**
+ * Resolves spoken Twi words (or numbers) to numeric values.
+ */
+export function parseTwiSpokenNumber(text: string): number | null {
+  if (!text) return null;
+  const cleaned = text.toLowerCase().trim();
+
+  // Direct match against approved NUMBER_VECTORS
+  const directMatch = NUMBER_VECTORS.find(
+    (v) => v.twi.toLowerCase() === cleaned
+  );
+  if (directMatch) return directMatch.n;
+
+  // Common Twi numbers
+  const map: Record<string, number> = {
+    baako: 1,
+    mmienu: 2,
+    mmiɛnsa: 3,
+    ɛnan: 4,
+    enum: 5,
+    nsia: 6,
+    nson: 7,
+    nwɔtwe: 8,
+    nkron: 9,
+    du: 10,
+    dumienu: 12,
+    dumiɛnsa: 13,
+    duanan: 14,
+    duonum: 15,
+    aduonu: 20,
+    aduasa: 30,
+    aduanan: 40,
+    aduonum: 50,
+    aduosia: 60,
+    aduoson: 70,
+    aduowɔtwe: 80,
+    aduokron: 90,
+    ɔha: 100,
+    aha: 100,
+    ahanu: 200,
+    ahansia: 600,
+    apem: 1000,
+    mpem: 2000,
+  };
+
+  for (const [k, v] of Object.entries(map)) {
+    if (new RegExp(`\\b${k}\\b`, "i").test(cleaned)) {
+      return v;
+    }
+  }
+
+  // Direct digit check
+  const digitMatch = cleaned.match(/\b(\d+)\b/);
+  if (digitMatch) {
+    const n = parseInt(digitMatch[1], 10);
+    if (!isNaN(n)) return n;
+  }
+
+  return null;
+}

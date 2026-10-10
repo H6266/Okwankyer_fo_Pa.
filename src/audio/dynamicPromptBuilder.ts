@@ -15,6 +15,7 @@ import { parseAndValidateAmount, validateGhanaPhoneNumber } from "../domain/vali
 export interface SafeConfirmationOptions {
   language: "en" | "twi";
   amount: number;
+  currency?: string;
   recipientPhone: string;
   recipientName: string | null;
   isVerified: boolean;
@@ -24,14 +25,17 @@ export interface SafeConfirmationOptions {
 export interface DynamicReceiptOptions {
   language: "en" | "twi";
   amount: number;
+  currency?: string;
   recipientPhone: string;
   recipientName: string | null;
   referenceId: string;
   timestamp: Date;
+  status?: "SUCCESSFUL" | "PENDING" | "FAILED";
 }
 
 /**
  * Generates unique per-transaction reference ID (e.g. OKP-782914)
+ * Used ONLY when initializing a new transaction session that lacks a reference.
  */
 export function generateTransactionReference(): string {
   const digits = Math.floor(100000 + Math.random() * 900000);
@@ -50,11 +54,12 @@ export function buildSafeConfirmationPrompt(options: SafeConfirmationOptions): {
   spokenText: string;
   voiceXml: string;
 } {
-  const { language, amount, recipientPhone, recipientName, isVerified, callbackUrl } = options;
+  const { language, amount, currency = "GHS", recipientPhone, recipientName, isVerified, callbackUrl } = options;
   const phoneValidation = validateGhanaPhoneNumber(recipientPhone);
   const last4Spaced = phoneValidation.last4Spaced || recipientPhone.slice(-4).split("").join(" ");
   const amountValidation = parseAndValidateAmount(String(amount));
-  const amountFormatted = amountValidation.formatted || `${amount} Cedis`;
+  const currLabel = currency === "GHS" ? "Cedis" : currency;
+  const amountFormatted = amountValidation.formatted || `${amount} ${currLabel}`;
 
   let spokenText = "";
 
@@ -84,18 +89,55 @@ export function buildSafeConfirmationPrompt(options: SafeConfirmationOptions): {
 }
 
 /**
+ * Builds dynamic pending authorization / handoff spoken text and VoiceXML
+ */
+export function buildPendingAuthorizationPrompt(options: {
+  language: "en" | "twi";
+  amount: number;
+  currency?: string;
+  recipientPhone: string;
+  recipientName: string | null;
+  referenceId: string;
+}): {
+  spokenText: string;
+  voiceXml: string;
+} {
+  const { language, amount, currency = "GHS", recipientPhone, recipientName, referenceId } = options;
+  const phoneValidation = validateGhanaPhoneNumber(recipientPhone);
+  const last4Spaced = phoneValidation.last4Spaced || recipientPhone.slice(-4).split("").join(" ");
+  const displayName = recipientName || `recipient ending in ${last4Spaced}`;
+  const amountValidation = parseAndValidateAmount(String(amount));
+  const currLabel = currency === "GHS" ? "Cedis" : currency;
+  const amountFormatted = amountValidation.formatted || `${amount} ${currLabel}`;
+  const spacedRef = formatRefForSpeech(referenceId);
+
+  let spokenText = "";
+  if (language === "twi") {
+    spokenText = `Yɛde wo kɔbɔ a ɛyɛ ${amountFormatted} a worekɔma ${displayName} no akɔ MoMo so. Wo reference nɔmba ne ${spacedRef}. Yɛsrɛ wo, hwɛ wo fon screen so na bɔ wo PIN ahobammbɔ mu de wie transfer no. Nante yiye.`;
+  } else {
+    spokenText = `Your transfer of ${amountFormatted} to ${displayName} is currently pending authorization. Reference number: ${spacedRef}. Please check your phone screen to enter your Mobile Money PIN and authorize the transfer. Goodbye.`;
+  }
+
+  const voiceXml = `    <Say voice="female">${escapeXml(spokenText)}</Say>
+    <Reject/>`;
+
+  return { spokenText, voiceXml };
+}
+
+/**
  * Builds dynamic transaction receipt spoken text and VoiceXML
  */
 export function buildReceiptPrompt(options: DynamicReceiptOptions): {
   spokenText: string;
   voiceXml: string;
 } {
-  const { language, amount, recipientPhone, recipientName, referenceId, timestamp } = options;
+  const { language, amount, currency = "GHS", recipientPhone, recipientName, referenceId, timestamp, status = "SUCCESSFUL" } = options;
   const phoneValidation = validateGhanaPhoneNumber(recipientPhone);
   const last4Spaced = phoneValidation.last4Spaced || recipientPhone.slice(-4).split("").join(" ");
   const displayName = recipientName || `subscriber ending in ${last4Spaced}`;
   const amountValidation = parseAndValidateAmount(String(amount));
-  const amountFormatted = amountValidation.formatted || `${amount} Cedis`;
+  const currLabel = currency === "GHS" ? "Cedis" : currency;
+  const amountFormatted = amountValidation.formatted || `${amount} ${currLabel}`;
   const spacedRef = formatRefForSpeech(referenceId);
 
   const dateStr = timestamp.toLocaleDateString("en-GB", {
@@ -111,10 +153,27 @@ export function buildReceiptPrompt(options: DynamicReceiptOptions): {
 
   let spokenText = "";
 
-  if (language === "twi") {
-    spokenText = `Mo! Woatumi amane ${amountFormatted} akɔma ${displayName} wɔ da ${dateStr} berɛ ${timeStr}. Wo reference nɔmba ne ${spacedRef}. Yɛdaase sɛ woayɛ use wɔ Ɔkwankyerɛfo Pa. Nante yiye.`;
+  if (status === "FAILED") {
+    if (language === "twi") {
+      spokenText = `Fakyɛ yɛn, sika mane a ɛyɛ ${amountFormatted} kɔma ${displayName} no antumi ankɔ. Wo reference nɔmba ne ${spacedRef}. Sika biara mfirii wo account mu. Yɛsrɛ wo, bɔ mmɔden bio akyire yi. Nante yiye.`;
+    } else {
+      spokenText = `We are sorry, your transfer of ${amountFormatted} to ${displayName} has failed. Reference number: ${spacedRef}. No money was deducted from your account. Please try again later. Goodbye.`;
+    }
+  } else if (status === "PENDING") {
+    return buildPendingAuthorizationPrompt({
+      language,
+      amount,
+      currency,
+      recipientPhone,
+      recipientName,
+      referenceId,
+    });
   } else {
-    spokenText = `Congratulations! You have successfully sent ${amountFormatted} to ${displayName} on ${dateStr} at ${timeStr}. Your reference number is ${spacedRef}. Your transaction details have been dispatched. Thank you for using Ɔkwankyerɛfo Pa. Goodbye.`;
+    if (language === "twi") {
+      spokenText = `Mo! Woatumi amane ${amountFormatted} akɔma ${displayName} wɔ da ${dateStr} berɛ ${timeStr}. Wo reference nɔmba ne ${spacedRef}. Yɛdaase sɛ woayɛ use wɔ Ɔkwankyerɛfo Pa. Nante yiye.`;
+    } else {
+      spokenText = `Congratulations! You have successfully sent ${amountFormatted} to ${displayName} on ${dateStr} at ${timeStr}. Your reference number is ${spacedRef}. Your transaction details have been dispatched. Thank you for using Ɔkwankyerɛfo Pa. Goodbye.`;
+    }
   }
 
   const voiceXml = `    <Say voice="female">${escapeXml(spokenText)}</Say>

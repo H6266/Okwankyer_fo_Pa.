@@ -194,10 +194,20 @@ export function resolvePrompt(key: string, lang: SupportedLanguage = "en"): stri
 }
 
 /**
- * Synthesizes dynamic speech text into an audio buffer.
- * Stub until the UG HCI Lab TTS API is connected.
+ * Synthesizes dynamic speech text into an audio buffer via the authoritative ttsRouter.
  */
-export async function speak(_text: string, _lang: SupportedLanguage = "en"): Promise<Buffer> {
-  // TODO(ug-hci-tts): Replace stub with UG HCI Lab TTS API when credentials are provided
-  throw new Error("UG HCI Lab TTS not connected");
+export async function speak(text: string, lang: SupportedLanguage = "en"): Promise<Buffer> {
+  const { ttsRouter } = await import("../ai_system/speech/tts/ttsRouter");
+  const synthLang = lang === "twi" ? "tw" : "en";
+  const res = await ttsRouter.synthesize({
+    text,
+    language: synthLang,
+  });
+  if (res.audioBuffer) {
+    return res.audioBuffer;
+  }
+  if (res.audioBase64) {
+    return Buffer.from(res.audioBase64, "base64");
+  }
+  throw new Error(`[ttsService] Dynamic speech synthesis failed for language '${lang}'`);
 }
