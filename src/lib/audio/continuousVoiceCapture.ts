@@ -455,19 +455,9 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
       this.telemetry.currentVADState = "SILENCE";
     }
 
-    // ── TRUE BARGE-IN DETECTION ──
-    // If assistant is currently speaking and caller voice crosses the threshold:
-    if (this.isAiSpeaking && vadResult.speechActive && vadResult.speechDurationMs >= 140) {
-      // Caller interrupted!
-      this.telemetry.bargeIns++;
-      this.isAiSpeaking = false;
-      this.setState("MIC_INTERRUPTED");
-      this.callbacks.onBargeIn();
-      setTimeout(() => {
-        if (this.state === "MIC_INTERRUPTED") {
-          this.setState("MIC_ACTIVE");
-        }
-      }, 80);
+    // Strict playback gating: if assistant audio is playing, ignore frames so internal audio is never recorded
+    if (this.isAiSpeaking) {
+      return;
     }
 
     // Utterance accumulation
@@ -520,6 +510,11 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
     this.utteranceChunks = [];
     this.utteranceSampleCount = 0;
     this.vad.resetTurn();
+
+    // Automatically mute/turn off the microphone once the user finishes their sentence;
+    // it will automatically turn back ON after the next audio prompt finishes playing.
+    this.isMuted = true;
+    this.setState("MIC_MUTED", "Sentence complete — microphone automatically turned off");
 
     // Trigger turn completion callback
     this.callbacks.onUtteranceComplete(wavBase64, durationMs);

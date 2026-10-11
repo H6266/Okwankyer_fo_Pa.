@@ -371,7 +371,8 @@ export const PhoneSimulatorPage: React.FC = () => {
     terminalEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatTurns, terminalLogs, interimTranscript]);
 
-  // Audio controller subscription: automatically turn on mic when audio ends playing
+  // Audio controller subscription: keep mic strictly OFF while prompt audio is playing,
+  // and automatically turn on the mic ONLY after the prompt audio finishes playing.
   useEffect(() => {
     let wasPlaying = false;
     const unsubscribe = audioPlaybackController.subscribe((state) => {
@@ -379,19 +380,25 @@ export const PhoneSimulatorPage: React.FC = () => {
       if (!callActiveRef.current) return;
       if (state.isPlaying) {
         wasPlaying = true;
+        // Turn mic OFF while prompt is playing so internal audio is never recorded
+        setIsMicMuted(true);
+        isMicMutedRef.current = true;
+        continuousAudioEngine.pauseForPlayback();
         setCallStatus("Speaking");
       } else {
         if (wasPlaying && !zeroPinOverlayRef.current) {
           wasPlaying = false;
-          // Automatically unmute and turn on microphone to record user's need when prompt audio finishes
-          setIsMicMuted(false);
-          isMicMutedRef.current = false;
-          continuousAudioEngine.setZeroPinMuted(false);
-          continuousAudioEngine.startAlwaysOnMic(languageRef.current || "en", activeStepNameRef.current);
-          addLog("asr", "🎙️ Audio prompt finished — Microphone automatically turned ON to record your need.");
-        }
-        if (!isMicMutedRef.current && !zeroPinOverlayRef.current) {
-          setCallStatus("Listening");
+          // Brief 150ms acoustic tail buffer so speaker room echo isn't recorded, then auto-turn ON mic
+          setTimeout(() => {
+            if (!audioPlaybackController.isSpeaking() && callActiveRef.current && !zeroPinOverlayRef.current) {
+              setIsMicMuted(false);
+              isMicMutedRef.current = false;
+              continuousAudioEngine.setZeroPinMuted(false);
+              continuousAudioEngine.startAlwaysOnMic(languageRef.current || "en", activeStepNameRef.current);
+              setCallStatus("Listening");
+              addLog("asr", "🎙️ Audio prompt finished — Microphone automatically turned ON to record your need.");
+            }
+          }, 150);
         }
       }
     });
@@ -660,11 +667,20 @@ export const PhoneSimulatorPage: React.FC = () => {
           body: bodyParams.toString(),
         });
 
-        const guardReason = res.headers.get("x-telephony-guard-reason") || undefined;
-        const aiDecisionType = res.headers.get("x-ai-decision-type");
-        const aiDecisionReason = res.headers.get("x-ai-decision-reason");
-        const aiReplyText = res.headers.get("x-ai-reply-text");
-        const aiReplyKey = res.headers.get("x-ai-reply-key");
+        const decodeHeader = (val: string | null) => {
+          if (!val) return null;
+          try {
+            return val.includes("%") ? decodeURIComponent(val) : val;
+          } catch {
+            return val;
+          }
+        };
+
+        const guardReason = decodeHeader(res.headers.get("x-telephony-guard-reason")) || undefined;
+        const aiDecisionType = decodeHeader(res.headers.get("x-ai-decision-type"));
+        const aiDecisionReason = decodeHeader(res.headers.get("x-ai-decision-reason"));
+        const aiReplyText = decodeHeader(res.headers.get("x-ai-reply-text"));
+        const aiReplyKey = decodeHeader(res.headers.get("x-ai-reply-key"));
 
         if (aiDecisionType) {
           addLog("AI", `[AI Decision] type=${aiDecisionType} reason="${aiDecisionReason || ""}"`);
@@ -735,8 +751,10 @@ export const PhoneSimulatorPage: React.FC = () => {
     addLog("system", `Call initiated. Session ID: ${newSession}`);
     addLog("state", "Connecting to phone simulator (/api/simulator/voice-menu)...");
 
-    // Launch Always-On Continuous Audio Engine
-    continuousAudioEngine.startAlwaysOnMic(languageRef.current || "en", "voice-menu");
+    // Keep microphone OFF during initial welcome prompt playback; it will automatically turn ON when the prompt finishes playing
+    setIsMicMuted(true);
+    isMicMutedRef.current = true;
+    continuousAudioEngine.pauseForPlayback();
     continuousAudioEngine.resetDiscussionBuffer();
     setInterimTranscript("");
     setFinalizedTranscript("");
@@ -829,8 +847,15 @@ export const PhoneSimulatorPage: React.FC = () => {
       const phoneticRepair = repairGhanaianPronunciation(clean);
       const effectiveClean = phoneticRepair.normalizedTranscript || clean;
 
+      // Automatically turn the microphone OFF now that the user has finished their sentence!
+      // It will automatically turn back ON after the next audio prompt finishes playing.
+      setIsMicMuted(true);
+      isMicMutedRef.current = true;
+      continuousAudioEngine.pauseForPlayback();
+      setCallStatus("Processing");
+
       addLog("caller", `Speech "${clean}"`);
-      addLog("asr", `✅ Recognized utterance: "${effectiveClean}"`);
+      addLog("asr", `✅ Sentence complete: "${effectiveClean}" — Microphone automatically turned OFF.`);
 
       // Add to Chat Timeline with phonetic annotations
       addChatTurn({
@@ -1477,23 +1502,23 @@ export const PhoneSimulatorPage: React.FC = () => {
                 disabled={!callActive || zeroPinOverlay}
                 aria-label={isMicMuted ? "Unmute microphone" : "Mute microphone"}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors border ${
-                  isMicMuted
-                    ? "bg-rose-950/40 border-rose-500/50 text-rose-300 hover:bg-rose-900/60"
-                    : isAudioSpeaking
+                  isAudioSpeaking
                     ? "bg-amber-950/40 border-amber-500/40 text-amber-300"
+                    : isMicMuted
+                    ? "bg-slate-800/80 border-slate-600/50 text-slate-300 hover:bg-slate-800"
                     : "bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/60 shadow-sm shadow-emerald-500/20"
                 } disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer`}
               >
-                {isMicMuted ? (
+                {isAudioSpeaking || isMicMuted ? (
                   <MicOff className="w-3.5 h-3.5" />
                 ) : (
-                  <Mic className={`w-3.5 h-3.5 ${!isAudioSpeaking && callActive ? "animate-pulse text-emerald-400" : ""}`} />
+                  <Mic className={`w-3.5 h-3.5 ${callActive ? "animate-pulse text-emerald-400" : ""}`} />
                 )}
                 <span>
-                  {isMicMuted
-                    ? "Mic Muted"
-                    : isAudioSpeaking
-                    ? "Audio Playing (Mic Ready)"
+                  {isAudioSpeaking
+                    ? "Mic OFF (Audio Playing)"
+                    : isMicMuted
+                    ? "Mic OFF"
                     : "Mic Recording ON"}
                 </span>
               </button>

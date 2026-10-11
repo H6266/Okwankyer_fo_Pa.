@@ -82,13 +82,23 @@ voiceRouter.use((req: Request, res: Response, next) => {
   return next();
 });
 
+function toSafeHeaderValue(val: unknown): string {
+  if (val === undefined || val === null) return "";
+  const str = String(val).replace(/[\r\n]+/g, " ").trim();
+  // URI-encode if any non-ASCII or control characters exist so Node.js HTTP never throws ERR_INVALID_CHAR
+  if (/[^\x20-\x7E]/.test(str)) {
+    return encodeURIComponent(str);
+  }
+  return str;
+}
+
 function xmlResponse(res: Response, content: string, decision?: IvrDecision): void {
   let xml = content;
   if (decision) {
-    res.set("X-AI-Decision-Type", decision.type);
-    res.set("X-AI-Decision-Reason", decision.reason);
-    res.set("X-AI-Reply-Text", decision.replyText);
-    res.set("X-AI-Reply-Key", decision.replyKey);
+    res.set("X-AI-Decision-Type", toSafeHeaderValue(decision.type));
+    res.set("X-AI-Decision-Reason", toSafeHeaderValue(decision.reason));
+    res.set("X-AI-Reply-Text", toSafeHeaderValue(decision.replyText));
+    res.set("X-AI-Reply-Key", toSafeHeaderValue(decision.replyKey));
     res.set("Access-Control-Expose-Headers", "X-AI-Decision-Type, X-AI-Decision-Reason, X-AI-Reply-Text, X-AI-Reply-Key, x-telephony-guard-reason");
   }
   const req = (res.req || (res as any).socket?._httpMessage?.req) as Request | undefined;

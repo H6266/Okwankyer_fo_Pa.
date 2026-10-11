@@ -207,6 +207,45 @@ export function useSpeechRecognition(options: {
     }
     setSupported(true);
 
+    let sentenceChunks: string[] = [];
+    let sentenceTimer: any = null;
+    const SENTENCE_END_SILENCE_MS = 2200;
+
+    const clearSentenceTimer = () => {
+      if (sentenceTimer) {
+        clearTimeout(sentenceTimer);
+        sentenceTimer = null;
+      }
+    };
+
+    const commitCompleteSentence = (pendingInterim: string = "") => {
+      clearSentenceTimer();
+      const fullSentence = [...sentenceChunks, pendingInterim]
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+      sentenceChunks = [];
+      if (!fullSentence) return;
+
+      const formattedText = formatSpokenNumbersAsDigits(fullSentence);
+      setTranscript(formattedText);
+
+      // Automatically turn off the microphone once the user finishes their sentence
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch {}
+      }
+      setIsListening(false);
+
+      const match = resolveSpokenText(formattedText, options.language);
+      setLastMatch(match);
+      if (onMatchRef.current) {
+        onMatchRef.current(match);
+      }
+    };
+
     try {
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
@@ -214,34 +253,58 @@ export function useSpeechRecognition(options: {
       recognition.lang = options.language === "twi" ? "ak-GH" : "en-US";
 
       recognition.onresult = (event: any) => {
-        if (options.isMuted) return; // Strict Zero-PIN muting
-        const lastResultIndex = event.results.length - 1;
-        const res = event.results[lastResultIndex];
-        const rawText = (res[0]?.transcript || "").trim();
-        if (!rawText || isBackgroundNoiseOrStatic(rawText)) return;
+        if (options.isMuted || options.isSpeaking) return; // Strict muting during prompt playback or Zero-PIN
+
+        let interimPart = "";
+        let finalPart = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const res = event.results[i];
+          const textChunk = (res[0]?.transcript || "").trim();
+          if (!textChunk) continue;
+          if (res.isFinal) {
+            finalPart += " " + textChunk;
+          } else {
+            interimPart += " " + textChunk;
+          }
+        }
+
+        interimPart = interimPart.trim();
+        finalPart = finalPart.trim();
+        const combinedCurrent = (finalPart || interimPart).trim();
+        if (!combinedCurrent || isBackgroundNoiseOrStatic(combinedCurrent)) return;
 
         // Acoustic Echo Suppression
-        if (isAcousticSystemEcho(rawText, options.activePrompt, options.isSpeaking)) {
-          const stripped = stripSystemEchoFromTranscript(rawText, options.activePrompt);
+        if (isAcousticSystemEcho(combinedCurrent, options.activePrompt, options.isSpeaking)) {
+          const stripped = stripSystemEchoFromTranscript(combinedCurrent, options.activePrompt);
           if (!stripped || isAcousticSystemEcho(stripped, options.activePrompt)) {
             return;
           }
         }
 
-        const formattedText = formatSpokenNumbersAsDigits(rawText);
-        setTranscript(formattedText);
-
-        if (res.isFinal) {
-          const match = resolveSpokenText(formattedText, options.language);
-          setLastMatch(match);
-          if (onMatchRef.current) {
-            onMatchRef.current(match);
-          }
+        if (finalPart) {
+          const strippedFinal = stripSystemEchoFromTranscript(finalPart, options.activePrompt) || finalPart;
+          sentenceChunks.push(formatSpokenNumbersAsDigits(strippedFinal));
         }
+
+        const preview = [...sentenceChunks, interimPart ? formatSpokenNumbersAsDigits(interimPart) : ""]
+          .filter(Boolean)
+          .join(" ")
+          .trim();
+        if (preview) {
+          setTranscript(preview);
+        }
+
+        // Wait until user finishes their full sentence before turning off mic and dispatching
+        clearSentenceTimer();
+        sentenceTimer = setTimeout(() => {
+          commitCompleteSentence(interimPart);
+        }, SENTENCE_END_SILENCE_MS);
       };
 
       recognition.onstart = () => setIsListening(true);
-      recognition.onend = () => setIsListening(false);
+      recognition.onend = () => {
+        setIsListening(false);
+      };
       recognition.onerror = (e: any) => {
         if (e.error !== "no-speech") {
           console.warn("Speech recognition error:", e.error);
@@ -255,6 +318,7 @@ export function useSpeechRecognition(options: {
     }
 
     return () => {
+      clearSentenceTimer();
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();

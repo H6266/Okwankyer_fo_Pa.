@@ -1983,11 +1983,14 @@ export function usePhoneSimulator() {
           isAiSpeakingRef.current = false;
         },
         onUtteranceComplete: async (wavBase64) => {
-          // Automatic end of user speech turn detected by VAD!
+          // Automatic end of user speech turn detected by VAD: turn microphone OFF now that sentence is finished
+          voiceListeningEnabledRef.current = false;
+          setIsMicActive(false);
+          isMicActiveRef.current = false;
           const browserFinalTranscript = await finalizeInterimRecognition();
           setTranscriptionStatus("PROCESSING");
           setAiProcessingPhase("SPEECH_IN");
-          setAiProcessingDetail("Recognizing your speech...");
+          setAiProcessingDetail("✅ Sentence complete — Microphone turned OFF · Recognizing your speech...");
 
           const startTime = performance.now();
           let rawText = "";
