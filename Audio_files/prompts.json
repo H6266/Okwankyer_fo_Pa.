@@ -1,0 +1,1291 @@
+{
+  "project": "Ɔkwankyerɛfo Pa",
+  "version": "1.0",
+  "prompts": [
+    {
+      "id": "OP01",
+      "category": "01_Welcome_Session_Start",
+      "state": "WELCOME",
+      "type": "FIXED",
+      "english": "Welcome to Ɔkwankyerɛfo Pa, your accessible voice guide for mobile services.",
+      "twi": "Akwaaba wɔ Ɔkwankyerɛfo Pa mu, wo nne akwankyerɛ a ɛma mobile services yɛ mmerɛw ma obiara.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/01_Welcome_Session_Start/Welcome 1.m4a",
+        "twi_other_takes": [
+          "audio/Twi/01_Welcome_Session_Start/Welcome 2.m4a"
+        ]
+      }
+    },
+    {
+      "id": "OP02",
+      "category": "01_Welcome_Session_Start",
+      "state": "LANGUAGE_SELECTION",
+      "type": "FIXED",
+      "english": "For English, press 1. For Twi, press 2.",
+      "twi": "Sɛ wopɛ Borɔfo a, mia 1. Sɛ wopɛ Twi a, mia 2.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/01_Welcome_Session_Start/Language selection.m4a",
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP03",
+      "category": "01_Welcome_Session_Start",
+      "state": "GREETING",
+      "type": "FIXED",
+      "english": "Hello. How can I help you today?",
+      "twi": "Agoo. Ɛdeɛn na metumi aboa wo wɔ nnɛ?",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/01_Welcome_Session_Start/Greetings 1.m4a",
+        "twi_other_takes": [
+          "audio/Twi/01_Welcome_Session_Start/Greetings 2.m4a"
+        ]
+      }
+    },
+    {
+      "id": "OP04",
+      "category": "01_Welcome_Session_Start",
+      "state": "WELCOME_BACK",
+      "type": "FIXED",
+      "english": "Welcome back. How can I help you?",
+      "twi": "Akwaaba bio. Ɛdeɛn na metumi aboa wo?",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/01_Welcome_Session_Start/Welcome back.m4a",
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP05",
+      "category": "01_Welcome_Session_Start",
+      "state": "ACKNOWLEDGE",
+      "type": "FIXED",
+      "english": "Okay, I understand. Let’s continue.",
+      "twi": "Yoo, mete ase. Momma yɛnkɔ so.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/01_Welcome_Session_Start/Acknowledge.m4a",
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP06",
+      "category": "01_Welcome_Session_Start",
+      "state": "PROCESSING",
+      "type": "FIXED",
+      "english": "Alright. I am processing your request.",
+      "twi": "Yoo. Meredi wo adesrɛ no ho dwuma.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/01_Welcome_Session_Start/Processing.m4a",
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP07",
+      "category": "02_Main_Service_Navigation",
+      "state": "SERVICE_SELECTION",
+      "type": "FIXED",
+      "english": "For mobile money services, press 1. For banking services, press 2. Press 9 to hear this again, or press 0 to exit.",
+      "twi": "Sɛ wopɛ mobile money services a, mia 1. Sɛ wopɛ banking services a, mia 2. Mia 9 na mate bio, anaasɛ mia 0 na woapue.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/02_Main_Service_Navigation/Service selection 1.m4a",
+        "twi_other_takes": [
+          "audio/Twi/02_Main_Service_Navigation/Service selection 2.m4a"
+        ]
+      }
+    },
+    {
+      "id": "OP08",
+      "category": "02_Main_Service_Navigation",
+      "state": "NETWORK_SELECTION",
+      "type": "FIXED",
+      "english": "Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again, or press 0 to exit.",
+      "twi": "Paw wo network. Sɛ ɛyɛ MTN a, mia 1. Telecel a, mia 2. AirtelTigo a, mia 3. Mia 9 na mate bio, anaasɛ mia 0 na woapue.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/02_Main_Service_Navigation/Network selection 1.m4a",
+        "twi_other_takes": [
+          "audio/Twi/02_Main_Service_Navigation/Network selection 2.m4a"
+        ]
+      }
+    },
+    {
+      "id": "OP09",
+      "category": "02_Main_Service_Navigation",
+      "state": "MTN_MENU",
+      "type": "FIXED",
+      "english": "MTN Mobile Money. To send money, press 1. To check your account, press 2. Press 8 to go back, or press 0 to exit.",
+      "twi": "MTN Mobile Money. Sɛ wopɛ sɛ wode sika kɔma obi a, mia 1. Sɛ wopɛ sɛ wohwɛ wo account a, mia 2. Mia 8 na san kɔ akyi, anaasɛ mia 0 na woapue.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/02_Main_Service_Navigation/MTN menu 1.m4a",
+        "twi_other_takes": [
+          "audio/Twi/02_Main_Service_Navigation/MTN menu 2.m4a"
+        ]
+      }
+    },
+    {
+      "id": "OP10",
+      "category": "02_Main_Service_Navigation",
+      "state": "SEND_MONEY_SELECTED",
+      "type": "FIXED",
+      "english": "You have selected Send Money.",
+      "twi": "Woapaw Send Money.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/02_Main_Service_Navigation/Send money selected.m4a",
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP11",
+      "category": "02_Main_Service_Navigation",
+      "state": "SERVICE_UNAVAILABLE",
+      "type": "FIXED",
+      "english": "That service is not available right now. Please choose another available service.",
+      "twi": "Saa service no nni hɔ seesei. Yɛsrɛ wo, paw service foforo a ɛwɔ hɔ.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/02_Main_Service_Navigation/Service unavailable.m4a",
+        "twi_other_takes": [
+          "audio/Twi/02_Main_Service_Navigation/Service unavailable 1.m4a",
+          "audio/Twi/02_Main_Service_Navigation/Service unavailable 2.m4a",
+          "audio/Twi/02_Main_Service_Navigation/Main service Unavailable.m4a"
+        ]
+      }
+    },
+    {
+      "id": "OP12",
+      "category": "02_Main_Service_Navigation",
+      "state": "SERVICE_ALTERNATIVE",
+      "type": "FIXED",
+      "english": "That service is not available right now. I can help you with another available service, such as sending money.",
+      "twi": "Saa service no nni hɔ seesei. Metumi aboa wo wɔ service foforo bi ho, te sɛ sika a wode bɛkɔma obi.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/02_Main_Service_Navigation/Service alternative.m4a",
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP13",
+      "category": "02_Main_Service_Navigation",
+      "state": "SERVICE_NOT_READY",
+      "type": "FIXED",
+      "english": "I cannot complete that service yet. I can help you send money.",
+      "twi": "Minni tumi nwie saa service no seesei. Metumi aboa wo de sika akɔma obi.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/02_Main_Service_Navigation/Service not ready.m4a",
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP14",
+      "category": "02_Main_Service_Navigation",
+      "state": "TRY_ANOTHER_SERVICE",
+      "type": "FIXED",
+      "english": "Would you like to try another service?",
+      "twi": "Wopɛ sɛ yɛsɔ service foforo hwɛ anaa?",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/02_Main_Service_Navigation/Try another service.m4a",
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP15",
+      "category": "02_Main_Service_Navigation",
+      "state": "CHOOSE_INSTEAD",
+      "type": "FIXED",
+      "english": "Okay. What would you like to do instead?",
+      "twi": "Yoo. Dɛn na wopɛ sɛ yɛyɛ mmom?",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/02_Main_Service_Navigation/Choose instead.m4a",
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP16",
+      "category": "03_Recipient_Entry_Verification",
+      "state": "ENTER_RECIPIENT",
+      "type": "FIXED",
+      "english": "Enter the recipient's 10-digit phone number, followed by hash. Press 0 to exit.",
+      "twi": "Kyerɛw recipient no fon nɔma a ɛyɛ digit du no, na mia hash. Mia 0 na woapue.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/03_Recipient_Entry_Verification/Enter recipient.m4a",
+        "twi_other_takes": [
+          "audio/Twi/03_Recipient_Entry_Verification/Enter recipient 2.m4a"
+        ]
+      }
+    },
+    {
+      "id": "OP17",
+      "category": "03_Recipient_Entry_Verification",
+      "state": "INVALID_RECIPIENT",
+      "type": "FIXED",
+      "english": "The phone number entered is not valid. Please enter the 10-digit number again, followed by hash.",
+      "twi": "Fon nɔma a wokyerɛwee no nyɛ nokware. Yɛsrɛ wo, kyerɛw digit du no bio na mia hash.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/03_Recipient_Entry_Verification/Invalid recipient 1.m4a",
+        "twi_other_takes": [
+          "audio/Twi/03_Recipient_Entry_Verification/Invalid recipient 2.m4a"
+        ]
+      }
+    },
+    {
+      "id": "OP18",
+      "category": "03_Recipient_Entry_Verification",
+      "state": "RECIPIENT_FOUND",
+      "type": "FIXED",
+      "english": "I found a recipient matching that number.",
+      "twi": "Mahu recipient a ɔne saa fon nɔma no hyia.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/03_Recipient_Entry_Verification/Recipient found.m4a",
+        "twi_other_takes": [
+          "audio/Twi/03_Recipient_Entry_Verification/Recipient found (1).m4a"
+        ]
+      }
+    },
+    {
+      "id": "OP19",
+      "category": "03_Recipient_Entry_Verification",
+      "state": "RECIPIENT_VERIFY",
+      "type": "FIXED",
+      "english": "We found the recipient. Please listen carefully to the name and the last four digits of the phone number.",
+      "twi": "Yɛahu recipient no. Yɛsrɛ wo, tie din no ne fon nɔma no digit anan a etwa to no yiye.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/03_Recipient_Entry_Verification/Recipient verify.m4a",
+        "twi_other_takes": [
+          "audio/Twi/03_Recipient_Entry_Verification/Recipient verification.m4a"
+        ]
+      }
+    },
+    {
+      "id": "OP20",
+      "category": "03_Recipient_Entry_Verification",
+      "state": "RECIPIENT_NAME",
+      "type": "DYNAMIC",
+      "english": "The recipient's name is [DYNAMIC NAME].",
+      "twi": "Recipient no din ne [DYNAMIC NAME].",
+      "placeholders": [
+        "DYNAMIC NAME"
+      ],
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/03_Recipient_Entry_Verification/Recipient name.m4a",
+        "twi_other_takes": [
+          "audio/Twi/03_Recipient_Entry_Verification/Recipient name 2.m4a"
+        ]
+      }
+    },
+    {
+      "id": "OP21",
+      "category": "03_Recipient_Entry_Verification",
+      "state": "RECIPIENT_LAST4",
+      "type": "DYNAMIC",
+      "english": "The phone number ends in [DYNAMIC DIGITS].",
+      "twi": "Fon nɔma no awie wɔ [DYNAMIC DIGITS].",
+      "placeholders": [
+        "DYNAMIC DIGITS"
+      ],
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/03_Recipient_Entry_Verification/Recipient last 4.m4a",
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP22",
+      "category": "03_Recipient_Entry_Verification",
+      "state": "RECIPIENT_CONFIRM",
+      "type": "FIXED",
+      "english": "To confirm this recipient, press 1. To change the recipient, press 2. To exit, press 0.",
+      "twi": "Sɛ saa recipient yi yɛ nea wopɛ a, mia 1. Sɛ wopɛ sɛ wosakra recipient no a, mia 2. Mia 0 na woapue.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/03_Recipient_Entry_Verification/Recipient confirm.m4a",
+        "twi_other_takes": [
+          "audio/Twi/03_Recipient_Entry_Verification/Recipient confirm 2.m4a"
+        ]
+      }
+    },
+    {
+      "id": "OP23",
+      "category": "03_Recipient_Entry_Verification",
+      "state": "RECIPIENT_CONFIRM_SPEECH",
+      "type": "FIXED",
+      "english": "Is this the correct recipient? Say yes or no, or press 1 for yes and 2 for no.",
+      "twi": "Saa recipient yi ne nea wopɛ anaa? Ka yes anaa no, anaasɛ mia 1 ma yes na mia 2 ma no.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/03_Recipient_Entry_Verification/Recipient confirm speech.m4a",
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP24",
+      "category": "03_Recipient_Entry_Verification",
+      "state": "USE_RECIPIENT",
+      "type": "FIXED",
+      "english": "Okay. We will use this recipient.",
+      "twi": "Yoo. Yɛde saa recipient yi bedi dwuma.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/03_Recipient_Entry_Verification/Use recipient.m4a",
+        "twi_other_takes": [
+          "audio/Twi/03_Recipient_Entry_Verification/Use recipient 1.m4a"
+        ]
+      }
+    },
+    {
+      "id": "OP25",
+      "category": "03_Recipient_Entry_Verification",
+      "state": "CHANGE_RECIPIENT",
+      "type": "FIXED",
+      "english": "Okay. Let's enter another recipient.",
+      "twi": "Yoo. Momma yɛnkyerɛw recipient foforo.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/03_Recipient_Entry_Verification/Change recipient.m4a",
+        "twi_other_takes": [
+          "audio/Twi/03_Recipient_Entry_Verification/Change recipient 2.m4a"
+        ]
+      }
+    },
+    {
+      "id": "OP26",
+      "category": "04_Amount_Entry_Verification",
+      "state": "ENTER_AMOUNT",
+      "type": "FIXED",
+      "english": "Enter the amount you want to send in Ghana cedis, followed by hash. Use star for pesewas.",
+      "twi": "Kyerɛw sika dodow a wopɛ sɛ wode kɔma obi wɔ Ghana cedis mu, na mia hash. Sɛ wopɛ pesewas a, fa star.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/04_Amount_Entry_Verification/Enter amount 1.m4a",
+        "twi_other_takes": [
+          "audio/Twi/04_Amount_Entry_Verification/Enter amount 2.m4a",
+          "audio/Twi/04_Amount_Entry_Verification/Enter amount 3.m4a",
+          "audio/Twi/04_Amount_Entry_Verification/Enter amount 4.m4a"
+        ]
+      }
+    },
+    {
+      "id": "OP27",
+      "category": "04_Amount_Entry_Verification",
+      "state": "INVALID_AMOUNT",
+      "type": "FIXED",
+      "english": "The amount entered is not valid. Please enter the amount again, followed by hash.",
+      "twi": "Sika dodow a wokyerɛwee no nyɛ nokware. Yɛsrɛ wo, kyerɛw sika dodow no bio na mia hash.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/04_Amount_Entry_Verification/Invalid amount.m4a",
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP28",
+      "category": "04_Amount_Entry_Verification",
+      "state": "AMOUNT_PROMPT",
+      "type": "FIXED",
+      "english": "How much would you like to send?",
+      "twi": "Sika dodow sɛn na wopɛ sɛ wode kɔma obi?",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/04_Amount_Entry_Verification/Amount prompt.m4a",
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP29",
+      "category": "04_Amount_Entry_Verification",
+      "state": "AMOUNT_READBACK",
+      "type": "DYNAMIC",
+      "english": "I heard [DYNAMIC AMOUNT] Ghana cedis. Is that amount correct?",
+      "twi": "Mate sɛ ɛyɛ [DYNAMIC AMOUNT] Ghana cedis. Saa sika dodow yi yɛ nokware anaa?",
+      "placeholders": [
+        "DYNAMIC AMOUNT"
+      ],
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/04_Amount_Entry_Verification/Amount read back.m4a",
+        "twi_other_takes": [
+          "audio/Twi/04_Amount_Entry_Verification/Amount readback 2.m4a"
+        ]
+      }
+    },
+    {
+      "id": "OP30",
+      "category": "04_Amount_Entry_Verification",
+      "state": "REPEAT_AMOUNT",
+      "type": "FIXED",
+      "english": "Please say the amount again.",
+      "twi": "Yɛsrɛ wo, ka sika dodow no bio.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/04_Amount_Entry_Verification/Repeat amount.m4a",
+        "twi_other_takes": [
+          "audio/Twi/04_Amount_Entry_Verification/Repeat amount (1).m4a"
+        ]
+      }
+    },
+    {
+      "id": "OP31",
+      "category": "04_Amount_Entry_Verification",
+      "state": "AMOUNT_TOO_HIGH",
+      "type": "FIXED",
+      "english": "The amount is above the allowed limit. Please enter a different amount.",
+      "twi": "Sika dodow no boro nea wɔama ho kwan. Yɛsrɛ wo, kyerɛw sika dodow foforo.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/04_Amount_Entry_Verification/Amount too high.m4a",
+        "twi_other_takes": [
+          "audio/Twi/04_Amount_Entry_Verification/Amount too high 2.m4a",
+          "audio/Twi/04_Amount_Entry_Verification/Amount too high 3.m4a"
+        ]
+      }
+    },
+    {
+      "id": "OP32",
+      "category": "04_Amount_Entry_Verification",
+      "state": "AMOUNT_TOO_LOW",
+      "type": "FIXED",
+      "english": "The amount is below the allowed minimum. Please enter a different amount.",
+      "twi": "Sika dodow no sua sen nea wɔama ho kwan. Yɛsrɛ wo, kyerɛw sika dodow foforo.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/04_Amount_Entry_Verification/Amount too low.m4a",
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP33",
+      "category": "04_Amount_Entry_Verification",
+      "state": "CHANGE_AMOUNT",
+      "type": "FIXED",
+      "english": "Okay. Let's enter a different amount.",
+      "twi": "Yoo. Momma yɛnkyerɛw sika dodow foforo.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/04_Amount_Entry_Verification/Change amount 1.m4a",
+        "twi_other_takes": [
+          "audio/Twi/04_Amount_Entry_Verification/Change amount 2.m4a",
+          "audio/Twi/04_Amount_Entry_Verification/Change amount 3.m4a"
+        ]
+      }
+    },
+    {
+      "id": "OP34",
+      "category": "05_Transaction_Confirmation",
+      "state": "CONFIRMATION_INTRO",
+      "type": "FIXED",
+      "english": "Please listen carefully. You are about to make this transaction.",
+      "twi": "Yɛsrɛ wo, tie yiye. Wobɛyɛ saa transaction yi.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/05_Transaction_Confirmation/Confirmation intro.m4a",
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP35",
+      "category": "05_Transaction_Confirmation",
+      "state": "REVIEW_TRANSACTION",
+      "type": "FIXED",
+      "english": "Please review your transaction before we continue.",
+      "twi": "Yɛsrɛ wo, hwɛ wo transaction no mu ansa na yɛnkɔ so.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/05_Transaction_Confirmation/Review transaction.m4a",
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP36",
+      "category": "05_Transaction_Confirmation",
+      "state": "CONFIRM_CONTINUE",
+      "type": "FIXED",
+      "english": "To confirm and continue, press 1. To cancel, press 2. To exit, press 0.",
+      "twi": "Sɛ wopene so na yɛnkɔ so a, mia 1. Sɛ wopɛ sɛ wogyae a, mia 2. Mia 0 na woapue.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/05_Transaction_Confirmation/Confirm continue 1.m4a",
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP37",
+      "category": "05_Transaction_Confirmation",
+      "state": "CONFIRM_SPEECH",
+      "type": "FIXED",
+      "english": "To confirm this transaction, say yes or press 1.",
+      "twi": "Sɛ wopene saa transaction yi so a, ka yes anaasɛ mia 1.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/05_Transaction_Confirmation/Confirm speech.m4a",
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP38",
+      "category": "05_Transaction_Confirmation",
+      "state": "REJECT_SPEECH",
+      "type": "FIXED",
+      "english": "To change the transaction, say no or press 2.",
+      "twi": "Sɛ wopɛ sɛ wosakra transaction no a, ka no anaasɛ mia 2.",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/05_Transaction_Confirmation/Reject speech.m4a",
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP39",
+      "category": "05_Transaction_Confirmation",
+      "state": "READY_SUBMIT",
+      "type": "FIXED",
+      "english": "Your transaction is ready to be submitted. Would you like to continue?",
+      "twi": "Wo transaction no ayɛ krado sɛ yɛde bɛkɔ. Wopɛ sɛ yɛkɔ so anaa?",
+      "audio": {
+        "english": null,
+        "twi": "audio/Twi/05_Transaction_Confirmation/Ready submit.m4a",
+        "twi_other_takes": [
+          "audio/Twi/05_Transaction_Confirmation/Ready submit 1.m4a",
+          "audio/Twi/05_Transaction_Confirmation/Ready submit 2.m4a"
+        ]
+      }
+    },
+    {
+      "id": "OP40",
+      "category": "06_PIN_Security",
+      "state": "PIN_HANDOFF",
+      "type": "FIXED",
+      "english": "Your transaction is ready for authorization. Please check your phone screen and enter your Mobile Money PIN there. Never say your PIN aloud. Thank you.",
+      "twi": "Wo transaction no ayɛ krado sɛ wode bɛma ho kwan. Yɛsrɛ wo, hwɛ wo fon screen na kyerɛw wo Mobile Money PIN wɔ hɔ. Nka wo PIN no wɔ nne mu da. Yɛda wo ase.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP41",
+      "category": "06_PIN_Security",
+      "state": "SECURITY_WARNING",
+      "type": "FIXED",
+      "english": "For your security, never say your Mobile Money PIN aloud.",
+      "twi": "Wo ahobammɔ nti, nka wo Mobile Money PIN wɔ nne mu da.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP42",
+      "category": "06_PIN_Security",
+      "state": "SECURE_PIN",
+      "type": "FIXED",
+      "english": "Please enter your PIN only on the secure Mobile Money prompt on your phone.",
+      "twi": "Yɛsrɛ wo, kyerɛw wo PIN no wɔ Mobile Money secure prompt a ɛwɔ wo fon so nkutoo.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP43",
+      "category": "06_PIN_Security",
+      "state": "PIN_BLOCK",
+      "type": "FIXED",
+      "english": "I cannot collect or process your Mobile Money PIN through this voice service.",
+      "twi": "Mintumi nnya wo Mobile Money PIN anaa mfa so nyɛ adwuma denam voice service yi so.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP44",
+      "category": "06_PIN_Security",
+      "state": "SENSITIVE_BLOCK",
+      "type": "FIXED",
+      "english": "I cannot process that request because it may expose sensitive information.",
+      "twi": "Mintumi nni saa adesrɛ no ho dwuma efisɛ ebetumi ama nsɛm a ɛyɛ kokoam ada adi.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP45",
+      "category": "07_Transaction_Processing",
+      "state": "SUBMITTED",
+      "type": "FIXED",
+      "english": "Your transaction has been submitted.",
+      "twi": "Wo transaction no de kɔma wɔde akɔ.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP46",
+      "category": "07_Transaction_Processing",
+      "state": "WAITING_CONFIRMATION",
+      "type": "FIXED",
+      "english": "We are waiting for confirmation from the Mobile Money service.",
+      "twi": "Yɛretwɛn confirmation a ɛfiri Mobile Money service no hɔ.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP47",
+      "category": "07_Transaction_Processing",
+      "state": "CHECK_PHONE",
+      "type": "FIXED",
+      "english": "Please check your phone for the authorization request.",
+      "twi": "Yɛsrɛ wo, hwɛ wo fon na hwɛ authorization request no.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP48",
+      "category": "07_Transaction_Processing",
+      "state": "AUTHORIZE_PHONE",
+      "type": "FIXED",
+      "english": "Please authorize the transaction on your phone.",
+      "twi": "Yɛsrɛ wo, ma transaction no ho kwan wɔ wo fon so.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP49",
+      "category": "07_Transaction_Processing",
+      "state": "AUTH_RECEIVED",
+      "type": "FIXED",
+      "english": "Your authorization has been received.",
+      "twi": "Yɛanya wo authorization no.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP50",
+      "category": "07_Transaction_Processing",
+      "state": "CHECK_FINAL_STATUS",
+      "type": "FIXED",
+      "english": "We are checking the final transaction status.",
+      "twi": "Yɛrehwɛ transaction no status a etwa to no.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP51",
+      "category": "07_Transaction_Processing",
+      "state": "PROCESSING",
+      "type": "FIXED",
+      "english": "Your authorization is still being processed. Please wait while we check the transaction status.",
+      "twi": "Wɔda so redi wo authorization no ho dwuma. Yɛsrɛ wo, twɛn bere a yɛrehwɛ transaction no status.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP52",
+      "category": "08_Success_Completion",
+      "state": "SUCCESS",
+      "type": "DYNAMIC",
+      "english": "Your transaction was successful. The transaction reference is [DYNAMIC REFERENCE].",
+      "twi": "Wo transaction no dii nkonim. Transaction reference no ne [DYNAMIC REFERENCE].",
+      "placeholders": [
+        "DYNAMIC REFERENCE"
+      ],
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP53",
+      "category": "08_Success_Completion",
+      "state": "SUCCESS_SENT",
+      "type": "FIXED",
+      "english": "The money has been successfully sent.",
+      "twi": "Wɔde sika no akɔma no yie.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP54",
+      "category": "08_Success_Completion",
+      "state": "KEEP_REFERENCE",
+      "type": "FIXED",
+      "english": "Please keep this reference for your records.",
+      "twi": "Yɛsrɛ wo, sie reference yi ma wo records.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP55",
+      "category": "08_Success_Completion",
+      "state": "SUCCESS_CLOSE",
+      "type": "FIXED",
+      "english": "Your transaction is complete. Thank you for using Ɔkwankyerɛfo Pa.",
+      "twi": "Wo transaction no awie. Yɛda wo ase sɛ wode Ɔkwankyerɛfo Pa dii dwuma.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP56",
+      "category": "08_Success_Completion",
+      "state": "ANYTHING_ELSE",
+      "type": "FIXED",
+      "english": "Would you like help with anything else?",
+      "twi": "Wopɛ sɛ meboa wo wɔ biribi foforo ho anaa?",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP57",
+      "category": "09_Failure_Decline_Timeout",
+      "state": "CUSTOMER_DECLINED",
+      "type": "FIXED",
+      "english": "The transaction was not authorized. No successful transfer has been confirmed.",
+      "twi": "Wɔamma transaction no ho kwan. Yɛnhyɛɛ transfer biara a edi nkonim no den.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP58",
+      "category": "09_Failure_Decline_Timeout",
+      "state": "FAILED",
+      "type": "FIXED",
+      "english": "We could not complete the transaction. No successful transfer has been confirmed. Please try again later.",
+      "twi": "Yɛantumi anwie transaction no. Yɛnhyɛɛ transfer biara a edi nkonim no den. Yɛsrɛ wo, sɔ bio akyiri yi.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP59",
+      "category": "09_Failure_Decline_Timeout",
+      "state": "TIMEOUT",
+      "type": "FIXED",
+      "english": "We did not receive confirmation in time. Please check your Mobile Money messages before trying again.",
+      "twi": "Yɛannya confirmation wɔ bere a wɔde ama no mu. Yɛsrɛ wo, hwɛ wo Mobile Money messages ansa na woasɔ bio.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP60",
+      "category": "09_Failure_Decline_Timeout",
+      "state": "FAILURE_RETRY",
+      "type": "FIXED",
+      "english": "Unfortunately, the transaction could not be completed. Would you like to try again?",
+      "twi": "Awerɛhosɛm ne sɛ, yɛantumi anwie transaction no. Wopɛ sɛ wosɔ bio anaa?",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP61",
+      "category": "09_Failure_Decline_Timeout",
+      "state": "NO_TRANSFER_CONFIRMED",
+      "type": "FIXED",
+      "english": "No money transfer has been confirmed.",
+      "twi": "Yɛnhyɛɛ sika transfer biara den.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP62",
+      "category": "09_Failure_Decline_Timeout",
+      "state": "CHECK_MESSAGES",
+      "type": "FIXED",
+      "english": "Please check your Mobile Money messages before trying again.",
+      "twi": "Yɛsrɛ wo, hwɛ wo Mobile Money messages ansa na woasɔ bio.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP63",
+      "category": "09_Failure_Decline_Timeout",
+      "state": "START_AGAIN",
+      "type": "FIXED",
+      "english": "Would you like to start again?",
+      "twi": "Wopɛ sɛ yɛhyɛ ase bio anaa?",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP64",
+      "category": "10_Voice_Understanding_Verification",
+      "state": "NOT_UNDERSTOOD",
+      "type": "FIXED",
+      "english": "I did not understand that. Please say it again.",
+      "twi": "Mante aseɛ. Yɛsrɛ wo, ka bio.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP65",
+      "category": "10_Voice_Understanding_Verification",
+      "state": "DID_NOT_GET",
+      "type": "FIXED",
+      "english": "I did not get that. Please say it again.",
+      "twi": "Mante nea wokae no. Yɛsrɛ wo, ka bio.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP66",
+      "category": "10_Voice_Understanding_Verification",
+      "state": "NO_RESPONSE",
+      "type": "FIXED",
+      "english": "I did not receive a response. Please respond.",
+      "twi": "Mannya wo mmuaeɛ. Yɛsrɛ wo, bua.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP67",
+      "category": "10_Voice_Understanding_Verification",
+      "state": "PLEASE_RESPOND",
+      "type": "FIXED",
+      "english": "I heard no response from you. Please give a response.",
+      "twi": "Mante mmuaeɛ biara. Yɛsrɛ wo, bua.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP68",
+      "category": "10_Voice_Understanding_Verification",
+      "state": "INPUT_NOT_RECOGNIZED",
+      "type": "FIXED",
+      "english": "I could not recognize that response. Please try again.",
+      "twi": "Mantumi anhu saa mmuaeɛ no. Yɛsrɛ wo, sɔ bio.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP69",
+      "category": "10_Voice_Understanding_Verification",
+      "state": "REPEAT",
+      "type": "FIXED",
+      "english": "I will repeat that.",
+      "twi": "Mɛka no bio.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP70",
+      "category": "10_Voice_Understanding_Verification",
+      "state": "CONFIRM_UNDERSTANDING",
+      "type": "DYNAMIC",
+      "english": "I heard you say [DYNAMIC RESPONSE]. Is that correct?",
+      "twi": "Mate sɛ wokae [DYNAMIC RESPONSE]. Ɛyɛ nokware anaa?",
+      "placeholders": [
+        "DYNAMIC RESPONSE"
+      ],
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP71",
+      "category": "10_Voice_Understanding_Verification",
+      "state": "CORRECT_PROMPT",
+      "type": "FIXED",
+      "english": "Did I understand you correctly?",
+      "twi": "Meteɛ wo aseɛ yiye anaa?",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP72",
+      "category": "10_Voice_Understanding_Verification",
+      "state": "YES_NO",
+      "type": "FIXED",
+      "english": "If that is correct, say yes or press 1. If it is incorrect, say no or press 2.",
+      "twi": "Sɛ ɛyɛ nokware a, ka yes anaasɛ mia 1. Sɛ ɛnyɛ nokware a, ka no anaasɛ mia 2.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP73",
+      "category": "11_Navigation_Recovery",
+      "state": "BACK",
+      "type": "FIXED",
+      "english": "Okay. Going back to the previous step.",
+      "twi": "Yoo. Yɛresan akɔ ɔkwan a yɛfaa so no akyi.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP74",
+      "category": "11_Navigation_Recovery",
+      "state": "MAIN_MENU",
+      "type": "FIXED",
+      "english": "Returning to the main menu.",
+      "twi": "Yɛresan akɔ main menu no mu.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP75",
+      "category": "11_Navigation_Recovery",
+      "state": "RESTART",
+      "type": "FIXED",
+      "english": "Okay. We will start again.",
+      "twi": "Yoo. Yɛbɛhyɛ ase bio.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP76",
+      "category": "11_Navigation_Recovery",
+      "state": "CANCEL",
+      "type": "FIXED",
+      "english": "The transaction has been cancelled. No successful transfer has been confirmed. Goodbye.",
+      "twi": "Wɔagyae transaction no. Yɛnhyɛɛ transfer biara a edi nkonim no den. Yɛda wo ase.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP77",
+      "category": "11_Navigation_Recovery",
+      "state": "EXIT",
+      "type": "FIXED",
+      "english": "Thank you for using Ɔkwankyerɛfo Pa. Goodbye.",
+      "twi": "Yɛda wo ase sɛ wode Ɔkwankyerɛfo Pa dii dwuma. Yɛma wo nanteɛ yiye.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP78",
+      "category": "11_Navigation_Recovery",
+      "state": "SESSION_END",
+      "type": "FIXED",
+      "english": "We have reached the end of this session.",
+      "twi": "Yɛadu session yi awiei.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP79",
+      "category": "11_Navigation_Recovery",
+      "state": "CONTINUE",
+      "type": "FIXED",
+      "english": "Would you like to continue?",
+      "twi": "Wopɛ sɛ yɛkɔ so anaa?",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP80",
+      "category": "11_Navigation_Recovery",
+      "state": "SESSION_TIMEOUT",
+      "type": "FIXED",
+      "english": "Your session will end if we do not receive a response.",
+      "twi": "Wo session no bɛba awiei sɛ yɛannya wo mmuaeɛ.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP81",
+      "category": "12_Accessibility_Help",
+      "state": "REPEAT_OPTIONS",
+      "type": "FIXED",
+      "english": "I will repeat the options.",
+      "twi": "Mɛka options no bio.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP82",
+      "category": "12_Accessibility_Help",
+      "state": "KEYPAD_OPTION",
+      "type": "FIXED",
+      "english": "You can also use your telephone keypad.",
+      "twi": "Wubetumi nso de wo fon keypad adi dwuma.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP83",
+      "category": "12_Accessibility_Help",
+      "state": "VOICE_OR_KEYPAD",
+      "type": "FIXED",
+      "english": "You can say your response or use the keypad.",
+      "twi": "Wubetumi aka wo mmuaeɛ anaa wode keypad adi dwuma.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP84",
+      "category": "12_Accessibility_Help",
+      "state": "TAKE_YOUR_TIME",
+      "type": "FIXED",
+      "english": "Take your time. There is no need to rush.",
+      "twi": "Fa wo bere. Ɛho nhia sɛ woyɛ no ntɛm.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP85",
+      "category": "12_Accessibility_Help",
+      "state": "YES_NO_KEYPAD",
+      "type": "FIXED",
+      "english": "You can press 1 for yes or 2 for no.",
+      "twi": "Wubetumi mia 1 ama yes anaasɛ mia 2 ama no.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP86",
+      "category": "12_Accessibility_Help",
+      "state": "HELP",
+      "type": "FIXED",
+      "english": "I can help you send money using your voice or telephone keypad.",
+      "twi": "Metumi aboa wo de wo nne anaa wo fon keypad akɔma obi sika.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP87",
+      "category": "12_Accessibility_Help",
+      "state": "HELP_COMMANDS",
+      "type": "FIXED",
+      "english": "At any time, you can say help, repeat, back, or cancel.",
+      "twi": "Bere biara, wubetumi aka help, repeat, back, anaa cancel.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP88",
+      "category": "13_Balance_Unsupported_Services",
+      "state": "BALANCE_UNAVAILABLE",
+      "type": "FIXED",
+      "english": "I cannot confirm your Mobile Money balance through this service. Please use the official MTN Mobile Money channel to check your balance.",
+      "twi": "Mintumi nhyɛ wo Mobile Money balance no den denam service yi so. Yɛsrɛ wo, fa MTN Mobile Money channel a ɛyɛ official no hwɛ wo balance.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP89",
+      "category": "13_Balance_Unsupported_Services",
+      "state": "UNSUPPORTED_SERVICE",
+      "type": "FIXED",
+      "english": "This service is not available yet. Please choose another available service.",
+      "twi": "Saa service yi nnyaa ho kwan seesei. Yɛsrɛ wo, paw service foforo a ɛwɔ hɔ.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP90",
+      "category": "13_Balance_Unsupported_Services",
+      "state": "SYSTEM_ERROR",
+      "type": "FIXED",
+      "english": "Sorry. We are unable to complete this request right now. Please try again later.",
+      "twi": "Yɛsrɛ wo, kyɛw. Yɛantumi anwie saa adesrɛ yi seesei. Yɛsrɛ wo, sɔ bio akyiri yi.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP91",
+      "category": "14_Post_Transaction_Conversation",
+      "state": "POST_SUCCESS_HELP",
+      "type": "FIXED",
+      "english": "Your transaction is complete. Can I help you with anything else, such as sending money again?",
+      "twi": "Wo transaction no awie. Metumi aboa wo wɔ biribi foforo ho, te sɛ sika a wode bɛkɔma obi bio?",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP92",
+      "category": "14_Post_Transaction_Conversation",
+      "state": "ANOTHER_TRANSACTION",
+      "type": "FIXED",
+      "english": "Would you like to make another transaction?",
+      "twi": "Wopɛ sɛ yɛyɛ transaction foforo anaa?",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP93",
+      "category": "14_Post_Transaction_Conversation",
+      "state": "ANOTHER_RECIPIENT",
+      "type": "FIXED",
+      "english": "Would you like to send money to another recipient?",
+      "twi": "Wopɛ sɛ wode sika kɔma recipient foforo anaa?",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    },
+    {
+      "id": "OP94",
+      "category": "14_Post_Transaction_Conversation",
+      "state": "FINISH",
+      "type": "FIXED",
+      "english": "Okay. Your request is complete. Thank you for using Ɔkwankyerɛfo Pa.",
+      "twi": "Yoo. Wo adesrɛ no awie. Yɛda wo ase sɛ wode Ɔkwankyerɛfo Pa dii dwuma.",
+      "audio": {
+        "english": null,
+        "twi": null,
+        "twi_other_takes": []
+      }
+    }
+  ],
+  "note": "All recordings are Twi. audio.twi is the primary take (first listed); audio.twi_other_takes are alternates. audio.english is null until English is recorded. Paths use the ORIGINAL file names. 'id' is only a reference to the master sheet."
+}
