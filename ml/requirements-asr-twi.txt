@@ -1,0 +1,4 @@
+# Optional dependencies for the local Akan/Twi Wav2Vec2 model.
+# Install separately from requirements-asr.txt because PyTorch is large.
+torch>=2.5,<3
+transformers>=4.46,<5

@@ -5,7 +5,6 @@ import {
   Mic,
   MicOff,
   Volume2,
-  VolumeX,
   Radio,
   RotateCcw,
   Download,
@@ -69,16 +68,17 @@ export const PhoneSimulatorPage: React.FC = () => {
     isMicActive,
     isAiSpeaking,
     isLoading,
-    enableTts,
-    setEnableTts,
+    isTranscriptProvisional,
     interimTranscript,
     transcriptionStatus,
+    aiProcessingPhase,
     aiProcessingDetail,
     audioLevel,
     transcript,
     aiResponse,
     intent,
     startCall,
+    enableConversationalVoice,
     endCall,
     handleKeypadDigit,
     submitKeypadBuffer,
@@ -406,7 +406,7 @@ export const PhoneSimulatorPage: React.FC = () => {
 
                     <div className="pt-1">
                       <button
-                        onClick={() => startCall()}
+                        onClick={() => enableConversationalVoice()}
                         className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-950/50 transition flex items-center justify-center gap-2"
                       >
                         <Phone className="w-4 h-4" />
@@ -457,7 +457,7 @@ export const PhoneSimulatorPage: React.FC = () => {
                   </button>
                 ) : (
                   <button
-                    onClick={() => startCall()}
+                    onClick={() => enableConversationalVoice()}
                     className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/50 transition"
                   >
                     <Phone className="w-4 h-4" />
@@ -465,18 +465,12 @@ export const PhoneSimulatorPage: React.FC = () => {
                   </button>
                 )}
 
-                {/* Speaker / TTS Output Toggle */}
-                <button
-                  onClick={() => setEnableTts(!enableTts)}
-                  className={`p-3 rounded-2xl transition border ${
-                    enableTts
-                      ? "bg-purple-600/20 text-purple-400 border-purple-500/40 shadow-sm"
-                      : "bg-slate-800/80 text-slate-400 border-slate-700 hover:text-white"
-                  }`}
-                  title={enableTts ? "Mute Voice Prompt Playback" : "Enable Voice Prompt Playback"}
+                <div
+                  className="px-3 py-2 rounded-2xl border border-slate-700 bg-slate-800/80 text-slate-400 text-[10px] font-semibold uppercase tracking-wide"
+                  aria-label="Assistant audio output disabled"
                 >
-                  {enableTts ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
-                </button>
+                  Assistant audio off
+                </div>
               </div>
             </div>
           </div>
@@ -676,13 +670,53 @@ export const PhoneSimulatorPage: React.FC = () => {
             {/* Tab Content */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {activeTab === "transcript" ? (
-                transcript.length === 0 ? (
+                <>
+                  {(isMicActive || interimTranscript || transcriptionStatus === "ERROR") && (
+                    <div className={`rounded-xl border p-3 font-mono text-xs ${
+                      transcriptionStatus === "ERROR"
+                        ? "border-rose-800/70 bg-rose-950/40 text-rose-200"
+                        : "border-slate-700 bg-slate-950/80 text-slate-200"
+                    }`}>
+                      <div className="mb-1 flex items-center justify-between gap-3">
+                        <span className="font-semibold">
+                          {transcriptionStatus === "ERROR"
+                            ? "Recognition error"
+                            : transcriptionStatus === "PROCESSING" && aiProcessingPhase === "SPEECH_IN"
+                            ? "Recognizing"
+                            : interimTranscript && !isTranscriptProvisional
+                            ? "Final transcript"
+                            : isMicActive
+                            ? "Listening"
+                            : "Transcript"}
+                        </span>
+                        {isTranscriptProvisional && interimTranscript && (
+                          <span className="rounded bg-amber-900/60 px-1.5 py-0.5 text-[10px] text-amber-200">
+                            PROVISIONAL
+                          </span>
+                        )}
+                      </div>
+                      {interimTranscript ? (
+                        <p className={isTranscriptProvisional ? "italic text-amber-100" : "text-emerald-100"}>
+                          {interimTranscript}
+                        </p>
+                      ) : (
+                        <p className="text-slate-400">
+                          {transcriptionStatus === "ERROR"
+                            ? aiProcessingDetail
+                            : transcriptionStatus === "PROCESSING" && aiProcessingPhase === "SPEECH_IN"
+                            ? "Sending captured audio for final transcription..."
+                            : "Speak now or use the keypad."}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {transcript.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 py-12">
                     <Phone className="w-8 h-8 mb-2 opacity-30" />
                     <p className="text-sm font-medium">No conversation turns recorded yet.</p>
                     <p className="text-xs text-slate-600 mt-1">Start a call or speak to begin live transcription.</p>
                   </div>
-                ) : (
+                  ) : (
                   transcript.map((item) => (
                     <div
                       key={item.id}
@@ -722,7 +756,8 @@ export const PhoneSimulatorPage: React.FC = () => {
                       )}
                     </div>
                   ))
-                )
+                  )}
+                </>
               ) : (
                 /* Africa's Talking HTTP & VoiceXML Logs */
                 atHttpLogs.length === 0 ? (

@@ -155,10 +155,11 @@ export const aiSystem = {
     };
   },
 
-  transcribe: async (params: { audioBuffer: string | Buffer; mimeType?: string; expectedLanguage?: string; step?: string }) => {
+  transcribe: async (params: { audioBuffer: string | Buffer; mimeType?: string; expectedLanguage?: string; step?: string; skipEchoFiltering?: boolean }) => {
     const res = await asrOrchestrator.transcribe(params.audioBuffer, params.mimeType, {
       languageHint: params.expectedLanguage,
       step: params.step,
+      skipEchoFiltering: params.skipEchoFiltering,
     });
     return {
       text: res.text,

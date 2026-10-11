@@ -57,6 +57,19 @@ export function isSpokenPinPattern(text: string, step?: string): boolean {
     return true;
   }
 
+  // Recognized network/menu announcements are not PIN disclosures.
+  // Keep this after the explicit PIN/secret checks above.
+  const pressOptionCount = (lower.match(
+    /\bpress\s+(?:[0-9]|zero|one|two|three|four|five|six|seven|eight|nine)\b/g
+  ) || []).length;
+
+  const hasStrongMenuMarker =
+    /\b(?:network|hear this again|to exit|for mtn|mtn|telecel|airtel|tigo)\b/i.test(lower);
+
+  if (pressOptionCount >= 2 && hasStrongMenuMarker) {
+    return false;
+  }
+
   const digitsOnly = text.trim().replace(/[^0-9]/g, "");
   const normalizedStep = (step || "").toLowerCase();
 

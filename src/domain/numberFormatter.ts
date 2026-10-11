@@ -352,6 +352,22 @@ export function formatSpokenNumbersAsDigits(text: string): string {
   return result.replace(/\s+/g, " ").trim();
 }
 
+export function resolveSpokenLanguageChoice(text: string): "en" | "tw" | null {
+  const normalized = formatSpokenNumbersAsDigits(text)
+    .toLowerCase()
+    .replace(/[.!?,]/g, "")
+    .trim();
+  const choosesEnglish = /\b(?:english|borofo|borɔfo|borɔfoɔ)\b/.test(normalized);
+  const choosesTwi = /\b(?:twi|akan|mmienu|mienu|abien)\b/.test(normalized);
+  if (choosesEnglish && choosesTwi) return null;
+
+  const selectsEnglish = /^(?:1|1 please)$/.test(normalized) || /\b(?:press|choose|select|option|number)\s+1\b/.test(normalized);
+  const selectsTwi = /^(?:2|2 please)$/.test(normalized) || /\b(?:press|choose|select|option|number)\s+2\b/.test(normalized);
+  if ((choosesEnglish || selectsEnglish) && !(choosesTwi || selectsTwi)) return "en";
+  if ((choosesTwi || selectsTwi) && !(choosesEnglish || selectsEnglish)) return "tw";
+  return null;
+}
+
 /**
  * Decodes and normalizes DTMF keypad input for amount entry.
  * Handles * (clear / correction / decimal) and # (termination / submit).
@@ -370,4 +386,3 @@ export function decodeDtmfAmount(dtmf: string): number | null {
   const parsed = parseFloat(digitsOnly);
   return isNaN(parsed) || parsed <= 0 ? null : parsed;
 }
-

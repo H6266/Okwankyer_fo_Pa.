@@ -695,6 +695,7 @@ aiRouter.post("/api/ai/transcribe", publicApiRateLimiter, async (req: Request, r
       mimeType: mimeType || "audio/webm",
       expectedLanguage: language || "bilingual",
       step: hintText || step || "",
+      skipEchoFiltering: true,
     });
     res.json({ success: true, result });
   } catch (err: any) {
