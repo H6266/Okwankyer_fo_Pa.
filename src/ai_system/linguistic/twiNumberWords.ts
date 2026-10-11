@@ -190,3 +190,31 @@ export function formatAmountAsSpokenWords(
   const words = convertNumberToEnglishWords(rounded);
   return `${words} Ghana cedis`;
 }
+
+export function parseTwiSpokenNumber(text: string): number | null {
+  if (!text) return null;
+  const clean = text.toLowerCase().trim();
+  const directDigits = clean.match(/\b(\d+(?:\.\d+)?)\b/);
+  if (directDigits) {
+    const val = parseFloat(directDigits[1]);
+    if (!isNaN(val)) return val;
+  }
+  for (const v of NUMBER_VECTORS) {
+    if (clean.includes(v.twi.toLowerCase())) {
+      return v.n;
+    }
+  }
+  const map: Record<string, number> = {
+    baako: 1, baakõ: 1, mmienu: 2, mmiɛnsa: 3, nan: 4, ɛnan: 4, num: 5, enum: 5,
+    nsia: 6, nson: 7, nwɔtwe: 8, nkron: 9, du: 10, dubaako: 11, dummienu: 12,
+    dummiɛnsa: 13, dunan: 14, dunum: 15, dunsia: 16, dunson: 17, dunwɔtwe: 18,
+    dunkron: 19, aduonu: 20, aduasa: 30, aduanan: 40, aduonum: 50, aduonsia: 60,
+    aduonson: 70, aduonwɔtwe: 80, aduonkron: 90, ɔha: 100, apem: 1000,
+  };
+  for (const [word, val] of Object.entries(map)) {
+    if (new RegExp(`\\b${word}\\b`, "i").test(clean)) {
+      return val;
+    }
+  }
+  return null;
+}

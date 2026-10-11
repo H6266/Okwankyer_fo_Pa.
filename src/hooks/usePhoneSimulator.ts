@@ -721,19 +721,33 @@ export function usePhoneSimulator() {
           },
         ]);
 
-        const redirRes = await api.dispatchAtVoiceWebhook(nextUrl, {
-          sessionId: sessionKey,
-          callerNumber: atCallerPhone,
-          isActive: "1",
-        });
+        try {
+          const redirRes = await api.dispatchAtVoiceWebhook(nextUrl, {
+            sessionId: sessionKey,
+            callerNumber: atCallerPhone,
+            isActive: "1",
+          });
 
-        return processAtVoiceResponse(
-          redirRes,
-          sessionKey,
-          nextUrl,
-          { sessionId: sessionKey },
-          redirectDepth + 1
-        );
+          return processAtVoiceResponse(
+            redirRes,
+            sessionKey,
+            nextUrl,
+            { sessionId: sessionKey },
+            redirectDepth + 1
+          );
+        } catch (redirErr: any) {
+          console.error("[AT Telephony] Redirect dispatch error:", redirErr);
+          setTranscript((prev) => [
+            ...prev,
+            {
+              id: `sys_redir_err_${Date.now()}`,
+              role: "system",
+              text: `⚠️ Telephony redirect notice: ${redirErr.message || "Failed to follow redirect route"}`,
+              timestamp: Date.now(),
+            },
+          ]);
+          return;
+        }
       }
 
       // 4. Play audio prompt (<Play url="...">)

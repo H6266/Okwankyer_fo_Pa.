@@ -631,15 +631,14 @@ export class VoiceInteractionController {
 
       // Call payment saga with idempotency dispatch key
       const sagaDraft = {
+        senderPhone: callerPhone || "0240000000",
+        recipientPhone,
         amount,
-        recipient: {
-          phone: recipientPhone,
-          name: recipientName,
-        },
+        network: (session.draft.network as any) || "MTN",
       };
 
-      const sagaResult = await paymentSaga.createDraft(session.sessionId, sagaDraft);
-      session.draft.transactionId = sagaResult.id;
+      const sagaResult = await paymentSaga.createDraft(sagaDraft);
+      session.draft.transactionId = sagaResult.sagaId;
       session.draft.financialReference = sagaResult.idempotencyKey;
 
       // Record successful transaction into semantic embeddings memory
@@ -657,7 +656,7 @@ export class VoiceInteractionController {
       session.diagnostics.state = "COMPLETED";
 
       const completionText = isTwi
-        ? `Wo sika cedis ${amount} a womanee ${recipientName} no akɔ pɛpɛɛpɛ. Wo transaction ID ne ${sagaResult.id.slice(-6)}. Meda wo ase.`
+        ? `Wo sika cedis ${amount} a womanee ${recipientName} no akɔ pɛpɛɛpɛ. Wo transaction ID ne ${sagaResult.sagaId.slice(-6)}. Meda wo ase.`
         : `Your transaction of ${amount} Ghana cedis to ${recipientName} was completed successfully. Thank you for using Ɔkwankyerɛfo Pa.`;
 
       const audio = await openaiTts.synthesize({ text: completionText, language: session.language });

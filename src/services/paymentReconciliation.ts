@@ -65,7 +65,9 @@ export class PaymentReconciliationService {
           try {
             // Check provider status if reference available
             if (session.referenceId) {
-              const statusCheck = await momoProvider.getTransactionStatus(session.referenceId);
+              const statusCheck = (momoProvider as any).getTransactionStatus
+                ? await (momoProvider as any).getTransactionStatus(session.referenceId)
+                : momoProvider.getTransaction(session.referenceId);
               if (statusCheck && (statusCheck as any).status === "SUCCESSFUL") {
                 resolvedState = "COMPLETED";
                 session.state = "COMPLETED";
@@ -113,11 +115,12 @@ export class PaymentReconciliationService {
 
     // 2. Reconcile Sagas in PENDING
     for (const saga of sagas) {
-      if (saga.status === "PENDING") {
+      if ((saga as any).status === "PENDING" || saga.state === "WAITING_FOR_CUSTOMER_AUTHORIZATION" || saga.state === "DISBURSEMENT_INITIATED") {
         const ageMs = now - (saga.updatedAt || saga.createdAt || now);
         if (ageMs >= pendingTimeoutMs) {
           const ageMinutes = Math.round(ageMs / 60000);
-          saga.status = "FAILED";
+          saga.state = "DISBURSEMENT_FAILED";
+          (saga as any).status = "FAILED";
           saga.updatedAt = now;
           durableTransactionStore.saveSaga(saga);
 

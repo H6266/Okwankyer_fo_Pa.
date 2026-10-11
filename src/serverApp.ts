@@ -47,8 +47,11 @@ app.use(
 // CORS Allowlist
 app.use((req: Request, res: Response, next) => {
   const origin = req.headers.origin as string;
-  if (config.corsOrigins.includes("*") || (origin && config.corsOrigins.includes(origin))) {
-    res.header("Access-Control-Allow-Origin", origin || "*");
+  if (origin) {
+    res.header("Access-Control-Allow-Origin", origin);
+    res.header("Access-Control-Allow-Credentials", "true");
+  } else {
+    res.header("Access-Control-Allow-Origin", "*");
   }
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD");
   res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, x-reference-id, x-reference_id");

@@ -91,27 +91,42 @@ function xmlResponse(res: Response, content: string, decision?: IvrDecision): vo
     res.set("X-AI-Reply-Key", decision.replyKey);
     res.set("Access-Control-Expose-Headers", "X-AI-Decision-Type, X-AI-Decision-Reason, X-AI-Reply-Text, X-AI-Reply-Key, x-telephony-guard-reason");
   }
-  const req = res.req as Request | undefined;
-  if (req && req.baseUrl && req.baseUrl.startsWith("/api/simulator")) {
-    const base = getBaseUrl(req);
-    xml = xml.replace(/(callbackUrl=["'])(https?:\/\/[^"'\s]+|\/[^"'\s]+)/gi, (match, attr, url) => {
-      if (url.includes("/api/simulator")) return match;
-      if (base && url.startsWith(base)) {
-        return `${attr}${url.replace(base, `${base}${req.baseUrl}`)}`;
+  const req = (res.req || (res as any).socket?._httpMessage?.req) as Request | undefined;
+  const isSimulator = Boolean(
+    res.locals?.isSimulator ||
+    (req && (req.baseUrl?.startsWith("/api/simulator") || req.originalUrl?.includes("/api/simulator")))
+  );
+  if (isSimulator) {
+    const base = req ? getBaseUrl(req) : "";
+    const simulatorPrefix = "/api/simulator";
+    xml = xml.replace(/(callbackUrl=["'])(https?:\/\/[^"'\s]+|\/[^"'\s]+)/gi, (match, attr, rawUrl) => {
+      let clean = rawUrl;
+      if (base && clean.startsWith(base)) {
+        clean = clean.slice(base.length);
+      } else if (clean.startsWith("http://") || clean.startsWith("https://")) {
+        try {
+          const u = new URL(clean);
+          clean = u.pathname + u.search;
+        } catch {}
       }
-      if (url.startsWith("/")) {
-        return `${attr}${req.baseUrl}${url}`;
+      if (!clean.startsWith(simulatorPrefix)) {
+        clean = `${simulatorPrefix}${clean.startsWith("/") ? "" : "/"}${clean}`;
       }
-      return match;
-    }).replace(/(<Redirect[^>]*>)(https?:\/\/[^<]+|\/[^<]+)(<\/Redirect>)/gi, (match, open, url, close) => {
-      if (url.includes("/api/simulator")) return match;
-      if (base && url.startsWith(base)) {
-        return `${open}${url.replace(base, `${base}${req.baseUrl}`)}${close}`;
+      return `${attr}${clean}`;
+    }).replace(/(<Redirect[^>]*>)(https?:\/\/[^<]+|\/[^<]+)(<\/Redirect>)/gi, (match, open, rawUrl, close) => {
+      let clean = rawUrl.trim();
+      if (base && clean.startsWith(base)) {
+        clean = clean.slice(base.length);
+      } else if (clean.startsWith("http://") || clean.startsWith("https://")) {
+        try {
+          const u = new URL(clean);
+          clean = u.pathname + u.search;
+        } catch {}
       }
-      if (url.startsWith("/")) {
-        return `${open}${req.baseUrl}${url}${close}`;
+      if (!clean.startsWith(simulatorPrefix)) {
+        clean = `${simulatorPrefix}${clean.startsWith("/") ? "" : "/"}${clean}`;
       }
-      return match;
+      return `${open}${clean}${close}`;
     });
 
     // Convert absolute audio URLs to relative /audio/... paths so browser can play them on any domain
@@ -1258,7 +1273,8 @@ simulatorRouter.use((req: Request, res: Response, next: NextFunction) => {
   }
   next();
 });
-simulatorRouter.use((req: Request, _res: Response, next: NextFunction) => {
+simulatorRouter.use((req: Request, res: Response, next: NextFunction) => {
+  res.locals.isSimulator = true;
   if (!req.body || typeof req.body !== "object") {
     req.body = {};
   }

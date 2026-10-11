@@ -294,12 +294,24 @@ export const api = {
       headers["Authorization"] = `Bearer ${token}`;
     }
 
-    const res = await fetch(effectiveUrl, {
-      method: "POST",
-      headers,
-      credentials: "include",
-      body: formParams.toString(),
-    });
+    let res: Response;
+    try {
+      res = await fetch(effectiveUrl, {
+        method: "POST",
+        headers,
+        credentials: "same-origin",
+        body: formParams.toString(),
+      });
+    } catch (fetchErr: any) {
+      // 1 automatic retry on transient socket reset or container reload
+      await new Promise((r) => setTimeout(r, 450));
+      res = await fetch(effectiveUrl, {
+        method: "POST",
+        headers,
+        credentials: "same-origin",
+        body: formParams.toString(),
+      });
+    }
 
     const xmlText = await res.text();
     return {
@@ -379,7 +391,7 @@ export const api = {
     const res = await fetch("/api/simulator/voice-menu", {
       method: "POST",
       headers,
-      credentials: "include",
+      credentials: "same-origin",
       body: params.toString(),
     });
     const xml = await res.text();
@@ -774,7 +786,7 @@ export const api = {
 
   async getAdminSession(): Promise<{ authenticated: boolean; isDev?: boolean; hint?: string }> {
     const res = await fetch("/api/admin/session", {
-      credentials: "include",
+      credentials: "same-origin",
       headers: getAdminAuthHeaders(),
     });
     return res.json();
@@ -783,7 +795,7 @@ export const api = {
   async adminLogin(token: string): Promise<any> {
     const res = await fetch("/api/admin/login", {
       method: "POST",
-      credentials: "include",
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
       },
@@ -818,7 +830,7 @@ export const api = {
     }
     const res = await fetch("/api/admin/logout", {
       method: "POST",
-      credentials: "include",
+      credentials: "same-origin",
     });
 
     return res.json();

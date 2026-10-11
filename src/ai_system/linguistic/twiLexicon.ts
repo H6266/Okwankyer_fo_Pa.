@@ -48,6 +48,9 @@ export const TWI_INTENT_KEYWORDS = {
   ],
 };
 
+export const TWI_AFFIRMATIONS = TWI_INTENT_KEYWORDS.CONFIRM;
+export const TWI_REJECTIONS = TWI_INTENT_KEYWORDS.DENY;
+
 export const TWI_CONNECTIVES = {
   to: ["kɔma", "ma", "kɔ"],
   from: ["firi"],

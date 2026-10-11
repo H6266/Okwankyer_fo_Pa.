@@ -122,7 +122,7 @@ export class OpenAiTtsService {
     // 4. Reliable Local Ghanaian Fallback (google-tts-api / PCM wav)
     const fallback = await localGhanaianTtsProvider.synthesize({
       text: cleanText || "Ɔkwankyerɛfo Pa",
-      language: isTwi ? "twi" : "en",
+      language: isTwi ? "tw" : "en",
     });
 
     return {

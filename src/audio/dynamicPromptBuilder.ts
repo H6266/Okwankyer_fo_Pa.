@@ -28,6 +28,7 @@ export interface DynamicReceiptOptions {
   recipientName: string | null;
   referenceId: string;
   timestamp: Date;
+  status?: "SUCCESSFUL" | "PENDING" | "FAILED";
 }
 
 /**
@@ -90,7 +91,7 @@ export function buildReceiptPrompt(options: DynamicReceiptOptions): {
   spokenText: string;
   voiceXml: string;
 } {
-  const { language, amount, recipientPhone, recipientName, referenceId, timestamp } = options;
+  const { language, amount, recipientPhone, recipientName, referenceId, timestamp, status = "SUCCESSFUL" } = options;
   const phoneValidation = validateGhanaPhoneNumber(recipientPhone);
   const last4Spaced = phoneValidation.last4Spaced || recipientPhone.slice(-4).split("").join(" ");
   const displayName = recipientName || `subscriber ending in ${last4Spaced}`;
@@ -111,16 +112,37 @@ export function buildReceiptPrompt(options: DynamicReceiptOptions): {
 
   let spokenText = "";
 
-  if (language === "twi") {
-    spokenText = `Mo! Woatumi amane ${amountFormatted} akɔma ${displayName} wɔ da ${dateStr} berɛ ${timeStr}. Wo reference nɔmba ne ${spacedRef}. Yɛdaase sɛ woayɛ use wɔ Ɔkwankyerɛfo Pa. Nante yiye.`;
+  if (status === "FAILED") {
+    if (language === "twi") {
+      spokenText = `Mpaebo! Wo transfer a ɛyɛ ${amountFormatted} akɔma ${displayName} no a-fail. Wo reference nɔmba ne ${spacedRef}.`;
+    } else {
+      spokenText = `Your transfer of ${amountFormatted} to ${displayName} has failed. Reference number is ${spacedRef}. Please try again later.`;
+    }
+  } else if (status === "PENDING") {
+    if (language === "twi") {
+      spokenText = `Wo transfer a ɛyɛ ${amountFormatted} akɔma ${displayName} no da so retwɛn authorization. Wo reference nɔmba ne ${spacedRef}.`;
+    } else {
+      spokenText = `Your transfer of ${amountFormatted} to ${displayName} is pending authorization. Please authorize the prompt on your handset. Reference number is ${spacedRef}.`;
+    }
   } else {
-    spokenText = `Congratulations! You have successfully sent ${amountFormatted} to ${displayName} on ${dateStr} at ${timeStr}. Your reference number is ${spacedRef}. Your transaction details have been dispatched. Thank you for using Ɔkwankyerɛfo Pa. Goodbye.`;
+    if (language === "twi") {
+      spokenText = `Mo! Woatumi amane ${amountFormatted} akɔma ${displayName} wɔ da ${dateStr} berɛ ${timeStr}. Wo reference nɔmba ne ${spacedRef}. Yɛdaase sɛ woayɛ use wɔ Ɔkwankyerɛfo Pa. Nante yiye.`;
+    } else {
+      spokenText = `Congratulations! You have successfully sent ${amountFormatted} to ${displayName} on ${dateStr} at ${timeStr}. Your reference number is ${spacedRef}. Your transaction details have been dispatched. Thank you for using Ɔkwankyerɛfo Pa. Goodbye.`;
+    }
   }
 
   const voiceXml = `    <Say voice="female">${escapeXml(spokenText)}</Say>
     <Reject/>`;
 
   return { spokenText, voiceXml };
+}
+
+export function buildPendingAuthorizationPrompt(options: DynamicReceiptOptions): {
+  spokenText: string;
+  voiceXml: string;
+} {
+  return buildReceiptPrompt({ ...options, status: "PENDING" });
 }
 
 function escapeXml(unsafe: string): string {
