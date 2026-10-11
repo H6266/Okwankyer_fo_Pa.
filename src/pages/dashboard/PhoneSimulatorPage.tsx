@@ -158,6 +158,14 @@ export const PhoneSimulatorPage: React.FC = () => {
 
   // ── Terminal & Chat Timeline State ───────────────────────────────────
   const [activeTab, setActiveTab] = useState<"chat" | "terminal" | "asr_diag">("chat");
+  const [splitView, setSplitView] = useState<boolean>(true);
+  const [voiceSyncStatus, setVoiceSyncStatus] = useState<{
+    text: string;
+    action: string;
+    dtmf?: string;
+    timestamp: number;
+  } | null>(null);
+  const [activeKeypadPulse, setActiveKeypadPulse] = useState<string | null>(null);
   const [chatTurns, setChatTurns] = useState<ChatTurnItem[]>([
     {
       id: "init_prompt",
@@ -217,6 +225,21 @@ export const PhoneSimulatorPage: React.FC = () => {
   useEffect(() => { currentPromptRef.current = currentPrompt; }, [currentPrompt]);
   useEffect(() => { isMicMutedRef.current = isMicMuted; }, [isMicMuted]);
   useEffect(() => { zeroPinOverlayRef.current = zeroPinOverlay; }, [zeroPinOverlay]);
+
+  // Pre-unlock audio on any initial user touch or interaction so audio plays automatically
+  useEffect(() => {
+    const unlock = () => {
+      audioPlaybackController.unlockAudio();
+    };
+    window.addEventListener("pointerdown", unlock, { passive: true });
+    window.addEventListener("click", unlock, { passive: true });
+    window.addEventListener("keydown", unlock, { passive: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("click", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
 
   // Helper to resolve callback URL if none set
   const getFallbackCallbackUrl = useCallback((stepName: string, sessId: string): string => {
@@ -560,11 +583,17 @@ export const PhoneSimulatorPage: React.FC = () => {
       });
 
       // Play audio automatically (studio audio or neural synthesis)
+      audioPlaybackController.unlockAudio();
       if (parsed.playUrl) {
-        addLog("audio", parsed.playUrl);
-        audioPlaybackController.play(parsed.playUrl, promptText).catch(() => {});
+        addLog("audio", `🔊 Auto-playing prompt: ${parsed.playUrl}`);
+        audioPlaybackController.play(parsed.playUrl, promptText).catch((err) => {
+          console.warn("[PhoneSimulator] Auto-play prompt failed:", err);
+        });
       } else {
-        audioPlaybackController.speakText(promptText).catch(() => {});
+        addLog("audio", `🔊 Auto-playing prompt via speech synthesis`);
+        audioPlaybackController.speakText(promptText).catch((err) => {
+          console.warn("[PhoneSimulator] Speech synthesis failed:", err);
+        });
       }
     },
     [addLog, addChatTurn, language]
@@ -614,7 +643,7 @@ export const PhoneSimulatorPage: React.FC = () => {
         const res = await fetch(targetUrl, {
           method: "POST",
           headers,
-          credentials: "include",
+          credentials: "same-origin",
           body: bodyParams.toString(),
         });
 
@@ -863,33 +892,65 @@ export const PhoneSimulatorPage: React.FC = () => {
         curStep.includes("language") ||
         curStep === "voice-menu"
       ) {
-        if (/\b(1|one|won|wan|english|baako|bako|borɔfo)\b/i.test(lower)) matchedDtmf = "1";
-        else if (/\b(2|two|tu|twi|akan|mmienu|mienu)\b/i.test(lower)) matchedDtmf = "2";
+        if (/\b(1|one|won|wan|english|borɔfo|first|option 1|option one|number 1|number one|choice 1|choice one|baako|bako)\b/i.test(lower)) matchedDtmf = "1";
+        else if (/\b(2|two|tu|too|to|twi|akan|asante|mmienu|mienu|second|option 2|option two|number 2|number two|choice 2|choice two)\b/i.test(lower)) matchedDtmf = "2";
+        else if (/\b(0|zero|exit|cancel|stop|gyae|hwee)\b/i.test(lower)) matchedDtmf = "0";
       } else if (curStep.includes("service")) {
-        if (/\b(1|one|momo|mobile money|telecom|baako)\b/i.test(lower)) matchedDtmf = "1";
-        else if (/\b(2|two|bank|banking|sikakorabea|mmienu)\b/i.test(lower)) matchedDtmf = "2";
+        if (/\b(1|one|won|wan|momo|mobile money|telecom|first|option 1|option one|baako)\b/i.test(lower)) matchedDtmf = "1";
+        else if (/\b(2|two|tu|too|bank|banking|sikakorabea|second|option 2|option two|mmienu)\b/i.test(lower)) matchedDtmf = "2";
+        else if (/\b(9|nine|repeat|say again|tie bio)\b/i.test(lower)) matchedDtmf = "9";
+        else if (/\b(0|zero|exit|cancel|quit|gyae)\b/i.test(lower)) matchedDtmf = "0";
       } else if (curStep.includes("provider")) {
-        if (/\b(1|one|mtn|baako)\b/i.test(lower)) matchedDtmf = "1";
-        else if (/\b(2|two|telecel|vodafone|voda|mmienu)\b/i.test(lower)) matchedDtmf = "2";
-        else if (/\b(3|three|airteltigo|at|mmiɛnsa|mmiensa)\b/i.test(lower)) matchedDtmf = "3";
+        if (/\b(1|one|won|wan|mtn|yellow|mtn momo|first|option 1|option one|baako)\b/i.test(lower)) matchedDtmf = "1";
+        else if (/\b(2|two|tu|too|telecel|vodafone|voda|red|second|option 2|option two|mmienu)\b/i.test(lower)) matchedDtmf = "2";
+        else if (/\b(3|three|tree|tri|airteltigo|at|tigo|blue|third|option 3|option three|mmiɛnsa|mmiensa)\b/i.test(lower)) matchedDtmf = "3";
+        else if (/\b(9|nine|repeat|tie bio)\b/i.test(lower)) matchedDtmf = "9";
+        else if (/\b(0|zero|exit|cancel)\b/i.test(lower)) matchedDtmf = "0";
       } else if (curStep.includes("action")) {
-        if (/\b(1|one|send|send money|transfer|baako|mane|soma)\b/i.test(lower)) matchedDtmf = "1";
-        else if (/\b(2|two|balance|check balance|my balance|mmienu)\b/i.test(lower)) matchedDtmf = "2";
+        if (/\b(1|one|won|wan|send|send money|transfer|mane|soma|first|option 1|option one|baako)\b/i.test(lower)) matchedDtmf = "1";
+        else if (/\b(2|two|tu|too|balance|check balance|my balance|second|option 2|option two|mmienu)\b/i.test(lower)) matchedDtmf = "2";
+        else if (/\b(8|eight|back|go back|previous|san|san akyi)\b/i.test(lower)) matchedDtmf = "8";
+        else if (/\b(9|nine|repeat|tie bio)\b/i.test(lower)) matchedDtmf = "9";
+        else if (/\b(0|zero|exit|cancel)\b/i.test(lower)) matchedDtmf = "0";
       } else if (curStep.includes("confirm") || curStep.includes("verify-choice")) {
-        if (/\b(1|one|yes|confirm|aane|pene so|yie|ampa|proceed|baako)\b/i.test(lower)) matchedDtmf = "1";
-        else if (/\b(2|two|no|dabi|sesa|change|cancel|edit|mmienu)\b/i.test(lower)) matchedDtmf = "2";
+        if (/\b(1|one|won|wan|yes|confirm|aane|pene so|yie|ampa|proceed|okay|correct|send it|pay|approve|first|option 1|option one|baako)\b/i.test(lower)) matchedDtmf = "1";
+        else if (/\b(2|two|tu|too|no|dabi|sesa|change|cancel|edit|re-enter|second|option 2|option two|mmienu)\b/i.test(lower)) matchedDtmf = "2";
+        else if (/\b(8|eight|back|go back|previous|san)\b/i.test(lower)) matchedDtmf = "8";
+        else if (/\b(9|nine|repeat|tie bio)\b/i.test(lower)) matchedDtmf = "9";
+        else if (/\b(0|zero|cancel|stop|abort|gyae)\b/i.test(lower)) matchedDtmf = "0";
       }
 
-      // Universal navigation
+      // Universal navigation and single spoken numerals
       if (!matchedDtmf) {
         if (/\b(back|go back|previous|san|san akyi)\b/i.test(lower)) matchedDtmf = "8";
         else if (/\b(repeat|again|say again|tie bio)\b/i.test(lower)) matchedDtmf = "9";
         else if (/\b(cancel|stop|abort|quit|exit|gyae|hwee)\b/i.test(lower)) matchedDtmf = "0";
+        else if (/^(?:1|one|won|wan|baako)$/i.test(lower.trim())) matchedDtmf = "1";
+        else if (/^(?:2|two|tu|too|to|mmienu)$/i.test(lower.trim())) matchedDtmf = "2";
+        else if (/^(?:3|three|tree|tri|mmiɛnsa|mmiensa)$/i.test(lower.trim())) matchedDtmf = "3";
+        else if (/^(?:4|four|fo|ɛnan|enan)$/i.test(lower.trim())) matchedDtmf = "4";
+        else if (/^(?:5|five|enum|num)$/i.test(lower.trim())) matchedDtmf = "5";
+        else if (/^(?:6|six|nsia)$/i.test(lower.trim())) matchedDtmf = "6";
+        else if (/^(?:7|seven|nson)$/i.test(lower.trim())) matchedDtmf = "7";
+        else if (/^(?:8|eight|nwɔtwe|nwotwe)$/i.test(lower.trim())) matchedDtmf = "8";
+        else if (/^(?:9|nine|nkron)$/i.test(lower.trim())) matchedDtmf = "9";
+        else if (/^(?:0|zero|hwee)$/i.test(lower.trim())) matchedDtmf = "0";
         else if (activeNumDigits === 1 && /^[0-9]$/.test(lower.trim())) matchedDtmf = lower.trim();
       }
 
       if (matchedDtmf) {
-        addLog("AI", `dtmf=${matchedDtmf} (mapped from "${effectiveClean}")`);
+        addLog("asr", `⚡ Spoken input recognized: "${effectiveClean}" ➔ Keypad [${matchedDtmf}]`);
+        addLog("state", `🔄 ASR synced with system: Auto-dialing [${matchedDtmf}] on step "${curStep}"`);
+        setVoiceSyncStatus({
+          text: effectiveClean,
+          action: `Auto-dialed DTMF [${matchedDtmf}]`,
+          dtmf: matchedDtmf,
+          timestamp: Date.now(),
+        });
+        setActiveKeypadPulse(matchedDtmf);
+        audioPlaybackController.playDtmfTone(matchedDtmf, 130);
+        setTimeout(() => setActiveKeypadPulse(null), 450);
+
         return dispatchVoiceWebhook(targetCallback, { dtmfDigits: matchedDtmf });
       }
 
@@ -898,6 +959,7 @@ export const PhoneSimulatorPage: React.FC = () => {
         const brainRes = await fetch("/api/ivr/understand", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
           body: JSON.stringify({
             utterance: effectiveClean,
             currentStep: curStep,
@@ -910,6 +972,16 @@ export const PhoneSimulatorPage: React.FC = () => {
           const decision = await brainRes.json();
           if (decision.type === "dtmf" && decision.dtmf) {
             addLog("AI", `dtmf=${decision.dtmf} (${decision.reason || "brain resolved option"})`);
+            addLog("state", `🔄 ASR synced with system: Brain resolved "${effectiveClean}" ➔ Keypad [${decision.dtmf}]`);
+            setVoiceSyncStatus({
+              text: effectiveClean,
+              action: `AI Brain mapped to [${decision.dtmf}]`,
+              dtmf: decision.dtmf,
+              timestamp: Date.now(),
+            });
+            setActiveKeypadPulse(decision.dtmf);
+            audioPlaybackController.playDtmfTone(decision.dtmf, 130);
+            setTimeout(() => setActiveKeypadPulse(null), 450);
             return dispatchVoiceWebhook(targetCallback, { dtmfDigits: decision.dtmf });
           }
 
@@ -1051,6 +1123,12 @@ export const PhoneSimulatorPage: React.FC = () => {
             timestamp: token.timestamp,
           },
         ]);
+        // Show in simulator terminal as speech-to-text is recognized in real time
+        if (token.isPhoneticMatch && token.repaired) {
+          addLog("asr", `🎙️ Live STT: "${token.word}" ➔ "${token.repaired}" (phonetic repair)`);
+        } else {
+          addLog("asr", `🎙️ Live STT: "${token.word}"`);
+        }
       }
     });
 
@@ -1427,17 +1505,32 @@ export const PhoneSimulatorPage: React.FC = () => {
 
             {/* 4x3 Keypad Grid with Dual-Tone Audio */}
             <div className="w-full grid grid-cols-3 gap-2 mt-4">
-              {KEYPAD_BUTTONS.map(({ digit, sub }) => (
-                <button
-                  key={digit}
-                  type="button"
-                  onClick={() => handleKeypadPress(digit)}
-                  className="bg-slate-900 hover:bg-slate-800 active:bg-emerald-700 active:text-white text-slate-100 border border-slate-800 rounded-xl py-2 flex flex-col items-center justify-center shadow transition-all cursor-pointer select-none"
-                >
-                  <span className="text-base font-bold leading-none">{digit}</span>
-                  {sub && <span className="text-[9px] text-slate-400 uppercase mt-0.5">{sub}</span>}
-                </button>
-              ))}
+              {KEYPAD_BUTTONS.map(({ digit, sub }) => {
+                const isPulsing = activeKeypadPulse === digit;
+                return (
+                  <button
+                    key={digit}
+                    type="button"
+                    onClick={() => handleKeypadPress(digit)}
+                    className={`border rounded-xl py-2 flex flex-col items-center justify-center shadow transition-all cursor-pointer select-none ${
+                      isPulsing
+                        ? "bg-emerald-500 text-white border-emerald-300 ring-4 ring-emerald-400/80 scale-105 shadow-lg shadow-emerald-500/50"
+                        : "bg-slate-900 hover:bg-slate-800 active:bg-emerald-700 active:text-white text-slate-100 border-slate-800"
+                    }`}
+                  >
+                    <span className="text-base font-bold leading-none">{digit}</span>
+                    {sub && (
+                      <span
+                        className={`text-[9px] uppercase mt-0.5 ${
+                          isPulsing ? "text-emerald-100 font-bold" : "text-slate-400"
+                        }`}
+                      >
+                        {sub}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Bottom Mic Grille */}
@@ -1463,16 +1556,19 @@ export const PhoneSimulatorPage: React.FC = () => {
 
             <div className="flex flex-wrap gap-1.5">
               {[
-                { label: "English", desc: "Press 1 (English)" },
-                { label: "Twi", desc: "Press 2 (Twi)" },
+                { label: "1 (One)", desc: "Say 'One' -> Mapped to DTMF 1" },
+                { label: "2 (Two)", desc: "Say 'Two' -> Mapped to DTMF 2" },
+                { label: "3 (Three)", desc: "Say 'Three' -> Mapped to DTMF 3" },
+                { label: "English", desc: "Select English (DTMF 1)" },
+                { label: "Twi", desc: "Select Akan Twi (DTMF 2)" },
                 { label: "Mobile Money", desc: "Service 1 (MoMo)" },
                 { label: "MTN", desc: "Network 1 (MTN)" },
-                { label: "Send money", desc: "Action 1 (Send)" },
-                { label: "0553838464", desc: "Recipient Phone Number" },
-                { label: "20 cedis", desc: "Amount (20 Cedis)" },
-                { label: "Confirm", desc: "Confirm Transfer" },
-                { label: "Baako", desc: "Twi 1" },
-                { label: "Mmienu", desc: "Twi 2" },
+                { label: "Send money", desc: "Action 1 (Send Money)" },
+                { label: "0553838464", desc: "10-Digit Recipient Phone" },
+                { label: "50 cedis", desc: "Amount 50 Cedis" },
+                { label: "Confirm", desc: "Confirm Safe Transfer (1)" },
+                { label: "Baako", desc: "Twi 1 (Baako)" },
+                { label: "Mmienu", desc: "Twi 2 (Mmienu)" },
                 { label: "Aane, pene so", desc: "Twi: Confirm transfer" },
                 { label: "Mepɛ sɛ mesoma 50 cedis", desc: "Twi: Send 50 Cedis" },
               ].map((chip) => (

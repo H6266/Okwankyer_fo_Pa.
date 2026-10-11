@@ -88,12 +88,13 @@ export class AudioPlaybackController {
       if (!this.audioElement) {
         this.initAudioElement();
       }
-      if (this.audioElement) {
+      if (this.audioElement && !this.state.isPlaying && !this.state.activeClip) {
         this.audioElement.volume = 1.0;
-        // Playing and immediately pausing silent buffer unlocks HTMLAudioElement permanently
         this.audioElement.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
         this.audioElement.play().then(() => {
-          this.audioElement?.pause();
+          if (!this.state.activeClip) {
+            this.audioElement?.pause();
+          }
         }).catch(() => {});
       }
     } catch {}
@@ -373,6 +374,9 @@ export class AudioPlaybackController {
       }
     } else if (target && typeof target === "object") {
       url = target.url || "";
+      if (!url && target.audioBase64) {
+        url = `data:${target.audioMimeType || "audio/wav"};base64,${target.audioBase64}`;
+      }
       promptText = target.text || null;
       if (typeof optionsOrText === "object") {
         options = optionsOrText;
@@ -409,101 +413,55 @@ export class AudioPlaybackController {
       return Promise.resolve(false);
     }
 
-    // 2. Try Web Audio buffer playback (works with zero lag and no autoplay restrictions)
-    try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (AudioCtx) {
-        if (!this.audioContext) {
-          this.audioContext = new AudioCtx();
-        }
+    // Immediately update state synchronously so getActiveClip() returns the clip without delay
+    this.setState({
+      isPlaying: true,
+      activeClip: url,
+      activeText: promptText,
+      token,
+    });
+    options?.onStart?.();
+
+    // Ensure audio is unlocked
+    this.unlockAudio();
+
+    // 2. High-performance Web Audio Buffer playback if cached
+    if (this.audioContext && this.audioBufferCache.has(url)) {
+      try {
         if (this.audioContext.state === "suspended") {
           await this.audioContext.resume().catch(() => {});
         }
-      }
-
-      const playAudioBuffer = (buffer: AudioBuffer): Promise<boolean> => {
-        if (!this.audioContext || this.currentToken !== token) return Promise.resolve(false);
+        const buffer = this.audioBufferCache.get(url)!;
+        const source = this.audioContext.createBufferSource();
+        source.buffer = buffer;
+        source.connect(this.audioContext.destination);
+        this.activeBufferSource = source;
 
         return new Promise<boolean>((resolve) => {
-          try {
-            const source = this.audioContext!.createBufferSource();
-            source.buffer = buffer;
-            source.connect(this.audioContext!.destination);
-
-            this.activeBufferSource = source;
-            this.activeResolver = () => {
-              try { source.stop(); } catch {}
-              resolve(false);
-            };
-
+          this.activeResolver = () => {
+            resolve(false);
+          };
+          source.onended = () => {
+            if (this.currentToken !== token) return;
+            this.activeBufferSource = null;
+            this.activeResolver = null;
             this.setState({
-              isPlaying: true,
-              activeClip: url,
-              activeText: promptText,
+              isPlaying: false,
+              activeClip: null,
+              activeText: null,
               token,
             });
-
-            options?.onStart?.();
-
-            source.onended = () => {
-              if (this.currentToken !== token) return;
-              this.activeBufferSource = null;
-              this.activeResolver = null;
-              this.setState({
-                isPlaying: false,
-                activeClip: null,
-                activeText: null,
-                token,
-              });
-              options?.onEnd?.();
-              resolve(true);
-            };
-
-            source.start(0);
-          } catch {
-            resolve(false);
-          }
+            options?.onEnd?.();
+            resolve(true);
+          };
+          source.start(0);
         });
-      };
-
-      // Check cache first
-      if (this.audioContext && this.audioBufferCache.has(url)) {
-        return await playAudioBuffer(this.audioBufferCache.get(url)!);
+      } catch (webAudioErr) {
+        console.warn("[AudioController] WebAudio buffer play fallback to HTML5 Audio:", webAudioErr);
       }
-
-      // Fetch and decode arrayBuffer
-      if (this.audioContext) {
-        let arrayBuf: ArrayBuffer | null = null;
-        if (url.startsWith("data:")) {
-          const commaIdx = url.indexOf(",");
-          if (commaIdx !== -1) {
-            const b64 = url.slice(commaIdx + 1);
-            const binStr = window.atob(b64);
-            const bytes = new Uint8Array(binStr.length);
-            for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
-            arrayBuf = bytes.buffer;
-          }
-        } else {
-          const res = await fetch(url);
-          if (res.ok) {
-            arrayBuf = await res.arrayBuffer();
-          }
-        }
-
-        if (arrayBuf && this.currentToken === token) {
-          const copy = arrayBuf.slice(0);
-          const decoded = await new Promise<AudioBuffer>((resolveDecode, rejectDecode) => {
-            this.audioContext!.decodeAudioData(copy, resolveDecode, rejectDecode);
-          });
-          this.audioBufferCache.set(url, decoded);
-          return await playAudioBuffer(decoded);
-        }
-      }
-    } catch {
-      // Fall through to HTMLAudioElement
     }
 
-    // 3. Fallback to HTMLAudioElement
+    // 3. Play immediately through primary HTML5 audio element
     const audio = this.initAudioElement();
     if (!audio) {
       if (promptText && promptText.trim()) {
@@ -516,15 +474,6 @@ export class AudioPlaybackController {
       this.activeResolver = () => {
         resolve(false);
       };
-
-      this.setState({
-        isPlaying: true,
-        activeClip: url,
-        activeText: promptText,
-        token,
-      });
-
-      options?.onStart?.();
 
       audio.onended = () => {
         if (this.currentToken !== token) return;

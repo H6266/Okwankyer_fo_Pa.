@@ -249,6 +249,16 @@ export function parseVoiceXml(xmlText: string): ParsedVoiceXml {
   return result;
 }
 
+async function parseJsonResponse(res: Response, endpoint: string): Promise<any> {
+  const contentType = res.headers.get("Content-Type") || "";
+  if (contentType.includes("text/html")) {
+    throw new Error(
+      `Expected JSON from ${endpoint}, received text/html (HTTP ${res.status}). Check that the request is routed to the backend API.`
+    );
+  }
+  return res.json();
+}
+
 export const api = {
   // ── Africa's Talking Telephony Webhook Dispatcher ───────────────────
   async dispatchAtVoiceWebhook(
@@ -455,7 +465,7 @@ export const api = {
       credentials: "same-origin",
       headers: getAdminAuthHeaders(),
     });
-    return res.json();
+    return parseJsonResponse(res, "/api/momo/status");
   },
 
   async provisionMomoSandbox(subscriptionKey?: string): Promise<any> {
