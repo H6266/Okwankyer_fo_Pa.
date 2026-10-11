@@ -92,17 +92,66 @@ export class ContinuousAudioEngine {
   private lastDispatchTime: number = 0;
   private isZeroPinMuted: boolean = false;
 
+  private isPlaybackGated: boolean = false;
+
   constructor() {
-    // Listen to system audio playback to dynamically coordinate echo cancellation
+    // Listen to system audio playback to automatically gate the microphone while prompt plays,
+    // and automatically turn on the mic to record the user's need as soon as the audio finishes playing.
     if (typeof window !== "undefined") {
       audioPlaybackController.subscribe((pState) => {
-        if (pState.isPlaying && pState.activeText) {
-          this.activePromptText = pState.activeText;
-        } else if (!pState.isPlaying) {
-          this.activePromptText = "";
+        if (pState.isPlaying) {
+          if (pState.activeText) {
+            this.activePromptText = pState.activeText;
+          }
+          if (!this.isPlaybackGated) {
+            this.isPlaybackGated = true;
+            this.pauseForPlayback();
+          }
+        } else {
+          const wasGated = this.isPlaybackGated;
+          this.isPlaybackGated = false;
+          setTimeout(() => {
+            if (!audioPlaybackController.isSpeaking()) {
+              this.activePromptText = "";
+            }
+          }, 400);
+          if (wasGated && !this.isExplicitlyStopped && !this.isZeroPinMuted) {
+            this.resumeAfterPlayback();
+          }
         }
       });
     }
+  }
+
+  /**
+   * Pauses microphone recording while system audio prompt is playing
+   */
+  public pauseForPlayback(): void {
+    this.isPlaybackGated = true;
+    if (this.recognition) {
+      try {
+        this.recognition.abort();
+      } catch {}
+    }
+    this.updateState({
+      isListening: false,
+      isVoiceActive: false,
+      currentInterimTranscript: "",
+    });
+  }
+
+  /**
+   * Automatically turns on microphone recording right after audio finishes playing
+   */
+  public resumeAfterPlayback(): void {
+    this.isPlaybackGated = false;
+    if (this.isExplicitlyStopped || this.isZeroPinMuted) return;
+    this.updateState({
+      isMicActive: true,
+      isListening: true,
+      currentInterimTranscript: "",
+    });
+    this.startContinuousSpeechRecognition();
   }
 
   public subscribeState(listener: AudioStateListener): () => void {
@@ -225,8 +274,12 @@ export class ContinuousAudioEngine {
         }
       }
 
-      // 3. Always Start Continuous Web Speech Recognition
-      this.startContinuousSpeechRecognition();
+      // 3. Start Continuous Web Speech Recognition if system prompt is not currently playing
+      if (!audioPlaybackController.isSpeaking()) {
+        this.startContinuousSpeechRecognition();
+      } else {
+        this.pauseForPlayback();
+      }
 
       return true;
     } catch (err) {
@@ -314,11 +367,13 @@ export class ContinuousAudioEngine {
       recognition.lang = "en-US";
 
       recognition.onstart = () => {
-        this.updateState({ isListening: true });
+        if (!this.isPlaybackGated && !this.isZeroPinMuted) {
+          this.updateState({ isListening: true });
+        }
       };
 
       recognition.onresult = (event: any) => {
-        if (this.isZeroPinMuted) return; // Strict Zero-PIN privacy boundary
+        if (this.isZeroPinMuted || this.isPlaybackGated || audioPlaybackController.isSpeaking()) return; // Strict Zero-PIN privacy boundary & playback gate
 
         let interimStr = "";
         let finalStr = "";
@@ -478,10 +533,10 @@ export class ContinuousAudioEngine {
       };
 
       recognition.onend = () => {
-        // Always-On Keep-Alive Loop: If not explicitly stopped, restart immediately!
-        if (!this.isExplicitlyStopped && !this.isZeroPinMuted) {
+        // Always-On Keep-Alive Loop: If not explicitly stopped or gated by prompt playback, restart immediately!
+        if (!this.isExplicitlyStopped && !this.isZeroPinMuted && !this.isPlaybackGated && !audioPlaybackController.isSpeaking()) {
           setTimeout(() => {
-            if (!this.isExplicitlyStopped && !this.isZeroPinMuted) {
+            if (!this.isExplicitlyStopped && !this.isZeroPinMuted && !this.isPlaybackGated && !audioPlaybackController.isSpeaking()) {
               try {
                 recognition.start();
               } catch {}

@@ -760,23 +760,27 @@ export function usePhoneSimulator() {
     isAiSpeakingRef.current = speaking;
     if (speaking) {
       stopInterimRecognition();
-    }
-    if (voiceCaptureRef.current) {
-      if (speaking) {
+      if (voiceCaptureRef.current) {
         voiceCaptureRef.current.mute();
-      } else if (voiceListeningEnabledRef.current) {
-        voiceCaptureRef.current.unmute();
       }
-    }
-    if (!speaking && voiceListeningEnabledRef.current) {
-      startInterimRecognition();
+    } else {
+      // Automatically turn on microphone when prompt audio finishes playing during an active call
+      voiceListeningEnabledRef.current = true;
+      setIsMicActive(true);
+      isMicActiveRef.current = true;
+      if (voiceCaptureRef.current) {
+        voiceCaptureRef.current.unmute();
+        startInterimRecognition();
+      } else {
+        startContinuousVoiceRef.current?.();
+      }
     }
     if (voiceListeningEnabledRef.current) {
       setTranscriptionStatus(speaking ? "PAUSED" : "LISTENING");
       setAiProcessingDetail(
         speaking
           ? "Assistant prompt playing · microphone paused to prevent audio echo."
-          : "Listening continuously... Speak in Ghanaian English or Akan Twi"
+          : "🎙️ Audio finished — Microphone automatically turned ON to record your need..."
       );
     }
     if (promptText) {

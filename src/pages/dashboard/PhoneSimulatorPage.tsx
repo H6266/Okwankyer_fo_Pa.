@@ -371,19 +371,32 @@ export const PhoneSimulatorPage: React.FC = () => {
     terminalEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatTurns, terminalLogs, interimTranscript]);
 
-  // Audio controller subscription
+  // Audio controller subscription: automatically turn on mic when audio ends playing
   useEffect(() => {
+    let wasPlaying = false;
     const unsubscribe = audioPlaybackController.subscribe((state) => {
       setIsAudioSpeaking(state.isPlaying);
-      if (!callActive) return;
+      if (!callActiveRef.current) return;
       if (state.isPlaying) {
+        wasPlaying = true;
         setCallStatus("Speaking");
-      } else if (!isMicMuted && !zeroPinOverlay) {
-        setCallStatus("Listening");
+      } else {
+        if (wasPlaying && !zeroPinOverlayRef.current) {
+          wasPlaying = false;
+          // Automatically unmute and turn on microphone to record user's need when prompt audio finishes
+          setIsMicMuted(false);
+          isMicMutedRef.current = false;
+          continuousAudioEngine.setZeroPinMuted(false);
+          continuousAudioEngine.startAlwaysOnMic(languageRef.current || "en", activeStepNameRef.current);
+          addLog("asr", "🎙️ Audio prompt finished — Microphone automatically turned ON to record your need.");
+        }
+        if (!isMicMutedRef.current && !zeroPinOverlayRef.current) {
+          setCallStatus("Listening");
+        }
       }
     });
     return () => unsubscribe();
-  }, [callActive, isMicMuted, zeroPinOverlay]);
+  }, [addLog]);
 
   // Format MM:SS timer
   const formatTimer = (sec: number) => {
@@ -1466,11 +1479,23 @@ export const PhoneSimulatorPage: React.FC = () => {
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors border ${
                   isMicMuted
                     ? "bg-rose-950/40 border-rose-500/50 text-rose-300 hover:bg-rose-900/60"
-                    : "bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/60"
+                    : isAudioSpeaking
+                    ? "bg-amber-950/40 border-amber-500/40 text-amber-300"
+                    : "bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/60 shadow-sm shadow-emerald-500/20"
                 } disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer`}
               >
-                {isMicMuted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
-                <span>{isMicMuted ? "Mic Muted" : "Mic Live"}</span>
+                {isMicMuted ? (
+                  <MicOff className="w-3.5 h-3.5" />
+                ) : (
+                  <Mic className={`w-3.5 h-3.5 ${!isAudioSpeaking && callActive ? "animate-pulse text-emerald-400" : ""}`} />
+                )}
+                <span>
+                  {isMicMuted
+                    ? "Mic Muted"
+                    : isAudioSpeaking
+                    ? "Audio Playing (Mic Ready)"
+                    : "Mic Recording ON"}
+                </span>
               </button>
 
               <div className="text-[11px] text-slate-400 font-mono">
