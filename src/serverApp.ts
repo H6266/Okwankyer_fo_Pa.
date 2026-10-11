@@ -25,6 +25,7 @@ import { requireAdminAuth } from "./middleware/adminAuth";
 import { adminRateLimiter } from "./middleware/rateLimiter";
 import { validateGhanaPhoneNumber } from "./domain/validation";
 import { aiBootstrap } from "./ai_system/core/aiBootstrap";
+import { modelVerificationEngine } from "./ai_system/core/modelVerification";
 import { validateProductionModelConfig } from "./ai_system/brain/brain";
 import { approvalWorkflow } from "./ai_system/brain/approvalWorkflow";
 
@@ -254,9 +255,12 @@ export async function startServer() {
     try {
       validateProductionModelConfig();
       approvalWorkflow.validateProductionApprovals();
+      const modelReport = await modelVerificationEngine.verifyStartupModels();
+      console.log(`🔍 Startup Gemini Model Verification: ${modelReport.success ? "PASSED" : "FALLBACK"}`);
     } catch (err: any) {
       if (process.env.NODE_ENV === "production") {
         console.error("FATAL: Production Readiness Hardening Violation:", err.message);
+        throw err;
       } else {
         console.warn("⚠️ Production readiness notice:", err.message);
       }

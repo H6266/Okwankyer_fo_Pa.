@@ -48,6 +48,7 @@ export class DocumentParser {
       let JSZipLib: any = (globalThis as any).JSZip;
       if (!JSZipLib) {
         try {
+          // @ts-ignore - optional dynamic import if present
           const mod = await import(/* @vite-ignore */ 'jszip');
           JSZipLib = mod.default || mod;
         } catch {
@@ -122,6 +123,7 @@ export class DocumentParser {
       let pdfjsLib: any = (globalThis as any).pdfjsLib;
       if (!pdfjsLib) {
         try {
+          // @ts-ignore - optional dynamic import if present
           const mod = await import(/* @vite-ignore */ 'pdfjs-dist');
           pdfjsLib = mod.default || mod;
         } catch {

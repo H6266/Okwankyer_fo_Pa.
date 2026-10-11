@@ -39,6 +39,7 @@ import {
 } from "../ai_system/speech/acousticModels/ghanaAcousticDataset";
 import { parseLongDiscussion } from "../ai_system/brain/longDiscussionParser";
 import { acousticNoiseFilterModel } from "../ai_system/speech/acousticModels/noiseFilterModel";
+import { getFullAiHealthReport } from "../services/healthService";
 
 export const aiRouter = Router();
 
@@ -54,22 +55,18 @@ aiRouter.get("/api/ai/status", (_req: Request, res: Response) => {
   });
 });
 
-// Production AI health probe
+// Production AI health probe & diagnostic report
 aiRouter.get("/api/ai/health", async (_req: Request, res: Response) => {
-  const start = performance.now();
-  const diag = aiBootstrap.getDiagnostics();
-  const providers = modelRouter.getHealthReport();
-  const latencyMs = performance.now() - start;
-
-  res.json({
-    status: "HEALTHY",
-    offlineEngine: "OPERATIONAL",
-    models: diag.models,
-    providers,
-    security: diag.security,
-    memory: diag.memory,
-    latencyMs: Math.round(latencyMs),
-  });
+  try {
+    const report = await getFullAiHealthReport();
+    res.json(report);
+  } catch (err: any) {
+    res.status(500).json({
+      status: "UNHEALTHY",
+      timestamp: new Date().toISOString(),
+      error: err.message,
+    });
+  }
 });
 
 // Provider health & capability observability (Section 49)

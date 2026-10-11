@@ -57,6 +57,8 @@ import { ivrDecisionEngine, type IvrDecision, type IvrTurnContext, type IvrDecis
 
 // Ensure MoMo services are registered
 import '../../services/momo';
+import { pilotControls } from '../../services/pilotControls';
+import { pilotMetrics } from '../../services/pilotMetrics';
 
 export interface BrainConfig {
   mode: BrainMode;
@@ -220,6 +222,7 @@ export class Brain {
       interruptedSlots: input.draft?.interruptedSlots,
       recentTurns: [...(input.draft?.recentTurns || [])],
       turnCount: (input.draft?.turnCount || 0) + 1,
+      clarificationLoops: input.draft?.clarificationLoops ?? 0,
       lastReplyKind: input.draft?.lastReplyKind,
       lastConfirmReadbackText: input.draft?.lastConfirmReadbackText,
       readback: input.draft?.readback ? { ...input.draft.readback } : undefined,
@@ -674,6 +677,27 @@ export class Brain {
     const missingSlot = this.recomputeMissingSlots(settledIntent, draft.slots);
 
     if (missingSlot) {
+      draft.clarificationLoops = (draft.clarificationLoops || 0) + 1;
+      const maxAttempts = pilotControls.getMaxClarificationAttempts();
+      if (draft.clarificationLoops >= maxAttempts) {
+        pilotMetrics.recordDtmfFallback();
+        draft.lastReplyKind = 'clarify_slot';
+        const decision: BrainDecision = {
+          kind: 'clarify_slot',
+          slot: 'keypad_fallback',
+        };
+        const text = activeLanguage.startsWith('twi')
+          ? 'Mesrɛ wo, fa phone keypad no di dwuma anaa frɛ customer care.'
+          : 'Please use your phone keypad to enter details or contact customer care.';
+        return finalizeOutput({
+          decision,
+          modelOutput: modelOutput || undefined,
+          reply: { text, language: activeLanguage, promptId: 'clarify_slot_keypad_fallback' },
+          updatedDraft: draft,
+          sessionLanguage,
+        });
+      }
+
       // Code recomputes missing slots: If model asked about a filled slot, code overrides it.
       draft.lastReplyKind = 'clarify_slot';
       const decision: BrainDecision = {

@@ -15,6 +15,11 @@ import { AI_CONFIG } from "../../core/aiConfig";
 import { geminiClient } from "../../../services/geminiClient";
 import { formatSpokenNumbersAsDigits } from "../../../domain/numberFormatter";
 import { isSpokenPinPattern } from "../../../modules/sttService";
+import {
+  isAcousticSystemEcho,
+  stripSystemEchoFromTranscript,
+  isBackgroundNoiseOrStatic,
+} from "../../../domain/echoFilter";
 import { offlineSpeechRecognizer } from "./offlineAsrEngine";
 import { audioNormalizer } from "./audioNormalizer";
 import { audioQualityAnalyzer } from "./audioQuality";
@@ -148,6 +153,11 @@ export class HedgedAsrService {
           return { isEcho: true, matchedPromptId: prompt.id };
         }
       }
+    }
+
+    // Check canonical catalog of system prompts
+    if (isAcousticSystemEcho(candidateText, this.promptBuffer[0]?.promptText || null)) {
+      return { isEcho: true };
     }
 
     return { isEcho: false };
@@ -346,14 +356,25 @@ export class HedgedAsrService {
       }
     }
 
-    // ── Echo Filtering ──
-    const echoCheck = this.isSystemPromptEcho(rawText, options.step);
+    // ── Echo Filtering & Stripping ──
+    const activePromptText = options.activePromptId
+      ? this.promptBuffer.find((p) => p.id === options.activePromptId)?.promptText
+      : (this.promptBuffer[0]?.promptText || null);
+
     let isEchoSuppressed = false;
     let filteredText = rawText;
 
-    if (echoCheck.isEcho) {
-      isEchoSuppressed = true;
+    if (isBackgroundNoiseOrStatic(rawText)) {
       filteredText = "";
+    } else if (this.isSystemPromptEcho(rawText, options.step).isEcho || isAcousticSystemEcho(rawText, activePromptText)) {
+      // Caller may have spoken after hearing part of prompt (e.g. "For English press 1 for Twi press 2 2")
+      const stripped = stripSystemEchoFromTranscript(rawText, activePromptText);
+      if (stripped && stripped.length > 0 && !isAcousticSystemEcho(stripped, activePromptText)) {
+        filteredText = stripped;
+      } else {
+        isEchoSuppressed = true;
+        filteredText = "";
+      }
     }
 
     // ── Number Normalization ──

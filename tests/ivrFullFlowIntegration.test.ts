@@ -157,4 +157,84 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .send({ sessionId, lang: "en", dtmfDigits: "8" });
     expect(backRes.text).toContain("/language-selection");
   });
+
+  it("executes the exact 7-step canonical MoMo voice flow (Ama Mensah, 500 GHS, Zero-PIN handoff, receipt)", async () => {
+    const sessionId = "MOMO-CANONICAL-7STEP";
+
+    // Step 1: Welcome & Language Selection
+    const welcomeRes = await request(app)
+      .post("/voice-menu")
+      .send({ sessionId, callerNumber: "+233543546010", isActive: "1" });
+    expect(welcomeRes.status).toBe(200);
+    expect(welcomeRes.text).toContain("Welcome_prompt_01.mp3");
+
+    // User selects English (1)
+    const langRes = await request(app)
+      .post("/language-selection")
+      .send({ sessionId, dtmfDigits: "1" });
+    expect(langRes.text).toContain("lang=en");
+    const session = transactionStateMachine.getSession(sessionId);
+    expect(session?.language).toBe("en");
+
+    // Step 2: Service Selection (MoMo Transfer)
+    const serviceRes = await request(app)
+      .post("/service-choice")
+      .send({ sessionId, lang: "en", dtmfDigits: "1" });
+    expect(serviceRes.text).toContain("/provider-select");
+
+    const providerRes = await request(app)
+      .post("/provider-choice")
+      .send({ sessionId, lang: "en", dtmfDigits: "1" });
+    expect(providerRes.text).toContain("/action-select");
+
+    const actionRes = await request(app)
+      .post("/action-choice")
+      .send({ sessionId, lang: "en", dtmfDigits: "1" });
+    expect(actionRes.text).toContain("/enter-recipient");
+
+    // Step 3: Recipient Phone Entry (0241234567) -> KYC Lookup resolves "Ama Mensah"
+    const recipRes = await request(app)
+      .post("/verify-recipient")
+      .send({ sessionId, lang: "en", dtmfDigits: "0241234567#" });
+    expect(recipRes.text).toContain("Ama Mensah");
+    expect(recipRes.text).toContain("4 5 6 7");
+
+    // User confirms recipient Ama Mensah (1) -> proceed to amount
+    const confirmRecipRes = await request(app)
+      .post("/recipient-verify-choice")
+      .send({ sessionId, lang: "en", dtmfDigits: "1" });
+    expect(confirmRecipRes.text).toContain("/enter-amount");
+
+    // Step 4: Amount Entry (500 GHS)
+    const amountRes = await request(app)
+      .post("/verify-amount")
+      .send({ sessionId, lang: "en", dtmfDigits: "500#" });
+    expect(amountRes.text).toContain("/safe-confirmation");
+
+    // Step 5: Safe Confirmation (Dynamic Readback)
+    const safeConfRes = await request(app)
+      .post("/safe-confirmation")
+      .query({ sessionId, lang: "en" });
+    expect(safeConfRes.text).toContain("500");
+    expect(safeConfRes.text).toContain("Ama Mensah");
+
+    // Step 6: PIN Handoff (Zero-PIN Security)
+    const handoffRes = await request(app)
+      .post("/safe-outcome")
+      .send({ sessionId, lang: "en", dtmfDigits: "1" });
+    expect(handoffRes.text).toContain("check your phone screen");
+    expect(handoffRes.text).toContain("<Reject/>"); // stops listening to speech; no PIN over audio!
+
+    const stateAfterHandoff = transactionStateMachine.getSession(sessionId);
+    expect(stateAfterHandoff?.state).toBe("PIN_PENDING");
+    expect(stateAfterHandoff?.amount).toBe(500);
+    expect(stateAfterHandoff?.recipientName).toBe("Ama Mensah");
+
+    // Step 7: Receipt & Exit (MoMo Out-of-band completion)
+    const completedSession = transactionStateMachine.transition(sessionId, "COMPLETED");
+    expect(completedSession.state).toBe("COMPLETED");
+    expect(completedSession.referenceId).toMatch(/^OKP-\d+$/);
+    expect(completedSession.amount).toBe(500);
+    expect(completedSession.recipientName).toBe("Ama Mensah");
+  });
 });
