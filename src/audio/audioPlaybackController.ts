@@ -52,10 +52,158 @@ export class AudioPlaybackController {
   private activeResolver: (() => void) | null = null;
   private preloadElements: Map<string, HTMLAudioElement> = new Map();
 
+  private audioContext: AudioContext | null = null;
+
   constructor() {
     if (typeof window !== "undefined") {
       this.initAudioElement();
     }
+  }
+
+  /**
+   * Unlocks Web Audio & Audio element on user gesture
+   */
+  public unlockAudio(): void {
+    if (typeof window === "undefined") return;
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        if (!this.audioContext) {
+          this.audioContext = new AudioCtx();
+        }
+        if (this.audioContext.state === "suspended") {
+          this.audioContext.resume().catch(() => {});
+        }
+      }
+      if (this.audioElement) {
+        // Silent unlock
+        this.audioElement.volume = 1.0;
+      }
+    } catch {}
+  }
+
+  /**
+   * Generates authentic dual-tone multi-frequency (DTMF) keypad beeps
+   */
+  public playDtmfTone(digit: string, durationMs: number = 100): void {
+    if (typeof window === "undefined") return;
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!this.audioContext) {
+        this.audioContext = new AudioCtx();
+      }
+      if (this.audioContext.state === "suspended") {
+        this.audioContext.resume().catch(() => {});
+      }
+
+      const dtmfMap: Record<string, [number, number]> = {
+        "1": [697, 1209], "2": [697, 1336], "3": [697, 1477],
+        "4": [770, 1209], "5": [770, 1336], "6": [770, 1477],
+        "7": [852, 1209], "8": [852, 1336], "9": [852, 1477],
+        "*": [941, 1209], "0": [941, 1336], "#": [941, 1477],
+      };
+
+      const freqs = dtmfMap[digit];
+      if (!freqs) return;
+
+      const now = this.audioContext.currentTime;
+      const osc1 = this.audioContext.createOscillator();
+      const osc2 = this.audioContext.createOscillator();
+      const gain = this.audioContext.createGain();
+
+      osc1.type = "sine";
+      osc1.frequency.setValueAtTime(freqs[0], now);
+      osc2.type = "sine";
+      osc2.frequency.setValueAtTime(freqs[1], now);
+
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + durationMs / 1000);
+
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(this.audioContext.destination);
+
+      osc1.start(now);
+      osc2.start(now);
+      osc1.stop(now + durationMs / 1000);
+      osc2.stop(now + durationMs / 1000);
+    } catch {}
+  }
+
+  /**
+   * Synthesize or speak text when recorded studio clip is unavailable
+   */
+  public async speakText(text: string, options?: PlayOptions): Promise<boolean> {
+    if (!text || !text.trim()) return false;
+    const token = ++this.currentToken;
+    const cleanText = text.trim();
+
+    this.setState({
+      isPlaying: true,
+      activeClip: null,
+      activeText: cleanText,
+      token,
+    });
+    options?.onStart?.();
+
+    // 1. Try server-side synthesis (/api/ai/synthesize)
+    try {
+      const isTwi = /([ɛɔ]|mepa|sika|mane|akwaaba|dabi|aane|paw|bɔ|nɔmba)/i.test(cleanText);
+      const res = await fetch("/api/ai/synthesize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: cleanText,
+          language: isTwi ? "tw" : "en",
+        }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        const base64 = json?.result?.audioBase64;
+        const mime = json?.result?.audioMimeType || "audio/mp3";
+        if (base64 && this.currentToken === token) {
+          const dataUrl = `data:${mime};base64,${base64}`;
+          return this.play(dataUrl, {
+            ...options,
+            onStart: options?.onStart,
+            onEnd: options?.onEnd,
+          });
+        }
+      }
+    } catch {}
+
+    // 2. Client-side SpeechSynthesis fallback
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      return new Promise<boolean>((resolve) => {
+        try {
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(cleanText);
+          utterance.rate = 0.95;
+          utterance.onend = () => {
+            if (this.currentToken === token) {
+              this.setState({ isPlaying: false, activeClip: null, activeText: null, token });
+              options?.onEnd?.();
+              resolve(true);
+            }
+          };
+          utterance.onerror = () => {
+            if (this.currentToken === token) {
+              this.setState({ isPlaying: false, activeClip: null, activeText: null, token });
+              options?.onError?.(new Error("Speech synthesis error"));
+              resolve(false);
+            }
+          };
+          window.speechSynthesis.speak(utterance);
+        } catch {
+          this.setState({ isPlaying: false, activeClip: null, activeText: null, token });
+          resolve(false);
+        }
+      });
+    }
+
+    this.setState({ isPlaying: false, activeClip: null, activeText: null, token });
+    return false;
   }
 
   /**
@@ -164,10 +312,6 @@ export class AudioPlaybackController {
     target: string | PlaybackRequest,
     optionsOrText?: PlayOptions | string
   ): Promise<boolean> {
-    // 1. Stop any current playback and increment token
-    this.stop();
-    const token = ++this.currentToken;
-
     let url = "";
     let promptText: string | null = null;
     let options: PlayOptions | undefined;
@@ -187,6 +331,22 @@ export class AudioPlaybackController {
       }
     }
 
+    if (url) {
+      url = url.replace(/^https?:\/\/[^/]+(\/audio\/.*)$/i, "$1");
+    }
+
+    // If identical clip is already actively playing, don't interrupt; just update text if given
+    if (url && this.state.isPlaying && this.state.activeClip === url) {
+      if (promptText && promptText !== this.state.activeText) {
+        this.setState({ activeText: promptText });
+      }
+      return Promise.resolve(true);
+    }
+
+    // 1. Stop any current playback and increment token
+    this.stop();
+    const token = ++this.currentToken;
+
     if (!url) {
       this.setState({
         isPlaying: false,
@@ -194,6 +354,10 @@ export class AudioPlaybackController {
         activeText: promptText,
         token,
       });
+      // If prompt text is available, synthesize speech so audio is never lost
+      if (promptText && promptText.trim()) {
+        return this.speakText(promptText, options);
+      }
       return Promise.resolve(false);
     }
 
@@ -205,6 +369,9 @@ export class AudioPlaybackController {
         activeText: promptText,
         token,
       });
+      if (promptText && promptText.trim()) {
+        return this.speakText(promptText, options);
+      }
       return Promise.resolve(false);
     }
 
@@ -238,6 +405,11 @@ export class AudioPlaybackController {
       audio.onerror = () => {
         if (this.currentToken !== token) return; // Ignore stale token
         this.activeResolver = null;
+        // Fallback to speech synthesis if audio file cannot be loaded
+        if (promptText && promptText.trim()) {
+          this.speakText(promptText, options).then(resolve);
+          return;
+        }
         this.setState({
           isPlaying: false,
           activeClip: null,
@@ -249,8 +421,9 @@ export class AudioPlaybackController {
       };
 
       try {
-        if (!audio.src.endsWith(url)) {
-          audio.src = url;
+        const cleanSrc = url.replace(/^https?:\/\/[^/]+(\/audio\/.*)$/i, "$1");
+        if (!audio.src.endsWith(cleanSrc)) {
+          audio.src = cleanSrc;
         }
         audio.currentTime = 0;
         const playPromise = audio.play();
@@ -260,7 +433,12 @@ export class AudioPlaybackController {
             if (err?.name === "AbortError" || err?.message?.includes("interrupted")) {
               return;
             }
+            // If browser autoplay was blocked, fallback to speakText or notify
             if (this.currentToken === token) {
+              if (promptText && promptText.trim() && err?.name === "NotAllowedError") {
+                this.speakText(promptText, options).then(resolve);
+                return;
+              }
               this.activeResolver = null;
               this.setState({
                 isPlaying: false,

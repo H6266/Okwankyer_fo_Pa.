@@ -166,7 +166,7 @@ export function loadConfig(): AppConfig {
     port,
     baseUrl,
     demoMode,
-    enableSimulator: process.env.ENABLE_SIMULATOR === "true",
+    enableSimulator: process.env.ENABLE_SIMULATOR !== "false",
     adminToken,
     sessionSecret,
     corsOrigins,

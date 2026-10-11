@@ -257,17 +257,21 @@ export function stripSystemEchoFromTranscript(
   const cleaned = transcript.trim();
   const normalized = normalizeTextForComparison(cleaned);
 
+  // If the active prompt strictly contains the entire transcript, it is 100% an echo with no appended words
+  const normalizedPrompt = activeAssistantPrompt ? normalizeTextForComparison(activeAssistantPrompt) : "";
+  if (normalizedPrompt && normalizedPrompt.includes(normalized)) {
+    return "";
+  }
+
   if (isStandaloneCallerIntent(normalized)) {
     return cleaned;
   }
 
   // Check if system prompt appears at the start and user appended their answer (e.g. trailing command or number)
-  const normalizedPrompt = activeAssistantPrompt ? normalizeTextForComparison(activeAssistantPrompt) : "";
   const promptList = normalizedPrompt ? [normalizedPrompt, ...CANONICAL_SYSTEM_PROMPTS] : CANONICAL_SYSTEM_PROMPTS;
 
   for (const p of promptList) {
     if (p.length < 8) continue;
-    // Look for prompt words at the beginning
     const pPrefix = p.slice(0, 30);
     if (normalized.startsWith(pPrefix) || normalized.includes(p)) {
       const userWords = cleaned.split(/\s+/);

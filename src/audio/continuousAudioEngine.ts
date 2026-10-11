@@ -16,6 +16,7 @@ import { repairNoisyAcousticTranscript, normalizeSpokenDigits } from "../ai_syst
 import { isAcousticSystemEcho, stripSystemEchoFromTranscript } from "../domain/echoFilter";
 import { parseLongDiscussion, ParsedDiscussionState } from "../ai_system/brain/longDiscussionParser";
 import { audioPlaybackController } from "./audioPlaybackController";
+import { repairGhanaianPronunciation } from "../ai_system/speech/asr/ghanaianPhoneticMatcher";
 
 export interface ContinuousAudioState {
   isMicActive: boolean;
@@ -33,9 +34,18 @@ export interface ContinuousAudioState {
   datasetModel: string;
 }
 
+export interface SpokenWordToken {
+  word: string;
+  repaired?: string;
+  isPhoneticMatch?: boolean;
+  isFinal?: boolean;
+  timestamp: number;
+}
+
 export type AudioStateListener = (state: ContinuousAudioState) => void;
 export type FrequencyDataListener = (frequencies: Uint8Array, timeData: Float32Array) => void;
 export type UtteranceListener = (utterance: string, parsedDiscussion: ParsedDiscussionState) => void;
+export type WordTokenListener = (token: SpokenWordToken) => void;
 
 export class ContinuousAudioEngine {
   private audioContext: AudioContext | null = null;
@@ -75,6 +85,8 @@ export class ContinuousAudioEngine {
   private stateListeners: Set<AudioStateListener> = new Set();
   private freqListeners: Set<FrequencyDataListener> = new Set();
   private utteranceListeners: Set<UtteranceListener> = new Set();
+  private wordTokenListeners: Set<WordTokenListener> = new Set();
+  private lastStreamedWordCount: number = 0;
 
   private discussionAccumulator: string[] = [];
   private lastDispatchTime: number = 0;
@@ -107,6 +119,11 @@ export class ContinuousAudioEngine {
   public subscribeUtterance(listener: UtteranceListener): () => void {
     this.utteranceListeners.add(listener);
     return () => this.utteranceListeners.delete(listener);
+  }
+
+  public subscribeWordToken(listener: WordTokenListener): () => void {
+    this.wordTokenListeners.add(listener);
+    return () => this.wordTokenListeners.delete(listener);
   }
 
   private updateState(partial: Partial<ContinuousAudioState>): void {
@@ -337,22 +354,46 @@ export class ContinuousAudioEngine {
           const normalizedInterim = normalizeSpokenDigits(interimStr);
           this.updateState({ currentInterimTranscript: normalizedInterim, isSystemEchoBlocked: false });
 
+          // Stream individual word tokens to subscribers for real-time word-by-word transcription
+          const interimWords = normalizedInterim.split(/\s+/).filter(Boolean);
+          if (interimWords.length > this.lastStreamedWordCount) {
+            for (let wIdx = this.lastStreamedWordCount; wIdx < interimWords.length; wIdx++) {
+              const rawWord = interimWords[wIdx];
+              const phonetic = repairGhanaianPronunciation(rawWord);
+              const isMatch = phonetic.repairedWords.length > 0;
+              const token: SpokenWordToken = {
+                word: rawWord,
+                repaired: isMatch ? phonetic.normalizedTranscript : undefined,
+                isPhoneticMatch: isMatch,
+                isFinal: false,
+                timestamp: Date.now(),
+              };
+              this.wordTokenListeners.forEach((fn) => {
+                try { fn(token); } catch {}
+              });
+            }
+            this.lastStreamedWordCount = interimWords.length;
+          }
+
           // Fast-path: Instant dispatch on clear numeric digits or menu keywords (0ms latency)
           const lowerInterim = normalizedInterim.toLowerCase().trim();
           const isInstantCmd = /^(?:[0-9]|one|won|wan|two|too|three|tree|four|five|six|seven|eight|nine|zero|english|twi|akan|baako|mmienu|mmiɛnsa|send money|mane sika|confirm|pene so|yes|aane|no|dabi|cancel|back|repeat)$/i.test(lowerInterim);
           const now = Date.now();
           if (isInstantCmd && now - this.lastDispatchTime > 250) {
             this.lastDispatchTime = now;
+            this.lastStreamedWordCount = 0;
             const repaired = repairNoisyAcousticTranscript(normalizedInterim, this.activeStepName);
-            const parsed = parseLongDiscussion(repaired.repairedText, this.activeStepName);
+            const phonetic = repairGhanaianPronunciation(repaired.repairedText);
+            const effective = phonetic.normalizedTranscript || repaired.repairedText;
+            const parsed = parseLongDiscussion(effective, this.activeStepName);
             this.updateState({
               currentInterimTranscript: "",
-              finalizedTranscript: repaired.repairedText,
+              finalizedTranscript: effective,
               lastParsedDiscussion: parsed,
             });
             this.utteranceListeners.forEach((fn) => {
               try {
-                fn(repaired.repairedText, parsed);
+                fn(effective, parsed);
               } catch {}
             });
             return;
@@ -361,6 +402,7 @@ export class ContinuousAudioEngine {
 
         // 2. Finalized Utterance Processing
         if (finalStr) {
+          this.lastStreamedWordCount = 0;
           // Check system echo
           if (isAcousticSystemEcho(finalStr, this.activePromptText, isSpeaking)) {
             this.updateState({
@@ -380,7 +422,21 @@ export class ContinuousAudioEngine {
           // Phonetic and Ghanaian acoustic dataset repair with numeral normalization
           const normalizedFinal = normalizeSpokenDigits(cleaned);
           const repaired = repairNoisyAcousticTranscript(normalizedFinal, this.activeStepName);
-          const effectiveText = repaired.repairedText;
+          const phonetic = repairGhanaianPronunciation(repaired.repairedText);
+          const effectiveText = phonetic.normalizedTranscript || repaired.repairedText;
+
+          // Notify word token listeners of final sentence completion
+          const finalWords = effectiveText.split(/\s+/).filter(Boolean);
+          finalWords.forEach((fw) => {
+            const token: SpokenWordToken = {
+              word: fw,
+              isFinal: true,
+              timestamp: Date.now(),
+            };
+            this.wordTokenListeners.forEach((fn) => {
+              try { fn(token); } catch {}
+            });
+          });
 
           // Accumulate into discussion buffer for long conversation comprehension
           this.discussionAccumulator.push(effectiveText);

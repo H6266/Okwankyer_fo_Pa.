@@ -23,12 +23,15 @@ import { isSpokenPinPattern } from "../../../modules/sttService";
 import { auditLogger } from "../../../services/auditLogger";
 import { AI_CONFIG } from "../../core/aiConfig";
 import { feedbackService } from "./feedbackService";
+import { repairGhanaianPronunciation, PhoneticCorrection } from "./ghanaianPhoneticMatcher";
+import { neuralAsrProvider } from "./neuralAsrProvider";
 
 export interface AsrOrchestrationResult {
   text: string;
   rawTranscript: string;
   normalizedTranscript: string;
   numericNormalizedTranscript: string;
+  phoneticRepairs?: PhoneticCorrection[];
   confidence: number | null;
   confidenceSource: "provider" | "calibrated" | "provider_unreported" | "unavailable";
   languageDetected: string;
@@ -137,15 +140,52 @@ export class AsrOrchestrator {
       fallbackReason = "GHANANLP_UNCONFIGURED: Missing GHANANLP_API_KEY";
     }
 
-    // ── STEP 5: Explicit Fallback Provider (Gemini / Offline) ──
+    // ── STEP 5: Explicit Fallback Provider (Local Neural / Gemini / Offline) ──
     if (!rawText && allowFallback) {
       fallbackUsed = true;
-      if (geminiClient.isAvailable()) {
+
+      // 5a. Check genuine local neural worker (faster-whisper / Meta MMS open model)
+      try {
+        const neuralHealth = await neuralAsrProvider.checkHealth();
+        if (neuralHealth.ready) {
+          const neuralRes = await neuralAsrProvider.transcribe(
+            normalized.wavBuffer,
+            "audio/wav",
+            resolvedLanguage === "eng" ? "en" : "tw"
+          );
+          if (neuralRes.text && neuralRes.text.trim().length > 0) {
+            rawText = neuralRes.text;
+            providerUsed = `local_neural_${neuralHealth.model}`;
+            confidence = null;
+            confidenceSource = "provider_unreported";
+          }
+        }
+      } catch {
+        // neural worker not running
+      }
+
+      // 5b. Gemini Multimodal Audio ASR with specialized Ghanaian dialectal & Akan Twi prompt
+      if (!rawText && geminiClient.isAvailable()) {
         try {
-          const modelName = AI_CONFIG.transcriptionModel || "gemini-3.8-flash";
+          const modelName = AI_CONFIG.transcriptionModel || "gemini-2.5-flash";
           const geminiPrompt = resolvedLanguage === "eng"
-            ? "Transcribe this audio verbatim in Ghanaian English. Preserve numbers and names."
-            : "Transcribe this audio verbatim in Akan Twi or Ghanaian English. Preserve Akan words, names, and numbers.";
+            ? `You are an expert Automatic Speech Recognition (ASR) engine for Ghanaian telephony and mobile money.
+Transcribe this audio verbatim in Ghanaian English.
+Be tolerant of Ghanaian accents, slurred pronunciation, and phonetic variations:
+- Currencies: 'sedis' / 'cities' / 'sidi' / 'see this' -> 'cedis', 'pesewas' / 'pese' -> 'pesewas'
+- Numbers with Ghanaian accents: 'won' -> '1', 'tree' -> '3', 'faiv' -> '5', 'sevn' -> '7', 'tusan' -> 'thousand', 'fivety' -> 'fifty'
+- Ghanaian names: Kwame, Kofi, Ama, Yaw, Akua, Abena, Kojo, Mensah, Boateng, Osei, etc.
+- Telco networks: MTN, Telecel, Vodafone, AirtelTigo, AT.
+- Colloquialisms: 'send money', 'transfer', 'check balance', 'confirm', 'cancel'.
+Output ONLY the transcription text without commentary.`
+            : `You are an expert Automatic Speech Recognition (ASR) engine specialized in Ghanaian Akan (Asante Twi, Akuapem Twi, Fante) and Ghanaian English.
+Transcribe this audio verbatim into authentic Akan Twi or Ghanaian English.
+Be tolerant of dialectal variations, accents, and non-standard pronunciations:
+- Core phrases: 'Mepɛ sɛ mesoma sika', 'Mepɛ sɛ memane sika', 'Mane sika', 'Sika', 'Cedis', 'Sidi', 'Pesewas', 'Aane', 'Daabi'
+- Spoken Akan numbers: baako (1), mmienu (2), mmiɛnsa (3), anan (4), enum (5), nsia (6), nson (7), nwɔtwe (8), nkron (9), du (10), aduonu (20), aduasa (30), aduanan (40), aduonum (50), ɔha (100), apem (1000)
+- Ghanaian names: Kwame, Kofi, Ama, Yaw, Akua, Abena, Kojo, Kwesi, Adwoa, Mensah, etc.
+- Phone numbers and network providers (MTN, Telecel, AirtelTigo/AT).
+Output ONLY the transcription text without commentary.`;
 
           const geminiResp = await geminiClient.executeWithTimeout(
             "asr-transcription-fallback",
@@ -178,7 +218,7 @@ export class AsrOrchestrator {
         }
       }
 
-      // Offline recognizer fallback if still empty
+      // 5c. Offline recognizer fallback if still empty
       if (!rawText) {
         try {
           const offlineRes = await offlineSpeechRecognizer.transcribe(
@@ -215,6 +255,12 @@ export class AsrOrchestrator {
       }
     }
 
+    // Smart Ghanaian pronunciation tolerance & phonetic repair
+    const phoneticMatch = repairGhanaianPronunciation(normalizedTranscript);
+    if (phoneticMatch.normalizedTranscript) {
+      normalizedTranscript = phoneticMatch.normalizedTranscript;
+    }
+
     // Spoken number normalization (preserving names and currency)
     const numericNormalizedTranscript = normalizedTranscript
       ? formatSpokenNumbersAsDigits(normalizedTranscript)
@@ -248,6 +294,7 @@ export class AsrOrchestrator {
       rawTranscript: rawText,
       normalizedTranscript,
       numericNormalizedTranscript,
+      phoneticRepairs: phoneticMatch.repairedWords,
       confidence,
       confidenceSource,
       languageDetected: isMixed ? "mixed-twi-en" : resolvedLanguage,

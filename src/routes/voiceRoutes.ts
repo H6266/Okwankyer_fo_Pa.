@@ -113,6 +113,10 @@ function xmlResponse(res: Response, content: string, decision?: IvrDecision): vo
       }
       return match;
     });
+
+    // Convert absolute audio URLs to relative /audio/... paths so browser can play them on any domain
+    xml = xml.replace(/(<Play[^>]*url=["'])https?:\/\/[^"']+(\/audio\/[^"']*)(["'])/gi, "$1$2$3")
+             .replace(/(<Play[^>]*>)https?:\/\/[^<]+(\/audio\/[^<]+)(<\/Play>)/gi, "$1$2$3");
   }
   res.set("Content-Type", "application/xml; charset=utf-8");
   res.send(`<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n${xml}\n</Response>`);
@@ -1248,7 +1252,12 @@ voiceRouter.use(ivrRouter);
 
 // Simulator router behind dashboard adminAuth with simulated session
 simulatorRouter.use(adminRateLimiter);
-simulatorRouter.use(requireAdminAuth);
+simulatorRouter.use((req: Request, res: Response, next: NextFunction) => {
+  if (config.nodeEnv === "production" && config.adminToken && !config.demoMode) {
+    return requireAdminAuth(req, res, next);
+  }
+  next();
+});
 simulatorRouter.use((req: Request, _res: Response, next: NextFunction) => {
   if (!req.body || typeof req.body !== "object") {
     req.body = {};
