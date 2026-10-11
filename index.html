@@ -21,7 +21,7 @@
       (function() {
         function isExtensionError(err) {
           var str = String(err && (err.message || err.reason || err) || "").toLowerCase();
-          return str.includes("metamask") || str.includes("ethereum") || str.includes("web3") || str.includes("chrome-extension");
+          return str.includes("metamask") || str.includes("ethereum") || str.includes("web3") || str.includes("chrome-extension") || str.includes("websocket closed without opened") || str.includes("@vite/client");
         }
         window.addEventListener("error", function(e) {
           if (isExtensionError(e.error || e.message)) {

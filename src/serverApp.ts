@@ -191,7 +191,7 @@ export async function startServer() {
       console.log("⚡ Mounting Vite dev server middleware...");
       const { createServer } = await import("vite");
       const vite = await createServer({
-        server: { middlewareMode: true, hmr: false, watch: null },
+        server: { middlewareMode: true, hmr: false, ws: false, watch: null },
         appType: "spa",
       });
       app.use(vite.middlewares);
@@ -201,7 +201,20 @@ export async function startServer() {
   }
 
   const server = http.createServer(app);
-  const wss = new WebSocketServer({ server });
+  const wss = new WebSocketServer({ noServer: true });
+  server.on("upgrade", (request, socket, head) => {
+    const pathname = new URL(request.url || "/", "http://localhost").pathname;
+    if (pathname === "/api/ai/live") {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit("connection", ws, request);
+      });
+    } else {
+      // Gracefully accept and keep idle or ignore non-matching upgrade requests (e.g. Vite HMR probes)
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        ws.send(JSON.stringify({ type: "connected" }));
+      });
+    }
+  });
   liveVoiceGateway.attachServer(wss);
 
   let portArg: number | undefined;
