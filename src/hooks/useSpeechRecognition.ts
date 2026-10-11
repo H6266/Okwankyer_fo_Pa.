@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatSpokenNumbersAsDigits } from "../domain/numberFormatter";
+import { normalizeGhanaPhoneNumber } from "../domain/validation";
 import {
   isAcousticSystemEcho,
   stripSystemEchoFromTranscript,
@@ -44,6 +45,26 @@ export function useSpeechRecognition(options: {
         resolvedDigit: raw,
         resolvedIntent: `Digit ${raw}`,
         matchedRule: "Exact single digit match",
+        resolverType: "local_pattern",
+      };
+    }
+
+    // 1b. Auto-detect 10-digit phone number for sending money
+    const digitsOnly = formatted.replace(/\D/g, "");
+    const normalizedWords = normalizeGhanaPhoneNumber(text);
+    if (digitsOnly.length === 10 || (digitsOnly.length === 12 && digitsOnly.startsWith("233")) || (normalizedWords.length === 10 && normalizedWords.startsWith("0"))) {
+      const phone =
+        normalizedWords.length === 10 && normalizedWords.startsWith("0")
+          ? normalizedWords
+          : digitsOnly.length === 12
+          ? "0" + digitsOnly.slice(3)
+          : digitsOnly;
+      return {
+        transcript: formatted,
+        confidence: 0.99,
+        resolvedDigit: phone,
+        resolvedIntent: `RECIPIENT_PHONE_${phone}`,
+        matchedRule: "Auto-detected 10-digit recipient phone number for sending money",
         resolverType: "local_pattern",
       };
     }

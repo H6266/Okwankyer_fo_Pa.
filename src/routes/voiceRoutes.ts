@@ -12,7 +12,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { config } from "../config/env";
 import { recipientResolver } from "../providers/recipient/RecipientResolver";
-import { parseAndValidateAmount, validateGhanaPhoneNumber } from "../domain/validation";
+import { parseAndValidateAmount, validateGhanaPhoneNumber, normalizeGhanaPhoneNumber } from "../domain/validation";
 import { transactionStateMachine } from "../domain/stateMachine";
 import { buildSafeConfirmationPrompt, buildReceiptPrompt } from "../audio/dynamicPromptBuilder";
 import { speechToText } from "../modules/sttService";
@@ -207,6 +207,12 @@ ivrRouter.all("/language-selection", (req: Request, res: Response) => {
   }
 
   const stepDef = getStepDefinition("language-selection")!;
+  const digitsOnlyLang = dtmf.replace(/\D/g, "");
+  if (digitsOnlyLang.length === 10 || (digitsOnlyLang.length === 12 && digitsOnlyLang.startsWith("233"))) {
+    session.language = "en";
+    auditLogger.log("info", "TELEPHONY", `Auto-identified 10-digit number for sending money at language-selection: ${digitsOnlyLang}`, sessionId);
+    return xmlResponse(res, `    <Redirect>${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=en&amp;dtmfDigits=${encodeURIComponent(digitsOnlyLang)}</Redirect>`);
+  }
   const validation = validateKeypadInput(stepDef, dtmf, "en");
 
   if (validation.valid) {
@@ -279,6 +285,11 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
   const session = transactionStateMachine.getOrCreateSession(sessionId);
 
   const stepDef = getStepDefinition("service-select")!;
+  const digitsOnlyService = dtmf.replace(/\D/g, "");
+  if (digitsOnlyService.length === 10 || (digitsOnlyService.length === 12 && digitsOnlyService.startsWith("233"))) {
+    auditLogger.log("info", "TELEPHONY", `Auto-identified 10-digit number for sending money at service-choice: ${digitsOnlyService}`, sessionId);
+    return xmlResponse(res, `    <Redirect>${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${encodeURIComponent(digitsOnlyService)}</Redirect>`);
+  }
   const validation = validateKeypadInput(stepDef, dtmf, lang);
 
   if (validation.valid) {
@@ -397,6 +408,11 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
   }
 
   const stepDef = getStepDefinition("provider-select")!;
+  const digitsOnlyProvider = dtmf.replace(/\D/g, "");
+  if (digitsOnlyProvider.length === 10 || (digitsOnlyProvider.length === 12 && digitsOnlyProvider.startsWith("233"))) {
+    auditLogger.log("info", "TELEPHONY", `Auto-identified 10-digit number for sending money at provider-choice: ${digitsOnlyProvider}`, sessionId);
+    return xmlResponse(res, `    <Redirect>${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${encodeURIComponent(digitsOnlyProvider)}</Redirect>`);
+  }
   const validation = validateKeypadInput(stepDef, dtmf, lang);
 
   if (validation.valid) {
@@ -493,19 +509,32 @@ ivrRouter.all("/action-choice", async (req: Request, res: Response) => {
   const session = transactionStateMachine.getOrCreateSession(sessionId);
 
   const stepDef = getStepDefinition("action-select")!;
+  const digitsOnlyAction = dtmf.replace(/\D/g, "");
+  if (digitsOnlyAction.length === 10 || (digitsOnlyAction.length === 12 && digitsOnlyAction.startsWith("233"))) {
+    auditLogger.log("info", "TELEPHONY", `Auto-identified 10-digit number for sending money at action-choice: ${digitsOnlyAction}`, sessionId);
+    return xmlResponse(res, `    <Redirect>${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${encodeURIComponent(digitsOnlyAction)}</Redirect>`);
+  }
   const validation = validateKeypadInput(stepDef, dtmf, lang);
 
   if (validation.valid) {
     if (validation.isNavigation && validation.navAction === "cancel") {
       transactionStateMachine.transition(sessionId, "CANCELLED");
+      const spoken =
+        lang === "twi"
+          ? "Yɛatwa mu. Frɛ no bɛtwa mu wɔ sɛkɛnd 7 mu. Sɛ wopɛ sɛ wohyɛ aseɛ foforɔ a, mia baako."
+          : "Transaction ended. Waiting 7 seconds before exit. Press 1 to start a new transfer.";
       const navDecision: IvrDecision = {
         type: "understood_intent",
         reason: "Caller pressed 0 to cancel call.",
-        replyText: lang === "twi" ? "Yɛatwa mu. Nante yie." : "Cancelled. Goodbye.",
-        replyKey: "cancelled",
+        replyText: spoken,
+        replyKey: "cancelled_wait_exit",
         action: "hangup",
       };
-      return xmlResponse(res, `    <Say voice="female">${navDecision.replyText}</Say>\n    <Reject/>`, navDecision);
+      return xmlResponse(
+        res,
+        `    <Say voice="female">${spoken}</Say>\n    <GetDigits timeout="7" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        <Pause length="7"/>\n    </GetDigits>\n    <Reject/>`,
+        navDecision
+      );
     }
     if (validation.isNavigation && validation.navAction === "back") {
       const navDecision: IvrDecision = {
@@ -608,7 +637,14 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
 
   if (rawDigits === "0") {
     transactionStateMachine.transition(sessionId, "CANCELLED");
-    return xmlResponse(res, `    <Say voice="female">${lang === "twi" ? "Yɛatwa mu. Nante yie." : "Cancelled. Goodbye."}</Say>\n    <Reject/>`);
+    const spoken =
+      lang === "twi"
+        ? "Yɛatwa mu. Frɛ no bɛtwa mu wɔ sɛkɛnd 7 mu. Sɛ wopɛ sɛ wohyɛ aseɛ foforɔ a, mia key biara na kɔ so."
+        : "Transaction ended. Waiting 7 seconds before exit. Press any key to start a new transfer without repeating the whole menu.";
+    return xmlResponse(
+      res,
+      `    <Say voice="female">${spoken}</Say>\n    <GetDigits timeout="7" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/exit-grace-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        <Pause length="7"/>\n    </GetDigits>\n    <Reject/>`
+    );
   }
   if (rawDigits === "8") {
     return xmlResponse(res, `    <Redirect>${baseUrl}/action-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
@@ -664,22 +700,38 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
   const last4Spaced = phoneValidation.last4Spaced;
   const nameSpoken = resolution.name || (lang === "twi" ? `nɔmba a ɛwie ${last4Spaced}` : `subscriber ending in ${last4Spaced}`);
 
-  let readbackPrompt = "";
+  let amountPrompt = "";
   if (lang === "twi") {
-    readbackPrompt = resolution.verified
-      ? `Worepɛ sɛ womane sika kɔma ${nameSpoken} a ne nɔmba wie ${last4Spaced}. Sɛ ɛyɛ ampa a, mia baako (1). Sɛ ɛnyɛ no a, mia mmienu (2).`
-      : `Kɔkɔbɔ: Yɛantumi anhu edin a ɛbata nɔmba a ɛwie ${last4Spaced} no ho. Sɛ wopɛ sɛ wokɔ so a, mia baako (1). Sɛ wopɛ sɛ wosesa nɔmba no a, mia mmienu (2).`;
+    amountPrompt = `Woremane sika kɔma ${nameSpoken} a ne nɔmba wie ${last4Spaced}. Mepa wo kyɛw, bɔ anaa ka sika dodow a wopɛ sɛ womane no wɔ Cedi mu na fa hash ka ho.`;
   } else {
-    readbackPrompt = resolution.verified
-      ? `You are about to send money to ${nameSpoken}, whose phone number ends with ${last4Spaced}. To confirm this recipient, press 1. To re-enter, press 2.`
-      : `Warning: The recipient name for phone number ending with ${last4Spaced} could not be verified in the subscriber directory. To proceed with this number, press 1. To re-enter, press 2.`;
+    amountPrompt = `Sending money to ${nameSpoken}, whose phone number ends with ${last4Spaced}. Please enter or say the amount in Ghana Cedis, followed by the hash key.`;
   }
 
-  const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/recipient-verify-choice?sessionId=${sessionId}&amp;lang=${lang}">
-        <Say voice="female">${readbackPrompt}</Say>
-    </GetDigits>`;
+  // Automatically allow user to the next stage to press or say the amount sending without stacking
+  const xml = `    <GetDigits timeout="30" finishOnKey="#" numDigits="8" callbackUrl="${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}">
+        <Say voice="female">${amountPrompt}</Say>
+    </GetDigits>
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="8" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=enter-amount&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
 
   xmlResponse(res, xml);
+});
+
+// ── Step 7.5: Exit Grace Choice (7s wait -> start over transfer) ─────
+ivrRouter.all("/exit-grace-choice", (req: Request, res: Response) => {
+  const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
+  const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
+  const baseUrl = getBaseUrl(req);
+  const session = transactionStateMachine.getOrCreateSession(sessionId);
+
+  session.retryCount = 0;
+  if (dtmf === "0") {
+    // Explicit immediate hangup
+    return xmlResponse(res, `    <Say voice="female">${lang === "twi" ? "Nante yie." : "Goodbye."}</Say>\n    <Reject/>`);
+  }
+
+  // Any key pressed (1, 2, 8, 9, etc.) starts new transfer directly at recipient entry without repeating whole system!
+  return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
 });
 
 ivrRouter.all("/recipient-verify-choice", (req: Request, res: Response) => {
@@ -704,31 +756,17 @@ ivrRouter.all("/recipient-verify-choice", (req: Request, res: Response) => {
     session.retryCount = 0;
     return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
   }
-  if (dtmf === "1") {
-    // Confirmed recipient -> proceed to amount input
+  
+  // If the caller entered an amount (e.g. 5, 10, 20, 50, 100...) or confirmed with 1
+  const possibleAmt = parseAndValidateAmount(dtmf);
+  if (possibleAmt.valid && possibleAmt.amount && possibleAmt.amount > 0 && dtmf !== "1") {
     session.retryCount = 0;
-    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+    return xmlResponse(res, `    <Redirect>${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${encodeURIComponent(dtmf)}</Redirect>`);
   }
 
-  // Invalid key at recipient confirmation
-  session.retryCount = (session.retryCount || 0) + 1;
-  const decision = ivrDecisionEngine.decide({
-    stepId: "recipient-verify-choice",
-    language: lang,
-    input: dtmf,
-    inputMethod: "keypad",
-    retryCount: session.retryCount,
-    sessionId,
-  });
-  if (decision.action === "hangup") {
-    transactionStateMachine.transition(sessionId, "FAILED", { failureReason: decision.reason });
-    return xmlResponse(res, `    <Say voice="female">${decision.replyText}</Say>\n    <Reject/>`, decision);
-  }
-  return xmlResponse(
-    res,
-    `    <Say voice="female">${decision.replyText}</Say>\n    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}&amp;err=invalid</Redirect>`,
-    decision
-  );
+  // Proceed directly to amount input, NEVER get stuck at recipient step
+  session.retryCount = 0;
+  return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
 });
 
 // ── Step 8: Amount Input ──────────────────────────────────────────────
@@ -1042,6 +1080,23 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   }
 
   const clean = transcript.toLowerCase().trim();
+
+  // Auto-detect 10-digit recipient phone number in spoken input at ANY step!
+  const cleanDigits = clean.replace(/[^0-9]/g, "");
+  const spokenPhoneMatch = clean.match(/\b(0[0-9]{9}|233[0-9]{9})\b/);
+  const normalizedPhone = normalizeGhanaPhoneNumber(clean);
+  const detectedPhone =
+    spokenPhoneMatch
+      ? spokenPhoneMatch[1]
+      : cleanDigits.length === 10 && cleanDigits.startsWith("0")
+      ? cleanDigits
+      : normalizedPhone.length === 10
+      ? normalizedPhone
+      : null;
+  if (detectedPhone && step !== "enter-amount" && step !== "verify-amount" && step !== "safe-confirmation") {
+    auditLogger.log("info", "NLU", `Speech auto-detected 10-digit recipient number for sending money: ${detectedPhone}`, sessionId);
+    return xmlResponse(res, `    <Redirect>${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${encodeURIComponent(detectedPhone)}</Redirect>`);
+  }
 
   // Navigation commands in speech
   if (/\b(go back|previous|back|san akyi|san)\b/i.test(clean)) {

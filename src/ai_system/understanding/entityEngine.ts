@@ -19,11 +19,14 @@ export class EntityEngine {
       slots.amount = extractedAmount;
     }
 
-    // 2. Extract Phone Number
-    const phoneMatch = text.match(/\b(0[25][0-9]{8}|233[25][0-9]{8})\b/);
+    // 2. Extract Phone Number (10 digits starting with 0, or international 233)
+    const phoneMatch = text.match(/\b(0[0-9]{9}|233[0-9]{9})\b/);
+    const digitsOnly = text.replace(/[^0-9]/g, "");
     if (phoneMatch) {
       const normalized = normalizePhoneNumber(phoneMatch[0]);
       slots.recipientPhone = normalized;
+    } else if (digitsOnly.length === 10 && digitsOnly.startsWith("0")) {
+      slots.recipientPhone = digitsOnly;
     }
 
     // 3. Extract Recipient Name if not found via phone
@@ -62,7 +65,7 @@ export class EntityEngine {
       const val = parseFloat(match[1]);
       if (!isNaN(val) && val > 0 && val < 10000) {
         // Exclude phone numbers (which have 10 digits starting with 0)
-        if (!/^0[25]\d{8}$/.test(match[1])) {
+        if (!/^0\d{9}$/.test(match[1])) {
           return val;
         }
       }

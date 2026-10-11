@@ -36,6 +36,7 @@ import {
   extractStreamingWords,
   PhoneticCorrection,
 } from "../../ai_system/speech/asr/ghanaianPhoneticMatcher";
+import { normalizeGhanaPhoneNumber } from "../../domain/validation";
 
 // ── Types ─────────────────────────────────────────────────────────────
 interface TerminalLog {
@@ -905,12 +906,27 @@ export const PhoneSimulatorPage: React.FC = () => {
       }
 
       const digitsOnly = effectiveClean.replace(/\D/g, "");
-      if (curStep.includes("recipient")) {
-        const phone = discussion.slots.recipientPhone || (digitsOnly.length === 10 ? digitsOnly : null);
-        if (phone) {
-          addLog("AI", `Recipient phone parsed: ${phone}`);
-          return dispatchVoiceWebhook(targetCallback, { dtmfDigits: phone + "#" });
-        }
+      const normalizedSpoken = normalizeGhanaPhoneNumber(effectiveClean);
+
+      // Auto-identify 10-digit phone number in spoken input across ANY step!
+      const phoneMatch = effectiveClean.match(/\b(0[0-9]{9}|233[0-9]{9})\b/);
+      const recognized10DigitPhone =
+        phoneMatch
+          ? phoneMatch[1]
+          : digitsOnly.length === 10 && digitsOnly.startsWith("0")
+          ? digitsOnly
+          : normalizedSpoken.length === 10
+          ? normalizedSpoken
+          : null;
+
+      if (recognized10DigitPhone && !curStep.includes("amount")) {
+        const phone = recognized10DigitPhone;
+        addLog("AI", `⚡ Auto-identified 10-digit number for sending money: ${phone}`);
+        addLog("state", `Moving directly to Amount stage for recipient ${phone}...`);
+        return dispatchVoiceWebhook(
+          `/api/simulator/verify-recipient?sessionId=${curSession}&lang=${curLang}`,
+          { dtmfDigits: phone + "#" }
+        );
       }
 
       if (curStep.includes("amount")) {
@@ -1241,14 +1257,6 @@ export const PhoneSimulatorPage: React.FC = () => {
         stepName: activeStepNameRef.current,
       });
 
-      // Single-digit expectation
-      if (activeNumDigits === 1) {
-        setDigitsBuffer("");
-        addLog("caller", `Keypad '${digit}'`);
-        dispatchVoiceWebhook(targetCallback, { dtmfDigits: digit });
-        return;
-      }
-
       // Multi-digit input with finish on key (#)
       if (digit === activeFinishOnKey) {
         if (digitsBuffer.trim()) {
@@ -1262,6 +1270,35 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       const nextBuf = digitsBuffer + digit;
       setDigitsBuffer(nextBuf);
+
+      // AUTOMATIC RECOGNITION: The moment user punches numbers up to 10 at a time
+      const digitsOnly = nextBuf.replace(/\D/g, "");
+      if (digitsOnly.length === 10) {
+        setDigitsBuffer("");
+        addLog("caller", `Keypad '${digitsOnly}#'`);
+        addLog("AI", `⚡ Auto-identified 10-digit number for sending money: ${digitsOnly}. Advancing to amount stage!`);
+        dispatchVoiceWebhook(
+          activeStepNameRef.current.includes("recipient")
+            ? targetCallback
+            : `/api/simulator/verify-recipient?sessionId=${sessionIdRef.current || sessionId}&lang=${languageRef.current || "en"}`,
+          { dtmfDigits: digitsOnly + "#" }
+        );
+        return;
+      }
+
+      // Single-digit expectation (only when NOT accumulating a 10-digit phone number)
+      const isAccumulatingPhone =
+        nextBuf.startsWith("0") ||
+        nextBuf.startsWith("233") ||
+        activeStepNameRef.current.includes("recipient") ||
+        activeStepNameRef.current.includes("phone");
+
+      if (activeNumDigits === 1 && !isAccumulatingPhone) {
+        setDigitsBuffer("");
+        addLog("caller", `Keypad '${digit}'`);
+        dispatchVoiceWebhook(targetCallback, { dtmfDigits: digit });
+        return;
+      }
 
       if (!activeFinishOnKey && nextBuf.length >= activeNumDigits) {
         setDigitsBuffer("");

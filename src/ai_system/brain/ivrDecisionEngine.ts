@@ -78,6 +78,50 @@ export class IvrDecisionEngine {
       };
     }
 
+    // ── Resuming from Exit Grace Period ────────────────────────────────────
+    if (stepId === "exit-grace-period" || stepId === "exit_grace_period") {
+      // Any input during grace period resumes directly to recipient entry without replaying whole system!
+      return {
+        type: "understood_intent",
+        reason: "Caller resumed to start a new transfer from exit grace period.",
+        replyText:
+          language === "twi"
+            ? "Yɛsrɛ wo, bɔ obi a woremane no sika no fon nɔmba a ɛyɛ du na fa hash ka ho."
+            : "Please enter the recipient's ten-digit phone number, followed by the hash key.",
+        replyKey: "enter_recipient",
+        nextStep: "enter-recipient",
+        action: "advance",
+        promptReplayKey: "enter_recipient",
+      };
+    }
+
+    // ── Universal 10-Digit Phone Auto-Identification Across Any Step ──────────
+    // The moment the user punches or says numbers up to 10 at a time, automatically identify
+    // it as recipient phone for sending money and allow the user to the next stage (amount sending).
+    const digitsOnlyUniversal = clean.replace(/[^0-9]/g, "");
+    const isStepAmountOrConfirm = stepId.includes("amount") || stepId.includes("confirm") || stepId.includes("safe-outcome");
+    if (!isStepAmountOrConfirm && (digitsOnlyUniversal.length === 10 || (digitsOnlyUniversal.length === 12 && digitsOnlyUniversal.startsWith("233")))) {
+      const phoneVal = validateGhanaPhoneNumber(clean);
+      if (phoneVal.valid && phoneVal.normalized) {
+        return {
+          type: "understood_intent",
+          reason: `Auto-identified 10-digit recipient number ${phoneVal.normalized} for sending money. Advancing directly to amount stage without stacking.`,
+          replyText:
+            language === "twi"
+              ? `Nɔmba a ɛwie ${phoneVal.last4Spaced} no ayɛ pɛ. Mepa wo kyɛw, bɔ anaa ka sika dodow a wopɛ sɛ womane no wɔ Cedi mu na fa hash ka ho.`
+              : `Recipient number ending with ${phoneVal.last4Spaced} identified on ${phoneVal.network}. Please enter or say the amount in Ghana Cedis, followed by the hash key.`,
+          replyKey: "recipient_verified_enter_amount",
+          nextStep: "enter-amount",
+          action: "advance",
+          updatedSlots: {
+            action: "send_money",
+            recipientPhone: phoneVal.normalized,
+            network: phoneVal.network,
+          },
+        };
+      }
+    }
+
     // ── 1. Spoken Universal Navigation & Clarification ───────────────────
     if (inputMethod === "speech") {
       // Repeat / What did you say
@@ -131,13 +175,14 @@ export class IvrDecisionEngine {
       if (/\b(cancel|exit|stop|abort|quit|gyae|hwee)\b/i.test(cleanLower)) {
         return {
           type: "understood_intent",
-          reason: "Caller requested to cancel transaction.",
+          reason: "Caller requested to cancel/end transaction.",
           replyText:
             language === "twi"
-              ? "Yɛatwa mu. Nante yie."
-              : "Transaction cancelled. Goodbye.",
-          replyKey: "cancelled",
+              ? "Yɛatwa mu. Frɛ no bɛtwa mu wɔ sɛkɛnd 7 mu. Sɛ wopɛ sɛ wohyɛ aseɛ foforɔ a, mia key biara."
+              : "Transaction ended. Waiting 7 seconds before exit. Press any key or Start Over to begin a new transfer.",
+          replyKey: "cancelled_wait_exit",
           action: "hangup",
+          nextStep: "exit-grace-period",
         };
       }
 
@@ -240,6 +285,21 @@ export class IvrDecisionEngine {
     if (stepDef?.inputType === "phone_number" || stepId.includes("recipient")) {
       const digitsOnly = clean.replace(/[^0-9]/g, "");
 
+      // Check if user pressed '0' to exit / cancel as prompted ("Press 0 to exit")
+      if (digitsOnly === "0" || clean === "0" || cleanLower === "0" || cleanLower === "exit" || cleanLower === "cancel") {
+        return {
+          type: "understood_intent",
+          reason: "Caller pressed 0 to exit at recipient entry prompt.",
+          replyText:
+            language === "twi"
+              ? "Yɛatwa mu. Frɛ no bɛtwa mu wɔ sɛkɛnd 7 mu. Sɛ wopɛ sɛ wohyɛ aseɛ foforɔ a, mia key biara."
+              : "Transaction ended. Waiting 7 seconds before exit. Press any key or Start Over to begin a new transfer.",
+          replyKey: "cancelled_wait_exit",
+          action: "hangup",
+          nextStep: "exit-grace-period",
+        };
+      }
+
       // A) Check length
       if (digitsOnly.length < 10) {
         const reason = `Recipient number '${clean}' has only ${digitsOnly.length} digits. Ghana phone numbers must be 10 digits.`;
@@ -292,16 +352,16 @@ export class IvrDecisionEngine {
         };
       }
 
-      // C) Valid number received!
+      // C) Valid number received: Immediately advance to amount step without stacking!
       return {
         type: "understood_intent",
-        reason: `Valid Ghanaian ${phoneVal.network} number ${phoneVal.normalized} recognized.`,
+        reason: `Valid Ghanaian ${phoneVal.network} number ${phoneVal.normalized} recognized. Advancing directly to amount step.`,
         replyText:
           language === "twi"
-            ? `Yɛahu wo nɔmba a ɛwie ${phoneVal.last4Spaced}.`
-            : `Phone number ending with ${phoneVal.last4Spaced} recognized on ${phoneVal.network}.`,
-        replyKey: "recipient_verified",
-        nextStep: "recipient-verify-choice",
+            ? `Nɔmba a ɛwie ${phoneVal.last4Spaced} no ayɛ pɛ. Mepa wo kyɛw, bɔ anaa ka sika dodow a wopɛ sɛ womane no wɔ Cedi mu na fa hash ka ho.`
+            : `Phone number ending with ${phoneVal.last4Spaced} recognized on ${phoneVal.network}. Please enter or say the amount in Ghana Cedis, followed by the hash key.`,
+        replyKey: "recipient_verified_enter_amount",
+        nextStep: "enter-amount",
         action: "advance",
         updatedSlots: {
           recipientPhone: phoneVal.normalized,

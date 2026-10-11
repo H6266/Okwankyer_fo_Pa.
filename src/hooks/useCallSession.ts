@@ -360,6 +360,21 @@ export function useCallSession() {
       setSession((prev) => {
         if (!prev.isActive) return prev;
 
+        // Auto-detect 10-digit phone number for sending money across steps
+        const cleanDigitsOnly = digit.replace(/\D/g, "");
+        if (cleanDigitsOnly.length === 10 && prev.step !== "amount" && prev.step !== "confirm" && prev.step !== "zero_pin") {
+          const phone = cleanDigitsOnly;
+          const name = phone.endsWith("8464")
+            ? "Kwame Nyamebere"
+            : phone === "0241234567"
+            ? "Kwame Nyameba"
+            : phone === "0543546010"
+            ? "Hannes Aboagye"
+            : `Subscriber ending in ${phone.slice(-4)}`;
+          setTimeout(() => goToStep("amount", { recipientPhone: phone, recipientName: name }), 100);
+          return { ...prev, digitsBuffer: "", recipientPhone: phone, recipientName: name };
+        }
+
         // Universal grammar 0 = Cancel cleanly
         if (digit === "0" && prev.step !== "amount" && prev.step !== "recipient") {
           setTimeout(() => endCall("CANCELLED"), 50);
@@ -374,6 +389,28 @@ export function useCallSession() {
             setTimeout(() => goToStep(prevStep), 50);
           }
           return { ...prev, digitsBuffer: "" };
+        }
+
+        // UNIVERSAL AUTO-IDENTIFICATION: The moment user punches or says numbers up to 10 at a time,
+        // automatically identify it as recipient phone for sending money and allow user to next stage (amount sending)!
+        const nextAccumulated = (prev.digitsBuffer + digit).replace(/[^0-9]/g, "");
+        if (prev.step !== "amount" && prev.step !== "confirm" && prev.step !== "kyc" && (digit.length === 10 || nextAccumulated.length === 10)) {
+          const phone = digit.length === 10 ? digit : nextAccumulated;
+          const name = phone.endsWith("8464")
+            ? "Kwame Nyamebere"
+            : phone === "0241234567"
+            ? "Kwame Nyameba"
+            : phone === "0543546010"
+            ? "Hannes Aboagye"
+            : `Subscriber ending in ${phone.slice(-4)}`;
+          addLog(`[AUTO-IDENTIFIED] 10-digit number for sending money: ${phone} (${name}). Advancing to amount stage!`);
+          setTimeout(() => goToStep("amount", { recipientPhone: phone, recipientName: name }), 100);
+          return { ...prev, digitsBuffer: "", recipientPhone: phone, recipientName: name };
+        }
+
+        // If accumulating a phone number starting with '0', keep buffering without triggering single-digit menus
+        if ((prev.digitsBuffer.startsWith("0") || (digit === "0" && !prev.digitsBuffer)) && prev.step !== "amount" && prev.step !== "confirm" && prev.step !== "kyc") {
+          return { ...prev, digitsBuffer: prev.digitsBuffer + digit };
         }
 
         // Universal grammar 9 = Repeat prompt
@@ -420,19 +457,20 @@ export function useCallSession() {
           return { ...prev, digitsBuffer: "" };
         }
 
-        // Recipient step: Accumulate 10 digits until #
+        // Recipient step: Accumulate 10 digits and auto-advance immediately to amount stage!
         if (prev.step === "recipient") {
-          if (digit === "#") {
-            if (prev.digitsBuffer.length < 10) {
+          const nextDigits = (prev.digitsBuffer + digit).slice(0, 10);
+          if (nextDigits.length === 10 || digit === "#") {
+            const phone = nextDigits.length === 10 ? nextDigits : prev.digitsBuffer;
+            if (phone.length < 10) {
               return {
                 ...prev,
                 eventLogs: [
                   ...prev.eventLogs,
-                  `[INPUT ERROR] Incomplete phone number (${prev.digitsBuffer.length} digits entered). 10 digits required.`,
+                  `[INPUT ERROR] Incomplete phone number (${phone.length} digits entered). 10 digits required.`,
                 ],
               };
             }
-            const phone = prev.digitsBuffer;
             const name = phone.endsWith("8464")
               ? "Kwame Nyamebere"
               : phone === "0241234567"
@@ -440,10 +478,11 @@ export function useCallSession() {
               : phone === "0543546010"
               ? "Hannes Aboagye"
               : `Subscriber ending in ${phone.slice(-4)}`;
-            setTimeout(() => goToStep("kyc", { recipientPhone: phone, recipientName: name }), 100);
-            return { ...prev, digitsBuffer: "" };
+            // Auto advance directly to amount stage without stacking!
+            setTimeout(() => goToStep("amount", { recipientPhone: phone, recipientName: name }), 100);
+            return { ...prev, digitsBuffer: "", recipientPhone: phone, recipientName: name };
           }
-          return { ...prev, digitsBuffer: (prev.digitsBuffer + digit).slice(0, 10) };
+          return { ...prev, digitsBuffer: nextDigits };
         }
 
         // KYC step: 1 = Confirm, 2 = Edit/Cancel

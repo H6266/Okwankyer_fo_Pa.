@@ -1209,8 +1209,49 @@ export function usePhoneSimulator() {
         return;
       }
 
-      // 1-digit expectation: immediate submission
-      if (atExpectedDigits === 1) {
+      // Multi-digit buffering (e.g. 10 digits for phone number or amount)
+      const nextBuf = digitsBuffer + digit;
+      setDigitsBuffer(nextBuf);
+
+      const digitsOnly = nextBuf.replace(/\D/g, "");
+      // AUTOMATIC RECOGNITION: The moment user punches numbers up to 10 at a time
+      if (digitsOnly.length === 10) {
+        setDigitsBuffer("");
+        setTranscript((prev) => [
+          ...prev,
+          {
+            id: `caller_dtmf_${Date.now()}`,
+            role: "caller",
+            text: `[DTMF Keypad Entered - Auto 10-Digit Recipient]: ${digitsOnly}`,
+            timestamp: Date.now(),
+          },
+        ]);
+        setIsLoading(true);
+        try {
+          const verifyUrl = atCurrentCallbackUrl?.includes("verify-recipient")
+            ? atCurrentCallbackUrl
+            : "/verify-recipient";
+          const res = await api.dispatchAtVoiceWebhook(verifyUrl, {
+            sessionId: atSessionId,
+            callerNumber: atCallerPhone,
+            destinationNumber: "+233308048098",
+            isActive: "1",
+            dtmfDigits: digitsOnly + "#",
+          });
+          await processAtVoiceResponse(res, atSessionId, verifyUrl, {
+            dtmfDigits: digitsOnly + "#",
+          });
+        } catch (e: any) {
+          console.error("[AT Keypad] Dispatch error:", e);
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      // 1-digit expectation: immediate submission ONLY when NOT buffering a phone number
+      const isEnteringPhone = nextBuf.startsWith("0") || nextBuf.startsWith("233");
+      if (atExpectedDigits === 1 && !isEnteringPhone) {
         setDigitsBuffer("");
         setTranscript((prev) => [
           ...prev,
@@ -1241,18 +1282,15 @@ export function usePhoneSimulator() {
         return;
       }
 
-      // Multi-digit buffering (e.g. 10 digits for phone number or amount)
-      const nextBuf = digitsBuffer + digit;
-      setDigitsBuffer(nextBuf);
-
       if (nextBuf.length >= atExpectedDigits) {
+        const submitted = nextBuf;
         setDigitsBuffer("");
         setTranscript((prev) => [
           ...prev,
           {
             id: `caller_dtmf_${Date.now()}`,
             role: "caller",
-            text: `[DTMF Keypad Entered]: ${nextBuf}`,
+            text: `[DTMF Keypad Entered]: ${submitted}`,
             timestamp: Date.now(),
           },
         ]);
@@ -1263,10 +1301,10 @@ export function usePhoneSimulator() {
             callerNumber: atCallerPhone,
             destinationNumber: "+233308048098",
             isActive: "1",
-            dtmfDigits: nextBuf,
+            dtmfDigits: submitted,
           });
           await processAtVoiceResponse(res, atSessionId, atCurrentCallbackUrl, {
-            dtmfDigits: nextBuf,
+            dtmfDigits: submitted,
           });
         } catch (e: any) {
           console.error("[AT Keypad] Dispatch error:", e);
@@ -1883,9 +1921,10 @@ export function usePhoneSimulator() {
       return;
     }
 
-    // Auto submit complete 10-digit phone number
-    if (nextBuffer.length === 10 && nextBuffer.startsWith("0")) {
-      sendInputTurn(nextBuffer, "DTMF");
+    // Auto submit complete 10-digit phone number immediately
+    const cleanDigits = nextBuffer.replace(/\D/g, "");
+    if (cleanDigits.length === 10) {
+      sendInputTurn(cleanDigits, "DTMF");
       setDigitsBuffer("");
     }
   }, [gatewayMode, handleAtKeypadDigit, isActive, digitsBuffer, currentStep, playTone, startCall, sendInputTurn]);

@@ -30,10 +30,21 @@ const TELCO_PREFIXES: Record<string, GhanaianNetwork> = {
   "053": "MTN",
   "020": "Telecel",
   "050": "Telecel",
+  "028": "Telecel",
   "027": "AT",
   "057": "AT",
   "026": "AT",
   "056": "AT",
+  "030": "AT",
+  "031": "AT",
+  "032": "AT",
+  "033": "AT",
+  "034": "AT",
+  "035": "AT",
+  "036": "AT",
+  "037": "AT",
+  "038": "AT",
+  "039": "AT",
 };
 
 const SPOKEN_DIGIT_MAP: Record<string, string> = {
@@ -132,7 +143,7 @@ export function validateGhanaPhoneNumber(raw: string): PhoneValidationResult {
   }
 
   const prefix = normalized.slice(0, 3);
-  const network = TELCO_PREFIXES[prefix];
+  const network = TELCO_PREFIXES[prefix] || (normalized.startsWith("0") ? "MTN" : undefined);
 
   if (!network) {
     return {

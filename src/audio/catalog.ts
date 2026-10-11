@@ -128,6 +128,15 @@ export const AUDIO_CATALOG: AudioPromptMetadata[] = [
     spokenText: "Congratulations! You have successfully sent 500 Ghana cedis to Kwame Nyamebere. Your transaction was completed on 17 September 2026 at 5:00 PM. Your reference number is OKP-847291. Your transaction details have also been sent to you. Would you like to do anything else?",
     description: "Historical studio baseline prompt; dynamic TTS used for actual calls.",
   },
+  {
+    id: "en-13",
+    stepNumber: 11,
+    filename: "English/Audio_prompt_13.mp3",
+    language: "en",
+    title: "13. Studio Closing & Exit",
+    spokenText: "Thank you for using Ɔkwankyerɛfo Pa. Goodbye.",
+    description: "English session completion and graceful hangup sign-off.",
+  },
 
   // ── Akan Twi Suite ────────────────────────────────────────────────
   {

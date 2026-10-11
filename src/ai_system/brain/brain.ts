@@ -59,6 +59,7 @@ import { ivrDecisionEngine, type IvrDecision, type IvrTurnContext, type IvrDecis
 import '../../services/momo';
 import { pilotControls } from '../../services/pilotControls';
 import { pilotMetrics } from '../../services/pilotMetrics';
+import { normalizeGhanaPhoneNumber } from '../../domain/validation';
 
 export interface BrainConfig {
   mode: BrainMode;
@@ -1038,7 +1039,17 @@ Output format: Return ONLY valid JSON with keys: intent, slots, signals, reply.`
 
     const isNonTransferSpecific = isBill || isAirtime || isData || isReverse || isCare || isLoan || isBalance;
 
+    const digitsOnlyInUtterance = lower.replace(/[^0-9]/g, "");
+    const normalizedUtterancePhone = normalizeGhanaPhoneNumber(lower);
+    const has10DigitPhone =
+      digitsOnlyInUtterance.length === 10 ||
+      (digitsOnlyInUtterance.length === 12 && digitsOnlyInUtterance.startsWith("233")) ||
+      /\b(0\d{9}|233\d{9})\b/.test(lower) ||
+      (normalizedUtterancePhone.length === 10 && normalizedUtterancePhone.startsWith("0"));
+
     if (hasTransferAction) {
+      scores['momo.transfer'] += 0.95;
+    } else if (has10DigitPhone && !isNonTransferSpecific) {
       scores['momo.transfer'] += 0.95;
     } else if (hasTransferWord) {
       scores['momo.transfer'] += 0.85;
@@ -1082,11 +1093,17 @@ Output format: Return ONLY valid JSON with keys: intent, slots, signals, reply.`
       currentSlots.recipient = {};
     }
 
-    // 1. Phone number extraction
+    // 1. Phone number extraction (10 digits starting with 0, or international 233)
     let extractedPhone: string | undefined;
-    const phoneMatch = text.match(/\b(0[235]\d{8}|233[235]\d{8})\b/);
+    const phoneMatch = text.match(/\b(0[0-9]{9}|233[0-9]{9})\b/);
+    const digitsOnly = text.replace(/[^0-9]/g, "");
+    const normalizedPhone = normalizeGhanaPhoneNumber(raw);
     if (phoneMatch) {
       extractedPhone = phoneMatch[1];
+    } else if (digitsOnly.length === 10 && digitsOnly.startsWith("0")) {
+      extractedPhone = digitsOnly;
+    } else if (normalizedPhone.length === 10 && normalizedPhone.startsWith("0")) {
+      extractedPhone = normalizedPhone;
     } else {
       const decodedPhone = precomputedDecoder || numberDecoder.decode(raw);
       if (decodedPhone.isPhoneNumber && decodedPhone.phoneNumberDigits) {

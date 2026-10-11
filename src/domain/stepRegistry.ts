@@ -280,6 +280,29 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
       "2": "enter-amount",
     },
   },
+
+  "exit-grace-period": {
+    id: "exit-grace-period",
+    name: "Exit Grace Period (7s Wait)",
+    promptKey: "exit_grace_period",
+    promptText: {
+      en: "Transaction ended. Waiting 7 seconds before exit. Press any key to start a new transaction.",
+      twi: "Yɛatwa mu. Frɛ no bɛtwa mu wɔ sɛkɛnd 7 mu. Sɛ wopɛ sɛ wohyɛ aseɛ foforɔ a, mia key biara.",
+    },
+    inputType: "single_digit",
+    acceptedDigits: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "#"],
+    optionsDescription: {
+      en: "Press any key to start a new transaction, or wait 7 seconds to exit",
+      twi: "Mia key biara na fa hyɛ aseɛ foforɔ, anaa twɛn sɛkɛnd 7 na gyae",
+    },
+    navigation: {
+      allowBack: false,
+      allowRepeat: false,
+      allowCancel: true,
+    },
+    collects: "action",
+    resolveNextStep: () => "enter-recipient",
+  },
 };
 
 /**
