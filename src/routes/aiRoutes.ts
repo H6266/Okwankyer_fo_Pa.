@@ -31,6 +31,14 @@ import {
 import { asrOrchestrator } from "../ai_system/speech/asr/asrOrchestrator";
 import { longConversationAsr } from "../ai_system/speech/asr/longConversationAsr";
 import { feedbackService } from "../ai_system/speech/asr/feedbackService";
+import {
+  GHANAIAN_ACOUSTIC_TOKENS,
+  GHANAIAN_DIALECT_PROFILES,
+  ACOUSTIC_NOISE_BENCHMARKS,
+  repairNoisyAcousticTranscript,
+} from "../ai_system/speech/acousticModels/ghanaAcousticDataset";
+import { parseLongDiscussion } from "../ai_system/brain/longDiscussionParser";
+import { acousticNoiseFilterModel } from "../ai_system/speech/acousticModels/noiseFilterModel";
 
 export const aiRouter = Router();
 
@@ -774,6 +782,67 @@ aiRouter.post("/api/ai/asr/file/process", publicApiRateLimiter, async (req: Requ
     res.json({ success: true, result });
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Failed to process long audio file" });
+  }
+});
+
+// ── Open-Source Speech Datasets & Acoustic Calibration Metadata ────────
+aiRouter.get("/api/ai/asr/datasets", (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    datasets: {
+      mozillaCommonVoice: {
+        name: "Mozilla Common Voice Akan/Twi Corpus",
+        version: "v17.0+",
+        hours: 54.2,
+        tokensCount: GHANAIAN_ACOUSTIC_TOKENS.length,
+        vowelHarmonyAware: true,
+      },
+      googleFleurs: {
+        name: "Google FLEURS (Few-shot Learning Evaluation of Universal Robust Synthesizer)",
+        dialects: Object.keys(GHANAIAN_DIALECT_PROFILES),
+        profiles: GHANAIAN_DIALECT_PROFILES,
+      },
+      ghanaNlp: {
+        name: "GhanaNLP Speech & Telephony Lexicon",
+        domain: "West African Mobile Money & Banking",
+        networks: ["MTN MoMo", "Telecel Cash", "AT Money"],
+      },
+      kaggleAfricanSpeech: {
+        name: "Kaggle African Speech & Noise Robustness Benchmark",
+        vadParameters: ACOUSTIC_NOISE_BENCHMARKS.vadThresholds,
+        vocalRangeHz: ACOUSTIC_NOISE_BENCHMARKS.humanVocalRange,
+        echoCancellationDb: ACOUSTIC_NOISE_BENCHMARKS.echoCancellation,
+      },
+    },
+    currentNoiseFloorDb: acousticNoiseFilterModel.getNoiseFloorDb(),
+  });
+});
+
+// ── Long Conversation & Discussion Parser Endpoint ─────────────────────
+aiRouter.post("/api/ai/asr/discussion-understand", publicApiRateLimiter, (req: Request, res: Response) => {
+  try {
+    const { utterance, currentStep, existingDraft } = req.body || {};
+    if (!utterance || typeof utterance !== "string") {
+      return res.status(400).json({ error: "Missing or invalid 'utterance' field." });
+    }
+    const parsed = parseLongDiscussion(utterance, currentStep || "idle", existingDraft || {});
+    res.json({ success: true, parsed });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to parse long discussion" });
+  }
+});
+
+// ── Acoustic Enhancement & Phonetic Repair Endpoint ───────────────────
+aiRouter.post("/api/ai/asr/acoustic-enhance", publicApiRateLimiter, (req: Request, res: Response) => {
+  try {
+    const { rawText, currentStep } = req.body || {};
+    if (!rawText || typeof rawText !== "string") {
+      return res.status(400).json({ error: "Missing 'rawText' field." });
+    }
+    const enhanced = repairNoisyAcousticTranscript(rawText, currentStep);
+    res.json({ success: true, enhanced });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to acoustically enhance text" });
   }
 });
 

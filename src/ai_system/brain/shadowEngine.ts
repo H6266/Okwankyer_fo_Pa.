@@ -207,7 +207,7 @@ ${profileSection}
 </caller_transcript>
 Current draft: ${JSON.stringify(draft.slots)}`;
 
-    const shadowModel = process.env.GEMINI_MODEL || (process.env.NODE_ENV === 'production' ? '' : 'gemini-2.5-flash');
+    const shadowModel = process.env.GEMINI_MODEL || (process.env.NODE_ENV === 'production' ? '' : 'gemini-3.8-flash');
     if (!shadowModel) return null;
 
     const abortController = new AbortController();

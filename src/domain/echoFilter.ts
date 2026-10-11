@@ -145,14 +145,18 @@ function isStandaloneCallerIntent(normalizedText: string): boolean {
   // Single digits or simple digits (e.g. "1", "2", "3", "0", "8", "9", "5", "0553838464")
   if (/^[0-9]+$/.test(normalizedText)) return true;
 
-  // Single word affirmative / navigation / selection commands
+  // Single word or common two-word affirmative / navigation / selection commands
   const callerKeywords = new Set([
     "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
-    "aane", "dabi", "yes", "no", "confirm", "cancel", "stop", "back",
+    "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "zero",
+    "english", "twi", "akan", "baako", "bako", "mmienu", "mienu", "mmiɛnsa", "mmiensa",
+    "momo", "mobile money", "telecom", "bank", "banking", "sikakorabea",
+    "aane", "dabi", "yes", "no", "confirm", "cancel", "stop", "back", "repeat",
     "mtn", "telecel", "airteltigo", "at", "vodafone",
     "balance", "sika", "mane", "send", "transfer", "airtime", "bundle",
-    "kwame", "ama", "kofi", "akua", "yaw", "abena", "mensah",
-    "yoo", "ampa", "ɛyɛ", "sesa", "tie bio", "san akyi"
+    "send money", "mane sika", "check balance", "my balance",
+    "kwame", "ama", "kofi", "akua", "yaw", "abena", "mensah", "boateng",
+    "yoo", "ampa", "ɛyɛ", "sesa", "tie bio", "san akyi", "pene so"
   ]);
 
   if (callerKeywords.has(normalizedText)) return true;
@@ -163,7 +167,7 @@ function isStandaloneCallerIntent(normalizedText: string): boolean {
   }
 
   // Recipient entry phrases like "send to kwame", "send 50 to ama", "send money to kwame"
-  if (/^(?:send|mane|soma)\s+(?:\d+|sika|to|kɔma)\b/i.test(normalizedText)) {
+  if (/^(?:send|mane|soma)\s+(?:money|\d+|sika|to|kɔma)\b/i.test(normalizedText)) {
     return true;
   }
 
@@ -176,8 +180,10 @@ function isStandaloneCallerIntent(normalizedText: string): boolean {
 export function isAcousticSystemEcho(
   transcript: string,
   activeAssistantPrompt?: string | null,
-  isAssistantSpeaking?: boolean
+  isAssistantSpeaking?: boolean,
+  isDirectSimulatedInput?: boolean
 ): boolean {
+  if (isDirectSimulatedInput) return false;
   if (!transcript || transcript.trim().length === 0) return false;
 
   const normalizedTranscript = normalizeTextForComparison(transcript);
@@ -256,17 +262,21 @@ export function stripSystemEchoFromTranscript(
   const cleaned = transcript.trim();
   const normalized = normalizeTextForComparison(cleaned);
 
+  // If the active prompt strictly contains the entire transcript, it is 100% an echo with no appended words
+  const normalizedPrompt = activeAssistantPrompt ? normalizeTextForComparison(activeAssistantPrompt) : "";
+  if (normalizedPrompt && normalizedPrompt.includes(normalized)) {
+    return "";
+  }
+
   if (isStandaloneCallerIntent(normalized)) {
     return cleaned;
   }
 
   // Check if system prompt appears at the start and user appended their answer (e.g. trailing command or number)
-  const normalizedPrompt = activeAssistantPrompt ? normalizeTextForComparison(activeAssistantPrompt) : "";
   const promptList = normalizedPrompt ? [normalizedPrompt, ...CANONICAL_SYSTEM_PROMPTS] : CANONICAL_SYSTEM_PROMPTS;
 
   for (const p of promptList) {
     if (p.length < 8) continue;
-    // Look for prompt words at the beginning
     const pPrefix = p.slice(0, 30);
     if (normalized.startsWith(pPrefix) || normalized.includes(p)) {
       const userWords = cleaned.split(/\s+/);

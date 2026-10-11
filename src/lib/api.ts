@@ -249,34 +249,14 @@ export function parseVoiceXml(xmlText: string): ParsedVoiceXml {
   return result;
 }
 
-async function parseJsonResponse<T = any>(
-  response: Response,
-  endpointName = "API endpoint",
-): Promise<T> {
-  const contentType = response.headers.get("content-type")?.toLowerCase() || "";
-  let endpoint = endpointName;
-
-  if (response.url) {
-    try {
-      endpoint = new URL(response.url).pathname;
-    } catch {
-      // Keep the supplied endpoint name when the URL cannot be parsed.
-    }
-  }
-
-  if (!contentType.includes("application/json") && !contentType.includes("+json")) {
+async function parseJsonResponse(res: Response, endpoint: string): Promise<any> {
+  const contentType = res.headers.get("Content-Type") || "";
+  if (contentType.includes("text/html")) {
     throw new Error(
-      `Expected JSON from ${endpoint}, received ${contentType || "an unknown content type"} (HTTP ${response.status}). Check that the request is routed to the backend API.`,
+      `Expected JSON from ${endpoint}, received text/html (HTTP ${res.status}). Check that the request is routed to the backend API.`
     );
   }
-
-  try {
-    return await response.json() as T;
-  } catch {
-    throw new Error(
-      `The backend returned invalid JSON from ${endpoint} (HTTP ${response.status}).`,
-    );
-  }
+  return res.json();
 }
 
 export const api = {
@@ -324,12 +304,24 @@ export const api = {
       headers["Authorization"] = `Bearer ${token}`;
     }
 
-    const res = await fetch(effectiveUrl, {
-      method: "POST",
-      headers,
-      credentials: "include",
-      body: formParams.toString(),
-    });
+    let res: Response;
+    try {
+      res = await fetch(effectiveUrl, {
+        method: "POST",
+        headers,
+        credentials: "same-origin",
+        body: formParams.toString(),
+      });
+    } catch (fetchErr: any) {
+      // 1 automatic retry on transient socket reset or container reload
+      await new Promise((r) => setTimeout(r, 450));
+      res = await fetch(effectiveUrl, {
+        method: "POST",
+        headers,
+        credentials: "same-origin",
+        body: formParams.toString(),
+      });
+    }
 
     const xmlText = await res.text();
     return {
@@ -342,26 +334,26 @@ export const api = {
   async getHealth(): Promise<HealthResponse> {
     const res = await fetch("/api/health");
     if (!res.ok) throw new Error(`Health check returned ${res.status}`);
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async getAudioManifest(): Promise<AudioManifestResponse> {
     const res = await fetch("/api/audio/manifest");
     if (!res.ok) throw new Error(`Audio manifest request failed: ${res.status}`);
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async getSessions(): Promise<SessionRecord[]> {
     const res = await fetch("/api/sessions");
     if (!res.ok) throw new Error(`Sessions fetch failed: ${res.status}`);
-    const data = await parseJsonResponse(res);
+    const data = await res.json();
     return data.sessions || [];
   },
 
   async getLedger(): Promise<LedgerItem[]> {
     const res = await fetch("/api/ledger");
     if (!res.ok) throw new Error(`Ledger fetch failed: ${res.status}`);
-    const data = await parseJsonResponse(res);
+    const data = await res.json();
     return data.ledger || [];
   },
 
@@ -371,20 +363,20 @@ export const api = {
       headers: { "Content-Type": "application/json" },
     });
     if (!res.ok) throw new Error(`Smoke test failed: ${res.status}`);
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async getEndpoints(): Promise<EndpointDoc[]> {
     const res = await fetch("/api/dev/endpoints");
     if (!res.ok) throw new Error(`Endpoints catalog fetch failed: ${res.status}`);
-    const data = await parseJsonResponse(res);
+    const data = await res.json();
     return data.endpoints || [];
   },
 
   async lookupKyc(phoneNumber: string): Promise<KycLookupResponse> {
     const res = await fetch(`/api/kyc/lookup?phone=${encodeURIComponent(phoneNumber)}`);
     if (!res.ok) throw new Error(`KYC lookup failed: ${res.status}`);
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async simulateVoiceMenu(payload: {
@@ -409,7 +401,7 @@ export const api = {
     const res = await fetch("/api/simulator/voice-menu", {
       method: "POST",
       headers,
-      credentials: "include",
+      credentials: "same-origin",
       body: params.toString(),
     });
     const xml = await res.text();
@@ -483,7 +475,7 @@ export const api = {
       headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ subscriptionKey }),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async getCapabilityMatrix(): Promise<any> {
@@ -491,7 +483,7 @@ export const api = {
       credentials: "same-origin",
       headers: getAdminAuthHeaders(),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async getMomoBalance(product: "collection" | "disbursement" = "collection"): Promise<any> {
@@ -499,7 +491,7 @@ export const api = {
       credentials: "same-origin",
       headers: getAdminAuthHeaders(),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async validateMomoHolder(phone: string): Promise<any> {
@@ -507,7 +499,7 @@ export const api = {
       credentials: "same-origin",
       headers: getAdminAuthHeaders(),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async requestToPay(params: {
@@ -524,7 +516,7 @@ export const api = {
       headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(params),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async getMomoTransactionStatus(referenceId: string): Promise<any> {
@@ -532,7 +524,7 @@ export const api = {
       credentials: "same-origin",
       headers: getAdminAuthHeaders(),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async transferFunds(params: {
@@ -549,7 +541,7 @@ export const api = {
       headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(params),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async getTransferStatus(referenceId: string): Promise<any> {
@@ -557,7 +549,7 @@ export const api = {
       credentials: "same-origin",
       headers: getAdminAuthHeaders(),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async authorizeMomoPrompt(referenceId: string, action: "approve" | "reject" = "approve"): Promise<any> {
@@ -567,7 +559,7 @@ export const api = {
       headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ referenceId, action }),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async testRealAccount(params: {
@@ -581,7 +573,7 @@ export const api = {
       headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(params),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async runMomoTestSuite(): Promise<any> {
@@ -590,7 +582,7 @@ export const api = {
       credentials: "same-origin",
       headers: getAdminAuthHeaders(),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async sendMoney(params: {
@@ -607,7 +599,7 @@ export const api = {
       headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(params),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   // ── Centralized Transaction Engine Pipeline ────────────────────────
@@ -617,7 +609,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phone }),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async createCentralTransaction(params: {
@@ -632,7 +624,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async validateCentralTransactionRecipient(transactionId: string, phone?: string): Promise<any> {
@@ -641,7 +633,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ transactionId, phone }),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async confirmCentralTransaction(transactionId: string, confirmed: boolean = true): Promise<any> {
@@ -650,7 +642,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ transactionId, confirmed }),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async submitCentralTransaction(transactionId: string, options?: { mode?: string; payerPhone?: string }): Promise<any> {
@@ -659,12 +651,12 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ transactionId, ...options }),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async getCentralTransaction(id: string): Promise<any> {
     const res = await fetch(`/api/momo/transaction/${encodeURIComponent(id)}`);
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async buyAirtime(params: {
@@ -677,7 +669,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async buyData(params: {
@@ -691,7 +683,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async payBills(params: {
@@ -704,7 +696,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async cashOut(params: {
@@ -716,33 +708,19 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async getMomoTransactions(): Promise<any> {
     const res = await fetch("/api/momo/transactions");
-    return parseJsonResponse(res);
-  },
-
-  async simulateMomoWebhook(params: {
-    referenceId: string;
-    status: "SUCCESSFUL" | "FAILED";
-    financialTransactionId?: string;
-  }): Promise<any> {
-    const res = await fetch("/api/momo/webhook-simulate", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify(params),
-    });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   // ── Africa's Talking Shipping & Deployment Methods ──────────────────
   async getShippingStatus(): Promise<any> {
     const res = await fetch("/api/shipping/status");
     if (!res.ok) throw new Error(`Shipping status fetch failed: ${res.status}`);
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async deployToAfricasTalking(): Promise<any> {
@@ -751,7 +729,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
     });
     if (!res.ok) throw new Error(`Deploy to Africa's Talking failed: ${res.status}`);
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async dispatchTestCall(phone: string): Promise<any> {
@@ -760,7 +738,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ phone }),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async updateShippingConfig(config: { username?: string; apiKey?: string; voiceNumber?: string }): Promise<any> {
@@ -769,14 +747,14 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(config),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   // ── Team Tasks API (Asana-Style Agile Board) ────────────────────────
   async getTasks(): Promise<{ tasks: ProjectTask[]; members: TaskMember[]; stats: TaskStats }> {
     const res = await fetch("/api/tasks");
     if (!res.ok) throw new Error(`Tasks fetch failed: ${res.status}`);
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async createTask(task: {
@@ -795,7 +773,7 @@ export const api = {
       body: JSON.stringify(task),
     });
     if (!res.ok) throw new Error(`Task creation failed: ${res.status}`);
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async updateTask(id: string, updates: Partial<ProjectTask> & { assigneeId?: string }): Promise<{ success: boolean; task: ProjectTask }> {
@@ -805,7 +783,7 @@ export const api = {
       body: JSON.stringify(updates),
     });
     if (!res.ok) throw new Error(`Task update failed: ${res.status}`);
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async deleteTask(id: string): Promise<{ success: boolean }> {
@@ -813,28 +791,28 @@ export const api = {
       method: "DELETE",
     });
     if (!res.ok) throw new Error(`Task deletion failed: ${res.status}`);
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async getAdminSession(): Promise<{ authenticated: boolean; isDev?: boolean; hint?: string }> {
     const res = await fetch("/api/admin/session", {
-      credentials: "include",
+      credentials: "same-origin",
       headers: getAdminAuthHeaders(),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async adminLogin(token: string): Promise<any> {
     const res = await fetch("/api/admin/login", {
       method: "POST",
-      credentials: "include",
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ token }),
     });
 
-    const data = await parseJsonResponse(res);
+    const data = await res.json();
 
     if (!res.ok) {
       throw new Error(
@@ -862,10 +840,10 @@ export const api = {
     }
     const res = await fetch("/api/admin/logout", {
       method: "POST",
-      credentials: "include",
+      credentials: "same-origin",
     });
 
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async processSimulatorTurn(payload: SimulatorTurnRequest): Promise<SimulatorTurnResponse> {
@@ -879,7 +857,7 @@ export const api = {
       body: JSON.stringify(payload),
     });
 
-    const data = await parseJsonResponse(res);
+    const data = await res.json();
     if (!res.ok) {
       throw new Error(data.error || "AI simulator request failed.");
     }
@@ -896,7 +874,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const data = await parseJsonResponse(res);
+    const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Speech synthesis failed");
     return data;
   },
@@ -913,7 +891,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const data = await parseJsonResponse(res);
+    const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Brain processing failed");
     return data;
   },
@@ -924,7 +902,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ utterance, languageHint }),
     });
-    const data = await parseJsonResponse(res);
+    const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Utterance analysis failed");
     return data;
   },
@@ -951,52 +929,8 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ audioBase64, mimeType, language, step, hintText }),
     });
-    const data = await parseJsonResponse(res);
+    const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Audio transcription failed");
-    return data;
-  },
-
-  async startAsrSession(payload: { sessionId?: string; language?: string; metadata?: any }): Promise<{ success: boolean; sessionId: string }> {
-    const res = await fetch("/api/ai/asr/session/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Failed to start ASR session");
-    return data;
-  },
-
-  async appendAudioChunk(
-    sessionId: string,
-    audioBase64: string,
-    mimeType: string = "audio/webm",
-    step?: string
-  ): Promise<{ success: boolean; chunk?: any; session?: any; rollingSummary?: string; fullTranscript?: string }> {
-    const res = await fetch(`/api/ai/asr/session/${encodeURIComponent(sessionId)}/chunk`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ audioBase64, mimeType, step }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Failed to append audio chunk");
-    return data;
-  },
-
-  async endAsrSession(sessionId: string): Promise<{ success: boolean; session: any }> {
-    const res = await fetch(`/api/ai/asr/session/${encodeURIComponent(sessionId)}/end`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Failed to end ASR session");
-    return data;
-  },
-
-  async getAsrSession(sessionId: string): Promise<{ success: boolean; session: any }> {
-    const res = await fetch(`/api/ai/asr/session/${encodeURIComponent(sessionId)}`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Failed to get ASR session");
     return data;
   },
 
@@ -1006,14 +940,14 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async getSimulatorContacts(): Promise<any[]> {
     try {
       const res = await fetch("/api/ai/simulator/contacts");
       if (!res.ok) return [];
-      const data = await parseJsonResponse(res);
+      const data = await res.json();
       return data.contacts || [];
     } catch {
       return [];
@@ -1024,7 +958,7 @@ export const api = {
     try {
       const res = await fetch("/api/ai/simulator/sync-status");
       if (!res.ok) return null;
-      return parseJsonResponse(res);
+      return res.json();
     } catch {
       return null;
     }
@@ -1034,7 +968,7 @@ export const api = {
     try {
       const res = await fetch("/api/ai/ghananlp/health");
       if (!res.ok) return { configured: false };
-      return parseJsonResponse(res);
+      return res.json();
     } catch {
       return { configured: false };
     }
@@ -1042,12 +976,12 @@ export const api = {
 
   async getGhanaNlpLanguages(): Promise<any> {
     const res = await fetch("/api/ai/ghananlp/languages");
-    return parseJsonResponse(res);
+    return res.json();
   },
 
   async getGhanaNlpSpeakers(): Promise<any> {
     const res = await fetch("/api/ai/ghananlp/speakers");
-    return parseJsonResponse(res);
+    return res.json();
   },
 };
 

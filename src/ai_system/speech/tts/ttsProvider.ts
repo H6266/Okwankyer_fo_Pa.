@@ -12,6 +12,8 @@ export interface TtsSynthesisRequest {
   speed?: number;
   pitch?: number;
   provider?: "gemini" | "fallback" | "custom";
+  skipCatalogCheck?: boolean;
+  purpose?: string;
 }
 
 export interface TtsSynthesisResponse {

@@ -68,12 +68,27 @@ export function resolveSafeAudioPath(requestedSubpath: string): string | null {
   return null;
 }
 
+// High-Performance In-Memory Audio Buffer Cache
+const AUDIO_BUFFER_CACHE = new Map<string, { buffer: Buffer; size: number }>();
+
 /**
- * Streams audio file with HTTP 206 Byte Ranges and safe headers
+ * Streams audio file with HTTP 206 Byte Ranges, In-Memory RAM Caching, and Immutable HTTP Headers
  */
 export function streamAudioFile(req: Request, res: Response, filePath: string): void {
-  const stat = fs.statSync(filePath);
-  const fileSize = stat.size;
+  let cached = AUDIO_BUFFER_CACHE.get(filePath);
+  if (!cached) {
+    try {
+      const buffer = fs.readFileSync(filePath);
+      cached = { buffer, size: buffer.length };
+      AUDIO_BUFFER_CACHE.set(filePath, cached);
+    } catch {
+      // Fallback if read fails
+      res.status(404).send("Audio file not found.");
+      return;
+    }
+  }
+
+  const fileSize = cached.size;
   const ext = path.extname(filePath).toLowerCase();
 
   const mimeType =
@@ -98,26 +113,27 @@ export function streamAudioFile(req: Request, res: Response, filePath: string): 
     }
 
     const chunkSize = end - start + 1;
-    const stream = fs.createReadStream(filePath, { start, end });
+    const chunk = cached.buffer.subarray(start, end + 1);
 
     res.writeHead(206, {
       "Content-Range": `bytes ${start}-${end}/${fileSize}`,
       "Accept-Ranges": "bytes",
       "Content-Length": chunkSize,
       "Content-Type": mimeType,
+      "Cache-Control": "public, max-age=31536000, immutable",
       "Access-Control-Allow-Origin": "*",
     });
 
-    stream.pipe(res);
+    res.end(chunk);
   } else {
     res.writeHead(200, {
       "Content-Length": fileSize,
       "Content-Type": mimeType,
       "Accept-Ranges": "bytes",
-      "Cache-Control": "public, max-age=86400",
+      "Cache-Control": "public, max-age=31536000, immutable",
       "Access-Control-Allow-Origin": "*",
     });
 
-    fs.createReadStream(filePath).pipe(res);
+    res.end(cached.buffer);
   }
 }

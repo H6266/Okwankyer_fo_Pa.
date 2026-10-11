@@ -128,6 +128,7 @@ export interface DraftState {
   intent?: IntentId;
   slots: Slots;
   confirmed?: boolean;
+  clarificationLoops?: number;
   confirmationRevokedReason?: string;
   pendingClarification?: 'intent' | 'slot' | null;
   clarificationField?: string;

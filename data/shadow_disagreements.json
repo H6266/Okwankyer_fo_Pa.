@@ -3660,28 +3660,8 @@
     "disagreementType": "INTENT_MISMATCH"
   },
   {
-    "id": "shadow-1791567814740-09dx6",
-    "timestamp": "2026-10-09T17:43:34.740Z",
-    "language": "en",
-    "turnId": 1,
-    "offlineDecision": {
-      "intent": "momo.transfer",
-      "kind": "clarify_slot",
-      "hasAmount": true,
-      "hasRecipientPhone": false
-    },
-    "modelDecision": {
-      "intent": "momo.transfer",
-      "confidence": 0.99,
-      "kind": "dispatch",
-      "hasAmount": true,
-      "hasRecipientPhone": false
-    },
-    "disagreementType": "DECISION_KIND_MISMATCH"
-  },
-  {
-    "id": "shadow-1791567818675-9d4er",
-    "timestamp": "2026-10-09T17:43:38.675Z",
+    "id": "shadow-1791683643197-7tcc9",
+    "timestamp": "2026-10-11T01:54:03.197Z",
     "language": "en",
     "turnId": 1,
     "offlineDecision": {
@@ -3700,8 +3680,8 @@
     "disagreementType": "INTENT_MISMATCH"
   },
   {
-    "id": "shadow-1791567818711-9f4u0",
-    "timestamp": "2026-10-09T17:43:38.711Z",
+    "id": "shadow-1791683643201-zkwta",
+    "timestamp": "2026-10-11T01:54:03.201Z",
     "language": "en",
     "turnId": 2,
     "offlineDecision": {
@@ -3720,8 +3700,8 @@
     "disagreementType": "INTENT_MISMATCH"
   },
   {
-    "id": "shadow-1791567838138-ctkc8",
-    "timestamp": "2026-10-09T17:43:58.138Z",
+    "id": "shadow-1791683659147-agbw3",
+    "timestamp": "2026-10-11T01:54:19.147Z",
     "language": "en",
     "turnId": 1,
     "offlineDecision": {
@@ -3740,8 +3720,8 @@
     "disagreementType": "DECISION_KIND_MISMATCH"
   },
   {
-    "id": "shadow-1791567838142-w49bv",
-    "timestamp": "2026-10-09T17:43:58.142Z",
+    "id": "shadow-1791683659150-diss0",
+    "timestamp": "2026-10-11T01:54:19.150Z",
     "language": "en",
     "turnId": 2,
     "offlineDecision": {
@@ -3760,28 +3740,8 @@
     "disagreementType": "INTENT_MISMATCH"
   },
   {
-    "id": "shadow-1791568113627-24dvu",
-    "timestamp": "2026-10-09T17:48:33.627Z",
-    "language": "en",
-    "turnId": 1,
-    "offlineDecision": {
-      "intent": "momo.transfer",
-      "kind": "clarify_slot",
-      "hasAmount": true,
-      "hasRecipientPhone": false
-    },
-    "modelDecision": {
-      "intent": "momo.transfer",
-      "confidence": 0.99,
-      "kind": "dispatch",
-      "hasAmount": true,
-      "hasRecipientPhone": false
-    },
-    "disagreementType": "DECISION_KIND_MISMATCH"
-  },
-  {
-    "id": "shadow-1791568116435-pev2d",
-    "timestamp": "2026-10-09T17:48:36.435Z",
+    "id": "shadow-1791684268474-l9jbp",
+    "timestamp": "2026-10-11T02:04:28.474Z",
     "language": "en",
     "turnId": 1,
     "offlineDecision": {
@@ -3800,8 +3760,8 @@
     "disagreementType": "INTENT_MISMATCH"
   },
   {
-    "id": "shadow-1791568116463-xkixx",
-    "timestamp": "2026-10-09T17:48:36.463Z",
+    "id": "shadow-1791684268477-6t6fh",
+    "timestamp": "2026-10-11T02:04:28.477Z",
     "language": "en",
     "turnId": 2,
     "offlineDecision": {
@@ -3820,8 +3780,8 @@
     "disagreementType": "INTENT_MISMATCH"
   },
   {
-    "id": "shadow-1791568123179-1fiux",
-    "timestamp": "2026-10-09T17:48:43.179Z",
+    "id": "shadow-1791684276918-59d3p",
+    "timestamp": "2026-10-11T02:04:36.918Z",
     "language": "en",
     "turnId": 1,
     "offlineDecision": {
@@ -3840,8 +3800,8 @@
     "disagreementType": "DECISION_KIND_MISMATCH"
   },
   {
-    "id": "shadow-1791568123183-7cxl6",
-    "timestamp": "2026-10-09T17:48:43.183Z",
+    "id": "shadow-1791684276921-bzxcg",
+    "timestamp": "2026-10-11T02:04:36.921Z",
     "language": "en",
     "turnId": 2,
     "offlineDecision": {
@@ -3860,8 +3820,8 @@
     "disagreementType": "INTENT_MISMATCH"
   },
   {
-    "id": "shadow-1791568827419-arb33",
-    "timestamp": "2026-10-09T18:00:27.419Z",
+    "id": "shadow-1791688698787-fuq2p",
+    "timestamp": "2026-10-11T03:18:18.787Z",
     "language": "en",
     "turnId": 1,
     "offlineDecision": {
@@ -3880,8 +3840,8 @@
     "disagreementType": "DECISION_KIND_MISMATCH"
   },
   {
-    "id": "shadow-1791568830145-fdt3i",
-    "timestamp": "2026-10-09T18:00:30.145Z",
+    "id": "shadow-1791688704703-j1u56",
+    "timestamp": "2026-10-11T03:18:24.703Z",
     "language": "en",
     "turnId": 1,
     "offlineDecision": {
@@ -3900,8 +3860,8 @@
     "disagreementType": "INTENT_MISMATCH"
   },
   {
-    "id": "shadow-1791568830172-llwbk",
-    "timestamp": "2026-10-09T18:00:30.172Z",
+    "id": "shadow-1791688704731-uusa6",
+    "timestamp": "2026-10-11T03:18:24.731Z",
     "language": "en",
     "turnId": 2,
     "offlineDecision": {
@@ -3920,8 +3880,8 @@
     "disagreementType": "INTENT_MISMATCH"
   },
   {
-    "id": "shadow-1791568837840-xj40u",
-    "timestamp": "2026-10-09T18:00:37.840Z",
+    "id": "shadow-1791688757220-kmwsh",
+    "timestamp": "2026-10-11T03:19:17.220Z",
     "language": "en",
     "turnId": 1,
     "offlineDecision": {
@@ -3940,8 +3900,8 @@
     "disagreementType": "DECISION_KIND_MISMATCH"
   },
   {
-    "id": "shadow-1791568837844-4zkro",
-    "timestamp": "2026-10-09T18:00:37.844Z",
+    "id": "shadow-1791688757224-ulvy3",
+    "timestamp": "2026-10-11T03:19:17.224Z",
     "language": "en",
     "turnId": 2,
     "offlineDecision": {
@@ -3960,8 +3920,8 @@
     "disagreementType": "INTENT_MISMATCH"
   },
   {
-    "id": "shadow-1791569813937-u49dh",
-    "timestamp": "2026-10-09T18:16:53.937Z",
+    "id": "shadow-1791700579730-adet1",
+    "timestamp": "2026-10-11T06:36:19.730Z",
     "language": "en",
     "turnId": 1,
     "offlineDecision": {
@@ -3980,8 +3940,8 @@
     "disagreementType": "DECISION_KIND_MISMATCH"
   },
   {
-    "id": "shadow-1791569816727-ttmgq",
-    "timestamp": "2026-10-09T18:16:56.727Z",
+    "id": "shadow-1791700585782-bg0p9",
+    "timestamp": "2026-10-11T06:36:25.782Z",
     "language": "en",
     "turnId": 1,
     "offlineDecision": {
@@ -4000,8 +3960,8 @@
     "disagreementType": "INTENT_MISMATCH"
   },
   {
-    "id": "shadow-1791569816754-jplbj",
-    "timestamp": "2026-10-09T18:16:56.754Z",
+    "id": "shadow-1791700585815-8txqi",
+    "timestamp": "2026-10-11T06:36:25.815Z",
     "language": "en",
     "turnId": 2,
     "offlineDecision": {
@@ -4020,8 +3980,8 @@
     "disagreementType": "INTENT_MISMATCH"
   },
   {
-    "id": "shadow-1791569825162-lmlad",
-    "timestamp": "2026-10-09T18:17:05.162Z",
+    "id": "shadow-1791700632038-tlbnw",
+    "timestamp": "2026-10-11T06:37:12.038Z",
     "language": "en",
     "turnId": 1,
     "offlineDecision": {
@@ -4040,8 +4000,8 @@
     "disagreementType": "DECISION_KIND_MISMATCH"
   },
   {
-    "id": "shadow-1791569825166-xhfcj",
-    "timestamp": "2026-10-09T18:17:05.166Z",
+    "id": "shadow-1791700632045-i189n",
+    "timestamp": "2026-10-11T06:37:12.045Z",
     "language": "en",
     "turnId": 2,
     "offlineDecision": {
@@ -4060,8 +4020,8 @@
     "disagreementType": "INTENT_MISMATCH"
   },
   {
-    "id": "shadow-1791570414518-coo8y",
-    "timestamp": "2026-10-09T18:26:54.518Z",
+    "id": "shadow-1791703038673-kn5cb",
+    "timestamp": "2026-10-11T07:17:18.673Z",
     "language": "en",
     "turnId": 1,
     "offlineDecision": {
@@ -4080,8 +4040,8 @@
     "disagreementType": "DECISION_KIND_MISMATCH"
   },
   {
-    "id": "shadow-1791570417326-ddpah",
-    "timestamp": "2026-10-09T18:26:57.326Z",
+    "id": "shadow-1791703044588-rrqll",
+    "timestamp": "2026-10-11T07:17:24.588Z",
     "language": "en",
     "turnId": 1,
     "offlineDecision": {
@@ -4100,8 +4060,8 @@
     "disagreementType": "INTENT_MISMATCH"
   },
   {
-    "id": "shadow-1791570417353-gje3w",
-    "timestamp": "2026-10-09T18:26:57.353Z",
+    "id": "shadow-1791703044629-2fswf",
+    "timestamp": "2026-10-11T07:17:24.629Z",
     "language": "en",
     "turnId": 2,
     "offlineDecision": {
@@ -4120,8 +4080,8 @@
     "disagreementType": "INTENT_MISMATCH"
   },
   {
-    "id": "shadow-1791570423961-umaf5",
-    "timestamp": "2026-10-09T18:27:03.961Z",
+    "id": "shadow-1791703084043-2hn41",
+    "timestamp": "2026-10-11T07:18:04.043Z",
     "language": "en",
     "turnId": 1,
     "offlineDecision": {
@@ -4140,8 +4100,108 @@
     "disagreementType": "DECISION_KIND_MISMATCH"
   },
   {
-    "id": "shadow-1791570423987-4u5g7",
-    "timestamp": "2026-10-09T18:27:03.987Z",
+    "id": "shadow-1791703084047-wx0lb",
+    "timestamp": "2026-10-11T07:18:04.047Z",
+    "language": "en",
+    "turnId": 2,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.pay_bill",
+      "confidence": 0.9,
+      "kind": "confirm",
+      "hasAmount": false,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "INTENT_MISMATCH"
+  },
+  {
+    "id": "shadow-1791704636186-ot0c1",
+    "timestamp": "2026-10-11T07:43:56.186Z",
+    "language": "en",
+    "turnId": 1,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.check_balance",
+      "confidence": 0.8,
+      "kind": "not_ready",
+      "hasAmount": false,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "INTENT_MISMATCH"
+  },
+  {
+    "id": "shadow-1791704636217-83u6u",
+    "timestamp": "2026-10-11T07:43:56.217Z",
+    "language": "en",
+    "turnId": 2,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.pay_bill",
+      "confidence": 0.85,
+      "kind": "not_ready",
+      "hasAmount": false,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "INTENT_MISMATCH"
+  },
+  {
+    "id": "shadow-1791704666054-c82od",
+    "timestamp": "2026-10-11T07:44:26.054Z",
+    "language": "en",
+    "turnId": 1,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "clarify_slot",
+      "hasAmount": true,
+      "hasRecipientPhone": false
+    },
+    "modelDecision": {
+      "intent": "momo.transfer",
+      "confidence": 0.99,
+      "kind": "dispatch",
+      "hasAmount": true,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "DECISION_KIND_MISMATCH"
+  },
+  {
+    "id": "shadow-1791704677598-df3m2",
+    "timestamp": "2026-10-11T07:44:37.598Z",
+    "language": "en",
+    "turnId": 1,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "clarify_slot",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.transfer",
+      "confidence": 0.95,
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "DECISION_KIND_MISMATCH"
+  },
+  {
+    "id": "shadow-1791704677601-051hv",
+    "timestamp": "2026-10-11T07:44:37.601Z",
     "language": "en",
     "turnId": 2,
     "offlineDecision": {

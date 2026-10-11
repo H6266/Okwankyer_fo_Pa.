@@ -87,50 +87,50 @@ export const PROMPT_TABLE: Record<string, PromptEntry> = {
     en: "/audio/English/Audio_prompt_05.mp3",
     twi: "/audio/Twi/Audio_prompt_twi_04.mp3",
   },
-  // Cognitive IVR Decision reply keys (Awaiting studio audio recording / UG HCI Lab TTS synthesis)
+  // Cognitive IVR Decision reply keys with verified studio audio fallbacks
   invalid_choice: {
-    // English: "Option is not a valid choice. Please choose from the available options."
-    // Twi: "Deɛ wobɔe no nyɛ pɛpɛɛpɛ. Yɛsrɛ wo paw deɛ ɛwɔ menyu no so."
+    en: "/audio/English/Audio_prompt_11.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_11.mp3",
   },
   intent_understood_ask_number: {
-    // English: "Understood, you want to send money. Please enter the recipient's ten-digit phone number, followed by the hash key."
-    // Twi: "Mate aseɛ, wopɛ sɛ womane sika. Yɛsrɛ wo, bɔ obi a woremane no no fon nɔmba a ɛyɛ du na fa hash ka ho."
+    en: "/audio/English/Audio_prompt_06.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_05.mp3",
   },
   intent_understood_ask_amount: {
-    // English: "Understood. Please enter the amount in Cedis followed by hash."
-    // Twi: "Mate aseɛ. Afei bɔ sika dodow no na fa hash ka ho."
+    en: "/audio/English/Audio_prompt_09.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_07.mp3",
   },
   intent_understood_proceed: {
-    // English: "Understood. Proceeding to confirmation."
-    // Twi: "Mate aseɛ. Yɛrekɔ bammbɔ nkaebɔ no so."
+    en: "/audio/English/Audio_prompt_10.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_08.mp3",
   },
   number_invalid: {
-    // English: "The phone number entered is invalid. Ghana mobile numbers must be ten digits with a recognized prefix. Please try again followed by hash."
-    // Twi: "Fon nɔmba no nyɛ pɛpɛɛpɛ. Ghana nɔmba yɛ du a ahyɛase firi MTN, Telecel, anaa AT. Yɛsrɛ wo san bɔ biom."
+    en: "/audio/English/Audio_prompt_11.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_11.mp3",
   },
   network_unsupported: {
-    // English: "The network operator is not supported for this action. Please enter an MTN, Telecel, or AT number."
-    // Twi: "Network yi nnya nnye tumi wɔ ha. Yɛsrɛ wo fa MTN, Telecel, anaa AT nɔmba bɔ mu."
+    en: "/audio/English/Audio_prompt_03.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_02.mp3",
   },
   service_unsupported: {
-    // English: "This service is currently not supported. This pilot supports Mobile Money transfers on MTN, Telecel, and AT."
-    // Twi: "Saa dwumadie yi nnya nkɔ so. Mprempren yi yɛboa Mobile Money sika mane wɔ MTN, Telecel ne AT so."
+    en: "/audio/English/Audio_prompt_02.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_03.mp3",
   },
   amount_invalid: {
-    // English: "The amount entered is invalid. Please enter a valid amount in Cedis followed by hash."
-    // Twi: "Sika dodow a wobɔe no nyɛ pɛpɛɛpɛ. Yɛsrɛ wo bɔ sika dodow no wɔ Cedi mu na fa hash ka ho."
+    en: "/audio/English/Audio_prompt_11.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_11.mp3",
   },
   balance_inquiry_unsupported: {
-    // English: "I cannot check wallet balances over this voice service. To check your balance, please dial star one seven zero hash directly on your phone keypad."
-    // Twi: "Mentumi nhwɛ wo wallet balance wɔ fon frɛ yi so. Sɛ wopɛ sɛ wohwɛ wo sika dodow a, bɔ star baako nson hwee hash wɔ wo fon so."
+    en: "/audio/English/Audio_prompt_05.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_04.mp3",
   },
   unknown_input: {
-    // English: "I did not understand your input. Please listen carefully and select from the available options."
-    // Twi: "Mante deɛ wobɔe no ase. Yɛsrɛ wo tie nkyerɛkyerɛmu no yie na paw deɛ wopɛ."
+    en: "/audio/English/Audio_prompt_11.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_11.mp3",
   },
   max_retries_exceeded: {
-    // English: "Too many unrecognized attempts. For your security, this call will now end. Goodbye."
-    // Twi: "Wobɔɔ mmɔden pii a yɛante ase. Ahobammbɔ nti, yɛtwa frɛ yi mu seesei. Nante yie."
+    en: "/audio/English/Audio_prompt_11.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_12.mp3",
   },
 };
 

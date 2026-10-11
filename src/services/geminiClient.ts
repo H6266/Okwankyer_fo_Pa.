@@ -424,3 +424,4 @@ export class UnifiedGeminiClient {
 }
 
 export const geminiClient = UnifiedGeminiClient.getInstance("telephony");
+export const studyGeminiClient = UnifiedGeminiClient.getInstance("study");

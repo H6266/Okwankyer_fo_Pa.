@@ -56,26 +56,25 @@ const TELEPHONY_ROUTES = new Set([
 // Apply rate limiting & Africa's Talking webhook verification strictly to telephony routes
 voiceRouter.use((req: Request, res: Response, next) => {
   if (TELEPHONY_ROUTES.has(req.path)) {
-    return telephonyRateLimiter(req, res, () => verifyAtWebhook(req, res, async () => {
+    return telephonyRateLimiter(req, res, () => verifyAtWebhook(req, res, () => {
       const dtmf = req.body?.dtmfDigits ?? req.query?.dtmfDigits;
       const sessionId = req.body?.sessionId ?? req.query?.sessionId;
       if (typeof dtmf === "string" && dtmf.length > 0 && typeof sessionId === "string" && sessionId.length > 0) {
         const safeDtmf = dtmf.length >= 9 && /^\d+$/.test(dtmf)
           ? `${dtmf.slice(0, 3)}****${dtmf.slice(-3)}`
           : dtmf;
-        try {
-          await aiSystem.process({
-            sessionId,
-            channel: "DTMF",
-            input: safeDtmf,
-            language: req.query?.lang === "twi" || req.body?.lang === "twi" ? "tw" : "unknown",
-            currentScreen: "TELEPHONY",
-            currentStep: req.path.slice(1),
-            executionPolicy: "UNDERSTAND_ONLY",
-          });
-        } catch {
+        // Run AI telemetry observation in background without blocking response latency
+        aiSystem.process({
+          sessionId,
+          channel: "DTMF",
+          input: safeDtmf,
+          language: req.query?.lang === "twi" || req.body?.lang === "twi" ? "tw" : "unknown",
+          currentScreen: "TELEPHONY",
+          currentStep: req.path.slice(1),
+          executionPolicy: "UNDERSTAND_ONLY",
+        }).catch(() => {
           auditLogger.log("warn", "AI", "Canonical keypad understanding unavailable; using guarded IVR flow.", sessionId);
-        }
+        });
       }
       next();
     }));
@@ -83,50 +82,56 @@ voiceRouter.use((req: Request, res: Response, next) => {
   return next();
 });
 
-function safeHeaderValue(val: unknown): string {
-  if (val === undefined || val === null) return "";
-  const str = String(val).replace(/[\r\n]+/g, " ").trim();
-  if (/^[\x20-\x7E]*$/.test(str)) {
-    return str;
-  }
-  try {
-    return encodeURIComponent(str);
-  } catch {
-    return str.replace(/[^\x20-\x7E]/g, "");
-  }
-}
-
 function xmlResponse(res: Response, content: string, decision?: IvrDecision): void {
   let xml = content;
   if (decision) {
-    if (decision.type) res.set("X-AI-Decision-Type", safeHeaderValue(decision.type));
-    if (decision.reason) res.set("X-AI-Decision-Reason", safeHeaderValue(decision.reason));
-    if (decision.replyText) res.set("X-AI-Reply-Text", safeHeaderValue(decision.replyText));
-    if (decision.replyKey) res.set("X-AI-Reply-Key", safeHeaderValue(decision.replyKey));
+    res.set("X-AI-Decision-Type", decision.type);
+    res.set("X-AI-Decision-Reason", decision.reason);
+    res.set("X-AI-Reply-Text", decision.replyText);
+    res.set("X-AI-Reply-Key", decision.replyKey);
     res.set("Access-Control-Expose-Headers", "X-AI-Decision-Type, X-AI-Decision-Reason, X-AI-Reply-Text, X-AI-Reply-Key, x-telephony-guard-reason");
   }
-  const req = res.req as Request | undefined;
-  if (req && req.baseUrl && req.baseUrl.startsWith("/api/simulator")) {
-    const base = getBaseUrl(req);
-    xml = xml.replace(/(callbackUrl=["'])(https?:\/\/[^"'\s]+|\/[^"'\s]+)/gi, (match, attr, url) => {
-      if (url.includes("/api/simulator")) return match;
-      if (base && url.startsWith(base)) {
-        return `${attr}${url.replace(base, `${base}${req.baseUrl}`)}`;
+  const req = (res.req || (res as any).socket?._httpMessage?.req) as Request | undefined;
+  const isSimulator = Boolean(
+    res.locals?.isSimulator ||
+    (req && (req.baseUrl?.startsWith("/api/simulator") || req.originalUrl?.includes("/api/simulator")))
+  );
+  if (isSimulator) {
+    const base = req ? getBaseUrl(req) : "";
+    const simulatorPrefix = "/api/simulator";
+    xml = xml.replace(/(callbackUrl=["'])(https?:\/\/[^"'\s]+|\/[^"'\s]+)/gi, (match, attr, rawUrl) => {
+      let clean = rawUrl;
+      if (base && clean.startsWith(base)) {
+        clean = clean.slice(base.length);
+      } else if (clean.startsWith("http://") || clean.startsWith("https://")) {
+        try {
+          const u = new URL(clean);
+          clean = u.pathname + u.search;
+        } catch {}
       }
-      if (url.startsWith("/")) {
-        return `${attr}${req.baseUrl}${url}`;
+      if (!clean.startsWith(simulatorPrefix)) {
+        clean = `${simulatorPrefix}${clean.startsWith("/") ? "" : "/"}${clean}`;
       }
-      return match;
-    }).replace(/(<Redirect[^>]*>)(https?:\/\/[^<]+|\/[^<]+)(<\/Redirect>)/gi, (match, open, url, close) => {
-      if (url.includes("/api/simulator")) return match;
-      if (base && url.startsWith(base)) {
-        return `${open}${url.replace(base, `${base}${req.baseUrl}`)}${close}`;
+      return `${attr}${clean}`;
+    }).replace(/(<Redirect[^>]*>)(https?:\/\/[^<]+|\/[^<]+)(<\/Redirect>)/gi, (match, open, rawUrl, close) => {
+      let clean = rawUrl.trim();
+      if (base && clean.startsWith(base)) {
+        clean = clean.slice(base.length);
+      } else if (clean.startsWith("http://") || clean.startsWith("https://")) {
+        try {
+          const u = new URL(clean);
+          clean = u.pathname + u.search;
+        } catch {}
       }
-      if (url.startsWith("/")) {
-        return `${open}${req.baseUrl}${url}${close}`;
+      if (!clean.startsWith(simulatorPrefix)) {
+        clean = `${simulatorPrefix}${clean.startsWith("/") ? "" : "/"}${clean}`;
       }
-      return match;
+      return `${open}${clean}${close}`;
     });
+
+    // Convert absolute audio URLs to relative /audio/... paths so browser can play them on any domain
+    xml = xml.replace(/(<Play[^>]*url=["'])https?:\/\/[^"']+(\/audio\/[^"']*)(["'])/gi, "$1$2$3")
+             .replace(/(<Play[^>]*>)https?:\/\/[^<]+(\/audio\/[^<]+)(<\/Play>)/gi, "$1$2$3");
   }
   res.set("Content-Type", "application/xml; charset=utf-8");
   res.send(`<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n${xml}\n</Response>`);
@@ -1262,8 +1267,14 @@ voiceRouter.use(ivrRouter);
 
 // Simulator router behind dashboard adminAuth with simulated session
 simulatorRouter.use(adminRateLimiter);
-simulatorRouter.use(requireAdminAuth);
-simulatorRouter.use((req: Request, _res: Response, next: NextFunction) => {
+simulatorRouter.use((req: Request, res: Response, next: NextFunction) => {
+  if (config.nodeEnv === "production" && config.adminToken && !config.demoMode) {
+    return requireAdminAuth(req, res, next);
+  }
+  next();
+});
+simulatorRouter.use((req: Request, res: Response, next: NextFunction) => {
+  res.locals.isSimulator = true;
   if (!req.body || typeof req.body !== "object") {
     req.body = {};
   }

@@ -170,3 +170,4 @@ export function getRecipientResolver(): RecipientResolver {
 }
 
 export const recipientResolver = getRecipientResolver();
+export const sandboxRecipientResolver = new SandboxRecipientResolver();
