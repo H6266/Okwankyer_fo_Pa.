@@ -148,12 +148,15 @@ function isStandaloneCallerIntent(normalizedText: string): boolean {
   // Single word or common two-word affirmative / navigation / selection commands
   const callerKeywords = new Set([
     "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
-    "aane", "dabi", "yes", "no", "confirm", "cancel", "stop", "back",
+    "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "zero",
+    "english", "twi", "akan", "baako", "bako", "mmienu", "mienu", "mmiɛnsa", "mmiensa",
+    "momo", "mobile money", "telecom", "bank", "banking", "sikakorabea",
+    "aane", "dabi", "yes", "no", "confirm", "cancel", "stop", "back", "repeat",
     "mtn", "telecel", "airteltigo", "at", "vodafone",
     "balance", "sika", "mane", "send", "transfer", "airtime", "bundle",
-    "send money", "mane sika", "check balance", "my balance", "mobile money", "banking",
-    "kwame", "ama", "kofi", "akua", "yaw", "abena", "mensah",
-    "yoo", "ampa", "ɛyɛ", "sesa", "tie bio", "san akyi"
+    "send money", "mane sika", "check balance", "my balance",
+    "kwame", "ama", "kofi", "akua", "yaw", "abena", "mensah", "boateng",
+    "yoo", "ampa", "ɛyɛ", "sesa", "tie bio", "san akyi", "pene so"
   ]);
 
   if (callerKeywords.has(normalizedText)) return true;
@@ -177,8 +180,10 @@ function isStandaloneCallerIntent(normalizedText: string): boolean {
 export function isAcousticSystemEcho(
   transcript: string,
   activeAssistantPrompt?: string | null,
-  isAssistantSpeaking?: boolean
+  isAssistantSpeaking?: boolean,
+  isDirectSimulatedInput?: boolean
 ): boolean {
+  if (isDirectSimulatedInput) return false;
   if (!transcript || transcript.trim().length === 0) return false;
 
   const normalizedTranscript = normalizeTextForComparison(transcript);

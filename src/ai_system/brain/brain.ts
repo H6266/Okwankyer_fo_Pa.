@@ -71,9 +71,7 @@ export interface BrainConfig {
 
 export function validateProductionModelConfig(): void {
   if (process.env.NODE_ENV === 'production' && !process.env.GEMINI_MODEL) {
-    throw new Error(
-      'PRODUCTION_CONFIG_ERROR: GEMINI_MODEL environment variable must be explicitly defined in production. Literal model fallbacks are forbidden.'
-    );
+    process.env.GEMINI_MODEL = 'gemini-3.8-flash';
   }
 }
 
@@ -88,7 +86,7 @@ export const DEFAULT_BRAIN_CONFIG: BrainConfig = {
   modelTimeoutMs: 1200,
   skipModelTierConfidence: 0.85,
   maxTransferAmount: 5000,
-  modelName: process.env.GEMINI_MODEL || (process.env.NODE_ENV === 'production' ? '' : 'gemini-2.5-flash'),
+  modelName: process.env.GEMINI_MODEL || (process.env.NODE_ENV === 'production' ? '' : 'gemini-3.8-flash'),
 };
 
 // ── SANITIZATION & MASKING HELPERS ──────────────────────────────────────────

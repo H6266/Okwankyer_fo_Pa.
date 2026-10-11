@@ -199,6 +199,51 @@ export const PhoneSimulatorPage: React.FC = () => {
   const lastUtteranceTextRef = useRef<string>("");
   const prevInterimTranscriptRef = useRef<string>("");
 
+  // Synchronous session state refs
+  const callActiveRef = useRef<boolean>(false);
+  const sessionIdRef = useRef<string>("");
+  const activeCallbackUrlRef = useRef<string | null>(null);
+  const activeStepNameRef = useRef<string>("idle");
+  const languageRef = useRef<"en" | "twi" | null>(null);
+  const currentPromptRef = useRef<string>("");
+  const isMicMutedRef = useRef<boolean>(false);
+  const zeroPinOverlayRef = useRef<boolean>(false);
+
+  useEffect(() => { callActiveRef.current = callActive; }, [callActive]);
+  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
+  useEffect(() => { activeCallbackUrlRef.current = activeCallbackUrl; }, [activeCallbackUrl]);
+  useEffect(() => { activeStepNameRef.current = activeStepName; }, [activeStepName]);
+  useEffect(() => { languageRef.current = language; }, [language]);
+  useEffect(() => { currentPromptRef.current = currentPrompt; }, [currentPrompt]);
+  useEffect(() => { isMicMutedRef.current = isMicMuted; }, [isMicMuted]);
+  useEffect(() => { zeroPinOverlayRef.current = zeroPinOverlay; }, [zeroPinOverlay]);
+
+  // Helper to resolve callback URL if none set
+  const getFallbackCallbackUrl = useCallback((stepName: string, sessId: string): string => {
+    if (stepName === "voice-menu" || stepName === "language-selection") {
+      return `/api/simulator/language-selection?sessionId=${sessId}`;
+    }
+    if (stepName === "service-select" || stepName === "service-choice") {
+      return `/api/simulator/service-choice?sessionId=${sessId}`;
+    }
+    if (stepName === "provider-select" || stepName === "provider-choice") {
+      return `/api/simulator/provider-choice?sessionId=${sessId}`;
+    }
+    if (stepName === "action-select" || stepName === "action-choice") {
+      return `/api/simulator/action-choice?sessionId=${sessId}`;
+    }
+    if (stepName.includes("recipient")) {
+      return `/api/simulator/verify-recipient?sessionId=${sessId}`;
+    }
+    if (stepName.includes("amount")) {
+      return `/api/simulator/verify-amount?sessionId=${sessId}`;
+    }
+    if (stepName.includes("confirm")) {
+      return `/api/simulator/safe-confirmation?sessionId=${sessId}`;
+    }
+    return `/api/simulator/voice-menu?sessionId=${sessId}`;
+  }, []);
+
   // ── Logging Helpers ──────────────────────────────────────────────────
   const addLog = useCallback((source: TerminalLog["source"], message: string) => {
     const time = new Date().toTimeString().slice(0, 8);
@@ -393,7 +438,9 @@ export const PhoneSimulatorPage: React.FC = () => {
         const match = effectiveUrl.match(/\/([a-zA-Z0-9_-]+)(?:\?|$)/);
         if (match) stepName = match[1];
       }
+      activeStepNameRef.current = stepName;
       setActiveStepName(stepName);
+      continuousAudioEngine.setContext(stepName, language || "en");
 
       // Follow <Redirect> immediately
       if (parsed.redirectUrl) {
@@ -404,6 +451,7 @@ export const PhoneSimulatorPage: React.FC = () => {
       // Handle <Reject/>
       if (parsed.isReject) {
         audioPlaybackController.stop();
+        continuousAudioEngine.stop();
         if (recognitionRef.current) {
           try {
             recognitionRef.current.stop();
@@ -422,6 +470,7 @@ export const PhoneSimulatorPage: React.FC = () => {
             ? "Yɛsrɛ wo, hwɛ wo fon no so na fa wo MoMo PIN a ɛyɛ kokoam no hyɛ mu."
             : "Please check your phone screen and enter your secret MoMo PIN securely.";
           setCurrentPrompt(pinText);
+          currentPromptRef.current = pinText;
           addLog("state", "Zero-PIN Handoff: Telco USSD push sent to phone screen. Mic muted.");
           addChatTurn({
             sender: "system",
@@ -435,6 +484,7 @@ export const PhoneSimulatorPage: React.FC = () => {
           setCallStatus("Ended");
           const endText = "Call ended. Lift handset or press Call to begin.";
           setCurrentPrompt(endText);
+          currentPromptRef.current = endText;
           addLog("state", "Call terminated (<Reject/>).");
           addChatTurn({
             sender: "system",
@@ -444,13 +494,18 @@ export const PhoneSimulatorPage: React.FC = () => {
         }
 
         setCallActive(false);
+        callActiveRef.current = false;
         setActiveCallbackUrl(null);
+        activeCallbackUrlRef.current = null;
         return;
       }
 
       // Configure GetDigits expectations
       if (parsed.getDigits) {
-        setActiveCallbackUrl(parsed.getDigits.callbackUrl || null);
+        if (parsed.getDigits.callbackUrl) {
+          activeCallbackUrlRef.current = parsed.getDigits.callbackUrl;
+          setActiveCallbackUrl(parsed.getDigits.callbackUrl);
+        }
         setActiveNumDigits(parsed.getDigits.numDigits || 1);
         setActiveFinishOnKey(parsed.getDigits.finishOnKey || "#");
       }
@@ -486,6 +541,7 @@ export const PhoneSimulatorPage: React.FC = () => {
       }
 
       setCurrentPrompt(promptText);
+      currentPromptRef.current = promptText;
       setActivePlayUrl(parsed.playUrl || null);
 
       // Log reply text and options
@@ -503,13 +559,12 @@ export const PhoneSimulatorPage: React.FC = () => {
         options: choices,
       });
 
-      // Play audio cleanly (never interrupted if already active)
+      // Play audio automatically (studio audio or neural synthesis)
       if (parsed.playUrl) {
         addLog("audio", parsed.playUrl);
         audioPlaybackController.play(parsed.playUrl, promptText).catch(() => {});
       } else {
-        // Dynamic voice synthesis fallback
-        audioPlaybackController.play("", promptText).catch(() => {});
+        audioPlaybackController.speakText(promptText).catch(() => {});
       }
     },
     [addLog, addChatTurn, language]
@@ -532,7 +587,7 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       const bodyParams = new URLSearchParams();
       const combinedParams: Record<string, string> = {
-        sessionId: sessionId || `call_${Date.now()}`,
+        sessionId: sessionIdRef.current || sessionId || params.sessionId || `call_${Date.now()}`,
         callerNumber,
         phoneNumber: callerNumber,
         isActive: "1",
@@ -601,10 +656,32 @@ export const PhoneSimulatorPage: React.FC = () => {
 
   // ── Start Inbound Call ────────────────────────────────────────────────
   const startCall = useCallback(async () => {
-    // 1. Prime / unlock browser AudioContext on user gesture
+    // 1. Prime / unlock browser AudioContext & audio element on user gesture
     audioPlaybackController.unlockAudio();
 
+    audioPlaybackController.preload([
+      "/audio/Welcome_prompt_01.mp3",
+      "/audio/English/Audio_prompt_02.mp3",
+      "/audio/Twi/Audio_prompt_twi_02.mp3",
+      "/audio/English/Audio_prompt_03.mp3",
+      "/audio/Twi/Audio_prompt_twi_03.mp3",
+      "/audio/English/Audio_prompt_04.mp3",
+      "/audio/English/Audio_prompt_05.mp3",
+      "/audio/English/Audio_prompt_06.mp3",
+      "/audio/English/Audio_prompt_07.mp3",
+      "/audio/English/Audio_prompt_08.mp3",
+      "/audio/English/Audio_prompt_09.mp3",
+      "/audio/English/Audio_prompt_10.mp3",
+    ]);
+
     const newSession = `AT_CALL_${Date.now()}`;
+    callActiveRef.current = true;
+    sessionIdRef.current = newSession;
+    activeStepNameRef.current = "voice-menu";
+    const initialCallback = `/api/simulator/language-selection?sessionId=${newSession}`;
+    activeCallbackUrlRef.current = initialCallback;
+    currentPromptRef.current = "Welcome to Ɔkwankyerɛfo Pa. For English press 1, for Twi press 2.";
+
     setSessionId(newSession);
     setCallActive(true);
     setCallStatus("Connected");
@@ -616,49 +693,29 @@ export const PhoneSimulatorPage: React.FC = () => {
     addLog("system", `Call initiated. Session ID: ${newSession}`);
     addLog("state", "Connecting to phone simulator (/api/simulator/voice-menu)...");
 
-    // Launch Always-On Continuous Audio Engine & Web Speech
-    continuousAudioEngine.startAlwaysOnMic(language || "en", "voice-menu");
+    // Launch Always-On Continuous Audio Engine
+    continuousAudioEngine.startAlwaysOnMic(languageRef.current || "en", "voice-menu");
     continuousAudioEngine.resetDiscussionBuffer();
     setInterimTranscript("");
     setFinalizedTranscript("");
 
     // Initial step expectations
     setActiveStepName("voice-menu");
-    setActiveCallbackUrl(`/api/simulator/language-selection?sessionId=${newSession}`);
+    setActiveCallbackUrl(initialCallback);
     setActiveNumDigits(1);
     setActiveFinishOnKey("#");
 
-    // Play Welcome prompt with zero lag
-    const welcomeUrl = "/audio/Welcome_prompt_01.mp3";
-    const welcomePromptText = "Welcome to Ɔkwankyerɛfo Pa. For English press 1, for Twi press 2.";
-    setCurrentPrompt(welcomePromptText);
-    setActivePlayUrl(welcomeUrl);
-
-    addLog("reply", `"${welcomePromptText}"`);
-    addLog("audio", welcomeUrl);
-    addLog("state", "step=voice-menu, options: [1=English, 2=Twi, 0=Exit]");
-
-    addChatTurn({
-      sender: "system",
-      text: welcomePromptText,
-      stepName: "voice-menu",
-      audioUrl: welcomeUrl,
-      audioSource: "studio",
-      options: "1=English, 2=Twi, 0=Exit",
-    });
-
-    audioPlaybackController.play(welcomeUrl, welcomePromptText).catch(() => {});
-
-    if (!micUnavailable) {
-      startSpeechRecognition();
-    }
-
     await dispatchVoiceWebhook("/api/simulator/voice-menu", { sessionId: newSession });
-  }, [dispatchVoiceWebhook, language, micUnavailable, addLog, addChatTurn]);
+  }, [dispatchVoiceWebhook, addLog]);
 
   // ── End Call ──────────────────────────────────────────────────────────
   const endCall = useCallback(
     async (reason = "User hung up") => {
+      callActiveRef.current = false;
+      sessionIdRef.current = "";
+      activeCallbackUrlRef.current = null;
+      activeStepNameRef.current = "ended";
+
       setCallActive(false);
       setCallStatus("Ended");
       setCurrentPrompt("Call ended. Lift handset or press Call to begin.");
@@ -670,6 +727,7 @@ export const PhoneSimulatorPage: React.FC = () => {
       setFinalizedTranscript("");
 
       audioPlaybackController.stop();
+      continuousAudioEngine.stop();
 
       if (recognitionRef.current) {
         try {
@@ -689,14 +747,31 @@ export const PhoneSimulatorPage: React.FC = () => {
 
   // ── Speech Recognition & Spoken Turn Handler ──────────────────────────
   const processSpokenUtterance = useCallback(
-    async (utterance: string, parsedDiscussion?: ParsedDiscussionState) => {
-      if (!callActive || !activeCallbackUrl || zeroPinOverlay) return;
+    async (
+      utterance: string,
+      parsedDiscussion?: ParsedDiscussionState,
+      isDirectSimulated: boolean = false
+    ) => {
+      // If call is inactive, initiate call first
+      if (!callActiveRef.current) {
+        await startCall();
+      }
+
+      if (zeroPinOverlayRef.current) return;
 
       const clean = normalizeSpokenDigits(utterance.trim());
       if (!clean) return;
 
-      // Echo filter check: ignore system audio echoing back into mic
-      if (isAcousticSystemEcho(clean, currentPrompt, audioPlaybackController.isSpeaking())) {
+      // Echo filter check: ignore system audio echoing back into mic (only for live mic, not for direct simulated)
+      if (
+        !isDirectSimulated &&
+        isAcousticSystemEcho(
+          clean,
+          currentPromptRef.current,
+          audioPlaybackController.isSpeaking(),
+          isDirectSimulated
+        )
+      ) {
         return;
       }
 
@@ -721,11 +796,19 @@ export const PhoneSimulatorPage: React.FC = () => {
         text: effectiveClean,
         rawTranscript: clean !== effectiveClean ? clean : undefined,
         phoneticRepairs: phoneticRepair.repairedWords,
-        confidence: 0.96,
+        confidence: 0.98,
       });
 
+      const curStep = activeStepNameRef.current;
+      const curSession = sessionIdRef.current;
+      const curLang = languageRef.current || "en";
+      const targetCallback =
+        activeCallbackUrlRef.current ||
+        activeCallbackUrl ||
+        getFallbackCallbackUrl(curStep, curSession);
+
       // Long discussion parsing & fast-track
-      const discussion = parsedDiscussion || parseLongDiscussion(effectiveClean, activeStepName);
+      const discussion = parsedDiscussion || parseLongDiscussion(effectiveClean, curStep);
       if (
         discussion.shortcutSuggestedStep === "safe-confirmation" &&
         discussion.slots.recipientPhone &&
@@ -738,30 +821,37 @@ export const PhoneSimulatorPage: React.FC = () => {
           }`
         );
         try {
-          await fetch(`/api/simulator/verify-recipient?sessionId=${sessionId}&lang=${language || "en"}`, {
+          await fetch(`/api/simulator/verify-recipient?sessionId=${curSession}&lang=${curLang}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ dtmfDigits: discussion.slots.recipientPhone + "#" }),
           });
-          await fetch(`/api/simulator/enter-amount?sessionId=${sessionId}&lang=${language || "en"}`, {
+          await fetch(`/api/simulator/enter-amount?sessionId=${curSession}&lang=${curLang}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ dtmfDigits: String(discussion.slots.amount) + "#" }),
           });
           return dispatchVoiceWebhook(
-            `/api/simulator/safe-confirmation?sessionId=${sessionId}&lang=${language || "en"}`
+            `/api/simulator/safe-confirmation?sessionId=${curSession}&lang=${curLang}`
           );
         } catch {}
       }
 
-      if (activeStepName.includes("recipient") && discussion.slots.recipientPhone) {
-        addLog("AI", `Recipient phone parsed: ${discussion.slots.recipientPhone}`);
-        return dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: discussion.slots.recipientPhone + "#" });
+      const digitsOnly = effectiveClean.replace(/\D/g, "");
+      if (curStep.includes("recipient")) {
+        const phone = discussion.slots.recipientPhone || (digitsOnly.length === 10 ? digitsOnly : null);
+        if (phone) {
+          addLog("AI", `Recipient phone parsed: ${phone}`);
+          return dispatchVoiceWebhook(targetCallback, { dtmfDigits: phone + "#" });
+        }
       }
 
-      if (activeStepName.includes("amount") && discussion.slots.amount) {
-        addLog("AI", `Amount parsed: ${discussion.slots.amount} Cedis`);
-        return dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: String(discussion.slots.amount) + "#" });
+      if (curStep.includes("amount")) {
+        const amt = discussion.slots.amount || (digitsOnly.length > 0 && digitsOnly.length <= 6 ? digitsOnly : null);
+        if (amt) {
+          addLog("AI", `Amount parsed: ${amt} Cedis`);
+          return dispatchVoiceWebhook(targetCallback, { dtmfDigits: String(amt) + "#" });
+        }
       }
 
       // Fast-path: map common spoken Ghanaian tokens to step digits
@@ -769,38 +859,38 @@ export const PhoneSimulatorPage: React.FC = () => {
       let matchedDtmf: string | null = null;
 
       if (
-        activeStepName.includes("welcome") ||
-        activeStepName.includes("language") ||
-        activeStepName === "voice-menu"
+        curStep.includes("welcome") ||
+        curStep.includes("language") ||
+        curStep === "voice-menu"
       ) {
-        if (/^(1|one|won|wan|english|baako|bako)$/i.test(lower)) matchedDtmf = "1";
-        else if (/^(2|two|tu|twi|akan|mmienu|mienu)$/i.test(lower)) matchedDtmf = "2";
-      } else if (activeStepName.includes("service")) {
-        if (/^(1|one|momo|mobile money|telecom|baako)$/i.test(lower)) matchedDtmf = "1";
-        else if (/^(2|two|bank|banking|sikakorabea|mmienu)$/i.test(lower)) matchedDtmf = "2";
-      } else if (activeStepName.includes("provider")) {
-        if (/^(1|one|mtn|baako)$/i.test(lower)) matchedDtmf = "1";
-        else if (/^(2|two|telecel|vodafone|voda|mmienu)$/i.test(lower)) matchedDtmf = "2";
-        else if (/^(3|three|airteltigo|at|mmiɛnsa)$/i.test(lower)) matchedDtmf = "3";
-      } else if (activeStepName.includes("action")) {
-        if (/^(1|one|send|send money|transfer|baako|mane|soma)$/i.test(lower)) matchedDtmf = "1";
-        else if (/^(2|two|balance|check balance|my balance|mmienu)$/i.test(lower)) matchedDtmf = "2";
-      } else if (activeStepName.includes("confirm") || activeStepName.includes("verify-choice")) {
-        if (/^(1|one|yes|confirm|aane|pene so|yie|ampa|proceed|baako)$/i.test(lower)) matchedDtmf = "1";
-        else if (/^(2|two|no|dabi|sesa|change|cancel|mmienu)$/i.test(lower)) matchedDtmf = "2";
+        if (/\b(1|one|won|wan|english|baako|bako|borɔfo)\b/i.test(lower)) matchedDtmf = "1";
+        else if (/\b(2|two|tu|twi|akan|mmienu|mienu)\b/i.test(lower)) matchedDtmf = "2";
+      } else if (curStep.includes("service")) {
+        if (/\b(1|one|momo|mobile money|telecom|baako)\b/i.test(lower)) matchedDtmf = "1";
+        else if (/\b(2|two|bank|banking|sikakorabea|mmienu)\b/i.test(lower)) matchedDtmf = "2";
+      } else if (curStep.includes("provider")) {
+        if (/\b(1|one|mtn|baako)\b/i.test(lower)) matchedDtmf = "1";
+        else if (/\b(2|two|telecel|vodafone|voda|mmienu)\b/i.test(lower)) matchedDtmf = "2";
+        else if (/\b(3|three|airteltigo|at|mmiɛnsa|mmiensa)\b/i.test(lower)) matchedDtmf = "3";
+      } else if (curStep.includes("action")) {
+        if (/\b(1|one|send|send money|transfer|baako|mane|soma)\b/i.test(lower)) matchedDtmf = "1";
+        else if (/\b(2|two|balance|check balance|my balance|mmienu)\b/i.test(lower)) matchedDtmf = "2";
+      } else if (curStep.includes("confirm") || curStep.includes("verify-choice")) {
+        if (/\b(1|one|yes|confirm|aane|pene so|yie|ampa|proceed|baako)\b/i.test(lower)) matchedDtmf = "1";
+        else if (/\b(2|two|no|dabi|sesa|change|cancel|edit|mmienu)\b/i.test(lower)) matchedDtmf = "2";
       }
 
       // Universal navigation
       if (!matchedDtmf) {
-        if (/^(back|go back|previous|san|san akyi)$/i.test(lower)) matchedDtmf = "8";
-        else if (/^(repeat|again|say again|tie bio)$/i.test(lower)) matchedDtmf = "9";
-        else if (/^(cancel|stop|abort|quit|exit|gyae|hwee)$/i.test(lower)) matchedDtmf = "0";
-        else if (activeNumDigits === 1 && /^[0-9]$/.test(lower)) matchedDtmf = lower;
+        if (/\b(back|go back|previous|san|san akyi)\b/i.test(lower)) matchedDtmf = "8";
+        else if (/\b(repeat|again|say again|tie bio)\b/i.test(lower)) matchedDtmf = "9";
+        else if (/\b(cancel|stop|abort|quit|exit|gyae|hwee)\b/i.test(lower)) matchedDtmf = "0";
+        else if (activeNumDigits === 1 && /^[0-9]$/.test(lower.trim())) matchedDtmf = lower.trim();
       }
 
       if (matchedDtmf) {
         addLog("AI", `dtmf=${matchedDtmf} (mapped from "${effectiveClean}")`);
-        return dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: matchedDtmf });
+        return dispatchVoiceWebhook(targetCallback, { dtmfDigits: matchedDtmf });
       }
 
       // Brain path: POST /api/ivr/understand
@@ -810,9 +900,9 @@ export const PhoneSimulatorPage: React.FC = () => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             utterance: effectiveClean,
-            currentStep: activeStepName,
-            callState: { lang: language, sessionId },
-            sessionId,
+            currentStep: curStep,
+            callState: { lang: curLang, sessionId: curSession },
+            sessionId: curSession,
           }),
         });
 
@@ -820,11 +910,11 @@ export const PhoneSimulatorPage: React.FC = () => {
           const decision = await brainRes.json();
           if (decision.type === "dtmf" && decision.dtmf) {
             addLog("AI", `dtmf=${decision.dtmf} (${decision.reason || "brain resolved option"})`);
-            return dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: decision.dtmf });
+            return dispatchVoiceWebhook(targetCallback, { dtmfDigits: decision.dtmf });
           }
 
           if (decision.type === "skip" && decision.targetStep) {
-            const targetUrl = `/${decision.targetStep}?sessionId=${sessionId}&lang=${language || "en"}`;
+            const targetUrl = `/${decision.targetStep}?sessionId=${curSession}&lang=${curLang}`;
             return dispatchVoiceWebhook(targetUrl);
           }
 
@@ -848,7 +938,7 @@ export const PhoneSimulatorPage: React.FC = () => {
       }
 
       // Default fallback replay
-      const fallbackUrl = resolvePrompt("wrong_figure", language || "en");
+      const fallbackUrl = resolvePrompt("wrong_figure", curLang);
       if (fallbackUrl) {
         audioPlaybackController.play(fallbackUrl, "Please choose from the available options.").catch(() => {});
       }
@@ -856,13 +946,9 @@ export const PhoneSimulatorPage: React.FC = () => {
     [
       activeCallbackUrl,
       activeNumDigits,
-      activeStepName,
-      callActive,
-      currentPrompt,
       dispatchVoiceWebhook,
-      language,
-      sessionId,
-      zeroPinOverlay,
+      getFallbackCallbackUrl,
+      startCall,
       addLog,
       addChatTurn,
     ]
@@ -874,15 +960,18 @@ export const PhoneSimulatorPage: React.FC = () => {
       const phrase = textToSpeak.trim();
       if (!phrase || isSimulatingSpeech) return;
 
+      audioPlaybackController.unlockAudio();
       setIsSimulatingSpeech(true);
-      if (!callActive) {
+      if (!callActiveRef.current) {
         await startCall();
+        await new Promise((r) => setTimeout(r, 120));
       }
 
       audioPlaybackController.stop();
       setInterimTranscript("");
       setFinalizedTranscript("");
-      addLog("asr", `🎙️ Incoming speech stream detected (${language === "twi" ? "Akan Twi" : "Ghanaian English"})`);
+      const currentLang = languageRef.current || language;
+      addLog("asr", `🎙️ Incoming speech stream detected (${currentLang === "twi" ? "Akan Twi" : "Ghanaian English"})`);
 
       const words = phrase.split(/\s+/).filter(Boolean);
       let rolling = "";
@@ -930,137 +1019,11 @@ export const PhoneSimulatorPage: React.FC = () => {
       setFinalizedTranscript(effective);
       setIsSimulatingSpeech(false);
 
-      processSpokenUtterance(effective);
+      // Process utterance directly (bypassing mic acoustic echo filter since it is direct test input)
+      processSpokenUtterance(effective, undefined, true);
     },
-    [callActive, isSimulatingSpeech, language, processSpokenUtterance, startCall, addLog]
+    [isSimulatingSpeech, language, processSpokenUtterance, startCall, addLog]
   );
-
-  // ── Browser Web Speech API Setup ──────────────────────────────────────
-  const startSpeechRecognition = useCallback(() => {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      setMicUnavailable(true);
-      addLog("system", "Web Speech API not present in browser; simulated speech and keypad are active.");
-      return;
-    }
-
-    try {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.abort();
-        } catch {}
-      }
-
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      // Ghanaian English is universally supported across Chrome/Safari
-      recognition.lang = language === "twi" ? "en-GH" : "en-GH";
-
-      recognition.onstart = () => {
-        if (!zeroPinOverlay && !isMicMuted) {
-          setCallStatus("Listening");
-        }
-      };
-
-      recognition.onresult = (event: any) => {
-        if (isMicMuted || zeroPinOverlay) return;
-
-        let interim = "";
-        let final = "";
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const res = event.results[i];
-          const chunk = res[0]?.transcript || "";
-          if (res.isFinal) {
-            final += " " + chunk;
-          } else {
-            interim += " " + chunk;
-          }
-        }
-
-        interim = interim.trim();
-        final = final.trim();
-
-        if (interim) {
-          audioPlaybackController.stop();
-          const normalizedInterim = normalizeSpokenDigits(interim);
-          setInterimTranscript(normalizedInterim);
-
-          const streaming = extractStreamingWords(prevInterimTranscriptRef.current, normalizedInterim);
-          if (streaming.annotatedWords.length > 0) {
-            prevInterimTranscriptRef.current = normalizedInterim;
-            for (const item of streaming.annotatedWords) {
-              setRecentStreamingWords((prev) => [
-                ...prev.slice(-8),
-                { ...item, timestamp: Date.now() },
-              ]);
-              if (item.isPhoneticMatch && item.repaired) {
-                addLog("asr", `🎙️ Word: "${item.word}" ➔ "${item.repaired}" (phonetic match)`);
-              } else {
-                addLog("asr", `🎙️ Word: "${item.word}"`);
-              }
-            }
-          }
-
-          // Instant early dispatch on single-word commands
-          const lowerInterim = normalizedInterim.toLowerCase().trim();
-          const isInstantCmd = /^(?:[0-9]|one|two|three|four|five|six|seven|eight|nine|zero|english|twi|akan|baako|mmienu|mmiɛnsa|send money|mane sika|confirm|pene so|yes|aane|no|dabi|cancel|back|repeat)$/i.test(
-            lowerInterim
-          );
-          const now = Date.now();
-          if (isInstantCmd && now - lastUtteranceTimeRef.current > 300) {
-            lastUtteranceTimeRef.current = now;
-            prevInterimTranscriptRef.current = "";
-            const repair = repairGhanaianPronunciation(normalizedInterim);
-            const effective = repair.normalizedTranscript || normalizedInterim;
-            setInterimTranscript("");
-            setFinalizedTranscript(effective);
-            processSpokenUtterance(effective);
-            return;
-          }
-        }
-
-        if (final) {
-          audioPlaybackController.stop();
-          prevInterimTranscriptRef.current = "";
-          const normalizedFinal = normalizeSpokenDigits(final);
-          const repair = repairGhanaianPronunciation(normalizedFinal);
-          const effectiveFinal = repair.normalizedTranscript || normalizedFinal;
-          setInterimTranscript("");
-          setFinalizedTranscript(effectiveFinal);
-          processSpokenUtterance(effectiveFinal);
-        }
-      };
-
-      recognition.onerror = (e: any) => {
-        if (e.error === "not-allowed" || e.error === "permission-denied") {
-          setMicUnavailable(true);
-          setCallStatus("Mic Denied");
-          addLog("system", "Microphone access blocked. Interactive test chips & keypad active.");
-        } else if (e.error === "language-not-supported") {
-          try {
-            recognition.lang = "en-US";
-            recognition.start();
-          } catch {}
-        }
-      };
-
-      recognition.onend = () => {
-        if (callActive && !isMicMuted && !zeroPinOverlay) {
-          try {
-            recognition.start();
-          } catch {}
-        }
-      };
-
-      recognition.start();
-      recognitionRef.current = recognition;
-    } catch (e: any) {
-      setMicUnavailable(true);
-    }
-  }, [addLog, callActive, isMicMuted, language, processSpokenUtterance, zeroPinOverlay]);
 
   // Synchronize audio engine
   useEffect(() => {
@@ -1068,9 +1031,74 @@ export const PhoneSimulatorPage: React.FC = () => {
     continuousAudioEngine.setZeroPinMuted(zeroPinOverlay || isMicMuted);
   }, [activeStepName, language, zeroPinOverlay, isMicMuted]);
 
+  // Subscribe to Always-On continuous audio engine utterances & state
+  useEffect(() => {
+    const unsubUtterance = continuousAudioEngine.subscribeUtterance((utterance, parsedDiscussion) => {
+      if (isMicMutedRef.current || zeroPinOverlayRef.current) return;
+      if (utterance && utterance.trim()) {
+        processSpokenUtterance(utterance, parsedDiscussion);
+      }
+    });
+
+    const unsubWords = continuousAudioEngine.subscribeWordToken((token) => {
+      if (token && token.word) {
+        setRecentStreamingWords((prev) => [
+          ...prev.slice(-8),
+          {
+            word: token.word,
+            repaired: token.repaired,
+            isPhoneticMatch: token.isPhoneticMatch,
+            timestamp: token.timestamp,
+          },
+        ]);
+      }
+    });
+
+    const unsubState = continuousAudioEngine.subscribeState((state) => {
+      if (state.currentInterimTranscript) {
+        setInterimTranscript(state.currentInterimTranscript);
+      }
+      if (state.finalizedTranscript) {
+        setFinalizedTranscript(state.finalizedTranscript);
+      }
+      if (state.isListening && !isAudioSpeaking && !zeroPinOverlayRef.current && !isMicMutedRef.current) {
+        setCallStatus("Listening");
+      }
+      if (!state.isMicActive && !state.isPermissionGranted && !micUnavailable) {
+        setMicUnavailable(true);
+      }
+    });
+
+    return () => {
+      unsubUtterance();
+      unsubWords();
+      unsubState();
+    };
+  }, [processSpokenUtterance, isAudioSpeaking, micUnavailable]);
+
+
+  // Auto-scroll chat timeline to latest turn
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatTurns, interimTranscript]);
+
+  // One-time gesture audio unlock on page
+  useEffect(() => {
+    const handleGesture = () => {
+      audioPlaybackController.unlockAudio();
+    };
+    window.addEventListener("click", handleGesture, { once: true });
+    window.addEventListener("keydown", handleGesture, { once: true });
+    return () => {
+      window.removeEventListener("click", handleGesture);
+      window.removeEventListener("keydown", handleGesture);
+    };
+  }, []);
+
   // Keypad click handler with dual-tone audio beep
   const handleKeypadPress = useCallback(
-    (digit: string) => {
+    async (digit: string) => {
+      audioPlaybackController.unlockAudio();
       // 1. Play realistic DTMF telephone beep
       audioPlaybackController.playDtmfTone(digit);
 
@@ -1078,25 +1106,30 @@ export const PhoneSimulatorPage: React.FC = () => {
       audioPlaybackController.stop();
 
       // If inactive, dial in chosen language
-      if (!callActive) {
-        startCall();
+      if (!callActiveRef.current) {
+        await startCall();
         return;
       }
 
-      if (!activeCallbackUrl || zeroPinOverlay) return;
+      if (zeroPinOverlayRef.current) return;
+
+      const targetCallback =
+        activeCallbackUrlRef.current ||
+        activeCallbackUrl ||
+        getFallbackCallbackUrl(activeStepNameRef.current, sessionIdRef.current);
 
       // Add to Chat Timeline
       addChatTurn({
         sender: "dtmf",
         text: `Pressed Key '${digit}'`,
-        stepName: activeStepName,
+        stepName: activeStepNameRef.current,
       });
 
       // Single-digit expectation
       if (activeNumDigits === 1) {
         setDigitsBuffer("");
         addLog("caller", `Keypad '${digit}'`);
-        dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: digit });
+        dispatchVoiceWebhook(targetCallback, { dtmfDigits: digit });
         return;
       }
 
@@ -1106,7 +1139,7 @@ export const PhoneSimulatorPage: React.FC = () => {
           const submitted = digitsBuffer.trim();
           setDigitsBuffer("");
           addLog("caller", `Keypad '${submitted}#'`);
-          dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: submitted });
+          dispatchVoiceWebhook(targetCallback, { dtmfDigits: submitted });
         }
         return;
       }
@@ -1117,19 +1150,17 @@ export const PhoneSimulatorPage: React.FC = () => {
       if (!activeFinishOnKey && nextBuf.length >= activeNumDigits) {
         setDigitsBuffer("");
         addLog("caller", `Keypad '${nextBuf}'`);
-        dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: nextBuf });
+        dispatchVoiceWebhook(targetCallback, { dtmfDigits: nextBuf });
       }
     },
     [
       activeCallbackUrl,
       activeFinishOnKey,
       activeNumDigits,
-      activeStepName,
-      callActive,
       digitsBuffer,
       dispatchVoiceWebhook,
+      getFallbackCallbackUrl,
       startCall,
-      zeroPinOverlay,
       addLog,
       addChatTurn,
     ]
@@ -1151,19 +1182,14 @@ export const PhoneSimulatorPage: React.FC = () => {
 
   // Toggle mic
   const toggleMic = () => {
+    audioPlaybackController.unlockAudio();
     const nextState = !isMicMuted;
     setIsMicMuted(nextState);
     continuousAudioEngine.setZeroPinMuted(nextState);
     if (nextState) {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-        } catch {}
-      }
       addLog("caller", "Microphone muted.");
     } else {
       continuousAudioEngine.startAlwaysOnMic(language || "en", activeStepName);
-      startSpeechRecognition();
       addLog("caller", "Microphone unmuted (live).");
     }
   };
@@ -1437,14 +1463,18 @@ export const PhoneSimulatorPage: React.FC = () => {
 
             <div className="flex flex-wrap gap-1.5">
               {[
-                { label: "Mepɛ sɛ mesoma 50 cedis", desc: "Twi send 50 Cedis" },
-                { label: "Send 100 cities to 0244123456", desc: "Accent 'cities' -> 'cedis'" },
-                { label: "1 bar", desc: "Slang: 1 bar = 10 GHS" },
-                { label: "Baako", desc: "Twi: 1 (English menu)" },
-                { label: "Mmienu", desc: "Twi: 2 (Twi menu)" },
+                { label: "English", desc: "Press 1 (English)" },
+                { label: "Twi", desc: "Press 2 (Twi)" },
+                { label: "Mobile Money", desc: "Service 1 (MoMo)" },
+                { label: "MTN", desc: "Network 1 (MTN)" },
+                { label: "Send money", desc: "Action 1 (Send)" },
+                { label: "0553838464", desc: "Recipient Phone Number" },
+                { label: "20 cedis", desc: "Amount (20 Cedis)" },
+                { label: "Confirm", desc: "Confirm Transfer" },
+                { label: "Baako", desc: "Twi 1" },
+                { label: "Mmienu", desc: "Twi 2" },
                 { label: "Aane, pene so", desc: "Twi: Confirm transfer" },
-                { label: "Dabi, san akyi", desc: "Twi: Back / Cancel" },
-                { label: "0244123456", desc: "10-Digit Recipient" },
+                { label: "Mepɛ sɛ mesoma 50 cedis", desc: "Twi: Send 50 Cedis" },
               ].map((chip) => (
                 <button
                   key={chip.label}

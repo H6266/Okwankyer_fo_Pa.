@@ -167,7 +167,7 @@ export class AsrOrchestrator {
       // 5b. Gemini Multimodal Audio ASR with specialized Ghanaian dialectal & Akan Twi prompt
       if (!rawText && geminiClient.isAvailable()) {
         try {
-          const modelName = AI_CONFIG.transcriptionModel || "gemini-2.5-flash";
+          const modelName = AI_CONFIG.transcriptionModel || "gemini-3.8-flash";
           const geminiPrompt = resolvedLanguage === "eng"
             ? `You are an expert Automatic Speech Recognition (ASR) engine for Ghanaian telephony and mobile money.
 Transcribe this audio verbatim in Ghanaian English.

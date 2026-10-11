@@ -51,6 +51,8 @@ export class AudioPlaybackController {
   private listeners: Set<StateListener> = new Set();
   private activeResolver: (() => void) | null = null;
   private preloadElements: Map<string, HTMLAudioElement> = new Map();
+  private audioBufferCache: Map<string, AudioBuffer> = new Map();
+  private activeBufferSource: AudioBufferSourceNode | null = null;
 
   private audioContext: AudioContext | null = null;
 
@@ -74,10 +76,25 @@ export class AudioPlaybackController {
         if (this.audioContext.state === "suspended") {
           this.audioContext.resume().catch(() => {});
         }
+        // Play silent 1-sample buffer to unlock AudioContext permanently in iframes
+        try {
+          const silentBuffer = this.audioContext.createBuffer(1, 1, 22050);
+          const silentSource = this.audioContext.createBufferSource();
+          silentSource.buffer = silentBuffer;
+          silentSource.connect(this.audioContext.destination);
+          silentSource.start(0);
+        } catch {}
+      }
+      if (!this.audioElement) {
+        this.initAudioElement();
       }
       if (this.audioElement) {
-        // Silent unlock
         this.audioElement.volume = 1.0;
+        // Playing and immediately pausing silent buffer unlocks HTMLAudioElement permanently
+        this.audioElement.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
+        this.audioElement.play().then(() => {
+          this.audioElement?.pause();
+        }).catch(() => {});
       }
     } catch {}
   }
@@ -210,15 +227,34 @@ export class AudioPlaybackController {
    * Preload audio files into browser memory for zero-latency instant playback.
    */
   public preload(urls: string[]): void {
-    if (typeof window === "undefined" || typeof Audio === "undefined") return;
+    if (typeof window === "undefined") return;
     for (const url of urls) {
-      if (!url || this.preloadElements.has(url)) continue;
-      try {
-        const audio = new Audio();
-        audio.preload = "auto";
-        audio.src = url;
-        this.preloadElements.set(url, audio);
-      } catch {}
+      if (!url) continue;
+      const clean = url.replace(/^https?:\/\/[^/]+(\/audio\/.*)$/i, "$1");
+      if (!this.preloadElements.has(clean) && typeof Audio !== "undefined") {
+        try {
+          const audio = new Audio();
+          audio.preload = "auto";
+          audio.src = clean;
+          this.preloadElements.set(clean, audio);
+        } catch {}
+      }
+      if (!this.audioBufferCache.has(clean) && this.audioContext) {
+        fetch(clean)
+          .then((r) => r.ok ? r.arrayBuffer() : null)
+          .then((buf) => {
+            if (buf && this.audioContext) {
+              return this.audioContext.decodeAudioData(buf);
+            }
+            return null;
+          })
+          .then((decoded) => {
+            if (decoded) {
+              this.audioBufferCache.set(clean, decoded);
+            }
+          })
+          .catch(() => {});
+      }
     }
   }
 
@@ -278,16 +314,28 @@ export class AudioPlaybackController {
   public stop(): void {
     const token = ++this.currentToken;
 
+    if (this.activeBufferSource) {
+      try {
+        this.activeBufferSource.onended = null;
+        this.activeBufferSource.stop();
+        this.activeBufferSource.disconnect();
+      } catch {}
+      this.activeBufferSource = null;
+    }
+
     if (this.audioElement) {
       try {
-        this.audioElement.pause();
-        this.audioElement.currentTime = 0;
-        this.audioElement.src = "";
         this.audioElement.onended = null;
         this.audioElement.onerror = null;
-      } catch {
-        // Silently ignore pause/reset errors
-      }
+        this.audioElement.pause();
+        this.audioElement.currentTime = 0;
+      } catch {}
+    }
+
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
     }
 
     if (this.activeResolver) {
@@ -308,7 +356,7 @@ export class AudioPlaybackController {
    * Plays a single audio url. Accepts either a url string or a PlaybackRequest object.
    * Returns a Promise that resolves when audio ends (or resolves immediately if stopped).
    */
-  public play(
+  public async play(
     target: string | PlaybackRequest,
     optionsOrText?: PlayOptions | string
   ): Promise<boolean> {
@@ -361,14 +409,103 @@ export class AudioPlaybackController {
       return Promise.resolve(false);
     }
 
+    // 2. Try Web Audio buffer playback (works with zero lag and no autoplay restrictions)
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        if (!this.audioContext) {
+          this.audioContext = new AudioCtx();
+        }
+        if (this.audioContext.state === "suspended") {
+          await this.audioContext.resume().catch(() => {});
+        }
+      }
+
+      const playAudioBuffer = (buffer: AudioBuffer): Promise<boolean> => {
+        if (!this.audioContext || this.currentToken !== token) return Promise.resolve(false);
+
+        return new Promise<boolean>((resolve) => {
+          try {
+            const source = this.audioContext!.createBufferSource();
+            source.buffer = buffer;
+            source.connect(this.audioContext!.destination);
+
+            this.activeBufferSource = source;
+            this.activeResolver = () => {
+              try { source.stop(); } catch {}
+              resolve(false);
+            };
+
+            this.setState({
+              isPlaying: true,
+              activeClip: url,
+              activeText: promptText,
+              token,
+            });
+
+            options?.onStart?.();
+
+            source.onended = () => {
+              if (this.currentToken !== token) return;
+              this.activeBufferSource = null;
+              this.activeResolver = null;
+              this.setState({
+                isPlaying: false,
+                activeClip: null,
+                activeText: null,
+                token,
+              });
+              options?.onEnd?.();
+              resolve(true);
+            };
+
+            source.start(0);
+          } catch {
+            resolve(false);
+          }
+        });
+      };
+
+      // Check cache first
+      if (this.audioContext && this.audioBufferCache.has(url)) {
+        return await playAudioBuffer(this.audioBufferCache.get(url)!);
+      }
+
+      // Fetch and decode arrayBuffer
+      if (this.audioContext) {
+        let arrayBuf: ArrayBuffer | null = null;
+        if (url.startsWith("data:")) {
+          const commaIdx = url.indexOf(",");
+          if (commaIdx !== -1) {
+            const b64 = url.slice(commaIdx + 1);
+            const binStr = window.atob(b64);
+            const bytes = new Uint8Array(binStr.length);
+            for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+            arrayBuf = bytes.buffer;
+          }
+        } else {
+          const res = await fetch(url);
+          if (res.ok) {
+            arrayBuf = await res.arrayBuffer();
+          }
+        }
+
+        if (arrayBuf && this.currentToken === token) {
+          const copy = arrayBuf.slice(0);
+          const decoded = await new Promise<AudioBuffer>((resolveDecode, rejectDecode) => {
+            this.audioContext!.decodeAudioData(copy, resolveDecode, rejectDecode);
+          });
+          this.audioBufferCache.set(url, decoded);
+          return await playAudioBuffer(decoded);
+        }
+      }
+    } catch {
+      // Fall through to HTMLAudioElement
+    }
+
+    // 3. Fallback to HTMLAudioElement
     const audio = this.initAudioElement();
     if (!audio) {
-      this.setState({
-        isPlaying: false,
-        activeClip: url,
-        activeText: promptText,
-        token,
-      });
       if (promptText && promptText.trim()) {
         return this.speakText(promptText, options);
       }
@@ -390,7 +527,7 @@ export class AudioPlaybackController {
       options?.onStart?.();
 
       audio.onended = () => {
-        if (this.currentToken !== token) return; // Ignore stale token
+        if (this.currentToken !== token) return;
         this.activeResolver = null;
         this.setState({
           isPlaying: false,
@@ -403,9 +540,8 @@ export class AudioPlaybackController {
       };
 
       audio.onerror = () => {
-        if (this.currentToken !== token) return; // Ignore stale token
+        if (this.currentToken !== token) return;
         this.activeResolver = null;
-        // Fallback to speech synthesis if audio file cannot be loaded
         if (promptText && promptText.trim()) {
           this.speakText(promptText, options).then(resolve);
           return;
@@ -416,26 +552,20 @@ export class AudioPlaybackController {
           activeText: null,
           token,
         });
-        options?.onError?.(new Error("Audio load/decode error"));
         resolve(false);
       };
 
       try {
-        const cleanSrc = url.replace(/^https?:\/\/[^/]+(\/audio\/.*)$/i, "$1");
-        if (!audio.src.endsWith(cleanSrc)) {
-          audio.src = cleanSrc;
-        }
+        audio.src = url;
         audio.currentTime = 0;
         const playPromise = audio.play();
         if (playPromise !== undefined) {
           playPromise.catch((err: any) => {
-            // Handle AbortError silently (caused by quick successive play() or user barge-in)
             if (err?.name === "AbortError" || err?.message?.includes("interrupted")) {
               return;
             }
-            // If browser autoplay was blocked, fallback to speakText or notify
             if (this.currentToken === token) {
-              if (promptText && promptText.trim() && err?.name === "NotAllowedError") {
+              if (promptText && promptText.trim()) {
                 this.speakText(promptText, options).then(resolve);
                 return;
               }
