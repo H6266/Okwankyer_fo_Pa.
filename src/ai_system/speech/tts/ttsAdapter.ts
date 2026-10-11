@@ -34,15 +34,15 @@ export class GeminiTtsAdapter implements TTSProvider {
     if (!buf || buf.length < 128) {
       return { valid: false, format: "unknown" };
     }
-    // Check WAV (RIFF....WAVE)
+
     if (buf.length >= 12 && buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WAVE") {
       return { valid: true, format: "wav" };
     }
-    // Check MP3 (ID3 or frame sync 0xFF 0xFB/0xE0)
+
     if (buf.toString("ascii", 0, 3) === "ID3" || (buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0)) {
       return { valid: true, format: "mp3" };
     }
-    // PCM / Raw audio fallback
+
     return { valid: true, format: "wav" };
   }
 
@@ -79,23 +79,19 @@ export class GeminiTtsAdapter implements TTSProvider {
     }
 
     const startTime = Date.now();
+
     try {
       const profile = GHANA_VOICE_PROFILES[request.voiceProfile || "ghanaian-warm"] || GHANA_VOICE_PROFILES["ghanaian-warm"];
-      const style = `Spoken with a natural ${profile.name} tone, patient and respectful.`;
 
       const audioBase64 = await geminiClient.executeWithTimeout(
         "TTS_SYNTHESIZE",
-        async (ai, signal) => {
-          const response = await ai.models.generateContent({
+        async (_ai, _signal) => {
+          const response = await _ai.models.generateContent({
             model: AI_CONFIG.ttsModel,
             contents: [
               {
                 role: "user",
-                parts: [
-                  {
-                    text: request.text,
-                  },
-                ],
+                parts: [{ text: request.text }],
               },
             ],
             config: {
@@ -107,9 +103,10 @@ export class GeminiTtsAdapter implements TTSProvider {
               },
             },
           });
+
           return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || "";
         },
-        3500, // 3.5s timeout
+        3500,
         1
       );
 
@@ -117,36 +114,40 @@ export class GeminiTtsAdapter implements TTSProvider {
       this.totalRenderLatencyMs += renderLatency;
       this.renderCount++;
 
-      if (audioBase64) {
-        const audioBuffer = Buffer.from(audioBase64, "base64");
-        const headerCheck = this.validateAudioHeader(audioBuffer);
-        if (!headerCheck.valid) {
-          console.warn("[GeminiTtsAdapter] Generated audio failed header validation (size under 128 bytes).");
-          return this.synthesizeFallback(request, "invalid-header");
-        }
-
-        const mime = headerCheck.format === "mp3" ? "audio/mp3" : "audio/wav";
-        // Cache up to 100 clips
-        if (this.cache.size < 100) {
-          this.cache.set(cacheKey, { buffer: audioBuffer, base64: audioBase64, mimeType: mime });
-        }
-
-        return {
-          audioBase64,
-          audioBuffer,
-          audioMimeType: mime,
-          providerUsed: "gemini-tts",
-        };
+      if (!audioBase64) {
+        return this.synthesizeFallback(request, "gemini-empty");
       }
 
-      return this.synthesizeFallback(request, "gemini-empty");
+      const audioBuffer = Buffer.from(audioBase64, "base64");
+      const headerCheck = this.validateAudioHeader(audioBuffer);
+
+      if (!headerCheck.valid) {
+        console.warn("[GeminiTtsAdapter] Generated audio failed header validation.");
+        return this.synthesizeFallback(request, "invalid-header");
+      }
+
+      const mime = headerCheck.format === "mp3" ? "audio/mp3" : "audio/wav";
+
+      if (this.cache.size < 100) {
+        this.cache.set(cacheKey, { buffer: audioBuffer, base64: audioBase64, mimeType: mime });
+      }
+
+      return {
+        audioBase64,
+        audioBuffer,
+        mimeType: mime,
+        audioMimeType: mime,
+        providerUsed: "gemini-tts",
+      };
     } catch (err: any) {
       const msg = String(err?.message || "");
+
       const isForbidden =
         msg.includes("403") ||
         msg.includes("PERMISSION_DENIED") ||
         msg.includes("denied access") ||
         msg.includes("not enabled");
+
       const isQuota =
         msg.includes("429") ||
         msg.includes("RESOURCE_EXHAUSTED") ||
@@ -154,18 +155,17 @@ export class GeminiTtsAdapter implements TTSProvider {
         msg.includes("quota");
 
       if (isForbidden) {
-        // Cooldown for 24 hours so we don't spam 403 on every spoken phrase
         this.quotaExhaustedUntil = Date.now() + 24 * 60 * 60 * 1000;
         geminiClient.recordAccessDenied(msg);
-        console.info("[GeminiTtsAdapter] Gemini TTS is not permitted for current project (403). Using authentic studio recordings & Google speech synthesis.");
+        console.info("[GeminiTtsAdapter] Gemini TTS access denied; falling back to local Ghanaian TTS.");
       } else if (isQuota) {
         this.quotaExhaustedUntil = Date.now() + 5 * 60 * 1000;
-        console.info(`[GeminiTtsAdapter] Gemini TTS quota reached. Free tier daily quota reached. Local Ghanaian synthesis will serve requests until ${new Date(this.quotaExhaustedUntil).toLocaleTimeString()}.`);
+        console.info("[GeminiTtsAdapter] Gemini TTS quota reached; using local fallback.");
       } else if (msg.includes("503") || msg.includes("high demand") || msg.includes("UNAVAILABLE")) {
         this.quotaExhaustedUntil = Date.now() + 60 * 1000;
-        console.info(`[GeminiTtsAdapter] Gemini TTS experiencing high demand (503). Using local synthesis for 60s.`);
+        console.info("[GeminiTtsAdapter] Gemini TTS provider busy; using local fallback.");
       } else {
-        console.info("[GeminiTtsAdapter] Gemini TTS note:", msg.slice(0, 80));
+        console.info("[GeminiTtsAdapter] TTS note:", msg.slice(0, 80));
       }
 
       return this.synthesizeFallback(request, isForbidden ? "forbidden-fallback" : "error-fallback");

@@ -67,8 +67,9 @@ export interface AppConfig {
 
 export function loadConfig(): AppConfig {
   const nodeEnv = (process.env.NODE_ENV || "development") as AppConfig["nodeEnv"];
+  const isDev = nodeEnv === "development" || nodeEnv === "test" || process.env.npm_lifecycle_event === "dev";
   // Dev server must always run on port 3000 per AI Studio environment constraints
-  const port = Number(process.env.PORT || process.env.TEST_PORT || 3000);
+  const port = isDev ? 3000 : (process.env.PORT && process.env.PORT !== "8080" ? Number(process.env.PORT) : 3000);
   
   let baseUrl = (
     process.env.BASE_URL ||

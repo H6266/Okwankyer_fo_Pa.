@@ -109,20 +109,40 @@ export function loadConfigFromEnv(): MoMoConfig {
     ""
   ).trim();
 
+  const legacySubKey = (process.env.MOMO_SUBSCRIPTION_KEY || "").trim();
+  const legacyUserId = (process.env.MOMO_API_USER_ID || "").trim();
+  const legacyApiKey = (process.env.MOMO_API_KEY || "").trim();
+
+  const legacyIsComplete = Boolean(legacySubKey && legacyUserId && legacyApiKey);
+  const collIsComplete = Boolean(collSubKey && collUserId && collApiKey);
+  const disbIsComplete = Boolean(disbSubKey && disbUserId && disbApiKey);
+
+  const collection = collIsComplete
+    ? { subscriptionKey: collSubKey, apiUserId: collUserId, apiKey: collApiKey }
+    : legacyIsComplete
+      ? { subscriptionKey: legacySubKey, apiUserId: legacyUserId, apiKey: legacyApiKey }
+      : {
+          subscriptionKey: collSubKey || legacySubKey,
+          apiUserId: collUserId || legacyUserId,
+          apiKey: collApiKey || legacyApiKey,
+        };
+
+  const disbursement = disbIsComplete
+    ? { subscriptionKey: disbSubKey, apiUserId: disbUserId, apiKey: disbApiKey }
+    : legacyIsComplete
+      ? { subscriptionKey: legacySubKey, apiUserId: legacyUserId, apiKey: legacyApiKey }
+      : {
+          subscriptionKey: disbSubKey || legacySubKey,
+          apiUserId: disbUserId || legacyUserId,
+          apiKey: disbApiKey || legacyApiKey,
+        };
+
   return {
     baseUrl,
     targetEnv,
     currency,
-    collection: {
-      subscriptionKey: collSubKey,
-      apiUserId: collUserId,
-      apiKey: collApiKey,
-    },
-    disbursement: {
-      subscriptionKey: disbSubKey,
-      apiUserId: disbUserId,
-      apiKey: disbApiKey,
-    },
+    collection,
+    disbursement,
     callbackHost: process.env.MOMO_CALLBACK_HOST,
   };
 }

@@ -45,83 +45,62 @@ export interface SpeechToTextProvider {
  */
 export function isSpokenPinPattern(text: string, step?: string): boolean {
   if (!text) return false;
-  const lower = text.toLowerCase().trim();
 
-  // 1. Explicit PIN/secret keywords: ALWAYS dropped anywhere
+  const lower = text.toLowerCase().trim();
+  const normalizedStep = (step || "").toLowerCase();
+
   if (/\b(pin|momo\s*pin|password|secret|passcode|kokoam|ahintasɛm)\b/i.test(lower)) {
     return true;
   }
 
-  // Spoken credentials like "my secret is one two three"
   if (/(secret|password|pin)/i.test(lower) && /(one|two|three|four|five|six|seven|eight|nine|zero)/i.test(lower)) {
     return true;
   }
 
-  // Recognized network/menu announcements are not PIN disclosures.
-  // Keep this after the explicit PIN/secret checks above.
-  const pressOptionCount = (lower.match(
-    /\bpress\s+(?:[0-9]|zero|one|two|three|four|five|six|seven|eight|nine)\b/g
-  ) || []).length;
+  const digitsOnly = text.replace(/[^0-9]/g, "");
+  const hasAmountLanguage =
+    /(cedis?|ghs|pesewas?|ghana|amount|send\s*\d+|transfer|sika|mane|money)/i.test(lower);
 
-  const hasStrongMenuMarker =
-    /\b(?:network|hear this again|to exit|for mtn|mtn|telecel|airtel|tigo)\b/i.test(lower);
+  const hasPhoneLanguage =
+    /(phone|number|recipient|contact|mobile|nɔmba|fon)/i.test(lower);
 
-  if (pressOptionCount >= 2 && hasStrongMenuMarker) {
-    return false;
-  }
-
-  const digitsOnly = text.trim().replace(/[^0-9]/g, "");
-  const normalizedStep = (step || "").toLowerCase();
-
-  // 2. Step: Amount Input ("enter-amount", "amount")
-  if (normalizedStep.includes("amount")) {
-    // Legitimate amounts: 1 to 4 digits (up to 5,000 GHS) or spoken cedi amounts
-    // Do NOT drop legitimate amounts like "1000", "2500", "5000", "send 3000", "1 0 0 0"
-    if (digitsOnly.length >= 1 && digitsOnly.length <= 4) {
-      return false; // Permitted amount
-    }
-    // If someone speaks 5-6 standalone digits without cedi words at amount step, drop as probable PIN
-    if (digitsOnly.length > 4 && digitsOnly.length <= 6 && !/(cedis?|ghs|pesewas|ghana)/i.test(lower)) {
-      return true;
-    }
-    return false;
-  }
-
-  // 3. Step: Menu / Selection ("language-selection", "service-choice", "menu")
-  if (
-    normalizedStep.includes("menu") ||
+  const isMenu = normalizedStep.includes("menu") ||
     normalizedStep.includes("selection") ||
-    normalizedStep.includes("choice")
-  ) {
-    // Menu step accepts only 1 single digit or single command word.
-    // ANY multi-digit input (e.g. "1234", "5544") is suspicious and dropped
-    if (digitsOnly.length >= 2) {
-      return true;
+    normalizedStep.includes("choice") ||
+    normalizedStep.includes("service");
+
+  const isAmountStep = normalizedStep.includes("amount") ||
+    normalizedStep.includes("enter-amount") ||
+    normalizedStep.includes("cedi");
+
+  const isRecipientStep = normalizedStep.includes("recipient") ||
+    normalizedStep.includes("phone") ||
+    normalizedStep.includes("enter-recipient");
+
+  if (isAmountStep) {
+    if (digitsOnly.length === 0) return false;
+    if (digitsOnly.length <= 4) return false; // 1000, 2500, 5000 are valid amounts
+    if (digitsOnly.length <= 6 && !hasAmountLanguage) {
+      return true; // probable PIN, not an amount
     }
-    // Check spoken digits (e.g. "one two three four")
-    const digitWords = lower.match(/\b(zero|one|two|three|four|five|six|seven|eight|nine|baako|mmienu|mmiensa)\b/g);
-    if (digitWords && digitWords.length >= 2) {
+    return false;
+  }
+
+  if (isRecipientStep) {
+    if (digitsOnly.length >= 4 && digitsOnly.length <= 6 && !hasPhoneLanguage) {
       return true;
     }
     return false;
   }
 
-  // 4. Step: Recipient Phone Input ("enter-recipient", "recipient")
-  if (normalizedStep.includes("recipient")) {
-    // Recipient phone numbers have 9-10 digits.
-    // Standalone 4-6 digits is not a phone number and dropped as a PIN candidate
-    if (digitsOnly.length >= 4 && digitsOnly.length <= 6 && !/(phone|number|recipient)/i.test(lower)) {
-      return true;
-    }
+  if (isMenu) {
+    if (digitsOnly.length >= 2) return true;
     return false;
   }
 
-  // 5. Default fallback if step is unknown
-  if (
-    digitsOnly.length >= 4 &&
-    digitsOnly.length <= 6 &&
-    !/(cedis?|ghs|pesewas|ghana|phone|number)/i.test(lower)
-  ) {
+  // Default: only reject strongly suspicious 4-6 digit PIN-like utterances.
+  if (digitsOnly.length >= 4 && digitsOnly.length <= 6) {
+    if (hasAmountLanguage || hasPhoneLanguage) return false;
     return true;
   }
 

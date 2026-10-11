@@ -25,7 +25,12 @@ export class PiperTtsProvider implements TTSProvider {
   }
 
   private getTimeoutMs(): number {
-    return parseInt(process.env.PIPER_TTS_TIMEOUT_MS || "5000", 10);
+    return parseInt(process.env.PIPER_TTS_TIMEOUT_MS || "3500", 10);
+  }
+
+  private validateWavHeader(buf: Buffer): boolean {
+    if (!buf || buf.length < 128) return false;
+    return buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WAVE";
   }
 
   private getAuthHeaders(): Record<string, string> {
@@ -57,7 +62,7 @@ export class PiperTtsProvider implements TTSProvider {
         return {
           ready: Boolean(data.ready),
           provider: data.provider || "piper-local-neural-tts",
-          model: data.model || process.env.PIPER_MODEL || "unknown-piper-model",
+          model: data.model || process.env.PIPER_MODEL || "en_US-lessac-medium",
           dataDir: data.dataDir,
           details: data.details || "Ready for local neural TTS synthesis",
         };
@@ -66,14 +71,14 @@ export class PiperTtsProvider implements TTSProvider {
       return {
         ready: false,
         provider: "piper-local-neural-tts",
-        model: process.env.PIPER_MODEL || "unknown",
+        model: process.env.PIPER_MODEL || "en_US-lessac-medium",
         details: `Worker returned HTTP ${res.status}`,
       };
     } catch (err: any) {
       return {
         ready: false,
         provider: "piper-local-neural-tts",
-        model: process.env.PIPER_MODEL || "not-running",
+        model: process.env.PIPER_MODEL || "en_US-lessac-medium",
         details: `Worker connection failed at ${url}: ${err.message}`,
       };
     }
@@ -92,11 +97,11 @@ export class PiperTtsProvider implements TTSProvider {
 
       const body = {
         text: request.text,
-        language: request.language || "tw",
+        language: request.language || "en",
         voiceProfile: request.voiceProfile || "ghanaian-clear",
         speed: request.speed || 1.0,
         pitch: request.pitch,
-        model: process.env.PIPER_MODEL || undefined,
+        model: process.env.PIPER_MODEL || "en_US-lessac-medium",
       };
 
       const res = await fetch(url, {
@@ -115,8 +120,8 @@ export class PiperTtsProvider implements TTSProvider {
       const arrayBuffer = await res.arrayBuffer();
       const audioBuffer = Buffer.from(arrayBuffer);
 
-      if (audioBuffer.length < 64) {
-        throw new Error("Piper worker returned empty or corrupted WAV payload");
+      if (!this.validateWavHeader(audioBuffer)) {
+        throw new Error("Piper worker returned invalid WAV header or undersized payload (<128 bytes)");
       }
 
       const durationSec = parseFloat(res.headers.get("X-Piper-Duration-Seconds") || "1.0");
@@ -126,7 +131,7 @@ export class PiperTtsProvider implements TTSProvider {
         audioBase64: audioBuffer.toString("base64"),
         audioMimeType: "audio/wav",
         durationEstimateSec: Math.round(durationSec),
-        providerUsed: `piper-local-neural-tts:${res.headers.get("X-Piper-Model") || "local"}`,
+        providerUsed: `piper-local-neural-tts:${res.headers.get("X-Piper-Model") || "en_US-lessac-medium"}`,
       };
     } catch (err: any) {
       clearTimeout(timeout);

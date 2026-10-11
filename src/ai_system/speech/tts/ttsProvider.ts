@@ -20,6 +20,7 @@ export interface TtsSynthesisResponse {
   audioBuffer?: Buffer;
   audioBase64?: string;
   audioMimeType: string;
+  mimeType?: string;
   durationEstimateSec?: number;
   providerUsed: string;
 }

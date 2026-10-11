@@ -5,7 +5,6 @@
  * Preserves paragraphs, headings, formatting, and extractable text layers.
  */
 
-import JSZip from 'jszip';
 import { LoadedDocument, DocumentPage, DocumentType } from './types';
 
 export class DocumentParser {
@@ -46,7 +45,19 @@ export class DocumentParser {
    */
   public async parseDocx(arrayBuffer: ArrayBuffer, title = 'Sermon Manuscript.docx'): Promise<LoadedDocument> {
     try {
-      const zip = await JSZip.loadAsync(arrayBuffer);
+      let JSZipLib: any = (globalThis as any).JSZip;
+      if (!JSZipLib) {
+        try {
+          const mod = await import(/* @vite-ignore */ 'jszip');
+          JSZipLib = mod.default || mod;
+        } catch {
+          // JSZip module not loaded
+        }
+      }
+      if (!JSZipLib) {
+        throw new Error('DOCX parser engine (JSZip) is not available.');
+      }
+      const zip = await JSZipLib.loadAsync(arrayBuffer);
       const documentXmlFile = zip.file('word/document.xml');
 
       if (!documentXmlFile) {
@@ -108,7 +119,18 @@ export class DocumentParser {
   ): Promise<LoadedDocument> {
     try {
       // Dynamic import of pdfjs-dist
-      const pdfjsLib = await import('pdfjs-dist');
+      let pdfjsLib: any = (globalThis as any).pdfjsLib;
+      if (!pdfjsLib) {
+        try {
+          const mod = await import(/* @vite-ignore */ 'pdfjs-dist');
+          pdfjsLib = mod.default || mod;
+        } catch {
+          // pdfjs-dist not available
+        }
+      }
+      if (!pdfjsLib) {
+        throw new Error('PDF parsing engine is not available.');
+      }
       // Set worker source if available
       if (typeof window !== 'undefined' && !(pdfjsLib as any).GlobalWorkerOptions.workerSrc) {
         (pdfjsLib as any).GlobalWorkerOptions.workerSrc =
