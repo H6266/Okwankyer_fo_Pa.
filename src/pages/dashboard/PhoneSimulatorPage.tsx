@@ -71,6 +71,8 @@ export const PhoneSimulatorPage: React.FC = () => {
     isTranscriptProvisional,
     interimTranscript,
     transcriptionStatus,
+    livePreviewStatus,
+    livePreviewDetail,
     aiProcessingPhase,
     aiProcessingDetail,
     audioLevel,
@@ -466,10 +468,14 @@ export const PhoneSimulatorPage: React.FC = () => {
                 )}
 
                 <div
-                  className="px-3 py-2 rounded-2xl border border-slate-700 bg-slate-800/80 text-slate-400 text-[10px] font-semibold uppercase tracking-wide"
-                  aria-label="Assistant audio output disabled"
+                  className={`px-3 py-2 rounded-2xl border text-[10px] font-semibold uppercase tracking-wide ${
+                    isAiSpeaking
+                      ? "border-blue-500/40 bg-blue-600/20 text-blue-300"
+                      : "border-emerald-500/30 bg-emerald-600/10 text-emerald-300"
+                  }`}
+                  aria-live="polite"
                 >
-                  Assistant audio off
+                  {isAiSpeaking ? "Playing prompt" : "Audio enabled"}
                 </div>
               </div>
             </div>
@@ -695,17 +701,23 @@ export const PhoneSimulatorPage: React.FC = () => {
                           </span>
                         )}
                       </div>
-                      {interimTranscript ? (
+                      {interimTranscript && (
                         <p className={isTranscriptProvisional ? "italic text-amber-100" : "text-emerald-100"}>
                           {interimTranscript}
                         </p>
-                      ) : (
+                      )}
+                      {transcriptionStatus === "ERROR" ? (
+                        <p className="mt-2 text-rose-200">{aiProcessingDetail}</p>
+                      ) : !interimTranscript ? (
                         <p className="text-slate-400">
-                          {transcriptionStatus === "ERROR"
-                            ? aiProcessingDetail
-                            : transcriptionStatus === "PROCESSING" && aiProcessingPhase === "SPEECH_IN"
+                          {transcriptionStatus === "PROCESSING" && aiProcessingPhase === "SPEECH_IN"
                             ? "Sending captured audio for final transcription..."
                             : "Speak now or use the keypad."}
+                        </p>
+                      ) : null}
+                      {isMicActive && livePreviewStatus !== "AVAILABLE" && (
+                        <p className="mt-2 border-t border-slate-700/70 pt-2 text-[11px] text-amber-200">
+                          {livePreviewDetail}
                         </p>
                       )}
                     </div>

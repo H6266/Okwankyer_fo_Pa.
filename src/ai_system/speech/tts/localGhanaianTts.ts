@@ -10,7 +10,6 @@
 
 import fs from "fs";
 import path from "path";
-import * as googleTTS from "google-tts-api";
 import { TTSProvider, TtsSynthesisRequest, TtsSynthesisResponse } from "./ttsProvider";
 import { AUDIO_CATALOG } from "../../../audio/catalog";
 
@@ -321,54 +320,8 @@ export class LocalGhanaianTtsProvider implements TTSProvider {
       };
     }
 
-    // 3. High quality natural spoken synthesis via Google TTS for dynamic speech (names, amounts, receipts)
-    try {
-      const phoneticText = cleanText
-        .replace(/ɛ/g, "e")
-        .replace(/ɔ/g, "o")
-        .replace(/Ɛ/g, "E")
-        .replace(/Ɔ/g, "O");
-
-      if (phoneticText.length <= 200) {
-        const b64 = await googleTTS.getAudioBase64(phoneticText, {
-          lang: "en",
-          slow: request.speed && request.speed < 0.9 ? true : false,
-          host: "https://translate.google.com",
-          timeout: 4000,
-        });
-        if (b64 && b64.length > 64) {
-          const buf = Buffer.from(b64, "base64");
-          return {
-            audioBuffer: buf,
-            audioBase64: b64,
-            audioMimeType: "audio/mp3",
-            durationEstimateSec: Math.max(1, Math.round(cleanText.split(/\s+/).length * 0.35)),
-            providerUsed: "google-tts-spoken-engine",
-          };
-        }
-      } else {
-        const parts = await googleTTS.getAllAudioBase64(phoneticText, {
-          lang: "en",
-          slow: request.speed && request.speed < 0.9 ? true : false,
-          host: "https://translate.google.com",
-          timeout: 4000,
-        });
-        if (parts && parts.length > 0) {
-          const buffers = parts.map((p) => Buffer.from(p.base64, "base64"));
-          const combined = Buffer.concat(buffers);
-          return {
-            audioBuffer: combined,
-            audioBase64: combined.toString("base64"),
-            audioMimeType: "audio/mp3",
-            durationEstimateSec: Math.max(1, Math.round(cleanText.split(/\s+/).length * 0.35)),
-            providerUsed: "google-tts-spoken-engine",
-          };
-        }
-      }
-    } catch (err: any) {
-      console.warn("[LocalGhanaianTts] Google TTS spoken synthesis notice:", err?.message || err);
-    }
-
+    // Cloud TTS is intentionally disabled. Dynamic speech must use local Piper.
+    // This provider only serves recorded prompts or test-only audio fixtures.
     // 4. Contextual studio prompt fallback if Google TTS is unavailable
     const contextualStudioMatch = this.findPromptMatch(cleanText, request.language);
     if (contextualStudioMatch && fs.existsSync(contextualStudioMatch)) {
@@ -397,17 +350,10 @@ export class LocalGhanaianTtsProvider implements TTSProvider {
       };
     }
 
-    // 5. Ultimate fallback if audio file missing
-    const isElderly = request.voiceProfile === "elderly-accessible" || request.voiceProfile === "ghanaian-elderly";
-    const speed = request.speed || 1.0;
-    const wavBuffer = this.generatePcmWav(cleanText, speed, isElderly);
-    return {
-      audioBuffer: wavBuffer,
-      audioBase64: wavBuffer.toString("base64"),
-      audioMimeType: "audio/wav",
-      durationEstimateSec: 2,
-      providerUsed: "local-ghanaian-wav-fallback",
-    };
+    throw new Error(
+      `No matching studio recording is available for this text in ${request.language}. ` +
+      "Start the local Piper TTS worker for dynamic speech."
+    );
   }
 }
 

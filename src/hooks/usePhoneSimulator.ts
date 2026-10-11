@@ -401,12 +401,14 @@ export function usePhoneSimulator() {
   const [isMicActive, setIsMicActive] = useState(false);
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const enableTts = false;
+  const enableTts = true;
   const [voiceMode, setVoiceMode] = useState<"AI_NEURAL" | "STUDIO_PROMPTS" | "BROWSER">("STUDIO_PROMPTS");
 
   // Real-Time Speech Transcription & AI Processing Telemetry
   const [interimTranscript, setInterimTranscript] = useState<string>("");
   const [isTranscriptProvisional, setIsTranscriptProvisional] = useState(false);
+  const [livePreviewStatus, setLivePreviewStatus] = useState<"AVAILABLE" | "FALLBACK" | "UNAVAILABLE">("UNAVAILABLE");
+  const [livePreviewDetail, setLivePreviewDetail] = useState("Live preview starts when the microphone is enabled.");
   const [transcriptionStatus, setTranscriptionStatus] = useState<"IDLE" | "LISTENING" | "PROCESSING" | "TRANSCRIBED" | "ERROR" | "PAUSED">("IDLE");
   const [aiProcessingPhase, setAiProcessingPhase] = useState<
     "IDLE" | "SPEECH_IN" | "LANGUAGE_DETECTION" | "INTENT_EXTRACTION" | "SECURITY_CHECK" | "HANDOFF" | "SPEECH_SYNTHESIS" | "READY"
@@ -549,6 +551,11 @@ export function usePhoneSimulator() {
   const animFrameRef = useRef<number | null>(null);
   const speechTurnSubmittedRef = useRef<boolean>(false);
   const browserFinalTranscriptRef = useRef<string>("");
+  const previewLanguageOverrideRef = useRef<string | null>(null);
+  const previewDisabledRef = useRef(false);
+  const previewNetworkErrorsRef = useRef(0);
+  const interimRecognitionFinalizingRef = useRef(false);
+  const interimRecognitionFinalizedRef = useRef<(() => void) | null>(null);
   const isAiSpeakingRef = useRef<boolean>(false);
   const activePromptTextRef = useRef<string>("");
   const audioLevelRef = useRef<number>(0);
@@ -568,7 +575,7 @@ export function usePhoneSimulator() {
     lang: string;
     continuous: boolean;
     interimResults: boolean;
-    onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string; isFinal: boolean }>> }) => void) | null;
+    onresult: ((event: { resultIndex?: number; results: ArrayLike<ArrayLike<{ transcript: string; isFinal: boolean }>> }) => void) | null;
     onerror: ((event: { error: string }) => void) | null;
     onend: (() => void) | null;
     start: () => void;
@@ -589,22 +596,29 @@ export function usePhoneSimulator() {
   }, [isAiSpeaking]);
 
   const startInterimRecognition = useCallback(() => {
-    if (typeof window === "undefined" || recognitionRef.current) return;
+    if (typeof window === "undefined" || recognitionRef.current || previewDisabledRef.current) return;
 
     const speechWindow = window as typeof window & {
       SpeechRecognition?: new () => BrowserSpeechRecognition;
       webkitSpeechRecognition?: new () => BrowserSpeechRecognition;
     };
     const SpeechRecognition = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
+    if (!SpeechRecognition) {
+      setLivePreviewStatus("UNAVAILABLE");
+      setLivePreviewDetail("This browser does not support live preview. Final speech recognition remains active.");
+      return;
+    }
 
     const recognition = new SpeechRecognition();
-    recognition.lang = language === "tw" || language === "ak" ? "tw-GH" : "en-GH";
+    const selectedLocale = previewLanguageOverrideRef.current || (
+      language === "tw" || language === "ak" ? "tw-GH" : "en-GH"
+    );
+    recognition.lang = selectedLocale;
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.onresult = (event) => {
       if (
-        recognitionRef.current !== recognition ||
+        (recognitionRef.current !== recognition && !interimRecognitionFinalizingRef.current) ||
         !voiceListeningEnabledRef.current ||
         isAiSpeakingRef.current
       ) return;
@@ -614,39 +628,68 @@ export function usePhoneSimulator() {
         const transcript = result?.[0]?.transcript?.trim();
         if (transcript) {
           words.push(transcript);
-          if (result[0].isFinal) {
+          if (i >= (event.resultIndex ?? 0) && result[0].isFinal) {
             browserFinalTranscriptRef.current = `${browserFinalTranscriptRef.current} ${transcript}`.trim();
           }
         }
       }
       const text = words.join(" ").trim();
       if (text) {
+        previewNetworkErrorsRef.current = 0;
+        setLivePreviewStatus(previewLanguageOverrideRef.current ? "FALLBACK" : "AVAILABLE");
+        setLivePreviewDetail(
+          previewLanguageOverrideRef.current
+            ? "Best-effort English browser preview. Final configured ASR remains authoritative."
+            : "Browser preview is ready. Final configured ASR remains authoritative."
+        );
         setInterimTranscript(text);
         setIsTranscriptProvisional(true);
         setTranscriptionStatus("LISTENING");
         setAiProcessingDetail("Live provisional transcript · waiting for final ASR recognition.");
       }
     };
-    recognition.onerror = () => {
+    recognition.onerror = (event) => {
       const wasActive = recognitionRef.current === recognition;
-      if (wasActive) recognitionRef.current = null;
-      if (voiceListeningEnabledRef.current && !isAiSpeakingRef.current) {
-        setAiProcessingDetail("Live preview is unavailable; final speech recognition is still active. Keypad input is available.");
-      }
-      if (wasActive) {
-        setTimeout(() => {
-          if (voiceListeningEnabledRef.current && !isAiSpeakingRef.current && isMicActiveRef.current) {
-            startInterimRecognition();
-          }
-        }, 500);
+      if (!wasActive) return;
+      if (event.error === "language-not-supported" && selectedLocale !== "en-US") {
+        previewLanguageOverrideRef.current = "en-US";
+        setLivePreviewStatus("FALLBACK");
+        setLivePreviewDetail("This browser does not support the selected preview language; using best-effort English preview. Final ASR still recognizes Twi and English.");
+      } else if (event.error === "network") {
+        previewNetworkErrorsRef.current += 1;
+        if (previewNetworkErrorsRef.current >= 3) {
+          previewDisabledRef.current = true;
+          setLivePreviewStatus("UNAVAILABLE");
+          setLivePreviewDetail("Browser live preview is unavailable due to a network issue. Final speech recognition remains active.");
+        } else {
+          setLivePreviewDetail("Browser preview temporarily disconnected; retrying. Final speech recognition remains active.");
+        }
+      } else if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        previewDisabledRef.current = true;
+        setLivePreviewStatus("UNAVAILABLE");
+        setLivePreviewDetail("Browser live preview is blocked by browser permissions or settings. Final speech recognition remains active.");
+      } else if (event.error !== "no-speech" && event.error !== "aborted") {
+        previewDisabledRef.current = true;
+        setLivePreviewStatus("UNAVAILABLE");
+        setLivePreviewDetail(`Browser live preview is unavailable (${event.error}). Final speech recognition remains active.`);
       }
     };
     recognition.onend = () => {
       const wasActive = recognitionRef.current === recognition;
       if (wasActive) recognitionRef.current = null;
+      if (interimRecognitionFinalizingRef.current) {
+        interimRecognitionFinalizedRef.current?.();
+        return;
+      }
       if (wasActive && voiceListeningEnabledRef.current && !isAiSpeakingRef.current) {
         setTimeout(() => {
-          if (voiceListeningEnabledRef.current && !isAiSpeakingRef.current && isMicActiveRef.current) {
+          if (
+            voiceListeningEnabledRef.current &&
+            !isAiSpeakingRef.current &&
+            isMicActiveRef.current &&
+            !previewDisabledRef.current &&
+            previewNetworkErrorsRef.current < 3
+          ) {
             startInterimRecognition();
           }
         }, 300);
@@ -655,11 +698,50 @@ export function usePhoneSimulator() {
     recognitionRef.current = recognition;
     try {
       recognition.start();
+      setLivePreviewStatus(previewLanguageOverrideRef.current ? "FALLBACK" : "AVAILABLE");
     } catch (error) {
       recognitionRef.current = null;
+      previewDisabledRef.current = true;
+      setLivePreviewStatus("UNAVAILABLE");
+      setLivePreviewDetail("Browser live preview could not start. Final speech recognition remains active.");
       console.warn("[VoiceCapture] Browser interim recognition could not start:", error);
     }
   }, [language]);
+
+  const finalizeInterimRecognition = useCallback(async () => {
+    const recognition = recognitionRef.current as BrowserSpeechRecognition | null;
+    if (recognition) {
+      interimRecognitionFinalizingRef.current = true;
+      await new Promise<void>((resolve) => {
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          interimRecognitionFinalizedRef.current = null;
+          resolve();
+        };
+        interimRecognitionFinalizedRef.current = finish;
+        const timeout = setTimeout(finish, 500);
+        const originalFinish = finish;
+        interimRecognitionFinalizedRef.current = () => {
+          clearTimeout(timeout);
+          originalFinish();
+        };
+        try {
+          recognition.stop();
+        } catch {
+          clearTimeout(timeout);
+          finish();
+        }
+      });
+      if (recognitionRef.current === recognition) recognitionRef.current = null;
+      interimRecognitionFinalizingRef.current = false;
+    }
+
+    const finalTranscript = browserFinalTranscriptRef.current.trim();
+    browserFinalTranscriptRef.current = "";
+    return finalTranscript;
+  }, []);
 
   const stopInterimRecognition = useCallback(() => {
     const recognition = recognitionRef.current as BrowserSpeechRecognition | null;
@@ -2094,6 +2176,8 @@ export function usePhoneSimulator() {
   const startContinuousVoice = useCallback(async () => {
     setVoiceModeActive("REAL_MIC");
     voiceListeningEnabledRef.current = true;
+    previewDisabledRef.current = false;
+    previewNetworkErrorsRef.current = 0;
 
     // Auto-connect call immediately if not active
     if (!isActive) {
@@ -2141,14 +2225,12 @@ export function usePhoneSimulator() {
           setIsAiSpeaking(false);
           isAiSpeakingRef.current = false;
         },
-        onUtteranceComplete: async (wavBase64, durationMs) => {
+        onUtteranceComplete: async (wavBase64) => {
           // Automatic end of user speech turn detected by VAD!
-          stopInterimRecognition();
-          const browserFinalTranscript = browserFinalTranscriptRef.current.trim();
-          browserFinalTranscriptRef.current = "";
+          const browserFinalTranscript = await finalizeInterimRecognition();
           setTranscriptionStatus("PROCESSING");
           setAiProcessingPhase("SPEECH_IN");
-          setAiProcessingDetail("Recognizing speech with the configured Ghanaian-language ASR...");
+          setAiProcessingDetail("Recognizing your speech...");
 
           const startTime = performance.now();
           let rawText = "";
@@ -2159,10 +2241,12 @@ export function usePhoneSimulator() {
           try {
             const asrRes = await api.transcribeAudio(wavBase64, "audio/wav", languageHint, currentStep);
             const latency = Math.round(performance.now() - startTime);
-            rawText = asrRes?.result?.text && asrRes.result.text !== "empty"
-              ? asrRes.result.text
-              : browserFinalTranscript;
-            provider = asrRes?.result?.text && asrRes.result.text !== "empty"
+            const serverText = typeof asrRes?.result?.text === "string"
+              ? asrRes.result.text.trim()
+              : "";
+            const hasServerTranscript = serverText.length > 0 && serverText.toLowerCase() !== "empty";
+            rawText = hasServerTranscript ? serverText : browserFinalTranscript;
+            provider = hasServerTranscript
               ? asrRes.result.provider || "GhanaNLP_ASR_v3"
               : browserFinalTranscript ? "browser-final-fallback" : "";
 
@@ -2230,7 +2314,12 @@ export function usePhoneSimulator() {
               await sendInputTurn(textToSend, "VOICE");
             } else {
               setTranscriptionStatus("ERROR");
-              setAiProcessingDetail("No transcript was returned. Please repeat, check microphone permission, or use the keypad.");
+              const heardSpeech = asrRes?.result?.speechActivityDetected;
+              setAiProcessingDetail(
+                heardSpeech === false
+                  ? "I didn't hear speech. Please speak clearly after the prompt finishes, or use the keypad."
+                  : "I couldn't understand that. Please say it again, or use the keypad."
+              );
             }
           } catch (err: unknown) {
             console.warn("[VoiceCapture] ASR error:", err);
@@ -2260,7 +2349,8 @@ export function usePhoneSimulator() {
             } else {
               const message = err instanceof Error ? err.message : String(err);
               setTranscriptionStatus("ERROR");
-              setAiProcessingDetail(`Speech recognition failed: ${message}. Please repeat or use the keypad.`);
+              console.warn("[VoiceCapture] Final speech recognition request failed:", message);
+              setAiProcessingDetail("I couldn't understand that. Please try speaking again, or use the keypad.");
             }
           } finally {
             if (voiceListeningEnabledRef.current && !isAiSpeakingRef.current) {
@@ -2293,7 +2383,7 @@ export function usePhoneSimulator() {
       setAiProcessingDetail("🎙️ Smart Voice Mode Active · Choose a Ghanaian voice phrase or upload audio");
     }
     return success;
-  }, [isActive, language, currentStep, startCall, sendInputTurn, startInterimRecognition, stopInterimRecognition]);
+  }, [isActive, language, currentStep, startCall, sendInputTurn, startInterimRecognition, finalizeInterimRecognition]);
 
   const startContinuousVoiceRef = useRef(startContinuousVoice);
   useEffect(() => {
@@ -2894,6 +2984,8 @@ export function usePhoneSimulator() {
     // Real-Time Telemetry & Innovation State
     interimTranscript,
     isTranscriptProvisional,
+    livePreviewStatus,
+    livePreviewDetail,
     setInterimTranscript,
     transcriptionStatus,
     setTranscriptionStatus,

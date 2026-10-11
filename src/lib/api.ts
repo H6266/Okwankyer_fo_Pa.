@@ -935,7 +935,17 @@ export const api = {
     language?: string,
     step?: string,
     hintText?: string
-  ): Promise<{ success: boolean; result: { text: string; confidence: number; languageDetected: string; provider?: string } }> {
+  ): Promise<{
+    success: boolean;
+    result: {
+      text: string;
+      confidence: number;
+      languageDetected: string;
+      provider?: string;
+      durationMs?: number;
+      speechActivityDetected?: boolean;
+    };
+  }> {
     const res = await fetch("/api/ai/transcribe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
