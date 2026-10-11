@@ -18,12 +18,8 @@ export interface TtsRouterReport {
 
 export class TtsRouter implements TTSProvider {
   public async synthesize(request: TtsSynthesisRequest): Promise<TtsSynthesisResponse> {
-<<<<<<< HEAD
-    if (studioCatalogProvider.hasMatch(request.text, request.language)) {
-=======
     // Tier 1: Check authentic human studio recording catalog
     if (!request.skipCatalogCheck && studioCatalogProvider.hasMatch(request.text, request.language)) {
->>>>>>> origin/main
       try {
         return await studioCatalogProvider.synthesize(request);
       } catch (err: any) {

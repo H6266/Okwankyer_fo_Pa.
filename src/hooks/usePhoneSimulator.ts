@@ -561,7 +561,6 @@ export function usePhoneSimulator() {
   const audioLevelRef = useRef<number>(0);
   const voiceListeningEnabledRef = useRef(false);
 
-<<<<<<< HEAD
   // ── Long Conversation Audio Recording State ─────────────────────────────
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDurationSec, setRecordingDurationSec] = useState(0);
@@ -587,9 +586,6 @@ export function usePhoneSimulator() {
   const recordingChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<any>(null);
   const asrSessionIdRef = useRef<string | null>(null);
-
-=======
->>>>>>> origin/main
   useEffect(() => {
     isMicActiveRef.current = isMicActive;
   }, [isMicActive]);
@@ -1742,13 +1738,9 @@ export function usePhoneSimulator() {
     setAccuracyResult(null);
     setLastTurnDiagnostic(null);
 
-<<<<<<< HEAD
-    const welcomeGreeting = "Akwaaba! Welcome to Ɔkwankyerɛfo Pa. For English, say English or press 1. For Akan Twi, say Twi or press 2.";
-=======
     const welcomeGreeting = initialLang === "tw"
       ? "Akwaaba! Ɔkwankyerɛfo Pa MoMo Ntentan so. Sika bɛn na wobɛpɛ sɛ womane anaa wobɛyɛ?"
-      : "Welcome to Ɔkwankyerɛfo Pa Voice Mobile Money! Who would you like to send money to today?";
->>>>>>> origin/main
+      : "Akwaaba! Welcome to Ɔkwankyerɛfo Pa. For English, say English or press 1. For Akan Twi, say Twi or press 2.";
 
     const initialXml = `<Response>\n  <GetDigits timeout="2" finishOnKey="#" numDigits="10">\n    <Say voice="${initialLang === "tw" ? "woman" : "alice"}">${welcomeGreeting}</Say>\n  </GetDigits>\n</Response>`;
     setVoiceXmlTraces([

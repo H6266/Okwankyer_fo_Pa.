@@ -5,17 +5,9 @@ import {
   Mic,
   MicOff,
   Volume2,
-<<<<<<< HEAD
-  Radio,
-  RotateCcw,
-  Download,
-  FileText,
-  Sparkles,
-=======
   Trash2,
   ChevronDown,
   ChevronUp,
->>>>>>> origin/main
   ShieldCheck,
   CheckCircle2,
   Play,
@@ -141,63 +133,6 @@ const KEYPAD_BUTTONS = [
 ];
 
 export const PhoneSimulatorPage: React.FC = () => {
-<<<<<<< HEAD
-  const {
-    isActive,
-    callDurationSec,
-    sessionId,
-    executionMode,
-    language,
-    gatewayMode,
-    setGatewayMode,
-    atCallerPhone,
-    atExpectedDigits,
-    atFinishOnKey,
-    atInstruction,
-    atHttpLogs,
-    clearAtLogs,
-    ussdPushPrompt,
-    dismissUssdPrompt,
-    currentStep,
-    digitsBuffer,
-    setDigitsBuffer,
-    isMicActive,
-    isAiSpeaking,
-    isLoading,
-    isTranscriptProvisional,
-    interimTranscript,
-    transcriptionStatus,
-    livePreviewStatus,
-    livePreviewDetail,
-    aiProcessingPhase,
-    aiProcessingDetail,
-    audioLevel,
-    transcript,
-    aiResponse,
-    intent,
-    startCall,
-    enableConversationalVoice,
-    endCall,
-    handleKeypadDigit,
-    submitKeypadBuffer,
-    sendInputTurn,
-    toggleMic,
-    replayCurrentSpeech,
-    runScenario,
-    runAtPresetScenario,
-    refreshSyncStatus,
-    // Long conversation recording
-    isRecording,
-    recordingDurationSec,
-    recordedAudioUrl,
-    recordedChunksCount,
-    rollingSummary,
-    startRecording,
-    stopRecording,
-    downloadRecording,
-    exportTranscript,
-  } = usePhoneSimulator();
-=======
   // ── Call Session State ────────────────────────────────────────────────
   const [callActive, setCallActive] = useState<boolean>(false);
   const [callStatus, setCallStatus] = useState<string>("Idle");
@@ -213,7 +148,6 @@ export const PhoneSimulatorPage: React.FC = () => {
   const [clock, setClock] = useState<string>("10:00");
   const [zeroPinOverlay, setZeroPinOverlay] = useState<boolean>(false);
   const [isAudioSpeaking, setIsAudioSpeaking] = useState<boolean>(false);
->>>>>>> origin/main
 
   // ── XML & Telephony Routing State ────────────────────────────────────
   const [activeCallbackUrl, setActiveCallbackUrl] = useState<string | null>(null);
@@ -1594,172 +1528,17 @@ export const PhoneSimulatorPage: React.FC = () => {
                         {sub}
                       </span>
                     )}
-<<<<<<< HEAD
 
-                    {/* Keypad Buffer (if caller typed digits) */}
-                    {digitsBuffer && (
-                      <div className="bg-slate-950 border border-purple-800/50 rounded-xl p-2.5 flex items-center justify-between">
-                        <div>
-                          <div className="text-[10px] text-purple-400 font-bold uppercase tracking-wider">
-                            Keypad Buffer (Expected: {atExpectedDigits} digits)
-                          </div>
-                          <div className="text-sm font-mono text-white font-bold tracking-widest">{digitsBuffer}</div>
-                        </div>
-                        <button
-                          onClick={submitKeypadBuffer}
-                          className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-semibold"
-                        >
-                          Send ({atFinishOnKey})
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Zero-PIN USSD Push Screen Overlay */}
-                    {ussdPushPrompt?.active && (
-                      <div className="absolute inset-0 z-30 bg-black/90 rounded-[28px] p-5 flex flex-col justify-center items-center text-center animate-fadeIn">
-                        <div className="w-12 h-12 bg-amber-500/10 text-amber-400 rounded-full flex items-center justify-center mb-3">
-                          <ShieldCheck className="w-6 h-6" />
-                        </div>
-                        <h4 className="text-sm font-bold text-white mb-1">{ussdPushPrompt.title}</h4>
-                        <p className="text-xs text-slate-300 mb-3">{ussdPushPrompt.message}</p>
-                        <div className="bg-slate-900 border border-slate-800 rounded-xl p-2.5 w-full mb-4 text-xs font-mono text-amber-300">
-                          Transfer {ussdPushPrompt.amount} {ussdPushPrompt.currency} to {ussdPushPrompt.recipientName} ({ussdPushPrompt.recipientPhone})
-                        </div>
-                        <div className="flex gap-2 w-full">
-                          <button
-                            onClick={dismissUssdPrompt}
-                            className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold"
-                          >
-                            Authorize on Phone
-                          </button>
-                          <button
-                            onClick={dismissUssdPrompt}
-                            className="px-3 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-medium"
-                          >
-                            Dismiss
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  /* Idle Screen */
-                  <div className="space-y-4 my-auto text-center">
-                    <div className="w-12 h-12 bg-slate-800/80 rounded-full mx-auto flex items-center justify-center text-slate-400 border border-slate-700/50">
-                      <Phone className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <h3 className="text-base font-bold text-white">Telephone Ready</h3>
-                      <p className="text-xs text-slate-400 mt-1 max-w-[260px] mx-auto">
-                        Bilingual trunk (+233 30 804 8098). Press Call or dial any number.
-                      </p>
-                    </div>
-
-                    {/* Dial Display with Destination and Backspace */}
-                    <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
-                      <div className="flex-1 text-left">
-                        <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-semibold">
-                          {digitsBuffer ? "Dialed Number" : "Trunk Destination"}
-                        </span>
-                        <span className="text-base font-mono text-emerald-400 font-bold tracking-wider">
-                          {digitsBuffer || "+233 30 804 8098"}
-                        </span>
-                      </div>
-                      {digitsBuffer && (
-                        <button
-                          type="button"
-                          onClick={() => setDigitsBuffer((prev) => prev.slice(0, -1))}
-                          className="px-2 py-1 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg text-xs transition"
-                          title="Backspace"
-                        >
-                          ⌫
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="pt-1">
-                      <button
-                        onClick={() => enableConversationalVoice()}
-                        className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-950/50 transition flex items-center justify-center gap-2"
-                      >
-                        <Phone className="w-4 h-4" />
-                        {digitsBuffer ? `Call ${digitsBuffer}` : "Call (+233 30 804 8098)"}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* ── Keypad Grid ────────────────────────────────────────── */}
-              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800/60">
-                {KEYPAD_BUTTONS.map((btn) => (
-                  <button
-                    key={btn.digit}
-                    onClick={() => handleKeypadDigit(btn.digit)}
-                    className="h-11 bg-slate-800/60 hover:bg-slate-700/70 active:bg-slate-600 rounded-xl flex flex-col items-center justify-center text-white transition border border-slate-700/30"
-                  >
-                    <span className="text-sm font-bold leading-none">{btn.digit}</span>
-                    {btn.sub && <span className="text-[9px] text-slate-400 leading-none mt-0.5">{btn.sub}</span>}
-=======
->>>>>>> origin/main
                   </button>
                 );
               })}
             </div>
 
-<<<<<<< HEAD
-              {/* ── Call Action Buttons ────────────────────────────────── */}
-              <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-800/60 mt-2">
-                {/* Microphone Toggle Button */}
-                <button
-                  onClick={toggleMic}
-                  className={`p-3 rounded-2xl transition border ${
-                    isMicActive
-                      ? "bg-emerald-600/20 text-emerald-400 border-emerald-500/40 shadow-sm"
-                      : "bg-slate-800/80 text-slate-400 border-slate-700 hover:text-white"
-                  }`}
-                  title={isMicActive ? "Mute Microphone" : "Unmute Microphone"}
-                >
-                  {isMicActive ? <Mic className="w-5 h-5 animate-pulse" /> : <MicOff className="w-5 h-5" />}
-                </button>
-
-                {/* Primary Call / Hang Up Button */}
-                {isActive ? (
-                  <button
-                    onClick={() => endCall("User hung up")}
-                    className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-red-950/50 transition"
-                  >
-                    <PhoneOff className="w-4 h-4" />
-                    End Call
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => enableConversationalVoice()}
-                    className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/50 transition"
-                  >
-                    <Phone className="w-4 h-4" />
-                    Start Call
-                  </button>
-                )}
-
-                <div
-                  className={`px-3 py-2 rounded-2xl border text-[10px] font-semibold uppercase tracking-wide ${
-                    isAiSpeaking
-                      ? "border-blue-500/40 bg-blue-600/20 text-blue-300"
-                      : "border-emerald-500/30 bg-emerald-600/10 text-emerald-300"
-                  }`}
-                  aria-live="polite"
-                >
-                  {isAiSpeaking ? "Playing prompt" : "Audio enabled"}
-                </div>
-              </div>
-=======
             {/* Bottom Mic Grille */}
             <div className="flex gap-1.5 mt-4">
               <div className="w-1.5 h-1.5 rounded-full bg-slate-800" />
               <div className="w-1.5 h-1.5 rounded-full bg-slate-800" />
               <div className="w-1.5 h-1.5 rounded-full bg-slate-800" />
->>>>>>> origin/main
             </div>
           </div>
         </div>
@@ -1776,128 +1555,6 @@ export const PhoneSimulatorPage: React.FC = () => {
               <span className="text-[10px] text-slate-500">Click any chip to speak into ASR</span>
             </div>
 
-<<<<<<< HEAD
-            {/* Tab Content */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {activeTab === "transcript" ? (
-                <>
-                  {(isMicActive || interimTranscript || transcriptionStatus === "ERROR") && (
-                    <div className={`rounded-xl border p-3 font-mono text-xs ${
-                      transcriptionStatus === "ERROR"
-                        ? "border-rose-800/70 bg-rose-950/40 text-rose-200"
-                        : "border-slate-700 bg-slate-950/80 text-slate-200"
-                    }`}>
-                      <div className="mb-1 flex items-center justify-between gap-3">
-                        <span className="font-semibold">
-                          {transcriptionStatus === "ERROR"
-                            ? "Recognition error"
-                            : transcriptionStatus === "PROCESSING" && aiProcessingPhase === "SPEECH_IN"
-                            ? "Recognizing"
-                            : interimTranscript && !isTranscriptProvisional
-                            ? "Final transcript"
-                            : isMicActive
-                            ? "Listening"
-                            : "Transcript"}
-                        </span>
-                        {isTranscriptProvisional && interimTranscript && (
-                          <span className="rounded bg-amber-900/60 px-1.5 py-0.5 text-[10px] text-amber-200">
-                            PROVISIONAL
-                          </span>
-                        )}
-                      </div>
-                      {interimTranscript && (
-                        <p className={isTranscriptProvisional ? "italic text-amber-100" : "text-emerald-100"}>
-                          {interimTranscript}
-                        </p>
-                      )}
-                      {transcriptionStatus === "ERROR" ? (
-                        <p className="mt-2 text-rose-200">{aiProcessingDetail}</p>
-                      ) : !interimTranscript ? (
-                        <p className="text-slate-400">
-                          {transcriptionStatus === "PROCESSING" && aiProcessingPhase === "SPEECH_IN"
-                            ? "Sending captured audio for final transcription..."
-                            : "Speak now or use the keypad."}
-                        </p>
-                      ) : null}
-                      {isMicActive && livePreviewStatus !== "AVAILABLE" && (
-                        <p className="mt-2 border-t border-slate-700/70 pt-2 text-[11px] text-amber-200">
-                          {livePreviewDetail}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  {transcript.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 py-12">
-                    <Phone className="w-8 h-8 mb-2 opacity-30" />
-                    <p className="text-sm font-medium">No conversation turns recorded yet.</p>
-                    <p className="text-xs text-slate-600 mt-1">Start a call or speak to begin live transcription.</p>
-                  </div>
-                  ) : (
-                  transcript.map((item) => (
-                    <div
-                      key={item.id}
-                      className={`flex flex-col ${
-                        item.role === "caller"
-                          ? "items-end"
-                          : item.role === "ai"
-                          ? "items-start"
-                          : "items-center"
-                      }`}
-                    >
-                      {item.role === "system" ? (
-                        <div className="my-1 px-3 py-1 bg-slate-950/80 border border-slate-800 rounded-full text-[11px] text-slate-400 font-mono">
-                          {item.text}
-                        </div>
-                      ) : (
-                        <div
-                          className={`max-w-[85%] rounded-2xl p-3 text-xs leading-relaxed shadow-sm ${
-                            item.role === "caller"
-                              ? "bg-emerald-600 text-white rounded-br-none"
-                              : "bg-slate-800 text-slate-100 border border-slate-700/60 rounded-bl-none"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-4 mb-1 text-[10px] opacity-75">
-                            <span className="font-bold">
-                              {item.role === "caller" ? "CALLER" : "ƆKWANKYERƐFO PA (IVR)"}
-                            </span>
-                            <span>{new Date(item.timestamp).toLocaleTimeString()}</span>
-                          </div>
-                          <p>{item.text}</p>
-                          {item.intent && item.role === "ai" && (
-                            <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[9px] bg-slate-900/60 text-slate-300">
-                              Intent: {item.intent}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ))
-                  )}
-                </>
-              ) : (
-                /* Africa's Talking HTTP & VoiceXML Logs */
-                atHttpLogs.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 py-12">
-                    <Terminal className="w-8 h-8 mb-2 opacity-30" />
-                    <p className="text-sm font-medium">No HTTP webhook traces yet.</p>
-                    <p className="text-xs text-slate-600 mt-1">Telemetry triggers automatically upon DTMF or call steps.</p>
-                  </div>
-                ) : (
-                  atHttpLogs.map((log) => (
-                    <div key={log.id} className="bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-xs">
-                      <div className="flex items-center justify-between text-slate-400 mb-1.5">
-                        <span className="text-emerald-400 font-bold">{log.method} {log.endpoint}</span>
-                        <span className="text-slate-500">{log.timestamp}</span>
-                      </div>
-                      <div className="text-slate-300 text-[11px] bg-slate-900 p-2 rounded-lg overflow-x-auto whitespace-pre-wrap">
-                        {log.voiceXml}
-                      </div>
-                    </div>
-                  ))
-                )
-              )}
-              <div ref={transcriptEndRef} />
-=======
             <div className="flex flex-wrap gap-1.5">
               {[
                 { label: "1 (One)", desc: "Say 'One' -> Mapped to DTMF 1" },
@@ -1927,7 +1584,6 @@ export const PhoneSimulatorPage: React.FC = () => {
                   💬 {chip.label}
                 </button>
               ))}
->>>>>>> origin/main
             </div>
 
             {/* Custom Spoken Input */}
