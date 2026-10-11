@@ -1528,7 +1528,6 @@ export const PhoneSimulatorPage: React.FC = () => {
                         {sub}
                       </span>
                     )}
-
                   </button>
                 );
               })}
