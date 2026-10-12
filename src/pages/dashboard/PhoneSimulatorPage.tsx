@@ -420,10 +420,10 @@ export const PhoneSimulatorPage: React.FC = () => {
     const digitsMatch = xml.match(/<GetDigits\s+([^>]+)>/i);
     if (digitsMatch) {
       const attrs = digitsMatch[1];
-      const timeout = attrs.match(/timeout=["'](\d+)["']/i);
-      const finishOnKey = attrs.match(/finishOnKey=["']([^"']+)["']/i);
-      const numDigits = attrs.match(/numDigits=["'](\d+)["']/i);
-      const callbackUrl = attrs.match(/callbackUrl=["']([^"']+)["']/i);
+    const timeout = attrs.match(/timeout=["'](\d+)["']/i);
+    const finishOnKey = attrs.match(/finishOnKey=["']([^"']+)["']/i);
+    const numDigits = attrs.match(/numDigits=["'](\d+)["']/i);
+    const callbackUrl = attrs.match(/callbackUrl=["']([^"']+)["']/i);
       result.getDigits = {
         timeout: timeout ? parseInt(timeout[1], 10) : undefined,
         finishOnKey: finishOnKey ? finishOnKey[1] : undefined,
