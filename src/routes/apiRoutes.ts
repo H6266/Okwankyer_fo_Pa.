@@ -21,7 +21,7 @@ import { validateGhanaPhoneNumber } from "../domain/validation";
 import { aiBootstrap } from "../ai_system/core/aiBootstrap";
 import { modelRouter } from "../ai_system/providers/modelRouter";
 import { ttsRouter as speechSynthesisRouter } from "../ai_system/speech/tts/ttsRouter";
-import { resolvePromptText } from "../modules/ttsService";
+import { resolvePrompt, resolvePromptText } from "../modules/ttsService";
 
 export const apiRouter = Router();
 

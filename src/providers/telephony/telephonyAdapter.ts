@@ -75,13 +75,12 @@ export class AfricaTalkingAdapter implements TelephonyAdapter {
   }
 
   public speak(text: string, options?: { voice?: string; language?: string }): string {
-    const voice = options?.voice || (options?.language === "tw" || options?.language === "ak" ? "woman" : "alice");
+    const voice = options?.voice || "woman";
     return `<Say voice="${escapeXml(voice)}">${escapeXml(text)}</Say>`;
   }
 
   public speakBrainReply(reply: BrainReplyInput, options?: { voice?: string; callbackUrl?: string }): string {
-    const isTwi = reply.language === "tw" || reply.language === "ak" || reply.language.startsWith("twi");
-    const voice = options?.voice || (isTwi ? "woman" : "alice");
+    const voice = options?.voice || "woman";
     return `<Say voice="${escapeXml(voice)}">${escapeXml(reply.text)}</Say>`;
   }
 
@@ -156,7 +155,7 @@ export class SimulatorTelephonyAdapter implements TelephonyAdapter {
   }
 
   public speak(text: string, options?: { voice?: string; language?: string }): string {
-    const voice = options?.voice || (options?.language === "tw" || options?.language === "ak" ? "woman" : "alice");
+    const voice = options?.voice || "woman";
     const xml = `<Say voice="${escapeXml(voice)}">${escapeXml(text)}</Say>`;
     this.lastInstruction = {
       type: "SPEAK",
@@ -167,8 +166,7 @@ export class SimulatorTelephonyAdapter implements TelephonyAdapter {
   }
 
   public speakBrainReply(reply: BrainReplyInput, options?: { voice?: string; callbackUrl?: string }): string {
-    const isTwi = reply.language === "tw" || reply.language === "ak" || reply.language.startsWith("twi");
-    const voice = options?.voice || (isTwi ? "woman" : "alice");
+    const voice = options?.voice || "woman";
     const xml = `<Say voice="${escapeXml(voice)}">${escapeXml(reply.text)}</Say>`;
     this.lastInstruction = {
       type: "SPEAK",

@@ -142,7 +142,30 @@ function xmlResponse(res: Response, content: string, decision?: IvrDecision): vo
     // Convert absolute audio URLs to relative /audio/... paths so browser can play them on any domain
     xml = xml.replace(/(<Play[^>]*url=["'])https?:\/\/[^"']+(\/audio\/[^"']*)(["'])/gi, "$1$2$3")
              .replace(/(<Play[^>]*>)https?:\/\/[^<]+(\/audio\/[^<]+)(<\/Play>)/gi, "$1$2$3");
+  } else if (req && process.env.AT_WEBHOOK_SECRET) {
+    const baseUrl = getBaseUrl(req);
+    if (baseUrl) {
+      const webhookSecret = process.env.AT_WEBHOOK_SECRET;
+      const addWebhookSecret = (rawUrl: string): string => {
+        const target = new URL(rawUrl.replace(/&amp;/g, "&"), baseUrl);
+        if (target.origin !== new URL(baseUrl).origin) {
+          return rawUrl;
+        }
+        target.searchParams.set("secret", webhookSecret);
+        return target.toString().replace(/&/g, "&amp;");
+      };
+
+      xml = xml
+        .replace(/(callbackUrl=["'])([^"']+)(["'])/gi, (_match, prefix, url, suffix) =>
+          `${prefix}${addWebhookSecret(url)}${suffix}`
+        )
+        .replace(/(<Redirect[^>]*>)([^<]+)(<\/Redirect>)/gi, (_match, open, url, close) =>
+          `${open}${addWebhookSecret(url)}${close}`
+        );
+    }
   }
+
+  xml = xml.replace(/(<Say\b[^>]*\bvoice=["'])female(["'])/gi, "$1woman$2");
   res.set("Content-Type", "application/xml; charset=utf-8");
   res.send(`<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n${xml}\n</Response>`);
 }
@@ -183,7 +206,7 @@ ivrRouter.all("/voice-menu", (req: Request, res: Response) => {
   const session = transactionStateMachine.getOrCreateSession(sessionId, "en", "VOICE");
   session.callerPhone = callerNumber;
 
-  const introAudioUrl = `${baseUrl}${resolvePrompt("welcome", "en")}`;
+  const introAudioUrl = `${baseUrl}/audio/Welcome_prompt_01.mp3`;
 
   // Dual-track barge-in: instant GetDigits with Record fallback
   const xml = `    <GetDigits timeout="3" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?sessionId=${sessionId}">

@@ -885,7 +885,7 @@ export function usePhoneSimulator() {
     const recording = getRecordingByUrl(pathname);
     const promptMatch = pathname.match(/^\/api\/audio\/prompt(?:-tts)?\/(en|twi)\/([^/]+)$/);
     const key = promptMatch ? decodeURIComponent(promptMatch[2]) : null;
-    const language = promptMatch?.[1] || "en";
+    const language = promptMatch?.[1] === "twi" ? "twi" : "en";
     return recording?.spokenText ||
       (key ? resolvePromptText(key, language) : null) ||
       "Please listen to the prompt.";
@@ -899,7 +899,7 @@ export function usePhoneSimulator() {
     updateAiSpeaking(true, text);
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = language === "twi" || language === "tw" || language === "ak" ? "ak-GH" : "en-GH";
+    utterance.lang = language === "tw" || language === "ak" ? "ak-GH" : "en-GH";
     utterance.onend = () => updateAiSpeaking(false);
     utterance.onerror = () => updateAiSpeaking(false);
     window.speechSynthesis.speak(utterance);

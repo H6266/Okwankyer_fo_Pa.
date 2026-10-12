@@ -15,6 +15,7 @@ import {
   resetReplayCache,
   resetCallerRateLimits,
   safeCompare,
+  validateWebhookSecurityConfig,
 } from "../src/providers/telephony/webhookGuard";
 
 describe("Phase 6d: Africa's Talking Webhook Security", () => {
@@ -28,6 +29,30 @@ describe("Phase 6d: Africa's Talking Webhook Security", () => {
       expect(safeCompare("secret-token-123", "secret-token-123")).toBe(true);
       expect(safeCompare("secret-token-123", "secret-token-999")).toBe(false);
       expect(safeCompare("short", "longer-secret-token")).toBe(false);
+    });
+
+    it("requires a sufficiently long webhook secret in production", () => {
+      const originalNodeEnv = process.env.NODE_ENV;
+      const originalSecret = process.env.AT_WEBHOOK_SECRET;
+      process.env.NODE_ENV = "production";
+      delete process.env.AT_WEBHOOK_SECRET;
+
+      try {
+        expect(() => validateWebhookSecurityConfig()).toThrow("AT_WEBHOOK_SECRET");
+        process.env.AT_WEBHOOK_SECRET = "a-production-secret-at-least-16";
+        expect(() => validateWebhookSecurityConfig()).not.toThrow();
+      } finally {
+        if (originalNodeEnv === undefined) {
+          delete process.env.NODE_ENV;
+        } else {
+          process.env.NODE_ENV = originalNodeEnv;
+        }
+        if (originalSecret === undefined) {
+          delete process.env.AT_WEBHOOK_SECRET;
+        } else {
+          process.env.AT_WEBHOOK_SECRET = originalSecret;
+        }
+      }
     });
   });
 

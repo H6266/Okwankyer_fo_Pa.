@@ -26,6 +26,7 @@ Configure the following variables in the Render Dashboard under **Service ➔ En
 | `AT_USERNAME` | Yes | `sandbox` (or live username) | Africa's Talking API account username. |
 | `AT_API_KEY` | Yes | `atsk_...` | Africa's Talking API key for voice gateway connectivity. |
 | `AT_VOICE_NUMBER` | Yes | `+233308048098` | Virtual telephony voice trunk number. |
+| `AT_WEBHOOK_SECRET` | Yes | Random URL-safe value (at least 16 characters) | Authenticity token for telephony webhooks; the initial phone-number callback URL must include it. |
 | `GEMINI_API_KEY` | Yes | `AIzaSy...` | Google Gemini API key for spoken ASR & intent parsing. |
 | `ADMIN_TOKEN` | Yes | `sec_admin_...` | Secret Bearer token protecting administrative endpoints (`/api/upload-audio`). |
 | `MOMO_SUBSCRIPTION_KEY` | Optional | `32-char hex string` | MTN MoMo API subscription key. |
@@ -60,8 +61,9 @@ Configure the following variables in the Render Dashboard under **Service ➔ En
 3. Locate phone number **`+233 30 804 8098`**.
 4. Set the **Callback URL** to:
    ```
-   https://your-service.onrender.com/voice-menu
+   https://your-service.onrender.com/voice-menu?secret=<URL-encoded-AT_WEBHOOK_SECRET>
    ```
+   Use the same value configured as Render's `AT_WEBHOOK_SECRET`. The application adds it to each subsequent callback and redirect URL.
 5. Click **Save**.
 
 ---

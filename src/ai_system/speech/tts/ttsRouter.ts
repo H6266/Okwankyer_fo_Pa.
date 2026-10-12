@@ -87,7 +87,7 @@ export class TtsRouter implements TTSProvider {
       }
 
       // 1b. Check Studio Catalog Provider
-      if (!matchedPromptUnsupported && studioCatalogProvider.hasMatch(rawText, request.language)) {
+      if (studioCatalogProvider.hasMatch(rawText, request.language)) {
         try {
           const res = await studioCatalogProvider.synthesize(request);
           if (this.validateAudioHeader(res.audioBuffer)) {

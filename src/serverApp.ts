@@ -29,6 +29,7 @@ import { modelVerificationEngine } from "./ai_system/core/modelVerification";
 import { validateProductionModelConfig } from "./ai_system/brain/brain";
 import { approvalWorkflow } from "./ai_system/brain/approvalWorkflow";
 import { startPiperWorker } from "./ai_system/speech/tts/piperWorker";
+import { validateWebhookSecurityConfig } from "./providers/telephony/webhookGuard";
 
 export const app = express();
 
@@ -156,6 +157,8 @@ app.all("/api/*", (_req: Request, res: Response) => {
 
 // ── Server Bootstrap & Frontend Serving ───────────────────────────────
 export async function startServer() {
+  validateWebhookSecurityConfig();
+
   const isDev =
     process.env.npm_lifecycle_event === "dev" ||
     process.env.NODE_ENV === "development" ||
