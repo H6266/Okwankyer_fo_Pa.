@@ -28,6 +28,7 @@ import { aiBootstrap } from "./ai_system/core/aiBootstrap";
 import { modelVerificationEngine } from "./ai_system/core/modelVerification";
 import { validateProductionModelConfig } from "./ai_system/brain/brain";
 import { approvalWorkflow } from "./ai_system/brain/approvalWorkflow";
+import { startPiperWorker } from "./ai_system/speech/tts/piperWorker";
 
 export const app = express();
 
@@ -246,6 +247,8 @@ export async function startServer() {
     server.listen(activePort, activeHost, () => {
       console.log(`Ɔkwankyerɛfo Pa running on http://${activeHost}:${activePort}`);
       auditLogger.log("info", "SYSTEM", `Server online on port ${activePort} (Env: ${config.nodeEnv})`);
+      // Start local Piper neural TTS worker for dynamic speech synthesis
+      startPiperWorker().catch((err: any) => console.warn("[Server] Piper worker start notice:", err?.message || err));
       resolve();
     });
   });

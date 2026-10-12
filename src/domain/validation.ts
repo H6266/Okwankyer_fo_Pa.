@@ -143,7 +143,7 @@ export function validateGhanaPhoneNumber(raw: string): PhoneValidationResult {
   }
 
   const prefix = normalized.slice(0, 3);
-  const network = TELCO_PREFIXES[prefix] || (normalized.startsWith("0") ? "MTN" : undefined);
+  const network = TELCO_PREFIXES[prefix];
 
   if (!network) {
     return {

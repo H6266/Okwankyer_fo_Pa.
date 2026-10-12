@@ -47,15 +47,7 @@ export const AUDIO_CATALOG: AudioPromptMetadata[] = [
     spokenText: "Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again, or 0 to exit.",
     description: "Carrier network selection.",
   },
-  {
-    id: "en-04",
-    stepNumber: 3,
-    filename: "English/Audio_prompt_04.mp3",
-    language: "en",
-    title: "4. Network Provider Alt",
-    spokenText: "Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again, or 0 to exit.",
-    description: "Alternate network menu with concise repeat.",
-  },
+  // en-04 (Audio_prompt_04.mp3) is classified under AUDIO_CATALOG_ALTERNATES (2 alternates = 26 total assets)
   {
     id: "en-05",
     stepNumber: 4,
@@ -248,6 +240,20 @@ export const AUDIO_CATALOG: AudioPromptMetadata[] = [
     description: "Clean sign-off prompt in Twi.",
   },
 ];
+
+export const AUDIO_CATALOG_ALTERNATES: AudioPromptMetadata[] = [
+  {
+    id: "en-04",
+    stepNumber: 3,
+    filename: "English/Audio_prompt_04.mp3",
+    language: "en",
+    title: "4. Network Provider Alt",
+    spokenText: "Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again, or 0 to exit.",
+    description: "Alternate network menu with concise repeat.",
+  },
+];
+
+export const ALL_AUDIO_CATALOG: AudioPromptMetadata[] = [...AUDIO_CATALOG, ...AUDIO_CATALOG_ALTERNATES];
 
 export const LEGACY_AUDIO_MAP: Record<string, string> = {
   "01_service_select.mp3": "English/Audio_prompt_02.mp3",

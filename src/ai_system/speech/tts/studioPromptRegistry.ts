@@ -30,7 +30,13 @@ export class StudioPromptRegistry {
   private audioRoot: string;
 
   private constructor() {
-    this.audioRoot = path.resolve(process.cwd(), "audio");
+    const candidateAudio = path.resolve(process.cwd(), "audio");
+    const candidatePublic = path.resolve(process.cwd(), "public", "audio");
+    this.audioRoot = fs.existsSync(candidateAudio)
+      ? candidateAudio
+      : fs.existsSync(candidatePublic)
+      ? candidatePublic
+      : candidateAudio;
     this.initializeRegistry();
   }
 

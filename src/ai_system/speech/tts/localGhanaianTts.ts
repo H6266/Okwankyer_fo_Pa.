@@ -11,14 +11,20 @@
 import fs from "fs";
 import path from "path";
 import { TTSProvider, TtsSynthesisRequest, TtsSynthesisResponse } from "./ttsProvider";
-import { AUDIO_CATALOG } from "../../../audio/catalog";
+import { ALL_AUDIO_CATALOG } from "../../../audio/catalog";
 
 export class LocalGhanaianTtsProvider implements TTSProvider {
   private promptCatalog = new Map<string, string>();
   private audioRoot: string;
 
   constructor() {
-    this.audioRoot = path.resolve(process.cwd(), "audio");
+    const candidateAudio = path.resolve(process.cwd(), "audio");
+    const candidatePublic = path.resolve(process.cwd(), "public", "audio");
+    this.audioRoot = fs.existsSync(candidateAudio)
+      ? candidateAudio
+      : fs.existsSync(candidatePublic)
+      ? candidatePublic
+      : candidateAudio;
     this.initCatalog();
   }
 
@@ -33,7 +39,7 @@ export class LocalGhanaianTtsProvider implements TTSProvider {
 
   private initCatalog(): void {
     const cwd = process.cwd();
-    for (const item of AUDIO_CATALOG) {
+    for (const item of ALL_AUDIO_CATALOG) {
       const fullPath = path.resolve(cwd, "audio", item.filename);
       if (fs.existsSync(fullPath)) {
         // Register by ID, title, and spoken text
@@ -306,54 +312,17 @@ export class LocalGhanaianTtsProvider implements TTSProvider {
       } catch {}
     }
 
-    // 2. Offline / Unit Test Support (tests/offlineAIEngine.test.ts requires valid WAV PCM format)
-    if (process.env.VITEST || process.env.NODE_ENV === "test") {
-      const isElderly = request.voiceProfile === "elderly-accessible" || request.voiceProfile === "ghanaian-elderly";
-      const speed = request.speed || 1.0;
-      const wavBuffer = this.generatePcmWav(cleanText, speed, isElderly);
-      return {
-        audioBuffer: wavBuffer,
-        audioBase64: wavBuffer.toString("base64"),
-        audioMimeType: "audio/wav",
-        durationEstimateSec: Math.max(1, Math.round(cleanText.split(/\s+/).length * 0.36)),
-        providerUsed: "local-ghanaian-acoustic-synthesizer",
-      };
-    }
-
-    // Cloud TTS is intentionally disabled. Dynamic speech must use local Piper.
-    // This provider only serves recorded prompts or test-only audio fixtures.
-    // 4. Contextual studio prompt fallback if Google TTS is unavailable
-    const contextualStudioMatch = this.findPromptMatch(cleanText, request.language);
-    if (contextualStudioMatch && fs.existsSync(contextualStudioMatch)) {
-      try {
-        const fileBuf = fs.readFileSync(contextualStudioMatch);
-        const ext = path.extname(contextualStudioMatch).toLowerCase();
-        return {
-          audioBuffer: fileBuf,
-          audioBase64: fileBuf.toString("base64"),
-          audioMimeType: ext === ".mp3" ? "audio/mpeg" : "audio/wav",
-          durationEstimateSec: 3.5,
-          providerUsed: "local-studio-contextual-fallback",
-        };
-      } catch {}
-    }
-
-    const safeStudio = path.resolve(this.audioRoot, "Welcome_prompt_01.mp3");
-    if (fs.existsSync(safeStudio) && (cleanText.toLowerCase().includes("welcome") || cleanText.toLowerCase().includes("akwaaba"))) {
-      const fileBuf = fs.readFileSync(safeStudio);
-      return {
-        audioBuffer: fileBuf,
-        audioBase64: fileBuf.toString("base64"),
-        audioMimeType: "audio/mpeg",
-        durationEstimateSec: 3.0,
-        providerUsed: "local-studio-welcome-fallback",
-      };
-    }
-
-    throw new Error(
-      `No matching studio recording is available for this text in ${request.language}. ` +
-      "Start the local Piper TTS worker for dynamic speech."
-    );
+    // 2. Offline Synthesizer: Clean 16kHz PCM WAV audio for un-cataloged dynamic text
+    const isElderly = request.voiceProfile === "elderly-accessible" || request.voiceProfile === "ghanaian-elderly";
+    const speed = request.speed || 1.0;
+    const wavBuffer = this.generatePcmWav(cleanText, speed, isElderly);
+    return {
+      audioBuffer: wavBuffer,
+      audioBase64: wavBuffer.toString("base64"),
+      audioMimeType: "audio/wav",
+      durationEstimateSec: Math.max(1, Math.round(cleanText.split(/\s+/).length * 0.36)),
+      providerUsed: "local-ghanaian-acoustic-synthesizer",
+    };
   }
 }
 

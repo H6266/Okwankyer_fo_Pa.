@@ -700,18 +700,17 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
   const last4Spaced = phoneValidation.last4Spaced;
   const nameSpoken = resolution.name || (lang === "twi" ? `nɔmba a ɛwie ${last4Spaced}` : `subscriber ending in ${last4Spaced}`);
 
-  let amountPrompt = "";
+  let verifyPrompt = "";
   if (lang === "twi") {
-    amountPrompt = `Woremane sika kɔma ${nameSpoken} a ne nɔmba wie ${last4Spaced}. Mepa wo kyɛw, bɔ anaa ka sika dodow a wopɛ sɛ womane no wɔ Cedi mu na fa hash ka ho.`;
+    verifyPrompt = `Worebɛmane sika akɔ ${nameSpoken} a ne nɔmba wie ${last4Spaced} so. Sɛ wopene so na wopɛ sɛ womane sika no a, mia 1. Sɛ wopɛ sɛ wosesa nɔmba no a, mia 2.`;
   } else {
-    amountPrompt = `Sending money to ${nameSpoken}, whose phone number ends with ${last4Spaced}. Please enter or say the amount in Ghana Cedis, followed by the hash key.`;
+    verifyPrompt = `Sending money to ${nameSpoken}, whose phone number ends with ${last4Spaced}. To confirm this recipient, press 1. To re-enter the phone number, press 2.`;
   }
 
-  // Automatically allow user to the next stage to press or say the amount sending without stacking
-  const xml = `    <GetDigits timeout="30" finishOnKey="#" numDigits="8" callbackUrl="${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}">
-        <Say voice="female">${amountPrompt}</Say>
+  const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/recipient-verify-choice?sessionId=${sessionId}&amp;lang=${lang}">
+        <Say voice="female">${verifyPrompt}</Say>
     </GetDigits>
-    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="8" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=enter-amount&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="8" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=recipient-verify-choice&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
 
   xmlResponse(res, xml);
 });

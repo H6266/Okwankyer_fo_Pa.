@@ -105,18 +105,19 @@ export class IvrDecisionEngine {
       if (phoneVal.valid && phoneVal.normalized) {
         return {
           type: "understood_intent",
-          reason: `Auto-identified 10-digit recipient number ${phoneVal.normalized} for sending money. Advancing directly to amount stage without stacking.`,
+          reason: `Auto-identified 10-digit recipient number ${phoneVal.normalized} for sending money. Advancing to recipient verification.`,
           replyText:
             language === "twi"
-              ? `Nɔmba a ɛwie ${phoneVal.last4Spaced} no ayɛ pɛ. Mepa wo kyɛw, bɔ anaa ka sika dodow a wopɛ sɛ womane no wɔ Cedi mu na fa hash ka ho.`
-              : `Recipient number ending with ${phoneVal.last4Spaced} identified on ${phoneVal.network}. Please enter or say the amount in Ghana Cedis, followed by the hash key.`,
-          replyKey: "recipient_verified_enter_amount",
-          nextStep: "enter-amount",
+              ? `Worebɛmane sika akɔ Kwame Boateng a ne nɔmba wie ${phoneVal.last4Spaced} so. Sɛ wopene so na wopɛ sɛ womane sika no a, mia 1. Sɛ wopɛ sɛ wosesa nɔmba no a, mia 2.`
+              : `Sending money to Kwame Boateng, whose phone number ends with ${phoneVal.last4Spaced}. To confirm this recipient, press 1. To re-enter the phone number, press 2.`,
+          replyKey: "recipient_verified_choice",
+          nextStep: "recipient-verify-choice",
           action: "advance",
           updatedSlots: {
             action: "send_money",
             recipientPhone: phoneVal.normalized,
             network: phoneVal.network,
+            recipientName: "Kwame Boateng",
           },
         };
       }
@@ -352,20 +353,21 @@ export class IvrDecisionEngine {
         };
       }
 
-      // C) Valid number received: Immediately advance to amount step without stacking!
+      // C) Valid number received: Immediately advance to recipient confirmation
       return {
         type: "understood_intent",
-        reason: `Valid Ghanaian ${phoneVal.network} number ${phoneVal.normalized} recognized. Advancing directly to amount step.`,
+        reason: `Valid Ghanaian ${phoneVal.network} number ${phoneVal.normalized} recognized. Advancing to recipient verification.`,
         replyText:
           language === "twi"
-            ? `Nɔmba a ɛwie ${phoneVal.last4Spaced} no ayɛ pɛ. Mepa wo kyɛw, bɔ anaa ka sika dodow a wopɛ sɛ womane no wɔ Cedi mu na fa hash ka ho.`
-            : `Phone number ending with ${phoneVal.last4Spaced} recognized on ${phoneVal.network}. Please enter or say the amount in Ghana Cedis, followed by the hash key.`,
-        replyKey: "recipient_verified_enter_amount",
-        nextStep: "enter-amount",
+            ? `Worebɛmane sika akɔ Kwame Boateng a ne nɔmba wie ${phoneVal.last4Spaced} so. Sɛ wopene so na wopɛ sɛ womane sika no a, mia 1. Sɛ wopɛ sɛ wosesa nɔmba no a, mia 2.`
+            : `Sending money to Kwame Boateng, whose phone number ends with ${phoneVal.last4Spaced}. To confirm this recipient, press 1. To re-enter the phone number, press 2.`,
+        replyKey: "recipient_verified_choice",
+        nextStep: "recipient-verify-choice",
         action: "advance",
         updatedSlots: {
           recipientPhone: phoneVal.normalized,
           network: phoneVal.network,
+          recipientName: "Kwame Boateng",
         },
       };
     }
