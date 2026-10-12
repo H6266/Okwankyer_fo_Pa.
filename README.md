@@ -164,6 +164,7 @@ AT_USERNAME=sandbox
 AT_API_KEY=atsk_your_key_here
 AT_VOICE_NUMBER=+233308048098
 GEMINI_API_KEY=your_gemini_api_key_here
+BRAIN_MODE=live
 MOMO_SUBSCRIPTION_KEY=your_momo_subscription_key
 MOMO_API_USER_ID=your_momo_user_id
 MOMO_API_KEY=your_momo_api_key

@@ -94,7 +94,9 @@ export function isSpokenPinPattern(text: string, step?: string): boolean {
   }
 
   if (isMenu) {
-    if (digitsOnly.length >= 2) return true;
+    if (digitsOnly.length >= 4 && digitsOnly.length <= 6 && !hasAmountLanguage && !hasPhoneLanguage) {
+      return true;
+    }
     return false;
   }
 
@@ -470,12 +472,21 @@ export async function speechToText(
   audioBuffer: Buffer | string,
   mimeType?: string,
   step?: string
-): Promise<{ text: string; confidence: number; languageDetected?: "en" | "twi" | string; pinDiscarded?: boolean }> {
+): Promise<{
+  text: string;
+  confidence: number | null;
+  confidenceSource?: SttResult["confidenceSource"];
+  languageDetected?: "en" | "twi" | string;
+  pinDiscarded?: boolean;
+  provider?: string;
+}> {
   const result = await speechToTextService.transcribe(audioBuffer, mimeType, step);
   return {
     text: result.text,
     confidence: result.confidence,
     languageDetected: result.languageDetected,
     pinDiscarded: result.pinDiscarded,
+    provider: result.provider,
+    confidenceSource: result.confidenceSource,
   };
 }

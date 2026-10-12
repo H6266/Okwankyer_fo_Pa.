@@ -15,6 +15,9 @@ import express from "express";
 import request from "supertest";
 import { voiceRouter } from "../src/routes/voiceRoutes";
 import { transactionStateMachine } from "../src/domain/stateMachine";
+import { paymentSaga } from "../src/integrations/momo/paymentSaga";
+import { brain } from "../src/ai_system/brain/brain";
+import { auditLogger } from "../src/services/auditLogger";
 
 import { durableTransactionStore } from "../src/services/durableTransactionStore";
 
@@ -98,9 +101,25 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(safeConfRes.text).not.toContain("500 Ghana cedis"); // Mismatch check!
 
     // 10. Confirm Transfer (1) -> Handoff to USSD Prompt & Zero-PIN Safety Gate (Item 1.1)
+    const startSaga = vi.spyOn(paymentSaga, "executeConfirmedTransferSaga").mockResolvedValue({
+      saga: {
+        collectionReference: "collection-test-reference",
+        state: "WAITING_FOR_CUSTOMER_AUTHORIZATION",
+      } as any,
+      status: "PENDING",
+      mode: "MOCK_PROVIDER",
+    });
     const outcomeRes = await request(app)
       .post("/safe-outcome")
       .send({ sessionId, lang: "en", dtmfDigits: "1" });
+    expect(startSaga).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId,
+      senderPhone: "+233543546010",
+      recipientPhone: "0553838464",
+      amount: 75,
+      network: "MTN",
+    }));
+    startSaga.mockRestore();
     expect(outcomeRes.text).toContain("check your phone screen");
     expect(outcomeRes.text).not.toContain("Congratulations");
     expect(outcomeRes.text).not.toContain("<Record");
@@ -112,6 +131,108 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(finalSession?.state).toBe("PIN_PENDING");
     expect(finalSession?.amount).toBe(75);
     expect(finalSession?.recipientName === "Sand Box" || finalSession?.recipientName === "Kwame Boateng").toBe(true);
+  });
+
+  it("understands a complete spoken transfer, verifies the recipient, and reads back the amount", async () => {
+    const sessionId = "AT-SPEECH-TRANSFER-001";
+
+    await request(app)
+      .post("/voice-menu")
+      .send({ sessionId, callerNumber: "+233543546010", isActive: "1" });
+
+    const speechRes = await request(app)
+      .post(`/speech-fallback?step=service-select&sessionId=${sessionId}&lang=en`)
+      .send({ speechText: "I want to send 500 cedis to 0241234567" });
+    expect(speechRes.status).toBe(200);
+    expect(speechRes.text).toContain("/verify-recipient");
+    const speechLog = auditLogger.getRecentLogs().find((entry) => entry.category === "STT" && entry.correlationId === sessionId);
+    expect(speechLog?.message).toContain("[PHONE]");
+    expect(speechLog?.message).toContain("[NUMBER]");
+    expect(speechLog?.message).not.toContain("0241234567");
+    expect(speechLog?.message).not.toContain("500");
+
+    const recipientRes = await request(app)
+      .post("/verify-recipient")
+      .send({ sessionId, lang: "en", dtmfDigits: "0241234567" });
+    expect(recipientRes.text).toContain("Ama Mensah");
+    expect(transactionStateMachine.getSession(sessionId)?.amount).toBe(500);
+
+    const recipientConfirmRes = await request(app)
+      .post("/recipient-verify-choice")
+      .send({ sessionId, lang: "en", dtmfDigits: "1" });
+    expect(recipientConfirmRes.text).toContain("/safe-confirmation");
+
+    const readbackRes = await request(app)
+      .post("/safe-confirmation")
+      .query({ sessionId, lang: "en" });
+    expect(readbackRes.text).toContain("500");
+    expect(readbackRes.text).toContain("Ama Mensah");
+    expect(transactionStateMachine.getSession(sessionId)?.state).toBe("AMOUNT_ENTERED");
+  });
+
+  it("preserves a Brain-provided amount through recipient lookup and approval", async () => {
+    const sessionId = "AT-BRAIN-AMOUNT-PERSIST-001";
+    transactionStateMachine.getOrCreateSession(sessionId, "en", "VOICE");
+
+    const recipientRes = await request(app)
+      .post("/verify-recipient")
+      .send({ sessionId, lang: "en", dtmfDigits: "0241234567", amount: "400" });
+    expect(recipientRes.text).toContain("Ama Mensah");
+    expect(transactionStateMachine.getSession(sessionId)?.amount).toBe(400);
+
+    const approvalRes = await request(app)
+      .post("/recipient-verify-choice")
+      .send({ sessionId, lang: "en", dtmfDigits: "1" });
+    expect(approvalRes.text).toContain("/safe-confirmation");
+    expect(transactionStateMachine.getSession(sessionId)?.state).toBe("AMOUNT_ENTERED");
+  });
+
+  it.each([
+    { utterance: "I want to send money", missingSlot: "amount", callback: "verify-amount" },
+    { utterance: "I want to send 500 cedis", missingSlot: "recipient", callback: "verify-recipient" },
+  ])("asks for the missing $missingSlot slot after spoken input", async ({ utterance, missingSlot, callback }) => {
+    const sessionId = `AT-SPEECH-MISSING-${missingSlot}`;
+    const processBrain = vi.spyOn(brain, "process").mockResolvedValue({
+      decision: { kind: "clarify_slot", slot: missingSlot },
+      updatedDraft: { intent: "momo.transfer", slots: {} },
+      reply: { text: `Please provide the ${missingSlot}.`, language: "en", promptId: `clarify_slot_${missingSlot}` },
+      sessionLanguage: "en",
+    } as any);
+
+    const res = await request(app)
+      .post(`/speech-fallback?step=service-select&sessionId=${sessionId}&lang=en`)
+      .send({ speechText: utterance });
+
+    expect(processBrain).toHaveBeenCalledWith(expect.objectContaining({
+      transcript: utterance,
+      forceModel: true,
+    }));
+    expect(res.text).toContain(`/${callback}?sessionId=${sessionId}`);
+    expect(res.text).toContain(`Please provide the ${missingSlot}.`);
+    processBrain.mockRestore();
+  });
+
+  it("fails closed for live non-MTN transfers until that provider is implemented", async () => {
+    const sessionId = "AT-LIVE-NON-MTN-001";
+    transactionStateMachine.getOrCreateSession(sessionId, "en", "VOICE");
+    transactionStateMachine.transition(sessionId, "RECIPIENT_VERIFIED", {
+      callerPhone: "+233543546010",
+      recipientPhone: "0334848734",
+      recipientName: "Unverified",
+      network: "AT",
+      isRecipientVerified: false,
+    });
+    transactionStateMachine.transition(sessionId, "AMOUNT_ENTERED", { amount: 500 });
+    const startSaga = vi.spyOn(paymentSaga, "executeConfirmedTransferSaga");
+
+    const res = await request(app)
+      .post("/safe-outcome")
+      .send({ sessionId, lang: "en", dtmfDigits: "1" });
+
+    expect(res.text).toContain("currently support MTN numbers only");
+    expect(startSaga).not.toHaveBeenCalled();
+    expect(transactionStateMachine.getSession(sessionId)?.state).toBe("FAILED");
+    startSaga.mockRestore();
   });
 
   it("handles cancellation gracefully at safe confirmation with zero fund movement", async () => {
@@ -128,6 +249,15 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
 
     const session = transactionStateMachine.getSession(sessionId);
     expect(session?.state).toBe("CANCELLED");
+  });
+
+  it("explains Banking is unsupported when the advertised Banking option is selected", async () => {
+    const res = await request(app)
+      .post("/service-choice")
+      .send({ sessionId: "AT-UNSUPPORTED-BANKING-001", lang: "en", dtmfDigits: "2" });
+
+    expect(res.text).toContain("Banking is not supported in this pilot");
+    expect(res.text).not.toContain("not a valid choice");
   });
 
   it("rejects malformed amount entry e.g. '5*0*1' and re-prompts caller", async () => {
@@ -219,9 +349,25 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(safeConfRes.text).toContain("Ama Mensah");
 
     // Step 6: PIN Handoff (Zero-PIN Security)
+    const startSaga = vi.spyOn(paymentSaga, "executeConfirmedTransferSaga").mockResolvedValue({
+      saga: {
+        collectionReference: "collection-test-reference",
+        state: "WAITING_FOR_CUSTOMER_AUTHORIZATION",
+      } as any,
+      status: "PENDING",
+      mode: "MOCK_PROVIDER",
+    });
     const handoffRes = await request(app)
       .post("/safe-outcome")
       .send({ sessionId, lang: "en", dtmfDigits: "1" });
+    expect(startSaga).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId,
+      senderPhone: "+233543546010",
+      recipientPhone: "0241234567",
+      amount: 500,
+      network: "MTN",
+    }));
+    startSaga.mockRestore();
     expect(handoffRes.text).toContain("check your phone screen");
     expect(handoffRes.text).toContain("<Reject/>"); // stops listening to speech; no PIN over audio!
 

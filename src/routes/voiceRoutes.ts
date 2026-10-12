@@ -15,20 +15,22 @@ import { recipientResolver } from "../providers/recipient/RecipientResolver";
 import { parseAndValidateAmount, validateGhanaPhoneNumber, normalizeGhanaPhoneNumber } from "../domain/validation";
 import { transactionStateMachine } from "../domain/stateMachine";
 import { buildSafeConfirmationPrompt, buildReceiptPrompt } from "../audio/dynamicPromptBuilder";
-import { speechToText } from "../modules/sttService";
+import { isSpokenPinPattern, speechToText } from "../modules/sttService";
 import { mtnMomoService } from "../modules/mtnMomoService";
 import { auditLogger } from "../services/auditLogger";
 import { verifyAtWebhook } from "../providers/telephony/webhookGuard";
-import { voicePaymentService } from "../integrations/momo/voicePaymentService";
+import { paymentSaga } from "../integrations/momo/paymentSaga";
 import { durableTransactionStore } from "../services/durableTransactionStore";
 import { telephonyRateLimiter, adminRateLimiter } from "../middleware/rateLimiter";
 import { requireAdminAuth } from "../middleware/adminAuth";
 import { aiSystem } from "../ai_system";
 import { brain } from "../ai_system/brain/brain";
-import { resolvePrompt } from "../modules/ttsService";
+import { PROMPT_TABLE, resolvePrompt } from "../modules/ttsService";
+import { AUDIO_CATALOG } from "../audio/catalog";
 import { extractAmount, extractRecipient, extractNetwork } from "../modules/nluService";
 import { getStepDefinition, validateKeypadInput } from "../domain/stepRegistry";
 import { ivrDecisionEngine, IvrDecision } from "../ai_system/brain/ivrDecisionEngine";
+import { geminiClient } from "../services/geminiClient";
 
 export const voiceRouter = Router();
 export const ivrRouter = Router();
@@ -90,6 +92,55 @@ function toSafeHeaderValue(val: unknown): string {
     return encodeURIComponent(str);
   }
   return str;
+}
+
+function escapeVoiceXml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function redactSpeechForDiagnostics(text: string): string {
+  return text
+    .replace(/\b(0[235]\d{8}|233[235]\d{8})\b/g, "[PHONE]")
+    .replace(/\b(?:\d[\s-]*){9,12}\b/g, "[PHONE]")
+    .replace(/\b(?:zero|one|two|three|four|five|six|seven|eight|nine|oh|hwee|baako|mmienu|mmiensa|mmiɛnsa|ɛnan|enan|enum|nsia|nson|nwɔtwe|nwotwe|nkron|kron)(?:[\s,-]+(?:zero|one|two|three|four|five|six|seven|eight|nine|oh|hwee|baako|mmienu|mmiensa|mmiɛnsa|ɛnan|enan|enum|nsia|nson|nwɔtwe|nwotwe|nkron|kron)){6,}\b/gi, "[PHONE]")
+    .replace(/\b(to|for|ma)\s+(?:(?:my|the)\s+)?[a-z][a-z'-]*(?:\s+[a-z][a-z'-]*){0,2}/gi, "$1 [RECIPIENT]")
+    .replace(/\b\d+(?:\.\d{1,2})?\b/g, "[NUMBER]")
+    .slice(0, 180);
+}
+
+function brainPromptElement(promptId: string | undefined, replyText: string, baseUrl: string, language: "en" | "twi"): string {
+  const prompt = promptId ? AUDIO_CATALOG.find((entry) => entry.id === promptId) : undefined;
+  if (prompt) {
+    const audioPath = prompt.filename.split("/").map(encodeURIComponent).join("/");
+    return `<Play url="${baseUrl}/audio/${audioPath}"/>`;
+  }
+  const promptPath = promptId ? PROMPT_TABLE[promptId]?.[language] || resolvePrompt(promptId, language) : null;
+  if (promptPath) {
+    return `<Play url="${baseUrl}${promptPath}"/>`;
+  }
+  return `<Say voice="female">${escapeVoiceXml(replyText)}</Say>`;
+}
+
+function speechCollectionXml(params: {
+  baseUrl: string;
+  sessionId: string;
+  language: "en" | "twi";
+  slot: "recipient" | "amount";
+  replyText: string;
+  promptId?: string;
+}): string {
+  const { baseUrl, sessionId, language, slot, replyText, promptId } = params;
+  const query = new URLSearchParams({ sessionId, lang: language }).toString().replace(/&/g, "&amp;");
+  const prompt = brainPromptElement(promptId, replyText, baseUrl, language);
+  if (slot === "recipient") {
+    return `    <GetDigits timeout="40" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/verify-recipient?${query}">\n        ${prompt}\n    </GetDigits>\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="12" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=enter-recipient&amp;${query}"/>`;
+  }
+  return `    <GetDigits timeout="25" finishOnKey="#" numDigits="6" callbackUrl="${baseUrl}/verify-amount?${query}">\n        ${prompt}\n    </GetDigits>\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="8" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=enter-amount&amp;${query}"/>`;
 }
 
 function xmlResponse(res: Response, content: string, decision?: IvrDecision): void {
@@ -339,16 +390,17 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
       return xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, validDecision);
     }
     if (dtmf === "2") {
-      // Banking is not supported in this pilot
-      session.retryCount = (session.retryCount || 0) + 1;
-      const decision = ivrDecisionEngine.decide({
-        stepId: "service-select",
-        language: lang,
-        input: "banking",
-        inputMethod: "keypad",
-        retryCount: session.retryCount,
-        sessionId,
-      });
+      const decision: IvrDecision = {
+        type: "unsupported",
+        reason: "Banking is not supported in this pilot.",
+        replyText: lang === "twi"
+          ? "Yɛmpɛ banking service no wɔ pilot yi mu. Sɛ wopɛ Mobile Money a, mia 1. Sɛ wopɛ sɛ wote options no bio a, mia 9."
+          : "Banking is not supported in this pilot. For Mobile Money, press 1. To hear the options again, press 9.",
+        replyKey: "service_unsupported",
+        action: "replay",
+        nextStep: "service-select",
+        promptReplayKey: "service_select",
+      };
       const audioUrl = `${baseUrl}${resolvePrompt("service_select", lang)}`;
       return xmlResponse(
         res,
@@ -680,6 +732,17 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
 
   session.retryCount = 0;
 
+  const rawAmount = req.body?.amount ?? req.query?.amount;
+  const amountValidation = rawAmount === undefined
+    ? undefined
+    : parseAndValidateAmount(String(rawAmount));
+  if (rawAmount !== undefined && (!amountValidation?.valid || amountValidation.amount === undefined)) {
+    const amountError = lang === "twi"
+      ? "Sika dodow no nyɛ pɛpɛɛpɛ. Yɛsrɛ wo, bɔ sika dodow no bio."
+      : "The amount could not be verified. Please enter the amount again.";
+    return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(amountError)}</Say>\n    <Redirect>${getBaseUrl(req)}/enter-amount?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}</Redirect>`);
+  }
+
   // Resolve recipient using active provider (Sandbox or real MTN)
   const resolution = await recipientResolver.resolve(phoneValidation.normalized);
   auditLogger.log(
@@ -695,6 +758,7 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
     recipientName: resolution.name,
     isRecipientVerified: resolution.verified,
     network: resolution.network,
+    ...(amountValidation?.valid && amountValidation.amount !== undefined ? { amount: amountValidation.amount } : {}),
   });
 
   const last4Spaced = phoneValidation.last4Spaced;
@@ -761,6 +825,11 @@ ivrRouter.all("/recipient-verify-choice", (req: Request, res: Response) => {
   if (possibleAmt.valid && possibleAmt.amount && possibleAmt.amount > 0 && dtmf !== "1") {
     session.retryCount = 0;
     return xmlResponse(res, `    <Redirect>${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${encodeURIComponent(dtmf)}</Redirect>`);
+  }
+
+  if (session.amount && session.amount > 0 && session.state === "RECIPIENT_VERIFIED") {
+    transactionStateMachine.transition(sessionId, "AMOUNT_ENTERED", { amount: session.amount });
+    return xmlResponse(res, `    <Redirect>${baseUrl}/safe-confirmation?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
   }
 
   // Proceed directly to amount input, NEVER get stuck at recipient step
@@ -952,6 +1021,21 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
       return xmlResponse(res, `    <Say voice="female">${errorMsg}</Say>\n    <Reject/>`);
     }
 
+    const isSimulated = sessionId.startsWith("SIM_CALL_") || (req.baseUrl && req.baseUrl.startsWith("/api/simulator"));
+    if (!isSimulated) {
+      const callerNetwork = validateGhanaPhoneNumber(session.callerPhone).network;
+      const recipientNetwork = validateGhanaPhoneNumber(session.recipientPhone).network;
+      if (callerNetwork !== "MTN" || recipientNetwork !== "MTN") {
+        transactionStateMachine.transition(sessionId, "FAILED", {
+          failureReason: "Live voice transfer is only configured for MTN-to-MTN until additional provider adapters are implemented.",
+        });
+        const providerUnavailable = lang === "twi"
+          ? "Mprempren, yɛn live voice transfer no yɛ MTN nkutoo. Sika biara nkɔe. Yɛsrɛ wo, frɛ MTN MoMo anaa bɔ mmɔden bio akyire yi."
+          : "Live voice transfers currently support MTN numbers only. No money was charged. Please use MTN numbers or try again later.";
+        return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(providerUnavailable)}</Say>\n    <Reject/>`);
+      }
+    }
+
     const velocityCheck = durableTransactionStore.checkVelocityLimits(
       session.callerPhone,
       session.recipientPhone,
@@ -973,26 +1057,59 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
       session.amount
     );
 
-    transactionStateMachine.transition(sessionId, "CONFIRMED");
-
-    const isSimulated = sessionId.startsWith("SIM_CALL_") || (req.baseUrl && req.baseUrl.startsWith("/api/simulator"));
     let collectionRef = session.referenceId;
     let mode = "SIMULATOR";
+    let sagaStatus: "PENDING" | "COMPLETED" | "FAILED" | "RECONCILIATION_REQUIRED" = "PENDING";
 
     if (!isSimulated) {
-      const paymentResult = await voicePaymentService.initiatePayment(session.callerPhone, session.amount);
-      collectionRef = paymentResult.fields.referenceId || session.referenceId;
-      mode = paymentResult.momoEnv === "production" ? "LIVE" : "SANDBOX";
+      const sagaResult = await paymentSaga.executeConfirmedTransferSaga({
+        sessionId,
+        senderPhone: session.callerPhone,
+        recipientPhone: session.recipientPhone,
+        recipientName: session.recipientName || undefined,
+        amount: session.amount,
+        network: session.network,
+        confirmedDraftHash: session.idempotencyKey,
+      });
+      collectionRef = sagaResult.saga.collectionReference || session.referenceId;
+      mode = sagaResult.mode;
+      sagaStatus = sagaResult.status;
+      if (sagaResult.status === "FAILED") {
+        throw new Error(sagaResult.saga.failureReason || "MoMo transfer authorization failed.");
+      }
     }
 
+    transactionStateMachine.transition(sessionId, "CONFIRMED");
     transactionStateMachine.transition(sessionId, "PIN_PENDING", {
       momoReferenceId: collectionRef,
     });
 
+    if (!isSimulated && sagaStatus === "COMPLETED") {
+      transactionStateMachine.transition(sessionId, "COMPLETED");
+      const receipt = buildReceiptPrompt({
+        language: lang,
+        amount: session.amount,
+        recipientPhone: session.recipientPhone,
+        recipientName: session.recipientName,
+        referenceId: session.referenceId,
+        timestamp: new Date(),
+        status: "SUCCESSFUL",
+      });
+      return xmlResponse(res, receipt.voiceXml);
+    }
+
+    if (!isSimulated && sagaStatus === "RECONCILIATION_REQUIRED") {
+      auditLogger.log("warn", "RECONCILIATION_REQUIRED", "Transfer status requires provider reconciliation; caller was told not to retry.", sessionId);
+      const reconciliationMessage = lang === "twi"
+        ? "Yɛresiesie wo transfer no tebea. Yɛsrɛ wo, mmɔ mmɔden foforɔ seesei. Yɛbɛma wo amanneɛ akyire yi."
+        : "We are checking your transfer status with the provider. Please do not try again now. We will send you an update.";
+      return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(reconciliationMessage)}</Say>\n    <Reject/>`);
+    }
+
     auditLogger.log(
       "info",
       "MOMO",
-      `Payment handoff dispatched (Mode: ${mode}, Ref: ${session.referenceId}, MoMoRef: ${collectionRef})`,
+      `Payment saga started (Mode: ${mode}, Ref: ${session.referenceId}, CollectionRef: ${collectionRef}, Recipient: ${session.recipientPhone})`,
       sessionId
     );
 
@@ -1049,20 +1166,36 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
 
   // Transcribe spoken audio or read speechText
   let transcript = "";
-  let confidence = 0;
+  let confidence: number | null = 0;
+  let confidenceSource = speechText ? "calibrated" : "unavailable";
   let pinDiscarded = false;
+  let asrProvider = speechText ? "simulated-transcript" : "not-run";
+  let asrLatencyMs = 0;
 
   if (speechText) {
-    transcript = speechText;
-    confidence = 0.95;
+    if (isSpokenPinPattern(speechText, step)) {
+      transcript = "[DISCARDED_PIN]";
+      pinDiscarded = true;
+      confidence = 0;
+      confidenceSource = "unavailable";
+    } else {
+      transcript = speechText;
+      confidence = 0.95;
+    }
   } else if (recordingUrl) {
+    const asrStartedAt = Date.now();
     try {
       const stt = await speechToText(recordingUrl, undefined, step);
       transcript = stt.text;
       confidence = stt.confidence;
+      confidenceSource = stt.confidenceSource || "unavailable";
       pinDiscarded = Boolean(stt.pinDiscarded);
+      asrProvider = stt.provider;
     } catch (err: any) {
       auditLogger.log("warn", "NLU", `STT error: ${err.message}`, sessionId);
+      asrProvider = "error-fallback";
+    } finally {
+      asrLatencyMs = Date.now() - asrStartedAt;
     }
   }
 
@@ -1079,6 +1212,152 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   }
 
   const clean = transcript.toLowerCase().trim();
+
+  if (transcript) {
+    auditLogger.log(
+      "info",
+      "STT",
+      `ASR result step=${step} provider=${asrProvider} confidence=${confidence === null ? "unreported" : confidence.toFixed(2)} confidenceSource=${confidenceSource} latencyMs=${asrLatencyMs} text="${redactSpeechForDiagnostics(transcript)}"`,
+      sessionId
+    );
+  }
+
+  const isSpeechControl = /\b(cancel|stop|abort|quit|exit|gyae|hwee|go back|previous|back|san akyi|repeat|say again|tie bio)\b/i.test(clean);
+  const isConfirmationStep = step === "safe-confirmation" || step === "recipient-verify-choice";
+  const isSpokenKey = /^(?:[0-9]|zero|one|two|three|four|five|six|seven|eight|nine|baako|bako|mmienu|mienu|mmiensa|mmiɛnsa|ɛnan|enan|enum|nsia|nson|nwɔtwe|nwotwe|nkron|kron)$/i.test(clean);
+  const isLanguageChoice = step === "language-selection" && /\b(english|twi|akan|brofo)\b/i.test(clean);
+  const isProviderChoice = /provider/.test(step) && /\b(mtn|telecel|vodafone|airteltigo|tigo)\b/i.test(clean);
+  if (
+    transcript &&
+    (confidence === null || confidence >= 0.75) &&
+    !isSpeechControl &&
+    !isConfirmationStep &&
+    !isSpokenKey &&
+    !isLanguageChoice &&
+    !isProviderChoice
+  ) {
+    const session = transactionStateMachine.getOrCreateSession(sessionId, lang === "twi" ? "twi" : "en", "VOICE");
+    const transferInProgress = session.state !== "INITIATED" || /recipient|amount|safe-confirmation/i.test(step);
+    const slots: Record<string, any> = {};
+    if (typeof session.amount === "number" && session.amount > 0) slots.amount = session.amount;
+    if (session.recipientPhone || session.recipientName) {
+      slots.recipient = {};
+      if (session.recipientPhone) slots.recipient.phone = session.recipientPhone;
+      if (session.recipientName) slots.recipient.name = session.recipientName;
+    }
+    if (session.network) slots.network = session.network;
+
+    auditLogger.log(
+      "info",
+      "BRAIN",
+      `Reasoning request step=${step} mode=${brain.config.mode} model=${brain.config.modelName} modelAvailable=${geminiClient.isAvailable()}`,
+      sessionId
+    );
+    const brainStartedAt = Date.now();
+    try {
+      const brainOutput = await brain.process({
+        transcript,
+        language: lang === "twi" ? "twi-asante" : "en",
+        languageConfidence: confidence ?? 0.75,
+        sessionLanguage: lang === "twi" ? "twi-asante" : "en",
+        draft: {
+          intent: transferInProgress ? "momo.transfer" : undefined,
+          slots,
+        },
+        callerNumber: session.callerPhone,
+        sessionId,
+        forceModel: true,
+      });
+
+      const updatedSlots = brainOutput.updatedDraft.slots as Record<string, any>;
+      const amountValue = typeof updatedSlots.amount === "number" ? updatedSlots.amount : undefined;
+      const validatedAmount = amountValue === undefined ? undefined : parseAndValidateAmount(String(amountValue));
+      const recipientValue = updatedSlots.recipient?.phone || updatedSlots.recipientPhone || session.recipientPhone || "";
+      const phoneValidation = recipientValue ? validateGhanaPhoneNumber(String(recipientValue)) : undefined;
+      const savedAmount = validatedAmount?.valid ? validatedAmount.amount : session.amount || undefined;
+      const sessionUpdates: Record<string, any> = {};
+
+      if (validatedAmount?.valid && validatedAmount.amount !== session.amount) {
+        sessionUpdates.amount = validatedAmount.amount;
+      }
+      if (updatedSlots.recipient?.name && !session.isRecipientVerified) {
+        sessionUpdates.recipientName = String(updatedSlots.recipient.name);
+      }
+      if (Object.keys(sessionUpdates).length > 0) {
+        transactionStateMachine.transition(sessionId, session.state, sessionUpdates);
+      }
+
+      const resolvedIntent = brainOutput.updatedDraft.intent;
+      const isTransferTurn = resolvedIntent === "momo.transfer" || (!resolvedIntent && transferInProgress);
+      auditLogger.log(
+        "info",
+        "BRAIN",
+        `Reasoning result decision=${brainOutput.decision.kind} intent=${resolvedIntent || "unknown"} missingSlot=${brainOutput.decision.kind === "clarify_slot" ? brainOutput.decision.slot : "none"} hasAmount=${Boolean(updatedSlots.amount)} hasRecipient=${Boolean(updatedSlots.recipient?.phone || updatedSlots.recipientPhone)} reply="${redactSpeechForDiagnostics(brainOutput.reply.text)}" modelOutput=${Boolean(brainOutput.modelOutput)} latencyMs=${Date.now() - brainStartedAt}`,
+        sessionId
+      );
+
+      if (isTransferTurn) {
+        const missingSlot = brainOutput.decision.kind === "clarify_slot" ? brainOutput.decision.slot : undefined;
+        const normalizedPhone = phoneValidation?.valid ? phoneValidation.normalized : undefined;
+        const recipientNeedsVerification = Boolean(
+          normalizedPhone && (!session.isRecipientVerified || normalizedPhone !== session.recipientPhone)
+        );
+
+        if (recipientNeedsVerification) {
+          return xmlResponse(
+            res,
+            `    <Redirect>${baseUrl}/verify-recipient?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}&amp;dtmfDigits=${encodeURIComponent(normalizedPhone!)}</Redirect>`
+          );
+        }
+
+        if (normalizedPhone && savedAmount && (session.state === "RECIPIENT_VERIFIED" || session.state === "AMOUNT_ENTERED")) {
+          transactionStateMachine.transition(sessionId, "AMOUNT_ENTERED", { amount: savedAmount });
+          return xmlResponse(
+            res,
+            `    <Redirect>${baseUrl}/safe-confirmation?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}</Redirect>`
+          );
+        }
+
+        if (missingSlot === "amount" || (normalizedPhone && !savedAmount)) {
+          return xmlResponse(
+            res,
+            speechCollectionXml({
+              baseUrl,
+              sessionId,
+              language: lang,
+              slot: "amount",
+              replyText: brainOutput.reply.text,
+              promptId: brainOutput.reply.promptId,
+            })
+          );
+        }
+
+        if (missingSlot === "recipient" || !normalizedPhone) {
+          return xmlResponse(
+            res,
+            speechCollectionXml({
+              baseUrl,
+              sessionId,
+              language: lang,
+              slot: "recipient",
+              replyText: brainOutput.reply.text,
+              promptId: brainOutput.reply.promptId,
+            })
+          );
+        }
+      } else if (brainOutput.decision.kind === "not_ready") {
+        return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(brainOutput.reply.text)}</Say>\n    <Reject/>`);
+      } else if (brainOutput.decision.kind === "clarify_intent") {
+        const prompt = brainPromptElement(brainOutput.reply.promptId, brainOutput.reply.text, baseUrl, lang);
+        return xmlResponse(
+          res,
+          `    ${prompt}\n    <Redirect>${baseUrl}/service-select?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}</Redirect>`
+        );
+      }
+    } catch (err: any) {
+      auditLogger.log("warn", "BRAIN", `Reasoning unavailable; continuing guarded IVR fallback (${String(err?.message || err).slice(0, 100)})`, sessionId);
+    }
+  }
 
   // Auto-detect 10-digit recipient phone number in spoken input at ANY step!
   const cleanDigits = clean.replace(/[^0-9]/g, "");
@@ -1145,7 +1424,7 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   }
 
   // Confidence check: Low confidence speech (<0.75) falls back closed to DTMF re-prompt, never guesses
-  if (!transcript || transcript === "empty" || confidence < 0.75) {
+  if (!transcript || transcript === "empty" || (confidence !== null && confidence < 0.75)) {
     auditLogger.log("info", "NLU", `Low-confidence speech (${confidence}), falling back closed to DTMF keypad`, sessionId);
     if (step === "language-selection") {
       return xmlResponse(res, `    <Redirect>${baseUrl}/language-selection?sessionId=${sessionId}</Redirect>`);

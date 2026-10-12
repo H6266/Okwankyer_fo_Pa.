@@ -29,7 +29,6 @@ import { resolvePrompt } from "../../modules/ttsService";
 import { api } from "../../lib/api";
 import { continuousAudioEngine, ContinuousAudioState } from "../../audio/continuousAudioEngine";
 import { AcousticVisualizer } from "../../components/audio/AcousticVisualizer";
-import { parseLongDiscussion, ParsedDiscussionState } from "../../ai_system/brain/longDiscussionParser";
 import { normalizeSpokenDigits } from "../../ai_system/speech/acousticModels/ghanaAcousticDataset";
 import {
   repairGhanaianPronunciation,
@@ -217,6 +216,7 @@ export const PhoneSimulatorPage: React.FC = () => {
   const currentPromptRef = useRef<string>("");
   const isMicMutedRef = useRef<boolean>(false);
   const zeroPinOverlayRef = useRef<boolean>(false);
+  const brainDraftRef = useRef<any>({ slots: {} });
 
   useEffect(() => { callActiveRef.current = callActive; }, [callActive]);
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
@@ -667,6 +667,7 @@ export const PhoneSimulatorPage: React.FC = () => {
           credentials: "same-origin",
           body: bodyParams.toString(),
         });
+        addLog("system", `Webhook POST ${targetUrl.split("?")[0]} status=${res.status}`);
 
         const decodeHeader = (val: string | null) => {
           if (!val) return null;
@@ -734,6 +735,7 @@ export const PhoneSimulatorPage: React.FC = () => {
     ]);
 
     const newSession = `AT_CALL_${Date.now()}`;
+      brainDraftRef.current = { slots: {} };
     callActiveRef.current = true;
     sessionIdRef.current = newSession;
     activeStepNameRef.current = "voice-menu";
@@ -774,6 +776,7 @@ export const PhoneSimulatorPage: React.FC = () => {
     async (reason = "User hung up") => {
       callActiveRef.current = false;
       sessionIdRef.current = "";
+      brainDraftRef.current = { slots: {} };
       activeCallbackUrlRef.current = null;
       activeStepNameRef.current = "ended";
 
@@ -810,11 +813,11 @@ export const PhoneSimulatorPage: React.FC = () => {
   const processSpokenUtterance = useCallback(
     async (
       utterance: string,
-      parsedDiscussion?: ParsedDiscussionState,
       isDirectSimulated: boolean = false
     ) => {
       // If call is inactive, initiate call first
       if (!callActiveRef.current) {
+        addLog("state", `Speech arrived while call inactive (previous step=${activeStepNameRef.current}); starting a new call.`);
         await startCall();
       }
 
@@ -875,198 +878,137 @@ export const PhoneSimulatorPage: React.FC = () => {
         activeCallbackUrl ||
         getFallbackCallbackUrl(curStep, curSession);
 
-      // Long discussion parsing & fast-track
-      const discussion = parsedDiscussion || parseLongDiscussion(effectiveClean, curStep);
-      if (
-        discussion.shortcutSuggestedStep === "safe-confirmation" &&
-        discussion.slots.recipientPhone &&
-        discussion.slots.amount
-      ) {
-        addLog(
-          "AI",
-          `Transfer intention extracted: ${discussion.slots.amount} GHS to ${
-            discussion.slots.recipientName || discussion.slots.recipientPhone
-          }`
-        );
-        try {
-          await fetch(`/api/simulator/verify-recipient?sessionId=${curSession}&lang=${curLang}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ dtmfDigits: discussion.slots.recipientPhone + "#" }),
-          });
-          await fetch(`/api/simulator/enter-amount?sessionId=${curSession}&lang=${curLang}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ dtmfDigits: String(discussion.slots.amount) + "#" }),
-          });
-          return dispatchVoiceWebhook(
-            `/api/simulator/safe-confirmation?sessionId=${curSession}&lang=${curLang}`
-          );
-        } catch {}
-      }
-
-      const digitsOnly = effectiveClean.replace(/\D/g, "");
-      const normalizedSpoken = normalizeGhanaPhoneNumber(effectiveClean);
-
-      // Auto-identify 10-digit phone number in spoken input across ANY step!
-      const phoneMatch = effectiveClean.match(/\b(0[0-9]{9}|233[0-9]{9})\b/);
-      const recognized10DigitPhone =
-        phoneMatch
-          ? phoneMatch[1]
-          : digitsOnly.length === 10 && digitsOnly.startsWith("0")
-          ? digitsOnly
-          : normalizedSpoken.length === 10
-          ? normalizedSpoken
-          : null;
-
-      if (recognized10DigitPhone && !curStep.includes("amount")) {
-        const phone = recognized10DigitPhone;
-        addLog("AI", `⚡ Auto-identified 10-digit number for sending money: ${phone}`);
-        addLog("state", `Moving directly to Amount stage for recipient ${phone}...`);
-        return dispatchVoiceWebhook(
-          `/api/simulator/verify-recipient?sessionId=${curSession}&lang=${curLang}`,
-          { dtmfDigits: phone + "#" }
-        );
-      }
-
-      if (curStep.includes("amount")) {
-        const amt = discussion.slots.amount || (digitsOnly.length > 0 && digitsOnly.length <= 6 ? digitsOnly : null);
-        if (amt) {
-          addLog("AI", `Amount parsed: ${amt} Cedis`);
-          return dispatchVoiceWebhook(targetCallback, { dtmfDigits: String(amt) + "#" });
-        }
-      }
-
-      // Fast-path: map common spoken Ghanaian tokens to step digits
-      const lower = effectiveClean.toLowerCase();
-      let matchedDtmf: string | null = null;
-
-      if (
-        curStep.includes("welcome") ||
-        curStep.includes("language") ||
-        curStep === "voice-menu"
-      ) {
-        if (/\b(1|one|won|wan|english|borɔfo|first|option 1|option one|number 1|number one|choice 1|choice one|baako|bako)\b/i.test(lower)) matchedDtmf = "1";
-        else if (/\b(2|two|tu|too|to|twi|akan|asante|mmienu|mienu|second|option 2|option two|number 2|number two|choice 2|choice two)\b/i.test(lower)) matchedDtmf = "2";
-        else if (/\b(0|zero|exit|cancel|stop|gyae|hwee)\b/i.test(lower)) matchedDtmf = "0";
-      } else if (curStep.includes("service")) {
-        if (/\b(1|one|won|wan|momo|mobile money|telecom|first|option 1|option one|baako)\b/i.test(lower)) matchedDtmf = "1";
-        else if (/\b(2|two|tu|too|bank|banking|sikakorabea|second|option 2|option two|mmienu)\b/i.test(lower)) matchedDtmf = "2";
-        else if (/\b(9|nine|repeat|say again|tie bio)\b/i.test(lower)) matchedDtmf = "9";
-        else if (/\b(0|zero|exit|cancel|quit|gyae)\b/i.test(lower)) matchedDtmf = "0";
-      } else if (curStep.includes("provider")) {
-        if (/\b(1|one|won|wan|mtn|yellow|mtn momo|first|option 1|option one|baako)\b/i.test(lower)) matchedDtmf = "1";
-        else if (/\b(2|two|tu|too|telecel|vodafone|voda|red|second|option 2|option two|mmienu)\b/i.test(lower)) matchedDtmf = "2";
-        else if (/\b(3|three|tree|tri|airteltigo|at|tigo|blue|third|option 3|option three|mmiɛnsa|mmiensa)\b/i.test(lower)) matchedDtmf = "3";
-        else if (/\b(9|nine|repeat|tie bio)\b/i.test(lower)) matchedDtmf = "9";
-        else if (/\b(0|zero|exit|cancel)\b/i.test(lower)) matchedDtmf = "0";
-      } else if (curStep.includes("action")) {
-        if (/\b(1|one|won|wan|send|send money|transfer|mane|soma|first|option 1|option one|baako)\b/i.test(lower)) matchedDtmf = "1";
-        else if (/\b(2|two|tu|too|balance|check balance|my balance|second|option 2|option two|mmienu)\b/i.test(lower)) matchedDtmf = "2";
-        else if (/\b(8|eight|back|go back|previous|san|san akyi)\b/i.test(lower)) matchedDtmf = "8";
-        else if (/\b(9|nine|repeat|tie bio)\b/i.test(lower)) matchedDtmf = "9";
-        else if (/\b(0|zero|exit|cancel)\b/i.test(lower)) matchedDtmf = "0";
-      } else if (curStep.includes("confirm") || curStep.includes("verify-choice")) {
-        if (/\b(1|one|won|wan|yes|confirm|aane|pene so|yie|ampa|proceed|okay|correct|send it|pay|approve|first|option 1|option one|baako)\b/i.test(lower)) matchedDtmf = "1";
-        else if (/\b(2|two|tu|too|no|dabi|sesa|change|cancel|edit|re-enter|second|option 2|option two|mmienu)\b/i.test(lower)) matchedDtmf = "2";
-        else if (/\b(8|eight|back|go back|previous|san)\b/i.test(lower)) matchedDtmf = "8";
-        else if (/\b(9|nine|repeat|tie bio)\b/i.test(lower)) matchedDtmf = "9";
-        else if (/\b(0|zero|cancel|stop|abort|gyae)\b/i.test(lower)) matchedDtmf = "0";
-      }
-
-      // Universal navigation and single spoken numerals
-      if (!matchedDtmf) {
-        if (/\b(back|go back|previous|san|san akyi)\b/i.test(lower)) matchedDtmf = "8";
-        else if (/\b(repeat|again|say again|tie bio)\b/i.test(lower)) matchedDtmf = "9";
-        else if (/\b(cancel|stop|abort|quit|exit|gyae|hwee)\b/i.test(lower)) matchedDtmf = "0";
-        else if (/^(?:1|one|won|wan|baako)$/i.test(lower.trim())) matchedDtmf = "1";
-        else if (/^(?:2|two|tu|too|to|mmienu)$/i.test(lower.trim())) matchedDtmf = "2";
-        else if (/^(?:3|three|tree|tri|mmiɛnsa|mmiensa)$/i.test(lower.trim())) matchedDtmf = "3";
-        else if (/^(?:4|four|fo|ɛnan|enan)$/i.test(lower.trim())) matchedDtmf = "4";
-        else if (/^(?:5|five|enum|num)$/i.test(lower.trim())) matchedDtmf = "5";
-        else if (/^(?:6|six|nsia)$/i.test(lower.trim())) matchedDtmf = "6";
-        else if (/^(?:7|seven|nson)$/i.test(lower.trim())) matchedDtmf = "7";
-        else if (/^(?:8|eight|nwɔtwe|nwotwe)$/i.test(lower.trim())) matchedDtmf = "8";
-        else if (/^(?:9|nine|nkron)$/i.test(lower.trim())) matchedDtmf = "9";
-        else if (/^(?:0|zero|hwee)$/i.test(lower.trim())) matchedDtmf = "0";
-        else if (activeNumDigits === 1 && /^[0-9]$/.test(lower.trim())) matchedDtmf = lower.trim();
-      }
+      const normalizedOption = effectiveClean.toLowerCase().replace(/[.,!?]/g, "").replace(/\s+/g, " ").trim();
+      const optionMap: Record<string, Record<string, string>> = {
+        language: {
+          "1": "1", one: "1", baako: "1", english: "1", borɔfo: "1", brofo: "1",
+          "2": "2", two: "2", mmienu: "2", mienu: "2", twi: "2", akan: "2", asante: "2",
+        },
+        service: {
+          "1": "1", one: "1", baako: "1", momo: "1", "mobile money": "1", telecom: "1",
+          "2": "2", two: "2", mmienu: "2", banking: "2", bank: "2",
+        },
+        provider: {
+          "1": "1", one: "1", mtn: "1", "2": "2", two: "2", telecel: "2", vodafone: "2",
+          "3": "3", three: "3", airteltigo: "3", tigo: "3", at: "3",
+        },
+        action: {
+          "1": "1", one: "1", send: "1", "send money": "1", transfer: "1", mane: "1",
+          "2": "2", two: "2", balance: "2", "check balance": "2",
+        },
+        confirmation: {
+          "1": "1", one: "1", yes: "1", confirm: "1", okay: "1", aane: "1", "pene so": "1",
+          "2": "2", two: "2", no: "2", cancel: "2", dabi: "2", sesa: "2",
+        },
+      };
+      const stepGroup = curStep.includes("language") || curStep === "voice-menu"
+        ? "language"
+        : curStep.includes("service")
+        ? "service"
+        : curStep.includes("provider")
+        ? "provider"
+        : curStep.includes("action")
+        ? "action"
+        : curStep.includes("confirm") || curStep.includes("verify-choice")
+        ? "confirmation"
+        : "";
+      const navigationOptions: Record<string, string> = {
+        back: "8",
+        "go back": "8",
+        previous: "8",
+        repeat: "9",
+        again: "9",
+        "say again": "9",
+        cancel: "0",
+        stop: "0",
+        exit: "0",
+      };
+      const matchedDtmf = navigationOptions[normalizedOption] || (stepGroup ? optionMap[stepGroup][normalizedOption] : undefined);
 
       if (matchedDtmf) {
-        addLog("asr", `⚡ Spoken input recognized: "${effectiveClean}" ➔ Keypad [${matchedDtmf}]`);
-        addLog("state", `🔄 ASR synced with system: Auto-dialing [${matchedDtmf}] on step "${curStep}"`);
-        setVoiceSyncStatus({
-          text: effectiveClean,
-          action: `Auto-dialed DTMF [${matchedDtmf}]`,
-          dtmf: matchedDtmf,
-          timestamp: Date.now(),
-        });
+        addLog("asr", `Spoken menu choice "${effectiveClean}" mapped to keypad [${matchedDtmf}]`);
+        setVoiceSyncStatus({ text: effectiveClean, action: `Auto-dialed DTMF [${matchedDtmf}]`, dtmf: matchedDtmf, timestamp: Date.now() });
         setActiveKeypadPulse(matchedDtmf);
         audioPlaybackController.playDtmfTone(matchedDtmf, 130);
         setTimeout(() => setActiveKeypadPulse(null), 450);
-
         return dispatchVoiceWebhook(targetCallback, { dtmfDigits: matchedDtmf });
       }
 
-      // Brain path: POST /api/ivr/understand
-      try {
-        const brainRes = await fetch("/api/ivr/understand", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify({
-            utterance: effectiveClean,
-            currentStep: curStep,
-            callState: { lang: curLang, sessionId: curSession },
-            sessionId: curSession,
-          }),
-        });
-
-        if (brainRes.ok) {
-          const decision = await brainRes.json();
-          if (decision.type === "dtmf" && decision.dtmf) {
-            addLog("AI", `dtmf=${decision.dtmf} (${decision.reason || "brain resolved option"})`);
-            addLog("state", `🔄 ASR synced with system: Brain resolved "${effectiveClean}" ➔ Keypad [${decision.dtmf}]`);
-            setVoiceSyncStatus({
-              text: effectiveClean,
-              action: `AI Brain mapped to [${decision.dtmf}]`,
-              dtmf: decision.dtmf,
-              timestamp: Date.now(),
-            });
-            setActiveKeypadPulse(decision.dtmf);
-            audioPlaybackController.playDtmfTone(decision.dtmf, 130);
-            setTimeout(() => setActiveKeypadPulse(null), 450);
-            return dispatchVoiceWebhook(targetCallback, { dtmfDigits: decision.dtmf });
-          }
-
-          if (decision.type === "skip" && decision.targetStep) {
-            const targetUrl = `/${decision.targetStep}?sessionId=${curSession}&lang=${curLang}`;
-            return dispatchVoiceWebhook(targetUrl);
-          }
-
-          if (decision.replyText) {
-            addLog("AI", `Brain reply: "${decision.replyText}"`);
-            addChatTurn({
-              sender: "ai",
-              text: decision.replyText,
-              audioSource: "synthesis",
-            });
-            if (decision.promptAudio) {
-              await audioPlaybackController.play(decision.promptAudio, decision.replyText);
-            } else {
-              await audioPlaybackController.speakText(decision.replyText);
-            }
-            return;
-          }
-        }
-      } catch (err: any) {
-        addLog("system", `Cognitive reasoning note: ${err.message}`);
+      if (curStep.includes("confirm") || curStep.includes("verify-choice")) {
+        addLog("state", "Routing spoken approval through the guarded simulator confirmation callback.");
+        return dispatchVoiceWebhook(
+          `/api/simulator/speech-fallback?step=${encodeURIComponent(curStep)}&sessionId=${encodeURIComponent(curSession)}&lang=${curLang}`,
+          { speechText: effectiveClean }
+        );
       }
 
-      // Default fallback replay
-      const fallbackUrl = resolvePrompt("wrong_figure", curLang);
-      if (fallbackUrl) {
-        audioPlaybackController.play(fallbackUrl, "Please choose from the available options.").catch(() => {});
+      addLog("AI", `POST /api/ai/brain/process step=${curStep} language=${curLang} forceModel=true`);
+      try {
+        const response = await api.processBrain({
+          transcript: effectiveClean,
+          language: curLang === "twi" ? "twi-asante" : "en",
+          draft: brainDraftRef.current,
+          callerNumber,
+          sessionId: curSession,
+          forceModel: true,
+        });
+        const brainOutput = response.brainOutput;
+        brainDraftRef.current = brainOutput.updatedDraft || { slots: {} };
+        const slots = brainDraftRef.current.slots || {};
+        const intent = brainDraftRef.current.intent || "unknown";
+        addLog("AI", `Brain decision=${brainOutput.decision.kind} intent=${intent} modelUsed=${Boolean(brainOutput.modelOutput)}`);
+        addLog("AI", `Brain slots amount=${slots.amount ?? "missing"} recipient=${slots.recipient?.phone ? "provided" : "missing"}`);
+
+        const replyText = String(brainOutput.reply?.text || "Please repeat your request.");
+        addChatTurn({ sender: "ai", text: replyText, audioSource: "synthesis" });
+
+        const recipientPhone = slots.recipient?.phone || slots.recipientPhone;
+        const amount = typeof slots.amount === "number" && Number.isFinite(slots.amount) ? slots.amount : undefined;
+        const isTransfer = intent === "momo.transfer" || brainOutput.decision.kind === "confirm";
+
+        if (isTransfer && recipientPhone) {
+          const normalizedPhone = normalizeGhanaPhoneNumber(String(recipientPhone));
+          if (normalizedPhone.length === 10) {
+            addLog("state", `Submitting Brain-identified recipient for provider verification; amount=${amount ?? "not provided"}.`);
+            return dispatchVoiceWebhook(
+              `/api/simulator/verify-recipient?sessionId=${curSession}&lang=${curLang}`,
+              { dtmfDigits: normalizedPhone + "#", ...(amount !== undefined ? { amount: String(amount) } : {}) }
+            );
+          }
+        }
+
+        const missingSlot = brainOutput.decision.kind === "clarify_slot"
+          ? brainOutput.decision.slot
+          : isTransfer && !recipientPhone
+          ? "recipient"
+          : isTransfer && amount === undefined
+          ? "amount"
+          : undefined;
+        if (missingSlot === "recipient" || missingSlot === "amount") {
+          const nextStep = missingSlot === "recipient" ? "enter-recipient" : "enter-amount";
+          const nextCallback = missingSlot === "recipient"
+            ? `/api/simulator/verify-recipient?sessionId=${curSession}&lang=${curLang}`
+            : `/api/simulator/verify-amount?sessionId=${curSession}&lang=${curLang}`;
+          activeStepNameRef.current = nextStep;
+          activeCallbackUrlRef.current = nextCallback;
+          setActiveStepName(nextStep);
+          setActiveCallbackUrl(nextCallback);
+          setActiveNumDigits(missingSlot === "recipient" ? 10 : 6);
+          setCurrentPrompt(replyText);
+          currentPromptRef.current = replyText;
+          addLog("state", `Brain requested missing slot: ${missingSlot}`);
+          await audioPlaybackController.speakText(replyText);
+          return;
+        }
+
+        addLog("AI", `Brain reply: "${replyText}"`);
+        setCurrentPrompt(replyText);
+        currentPromptRef.current = replyText;
+        await audioPlaybackController.speakText(replyText);
+      } catch (err: any) {
+        addLog("system", `Brain request failed: ${err.message}`);
+        const fallbackUrl = resolvePrompt("wrong_figure", curLang);
+        if (fallbackUrl) await audioPlaybackController.play(fallbackUrl, "Please choose from the available options.");
       }
     },
     [
@@ -1146,7 +1088,7 @@ export const PhoneSimulatorPage: React.FC = () => {
       setIsSimulatingSpeech(false);
 
       // Process utterance directly (bypassing mic acoustic echo filter since it is direct test input)
-      processSpokenUtterance(effective, undefined, true);
+      processSpokenUtterance(effective, true);
     },
     [isSimulatingSpeech, language, processSpokenUtterance, startCall, addLog]
   );
@@ -1159,10 +1101,10 @@ export const PhoneSimulatorPage: React.FC = () => {
 
   // Subscribe to Always-On continuous audio engine utterances & state
   useEffect(() => {
-    const unsubUtterance = continuousAudioEngine.subscribeUtterance((utterance, parsedDiscussion) => {
+    const unsubUtterance = continuousAudioEngine.subscribeUtterance((utterance) => {
       if (isMicMutedRef.current || zeroPinOverlayRef.current) return;
       if (utterance && utterance.trim()) {
-        processSpokenUtterance(utterance, parsedDiscussion);
+        processSpokenUtterance(utterance);
       }
     });
 

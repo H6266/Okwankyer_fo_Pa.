@@ -644,7 +644,7 @@ aiRouter.get("/api/ai/simulator/sync-status", (_req: Request, res: Response) => 
 // Canonical Central Reasoning Brain Processing Endpoint
 aiRouter.post("/api/ai/brain/process", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {
-    const { transcript, language, draft, callerNumber, sessionId } = req.body;
+    const { transcript, language, draft, callerNumber, sessionId, forceModel } = req.body;
     const text = transcript || req.body.input || req.body.utterance || "";
     const lang = (language === "tw" || language === "ak" || language === "twi" || language === "twi-asante")
       ? "twi-asante"
@@ -660,6 +660,7 @@ aiRouter.post("/api/ai/brain/process", publicApiRateLimiter, async (req: Request
       draft: draft || { slots: {} },
       callerNumber,
       sessionId,
+      forceModel: forceModel === true,
     });
 
     res.json({ success: true, brainOutput: output, result: output });

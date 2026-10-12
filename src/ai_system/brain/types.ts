@@ -151,6 +151,7 @@ export interface BrainInput {
   draft: DraftState;
   callerNumber?: string;
   sessionId?: string;
+  forceModel?: boolean;
 }
 
 export interface BrainOutput {

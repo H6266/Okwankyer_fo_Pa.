@@ -14,7 +14,7 @@
  * 4i. Not-ready taxonomy entries: buy data, reverse transaction, customer care, loan
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import fs from 'fs';
@@ -330,15 +330,23 @@ describe('Phase 4: Readiness Hardening', () => {
     app.use(voiceRouter);
 
     it("Africa's Talking webhook invokes brain.process on speech callback", async () => {
+      const processBrain = vi.spyOn(brain, 'process');
       const res = await request(app)
-        .post('/speech-fallback?step=language-selection&sessionId=sess_voice_test_01')
+        .post('/speech-fallback?step=service-select&sessionId=sess_voice_test_01&lang=en')
+        .type('form')
         .send({
-          recordingUrl: 'https://storage.mock.gh/voice_input_01.wav',
+          speechText: 'I want to send 500 cedis to 0241234567',
         });
 
       expect(res.status).toBe(200);
       expect(res.text).toContain('<Response>');
-      expect(res.text).toContain('sessionId=sess_voice_test_01');
+      expect(processBrain).toHaveBeenCalledWith(expect.objectContaining({
+        transcript: 'I want to send 500 cedis to 0241234567',
+        sessionId: 'sess_voice_test_01',
+        forceModel: true,
+      }));
+      expect(res.text).toContain('/verify-recipient');
+      processBrain.mockRestore();
     });
 
     it('on brain error or timeout, plays safe prompt and offers DTMF keypad input', async () => {

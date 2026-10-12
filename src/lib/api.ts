@@ -885,6 +885,7 @@ export const api = {
     draft?: any;
     callerNumber?: string;
     sessionId?: string;
+    forceModel?: boolean;
   }): Promise<{ success: boolean; brainOutput: any; result: any }> {
     const res = await fetch("/api/ai/brain/process", {
       method: "POST",
