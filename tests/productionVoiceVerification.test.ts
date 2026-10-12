@@ -142,35 +142,32 @@ describe("2. Step-Aware Amount vs PIN Separation", () => {
 describe("3. Correct Prompt Fallback Order & TTS Audio Invariants", () => {
   it("3.1. Tier 1: Canonical prompts route to Studio Recording Catalog with cached metadata", () => {
     // Welcome prompt
-    const welcome = studioPromptRegistry.getPrompt("welcome");
+    const welcome = studioPromptRegistry.getPrompt("welcome", "tw");
     expect(welcome).toBeDefined();
-    expect(welcome?.relativeUrl).toContain("Welcome_prompt_01.mp3");
+    expect(welcome?.relativeUrl).toContain("Welcome%201.m4a");
     expect(welcome?.fileSizeBytes).toBeGreaterThan(1000);
-    expect(welcome?.durationSec).toBeGreaterThan(0);
-    expect(welcome?.sampleRateHz).toBe(44100);
-    expect(welcome?.bitrateKbps).toBe(128);
+    expect(welcome?.durationSec).toBeNull();
+    expect(welcome?.sampleRateHz).toBeNull();
+    expect(welcome?.bitrateKbps).toBeNull();
 
-    // English amount prompt -> Audio_prompt_09.mp3
     const amountEn = studioPromptRegistry.getPrompt("enter_amount", "en");
-    expect(amountEn).toBeDefined();
-    expect(amountEn?.relativeUrl).toContain("Audio_prompt_09.mp3");
+    expect(amountEn).toBeNull();
 
-    // Twi amount prompt -> Audio_prompt_twi_07.mp3
     const amountTw = studioPromptRegistry.getPrompt("enter_amount", "tw");
     expect(amountTw).toBeDefined();
-    expect(amountTw?.relativeUrl).toContain("Audio_prompt_twi_07.mp3");
+    expect(amountTw?.relativeUrl).toContain("Enter%20amount.m4a");
   });
 
   it("3.2. TTS Router retrieves Tier 1 studio prompts instantly with verified buffer and headers", async () => {
     const res = await ttsRouter.synthesize({
       text: "welcome",
-      language: "en",
+      language: "tw",
     });
 
     expect(res.providerUsed).toContain("tier1-studio-prompt-registry:welcome");
     expect(res.audioBuffer).toBeDefined();
     expect(res.audioBuffer!.length).toBeGreaterThan(128);
-    expect(res.mimeType).toBe("audio/mpeg");
+    expect(res.mimeType).toBe("audio/mp4");
   });
 
   it("3.3. Twi dynamic amounts use pre-recorded digit audio concatenation snippets without generic English TTS", () => {

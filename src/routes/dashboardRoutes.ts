@@ -6,6 +6,8 @@
  */
 
 import { Router, Request, Response } from "express";
+import fs from "fs";
+import path from "path";
 import { config } from "../config/env";
 import { AUDIO_CATALOG, audioFileExists } from "../audio/catalog";
 import { recipientResolver } from "../providers/recipient/RecipientResolver";
@@ -41,6 +43,9 @@ dashboardRouter.use((req: Request, res: Response, next) => {
 dashboardRouter.get("/api/phrase-bank", (_req: Request, res: Response) => {
   const phrases = AUDIO_CATALOG.map((item) => {
     const exists = audioFileExists(item.filename);
+    const size = exists
+      ? fs.statSync(path.resolve(process.cwd(), "Audio_files", "audio", item.filename)).size
+      : 0;
     return {
       id: item.id,
       filename: item.filename,
@@ -50,7 +55,9 @@ dashboardRouter.get("/api/phrase-bank", (_req: Request, res: Response) => {
       spokenText: item.spokenText,
       description: item.description,
       exists,
-      url: `/audio/${item.filename}`,
+      size,
+      mimeType: "audio/mp4",
+      url: item.url,
     };
   });
   res.json({ phrases, count: phrases.length });
@@ -58,54 +65,47 @@ dashboardRouter.get("/api/phrase-bank", (_req: Request, res: Response) => {
 
 // ── English Audio Catalog ─────────────────────────────────────────────
 dashboardRouter.get("/api/prototype-audio", (_req: Request, res: Response) => {
-  const englishPrompts = AUDIO_CATALOG.filter((p) => p.language === "en" || p.language === "bilingual");
   res.json({
     folder: "English",
-    aliasFolder: "English_audio_prot",
+    aliasFolder: null,
     manifest: {
-      folder: "audio/English",
-      prompts: englishPrompts.map((p) => ({
-        number: String(p.stepNumber),
-        filename: p.filename,
-        url: `/audio/${p.filename}`,
-        spokenText: p.spokenText,
-        description: p.description,
-      })),
+      folder: null,
+      prompts: [],
     },
-    files: englishPrompts.map((p) => ({
-      name: p.filename,
-      size: 150000,
-      sizeFormatted: "150 KB",
-      url: `/audio/${p.filename}`,
-      ext: ".mp3",
-    })),
-    count: englishPrompts.length,
+    files: [],
+    count: 0,
+    unavailable: true,
+    message: "No English recordings are supplied. Use the configured TTS fallback.",
   });
 });
 
 // ── Twi Audio Catalog ─────────────────────────────────────────────────
 dashboardRouter.get("/api/twi-audio", (_req: Request, res: Response) => {
-  const twiPrompts = AUDIO_CATALOG.filter((p) => p.language === "twi" || p.language === "bilingual");
+  const twiPrompts = AUDIO_CATALOG;
   res.json({
     folder: "Twi",
-    aliasFolder: "twi_recording",
+    aliasFolder: null,
     manifest: {
-      folder: "audio/Twi",
+      folder: "Audio_files/audio/Twi",
       prompts: twiPrompts.map((p) => ({
         number: String(p.stepNumber),
         filename: p.filename,
-        url: `/audio/${p.filename}`,
+        url: p.url,
         spokenText: p.spokenText,
         description: p.description,
       })),
     },
-    files: twiPrompts.map((p) => ({
-      name: p.filename,
-      size: 150000,
-      sizeFormatted: "150 KB",
-      url: `/audio/${p.filename}`,
-      ext: ".mp3",
-    })),
+    files: twiPrompts.map((p) => {
+      const size = fs.statSync(path.resolve(process.cwd(), "Audio_files", "audio", p.filename)).size;
+      return {
+        name: p.filename,
+        size,
+        sizeFormatted: `${(size / 1024).toFixed(1)} KB`,
+        url: p.url,
+        ext: ".m4a",
+        mimeType: "audio/mp4",
+      };
+    }),
     count: twiPrompts.length,
   });
 });

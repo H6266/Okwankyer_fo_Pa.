@@ -6,7 +6,8 @@ import { validateGhanaPhoneNumber, parseAndValidateAmount } from "../src/domain/
 import { ivrDecisionEngine, IvrDecisionEngine } from "../src/ai_system/brain/ivrDecisionEngine";
 import { brain } from "../src/ai_system/brain/brain";
 import { ivrRouter } from "../src/routes/voiceRoutes";
-import { PROMPT_TABLE, PROMPT_SCRIPTS } from "../src/modules/ttsService";
+import { PROMPT_SCRIPTS } from "../src/modules/ttsService";
+import { getRecordingByPromptKey } from "../src/audio/recordingRegistry";
 
 describe("Step Registry & Canonical Input Contracts", () => {
   it("defines every required IVR step with prompt keys and accepted inputs", () => {
@@ -284,8 +285,8 @@ describe("Cognitive IVR Decision Engine Structured Decisions", () => {
   });
 });
 
-describe("TTS Table Reply Keys & Studio Recording Scripts", () => {
-  it("contains all cognitive reply keys in PROMPT_TABLE and PROMPT_SCRIPTS", () => {
+describe("TTS Fallback Scripts & Recording Registry", () => {
+  it("contains fallback scripts for every cognitive reply key", () => {
     const expectedKeys = [
       "invalid_choice",
       "intent_understood_ask_number",
@@ -301,11 +302,12 @@ describe("TTS Table Reply Keys & Studio Recording Scripts", () => {
     ];
 
     for (const key of expectedKeys) {
-      expect(PROMPT_TABLE[key], `Missing ${key} in PROMPT_TABLE`).toBeDefined();
       expect(PROMPT_SCRIPTS[key], `Missing ${key} in PROMPT_SCRIPTS`).toBeDefined();
       expect(PROMPT_SCRIPTS[key].en.length).toBeGreaterThan(10);
       expect(PROMPT_SCRIPTS[key].twi.length).toBeGreaterThan(10);
     }
+    expect(getRecordingByPromptKey("enter_amount")?.promptId).toBe("OP26");
+    expect(getRecordingByPromptKey("safe_confirmation")).toBeNull();
   });
 });
 
@@ -330,7 +332,7 @@ describe("IVR Telephony Route Integration (Real Express XML Responses)", () => {
     expect(res.text).toContain("<Say voice=\"female\">Option 5 is not a valid choice");
     expect(res.text).toContain("<GetDigits");
     expect(res.text).toContain("callbackUrl=\"http://localhost:3000/service-choice?sessionId=TEST_SESS_A&amp;lang=en\"");
-    expect(res.text).toContain("Audio_prompt_02.mp3");
+    expect(res.text).toContain("/api/audio/prompt-tts/en/service_select");
     expect(res.text).not.toContain("<Redirect");
   });
 
@@ -345,7 +347,7 @@ describe("IVR Telephony Route Integration (Real Express XML Responses)", () => {
     expect(res.text).toContain("enter the recipient's ten-digit phone number");
     expect(res.text).toContain("<GetDigits timeout=\"40\" finishOnKey=\"#\" numDigits=\"10\"");
     expect(res.text).toContain("callbackUrl=\"http://localhost:3000/verify-recipient?sessionId=TEST_SESS_B&amp;lang=en\"");
-    expect(res.text).toContain("Audio_prompt_06.mp3");
+    expect(res.text).toContain("/api/audio/prompt-tts/en/enter_recipient");
   });
 
   it("Scenario c (invalid phone): At enter-recipient enter '6666666666#': states invalid prefix 666, re-prompts", async () => {
@@ -358,7 +360,7 @@ describe("IVR Telephony Route Integration (Real Express XML Responses)", () => {
     expect(res.headers["x-ai-decision-reason"]).toContain("prefix '666'");
     expect(res.text).toContain("The prefix 666 is not a valid Ghanaian mobile network");
     expect(res.text).toContain("<GetDigits timeout=\"40\" finishOnKey=\"#\" numDigits=\"10\"");
-    expect(res.text).toContain("Audio_prompt_06.mp3");
+    expect(res.text).toContain("/api/audio/prompt-tts/en/enter_recipient");
   });
 
   it("Scenario c (valid phone): At enter-recipient enter '0553838464#': resolves MTN recipient and asks for confirmation", async () => {

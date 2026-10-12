@@ -13,7 +13,8 @@
  * - Rejects incomplete dynamic instructions.
  */
 
-import { resolvePrompt, SupportedLanguage } from "../modules/ttsService";
+import { resolvePrompt, resolvePromptText, SupportedLanguage } from "../modules/ttsService";
+import { getRecordingByPromptKey } from "./recordingRegistry";
 import { ttsRouter } from "../ai_system/speech/tts/ttsRouter";
 import { auditLogger } from "../services/auditLogger";
 
@@ -112,14 +113,15 @@ export class VariableSpeechService {
         throw new Error("[VariableSpeechService] promptKey is required for RECORDED speech mode.");
       }
 
-      const audioUrl = resolvePrompt(instruction.promptKey, lang);
+      const recording = lang === "twi" ? getRecordingByPromptKey(instruction.promptKey) : null;
+      const audioUrl = recording ? resolvePrompt(instruction.promptKey, lang) : null;
       if (!audioUrl) {
         auditLogger.log("warn", "VARIABLE_SPEECH", `Missing recorded prompt asset for key: ${instruction.promptKey} [${lang}]. Falling back to explicit TTS.`);
         return {
           mode: "SYNTHESIZE",
           purpose: instruction.purpose,
           language: lang,
-          textToSpeak: instruction.text || instruction.promptKey,
+          textToSpeak: instruction.text || resolvePromptText(instruction.promptKey, lang) || instruction.promptKey,
           metadata: instruction.metadata,
         };
       }

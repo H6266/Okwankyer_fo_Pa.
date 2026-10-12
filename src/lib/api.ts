@@ -45,7 +45,8 @@ export interface AudioItem {
   exists: boolean;
   sizeBytes: number;
   sizeFormatted: string;
-  durationEstSec: number;
+  durationEstSec?: number;
+  mimeType?: string;
 }
 
 export interface AudioManifestResponse {

@@ -16,6 +16,8 @@ import {
   stripSystemEchoFromTranscript,
   isBackgroundNoiseOrStatic,
 } from "../domain/echoFilter";
+import { getRecordingByPromptKey, getRecordingByUrl } from "../audio/recordingRegistry";
+import { resolvePromptText } from "../modules/ttsService";
 import {
   ContinuousVoiceCapture,
   MicrophoneState,
@@ -873,19 +875,34 @@ export function usePhoneSimulator() {
     }
   }, [updateAiSpeaking]);
 
-  function getPromptTranscript(filename: string): string {
-    const f = filename.toLowerCase();
-    if (f.includes("welcome")) return "Akwaaba! Welcome to Okwankyerɛfo Pa. Press 1 for English, Press 2 for Akan Twi.";
-    if (f.includes("audio_prompt_02") || f.includes("audio_prompt_twi_03")) return "Mobile Money Service Menu: Press 1 for Mobile Money, 2 for Banking.";
-    if (f.includes("audio_prompt_03") || f.includes("audio_prompt_twi_02")) return "Select Provider: Press 1 for MTN, 2 for Telecel, 3 for AT.";
-    if (f.includes("audio_prompt_04") || f.includes("audio_prompt_twi_04")) return "Mane Sika: Mia 1 ma Mane Sika, mia 2 ma Balance.";
-    if (f.includes("audio_prompt_05")) return "Action Menu: Press 1 to Send Money, Press 2 to Check Balance.";
-    if (f.includes("audio_prompt_06") || f.includes("audio_prompt_twi_05")) return "Please enter the 10-digit mobile number of the recipient followed by the hash key (#).";
-    if (f.includes("audio_prompt_07") || f.includes("audio_prompt_twi_07")) return "Please enter the amount in Ghana Cedis followed by the hash key (#).";
-    if (f.includes("audio_prompt_08") || f.includes("audio_prompt_twi_08")) return "Safe Confirmation: Press 1 to Confirm transfer, 2 to Re-enter.";
-    if (f.includes("audio_prompt_09")) return "Please enter the amount in Ghana Cedis followed by the hash key (#).";
-    if (f.includes("audio_prompt_10")) return "Transaction dispatched to MoMo provider. SMS receipt pending.";
-    return "Playing Africa's Talking audio prompt...";
+  function getPromptTranscript(audioUrl: string): string {
+    let pathname = audioUrl;
+    try {
+      pathname = new URL(audioUrl, window.location.origin).pathname;
+    } catch {
+      pathname = audioUrl;
+    }
+    const recording = getRecordingByUrl(pathname);
+    const promptMatch = pathname.match(/^\/api\/audio\/prompt(?:-tts)?\/(en|twi)\/([^/]+)$/);
+    const key = promptMatch ? decodeURIComponent(promptMatch[2]) : null;
+    const language = promptMatch?.[1] === "twi" ? "twi" : "en";
+    return recording?.spokenText ||
+      (key ? resolvePromptText(key, language) : null) ||
+      "Please listen to the prompt.";
+  }
+
+  function playBrowserSpeechFallback(text: string): void {
+    if (!("speechSynthesis" in window) || !text) {
+      updateAiSpeaking(false);
+      return;
+    }
+    updateAiSpeaking(true, text);
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = language === "tw" || language === "ak" ? "ak-GH" : "en-GH";
+    utterance.onend = () => updateAiSpeaking(false);
+    utterance.onerror = () => updateAiSpeaking(false);
+    window.speechSynthesis.speak(utterance);
   }
 
   /**
@@ -981,7 +998,7 @@ export function usePhoneSimulator() {
         setActiveAudioClip(audioUrl);
         if (audioRef.current && enableTts) {
           audioRef.current.src = audioUrl;
-          const promptText = parsed.say?.text || getPromptTranscript(audioUrl.split("/").pop() || "");
+          const promptText = parsed.say?.text || getPromptTranscript(audioUrl);
           updateAiSpeaking(true, promptText);
           audioRef.current.onended = () => {
             updateAiSpeaking(false);
@@ -1018,8 +1035,7 @@ export function usePhoneSimulator() {
           playAudioSynthesis(spokenText, language);
         }
       } else if (parsed.playUrl) {
-        const promptName = parsed.playUrl.split("/").pop() || "";
-        const promptText = getPromptTranscript(promptName);
+        const promptText = getPromptTranscript(parsed.playUrl);
         setAiResponse(promptText);
         setTranscript((prev) => [
           ...prev,
@@ -1351,44 +1367,26 @@ export function usePhoneSimulator() {
    */
   const resolveStudioPrompt = useCallback((text: string, lang: string, step?: string): string | null => {
     const isTwi = lang === "tw" || lang === "ak";
+    if (!isTwi) return null;
     const lower = (text || "").toLowerCase().replace(/[-_]/g, " ");
     const currentCheck = (step || "").toLowerCase();
+    const key = currentCheck.includes("amount") || lower.includes("enter amount") || lower.includes("sika dodow")
+      ? "enter_amount"
+      : currentCheck.includes("recipient") || currentCheck.includes("phone") || lower.includes("bɔ nɔmba")
+      ? "enter_recipient"
+      : currentCheck.includes("verify") || lower.includes("recipient verify")
+      ? "recipient_verify"
+      : currentCheck.includes("network") || currentCheck.includes("provider") || lower.includes("paw wo network")
+      ? "provider_select"
+      : currentCheck.includes("service") || lower.includes("service selection")
+      ? "service_select"
+      : currentCheck.includes("action") || lower.includes("send money selected")
+      ? "action_select"
+      : currentCheck.includes("welcome") || currentCheck.includes("language") || lower.includes("akwaaba")
+      ? "welcome"
+      : null;
 
-    if (currentCheck.includes("confirm") || currentCheck.includes("safe-confirm") || lower.includes("confirm and send") || lower.includes("woremane sika") || lower.includes("500 ghana cedis") || lower.includes("500 ghana cedi")) {
-      return isTwi ? "/audio/Twi/Audio_prompt_twi_08.mp3" : "/audio/English/Audio_prompt_10.mp3";
-    }
-    if (currentCheck.includes("amount") || currentCheck.includes("enter-amount") || lower.includes("cedi amount") || lower.includes("enter amount") || lower.includes("sika dodoɔ") || lower.includes("sika dodow")) {
-      return isTwi ? "/audio/Twi/Audio_prompt_twi_07.mp3" : "/audio/English/Audio_prompt_09.mp3";
-    }
-    if (currentCheck.includes("recipient") || currentCheck.includes("phone") || currentCheck.includes("enter-recipient") || lower.includes("10-digit") || lower.includes("bɔ nɔmba") || lower.includes("number you want to send")) {
-      return isTwi ? "/audio/Twi/Audio_prompt_twi_05.mp3" : "/audio/English/Audio_prompt_06.mp3";
-    }
-    if (currentCheck.includes("verify") || lower.includes("about to send money to kwame") || lower.includes("kwame nyamebrɛ") || lower.includes("ends with 8464")) {
-      return isTwi ? "/audio/Twi/Audio_prompt_twi_06.mp3" : "/audio/English/Audio_prompt_08.mp3";
-    }
-    if (currentCheck.includes("receipt") || currentCheck.includes("outcome") || currentCheck.includes("safe-outcome") || lower.includes("congratulations") || lower.includes("akɔ yie") || lower.includes("successfully sent")) {
-      return isTwi ? "/audio/Twi/Audio_prompt_twi_10.mp3" : "/audio/English/Audio_prompt_12.mp3";
-    }
-    if (currentCheck.includes("pin") || lower.includes("secret pin") || lower.includes("momo pin") || lower.includes("nkyerɛwee")) {
-      return isTwi ? "/audio/Twi/Audio_prompt_twi_09.mp3" : "/audio/English/Audio_prompt_11.mp3";
-    }
-    if (currentCheck.includes("network") || currentCheck.includes("provider") || lower.includes("network") || lower.includes("mtn") || lower.includes("telecel") || lower.includes("airteltigo")) {
-      return isTwi ? "/audio/Twi/Audio_prompt_twi_02.mp3" : "/audio/English/Audio_prompt_03.mp3";
-    }
-    if (currentCheck.includes("service") || lower.includes("telecom") || lower.includes("banking") || lower.includes("sikakorabea")) {
-      return isTwi ? "/audio/Twi/Audio_prompt_twi_03.mp3" : "/audio/English/Audio_prompt_02.mp3";
-    }
-    if (currentCheck.includes("action") || lower.includes("momo user") || lower.includes("pay bills") || lower.includes("buy airtime") || lower.includes("cash out")) {
-      return isTwi ? "/audio/Twi/Audio_prompt_twi_04.mp3" : "/audio/English/Audio_prompt_05.mp3";
-    }
-    if (currentCheck.includes("welcome") || currentCheck.includes("language") || lower.includes("welcome") || lower.includes("akwaaba")) {
-      return isTwi ? "/audio/Twi/Welcome_prompt_01.mp3" : "/audio/Welcome_prompt_01.mp3";
-    }
-    if (lower.includes("thank you") || lower.includes("goodbye") || lower.includes("meda wo ase")) {
-      return isTwi ? "/audio/Twi/Audio_prompt_twi_11.mp3" : "/audio/English/Audio_prompt_13.mp3";
-    }
-
-    return null;
+    return key ? getRecordingByPromptKey(key)?.url || null : null;
   }, []);
 
   /**
@@ -1402,7 +1400,10 @@ export function usePhoneSimulator() {
 
       // 1. Studio Pre-Recorded Prompts Mode (Priority 1 for known workflow steps)
       const matchedPrompt = resolveStudioPrompt(text, lang, step || currentStep);
-      if (matchedPrompt && voiceMode !== "BROWSER") {
+      const matchedPromptUnsupported =
+        matchedPrompt?.endsWith(".m4a") &&
+        !audioRef.current?.canPlayType('audio/mp4; codecs="mp4a.40.2"');
+      if (matchedPrompt && voiceMode !== "BROWSER" && !matchedPromptUnsupported) {
         if (audioRef.current) {
           audioRef.current.src = matchedPrompt;
           setActiveAudioClip(matchedPrompt);
@@ -2469,17 +2470,26 @@ export function usePhoneSimulator() {
     if (!target) return;
     try {
       const isAudioFile =
+        target.endsWith(".m4a") ||
         target.endsWith(".mp3") ||
         target.endsWith(".wav") ||
         target.startsWith("/audio/") ||
+        target.startsWith("/api/audio/prompt/") ||
+        target.startsWith("/api/audio/prompt-tts/") ||
         target.startsWith("audio/");
 
       if (isAudioFile) {
-        const promptName = target.split("/").pop() || "";
-        const promptTranscript = getPromptTranscript(promptName);
+        const promptTranscript = getPromptTranscript(target);
+        const urlPromptKey = target.match(/^\/api\/audio\/prompt\/twi\/([^/?]+)/)?.[1];
+        const servesM4a = target.toLowerCase().endsWith(".m4a") ||
+          Boolean(urlPromptKey && getRecordingByPromptKey(decodeURIComponent(urlPromptKey))?.url.endsWith(".m4a"));
+        if (servesM4a && !audioRef.current?.canPlayType('audio/mp4; codecs="mp4a.40.2"')) {
+          playBrowserSpeechFallback(promptTranscript);
+          return;
+        }
         updateAiSpeaking(true, promptTranscript);
         setActiveAudioClip(target);
-        const url = target.startsWith("/audio/")
+        const url = target.startsWith("/audio/") || target.startsWith("/api/audio/prompt")
           ? target
           : target.startsWith("audio/")
           ? `/${target}`
@@ -2492,14 +2502,14 @@ export function usePhoneSimulator() {
             setActiveAudioClip(null);
           };
           audioRef.current.onerror = () => {
-            updateAiSpeaking(false);
+            playBrowserSpeechFallback(promptTranscript);
             setActiveAudioClip(null);
           };
           const playPromise = audioRef.current.play();
           if (playPromise) {
             await playPromise.catch((e) => {
               console.warn("Audio file play notice:", e);
-              updateAiSpeaking(false);
+              playBrowserSpeechFallback(promptTranscript);
               setActiveAudioClip(null);
             });
           }

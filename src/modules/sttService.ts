@@ -401,10 +401,17 @@ export class TelephonySpeechService implements SpeechToTextProvider {
           return { text: "empty", confidence: 0.0, provider: "TelephonySpeechService" };
         }
 
-        let mime = "audio/mp3";
-        if (audioPayload.toLowerCase().includes(".wav")) {
-          mime = "audio/wav";
-        }
+        const recordingPath = new URL(audioPayload).pathname.toLowerCase();
+        const extension = recordingPath.match(/\.[a-z0-9]+$/)?.[0];
+        const mime = extension === ".m4a" || extension === ".aac"
+          ? "audio/mp4"
+          : extension === ".wav"
+          ? "audio/wav"
+          : extension === ".ogg"
+          ? "audio/ogg"
+          : extension === ".webm"
+          ? "audio/webm"
+          : "audio/mpeg";
         return await transcribeAudioBufferUnified(buffer, mime, step, 3000);
       } catch (err: any) {
         return { text: "empty", confidence: 0.0, provider: "TelephonySpeechService" };

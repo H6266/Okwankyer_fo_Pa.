@@ -235,6 +235,51 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     startSaga.mockRestore();
   });
 
+  it("keeps Africa's Talking webhook authentication through callback and redirect steps", async () => {
+    const originalSecret = process.env.AT_WEBHOOK_SECRET;
+    const secret = "test-telephony-webhook-secret";
+    process.env.AT_WEBHOOK_SECRET = secret;
+
+    try {
+      const sessionId = "AT-TEST-SECRET-001";
+      const callRes = await request(app)
+        .post("/voice-menu")
+        .query({ secret })
+        .send({ sessionId, callerNumber: "+233543546010", isActive: "1" });
+      expect(callRes.status).toBe(200);
+      expect(callRes.text).toMatch(
+        new RegExp(`callbackUrl="https?:\\/\\/[^"]+\\/language-selection\\?sessionId=${sessionId}&amp;secret=${secret}"`)
+      );
+
+      const languageRes = await request(app)
+        .post("/language-selection")
+        .query({ sessionId, secret })
+        .send({ dtmfDigits: "1" });
+      expect(languageRes.status).toBe(200);
+      expect(languageRes.text).toContain(`/service-select?sessionId=${sessionId}&amp;lang=en&amp;secret=${secret}`);
+
+      const serviceMenuRes = await request(app)
+        .get("/service-select")
+        .query({ sessionId, lang: "en", secret });
+      expect(serviceMenuRes.status).toBe(200);
+      expect(serviceMenuRes.text).toContain('<Say voice="woman">');
+      expect(serviceMenuRes.text).toContain(`callbackUrl="http://`);
+      expect(serviceMenuRes.text).toContain(`secret=${secret}`);
+
+      const missingSecretRes = await request(app)
+        .post("/language-selection")
+        .query({ sessionId })
+        .send({ dtmfDigits: "1" });
+      expect(missingSecretRes.status).toBe(401);
+    } finally {
+      if (originalSecret === undefined) {
+        delete process.env.AT_WEBHOOK_SECRET;
+      } else {
+        process.env.AT_WEBHOOK_SECRET = originalSecret;
+      }
+    }
+  });
+
   it("handles cancellation gracefully at safe confirmation with zero fund movement", async () => {
     const sessionId = "AT-TEST-CANCEL-001";
     transactionStateMachine.getOrCreateSession(sessionId, "en");
@@ -254,9 +299,9 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
   it("explains Banking is unsupported when the advertised Banking option is selected", async () => {
     const res = await request(app)
       .post("/service-choice")
-      .send({ sessionId: "AT-UNSUPPORTED-BANKING-001", lang: "en", dtmfDigits: "2" });
+      .send({ sessionId: "AT-UNSUPPORTED-BANKING-001", lang: "en", dtmfDigits: "3" });
 
-    expect(res.text).toContain("Banking is not supported in this pilot");
+    expect(res.text).toContain("This service is not available yet.");
     expect(res.text).not.toContain("not a valid choice");
   });
 
@@ -286,6 +331,55 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .post("/service-choice")
       .send({ sessionId, lang: "en", dtmfDigits: "8" });
     expect(backRes.text).toContain("/language-selection");
+  });
+
+  it("routes the revised English service choices through distinct Mobile Money and direct-transfer paths", async () => {
+    const sessionId = "AT-TEST-DIRECT-TRANSFER-001";
+
+    const menuRes = await request(app)
+      .post("/service-select")
+      .query({ sessionId, lang: "en" });
+    expect(menuRes.text).toContain("For Mobile Money services, press 1.");
+    expect(menuRes.text).toContain("To transfer money to another mobile wallet, press 2.");
+    expect(menuRes.text).toContain("For banking and international services, press 3.");
+
+    const directChoice = await request(app)
+      .post("/service-choice")
+      .send({ sessionId, lang: "en", dtmfDigits: "2" });
+    expect(directChoice.text).toContain("/provider-select");
+    expect(directChoice.text).toContain("directTransfer=1");
+
+    const providerMenu = await request(app)
+      .post("/provider-select")
+      .query({ sessionId, lang: "en", directTransfer: "1" });
+    expect(providerMenu.text).toContain("/provider-choice?");
+    expect(providerMenu.text).toContain("directTransfer=1");
+
+    const invalidNetworkChoice = await request(app)
+      .post("/provider-choice")
+      .query({ sessionId, lang: "en", directTransfer: "1" })
+      .send({ dtmfDigits: "5" });
+    expect(invalidNetworkChoice.text).toContain("/provider-choice?");
+    expect(invalidNetworkChoice.text).toContain("directTransfer=1");
+
+    const directProviderChoice = await request(app)
+      .post("/provider-choice")
+      .query({ sessionId, lang: "en", directTransfer: "1" })
+      .send({ dtmfDigits: "1" });
+    expect(directProviderChoice.text).toContain("/enter-recipient");
+    expect(directProviderChoice.text).not.toContain("/action-select");
+
+    const unavailableChoice = await request(app)
+      .post("/service-choice")
+      .send({ sessionId, lang: "en", dtmfDigits: "3" });
+    expect(unavailableChoice.text).toContain("This service is not available yet.");
+    expect(unavailableChoice.text).toContain("/service-choice?");
+
+    const mobileMoneyChoice = await request(app)
+      .post("/service-choice")
+      .send({ sessionId, lang: "en", dtmfDigits: "1" });
+    expect(mobileMoneyChoice.text).toContain("/provider-select");
+    expect(mobileMoneyChoice.text).not.toContain("directTransfer=1");
   });
 
   it("executes the exact 7-step canonical MoMo voice flow (Ama Mensah, 500 GHS, Zero-PIN handoff, receipt)", async () => {

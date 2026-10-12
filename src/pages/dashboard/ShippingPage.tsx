@@ -19,6 +19,7 @@ import {
   Key,
 } from "lucide-react";
 import { api } from "../../lib/api";
+import { resolvePrompt } from "../../modules/ttsService";
 
 interface ShippingStatus {
   success: boolean;
@@ -141,7 +142,7 @@ export const ShippingPage: React.FC = () => {
 <Response>
   <!-- Step 1: Language Gate with DTMF Barge-In -->
   <GetDigits timeout="2" finishOnKey="#" numDigits="1" callbackUrl="${status?.baseUrl || "https://okwankyer-fo-pa.onrender.com"}/language-selection?retry=0">
-    <Play url="${status?.baseUrl || "https://okwankyer-fo-pa.onrender.com"}/audio/Welcome_prompt_01.mp3"/>
+    <Play url="${status?.baseUrl || "https://okwankyer-fo-pa.onrender.com"}${resolvePrompt("welcome", "en")}"/>
   </GetDigits>
   <!-- Dual-Track Speech Fallback Engine -->
   <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${status?.baseUrl || "https://okwankyer-fo-pa.onrender.com"}/speech-fallback?step=language-selection&amp;retry=0"/>

@@ -51,7 +51,7 @@ Standard USSD interfaces (`*170#`) impose severe accessibility barriers:
        │  ┌─────────────────────────┐  ┌─────────────────────────────────────┐  │
        │  │  Inbound Webhook Router │  │  Webhook Security Guard             │  │
        │  │  (/voice-menu)          │  │  - SessionID validation             │  │
-       │  └────────────┬────────────┘  │  - Optional shared secret           │  │
+       │  └────────────┬────────────┘  │  - Required production shared secret│  │
        │               │               └─────────────────────────────────────┘  │
        │               ▼                                                        │
        │  ┌─────────────────────────┐  ┌─────────────────────────────────────┐  │

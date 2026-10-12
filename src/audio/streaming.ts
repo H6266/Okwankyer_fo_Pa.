@@ -8,9 +8,7 @@
 import { Request, Response } from "express";
 import path from "path";
 import fs from "fs";
-import { LEGACY_AUDIO_MAP } from "./catalog";
-
-export const AUDIO_ROOT_DIR = path.resolve(process.cwd(), "audio");
+import { getRecordingFilePath } from "./recordingRegistry";
 
 export class PathTraversalError extends Error {
   constructor(message: string) {
@@ -26,46 +24,23 @@ export class PathTraversalError extends Error {
 export function resolveSafeAudioPath(requestedSubpath: string): string | null {
   const decoded = decodeURIComponent(requestedSubpath || "");
   const normalized = decoded.replace(/\\/g, "/");
-  const resolved = path.resolve(AUDIO_ROOT_DIR, normalized);
+  if (!normalized.startsWith("supplied/")) {
+    return null;
+  }
 
-  // Strict boundary check: resolved path MUST start with AUDIO_ROOT_DIR + separator
-  if (resolved !== AUDIO_ROOT_DIR && !resolved.startsWith(AUDIO_ROOT_DIR + path.sep)) {
+  const relativePath = normalized.slice("supplied/".length);
+  const suppliedRoot = path.resolve(process.cwd(), "Audio_files", "audio");
+  const resolved = path.resolve(suppliedRoot, relativePath);
+  if (!resolved.startsWith(`${suppliedRoot}${path.sep}`)) {
     throw new PathTraversalError(`Path traversal attempt blocked: ${requestedSubpath}`);
   }
-
-  // Direct file match
-  if (fs.existsSync(resolved) && !fs.statSync(resolved).isDirectory()) {
-    return resolved;
+  const registeredPath = getRecordingFilePath(relativePath);
+  if (!registeredPath) return null;
+  const realPath = fs.realpathSync(resolved);
+  if (!realPath.startsWith(`${fs.realpathSync(suppliedRoot)}${path.sep}`) || fs.statSync(realPath).isDirectory()) {
+    throw new PathTraversalError(`Path traversal attempt blocked: ${requestedSubpath}`);
   }
-
-  // Check English subdirectory
-  const inEnglish = path.resolve(AUDIO_ROOT_DIR, "English", decoded);
-  if (inEnglish.startsWith(AUDIO_ROOT_DIR + path.sep) && fs.existsSync(inEnglish) && !fs.statSync(inEnglish).isDirectory()) {
-    return inEnglish;
-  }
-
-  // Check Twi subdirectory
-  const inTwi = path.resolve(AUDIO_ROOT_DIR, "Twi", decoded);
-  if (inTwi.startsWith(AUDIO_ROOT_DIR + path.sep) && fs.existsSync(inTwi) && !fs.statSync(inTwi).isDirectory()) {
-    return inTwi;
-  }
-
-  // Check legacy mappings
-  const baseName = path.basename(decoded);
-  if (LEGACY_AUDIO_MAP[baseName]) {
-    const mapped = path.resolve(AUDIO_ROOT_DIR, LEGACY_AUDIO_MAP[baseName]);
-    if (mapped.startsWith(AUDIO_ROOT_DIR + path.sep) && fs.existsSync(mapped) && !fs.statSync(mapped).isDirectory()) {
-      return mapped;
-    }
-  }
-
-  // Special case: Welcome prompt
-  if (baseName.toLowerCase() === "welcome_prompt_01.mp3") {
-    const welcome = path.resolve(AUDIO_ROOT_DIR, "Welcome_prompt_01.mp3");
-    if (fs.existsSync(welcome)) return welcome;
-  }
-
-  return null;
+  return realPath;
 }
 
 // High-Performance In-Memory Audio Buffer Cache

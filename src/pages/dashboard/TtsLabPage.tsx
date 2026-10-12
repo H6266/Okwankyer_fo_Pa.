@@ -36,6 +36,7 @@ export const TtsLabPage: React.FC = () => {
   const [speechSpeed, setSpeechSpeed] = useState<number>(1.0);
   const [isSynthesizing, setIsSynthesizing] = useState<boolean>(false);
   const [synthesizedAudioUrl, setSynthesizedAudioUrl] = useState<string | null>(null);
+  const [synthesizedAudioMime, setSynthesizedAudioMime] = useState<string>("audio/wav");
   const [synthProvider, setSynthProvider] = useState<string | null>(null);
   const [synthDuration, setSynthDuration] = useState<number>(0);
   const [isSynthPlaying, setIsSynthPlaying] = useState<boolean>(false);
@@ -61,6 +62,11 @@ export const TtsLabPage: React.FC = () => {
     }
 
     if (catalogAudioRef.current) {
+      if (item.mimeType === "audio/mp4" &&
+        !catalogAudioRef.current.canPlayType('audio/mp4; codecs="mp4a.40.2"')) {
+        setErrorMessage("This browser cannot play the supplied M4A recording. Use a browser with AAC/MP4 audio support.");
+        return;
+      }
       catalogAudioRef.current.src = item.url;
       catalogAudioRef.current.onended = () => setPlayingId(null);
       catalogAudioRef.current.onerror = () => {
@@ -85,9 +91,10 @@ export const TtsLabPage: React.FC = () => {
       });
 
       if (res?.result?.audioBase64) {
-        const mime = res.result.audioMimeType || "audio/mp3";
+        const mime = res.result.audioMimeType || "audio/wav";
         const audioUrl = `data:${mime};base64,${res.result.audioBase64}`;
         setSynthesizedAudioUrl(audioUrl);
+        setSynthesizedAudioMime(mime);
         setSynthProvider(res.result.providerUsed || "Ghanaian Neural Synthesizer");
         setSynthDuration(Math.round(performance.now() - startTime));
 
@@ -428,9 +435,9 @@ export const TtsLabPage: React.FC = () => {
                 </button>
                 <a
                   href={synthesizedAudioUrl}
-                  download={`okwankyer_tts_${Date.now()}.mp3`}
+                  download={`okwankyer_tts_${Date.now()}.${synthesizedAudioMime === "audio/mp4" ? "m4a" : synthesizedAudioMime === "audio/mpeg" ? "mp3" : "wav"}`}
                   className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold transition-colors"
-                  title="Download MP3"
+                  title={`Download ${synthesizedAudioMime}`}
                 >
                   <Download className="w-3.5 h-3.5" />
                 </a>

@@ -5,6 +5,14 @@
 **Date:** 2026-10-03  
 **Auditor Note:** In accordance with project instructions, no Twi text has been unilaterally altered. Linguistic anomalies, Anglicisms, loanword adaptations, and dialectal variations are flagged below for native expert validation.
 
+## 2026-10-12 Audio Synchronization POC
+
+- Corrected stale primary OP07, OP08, OP09, OP17, OP26, and OP33 manifest paths to the supplied filenames without removing alternate takes.
+- The existing prompt resolver now serves verified Twi OP08, OP09, OP16, OP17, OP26, and OP27 recordings through the guarded `/audio/*` byte-range stream. The supplied M4A stream test confirms `audio/mp4` and HTTP 206 support.
+- The existing MP3 stream, audio health check, and audio benchmark now resolve the repository's `public/audio/` directory when the legacy root `audio/` directory is absent.
+- The English OP07 and OP36 recordings are not present in the manifest. OP07 uses the intended VoiceXML spoken text; dynamic OP36 confirmation retains actual recipient/amount readback and now says, "To confirm and continue, press 1. To cancel, press 2. To exit, press 0." The supplied OP07 Twi recording was not transcript-verified and is not substituted for the revised English menu. OP89 has no assigned recording.
+- Manifest audit: 38 of 66 primary and alternate recording paths exist. Browser acceptance could not run because the container lacks `libatk-1.0.so.0`; server-side tests do not prove audible browser playback.
+
 ---
 
 ## 1. Verbatim Twi Studio Audio Catalog & Review Flags
