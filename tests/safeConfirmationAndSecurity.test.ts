@@ -256,15 +256,14 @@ describe("Task 3: Zero-PIN Handset Handoff & State Machine", () => {
 
 describe("Task 5: Security Hardening & Path Traversal Protection", () => {
   it("prevents directory traversal using path.resolve validation", () => {
-    expect(() => resolveSafeAudioPath("../../../etc/passwd")).toThrow(PathTraversalError);
-    expect(() => resolveSafeAudioPath("..\\..\\windows\\system32")).toThrow(PathTraversalError);
-    expect(() => resolveSafeAudioPath("audio/../../package.json")).toThrow(PathTraversalError);
+    expect(() => resolveSafeAudioPath("supplied/../../../etc/passwd")).toThrow(PathTraversalError);
+    expect(() => resolveSafeAudioPath("supplied/..\\..\\windows\\system32")).toThrow(PathTraversalError);
+    expect(() => resolveSafeAudioPath("supplied/../../package.json")).toThrow(PathTraversalError);
   });
 
-  it("correctly resolves legitimate audio files within audio root", () => {
+  it("does not resolve unregistered legacy audio paths", () => {
     const resolved = resolveSafeAudioPath("Welcome_prompt_01.mp3");
-    expect(resolved).not.toBeNull();
-    expect(resolved).toContain("Welcome_prompt_01.mp3");
+    expect(resolved).toBeNull();
   });
 });
 

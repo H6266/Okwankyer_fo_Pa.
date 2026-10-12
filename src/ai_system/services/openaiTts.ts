@@ -17,6 +17,11 @@ import fs from "fs";
 import path from "path";
 import { GhanaNlpTtsService } from "../../services/ghanaNlpTtsService";
 import { localGhanaianTtsProvider } from "../speech/tts/localGhanaianTts";
+import {
+  getRecordingByPromptId,
+  getRecordingByPromptKey,
+  getRecordingFilePath,
+} from "../../audio/recordingRegistry";
 
 export interface SpeechSynthesisRequest {
   text: string;
@@ -71,7 +76,7 @@ export class OpenAiTtsService {
           audioBuffer: fileData,
           audioBase64: fileData.toString("base64"),
           audioUrl: studioMatch.publicUrl,
-          audioMimeType: "audio/mp3",
+          audioMimeType: studioMatch.mimeType,
           providerUsed: "studio_catalog",
           durationEstimateSec: studioMatch.durationEstimateSec || 3,
         };
@@ -173,44 +178,23 @@ export class OpenAiTtsService {
   private resolveStudioRecording(
     keyOrPrompt?: string,
     isTwi: boolean = false
-  ): { filePath: string; publicUrl: string; durationEstimateSec: number } | null {
-    if (!keyOrPrompt) return null;
-    const clean = keyOrPrompt.toLowerCase().replace(/[^a-z0-9_]/g, "");
+  ): { filePath: string; publicUrl: string; mimeType: string; durationEstimateSec: number } | null {
+    if (!keyOrPrompt || !isTwi) return null;
+    const normalizedKey = keyOrPrompt.toLowerCase().replace(/[^a-z0-9_]/g, "");
+    const recording =
+      getRecordingByPromptId(keyOrPrompt.toUpperCase()) ||
+      getRecordingByPromptKey(normalizedKey);
+    const relativePath = recording && getRecordingFilePath(recording.relativePath);
+    if (!recording || !relativePath) return null;
 
-    const dir = isTwi ? path.resolve(process.cwd(), "audio/Twi") : path.resolve(process.cwd(), "audio/English");
-    if (!fs.existsSync(dir)) return null;
-
-    // Check common aliases
-    const candidates = [
-      `Audio_prompt_${clean}.mp3`,
-      `Audio_prompt_twi_${clean}.mp3`,
-      `${clean}.mp3`,
-      `welcome_prompt_01.mp3`,
-    ];
-
-    if (clean === "welcome" || clean === "prompt_welcome" || clean === "greet") {
-      const welcomeFile = path.resolve(dir, isTwi ? "welcome_prompt_01.mp3" : "Welcome_prompt_01.mp3");
-      if (fs.existsSync(welcomeFile)) {
-        return {
-          filePath: welcomeFile,
-          publicUrl: `/audio/${isTwi ? "Twi" : "English"}/welcome_prompt_01.mp3`,
-          durationEstimateSec: 4,
-        };
-      }
-    }
-
-    for (const cand of candidates) {
-      const p = path.resolve(dir, cand);
-      if (fs.existsSync(p)) {
-        return {
-          filePath: p,
-          publicUrl: `/audio/${isTwi ? "Twi" : "English"}/${cand}`,
-          durationEstimateSec: 3,
-        };
-      }
-    }
-
-    return null;
+    const filePath = path.resolve(process.cwd(), relativePath);
+    if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) return null;
+    return {
+      filePath,
+      publicUrl: recording.url,
+      mimeType: recording.mimeType,
+      durationEstimateSec: 3.5,
+    };
   }
 }
 

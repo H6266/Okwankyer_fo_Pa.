@@ -14,6 +14,7 @@ import fs from "fs";
 import path from "path";
 import { config } from "../config/env";
 import { audioFileExists } from "../audio/catalog";
+import { getRecordingByPromptKey } from "../audio/recordingRegistry";
 import { VoiceService } from "../../africastalking";
 import { mtnMomoService } from "../modules/mtnMomoService";
 import { GoogleGenAI } from "@google/genai";
@@ -43,21 +44,24 @@ export async function runRealSmokeTests(): Promise<SmokeTestReport> {
 
   // Check 1: Audio Catalog on Disk
   const startAudio = Date.now();
-  const welcomeExists = audioFileExists("Welcome_prompt_01.mp3");
-  const enExists = audioFileExists("Audio_prompt_02.mp3");
-  const twiExists = audioFileExists("Audio_prompt_twi_02.mp3");
+  const welcome = getRecordingByPromptKey("welcome");
+  const network = getRecordingByPromptKey("provider_select");
+  const amount = getRecordingByPromptKey("enter_amount");
+  const welcomeExists = Boolean(welcome && audioFileExists(welcome.relativePath));
+  const networkExists = Boolean(network && audioFileExists(network.relativePath));
+  const amountExists = Boolean(amount && audioFileExists(amount.relativePath));
   const audioLatency = Date.now() - startAudio;
 
-  const allAudioFound = welcomeExists && enExists && twiExists;
+  const allAudioFound = welcomeExists && networkExists && amountExists;
   checks.push({
     id: "check_audio",
     name: "Audio Catalog & Studio Files on Disk",
-    description: "Verifies core English, Akan Twi, and Welcome studio audio clips exist on filesystem",
+    description: "Verifies registered Twi welcome, network, and amount recordings exist on filesystem",
     status: allAudioFound ? "pass" : "fail",
     latencyMs: audioLatency,
     details: allAudioFound
-      ? "Welcome prompt and English/Twi studio prompt files verified on disk."
-      : "One or more core studio audio files are missing from /audio directory.",
+      ? "Registered Twi source recordings verified on disk."
+      : "One or more registered Twi source recordings are missing from Audio_files/audio.",
   });
 
   // Check 2: Africa's Talking Gateway

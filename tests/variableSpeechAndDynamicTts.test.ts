@@ -30,7 +30,7 @@ describe("Professional Dynamic TTS & Variable Speech Layer", () => {
     audioPlaybackController.stop();
   });
 
-  it("1. Fixed welcome prompt evaluates to RECORDED mode with zero TTS calls", () => {
+  it("1. Uses TTS for missing English recordings and the supplied Twi recording", () => {
     const decisionEn = variableSpeechService.evaluate({
       mode: "RECORDED",
       language: "en",
@@ -38,8 +38,8 @@ describe("Professional Dynamic TTS & Variable Speech Layer", () => {
       purpose: "FIXED_INSTRUCTION",
     });
 
-    expect(decisionEn.mode).toBe("RECORDED");
-    expect(decisionEn.audioUrl).toBe("/audio/Welcome_prompt_01.mp3");
+    expect(decisionEn.mode).toBe("SYNTHESIZE");
+    expect(decisionEn.audioUrl).toBeUndefined();
 
     const decisionTwi = variableSpeechService.evaluate({
       mode: "RECORDED",
@@ -49,7 +49,9 @@ describe("Professional Dynamic TTS & Variable Speech Layer", () => {
     });
 
     expect(decisionTwi.mode).toBe("RECORDED");
-    expect(decisionTwi.audioUrl).toBe("/audio/Twi/Audio_prompt_twi_03.mp3");
+    expect(decisionTwi.audioUrl).toBe(
+      "/audio/supplied/Twi/02_Main_Service_Navigation/Service%20selection.m4a"
+    );
   });
 
   it("2. Changing recipient phone number changes the spoken confirmation last 4 digits", () => {

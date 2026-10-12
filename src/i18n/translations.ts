@@ -8,6 +8,8 @@
  * Core phrasing matches the studio audio recordings recorded by Ghanaian voice artists.
  */
 
+import { getRecordingByPromptKey } from "../audio/recordingRegistry";
+
 export interface TranslationDictionary {
   nav: {
     brand: string;
@@ -259,35 +261,35 @@ export const translations: Record<"en" | "twi", TranslationDictionary> = {
           title: "Dial +233 30 804 8098",
           desc: "Make an ordinary phone call from any device. Choose English (1) or Akan Twi (2).",
           voicePrompt: "Welcome to Ɔkwankyerɛfo Pa. For English, press 1. For Twi, press 2.",
-          audioUrl: "/audio/Welcome_prompt_01.mp3",
+          audioUrl: "",
         },
         {
           stepNumber: 2,
           title: "Select Service & Recipient",
           desc: "Select Mobile Money (1), punch the 10-digit number, and hear it repeated clearly.",
           voicePrompt: "Enter the 10-digit number you want to send money to, followed by hash (#).",
-          audioUrl: "/audio/English/Audio_prompt_06.mp3",
+          audioUrl: "",
         },
         {
           stepNumber: 3,
           title: "Spoken KYC Name Confirmation",
           desc: "Hear the verified recipient's full name read aloud BEFORE any money moves.",
           voicePrompt: "You are about to send money to Kwame Nyamebere, ending in 8464. To confirm, press 1.",
-          audioUrl: "/audio/English/Audio_prompt_08.mp3",
+          audioUrl: "",
         },
         {
           stepNumber: 4,
           title: "Zero-PIN Security Handoff",
           desc: "Never speak your PIN. The voice call pauses and prompts your phone screen to enter your secret PIN.",
           voicePrompt: "Confirmed. Now please check your phone screen and enter your MoMo PIN accurately.",
-          audioUrl: "/audio/English/Audio_prompt_11.mp3",
+          audioUrl: "",
         },
         {
           stepNumber: 5,
           title: "Spoken Audio Receipt",
           desc: "Hear a spoken receipt with full transaction summary and unique reference code (e.g. OKP-847291).",
           voicePrompt: "Congratulations! You have successfully sent 500 Ghana cedis. Reference number OKP-847291.",
-          audioUrl: "/audio/English/Audio_prompt_12.mp3",
+          audioUrl: "",
         },
       ],
     },
@@ -511,35 +513,35 @@ export const translations: Record<"en" | "twi", TranslationDictionary> = {
           title: "Frɛ +233 30 804 8098",
           desc: "Fa fɔn biara frɛ nɔma no. Paw Borɔfo (1) anaa Twi (2).",
           voicePrompt: "Welcome to Ɔkwankyerɛfo Pa. For English, press 1. Twi firi mu, mia 2.",
-          audioUrl: "/audio/Welcome_prompt_01.mp3",
+          audioUrl: getRecordingByPromptKey("welcome")?.url || "",
         },
         {
           stepNumber: 2,
           title: "Paw Dwumadie & Nɔma",
           desc: "Paw Mobile Money (1), bɔ 10-digit nɔma no, na tie sɛ yɛrebɔ ama wo.",
           voicePrompt: "Afei, bɔ nɔmba no a wopɛ sɛ wosende sika no to so no. Wowie a, fa hash ka ho.",
-          audioUrl: "/audio/Twi/Audio_prompt_twi_05.mp3",
+          audioUrl: getRecordingByPromptKey("enter_recipient")?.url || "",
         },
         {
           stepNumber: 3,
           title: "Kasa Din Nteaseɛ (KYC)",
           desc: "Tie onipa a woremane no sika no din pa ansa na sika no akɔ.",
           voicePrompt: "Me pɛ sɛ wo bɛ sendi sika kɔ Kwame Nyamebrɛ fɔn so, number a ɛwie 8464. Sɛ wopene so a, mia 1.",
-          audioUrl: "/audio/Twi/Audio_prompt_twi_06.mp3",
+          audioUrl: getRecordingByPromptKey("recipient_verify")?.url || "",
         },
         {
           stepNumber: 4,
           title: "Zero-PIN Bammbɔ Handoff",
           desc: "Mmbɔ wo PIN wɔ frɛ no mu da. Hwɛ wo fɔn screen so na fa wo MoMo PIN nwura mu pɛpɛɛpɛ.",
           voicePrompt: "Me pɛ sɛ ɔfa ɛsi wo phone no so na bɔ wo MoMo PIN.",
-          audioUrl: "/audio/Twi/Audio_prompt_twi_09.mp3",
+          audioUrl: "",
         },
         {
           stepNumber: 5,
           title: "Nne Nkaedum & Ref Nɔma",
           desc: "Tie transaction nkaedum a reference code te sɛ OKP-847291 ka ho.",
           voicePrompt: "Congratulations! 500 Ghana Cedis a wosendee to Kwame Nyamebrɛ no yɛ successful.",
-          audioUrl: "/audio/Twi/Audio_prompt_twi_10.mp3",
+          audioUrl: "",
         },
       ],
     },

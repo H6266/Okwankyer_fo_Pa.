@@ -16,12 +16,62 @@ import { callSessionRepository } from "../services/callSessionRepository";
 import { auditLogger } from "../services/auditLogger";
 import { runEvaluationHarness } from "../ai_eval/evalHarness";
 import { requireAdminAuth } from "../middleware/adminAuth";
-import { kycLookupRateLimiter, adminRateLimiter } from "../middleware/rateLimiter";
+import { kycLookupRateLimiter, adminRateLimiter, publicApiRateLimiter } from "../middleware/rateLimiter";
 import { validateGhanaPhoneNumber } from "../domain/validation";
 import { aiBootstrap } from "../ai_system/core/aiBootstrap";
 import { modelRouter } from "../ai_system/providers/modelRouter";
+import { ttsRouter as speechSynthesisRouter } from "../ai_system/speech/tts/ttsRouter";
+import { resolvePromptText } from "../modules/ttsService";
 
 export const apiRouter = Router();
+
+apiRouter.get(
+  "/api/audio/prompt/:lang/:key",
+  publicApiRateLimiter,
+  (req: Request, res: Response) => {
+    const lang = req.params.lang;
+    if (lang !== "en" && lang !== "twi") {
+      return res.status(400).json({ error: "Unsupported prompt language." });
+    }
+
+    const promptUrl = resolvePrompt(req.params.key, lang);
+    if (!promptUrl) {
+      return res.status(404).json({ error: "No registered recording or TTS script exists for this prompt." });
+    }
+    return res.redirect(302, promptUrl);
+  }
+);
+
+apiRouter.get(
+  "/api/audio/prompt-tts/:lang/:key",
+  publicApiRateLimiter,
+  async (req: Request, res: Response) => {
+    const lang = req.params.lang;
+    if (lang !== "en" && lang !== "twi") {
+      return res.status(400).json({ error: "Unsupported prompt language." });
+    }
+
+    const promptText = resolvePromptText(req.params.key, lang);
+    if (!promptText) {
+      return res.status(404).json({ error: "No registered prompt text or recording exists for this key." });
+    }
+
+    try {
+      const result = await speechSynthesisRouter.synthesize({
+        text: promptText,
+        language: lang === "twi" ? "tw" : "en",
+      });
+      res.status(200);
+      res.setHeader("Content-Type", result.audioMimeType);
+      res.setHeader("Content-Length", result.audioBuffer.length);
+      res.setHeader("Cache-Control", "public, max-age=3600");
+      return res.end(result.audioBuffer);
+    } catch (error) {
+      console.error("[AudioPromptTTS] Prompt synthesis failed.", error);
+      return res.status(502).json({ error: "Prompt speech synthesis is temporarily unavailable." });
+    }
+  }
+);
 
 // ── Health Status ─────────────────────────────────────────────────────
 const handleHealth = (req: Request, res: Response) => {
@@ -113,29 +163,25 @@ apiRouter.post("/api/dev/smoke-test", adminRateLimiter, requireAdminAuth, async 
 
 // ── Audio Manifest & Catalog ──────────────────────────────────────────
 apiRouter.get("/api/audio/manifest", (_req: Request, res: Response) => {
-  const rootAudio = path.resolve(process.cwd(), "audio");
+  const rootAudio = path.resolve(process.cwd(), "Audio_files", "audio");
 
   const prompts = AUDIO_CATALOG.map((item) => {
     const filePath = path.resolve(rootAudio, item.filename);
     const exists = audioFileExists(item.filename);
-    let sizeBytes = 0;
-    if (exists && fs.existsSync(filePath)) {
-      try {
-        sizeBytes = fs.statSync(filePath).size;
-      } catch {}
-    }
+    const sizeBytes = exists && fs.existsSync(filePath) ? fs.statSync(filePath).size : 0;
 
     return {
       ...item,
       exists,
       sizeBytes,
-      sizeFormatted: exists ? `${(sizeBytes / 1024).toFixed(1)} KB` : "Dynamic TTS",
-      url: `/audio/${item.filename}`,
+      sizeFormatted: exists ? `${(sizeBytes / 1024).toFixed(1)} KB` : "Unavailable",
+      url: item.url,
+      mimeType: "audio/mp4",
     };
   });
 
-  const englishPrompts = prompts.filter((p) => p.language === "en" || p.language === "bilingual");
-  const twiPrompts = prompts.filter((p) => p.language === "twi" || p.language === "bilingual");
+  const englishPrompts: typeof prompts = [];
+  const twiPrompts = prompts;
 
   res.json({
     totalClips: prompts.length,

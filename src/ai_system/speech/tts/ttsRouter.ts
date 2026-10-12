@@ -49,7 +49,10 @@ export class TtsRouter implements TTSProvider {
     if (buf.toString("ascii", 0, 3) === "ID3" || (buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0)) {
       return true;
     }
-    return true; // PCM/RAW fallback
+    if (buf.toString("ascii", 4, 8) === "ftyp") {
+      return true;
+    }
+    return false;
   }
 
   public async synthesize(request: TtsSynthesisRequest): Promise<TtsSynthesisResponse> {
@@ -84,7 +87,7 @@ export class TtsRouter implements TTSProvider {
       }
 
       // 1b. Check Studio Catalog Provider
-      if (studioCatalogProvider.hasMatch(rawText, request.language)) {
+      if (!matchedPromptUnsupported && studioCatalogProvider.hasMatch(rawText, request.language)) {
         try {
           const res = await studioCatalogProvider.synthesize(request);
           if (this.validateAudioHeader(res.audioBuffer)) {

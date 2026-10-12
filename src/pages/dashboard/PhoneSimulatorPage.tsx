@@ -25,8 +25,13 @@ import {
 } from "lucide-react";
 import { audioPlaybackController } from "../../audio/audioPlaybackController";
 import { isAcousticSystemEcho } from "../../domain/echoFilter";
-import { resolvePrompt } from "../../modules/ttsService";
+import {
+  resolveSimulatorAudioUrl,
+  resolveSimulatorPrompt,
+} from "../../modules/ttsService";
 import { api } from "../../lib/api";
+import { getRecordingByUrl } from "../../audio/recordingRegistry";
+import { resolvePromptText } from "../../modules/ttsService";
 import { continuousAudioEngine, ContinuousAudioState } from "../../audio/continuousAudioEngine";
 import { AcousticVisualizer } from "../../components/audio/AcousticVisualizer";
 import { parseLongDiscussion, ParsedDiscussionState } from "../../ai_system/brain/longDiscussionParser";
@@ -132,6 +137,21 @@ const KEYPAD_BUTTONS = [
   { digit: "0", sub: "+" },
   { digit: "#", sub: "send" },
 ];
+
+function resolvePlayableSimulatorAudioUrl(
+  audioUrl: string | null | undefined,
+  language: "en" | "twi"
+): string | null {
+  const suppliedUrl = resolveSimulatorAudioUrl(audioUrl, language);
+  if (!suppliedUrl) return null;
+
+  if (suppliedUrl.endsWith(".m4a")) {
+    const audio = document.createElement("audio");
+    if (!audio.canPlayType?.('audio/mp4; codecs="mp4a.40.2"')) return null;
+  }
+
+  return suppliedUrl;
+}
 
 export const PhoneSimulatorPage: React.FC = () => {
   // ── Call Session State ────────────────────────────────────────────────
@@ -325,34 +345,6 @@ export const PhoneSimulatorPage: React.FC = () => {
     };
   }, []);
 
-  // Preload studio audio prompts for instant 0ms playback
-  useEffect(() => {
-    audioPlaybackController.preload([
-      "/audio/Welcome_prompt_01.mp3",
-      "/audio/English/Audio_prompt_02.mp3",
-      "/audio/English/Audio_prompt_03.mp3",
-      "/audio/English/Audio_prompt_04.mp3",
-      "/audio/English/Audio_prompt_06.mp3",
-      "/audio/English/Audio_prompt_07.mp3",
-      "/audio/English/Audio_prompt_09.mp3",
-      "/audio/English/Audio_prompt_10.mp3",
-      "/audio/English/Audio_prompt_11.mp3",
-      "/audio/English/Audio_prompt_12.mp3",
-      "/audio/Twi/Welcome_prompt_01.mp3",
-      "/audio/Twi/Audio_prompt_twi_02.mp3",
-      "/audio/Twi/Audio_prompt_twi_03.mp3",
-      "/audio/Twi/Audio_prompt_twi_04.mp3",
-      "/audio/Twi/Audio_prompt_twi_05.mp3",
-      "/audio/Twi/Audio_prompt_twi_06.mp3",
-      "/audio/Twi/Audio_prompt_twi_07.mp3",
-      "/audio/Twi/Audio_prompt_twi_08.mp3",
-      "/audio/Twi/Audio_prompt_twi_09.mp3",
-      "/audio/Twi/Audio_prompt_twi_10.mp3",
-      "/audio/Twi/Audio_prompt_twi_11.mp3",
-      "/audio/Twi/Audio_prompt_twi_12.mp3",
-    ]);
-  }, []);
-
   // Call duration counter
   useEffect(() => {
     let timer: any = null;
@@ -465,26 +457,39 @@ export const PhoneSimulatorPage: React.FC = () => {
       effectiveUrl: string,
       meta?: { httpStatus?: number; guardReason?: string }
     ) => {
-      setRawVoiceXml(xmlText);
       const parsed = parseVoiceXml(xmlText);
       if (meta?.httpStatus) parsed.httpStatus = meta.httpStatus;
       if (meta?.guardReason) parsed.guardReason = meta.guardReason;
+      const requestedPlayUrl = parsed.playUrl;
 
       // Extract step name from URL
       let stepName = "voice-menu";
+      let responseLanguage: "en" | "twi" = language || "en";
       try {
         const u = new URL(effectiveUrl, window.location.origin);
         stepName = u.pathname.replace(/^\//, "").replace(/^api\/simulator\//, "") || "voice-menu";
         const langParam = u.searchParams.get("lang");
-        if (langParam === "twi") setLanguage("twi");
-        else if (langParam === "en") setLanguage("en");
+        if (langParam === "twi") {
+          responseLanguage = "twi";
+          setLanguage("twi");
+        } else if (langParam === "en") {
+          responseLanguage = "en";
+          setLanguage("en");
+        }
       } catch {
         const match = effectiveUrl.match(/\/([a-zA-Z0-9_-]+)(?:\?|$)/);
         if (match) stepName = match[1];
       }
+      const playbackUrl = resolvePlayableSimulatorAudioUrl(requestedPlayUrl, responseLanguage);
+      setRawVoiceXml(
+        xmlText.replace(
+          /<Play\b[^>]*(?:\/>|>[\s\S]*?<\/Play>)/gi,
+          playbackUrl ? `<Play url="${playbackUrl}"/>` : ""
+        )
+      );
       activeStepNameRef.current = stepName;
       setActiveStepName(stepName);
-      continuousAudioEngine.setContext(stepName, language || "en");
+      continuousAudioEngine.setContext(stepName, responseLanguage);
 
       // Follow <Redirect> immediately
       if (parsed.redirectUrl) {
@@ -558,35 +563,22 @@ export const PhoneSimulatorPage: React.FC = () => {
       let promptText = "";
       if (parsed.sayText) {
         promptText = parsed.sayText;
-      } else if (parsed.playUrl) {
-        const filename = parsed.playUrl.split("/").pop() || "";
-        if (filename.includes("Welcome_prompt_01")) {
-          promptText = "Welcome to Ɔkwankyerɛfo Pa. For English press 1, for Twi press 2.";
-        } else if (filename.includes("02")) {
-          promptText = language === "twi" ? "Afei paw wo network." : "Select your service. Press 1 for MoMo, 2 for Banking.";
-        } else if (filename.includes("03")) {
-          promptText = language === "twi" ? "Sɛ wopɛ sɛ wosend sika kɔ ma momo user a mia 1." : "Select your network: Press 1 for MTN, 2 for Telecel, 3 for AT.";
-        } else if (filename.includes("04") || filename.includes("05")) {
-          promptText = language === "twi" ? "Afei bɔ nɔmba a wopɛ sɛ wosend sika no kɔ ma no." : "Action menu: Press 1 to send money, 2 to check balance.";
-        } else if (filename.includes("06")) {
-          promptText = language === "twi" ? "Bɔ nɔmba no a wopɛ sɛ wosend sika no kɔ ma no na fa # ka ho." : "Enter 10-digit recipient phone number followed by #.";
-        } else if (filename.includes("07") || filename.includes("09")) {
-          promptText = language === "twi" ? "Bɔ sika dodow a wopɛ sɛ womane no wɔ Cedi mu na fa # ka ho." : "Enter the amount in Cedis followed by #.";
-        } else if (filename.includes("10")) {
-          promptText = language === "twi" ? "Bammbɔ Nkaebɔ: Sɛ ɛyɛ ampa a mia 1 na fa to so." : "Safe confirmation: Press 1 to confirm transfer, 2 to change.";
-        } else if (filename.includes("11")) {
-          promptText = language === "twi" ? "Wobɔɔ nɔmba a ɛnyɛ pɛpɛɛpɛ. Yɛsrɛ wo san tie biom." : "Incorrect figure entered. Please listen carefully.";
-        } else {
-          promptText = "Listening for your response...";
-        }
+      } else if (requestedPlayUrl) {
+        const pathname = new URL(requestedPlayUrl, window.location.origin).pathname;
+        const recording = getRecordingByUrl(pathname);
+        const ttsPromptKey = pathname.match(/^\/api\/audio\/prompt-tts\/(?:en|twi)\/([^/]+)$/)?.[1];
+        const promptKey = ttsPromptKey ? decodeURIComponent(ttsPromptKey) : null;
+        promptText = recording?.spokenText ||
+          (promptKey ? resolvePromptText(promptKey, responseLanguage) : null) ||
+          (responseLanguage === "twi" ? "Yɛsrɛ wo tie." : "Please listen to the prompt.");
       } else {
         // Fallback friendly script
-        promptText = language === "twi" ? "Yɛsrɛ wo paw deɛ wopɛ wɔ menyu no so." : "Please select an option from the menu.";
+        promptText = responseLanguage === "twi" ? "Yɛsrɛ wo paw deɛ wopɛ wɔ menyu no so." : "Please select an option from the menu.";
       }
 
       setCurrentPrompt(promptText);
       currentPromptRef.current = promptText;
-      setActivePlayUrl(parsed.playUrl || null);
+      setActivePlayUrl(playbackUrl);
 
       // Log reply text and options
       addLog("reply", `"${promptText}"`);
@@ -598,16 +590,16 @@ export const PhoneSimulatorPage: React.FC = () => {
         sender: "system",
         text: promptText,
         stepName,
-        audioUrl: parsed.playUrl || null,
-        audioSource: parsed.playUrl ? "studio" : "synthesis",
+        audioUrl: playbackUrl,
+        audioSource: playbackUrl ? "studio" : "synthesis",
         options: choices,
       });
 
       // Play audio automatically (studio audio or neural synthesis)
       audioPlaybackController.unlockAudio();
-      if (parsed.playUrl) {
-        addLog("audio", `🔊 Auto-playing prompt: ${parsed.playUrl}`);
-        audioPlaybackController.play(parsed.playUrl, promptText).catch((err) => {
+      if (playbackUrl) {
+        addLog("audio", `🔊 Auto-playing prompt: ${playbackUrl}`);
+        audioPlaybackController.play(playbackUrl, promptText).catch((err) => {
           console.warn("[PhoneSimulator] Auto-play prompt failed:", err);
         });
       } else {
@@ -717,21 +709,6 @@ export const PhoneSimulatorPage: React.FC = () => {
   const startCall = useCallback(async () => {
     // 1. Prime / unlock browser AudioContext & audio element on user gesture
     audioPlaybackController.unlockAudio();
-
-    audioPlaybackController.preload([
-      "/audio/Welcome_prompt_01.mp3",
-      "/audio/English/Audio_prompt_02.mp3",
-      "/audio/Twi/Audio_prompt_twi_02.mp3",
-      "/audio/English/Audio_prompt_03.mp3",
-      "/audio/Twi/Audio_prompt_twi_03.mp3",
-      "/audio/English/Audio_prompt_04.mp3",
-      "/audio/English/Audio_prompt_05.mp3",
-      "/audio/English/Audio_prompt_06.mp3",
-      "/audio/English/Audio_prompt_07.mp3",
-      "/audio/English/Audio_prompt_08.mp3",
-      "/audio/English/Audio_prompt_09.mp3",
-      "/audio/English/Audio_prompt_10.mp3",
-    ]);
 
     const newSession = `AT_CALL_${Date.now()}`;
     callActiveRef.current = true;
@@ -1052,7 +1029,8 @@ export const PhoneSimulatorPage: React.FC = () => {
               audioSource: "synthesis",
             });
             if (decision.promptAudio) {
-              await audioPlaybackController.play(decision.promptAudio, decision.replyText);
+              const promptAudioUrl = resolvePlayableSimulatorAudioUrl(decision.promptAudio, curLang);
+              await audioPlaybackController.play(promptAudioUrl || "", decision.replyText);
             } else {
               await audioPlaybackController.speakText(decision.replyText);
             }
@@ -1064,10 +1042,11 @@ export const PhoneSimulatorPage: React.FC = () => {
       }
 
       // Default fallback replay
-      const fallbackUrl = resolvePrompt("wrong_figure", curLang);
-      if (fallbackUrl) {
-        audioPlaybackController.play(fallbackUrl, "Please choose from the available options.").catch(() => {});
-      }
+      const fallbackUrl = resolvePlayableSimulatorAudioUrl(
+        resolveSimulatorPrompt("wrong_figure", curLang),
+        curLang
+      );
+      audioPlaybackController.play(fallbackUrl || "", "Please choose from the available options.").catch(() => {});
     },
     [
       activeCallbackUrl,
@@ -1350,11 +1329,8 @@ export const PhoneSimulatorPage: React.FC = () => {
   // Replay a prompt's audio
   const handleReplayPrompt = (audioUrl?: string | null, text?: string) => {
     audioPlaybackController.unlockAudio();
-    if (audioUrl) {
-      audioPlaybackController.play(audioUrl, text || currentPrompt).catch(() => {});
-    } else if (text) {
-      audioPlaybackController.speakText(text).catch(() => {});
-    }
+    const playbackUrl = resolvePlayableSimulatorAudioUrl(audioUrl, language || "en");
+    audioPlaybackController.play(playbackUrl || "", text || currentPrompt).catch(() => {});
   };
 
   // Test sound output
@@ -1362,7 +1338,11 @@ export const PhoneSimulatorPage: React.FC = () => {
     audioPlaybackController.unlockAudio();
     setTestAudioStatus("Testing sound...");
     try {
-      const ok = await audioPlaybackController.play("/audio/Welcome_prompt_01.mp3", "Welcome to Okwankyerɛfo Pa.");
+      const testUrl = resolvePlayableSimulatorAudioUrl(
+        resolveSimulatorPrompt("welcome", "twi"),
+        "twi"
+      );
+      const ok = await audioPlaybackController.play(testUrl || "", "Akwaaba Ɔkwankyerɛfo Pa.");
       if (ok) {
         setTestAudioStatus("Audio playing successfully!");
       } else {
