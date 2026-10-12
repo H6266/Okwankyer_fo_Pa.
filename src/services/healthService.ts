@@ -348,7 +348,10 @@ export interface AudioCatalogHealth {
 }
 
 export function checkAudioFilesHealth(): AudioCatalogHealth {
-  const root = path.resolve(process.cwd(), "audio");
+  const legacyAudioRoot = path.resolve(process.cwd(), "audio");
+  const root = fs.existsSync(legacyAudioRoot)
+    ? legacyAudioRoot
+    : path.resolve(process.cwd(), "public", "audio");
   const canonicalFiles = [
     "Welcome_prompt_01.mp3",
     "English/Audio_prompt_02.mp3",

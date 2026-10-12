@@ -158,6 +158,55 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(backRes.text).toContain("/language-selection");
   });
 
+  it("routes the revised English service choices through distinct Mobile Money and direct-transfer paths", async () => {
+    const sessionId = "AT-TEST-DIRECT-TRANSFER-001";
+
+    const menuRes = await request(app)
+      .post("/service-select")
+      .query({ sessionId, lang: "en" });
+    expect(menuRes.text).toContain("For Mobile Money services, press 1.");
+    expect(menuRes.text).toContain("To transfer money to another mobile wallet, press 2.");
+    expect(menuRes.text).toContain("For banking and international services, press 3.");
+
+    const directChoice = await request(app)
+      .post("/service-choice")
+      .send({ sessionId, lang: "en", dtmfDigits: "2" });
+    expect(directChoice.text).toContain("/provider-select");
+    expect(directChoice.text).toContain("directTransfer=1");
+
+    const providerMenu = await request(app)
+      .post("/provider-select")
+      .query({ sessionId, lang: "en", directTransfer: "1" });
+    expect(providerMenu.text).toContain("/provider-choice?");
+    expect(providerMenu.text).toContain("directTransfer=1");
+
+    const invalidNetworkChoice = await request(app)
+      .post("/provider-choice")
+      .query({ sessionId, lang: "en", directTransfer: "1" })
+      .send({ dtmfDigits: "5" });
+    expect(invalidNetworkChoice.text).toContain("/provider-choice?");
+    expect(invalidNetworkChoice.text).toContain("directTransfer=1");
+
+    const directProviderChoice = await request(app)
+      .post("/provider-choice")
+      .query({ sessionId, lang: "en", directTransfer: "1" })
+      .send({ dtmfDigits: "1" });
+    expect(directProviderChoice.text).toContain("/enter-recipient");
+    expect(directProviderChoice.text).not.toContain("/action-select");
+
+    const unavailableChoice = await request(app)
+      .post("/service-choice")
+      .send({ sessionId, lang: "en", dtmfDigits: "3" });
+    expect(unavailableChoice.text).toContain("This service is not available yet.");
+    expect(unavailableChoice.text).toContain("/service-choice?");
+
+    const mobileMoneyChoice = await request(app)
+      .post("/service-choice")
+      .send({ sessionId, lang: "en", dtmfDigits: "1" });
+    expect(mobileMoneyChoice.text).toContain("/provider-select");
+    expect(mobileMoneyChoice.text).not.toContain("directTransfer=1");
+  });
+
   it("executes the exact 7-step canonical MoMo voice flow (Ama Mensah, 500 GHS, Zero-PIN handoff, receipt)", async () => {
     const sessionId = "MOMO-CANONICAL-7STEP";
 

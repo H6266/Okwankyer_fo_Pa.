@@ -69,10 +69,10 @@ export function buildSafeConfirmationPrompt(options: SafeConfirmationOptions): {
   } else {
     // English track
     if (isVerified && recipientName) {
-      spokenText = `You are about to send ${amountFormatted} to ${recipientName}, whose phone number ends with ${last4Spaced}. To confirm and send, press 1. To cancel, press 2.`;
+      spokenText = `You are about to send ${amountFormatted} to ${recipientName}, whose phone number ends with ${last4Spaced}. To confirm and continue, press 1. To cancel, press 2. To exit, press 0.`;
     } else {
       // Explicit unverified warning in English
-      spokenText = `Warning: The recipient name for phone number ending with ${last4Spaced} could not be verified in the subscriber directory. You are sending ${amountFormatted} to an unverified recipient. To confirm and proceed anyway, press 1. To cancel, press 2.`;
+      spokenText = `Warning: The recipient name for phone number ending with ${last4Spaced} could not be verified in the subscriber directory. You are sending ${amountFormatted} to an unverified recipient. To confirm and continue, press 1. To cancel, press 2. To exit, press 0.`;
     }
   }
 

@@ -8,6 +8,8 @@
 
 export type SupportedLanguage = "en" | "twi";
 
+import promptManifest from "../../Audio_files/prompts.json";
+
 export interface PromptEntry {
   en?: string;
   twi?: string;
@@ -134,6 +136,30 @@ export const PROMPT_TABLE: Record<string, PromptEntry> = {
   },
 };
 
+const SUPPLIED_TWI_PROMPT_IDS: Partial<Record<string, string>> = {
+  provider_select: "OP08",
+  action_select: "OP09",
+  enter_recipient: "OP16",
+  invalid_recipient: "OP17",
+  enter_amount: "OP26",
+  invalid_amount: "OP27",
+};
+
+function resolveSuppliedTwiPrompt(key: string): string | null {
+  const promptId = SUPPLIED_TWI_PROMPT_IDS[key];
+  if (!promptId) return null;
+
+  const prompt = promptManifest.prompts.find((item) => item.id === promptId);
+  const audioPath = prompt?.audio?.twi;
+  if (!audioPath?.startsWith("audio/Twi/")) return null;
+
+  const urlPath = audioPath.slice("audio/".length)
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  return `/audio/supplied/${urlPath}`;
+}
+
 /**
  * Authoritative script text for prompt and reply keys across languages
  */
@@ -188,6 +214,11 @@ export const PROMPT_SCRIPTS: Record<string, { en: string; twi: string }> = {
  * Resolves prompt key and language into the canonical audio URL.
  */
 export function resolvePrompt(key: string, lang: SupportedLanguage = "en"): string | null {
+  if (lang === "twi") {
+    const suppliedPrompt = resolveSuppliedTwiPrompt(key);
+    if (suppliedPrompt) return suppliedPrompt;
+  }
+
   const entry = PROMPT_TABLE[key];
   if (!entry) return null;
   return entry[lang] || entry["en"] || null;

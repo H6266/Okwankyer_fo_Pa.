@@ -276,7 +276,10 @@ export const LEGACY_AUDIO_MAP: Record<string, string> = {
 };
 
 export function audioFileExists(filename: string): boolean {
-  const rootAudio = path.resolve(process.cwd(), "audio");
+  const legacyAudioRoot = path.resolve(process.cwd(), "audio");
+  const rootAudio = fs.existsSync(legacyAudioRoot)
+    ? legacyAudioRoot
+    : path.resolve(process.cwd(), "public", "audio");
   const candidate = path.resolve(rootAudio, filename);
   if (candidate.startsWith(rootAudio) && fs.existsSync(candidate) && !fs.statSync(candidate).isDirectory()) {
     return true;

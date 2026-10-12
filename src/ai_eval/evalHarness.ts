@@ -215,8 +215,11 @@ export async function runAudioEvaluationHarness(
   let matchesCount = 0;
 
   for (const sample of samples) {
-    const fullPath = path.resolve(process.cwd(), sample.filePath);
-    if (!fs.existsSync(fullPath)) {
+    const fullPath = [
+      path.resolve(process.cwd(), sample.filePath),
+      path.resolve(process.cwd(), "public", sample.filePath),
+    ].find((candidate) => fs.existsSync(candidate));
+    if (!fullPath) {
       continue;
     }
 

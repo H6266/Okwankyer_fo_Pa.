@@ -10,7 +10,9 @@ import path from "path";
 import fs from "fs";
 import { LEGACY_AUDIO_MAP } from "./catalog";
 
-export const AUDIO_ROOT_DIR = path.resolve(process.cwd(), "audio");
+const legacyAudioRoot = path.resolve(process.cwd(), "audio");
+const publicAudioRoot = path.resolve(process.cwd(), "public", "audio");
+export const AUDIO_ROOT_DIR = fs.existsSync(legacyAudioRoot) ? legacyAudioRoot : publicAudioRoot;
 
 export class PathTraversalError extends Error {
   constructor(message: string) {
@@ -26,6 +28,19 @@ export class PathTraversalError extends Error {
 export function resolveSafeAudioPath(requestedSubpath: string): string | null {
   const decoded = decodeURIComponent(requestedSubpath || "");
   const normalized = decoded.replace(/\\/g, "/");
+
+  if (normalized.startsWith("supplied/")) {
+    const suppliedRoot = path.resolve(process.cwd(), "Audio_files", "audio");
+    const suppliedPath = path.resolve(suppliedRoot, normalized.slice("supplied/".length));
+    if (suppliedPath !== suppliedRoot && !suppliedPath.startsWith(suppliedRoot + path.sep)) {
+      throw new PathTraversalError(`Path traversal attempt blocked: ${requestedSubpath}`);
+    }
+    if (fs.existsSync(suppliedPath) && !fs.statSync(suppliedPath).isDirectory()) {
+      return suppliedPath;
+    }
+    return null;
+  }
+
   const resolved = path.resolve(AUDIO_ROOT_DIR, normalized);
 
   // Strict boundary check: resolved path MUST start with AUDIO_ROOT_DIR + separator

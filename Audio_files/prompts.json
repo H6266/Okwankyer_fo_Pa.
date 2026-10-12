@@ -93,7 +93,7 @@
       "twi": "Sɛ wopɛ mobile money services a, mia 1. Sɛ wopɛ banking services a, mia 2. Mia 9 na mate bio, anaasɛ mia 0 na woapue.",
       "audio": {
         "english": null,
-        "twi": "audio/Twi/02_Main_Service_Navigation/Service selection 1.m4a",
+        "twi": "audio/Twi/02_Main_Service_Navigation/Service selection.m4a",
         "twi_other_takes": [
           "audio/Twi/02_Main_Service_Navigation/Service selection 2.m4a"
         ]
@@ -108,7 +108,7 @@
       "twi": "Paw wo network. Sɛ ɛyɛ MTN a, mia 1. Telecel a, mia 2. AirtelTigo a, mia 3. Mia 9 na mate bio, anaasɛ mia 0 na woapue.",
       "audio": {
         "english": null,
-        "twi": "audio/Twi/02_Main_Service_Navigation/Network selection 1.m4a",
+        "twi": "audio/Twi/02_Main_Service_Navigation/Network selection.m4a",
         "twi_other_takes": [
           "audio/Twi/02_Main_Service_Navigation/Network selection 2.m4a"
         ]
@@ -123,7 +123,7 @@
       "twi": "MTN Mobile Money. Sɛ wopɛ sɛ wode sika kɔma obi a, mia 1. Sɛ wopɛ sɛ wohwɛ wo account a, mia 2. Mia 8 na san kɔ akyi, anaasɛ mia 0 na woapue.",
       "audio": {
         "english": null,
-        "twi": "audio/Twi/02_Main_Service_Navigation/MTN menu 1.m4a",
+        "twi": "audio/Twi/02_Main_Service_Navigation/MTN menu.m4a",
         "twi_other_takes": [
           "audio/Twi/02_Main_Service_Navigation/MTN menu 2.m4a"
         ]
@@ -235,7 +235,7 @@
       "twi": "Fon nɔma a wokyerɛwee no nyɛ nokware. Yɛsrɛ wo, kyerɛw digit du no bio na mia hash.",
       "audio": {
         "english": null,
-        "twi": "audio/Twi/03_Recipient_Entry_Verification/Invalid recipient 1.m4a",
+        "twi": "audio/Twi/03_Recipient_Entry_Verification/Invalid recipient.m4a",
         "twi_other_takes": [
           "audio/Twi/03_Recipient_Entry_Verification/Invalid recipient 2.m4a"
         ]
@@ -372,7 +372,7 @@
       "twi": "Kyerɛw sika dodow a wopɛ sɛ wode kɔma obi wɔ Ghana cedis mu, na mia hash. Sɛ wopɛ pesewas a, fa star.",
       "audio": {
         "english": null,
-        "twi": "audio/Twi/04_Amount_Entry_Verification/Enter amount 1.m4a",
+        "twi": "audio/Twi/04_Amount_Entry_Verification/Enter amount.m4a",
         "twi_other_takes": [
           "audio/Twi/04_Amount_Entry_Verification/Enter amount 2.m4a",
           "audio/Twi/04_Amount_Entry_Verification/Enter amount 3.m4a",
@@ -477,7 +477,7 @@
       "twi": "Yoo. Momma yɛnkyerɛw sika dodow foforo.",
       "audio": {
         "english": null,
-        "twi": "audio/Twi/04_Amount_Entry_Verification/Change amount 1.m4a",
+        "twi": "audio/Twi/04_Amount_Entry_Verification/Change amount.m4a",
         "twi_other_takes": [
           "audio/Twi/04_Amount_Entry_Verification/Change amount 2.m4a",
           "audio/Twi/04_Amount_Entry_Verification/Change amount 3.m4a"

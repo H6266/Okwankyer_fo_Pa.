@@ -69,6 +69,7 @@ describe("Task 1: Safe Confirmation Must Read Back What Caller Entered", () => {
     expect(prompt.spokenText).toContain("150 Cedis");
     expect(prompt.spokenText).toContain("Kwame Boateng");
     expect(prompt.spokenText).toContain("8 4 6 4");
+    expect(prompt.spokenText).toContain("To confirm and continue, press 1. To cancel, press 2. To exit, press 0.");
     expect(prompt.spokenText).not.toContain("warning");
   });
 

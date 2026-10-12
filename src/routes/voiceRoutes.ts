@@ -270,6 +270,14 @@ ivrRouter.all("/service-select", (req: Request, res: Response) => {
 
   const audioUrl = `${baseUrl}${resolvePrompt("service_select", lang)}`;
 
+  if (lang === "en") {
+    const menuText = "For Mobile Money services, press 1. To transfer money to another mobile wallet, press 2. For banking and international services, press 3. To hear these options again, press 9. To exit, press 0.";
+    return xmlResponse(
+      res,
+      `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        <Say voice="female">${menuText}</Say>\n    </GetDigits>`
+    );
+  }
+
   const xml = `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">
         <Play url="${audioUrl}"/>
     </GetDigits>`;
@@ -290,6 +298,23 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
     auditLogger.log("info", "TELEPHONY", `Auto-identified 10-digit number for sending money at service-choice: ${digitsOnlyService}`, sessionId);
     return xmlResponse(res, `    <Redirect>${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${encodeURIComponent(digitsOnlyService)}</Redirect>`);
   }
+
+  if (lang === "en" && dtmf === "2") {
+    session.retryCount = 0;
+    return xmlResponse(
+      res,
+      `    <Redirect>${baseUrl}/provider-select?sessionId=${sessionId}&amp;lang=${lang}&amp;directTransfer=1</Redirect>`
+    );
+  }
+
+  if (lang === "en" && dtmf === "3") {
+    const unavailableText = "This service is not available yet. Please choose another available service. To select Mobile Money, press 1. To transfer to another mobile wallet, press 2. To hear these options again, press 9. To exit, press 0.";
+    return xmlResponse(
+      res,
+      `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        <Say voice="female">${unavailableText}</Say>\n    </GetDigits>`
+    );
+  }
+
   const validation = validateKeypadInput(stepDef, dtmf, lang);
 
   if (validation.valid) {
@@ -384,11 +409,13 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
 ivrRouter.all("/provider-select", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const directTransfer = req.query?.directTransfer === "1" || req.body?.directTransfer === "1";
   const baseUrl = getBaseUrl(req);
 
   const audioUrl = `${baseUrl}${resolvePrompt("provider_select", lang)}`;
 
-  const xml = `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}">
+  const directTransferParam = directTransfer ? "&amp;directTransfer=1" : "";
+  const xml = `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}${directTransferParam}">
         <Play url="${audioUrl}"/>
     </GetDigits>`;
 
@@ -398,12 +425,14 @@ ivrRouter.all("/provider-select", (req: Request, res: Response) => {
 ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const directTransfer = req.query?.directTransfer === "1" || req.body?.directTransfer === "1";
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getOrCreateSession(sessionId);
 
   if (!dtmf) {
-    const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=provider-select&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
+    const directTransferParam = directTransfer ? "&amp;directTransfer=1" : "";
+    const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=provider-select&amp;sessionId=${sessionId}&amp;lang=${lang}${directTransferParam}"/>`;
     return xmlResponse(res, xml);
   }
 
@@ -448,7 +477,7 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
         action: "repeat",
         nextStep: "provider-select",
       };
-      return xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, navDecision);
+      return xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?sessionId=${sessionId}&amp;lang=${lang}${directTransfer ? "&amp;directTransfer=1" : ""}</Redirect>`, navDecision);
     }
 
     session.network = dtmf === "2" ? "Telecel" : dtmf === "3" ? "AT" : "MTN";
@@ -456,12 +485,15 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
     const validDecision: IvrDecision = {
       type: "understood_intent",
       reason: `Selected network provider: ${session.network} (${dtmf}).`,
-      replyText: lang === "twi" ? "Sɛ wopɛ sɛ womane sika a mia 1. Sɛ wopɛ sɛ wohwɛ wo sika dodow a mia 2." : "To send money, press 1. To check balance, press 2.",
+      replyText: directTransfer
+        ? lang === "twi" ? "Kyerɛw recipient no fon nɔma no." : "Enter the recipient's ten-digit phone number, followed by hash."
+        : lang === "twi" ? "Sɛ wopɛ sɛ womane sika a mia 1. Sɛ wopɛ sɛ wohwɛ wo sika dodow a mia 2." : "To send money, press 1. To check balance, press 2.",
       replyKey: "action_select",
       action: "advance",
-      nextStep: "action-select",
+      nextStep: directTransfer ? "enter-recipient" : "action-select",
     };
-    return xmlResponse(res, `    <Redirect>${baseUrl}/action-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, validDecision);
+    const nextRoute = directTransfer ? "enter-recipient" : "action-select";
+    return xmlResponse(res, `    <Redirect>${baseUrl}/${nextRoute}?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, validDecision);
   }
 
   // Invalid key at provider selection (e.g. 4, 5, 6, 7)
@@ -479,9 +511,10 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
     return xmlResponse(res, `    <Say voice="female">${decision.replyText}</Say>\n    <Reject/>`, decision);
   }
   const audioUrl = `${baseUrl}${resolvePrompt("provider_select", lang)}`;
+  const directTransferParam = directTransfer ? "&amp;directTransfer=1" : "";
   return xmlResponse(
     res,
-    `    <Say voice="female">${decision.replyText}</Say>\n    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        <Play url="${audioUrl}"/>\n    </GetDigits>`,
+    `    <Say voice="female">${decision.replyText}</Say>\n    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}${directTransferParam}">\n        <Play url="${audioUrl}"/>\n    </GetDigits>`,
     decision
   );
 });
@@ -671,9 +704,10 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
       return xmlResponse(res, `    <Say voice="female">${decision.replyText}</Say>\n    <Reject/>`, decision);
     }
     const audioUrl = `${baseUrl}${resolvePrompt("enter_recipient", lang)}`;
+    const invalidAudioUrl = resolvePrompt("invalid_recipient", lang);
     return xmlResponse(
       res,
-      `    <Say voice="female">${decision.replyText}</Say>\n    <GetDigits timeout="40" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}">\n        <Play url="${audioUrl}"/>\n    </GetDigits>`,
+      `    ${invalidAudioUrl ? `<Play url="${baseUrl}${invalidAudioUrl}"/>` : `<Say voice="female">${decision.replyText}</Say>`}\n    <GetDigits timeout="40" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}">\n        <Play url="${audioUrl}"/>\n    </GetDigits>`,
       decision
     );
   }
@@ -820,9 +854,10 @@ ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
       return xmlResponse(res, `    <Say voice="female">${decision.replyText}</Say>\n    <Reject/>`, decision);
     }
     const audioUrl = `${baseUrl}${resolvePrompt("enter_amount", lang)}`;
+    const invalidAudioUrl = resolvePrompt("invalid_amount", lang);
     return xmlResponse(
       res,
-      `    <Say voice="female">${decision.replyText}</Say>\n    <GetDigits timeout="25" finishOnKey="#" numDigits="6" callbackUrl="${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}&amp;ref=/enter-amount&amp;err=invalid">\n        <Play url="${audioUrl}"/>\n    </GetDigits>`,
+      `    ${invalidAudioUrl ? `<Play url="${baseUrl}${invalidAudioUrl}"/>` : `<Say voice="female">${decision.replyText}</Say>`}\n    <GetDigits timeout="25" finishOnKey="#" numDigits="6" callbackUrl="${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}&amp;ref=/enter-amount&amp;err=invalid">\n        <Play url="${audioUrl}"/>\n    </GetDigits>`,
       decision
     );
   }

@@ -1,9 +1,57 @@
 import { describe, it, expect } from "vitest";
+import express from "express";
+import request from "supertest";
+import { resolveSafeAudioPath, streamAudioFile } from "../src/audio/streaming";
 import { studioPromptRegistry } from "../src/ai_system/speech/tts/studioPromptRegistry";
+import { resolvePrompt } from "../src/modules/ttsService";
 import { twiAmountSynthesizer } from "../src/ai_system/speech/tts/twiAmountSynthesizer";
 import { ttsRouter } from "../src/ai_system/speech/tts/ttsRouter";
 
 describe("TTS Studio Prompt Registry & Fallback Chain Invariants", () => {
+  it("resolves available supplied Twi prompts through the guarded audio stream", () => {
+    expect(resolvePrompt("provider_select", "twi")).toBe(
+      "/audio/supplied/Twi/02_Main_Service_Navigation/Network%20selection.m4a"
+    );
+    expect(resolvePrompt("action_select", "twi")).toBe(
+      "/audio/supplied/Twi/02_Main_Service_Navigation/MTN%20menu.m4a"
+    );
+    expect(resolvePrompt("enter_recipient", "twi")).toBe(
+      "/audio/supplied/Twi/03_Recipient_Entry_Verification/Enter%20recipient.m4a"
+    );
+    expect(resolvePrompt("enter_amount", "twi")).toBe(
+      "/audio/supplied/Twi/04_Amount_Entry_Verification/Enter%20amount.m4a"
+    );
+    expect(resolvePrompt("enter_recipient", "en")).toBe("/audio/English/Audio_prompt_06.mp3");
+    expect(resolveSafeAudioPath("supplied/Twi/02_Main_Service_Navigation/Network selection.m4a")).toContain(
+      "Audio_files/audio/Twi/02_Main_Service_Navigation/Network selection.m4a"
+    );
+    expect(() => resolveSafeAudioPath("supplied/../../package.json")).toThrow();
+  });
+
+  it("streams the supplied Twi M4A as audio/mp4 with byte-range support", async () => {
+    const app = express();
+    app.get("/audio/*", (req, res) => {
+      const requestedPath = decodeURIComponent((req.params as Record<string, string>)["0"] || "");
+      const audioPath = resolveSafeAudioPath(requestedPath);
+      if (!audioPath) {
+        res.sendStatus(404);
+        return;
+      }
+      streamAudioFile(req, res, audioPath);
+    });
+
+    const networkPrompt = resolvePrompt("provider_select", "twi")!;
+    const fullResponse = await request(app).get(networkPrompt);
+    expect(fullResponse.status).toBe(200);
+    expect(fullResponse.headers["content-type"]).toContain("audio/mp4");
+    expect(fullResponse.body.length).toBeGreaterThan(100);
+
+    const rangeResponse = await request(app).get(networkPrompt).set("Range", "bytes=0-15");
+    expect(rangeResponse.status).toBe(206);
+    expect(rangeResponse.headers["content-range"]).toMatch(/^bytes 0-15\//);
+    expect(rangeResponse.body.length).toBe(16);
+  });
+
   it("1. Studio Prompt Registry maps canonical prompts to pre-recorded files with cached metadata", () => {
     // Welcome prompt
     const welcome = studioPromptRegistry.getPrompt("welcome");
