@@ -420,10 +420,11 @@ export const PhoneSimulatorPage: React.FC = () => {
     const digitsMatch = xml.match(/<GetDigits\s+([^>]+)>/i);
     if (digitsMatch) {
       const attrs = digitsMatch[1];
-    const timeout = attrs.match(/timeout=["'](\d+)["']/i);
-    const finishOnKey = attrs.match(/finishOnKey=["']([^"']+)["']/i);
-    const numDigits = attrs.match(/numDigits=["'](\d+)["']/i);
-    const callbackUrl = attrs.match(/callbackUrl=["']([^"']+)["']/i);
+
+         const timeout = attrs.match(/timeout=["'](\d+)["']/i);
+         const finishOnKey = attrs.match(/finishOnKey=["']([^"']+)["']/i);
+         const numDigits = attrs.match(/numDigits=["'](\d+)["']/i);
+         const callbackUrl = attrs.match(/callbackUrl=["']([^"']+)["']/i);
       result.getDigits = {
         timeout: timeout ? parseInt(timeout[1], 10) : undefined,
         finishOnKey: finishOnKey ? finishOnKey[1] : undefined,
@@ -515,7 +516,7 @@ export const PhoneSimulatorPage: React.FC = () => {
         if (isPinHandoff) {
           setZeroPinOverlay(true);
           setCallStatus("Ended (PIN Handoff)");
-          const pinText = language === "twi" 
+          const pinText = language === "twi"
             ? "Yɛsrɛ wo, hwɛ wo fon no so na fa wo MoMo PIN a ɛyɛ kokoam no hyɛ mu."
             : "Please check your phone screen and enter your secret MoMo PIN securely.";
           setCurrentPrompt(pinText);
