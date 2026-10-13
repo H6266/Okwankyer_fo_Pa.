@@ -168,6 +168,9 @@ export class MtnRecipientResolver implements RecipientResolver {
  * Factory returning active resolver based on environment credentials
  */
 export function getRecipientResolver(): RecipientResolver {
+  if (config.nodeEnv === "test" || config.demoMode) {
+    return new SandboxRecipientResolver();
+  }
   if (config.momo.configured || config.momo.disbursementConfigured || config.momo.collectionConfigured) {
     return new MtnRecipientResolver();
   }

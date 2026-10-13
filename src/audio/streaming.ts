@@ -34,12 +34,6 @@ export function resolveSafeAudioPath(requestedSubpath: string): string | null {
   } else if (normalized.startsWith("additional/")) {
     rootDir = path.resolve(process.cwd(), "Audio_files_2");
     relativePath = normalized.slice("additional/".length);
-  } else if (normalized.startsWith("public/")) {
-    rootDir = path.resolve(process.cwd(), "public", "audio");
-    relativePath = normalized.slice("public/".length);
-  } else if (normalized.startsWith("English/") || normalized.startsWith("Twi/") || normalized.endsWith(".mp3") || normalized.endsWith(".m4a")) {
-    rootDir = path.resolve(process.cwd(), "public", "audio");
-    relativePath = normalized;
   } else {
     return null;
   }

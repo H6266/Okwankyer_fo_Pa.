@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import promptManifest from "../../Audio_files/prompts.json";
 
 export type RecordingLanguage = "en" | "twi" | "unresolved";
@@ -17,10 +19,26 @@ interface PromptManifestEntry {
     english_other_takes?: string[];
     twi_other_takes?: string[];
   };
+  mappingStatus?: string;
+  usePolicy?: string;
 }
 
 interface PromptManifest {
   prompts: PromptManifestEntry[];
+}
+
+interface CanonicalManifestPrompt {
+  promptId: string;
+  state: string;
+  englishScript?: string;
+  twiWorkingScript?: string;
+  type?: string;
+  mappingStatus?: string;
+  usePolicy?: string;
+}
+
+interface CanonicalManifest {
+  canonicalPrompts?: CanonicalManifestPrompt[];
 }
 
 export interface AudioRecording {
@@ -41,6 +59,96 @@ export interface AudioRecording {
 }
 
 const manifest = promptManifest as PromptManifest;
+const canonicalManifestPath = path.resolve(process.cwd(), "Audio_files", "TWI_AUDIO_LINK_MANIFEST.json");
+const canonicalManifest = fs.existsSync(canonicalManifestPath)
+  ? (JSON.parse(fs.readFileSync(canonicalManifestPath, "utf8")) as CanonicalManifest)
+  : null;
+
+const audioFileExtensions = new Set([".m4a", ".mp3", ".wav", ".ogg", ".aac"]);
+
+function collectRuntimeRecordings(
+  assetRoot: AudioAssetRoot,
+  rootDir: string,
+  language: RecordingLanguage = "twi"
+): AudioRecording[] {
+  if (!fs.existsSync(rootDir)) return [];
+
+  const files: string[] = [];
+  const walk = (directory: string): void => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const absolutePath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        walk(absolutePath);
+        continue;
+      }
+      const extension = path.extname(entry.name).toLowerCase();
+      if (audioFileExtensions.has(extension)) {
+        files.push(absolutePath);
+      }
+    }
+  };
+  walk(rootDir);
+
+  return files
+    .map((absolutePath) => {
+      const relativePath = path.relative(rootDir, absolutePath).split(path.sep).join("/");
+      const basename = path.basename(relativePath);
+      const prompt = manifestEntryByPath.get(relativePath)
+        ?? manifest.prompts.find((entry) => {
+          const currentAudio = entry.audio?.twi || "";
+          const relativeAudio = currentAudio.replace(/^audio\//, "");
+          return relativeAudio === relativePath || path.basename(relativeAudio) === basename;
+        })
+        ?? (assetRoot === "additional"
+          ? (() => {
+              const lookup = Object.entries(ADDITIONAL_FILE_TO_PROMPT_MAP).find(([name]) => name === basename);
+              if (!lookup) return undefined;
+              return manifest.prompts.find((entry) => entry.id === lookup[1].promptId);
+            })()
+          : undefined);
+
+      const isAlternate = Boolean(prompt && prompt.audio?.twi && prompt.audio.twi !== `audio/${relativePath}`);
+      return createRecording(relativePath, assetRoot, language, prompt, isAlternate);
+    })
+    .sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+}
+
+const canonicalPromptEntries: PromptManifestEntry[] = (canonicalManifest?.canonicalPrompts ?? []).map((prompt) => ({
+  id: prompt.promptId,
+  category: prompt.state,
+  state: prompt.state,
+  type: prompt.type || "FIXED",
+  english: prompt.englishScript || "",
+  twi: prompt.twiWorkingScript || "",
+  audio: {
+    english: null,
+    twi: null,
+    english_other_takes: [],
+    twi_other_takes: [],
+  },
+  mappingStatus: prompt.mappingStatus || "MISSING_OR_UNVERIFIED",
+  usePolicy: prompt.usePolicy || "",
+}));
+
+const mergedPromptEntries = [...(manifest.prompts ?? []), ...canonicalPromptEntries];
+const promptManifestLookup = new Map<string, PromptManifestEntry>();
+for (const prompt of mergedPromptEntries) {
+  const existing = promptManifestLookup.get(prompt.id);
+  if (!existing) {
+    promptManifestLookup.set(prompt.id, prompt);
+    continue;
+  }
+  promptManifestLookup.set(prompt.id, {
+    ...existing,
+    ...prompt,
+    audio: {
+      ...existing.audio,
+      ...prompt.audio,
+      english_other_takes: prompt.audio?.english_other_takes ?? existing.audio?.english_other_takes ?? [],
+      twi_other_takes: prompt.audio?.twi_other_takes ?? existing.audio?.twi_other_takes ?? [],
+    },
+  });
+}
 
 const suppliedRecordingPaths = [
   "Twi/01_Welcome_Session_Start/Acknowledge.m4a",
@@ -291,15 +399,12 @@ export const ADDITIONAL_FILE_TO_PROMPT_MAP: Record<string, { promptId: string; l
   "Finish.m4a": { promptId: "OP94", language: "twi", state: "FINISH" },
 };
 
-const resolvedAdditionalRecordings = additionalUnresolvedFiles.map((relativePath) => {
-  return createRecording(relativePath, "additional", "unresolved");
-});
+const actualSuppliedRecordings = collectRuntimeRecordings("supplied", path.resolve(process.cwd(), "Audio_files", "audio"), "twi");
+const actualAdditionalRecordings = collectRuntimeRecordings("additional", path.resolve(process.cwd(), "Audio_files_2"), "twi");
 
 export const AUDIO_RECORDINGS: AudioRecording[] = [
-  ...suppliedRecordings,
-  ...legacyRecordings,
-  ...unresolvedPublicRecordings,
-  ...resolvedAdditionalRecordings,
+  ...actualSuppliedRecordings,
+  ...actualAdditionalRecordings,
 ];
 
 export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
@@ -456,11 +561,11 @@ export function getAudioAssetInventory(): AudioRecording[] {
 }
 
 export function getPromptManifestEntry(promptId: string): PromptManifestEntry | null {
-  return manifest.prompts.find((prompt) => prompt.id === promptId) || null;
+  return promptManifestLookup.get(promptId) || null;
 }
 
 export function getPromptManifestEntries(): PromptManifestEntry[] {
-  return [...manifest.prompts];
+  return Array.from(promptManifestLookup.values());
 }
 
 export function normalizeRecordingLanguage(language: string): "en" | "twi" | null {

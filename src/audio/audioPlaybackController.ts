@@ -40,6 +40,7 @@ export interface PlayOptions {
 type StateListener = (state: PlaybackState) => void;
 
 export class AudioPlaybackController {
+  private readonly playbackVolume = 1.35;
   private audioElement: HTMLAudioElement | null = null;
   private currentToken: number = 0;
   private state: PlaybackState = {
@@ -89,7 +90,7 @@ export class AudioPlaybackController {
         this.initAudioElement();
       }
       if (this.audioElement && !this.state.isPlaying && !this.state.activeClip) {
-        this.audioElement.volume = 1.0;
+        this.audioElement.volume = this.playbackVolume;
         this.audioElement.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
         this.audioElement.play().then(() => {
           if (!this.state.activeClip) {
@@ -521,6 +522,8 @@ export class AudioPlaybackController {
       return Promise.resolve(false);
     }
 
+      audio.volume = this.playbackVolume;
+
     return new Promise<boolean>((resolve) => {
       this.activeResolver = () => {
         resolve(false);
@@ -556,6 +559,7 @@ export class AudioPlaybackController {
       };
 
       try {
+        audio.volume = this.playbackVolume;
         audio.src = url;
         audio.currentTime = 0;
         const playPromise = audio.play();
@@ -609,6 +613,8 @@ export class AudioPlaybackController {
       }
       const audio = this.initAudioElement();
       if (!audio) continue;
+
+      audio.volume = this.playbackVolume;
 
       const ended = await new Promise<boolean>((resolve) => {
         this.activeResolver = () => resolve(false);
