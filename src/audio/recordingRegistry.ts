@@ -179,11 +179,15 @@ function createRecording(
     : undefined;
   const promptId = prompt?.id || (legacyPromptId ? `OP${legacyPromptId}` : null);
   const languageText = language === "en" ? prompt?.english : language === "twi" ? prompt?.twi : null;
-  const publicUrl = assetRoot === "public" && language !== "unresolved"
-    ? `/audio/${encodePath(relativePath)}`
-    : assetRoot === "supplied"
-      ? `/audio/supplied/${encodePath(relativePath)}`
-      : null;
+  const publicUrl = language === "unresolved"
+    ? null
+    : assetRoot === "public"
+      ? `/audio/${encodePath(relativePath)}`
+      : assetRoot === "supplied"
+        ? `/audio/supplied/${encodePath(relativePath)}`
+        : assetRoot === "additional"
+          ? `/audio/additional/${encodePath(relativePath)}`
+          : null;
 
   return {
     id: `${assetRoot}:${relativePath}`,
@@ -230,15 +234,72 @@ const unresolvedPublicRecordings = [
   createRecording("welcome_prompt_01.mp3", "public", "unresolved", undefined, true),
 ];
 
-const unresolvedAdditionalRecordings = additionalUnresolvedFiles.map((relativePath) =>
-  createRecording(relativePath, "additional", "unresolved")
-);
+export const ADDITIONAL_FILE_TO_PROMPT_MAP: Record<string, { promptId: string; language: "twi" | "en"; state: string }> = {
+  "Cancel.m4a": { promptId: "OP76", language: "twi", state: "CANCEL" },
+  "Exit.m4a": { promptId: "OP77", language: "twi", state: "EXIT" },
+  "Pin Handoff.m4a": { promptId: "OP40", language: "twi", state: "PIN_HANDOFF" },
+  "Security warning.m4a": { promptId: "OP41", language: "twi", state: "SECURITY_WARNING" },
+  "Secure pin.m4a": { promptId: "OP42", language: "twi", state: "SECURE_PIN" },
+  "Pin Block.m4a": { promptId: "OP43", language: "twi", state: "PIN_BLOCK" },
+  "Sensitive Block.m4a": { promptId: "OP44", language: "twi", state: "SENSITIVE_BLOCK" },
+  "Submitted.m4a": { promptId: "OP45", language: "twi", state: "SUBMITTED" },
+  "Waiting confirmation.m4a": { promptId: "OP46", language: "twi", state: "WAITING_CONFIRMATION" },
+  "Check phone.m4a": { promptId: "OP47", language: "twi", state: "CHECK_PHONE" },
+  "Authorize phone.m4a": { promptId: "OP48", language: "twi", state: "AUTHORIZE_PHONE" },
+  "Auth received.m4a": { promptId: "OP49", language: "twi", state: "AUTH_RECEIVED" },
+  "Check final status.m4a": { promptId: "OP50", language: "twi", state: "CHECK_FINAL_STATUS" },
+  "Processing.m4a": { promptId: "OP51", language: "twi", state: "PROCESSING" },
+  "Success sent.m4a": { promptId: "OP53", language: "twi", state: "SUCCESS_SENT" },
+  "Success.m4a": { promptId: "OP53", language: "twi", state: "SUCCESS_SENT" },
+  "Keep reference.m4a": { promptId: "OP54", language: "twi", state: "KEEP_REFERENCE" },
+  "Success close.m4a": { promptId: "OP55", language: "twi", state: "SUCCESS_CLOSE" },
+  "Anything else.m4a": { promptId: "OP56", language: "twi", state: "ANYTHING_ELSE" },
+  "Customer Declined.m4a": { promptId: "OP57", language: "twi", state: "CUSTOMER_DECLINED" },
+  "Failed.m4a": { promptId: "OP58", language: "twi", state: "FAILED" },
+  "Timeout.m4a": { promptId: "OP59", language: "twi", state: "TIMEOUT" },
+  "Failure Retry.m4a": { promptId: "OP60", language: "twi", state: "FAILURE_RETRY" },
+  "No transfer confirmed.m4a": { promptId: "OP61", language: "twi", state: "NO_TRANSFER_CONFIRMED" },
+  "Check messages.m4a": { promptId: "OP62", language: "twi", state: "CHECK_MESSAGES" },
+  "Start Again.m4a": { promptId: "OP63", language: "twi", state: "START_AGAIN" },
+  "Not understood.m4a": { promptId: "OP64", language: "twi", state: "NOT_UNDERSTOOD" },
+  "Did not get.m4a": { promptId: "OP65", language: "twi", state: "DID_NOT_GET" },
+  "Please respond.m4a": { promptId: "OP67", language: "twi", state: "PLEASE_RESPOND" },
+  "Input not recognized.m4a": { promptId: "OP68", language: "twi", state: "INPUT_NOT_RECOGNIZED" },
+  "Repeat.m4a": { promptId: "OP69", language: "twi", state: "REPEAT" },
+  "Confirm understanding.m4a": { promptId: "OP70", language: "twi", state: "CONFIRM_UNDERSTANDING" },
+  "Correct prompt.m4a": { promptId: "OP71", language: "twi", state: "CORRECT_PROMPT" },
+  "Yes -No.m4a": { promptId: "OP72", language: "twi", state: "YES_NO" },
+  "Back.m4a": { promptId: "OP73", language: "twi", state: "BACK" },
+  "Main menu.m4a": { promptId: "OP74", language: "twi", state: "MAIN_MENU" },
+  "Restart.m4a": { promptId: "OP75", language: "twi", state: "RESTART" },
+  "Session End.m4a": { promptId: "OP78", language: "twi", state: "SESSION_END" },
+  "Continue.m4a": { promptId: "OP79", language: "twi", state: "CONTINUE" },
+  "Session timeout.m4a": { promptId: "OP80", language: "twi", state: "SESSION_TIMEOUT" },
+  "Repeat Option.m4a": { promptId: "OP81", language: "twi", state: "REPEAT_OPTIONS" },
+  "Keypad option.m4a": { promptId: "OP82", language: "twi", state: "KEYPAD_OPTION" },
+  "Voice or keypad.m4a": { promptId: "OP83", language: "twi", state: "VOICE_OR_KEYPAD" },
+  "Take your time.m4a": { promptId: "OP84", language: "twi", state: "TAKE_YOUR_TIME" },
+  "Yes -no- keypad.m4a": { promptId: "OP85", language: "twi", state: "YES_NO_KEYPAD" },
+  "Help.m4a": { promptId: "OP86", language: "twi", state: "HELP" },
+  "Help command.m4a": { promptId: "OP87", language: "twi", state: "HELP_COMMANDS" },
+  "Balance Unavailable.m4a": { promptId: "OP88", language: "twi", state: "BALANCE_UNAVAILABLE" },
+  "Unsupported service.m4a": { promptId: "OP89", language: "twi", state: "UNSUPPORTED_SERVICE" },
+  "System Error.m4a": { promptId: "OP90", language: "twi", state: "SYSTEM_ERROR" },
+  "Post success Help.m4a": { promptId: "OP91", language: "twi", state: "POST_SUCCESS_HELP" },
+  "Another transaction.m4a": { promptId: "OP92", language: "twi", state: "ANOTHER_TRANSACTION" },
+  "Another recipient.m4a": { promptId: "OP93", language: "twi", state: "ANOTHER_RECIPIENT" },
+  "Finish.m4a": { promptId: "OP94", language: "twi", state: "FINISH" },
+};
+
+const resolvedAdditionalRecordings = additionalUnresolvedFiles.map((relativePath) => {
+  return createRecording(relativePath, "additional", "unresolved");
+});
 
 export const AUDIO_RECORDINGS: AudioRecording[] = [
   ...suppliedRecordings,
   ...legacyRecordings,
   ...unresolvedPublicRecordings,
-  ...unresolvedAdditionalRecordings,
+  ...resolvedAdditionalRecordings,
 ];
 
 export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
@@ -251,6 +312,9 @@ export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
   send_money_selected: "OP10",
   service_unavailable: "OP11",
   service_alternative: "OP12",
+  service_not_ready: "OP13",
+  try_another_service: "OP14",
+  choose_instead: "OP15",
   enter_recipient: "OP16",
   invalid_recipient: "OP17",
   recipient_found: "OP18",
@@ -291,29 +355,45 @@ export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
   success: "OP53",
   keep_reference: "OP54",
   success_close: "OP55",
-  post_success_help: "OP56",
+  anything_else: "OP56",
   customer_declined: "OP57",
   failed: "OP58",
   timeout: "OP59",
   failure_retry: "OP60",
   no_transfer_confirmed: "OP61",
-  session_timeout: "OP62",
-  system_error: "OP90",
-  unsupported_service: "OP89",
+  check_messages: "OP62",
+  start_again: "OP63",
+  not_understood: "OP64",
+  did_not_get: "OP65",
+  no_response: "OP66",
+  please_respond: "OP67",
+  input_not_recognized: "OP68",
+  repeat: "OP69",
+  confirm_understanding: "OP70",
+  correct_prompt: "OP71",
+  yes_no: "OP72",
+  back: "OP73",
+  main_menu: "OP74",
+  restart: "OP75",
+  cancel: "OP76",
+  exit: "OP77",
+  session_end: "OP78",
+  continue: "OP79",
+  session_timeout: "OP80",
+  repeat_options: "OP81",
+  keypad_option: "OP82",
+  voice_or_keypad: "OP83",
+  take_your_time: "OP84",
+  yes_no_keypad: "OP85",
+  help: "OP86",
+  help_commands: "OP87",
   balance_unavailable: "OP88",
-  input_not_recognized: "OP64",
-  not_understood: "OP65",
-  please_respond: "OP66",
-  did_not_get: "OP67",
-  repeat: "OP68",
-  back: "OP69",
-  cancel: "OP70",
-  exit: "OP71",
-  restart: "OP72",
-  another_transaction: "OP91",
-  anything_else: "OP92",
-  finish: "OP93",
-  session_end: "OP94",
+  unsupported_service: "OP89",
+  system_error: "OP90",
+  post_success_help: "OP91",
+  another_transaction: "OP92",
+  another_recipient: "OP93",
+  finish: "OP94",
 };
 
 function recordingRank(recording: AudioRecording): number {
@@ -358,9 +438,17 @@ export function getRecordingByUrl(url: string): AudioRecording | null {
 
 export function getRecordingFilePath(relativePath: string): string | null {
   const recording = getRecordingByPath(relativePath);
-  return recording?.assetRoot === "supplied"
-    ? `Audio_files/audio/${recording.relativePath}`
-    : null;
+  if (!recording) return null;
+  if (recording.assetRoot === "supplied") {
+    return `Audio_files/audio/${recording.relativePath}`;
+  }
+  if (recording.assetRoot === "additional") {
+    return `Audio_files_2/${recording.relativePath}`;
+  }
+  if (recording.assetRoot === "public") {
+    return `public/audio/${recording.relativePath}`;
+  }
+  return null;
 }
 
 export function getAudioAssetInventory(): AudioRecording[] {

@@ -49,6 +49,7 @@ import {
   formatProfilePromptSection,
 } from './languageProfiles';
 import { geminiClient } from '../../services/geminiClient';
+import { auditLogger } from '../../services/auditLogger';
 import {
   APPROVED_REPLY_TEMPLATES,
   getApprovedTemplateText,
@@ -61,7 +62,6 @@ import '../../services/momo';
 import { pilotControls } from '../../services/pilotControls';
 import { pilotMetrics } from '../../services/pilotMetrics';
 import { normalizeGhanaPhoneNumber } from '../../domain/validation';
-import { auditLogger } from '../../services/auditLogger';
 
 export interface BrainConfig {
   mode: BrainMode;

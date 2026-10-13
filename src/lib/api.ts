@@ -1054,7 +1054,7 @@ export const api = {
     return data;
   },
 
-  async validateRecipient(payload: {
+  async validateSimulatorRecipient(payload: {
     phone: string;
     sessionId?: string;
     candidateName?: string;

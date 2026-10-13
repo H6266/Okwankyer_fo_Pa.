@@ -619,13 +619,13 @@ export const PhoneSimulatorPage: React.FC = () => {
       if (playbackUrl) {
         addLog("audio", `🔊 Auto-playing prompt: ${playbackUrl}`);
         audioPlaybackController.play(playbackUrl, promptText).catch((err) => {
-          console.warn("[PhoneSimulator] Auto-play prompt failed:", err);
+          console.warn("[PhoneSimulator] Auto-play prompt failed; playing guidance tone indicator:", err);
+          addLog("audio", `🔔 Audio failed to play; emitted guidance tone indicator.`);
+          audioPlaybackController.playToneIndicator().catch(() => {});
         });
       } else {
-        addLog("audio", `🔊 Auto-playing prompt via speech synthesis`);
-        audioPlaybackController.speakText(promptText).catch((err) => {
-          console.warn("[PhoneSimulator] Speech synthesis failed:", err);
-        });
+        addLog("audio", `🔔 Prompt recording unavailable; playing guidance tone indicator.`);
+        audioPlaybackController.playToneIndicator().catch(() => {});
       }
     },
     [addLog, addChatTurn, language]
@@ -2118,6 +2118,26 @@ export const PhoneSimulatorPage: React.FC = () => {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleKeypadPress]);
 
+  // Push-to-Talk (PTT) & Mic Toggle
+  const [isPushToTalkHeld, setIsPushToTalkHeld] = useState<boolean>(false);
+
+  const startPushToTalk = useCallback(() => {
+    if (!callActiveRef.current || zeroPinOverlayRef.current || isAudioSpeaking) return;
+    audioPlaybackController.unlockAudio();
+    setIsPushToTalkHeld(true);
+    setIsMicMuted(false);
+    isMicMutedRef.current = false;
+    continuousAudioEngine.setZeroPinMuted(false);
+    continuousAudioEngine.startAlwaysOnMic(languageRef.current || "en", activeStepName);
+    addLog("asr", "🎙️ Push-to-Talk active: recording speech for Whisper ASR...");
+  }, [isAudioSpeaking, activeStepName, addLog]);
+
+  const stopPushToTalk = useCallback(() => {
+    if (!isPushToTalkHeld) return;
+    setIsPushToTalkHeld(false);
+    addLog("asr", "🎙️ Push-to-Talk released.");
+  }, [isPushToTalkHeld, addLog]);
+
   // Toggle mic
   const toggleMic = () => {
     audioPlaybackController.unlockAudio();
@@ -2136,7 +2156,13 @@ export const PhoneSimulatorPage: React.FC = () => {
   const handleReplayPrompt = (audioUrl?: string | null, text?: string) => {
     audioPlaybackController.unlockAudio();
     const playbackUrl = resolvePlayableSimulatorAudioUrl(audioUrl, language || "en");
-    audioPlaybackController.play(playbackUrl || "", text || currentPrompt).catch(() => {});
+    if (playbackUrl) {
+      audioPlaybackController.play(playbackUrl, text || currentPrompt).catch(() => {
+        audioPlaybackController.playToneIndicator().catch(() => {});
+      });
+    } else {
+      audioPlaybackController.playToneIndicator().catch(() => {});
+    }
   };
 
   // Test sound output
@@ -2354,28 +2380,39 @@ export const PhoneSimulatorPage: React.FC = () => {
             <div className="w-full flex items-center justify-between mt-3 px-1">
               <button
                 type="button"
+                onMouseDown={startPushToTalk}
+                onMouseUp={stopPushToTalk}
+                onTouchStart={startPushToTalk}
+                onTouchEnd={stopPushToTalk}
                 onClick={toggleMic}
                 disabled={!callActive || zeroPinOverlay}
-                aria-label={isMicMuted ? "Unmute microphone" : "Mute microphone"}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors border ${
-                  isAudioSpeaking
+                title="Hold down for Push-to-Talk (Whisper ASR) or click to toggle mic"
+                aria-label={isPushToTalkHeld ? "Release to stop speaking" : isMicMuted ? "Unmute microphone" : "Mute microphone"}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all border select-none ${
+                  isPushToTalkHeld
+                    ? "bg-rose-950/80 border-rose-500/90 text-rose-200 ring-2 ring-rose-500/50 scale-105 shadow-md shadow-rose-500/20"
+                    : isAudioSpeaking
                     ? "bg-amber-950/40 border-amber-500/40 text-amber-300"
                     : isMicMuted
                     ? "bg-slate-800/80 border-slate-600/50 text-slate-300 hover:bg-slate-800"
                     : "bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/60 shadow-sm shadow-emerald-500/20"
                 } disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer`}
               >
-                {isAudioSpeaking || isMicMuted ? (
+                {isPushToTalkHeld ? (
+                  <Radio className="w-3.5 h-3.5 animate-spin text-rose-400" />
+                ) : isAudioSpeaking || isMicMuted ? (
                   <MicOff className="w-3.5 h-3.5" />
                 ) : (
                   <Mic className={`w-3.5 h-3.5 ${callActive ? "animate-pulse text-emerald-400" : ""}`} />
                 )}
                 <span>
-                  {isAudioSpeaking
+                  {isPushToTalkHeld
+                    ? "Speaking (PTT)..."
+                    : isAudioSpeaking
                     ? "Mic OFF (Audio Playing)"
                     : isMicMuted
-                    ? "Mic OFF"
-                    : "Mic Recording ON"}
+                    ? "Push-to-Talk / Mic OFF"
+                    : "Push-to-Talk / Mic ON"}
                 </span>
               </button>
 

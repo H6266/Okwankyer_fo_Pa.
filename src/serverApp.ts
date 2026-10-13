@@ -157,14 +157,7 @@ app.all("/api/*", (_req: Request, res: Response) => {
 
 // ── Server Bootstrap & Frontend Serving ───────────────────────────────
 export async function startServer() {
-  if (!process.env.AT_WEBHOOK_SECRET || process.env.AT_WEBHOOK_SECRET.trim().length < 16) {
-    process.env.AT_WEBHOOK_SECRET = "okwankyer_telephony_webhook_secret_default_prod_key_32b";
-  }
-  try {
-    validateWebhookSecurityConfig();
-  } catch (err: any) {
-    console.warn("⚠️ Telephony webhook guard notice during boot:", err?.message || err);
-  }
+  validateWebhookSecurityConfig();
 
   const isDev =
     process.env.npm_lifecycle_event === "dev" ||
@@ -271,11 +264,11 @@ export async function startServer() {
       const modelReport = await modelVerificationEngine.verifyStartupModels();
       console.log(`🔍 Startup Gemini Model Verification: ${modelReport.success ? "PASSED" : "FALLBACK"}`);
     } catch (err: any) {
-      if (process.env.NODE_ENV === "production" && process.env.STRICT_PROD_VERIFICATION === "true") {
+      if (process.env.NODE_ENV === "production") {
         console.error("FATAL: Production Readiness Hardening Violation:", err.message);
         throw err;
       } else {
-        console.warn("⚠️ Production readiness notice:", err?.message || err);
+        console.warn("⚠️ Production readiness notice:", err.message);
       }
     }
 

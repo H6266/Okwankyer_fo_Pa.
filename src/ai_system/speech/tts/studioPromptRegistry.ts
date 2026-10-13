@@ -57,15 +57,23 @@ export class StudioPromptRegistry {
       keysByPromptId.set(promptId, keys);
     }
 
-    for (const recording of AUDIO_RECORDINGS) {
-      if (!recording.promptId || !recording.spokenText) continue;
+    // Sort so supplied recordings take precedence over legacy public recordings
+    const twiRecordings = AUDIO_RECORDINGS
+      .filter((rec) => rec.language === "twi" && rec.promptId && rec.spokenText)
+      .sort((a, b) => {
+        const rankA = a.assetRoot === "supplied" && !a.isAlternate ? 0 : a.assetRoot === "supplied" ? 1 : 2;
+        const rankB = b.assetRoot === "supplied" && !b.isAlternate ? 0 : b.assetRoot === "supplied" ? 1 : 2;
+        return rankB - rankA; // ascending priority means we insert lowest priority first, highest last so highest overwrites
+      });
+
+    for (const recording of twiRecordings) {
       const sourcePath = getRecordingFilePath(recording.relativePath);
       if (!sourcePath) continue;
       const absolutePath = path.resolve(process.cwd(), sourcePath);
       if (!fs.existsSync(absolutePath) || fs.statSync(absolutePath).isDirectory()) continue;
 
       const stats = fs.statSync(absolutePath);
-      const key = keysByPromptId.get(recording.promptId)?.[0] || recording.state || recording.promptId;
+      const key = keysByPromptId.get(recording.promptId!)?.[0] || recording.state || recording.promptId!;
       const metadata: StudioPromptMetadata = {
         key,
         language: "tw",
@@ -76,9 +84,9 @@ export class StudioPromptRegistry {
         sampleRateHz: null,
         bitrateKbps: null,
         durationSec: null,
-        spokenText: recording.spokenText,
+        spokenText: recording.spokenText!,
         stepName: recording.state || recording.category,
-        promptId: recording.promptId,
+        promptId: recording.promptId!,
       };
 
       for (const alias of [
@@ -87,7 +95,7 @@ export class StudioPromptRegistry {
         recording.title,
         recording.spokenText,
         path.basename(recording.relativePath, path.extname(recording.relativePath)),
-        ...(keysByPromptId.get(recording.promptId) || []),
+        ...(keysByPromptId.get(recording.promptId!) || []),
       ]) {
         if (alias) this.metadataCache.set(this.normalizeText(alias), metadata);
       }

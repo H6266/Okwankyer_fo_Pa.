@@ -23,23 +23,42 @@ export class PathTraversalError extends Error {
  */
 export function resolveSafeAudioPath(requestedSubpath: string): string | null {
   const decoded = decodeURIComponent(requestedSubpath || "");
-  const normalized = decoded.replace(/\\/g, "/");
-  if (!normalized.startsWith("supplied/")) {
+  const normalized = decoded.replace(/\\/g, "/").replace(/^\/+/, "");
+
+  let rootDir: string;
+  let relativePath: string;
+
+  if (normalized.startsWith("supplied/")) {
+    rootDir = path.resolve(process.cwd(), "Audio_files", "audio");
+    relativePath = normalized.slice("supplied/".length);
+  } else if (normalized.startsWith("additional/")) {
+    rootDir = path.resolve(process.cwd(), "Audio_files_2");
+    relativePath = normalized.slice("additional/".length);
+  } else if (normalized.startsWith("public/")) {
+    rootDir = path.resolve(process.cwd(), "public", "audio");
+    relativePath = normalized.slice("public/".length);
+  } else if (normalized.startsWith("English/") || normalized.startsWith("Twi/") || normalized.endsWith(".mp3") || normalized.endsWith(".m4a")) {
+    rootDir = path.resolve(process.cwd(), "public", "audio");
+    relativePath = normalized;
+  } else {
     return null;
   }
 
-  const relativePath = normalized.slice("supplied/".length);
-  const suppliedRoot = path.resolve(process.cwd(), "Audio_files", "audio");
-  const resolved = path.resolve(suppliedRoot, relativePath);
-  if (!resolved.startsWith(`${suppliedRoot}${path.sep}`)) {
+  const resolved = path.resolve(rootDir, relativePath);
+  if (!resolved.startsWith(`${rootDir}${path.sep}`) && resolved !== rootDir) {
     throw new PathTraversalError(`Path traversal attempt blocked: ${requestedSubpath}`);
   }
-  const registeredPath = getRecordingFilePath(relativePath);
-  if (!registeredPath) return null;
+
+  if (!fs.existsSync(resolved)) {
+    return null;
+  }
+
   const realPath = fs.realpathSync(resolved);
-  if (!realPath.startsWith(`${fs.realpathSync(suppliedRoot)}${path.sep}`) || fs.statSync(realPath).isDirectory()) {
+  const realRoot = fs.realpathSync(rootDir);
+  if (!realPath.startsWith(`${realRoot}${path.sep}`) || fs.statSync(realPath).isDirectory()) {
     throw new PathTraversalError(`Path traversal attempt blocked: ${requestedSubpath}`);
   }
+
   return realPath;
 }
 

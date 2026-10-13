@@ -26,22 +26,23 @@ export interface MoMoConfig {
 }
 
 export interface GatewayEvidence {
-  timestamp: string;
-  host: string;
-  roundTripMs: number;
-  endpoint: string;
-  request: {
+  timestamp?: string;
+  host?: string;
+  roundTripMs?: number;
+  endpoint?: string;
+  request?: {
     method: string;
     url: string;
     headers: Record<string, string>;
     body?: any;
   };
-  response: {
+  response?: {
     status: number;
     statusText: string;
     headers: Record<string, string>;
     body: any;
   };
+  [key: string]: any;
 }
 
 export interface MoMoTransactionRecord {

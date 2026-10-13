@@ -34,6 +34,7 @@ export type ReplyKind =
   | 'confirm'
   | 'dispatch'
   | 'smalltalk'
+  | 'cancel'
   | 'error';
 
 export interface RecipientSlot {
@@ -51,6 +52,7 @@ export interface ModelOutputContract {
     amount?: number | null;
     recipient?: RecipientSlot | null;
     network?: string | null;
+    reference?: string | null;
   };
   signals: {
     correction: boolean;
@@ -96,6 +98,7 @@ export type ServiceHandler = (params: {
   sessionId?: string;
   confirmedDraftHash?: string;
   dispatchKey?: string;
+  [key: string]: any;
 }) => Promise<ServiceHandlerResult>;
 
 export interface ServiceDefinition {
@@ -111,6 +114,7 @@ export type BrainDecision =
   | { kind: 'clarify_slot'; slot: string }
   | { kind: 'confirm'; intent: IntentId; slots: Slots }
   | { kind: 'not_ready'; intent: IntentId }
+  | { kind: 'cancel'; intent?: IntentId }
   | { kind: 'dispatch'; intent: IntentId; slots: Slots };
 
 export interface TurnHistoryItem {

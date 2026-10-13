@@ -150,6 +150,57 @@ export class AudioPlaybackController {
   }
 
   /**
+   * Generates a gentle dual-frequency IVR guidance tone indicator using Web Audio API.
+   * Frequency: 523.25Hz (C5) / 659.25Hz (E5) smooth sine envelope (~350ms).
+   * Emitted as an acoustic notification whenever a specific prompt recording is unavailable,
+   * enabling the IVR session to advance without freezing.
+   */
+  public playToneIndicator(durationMs: number = 350): Promise<void> {
+    if (typeof window === "undefined") return Promise.resolve();
+    return new Promise((resolve) => {
+      try {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioCtx) {
+          setTimeout(resolve, durationMs);
+          return;
+        }
+        if (!this.audioContext) {
+          this.audioContext = new AudioCtx();
+        }
+        if (this.audioContext.state === "suspended") {
+          this.audioContext.resume().catch(() => {});
+        }
+        const now = this.audioContext.currentTime;
+        const osc1 = this.audioContext.createOscillator();
+        const osc2 = this.audioContext.createOscillator();
+        const gain = this.audioContext.createGain();
+
+        osc1.type = "sine";
+        osc2.type = "sine";
+        osc1.frequency.setValueAtTime(523.25, now);
+        osc2.frequency.setValueAtTime(659.25, now);
+
+        gain.gain.setValueAtTime(0.001, now);
+        gain.gain.exponentialRampToValueAtTime(0.12, now + 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + durationMs / 1000);
+
+        osc1.connect(gain);
+        osc2.connect(gain);
+        gain.connect(this.audioContext.destination);
+
+        osc1.start(now);
+        osc2.start(now);
+        osc1.stop(now + durationMs / 1000);
+        osc2.stop(now + durationMs / 1000);
+
+        setTimeout(resolve, durationMs + 20);
+      } catch {
+        setTimeout(resolve, durationMs);
+      }
+    });
+  }
+
+  /**
    * Synthesize or speak text when recorded studio clip is unavailable
    */
   public async speakText(text: string, options?: PlayOptions): Promise<boolean> {
