@@ -19,30 +19,39 @@ import { aiUnderstanding } from "../core/aiUnderstanding";
 import { geminiClient } from "../../services/geminiClient";
 import { openAiReasoner } from "../../services/openai/openaiReasoner";
 
-export const MOMO_SYSTEM_INSTRUCTION = `You are a voice-optimized accessibility assistant for MTN Mobile Money (MoMo) in Ghana. Your job is to help users initiate financial transactions by extracting required parameters from their natural, conversational speech.
+export const MOMO_SYSTEM_INSTRUCTION = `You are a voice-optimized accessibility assistant for MTN Mobile Money (MoMo) in Ghana ("Ɔkwankyerɛfo Pa" - The Good Guide). Your job is to converse naturally with callers in Ghanaian English or Akan Twi to help them execute Mobile Money transactions.
 
-Required Transaction Parameters:
-- Transaction Type (Send Money, Cash Out, Buy Airtime, etc.)
-- Amount (in GHS)
-- Recipient Number (10-digit Ghanaian mobile number)
-- Reference (Brief note)
+Available MoMo Services & Capabilities:
+- Send Money / Transfer (momo.transfer) to any mobile network (MTN, Telecel, AT)
+- Cash Out / Withdraw (momo.cash_out) at a registered agent
+- Check Balance (momo.check_balance)
+- Buy Airtime (momo.buy_airtime)
+- Buy Internet Data (momo.buy_data)
 
-Core Instructions:
-1. Extract Dynamically: Users may provide information out of order or all at once (e.g., "Send 50 cedis to Kwame for food"). Extract what you can and only ask for the missing parameters.
-2. Do Not Hallucinate or Assume Data: If a user does not provide a phone number in their message, do not attempt to validate a missing number or throw formatting errors. Simply reply: "I understand you want to [action]. Please tell me the phone number."
-3. Handle Messy Input Gracefully: Users are using voice-to-text. Ignore gibberish, filler words, or background noise (e.g., "um", "ahjsb"). Extract only the actionable numbers and intent.
-4. Keep It Conversational & Short: Limit your responses to 1-3 short sentences. This is for a voice interface, so avoid lists, markdown formatting, or overly robotic technical jargon.
-5. One Step at a Time: If multiple things are missing, ask for just the most important missing piece next (e.g., ask for the number before asking for the reference).
-6. Security: Never ask for the user's MoMo PIN. Always conclude a ready transaction by summarizing the details (Amount, Number) and instructing the user to check their phone screen to enter their PIN securely.
-
-Tools / Native Function Calling:
-- When all required parameters for sending money (recipient_number, amount, reference) are known, call the tool 'process_send_money'.
-- When all required parameters for cash out (agent_number, amount) are known, call the tool 'process_cash_out'.
-- If any required parameter is still missing, do NOT invoke a tool. Instead, respond with a short conversational sentence asking for the single most important missing piece.`;
+Core Principles:
+1. You Own the Conversation: Converse naturally, be warm, clear, and concise. Speak in 1-2 short conversational sentences suitable for a phone call.
+2. Bilingual Fluency (English & Akan Twi):
+   - If the caller speaks Akan Twi (or asks to speak Twi), reply naturally in Akan Twi.
+   - If the caller speaks English, reply in English.
+   - Understand local Ghanaian terms and numbering: "cedis", "sika", "hwee", "baako", "mmienu", "aduonum", "ɔha", "apem".
+3. Conversational Context & Mental Math:
+   - Perform mental math seamlessly: e.g. "the bill is 100cedis but i have 90 send so send half of my money to him" means the caller wants to send half of 90 = 45 cedis!
+   - "a tenth of 100 cedis" is 10 cedis; "half of 50" is 25 cedis; "20 plus 30" is 50 cedis.
+   - Retain details across multiple turns. If the caller gave the amount in turn 1 and gives the phone number in turn 2, remember both!
+   - Handle revisions and corrections gracefully: e.g. "Actually send 20 instead of 50" updates the amount without losing the recipient.
+4. Messy Speech & Voice Robustness: Ignore background noise, voice-to-text filler words ("uh", "um", "ah"). Focus on the caller's true intent.
+5. Recipient Verification & Discrepancy Awareness:
+   - When the system validates a recipient against the telco registry and returns the registered name and network, explain the details to the caller.
+   - If there is any discrepancy between what the caller said (e.g. caller said "ECG man" or "Telecel") and what the telco registry returned (e.g. "Kwame Mensah" on "MTN"), clarify this discrepancy clearly with the caller and ask for their confirmation before proceeding.
+6. The Clean Handoff:
+   - When both the recipient phone number (or agent number) and transaction amount (in GHS) are clearly gathered, invoke the appropriate tool:
+     • 'process_send_money' for sending money (providing recipient_number, amount, reference, optional recipient_name, and optional network).
+     • 'process_cash_out' for cashing out with an agent (providing agent_number, amount).
+   - If any required parameter is still missing or ambiguous (e.g. amount is known but phone number is missing), DO NOT invoke any tool. Simply reply with a short conversational sentence asking for the missing piece.`;
 
 export const SEND_MONEY_TOOL: FunctionDeclaration = {
   name: "process_send_money",
-  description: "Process a Mobile Money transfer once the recipient number, amount, and reference have all been gathered.",
+  description: "Hand over the gathered Mobile Money transfer details once the recipient number and amount are known.",
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -56,10 +65,18 @@ export const SEND_MONEY_TOOL: FunctionDeclaration = {
       },
       reference: {
         type: Type.STRING,
-        description: "A brief note or reference for the transfer (e.g. school fees, food, transport).",
+        description: "A brief note or reference for the transfer (e.g. school fees, food, transport, or default 'Transfer').",
+      },
+      recipient_name: {
+        type: Type.STRING,
+        description: "Optional recipient name if provided by user (e.g. Kwame, Mother, Ama, ECG man).",
+      },
+      network: {
+        type: Type.STRING,
+        description: "Optional Ghanaian telecom network (MTN, Telecel, AT).",
       },
     },
-    required: ["recipient_number", "amount", "reference"],
+    required: ["recipient_number", "amount"],
   },
 };
 
@@ -132,7 +149,8 @@ export class ReasoningEngine {
    */
   public getOrCreateChatSession(sessionId: string, ai: GoogleGenAI, modelName: string = "gemini-3.8-flash"): any {
     this.cleanExpiredSessions();
-    const existing = this.activeChatSessions.get(sessionId);
+    const cacheKey = `${sessionId}_${modelName}`;
+    const existing = this.activeChatSessions.get(cacheKey);
     if (existing) {
       existing.lastUsedAt = Date.now();
       return existing.chat;
@@ -147,7 +165,7 @@ export class ReasoningEngine {
       },
     });
 
-    this.activeChatSessions.set(sessionId, {
+    this.activeChatSessions.set(cacheKey, {
       chat,
       lastUsedAt: Date.now(),
     });
@@ -156,7 +174,11 @@ export class ReasoningEngine {
   }
 
   public resetChatSession(sessionId: string): void {
-    this.activeChatSessions.delete(sessionId);
+    for (const key of this.activeChatSessions.keys()) {
+      if (key.startsWith(sessionId)) {
+        this.activeChatSessions.delete(key);
+      }
+    }
   }
 
   /**
@@ -202,9 +224,11 @@ export class ReasoningEngine {
     }
 
     const candidateModels = [
-      AI_CONFIG.model || "gemini-3.8-flash",
+      "gemini-3.1-flash-lite",
+      "gemini-3.1-flash-lite-preview",
       "gemini-flash-latest",
-    ];
+      AI_CONFIG.model || "gemini-3.8-flash",
+    ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
 
     const availableCandidates = candidateModels.filter((m) => {
       if (typeof (this.client as any)?.isModelAvailable === "function") {
@@ -231,8 +255,11 @@ export class ReasoningEngine {
             });
             return response;
           },
-          3000,
-          0
+          20000,
+          0,
+          undefined,
+          10000,
+          modelName
         );
 
         return this.routeModelResponse(result, cleanUtterance, params.existingSlots);

@@ -1329,6 +1329,56 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
         sessionId
       );
 
+      // Case 1: Gemini Conversational Turn (needs more info, clarifying question, conversational math)
+      // Play Gemini's spoken reply directly without local slot overrides.
+      if (brainOutput.decision.kind === "clarify_slot" && brainOutput.decision.slot === "conversational") {
+        return xmlResponse(
+          res,
+          speechCollectionXml({
+            baseUrl,
+            sessionId,
+            language: lang,
+            slot: "conversational",
+            replyText: brainOutput.reply.text,
+            promptId: brainOutput.reply.promptId,
+          })
+        );
+      }
+
+      // Case 2: Gemini Tool Handoff (Recipient & Amount Gathered -> Safe Confirmation)
+      if (brainOutput.decision.kind === "confirm") {
+        const confirmedAmount = typeof updatedSlots.amount === "number" ? updatedSlots.amount : session.amount;
+        const confirmedRecipient = updatedSlots.recipient?.phone || session.recipientPhone;
+        const confirmedName = updatedSlots.recipient?.name || session.recipientName;
+
+        transactionStateMachine.transition(sessionId, "AMOUNT_ENTERED", {
+          amount: confirmedAmount,
+          recipientPhone: confirmedRecipient,
+          recipientName: confirmedName,
+        });
+
+        return xmlResponse(
+          res,
+          speechCollectionXml({
+            baseUrl,
+            sessionId,
+            language: lang,
+            slot: "safe-confirmation",
+            replyText: brainOutput.reply.text,
+            promptId: brainOutput.reply.promptId,
+          })
+        );
+      }
+
+      // Case 3: Explicit Dispatch after Confirmation
+      if (brainOutput.decision.kind === "dispatch") {
+        return xmlResponse(
+          res,
+          `    <Redirect>${baseUrl}/safe-confirmation?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}&amp;dtmfDigits=1</Redirect>`
+        );
+      }
+
+      // Case 4: Deterministic Fallback / Legacy Transfer Turns
       if (isTransferTurn) {
         const missingSlot = brainOutput.decision.kind === "clarify_slot" ? brainOutput.decision.slot : undefined;
         const normalizedPhone = phoneValidation?.valid ? phoneValidation.normalized : undefined;
@@ -1389,8 +1439,9 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
             })
           );
         }
+      }
 
-      } else if (brainOutput.decision.kind === "not_ready") {
+      if (brainOutput.decision.kind === "not_ready") {
         return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(brainOutput.reply.text)}</Say>\n    <Reject/>`);
       } else if (brainOutput.decision.kind === "clarify_intent") {
         const prompt = brainPromptElement(brainOutput.reply.promptId, brainOutput.reply.text, baseUrl, lang);

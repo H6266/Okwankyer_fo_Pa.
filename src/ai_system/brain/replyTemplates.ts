@@ -418,6 +418,17 @@ export const APPROVED_REPLY_TEMPLATES: Record<string, ApprovedTemplateDefinition
       'twi-akuapem': 'Mente ase yiye. Mepa wo kyɛw ka obi a wopɛ sɛ wosoma no sika.',
     },
   },
+  comfort_stalling: {
+    key: 'comfort_stalling',
+    kind: 'smalltalk',
+    approved: false,
+    texts: {
+      'en': 'Please wait, I heard what you said and I am currently working on what it means, sorry for the delay.',
+      'twi-asante': 'Kyerɛ me kakra, mate deɛ wokaeɛ no na mereka akyerɛ wo seesei ara, mesrɛ wo twɛn kakra.',
+      'mixed-twi-en': 'Please wait small, mate deɛ wokaeɛ no na me understand seesei, sorry for the delay.',
+      'twi-akuapem': 'Kyerɛ me kakra, mate deɛ wokae no na mereka akyerɛ wo seesei ara, mesrɛ wo twɛn kakra.',
+    },
+  },
   // ── 26 STUDIO-RECORDED AUDIO PROMPTS ──────────────────────────────────────
   studio_welcome_bilingual: {
     key: 'studio_welcome_bilingual',

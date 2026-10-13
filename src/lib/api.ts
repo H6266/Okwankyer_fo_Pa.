@@ -912,6 +912,62 @@ export const api = {
     return data;
   },
 
+  async validateRecipient(payload: {
+    phone: string;
+    sessionId?: string;
+    candidateName?: string;
+    candidateNetwork?: string;
+  }): Promise<{
+    success: boolean;
+    phone: string;
+    verifiedName: string;
+    network: string;
+    verified: boolean;
+    nameMismatch: boolean;
+    networkMismatch: boolean;
+    candidateName: string | null;
+    candidateNetwork: string | null;
+  }> {
+    const res = await fetch("/api/ai/simulator/validate-recipient", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Recipient validation failed");
+    return data;
+  },
+
+  async submitPin(payload: {
+    sessionId: string;
+    pin: string;
+    amount: number;
+    recipientPhone: string;
+    recipientName?: string;
+    network?: string;
+    callerPhone?: string;
+    language?: string;
+  }): Promise<{
+    success: boolean;
+    error?: string;
+    remainingAttempts?: number;
+    message?: string;
+    messageTw?: string;
+    reference?: string;
+    amount?: number;
+    recipientName?: string;
+    recipientPhone?: string;
+  }> {
+    const res = await fetch("/api/ai/simulator/submit-pin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || data.message || "PIN submission failed");
+    return data;
+  },
+
   async analyzeUtterance(utterance: string, languageHint?: string): Promise<{ success: boolean; result: any; brainOutput?: any }> {
     const res = await fetch("/api/ai/analyze", {
       method: "POST",

@@ -167,13 +167,16 @@ export class UnifiedGeminiClient {
   }
 
   /**
-   * Executes a generation request with strict timeout, retry, and circuit breaker.
+    * Executes a generation request with strict timeout, retry, and circuit breaker.
    */
   public async executeWithTimeout<T>(
     operationName: string,
     action: (ai: GoogleGenAI, signal: AbortSignal) => Promise<T>,
-    timeoutMs: number = 3000,
-    maxRetries: number = 1
+    timeoutMs: number = 20000,
+    maxRetries: number = 1,
+    onStall?: () => void,
+    stallMs: number = 10000,
+    modelName?: string
   ): Promise<T> {
     const ai = this.getRawClient();
     if (!ai) {
@@ -195,9 +198,20 @@ export class UnifiedGeminiClient {
         controller.abort(new Error(`Timeout after ${timeoutMs}ms`));
       }, timeoutMs);
 
+      let stallHandle: NodeJS.Timeout | null = null;
+      if (typeof onStall === "function") {
+        stallHandle = setTimeout(() => {
+          try {
+            onStall();
+          } catch {
+            // safe stalling callback
+          }
+        }, stallMs);
+      }
+
       const timeoutPromise = new Promise<never>((_, reject) => {
         controller.signal.addEventListener("abort", () => {
-          reject(new Error(`[GeminiClient] Timeout after ${timeoutMs}ms for '${operationName}'`));
+          reject(new Error(`[GeminiClient] Timeout after ${timeoutMs}ms for '${operationName}' (Reason: Reasoning exceeded ${timeoutMs / 1000}s budget)`));
         });
       });
 
@@ -205,17 +219,20 @@ export class UnifiedGeminiClient {
         const actionPromise = action(ai, controller.signal);
         const result = await Promise.race([actionPromise, timeoutPromise]);
         clearTimeout(timeoutHandle);
+        if (stallHandle) clearTimeout(stallHandle);
         const duration = Date.now() - startTime;
         this.recordSuccess(operationName, duration);
         return result;
       } catch (err: any) {
         clearTimeout(timeoutHandle);
+        if (stallHandle) clearTimeout(stallHandle);
         const msg = String(err?.message || "");
         const isQuotaExhausted =
-          err.status === 429 &&
-          (msg.includes("RESOURCE_EXHAUSTED") ||
-           msg.includes("Quota exceeded") ||
-           msg.includes("generativelanguage.googleapis.com"));
+          err.status === 429 ||
+          msg.includes("429") ||
+          msg.includes("RESOURCE_EXHAUSTED") ||
+          msg.includes("Quota exceeded") ||
+          msg.includes("generativelanguage.googleapis.com");
 
         const isForbidden =
           err.status === 403 ||
@@ -231,14 +248,23 @@ export class UnifiedGeminiClient {
           throw err;
         }
 
-        // If daily quota is exhausted, retrying immediately is futile. Throw immediately.
+        // If daily quota is exhausted on a specific model, isolate the cooldown to that model
+        // so candidate fallback models remain available!
         if (isQuotaExhausted) {
           let cooldownMs = 60 * 60 * 1000;
           const retrySecMatch = msg.match(/retryDelay['":\s]+([0-9]+)/i);
           if (retrySecMatch && retrySecMatch[1]) {
             cooldownMs = Math.max(60 * 1000, parseInt(retrySecMatch[1], 10) * 1000);
           }
-          this.recordQuotaExhausted(cooldownMs);
+          const modelInMsg = msg.match(/model:\s*([a-zA-Z0-9\.\-]+)/i)?.[1];
+          const targetModel = modelName || modelInMsg;
+
+          if (targetModel) {
+            this.recordModelQuotaExhausted(targetModel, cooldownMs);
+            console.warn(`[GeminiClient] Quota exhausted on model '${targetModel}'. Placed on cooldown for ${Math.round(cooldownMs / 1000)}s.`);
+          } else {
+            this.recordQuotaExhausted(cooldownMs);
+          }
           this.recordFailure();
           throw err;
         }

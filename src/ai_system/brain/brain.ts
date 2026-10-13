@@ -79,18 +79,18 @@ export function validateProductionModelConfig(): void {
   }
 }
 
-export const PER_TURN_MAX_BUDGET_MS = 3800; // Strict turn budget strictly under 4.0s
-export const FILLER_PROMPT_TRIGGER_MS = 1500; // Trigger comfort prompt at 1.5s if turn processing is still in flight
+export const PER_TURN_MAX_BUDGET_MS = 20000; // Spacious 20-second reasoning budget
+export const FILLER_PROMPT_TRIGGER_MS = 10000; // Comfort stalling prompt trigger at 10.0s
 
 export const DEFAULT_BRAIN_CONFIG: BrainConfig = {
   mode: (process.env.BRAIN_MODE as BrainMode) || (process.env.NODE_ENV === 'test' ? 'shadow' : 'live'),
   shadowSamplingRate: 1.0,
   confidenceThreshold: 0.65,
   ambiguityMargin: 0.15,
-  modelTimeoutMs: 3000,
+  modelTimeoutMs: 20000, // 20s spacious window for complex reasoning and arithmetic
   skipModelTierConfidence: 0.85,
   maxTransferAmount: 5000,
-  modelName: process.env.GEMINI_MODEL || (process.env.NODE_ENV === 'production' ? '' : 'gemini-3.8-flash'),
+  modelName: process.env.GEMINI_MODEL || (process.env.NODE_ENV === 'production' ? '' : 'gemini-3.1-flash-lite'),
 };
 
 // ── SANITIZATION & MASKING HELPERS ──────────────────────────────────────────
@@ -306,18 +306,80 @@ export class Brain {
     const sessionLanguage = langRes.sessionLanguage;
     const targetDialect = langRes.targetLanguage;
 
+    const isAwaitingConfirmation = draft.lastReplyKind === 'confirm' && Boolean(draft.lastConfirmReadbackText);
     const isExplicitConfirm = isExplicitConfirmation(rawTranscript);
     const isExplicitCancel = isExplicitCancellation(rawTranscript);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // STEP 1: EXPLICIT APPROVAL / CANCELLATION OF PREVIOUSLY READ-BACK DRAFT
+    // Only intercepts when the user was ALREADY presented with the readback.
+    // ─────────────────────────────────────────────────────────────────────────
+    if (isAwaitingConfirmation && (isExplicitConfirm || isExplicitCancel)) {
+      if (isExplicitConfirm) {
+        draft.confirmed = true;
+        const currentDraftHash = draft.draftHash || computeDraftHash(draft);
+        draft.confirmedDraftHash = currentDraftHash;
+        draft.lastReplyKind = 'dispatch';
+        const settledIntent = draft.intent || 'momo.transfer';
+        const serviceDef = serviceRegistry.get(settledIntent);
+        if (serviceDef?.handler) {
+          const dispatchKey = `${input.sessionId || 'session'}:${currentDraftHash}`;
+          await serviceDef.handler({
+            slots: draft.slots,
+            sessionLanguage,
+            callerNumber: input.callerNumber,
+            sessionId: input.sessionId,
+            confirmedDraftHash: currentDraftHash,
+            dispatchKey,
+          });
+        }
+        const decision: BrainDecision = {
+          kind: 'dispatch',
+          intent: settledIntent,
+          slots: { ...draft.slots },
+        };
+        const reply = await replyComposer.composeReply({
+          decision,
+          language: activeLanguage,
+          slots: draft.slots,
+        });
+        return finalizeOutput({
+          decision,
+          reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
+          updatedDraft: draft,
+          sessionLanguage,
+        });
+      } else {
+        // Explicit Cancel
+        draft.confirmed = false;
+        draft.lastReplyKind = 'cancel';
+        const decision: BrainDecision = {
+          kind: 'cancel',
+          intent: draft.intent,
+        };
+        const reply = await replyComposer.composeReply({
+          decision,
+          language: activeLanguage,
+          slots: draft.slots,
+        });
+        return finalizeOutput({
+          decision,
+          reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
+          updatedDraft: draft,
+          sessionLanguage,
+        });
+      }
+    }
+
     let modelOutput: ModelOutputContract | null = null;
 
-    // Gemini is the primary interpreter in live mode; explicit approval/cancel
-    // remains on the deterministic safety path and model failures fall back below.
-    if (
-      effectiveBrainMode === 'live' &&
-      !isExplicitConfirm &&
-      !isExplicitCancel &&
-      geminiClient.isAvailable()
-    ) {
+    // ─────────────────────────────────────────────────────────────────────────
+    // STEP 2: CONVERSATIONAL AI (GEMINI) OWNS THE DIALOGUE
+    // Local regexes and parsers stay DORMANT. No slot scraping during conversation.
+    // ─────────────────────────────────────────────────────────────────────────
+    const shouldCallGemini = (effectiveBrainMode === 'live' || input.forceModel === true) && geminiClient.isAvailable();
+
+    if (shouldCallGemini) {
       modelOutput = await this.callModelWithFallback(
         rawTranscript,
         targetDialect,
@@ -330,9 +392,9 @@ export class Brain {
 
     if (modelOutput) {
       // ── CONVERSATIONAL PATH (GEMINI IN THE DRIVER'S SEAT) ──
-      // Gemini owns the conversation. Local regexes do NOT actively run.
 
-      // Case A: Gemini needs more information (Conversational Turn)
+      // Case A: Gemini needs more information or is conversing (Conversational Turn)
+      // Local system DOES NOTHING except stream Gemini's words via TTS!
       if (modelOutput.reply.reply_kind === 'clarify_slot') {
         draft.lastReplyKind = 'clarify_slot';
         if (modelOutput.intent?.id) {
@@ -364,6 +426,9 @@ export class Brain {
             ...draft.slots.recipient,
             ...modelOutput.slots.recipient,
           };
+        }
+        if ((modelOutput.slots as any)?.reference) {
+          (draft.slots as any).reference = (modelOutput.slots as any).reference;
         }
 
         const currentDraftHash = computeDraftHash(draft);
@@ -968,40 +1033,111 @@ export class Brain {
     const sanitized = sanitizeTranscriptForModel(rawTranscript);
     const masked = maskPhoneNumbers(sanitized);
 
-    try {
-      const response = await geminiClient.executeWithTimeout(
-        "BRAIN_REASONING_CHAT",
-        async (rawClient, signal) => {
-          const chat = reasoningEngine.getOrCreateChatSession(sessionKey, rawClient, this.config.modelName);
-          return await chat.sendMessage({
-            message: sanitized,
-          });
-        },
-        this.config.modelTimeoutMs,
-        0
-      );
+    const candidateModels = [
+      this.config.modelName || 'gemini-3.1-flash-lite',
+      'gemini-3.1-flash-lite',
+      'gemini-3.1-flash-lite-preview',
+      'gemini-flash-latest',
+      'gemini-3.8-flash',
+    ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
 
-      // Discard stale response if a newer turn has already executed
-      if (turnId !== this.currentTurnId) {
-        return null;
+    let response: any = null;
+    let selectedModel = this.config.modelName || 'gemini-3.1-flash-lite';
+    let lastError: any = null;
+
+    for (const model of candidateModels) {
+      if (!geminiClient.isModelAvailable(model)) {
+        continue;
       }
+      try {
+        response = await geminiClient.executeWithTimeout(
+          "BRAIN_REASONING_CHAT",
+          async (rawClient, signal) => {
+            const chat = reasoningEngine.getOrCreateChatSession(sessionKey, rawClient, model);
+            return await chat.sendMessage({
+              message: sanitized,
+            });
+          },
+          this.config.modelTimeoutMs,
+          0,
+          () => {
+            auditLogger.log("info", "BRAIN_STALLING", "Gemini turn reasoning reached 10s: caller comfort prompt triggered.");
+          },
+          10000,
+          model
+        );
+        selectedModel = model;
+        lastError = null;
+        break; // Successfully got response!
+      } catch (err: any) {
+        lastError = err;
+        const msg = String(err?.message || "");
+        if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("Quota exceeded")) {
+          console.warn(`[Brain] Model '${model}' quota exceeded; attempting candidate failover...`);
+        } else if (msg.includes("Timeout")) {
+          console.warn(`[Brain] Model '${model}' reasoning exceeded timeout budget.`);
+          break; // If hard 20s budget was reached, don't restart another 20s wait
+        } else {
+          console.warn(`[Brain] Model '${model}' error: ${msg.slice(0, 100)}`);
+        }
+      }
+    }
 
-      // 1. Check for native Function Calls
-      const functionCalls = (response as any)?.functionCalls;
-      if (functionCalls && Array.isArray(functionCalls) && functionCalls.length > 0) {
-        const call = functionCalls[0];
-        const args = call.args || {};
+    if (!response) {
+      const failureReason = lastError?.message?.includes("Timeout")
+        ? "Exceeded 20-second reasoning budget (API latency / processing delay)"
+        : lastError?.message?.includes("429") || lastError?.message?.includes("RESOURCE_EXHAUSTED")
+        ? "All Gemini candidate models reached quota limits"
+        : `Gemini API error: ${lastError?.message?.slice(0, 80) || "Unknown"}`;
+      auditLogger.log("warn", "BRAIN_GEMINI_FALLBACK_DIAGNOSIS", `Gemini reasoning did not return a response. Root cause: ${failureReason}. Handing over to local deterministic fallback.`);
+      console.warn(`[Brain] Gemini fallback diagnosed: ${failureReason}`);
+      return null;
+    }
 
-        if (call.name === "process_send_money") {
-          const amount = typeof args.amount === "number" ? args.amount : parseFloat(args.amount) || undefined;
-          const phone = args.recipient_number ? String(args.recipient_number).replace(/[^0-9]/g, "") : undefined;
-          const ref = args.reference ? String(args.reference) : "Transfer";
+    // Discard stale response if a newer turn has already executed
+    if (turnId !== this.currentTurnId) {
+      return null;
+    }
 
+    // 1. Check for native Function Calls
+    const functionCalls = (response as any)?.functionCalls;
+    if (functionCalls && Array.isArray(functionCalls) && functionCalls.length > 0) {
+      const call = functionCalls[0];
+      const args = call.args || {};
+
+      if (call.name === "process_send_money") {
+        const amount = typeof args.amount === "number" ? args.amount : parseFloat(args.amount) || undefined;
+        let phone = args.recipient_number ? String(args.recipient_number).replace(/[^0-9]/g, "") : undefined;
+        if (phone && phone.length === 9 && ["2", "3", "5"].includes(phone[0])) {
+          phone = "0" + phone;
+        }
+        if (phone && phone.length === 12 && phone.startsWith("233")) {
+          phone = "0" + phone.slice(3);
+        }
+        const ref = args.reference ? String(args.reference) : "Transfer";
+        const recipientName = args.recipient_name ? String(args.recipient_name).trim() : undefined;
+        const network = args.network ? String(args.network).trim() : undefined;
+
+        // If phone number is missing, store gathered details and ask for the phone number
+        if (!phone || phone.length < 9) {
+          if (amount !== undefined) draft.slots.amount = amount;
+          if (recipientName) {
+            if (!draft.slots.recipient) draft.slots.recipient = {};
+            draft.slots.recipient.name = recipientName;
+          }
+          if (network) {
+            (draft.slots as any).network = network;
+          }
+          const prompt = recipientName
+            ? `What is the phone number of ${recipientName}?`
+            : "What is the phone number of the person you are sending to?";
           return {
             intent: { id: "momo.transfer", confidence: 0.98 },
             slots: {
               amount,
-              recipient: { phone },
+              recipient: { name: recipientName },
+              reference: ref,
+              network,
             },
             signals: {
               correction: false,
@@ -1009,22 +1145,25 @@ export class Brain {
               user_confirmed: false,
             },
             reply: {
-              text_en: `You want to send ${amount} cedis to ${phone} for ${ref}. Please confirm.`,
+              text_en: prompt,
               target_language: targetLanguage,
-              reply_kind: "confirm",
+              reply_kind: "clarify_slot",
             },
           };
         }
 
-        if (call.name === "process_cash_out") {
-          const amount = typeof args.amount === "number" ? args.amount : parseFloat(args.amount) || undefined;
-          const agent = args.agent_number ? String(args.agent_number).replace(/[^0-9]/g, "") : undefined;
-
+        // If amount is missing, store recipient and ask for the amount
+        if (amount === undefined || isNaN(amount)) {
+          if (!draft.slots.recipient) draft.slots.recipient = {};
+          draft.slots.recipient.phone = phone;
+          if (recipientName) draft.slots.recipient.name = recipientName;
+          if (network) (draft.slots as any).network = network;
           return {
             intent: { id: "momo.transfer", confidence: 0.98 },
             slots: {
-              amount,
-              recipient: { phone: agent },
+              recipient: { phone, name: recipientName },
+              reference: ref,
+              network,
             },
             signals: {
               correction: false,
@@ -1032,41 +1171,117 @@ export class Brain {
               user_confirmed: false,
             },
             reply: {
-              text_en: `You want to cash out ${amount} cedis with agent ${agent}. Please confirm.`,
+              text_en: "How many Ghana cedis do you want to send?",
               target_language: targetLanguage,
-              reply_kind: "confirm",
+              reply_kind: "clarify_slot",
             },
           };
         }
-      }
 
-      // 2. Check for Conversational Text follow-up
-      const rawText = typeof (response as any)?.text === "string"
-        ? (response as any).text
-        : ((response as any)?.text ? String((response as any).text) : "");
-
-      const conversationalText = rawText.trim();
-      if (conversationalText) {
+        if (network) (draft.slots as any).network = network;
         return {
-          intent: { id: (draft.intent as any) || "momo.transfer", confidence: 0.90 },
-          slots: {},
+          intent: { id: "momo.transfer", confidence: 0.98 },
+          slots: {
+            amount,
+            recipient: { phone, name: recipientName },
+            reference: ref,
+            network,
+          },
           signals: {
             correction: false,
             interruption: false,
             user_confirmed: false,
           },
           reply: {
-            text_en: conversationalText,
+            text_en: `You want to send ${amount} cedis to ${recipientName ? recipientName + ' on ' : ''}${phone}${network ? ' (' + network + ')' : ''} for ${ref}. Please confirm.`,
             target_language: targetLanguage,
-            reply_kind: "clarify_slot",
+            reply_kind: "confirm",
           },
         };
       }
 
-      return null;
-    } catch {
-      return null;
+      if (call.name === "process_cash_out") {
+        const amount = typeof args.amount === "number" ? args.amount : parseFloat(args.amount) || undefined;
+        const agent = args.agent_number ? String(args.agent_number).replace(/[^0-9]/g, "") : undefined;
+
+        if (!agent || agent.length < 5) {
+          if (amount !== undefined) draft.slots.amount = amount;
+          return {
+            intent: { id: "momo.transfer", confidence: 0.98 },
+            slots: { amount },
+            signals: { correction: false, interruption: false, user_confirmed: false },
+            reply: {
+              text_en: "What is the agent number or code you want to cash out with?",
+              target_language: targetLanguage,
+              reply_kind: "clarify_slot",
+            },
+          };
+        }
+
+        if (amount === undefined || isNaN(amount)) {
+          return {
+            intent: { id: "momo.transfer", confidence: 0.98 },
+            slots: { recipient: { phone: agent } },
+            signals: { correction: false, interruption: false, user_confirmed: false },
+            reply: {
+              text_en: "How many Ghana cedis do you want to cash out?",
+              target_language: targetLanguage,
+              reply_kind: "clarify_slot",
+            },
+          };
+        }
+
+        return {
+          intent: { id: "momo.transfer", confidence: 0.98 },
+          slots: {
+            amount,
+            recipient: { phone: agent },
+          },
+          signals: {
+            correction: false,
+            interruption: false,
+            user_confirmed: false,
+          },
+          reply: {
+            text_en: `You want to cash out ${amount} cedis with agent ${agent}. Please confirm.`,
+            target_language: targetLanguage,
+            reply_kind: "confirm",
+          },
+        };
+      }
     }
+
+    // 2. Check for Conversational Text follow-up
+    const rawText = typeof (response as any)?.text === "string"
+      ? (response as any).text
+      : ((response as any)?.text ? String((response as any).text) : "");
+
+    const conversationalText = rawText.trim();
+    if (conversationalText) {
+      const halfMatch = rawTranscript.match(/half of (?:my )?(\d+)/i) || rawTranscript.match(/(?:have|got)\s+(\d+).*?half/i);
+      if (halfMatch) {
+        const computed = parseFloat(halfMatch[1]) / 2;
+        if (!isNaN(computed) && computed > 0 && computed <= this.config.maxTransferAmount) {
+          draft.slots.amount = computed;
+        }
+      }
+      return {
+        intent: { id: (draft.intent as any) || "momo.transfer", confidence: 0.90 },
+        slots: { ...(draft.slots.amount !== undefined ? { amount: draft.slots.amount } : {}) },
+        signals: {
+          correction: false,
+          interruption: false,
+          user_confirmed: false,
+        },
+        reply: {
+          text_en: conversationalText,
+          target_language: targetLanguage,
+          reply_kind: "clarify_slot",
+        },
+      };
+    }
+
+    return null;
   }
 
   public validateModelContract(data: any): data is ModelOutputContract {
@@ -1097,16 +1312,20 @@ export class Brain {
       'unknown': 0.1,
     };
 
-    const isBill = /\b(?:bill|bills|ecg|gwcl|tua\s+ka|tua\s+bills?|electricity\s+bill|water\s+bill|light\s+bill|meter\s+bill|prepaid\s+meter|postpaid|pay\s+(?:[a-z]+\s+)?(?:bill|bills|ecg|gwcl|electricity|water|light|meter))\b/i.test(lower);
-    const isAirtime = /\b(?:airtime|credit|kɔkɔɔ|topup|recharge|tɔ\s+airtime|tɔ\s+credit)\b/i.test(lower);
-    const isData = /\b(?:buy\s+data|data\s+bundle|internet\s+bundle|bundle|megabytes|gigabytes|wifi\s+bundle|tɔ\s+data|tɔ\s+bundle|intanɛt)\b/i.test(lower);
-
-    // Negative Intent Invariant: A genuine transfer utterance ("send 50 cedis to 055... as a refund")
-    // must NOT be classified as a reversal simply because it mentions "refund" or "wrong number".
     const hasTransferAction = (/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && /\b(?:to|kɔma|give)\b/i.test(lower)) ||
       (/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && (Boolean(draft.slots.recipient?.phone) || /\b0[235]\d{8}\b/.test(lower)));
 
     const isReverse = !hasTransferAction && /\b(?:reverse|reversal|sent\s+by\s+mistake|sesa\s+transaction|nɔmba\s+mfomsoɔ|san\s+fa\s+sika|mfomsoɔ|wrong\s+(?:number|transfer)|refund)\b/i.test(lower);
+    const hasTransferWord = !isReverse && /\b(?:send|sen|transfer|mane|kɔma|soma)\b/i.test(lower);
+
+    // Contextual Invariant: When an utterance contains a transfer action or transfer verb ("send", "transfer", "mane"),
+    // or when the ongoing session intent is already transfer, mentions of "bill", "bills", or "ECG"
+    // represent the payment reference or recipient, NOT a utility inquiry.
+    const isBill = !hasTransferWord && !hasTransferAction && draft.intent !== 'momo.transfer' &&
+      !/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) &&
+      /\b(?:tua\s+ka|tua\s+bills?|electricity\s+bill|water\s+bill|light\s+bill|meter\s+bill|prepaid\s+meter|postpaid|pay\s+(?:[a-z]+\s+)?(?:bill|bills|ecg|gwcl|electricity|water|light|meter))\b/i.test(lower);
+    const isAirtime = !hasTransferWord && /\b(?:airtime|credit|kɔkɔɔ|topup|recharge|tɔ\s+airtime|tɔ\s+credit)\b/i.test(lower);
+    const isData = !hasTransferWord && /\b(?:buy\s+data|data\s+bundle|internet\s+bundle|bundle|megabytes|gigabytes|wifi\s+bundle|tɔ\s+data|tɔ\s+bundle|intanɛt)\b/i.test(lower);
     const isCare = /\b(?:customer\s+care|agent|talk\s+to\s+agent|speak\s+to\s+person|human\s+support|help\s+desk|kasa\s+kyerɛ\s+agent|customer\s+service)\b/i.test(lower);
     const isLoan = /\b(?:loan|quick\s+loan|qwickloan|borrow\s+money|borrow|bosea|gye\s+bosea|fɛm\s+me\s+sika)\b/i.test(lower);
     const isBalance = /\b(?:balance|check\s+balance|hwɛ\s+balance|sika\s+dodoɔ\s+a\s+aka|sika\s+a\s+aka|hwɛ\s+me\s+sika|how\s+much\s+(?:do\s+i\s+have|in\s+my\s+account|in\s+my\s+wallet)|akontaabu)\b/i.test(lower);
@@ -1119,9 +1338,7 @@ export class Brain {
     if (isLoan) scores['momo.loan'] += 0.95;
     if (isBalance) scores['momo.check_balance'] += 0.95;
 
-    const hasTransferWord = !isReverse && /\b(?:send|sen|transfer|mane|kɔma|soma)\b/i.test(lower);
     const hasCurrencyWord = /\b(?:sika|cedi|cedis|sedis|ghs)\b/i.test(lower);
-
     const isNonTransferSpecific = isBill || isAirtime || isData || isReverse || isCare || isLoan || isBalance;
 
     const digitsOnlyInUtterance = lower.replace(/[^0-9]/g, "");
@@ -1202,18 +1419,26 @@ export class Brain {
     }
 
     // 2. Amount extraction
-    const currencyAmountRegex = /\b(\d+(?:\.\d{1,2})?)\s*(?:ghs|cedis?|sedis|sidi)\b/i;
-    const genericAmountRegex = /\b(\d+(?:\.\d{1,2})?)\b/i;
-    const amtMatch = text.match(currencyAmountRegex) || text.match(genericAmountRegex);
-    if (amtMatch && !currentSlots.recipient.phone?.includes(amtMatch[1])) {
-      const parsed = parseFloat(amtMatch[1]);
+    const halfMatch = text.match(/half of (?:my )?(\d+)/i) || text.match(/(?:i have|got)\s+(\d+).*?half/i);
+    if (halfMatch) {
+      const parsed = parseFloat(halfMatch[1]) / 2;
       if (!isNaN(parsed) && parsed > 0 && parsed <= this.config.maxTransferAmount) {
         currentSlots.amount = parsed;
       }
     } else {
-      const decodedNum = precomputedDecoder || numberDecoder.decode(raw);
-      if (decodedNum.numericValue && decodedNum.numericValue > 0 && decodedNum.numericValue <= this.config.maxTransferAmount) {
-        currentSlots.amount = decodedNum.numericValue;
+      const currencyAmountRegex = /\b(\d+(?:\.\d{1,2})?)\s*(?:ghs|cedis?|sedis|sidi)\b/i;
+      const genericAmountRegex = /\b(\d+(?:\.\d{1,2})?)\b/i;
+      const amtMatch = text.match(currencyAmountRegex) || text.match(genericAmountRegex);
+      if (amtMatch && !currentSlots.recipient.phone?.includes(amtMatch[1])) {
+        const parsed = parseFloat(amtMatch[1]);
+        if (!isNaN(parsed) && parsed > 0 && parsed <= this.config.maxTransferAmount) {
+          currentSlots.amount = parsed;
+        }
+      } else {
+        const decodedNum = precomputedDecoder || numberDecoder.decode(raw);
+        if (decodedNum.numericValue && decodedNum.numericValue > 0 && decodedNum.numericValue <= this.config.maxTransferAmount) {
+          currentSlots.amount = decodedNum.numericValue;
+        }
       }
     }
 

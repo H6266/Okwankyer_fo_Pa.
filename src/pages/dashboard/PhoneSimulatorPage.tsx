@@ -22,6 +22,7 @@ import {
   Radio,
   Clock,
   Check,
+  Brain,
 } from "lucide-react";
 import { audioPlaybackController } from "../../audio/audioPlaybackController";
 import { isAcousticSystemEcho } from "../../domain/echoFilter";
@@ -171,6 +172,8 @@ export const PhoneSimulatorPage: React.FC = () => {
   const [clock, setClock] = useState<string>("10:00");
   const [zeroPinOverlay, setZeroPinOverlay] = useState<boolean>(false);
   const [isAudioSpeaking, setIsAudioSpeaking] = useState<boolean>(false);
+  const [isAiReasoning, setIsAiReasoning] = useState<boolean>(false);
+  const [reasoningSec, setReasoningSec] = useState<number>(0);
 
   // ── XML & Telephony Routing State ────────────────────────────────────
   const [activeCallbackUrl, setActiveCallbackUrl] = useState<string | null>(null);
@@ -908,7 +911,12 @@ export const PhoneSimulatorPage: React.FC = () => {
         stop: "0",
         exit: "0",
       };
-      const matchedDtmf = navigationOptions[normalizedOption] || (stepGroup ? optionMap[stepGroup][normalizedOption] : undefined);
+      // Only single-token menu shortcuts (e.g. "1", "2", "8", "9", "0") trigger immediate DTMF auto-dial.
+      // Full natural conversation sentences are routed directly to the AI Brain.
+      const isSingleChoice = effectiveClean.split(/\s+/).length <= 2;
+      const matchedDtmf = isSingleChoice
+        ? (navigationOptions[normalizedOption] || (stepGroup ? optionMap[stepGroup][normalizedOption] : undefined))
+        : undefined;
 
       if (matchedDtmf) {
         addLog("asr", `Spoken menu choice "${effectiveClean}" mapped to keypad [${matchedDtmf}]`);
@@ -928,6 +936,30 @@ export const PhoneSimulatorPage: React.FC = () => {
       }
 
       addLog("AI", `POST /api/ai/brain/process step=${curStep} language=${curLang} forceModel=true`);
+      setIsAiReasoning(true);
+      setReasoningSec(0);
+      const reasoningInterval = setInterval(() => {
+        setReasoningSec((prev) => prev + 1);
+      }, 1000);
+
+      let stallTimer: NodeJS.Timeout | null = setTimeout(async () => {
+        const stallMsg = curLang === "twi"
+          ? "Kyerɛ me kakra, mate deɛ wokaeɛ no na mereka akyerɛ wo seesei ara, mesrɛ wo twɛn kakra."
+          : "Please wait, I heard what you said and I am currently trying to find out what it means, sorry for the delay.";
+        addLog("AI", `[Comfort Loader @10s] "${stallMsg}"`);
+        addChatTurn({ sender: "ai", text: `⏳ ${stallMsg}`, audioSource: "synthesis" });
+        setCurrentPrompt(stallMsg);
+        try {
+          await audioPlaybackController.speakText(stallMsg);
+        } catch {
+          // safe audio playback
+        }
+      }, 10000);
+
+      let timeout20sTimer: NodeJS.Timeout | null = setTimeout(() => {
+        addLog("system", "⏱️ [Gemini Diagnosis @20s] Gemini reasoning reached 20-second threshold without response. Cause: Remote model latency spike or network stall. Transitioning to local deterministic processing.");
+      }, 20000);
+
       try {
         const response = await api.processBrain({
           transcript: effectiveClean,
@@ -937,6 +969,18 @@ export const PhoneSimulatorPage: React.FC = () => {
           sessionId: curSession,
           forceModel: true,
         });
+
+        if (stallTimer) {
+          clearTimeout(stallTimer);
+          stallTimer = null;
+        }
+        if (timeout20sTimer) {
+          clearTimeout(timeout20sTimer);
+          timeout20sTimer = null;
+        }
+        clearInterval(reasoningInterval);
+        setIsAiReasoning(false);
+
         const brainOutput = response.brainOutput;
         brainDraftRef.current = brainOutput.updatedDraft || { slots: {} };
         const slots = brainDraftRef.current.slots || {};
@@ -949,8 +993,40 @@ export const PhoneSimulatorPage: React.FC = () => {
 
         const recipientPhone = slots.recipient?.phone || slots.recipientPhone;
         const amount = typeof slots.amount === "number" && Number.isFinite(slots.amount) ? slots.amount : undefined;
-        const isTransfer = intent === "momo.transfer" || brainOutput.decision.kind === "confirm";
 
+        // Case 1: Conversational Turn (Gemini is conversing, clarifying, or asking questions)
+        // No local slot overrides or step transitions: speak Gemini's reply and await caller response!
+        if (brainOutput.decision.kind === "clarify_slot" && brainOutput.decision.slot === "conversational") {
+          addLog("AI", `Gemini conversational turn: "${replyText}"`);
+          setCurrentPrompt(replyText);
+          currentPromptRef.current = replyText;
+          await audioPlaybackController.speakText(replyText);
+          return;
+        }
+
+        // Case 2: Gemini Tool Handoff (Recipient & Amount Gathered -> Safe Confirmation)
+        if (brainOutput.decision.kind === "confirm") {
+          addLog("state", `AI handed over gathered transaction details: amount=${amount ?? "provided"}, recipient=${recipientPhone || "provided"}. Starting safe readback.`);
+          activeStepNameRef.current = "safe-confirmation";
+          activeCallbackUrlRef.current = `/api/simulator/safe-confirmation?sessionId=${curSession}&lang=${curLang}`;
+          setActiveStepName("safe-confirmation");
+          setActiveCallbackUrl(`/api/simulator/safe-confirmation?sessionId=${curSession}&lang=${curLang}`);
+          setCurrentPrompt(replyText);
+          currentPromptRef.current = replyText;
+          await audioPlaybackController.speakText(replyText);
+          return;
+        }
+
+        // Case 3: Explicit Dispatch after Confirmation
+        if (brainOutput.decision.kind === "dispatch") {
+          addLog("state", `Caller confirmed transaction. Dispatching MoMo execution.`);
+          return dispatchVoiceWebhook(
+            `/api/simulator/safe-confirmation?sessionId=${curSession}&lang=${curLang}`,
+            { dtmfDigits: "1" }
+          );
+        }
+
+        const isTransfer = intent === "momo.transfer";
         if (isTransfer && recipientPhone) {
           const normalizedPhone = normalizeGhanaPhoneNumber(String(recipientPhone));
           if (normalizedPhone.length === 10) {
@@ -991,9 +1067,28 @@ export const PhoneSimulatorPage: React.FC = () => {
         currentPromptRef.current = replyText;
         await audioPlaybackController.speakText(replyText);
       } catch (err: any) {
-        addLog("system", `Brain request failed: ${err.message}`);
+        if (stallTimer) clearTimeout(stallTimer);
+        if (timeout20sTimer) clearTimeout(timeout20sTimer);
+        clearInterval(reasoningInterval);
+        setIsAiReasoning(false);
+        const errMsg = String(err?.message || "");
+        const isTimeout = errMsg.includes("Timeout") || errMsg.includes("20s");
+        if (isTimeout) {
+          addLog("system", "⏱️ [Gemini Diagnosis @20s] Gemini turn exceeded 20-second threshold. Cause: Remote API latency / processing delay. Seamlessly activating local fallback.");
+          addChatTurn({
+            sender: "system",
+            text: "⏱️ Gemini exceeded 20s budget due to API latency. Local offline fallback activated.",
+          });
+        } else {
+          addLog("system", `Brain request failed: ${errMsg}`);
+        }
         const fallbackUrl = resolvePrompt("wrong_figure", curLang);
         if (fallbackUrl) await audioPlaybackController.play(fallbackUrl, "Please choose from the available options.");
+      } finally {
+        if (stallTimer) clearTimeout(stallTimer);
+        if (timeout20sTimer) clearTimeout(timeout20sTimer);
+        clearInterval(reasoningInterval);
+        setIsAiReasoning(false);
       }
 
     },
@@ -1413,6 +1508,32 @@ export const PhoneSimulatorPage: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              {/* Active AI Reasoning Loader Indicator */}
+              {isAiReasoning && (
+                <div className="bg-emerald-950/70 rounded-xl p-2.5 border border-emerald-500/50 text-emerald-200 flex items-center justify-between gap-2 shadow-lg shadow-emerald-950/50 animate-pulse">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
+                    <div>
+                      <div className="text-[11px] font-semibold text-emerald-300 flex items-center gap-1.5">
+                        <Brain className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+                        <span>Gemini Reasoning</span>
+                        <span className="font-mono text-xs text-emerald-400">({reasoningSec}s / 20s)</span>
+                      </div>
+                      <p className="text-[10px] text-emerald-400/80 leading-tight">
+                        {reasoningSec >= 10
+                          ? "Stalling comfort prompt delivered: evaluating speech..."
+                          : "Processing voice, context & arithmetic..."}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-900/80 border border-emerald-700/60 text-emerald-300">
+                      {Math.max(0, 20 - reasoningSec)}s left
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* Active Prompt Card with Replay Button */}
               <div className="bg-slate-950/80 rounded-xl p-2 border border-slate-800/80 flex items-start justify-between gap-2 text-slate-200">
