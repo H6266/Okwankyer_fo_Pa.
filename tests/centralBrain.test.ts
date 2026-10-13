@@ -55,7 +55,21 @@ describe('Central Reasoning Brain - Architectural Invariants', () => {
       }
     });
 
-    it('dispatches a real balance-check capability when the MoMo account API is configured', async () => {
+    it('requires secure verification before checking a balance', async () => {
+      const service = serviceRegistry.get('momo.check_balance');
+      const result = await service!.handler!({
+        slots: {},
+        sessionLanguage: 'en',
+        callerNumber: '0553838464',
+        sessionId: 'sess_balance',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('PIN_REQUIRED_FOR_BALANCE_CHECK');
+      expect(result.result.requiresSecureVerification).toBe(true);
+    });
+
+    it('dispatches a real balance-check capability when the MoMo account API is configured and secure verification is present', async () => {
       vi.spyOn(mtnMomoService, 'getAccountBalance').mockResolvedValueOnce({
         availableBalance: 350.5,
         currency: 'GHS',
@@ -74,6 +88,8 @@ describe('Central Reasoning Brain - Architectural Invariants', () => {
         sessionLanguage: 'en',
         callerNumber: '0553838464',
         sessionId: 'sess_balance',
+        pin: '1234',
+        confirmedOnHandset: true,
       });
 
       expect(result.success).toBe(true);

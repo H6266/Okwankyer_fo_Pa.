@@ -364,7 +364,6 @@ export class ReasoningEngine {
     const functionCalls = response?.functionCalls;
     const detectedLang = languageDetector.detect(rawUtterance);
 
-    // CASE 1: Model invoked a Function Call (all required parameters gathered)
     if (functionCalls && Array.isArray(functionCalls) && functionCalls.length > 0) {
       const call = functionCalls[0];
       const fnName = call.name;
@@ -438,6 +437,14 @@ export class ReasoningEngine {
           },
           requiresConfirmation: true,
           safetyFlags: [],
+          conversationalResponse: confirmationText,
+          functionCall: {
+            name: "process_cash_out",
+            args: { agent_number: agentNumber, amount },
+          },
+        };
+      }
+
       if (fnName === "allow_cash_out") {
         const amount = typeof args.amount === "number" ? args.amount : parseFloat(args.amount) || undefined;
         const entities: EntitySlotMap = {
@@ -449,6 +456,7 @@ export class ReasoningEngine {
         const respText = isTwi
           ? "Yɛabue Allow Cash-Out ama wo mfifii 15 mu wɔ wo wallet so. Wobɛpɛ sɛ yɛhwɛ wo sika a aka ansa na woayi?"
           : "Cash-Out has been enabled on your wallet for the next 15 minutes. Would you like to check if your balance covers your withdrawal and the telco fee?";
+
         return {
           intent: "CASH_OUT",
           confidence: 0.98,
@@ -478,6 +486,7 @@ export class ReasoningEngine {
         const pinPrompt = isTwi
           ? "Mesrɛ wo, bɔ wo secret 4-digit MoMo PIN no wɔ keypad so anaa ka kyerɛ me sɛ wobɛhwɛ wo balance."
           : "Please mention your secret 4-digit MoMo PIN to check your account balance, or use your phone keypad.";
+
         return {
           intent: "CHECK_BALANCE",
           confidence: 0.99,
@@ -503,11 +512,8 @@ export class ReasoningEngine {
       }
     }
 
-    // CASE 2: No Function Call -> Model needs more information; return conversational follow-up
     const rawText = typeof response?.text === "string" ? response.text : (response?.text ? String(response.text) : "");
     const conversationalText = rawText.trim() || "What would you like to do with Mobile Money today?";
-
-    // Extract any partial numbers or intent present in the utterance
     const deterministicUnderstood = aiUnderstanding.understand(rawUtterance, "welcome", existingSlots);
 
     return {

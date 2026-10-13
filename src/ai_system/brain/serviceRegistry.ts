@@ -1,6 +1,6 @@
 /**
  * Ɔkwankyerɛfo Pa - Service Registry (serviceRegistry.ts)
- * 
+ *
  * Separates what the caller might want (Taxonomy) from what is actually built and executable (Registry).
  * Enables modular service expansion without modifying the central brain reasoning loop.
  */
@@ -44,9 +44,6 @@ export class ServiceRegistry {
       },
     });
 
-<<<<<<< HEAD
-    // 2. momo.check_balance - real account balance inquiry via configured MTN API
-=======
     // 1b. momo.cash_out - status: 'ready' (Initiates Allow Cash-Out on subscriber wallet)
     this.register({
       intent: 'momo.cash_out',
@@ -63,19 +60,32 @@ export class ServiceRegistry {
       },
     });
 
-    // 2. momo.check_balance - status: 'ready' (Voice-enabled MoMo Balance Inquiry with PIN security)
->>>>>>> 94aafc00d269488ec6debd2266570b3aab18f94a
+    // 2. momo.check_balance - status: 'ready' (AI-first flow; local fallback only when AI is unavailable)
     this.register({
       intent: 'momo.check_balance',
       status: 'ready',
       requiredSlots: [],
       handler: async (context: any) => {
-<<<<<<< HEAD
-        const product = context?.product === 'disbursement' || context?.product === 'collection'
+        const secureVerification = Boolean(
+          (context?.pin && String(context.pin).trim().length >= 4) ||
+          context?.confirmedOnHandset ||
+          context?.verifiedByPhone
+        );
+
+        if (!secureVerification) {
+          return {
+            success: false,
+            error: 'PIN_REQUIRED_FOR_BALANCE_CHECK',
+            result: {
+              requiresSecureVerification: true,
+              message: 'Secure PIN or handset confirmation is required before checking the MoMo balance.',
+            },
+          };
+        }
+
+        const product = context?.product === 'collection' || context?.product === 'disbursement'
           ? context.product
-          : (serviceOrchestrator as any).getAccountBalance
-            ? 'disbursement'
-            : 'collection';
+          : 'disbursement';
 
         const balance = await serviceOrchestrator.getAccountBalance('MTN', product);
         return {
@@ -88,14 +98,6 @@ export class ServiceRegistry {
             product,
             mode: balance.mode,
           },
-=======
-        const callerPhone = context?.callerNumber || '0543546010';
-        const { cashOutService } = await import('../../services/cashOutService');
-        const balance = cashOutService.getWalletBalance(callerPhone);
-        return {
-          success: true,
-          result: { balance, currency: 'GHS' },
->>>>>>> 94aafc00d269488ec6debd2266570b3aab18f94a
         };
       },
     });
