@@ -84,4 +84,67 @@ describe("MoMo Cash-Out & Voice Withdrawal Service", () => {
     // Balance deducted: 80 - (50 + 0.50) = 29.50
     expect(cashOutService.getWalletBalance(testPhone)).toBe(29.5);
   });
+
+  it("transparently reports INSUFFICIENT_BALANCE with fee and shortfall details", () => {
+    cashOutService.setWalletBalance(testPhone, 30.0);
+    cashOutService.resetPinAttempts(testPhone);
+
+    cashOutService.createAgentWithdrawalRequest(
+      testPhone,
+      "284910",
+      "Kofi Mensah Enterprise (MoMo Agent)",
+      30.0
+    );
+
+    // Valid PIN, but 30.00 balance < 30.00 + 0.30 fee (30.30)
+    const result = cashOutService.approveWithdrawal(testPhone, "1234");
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("INSUFFICIENT_BALANCE");
+    expect(result.balanceDetails).toBeDefined();
+    expect(result.balanceDetails?.currentBalance).toBe(30.0);
+    expect(result.balanceDetails?.requestedAmount).toBe(30.0);
+    expect(result.balanceDetails?.fee).toBe(0.3);
+    expect(result.balanceDetails?.totalRequired).toBe(30.3);
+    expect(result.balanceDetails?.shortage).toBe(0.3);
+    expect(result.balanceDetails?.maxPossibleWithdrawal).toBe(29.5);
+  });
+
+  it("strictly enforces 3-attempt PIN limit and locks wallet on 3rd failure", () => {
+    cashOutService.setWalletBalance(testPhone, 100.0);
+    cashOutService.resetPinAttempts(testPhone);
+
+    cashOutService.createAgentWithdrawalRequest(
+      testPhone,
+      "284910",
+      "Kofi Mensah Enterprise (MoMo Agent)",
+      50.0
+    );
+
+    // Attempt 1: bad PIN
+    const res1 = cashOutService.approveWithdrawal(testPhone, "9999");
+    expect(res1.success).toBe(false);
+    expect(res1.error).toBe("INVALID_PIN");
+    expect(res1.remainingAttempts).toBe(2);
+    expect(res1.isLocked).toBe(false);
+
+    // Attempt 2: bad PIN
+    const res2 = cashOutService.approveWithdrawal(testPhone, "8888");
+    expect(res2.success).toBe(false);
+    expect(res2.error).toBe("INVALID_PIN");
+    expect(res2.remainingAttempts).toBe(1);
+    expect(res2.isLocked).toBe(false);
+
+    // Attempt 3: bad PIN -> WALLET_LOCKED
+    const res3 = cashOutService.approveWithdrawal(testPhone, "7777");
+    expect(res3.success).toBe(false);
+    expect(res3.error).toBe("WALLET_LOCKED");
+    expect(res3.remainingAttempts).toBe(0);
+    expect(res3.isLocked).toBe(true);
+
+    // Even with correct PIN, locked wallet remains locked
+    const res4 = cashOutService.approveWithdrawal(testPhone, "1234");
+    expect(res4.success).toBe(false);
+    expect(res4.error).toBe("WALLET_LOCKED");
+    expect(res4.isLocked).toBe(true);
+  });
 });

@@ -42,9 +42,33 @@ export interface AgentWithdrawalRequest {
   referenceId?: string;
 }
 
+export interface CashOutApprovalResult {
+  success: boolean;
+  error?: "INVALID_PIN" | "WALLET_LOCKED" | "INSUFFICIENT_BALANCE" | "NO_PENDING_REQUEST";
+  remainingAttempts?: number;
+  isLocked?: boolean;
+  referenceId?: string;
+  request?: AgentWithdrawalRequest;
+  balanceDetails?: {
+    currentBalance: number;
+    requestedAmount: number;
+    fee: number;
+    totalRequired: number;
+    shortage: number;
+    maxPossibleWithdrawal: number;
+    agentName: string;
+  };
+}
+
 class CashOutService {
   // In-memory store for active cash-out authorization windows (phone -> state)
   private cashOutRegistry = new Map<string, CashOutState>();
+
+  // Failed PIN attempts tracking (phone -> count)
+  private pinAttempts = new Map<string, number>();
+
+  // Temporarily locked wallets due to 3 failed attempts (phone -> lockedUntil timestamp)
+  private lockedWallets = new Map<string, number>();
 
   // Mock wallet balances for test/sandbox phones (customizable per phone)
   private walletBalances = new Map<string, number>([
@@ -206,16 +230,97 @@ class CashOutService {
   }
 
   /**
-   * Approves a pending withdrawal request
+   * Checks whether the caller's wallet is currently locked
+   */
+  public isWalletLocked(callerPhone: string): boolean {
+    const normalized = normalizeGhanaPhoneNumber(callerPhone).replace(/\D/g, "");
+    const lockedUntil = this.lockedWallets.get(normalized);
+    if (!lockedUntil) return false;
+    if (Date.now() > lockedUntil) {
+      this.lockedWallets.delete(normalized);
+      this.pinAttempts.delete(normalized);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Resets PIN attempts and unlocks wallet for a phone number
+   */
+  public resetPinAttempts(callerPhone: string): void {
+    const normalized = normalizeGhanaPhoneNumber(callerPhone).replace(/\D/g, "");
+    this.pinAttempts.delete(normalized);
+    this.lockedWallets.delete(normalized);
+  }
+
+  /**
+   * Verifies PIN with 3-attempt security tracking and automatic wallet locking
+   */
+  public verifyPin(
+    callerPhone: string,
+    pin: string
+  ): { success: boolean; error?: "INVALID_PIN" | "WALLET_LOCKED"; remainingAttempts?: number; isLocked?: boolean } {
+    const normalized = normalizeGhanaPhoneNumber(callerPhone).replace(/\D/g, "");
+
+    if (this.isWalletLocked(normalized)) {
+      return {
+        success: false,
+        error: "WALLET_LOCKED",
+        remainingAttempts: 0,
+        isLocked: true,
+      };
+    }
+
+    const cleanPin = pin.replace(/\D/g, "");
+    const isValidPin = cleanPin === "1234" || cleanPin === "0000";
+
+    if (!isValidPin) {
+      const currentAttempts = (this.pinAttempts.get(normalized) || 0) + 1;
+      this.pinAttempts.set(normalized, currentAttempts);
+      const remaining = Math.max(0, 3 - currentAttempts);
+
+      if (remaining === 0) {
+        // Lock wallet for 15 minutes
+        this.lockedWallets.set(normalized, Date.now() + 15 * 60 * 1000);
+        return {
+          success: false,
+          error: "WALLET_LOCKED",
+          remainingAttempts: 0,
+          isLocked: true,
+        };
+      }
+
+      return {
+        success: false,
+        error: "INVALID_PIN",
+        remainingAttempts: remaining,
+        isLocked: false,
+      };
+    }
+
+    // Correct PIN: reset attempts
+    this.pinAttempts.delete(normalized);
+    return { success: true };
+  }
+
+  /**
+   * Approves a pending withdrawal request with rigorous 3-attempt PIN security
+   * and transparent balance shortfall reporting.
    */
   public approveWithdrawal(
     callerPhone: string,
     pin: string
-  ): { success: boolean; error?: string; referenceId?: string; request?: AgentWithdrawalRequest } {
+  ): CashOutApprovalResult {
     const normalized = normalizeGhanaPhoneNumber(callerPhone).replace(/\D/g, "");
-    const cleanPin = pin.replace(/\D/g, "");
-    if (cleanPin !== "1234" && cleanPin !== "0000") {
-      return { success: false, error: "INVALID_PIN" };
+
+    const pinCheck = this.verifyPin(normalized, pin);
+    if (!pinCheck.success) {
+      return {
+        success: false,
+        error: pinCheck.error,
+        remainingAttempts: pinCheck.remainingAttempts,
+        isLocked: pinCheck.isLocked,
+      };
     }
 
     const req = this.pendingRequests.get(normalized);
@@ -226,8 +331,24 @@ class CashOutService {
     const currentBal = this.getWalletBalance(normalized);
     const totalDeduction = req.amount + req.fee;
 
+    // Check balance sufficiency
     if (currentBal < totalDeduction) {
-      return { success: false, error: "INSUFFICIENT_BALANCE" };
+      const rawMax = currentBal > 0 ? currentBal / 1.01 : 0;
+      const maxPossibleWithdrawal = Math.max(0, Math.floor(rawMax * 2) / 2);
+
+      return {
+        success: false,
+        error: "INSUFFICIENT_BALANCE",
+        balanceDetails: {
+          currentBalance: currentBal,
+          requestedAmount: req.amount,
+          fee: req.fee,
+          totalRequired: totalDeduction,
+          shortage: Math.round((totalDeduction - currentBal) * 100) / 100,
+          maxPossibleWithdrawal,
+          agentName: req.agentName,
+        },
+      };
     }
 
     // Deduct funds from wallet

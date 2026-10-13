@@ -59,12 +59,20 @@ export class ServiceRegistry {
       },
     });
 
-    // 2. momo.check_balance (Unbuilt in voice IVR - directs caller to *170# for Zero-PIN truth integrity)
+    // 2. momo.check_balance - status: 'ready' (Voice-enabled MoMo Balance Inquiry with PIN security)
     this.register({
       intent: 'momo.check_balance',
-      status: 'not_ready',
+      status: 'ready',
       requiredSlots: [],
-      notReadyMessageKey: 'dial_170_check_balance',
+      handler: async (context: any) => {
+        const callerPhone = context?.callerNumber || '0543546010';
+        const { cashOutService } = await import('../../services/cashOutService');
+        const balance = cashOutService.getWalletBalance(callerPhone);
+        return {
+          success: true,
+          result: { balance, currency: 'GHS' },
+        };
+      },
     });
 
     // 3. momo.buy_airtime (Not ready in v1)

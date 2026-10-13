@@ -34,7 +34,8 @@ Core Principles:
    - If the caller speaks Akan Twi (or asks to speak Twi), reply naturally in Akan Twi.
    - If the caller speaks English, reply in English.
    - Understand local Ghanaian terms and numbering: "cedis", "sika", "hwee", "baako", "mmienu", "aduonum", "ɔha", "apem".
-3. Distinguish Between Sending Money vs Withdrawing Money:
+3. Distinguish Between Sending Money, Withdrawing Money, and Checking Balance:
+   - When a caller asks about their balance, how much they have, or asks to check their account ("how much is in my account", "check balance", "hwɛ me balance ma me", "sika a aka", "what is my balance"), this is a BALANCE INQUIRY (momo.check_balance)! Invoke the 'check_balance' tool immediately! NEVER ask "How many Ghana cedis do you want to send?" or ask for a recipient phone number for a balance inquiry!
    - When a caller says they want to "withdraw money", "cash out", "allow cash out", or in Twi "meyi sika", this is a WITHDRAWAL (momo.cash_out), NOT a transfer!
    - In Ghana, cashing out at an agent works by enabling 'Allow Cash-Out' on the caller's wallet.
    - For a withdrawal or cash-out, the caller DOES NOT need to provide a recipient phone number! NEVER ask them "Who are you sending the money to?" when they said they want to withdraw or cash out.
@@ -51,6 +52,7 @@ Core Principles:
 7. The Clean Handoff:
    - When both the recipient phone number and transaction amount (in GHS) are clearly gathered for sending money, invoke 'process_send_money'.
    - When the caller wants to withdraw or cash out, invoke 'allow_cash_out' or 'process_cash_out'.
+   - When the caller asks to check their balance or account funds, invoke 'check_balance'.
    - If any required parameter is still missing or ambiguous, reply with a short conversational sentence asking for the missing piece.`;
 
 export const SEND_MONEY_TOOL: FunctionDeclaration = {
@@ -116,6 +118,15 @@ export const CASH_OUT_TOOL: FunctionDeclaration = {
   },
 };
 
+export const CHECK_BALANCE_TOOL: FunctionDeclaration = {
+  name: "check_balance",
+  description: "Inquires or checks the caller's Mobile Money wallet account balance or funds (e.g. 'how much is in my account', 'check balance', 'hwɛ me balance', 'sika a aka').",
+  parameters: {
+    type: Type.OBJECT,
+    properties: {},
+  },
+};
+
 interface ActiveChatSession {
   chat: any;
   lastUsedAt: number;
@@ -177,7 +188,7 @@ export class ReasoningEngine {
       model: modelName,
       config: {
         systemInstruction: MOMO_SYSTEM_INSTRUCTION,
-        tools: [{ functionDeclarations: [SEND_MONEY_TOOL, CASH_OUT_TOOL, ALLOW_CASH_OUT_TOOL] }],
+        tools: [{ functionDeclarations: [SEND_MONEY_TOOL, CASH_OUT_TOOL, ALLOW_CASH_OUT_TOOL, CHECK_BALANCE_TOOL] }],
         temperature: 0.2,
       },
     });
@@ -427,10 +438,66 @@ export class ReasoningEngine {
           },
           requiresConfirmation: true,
           safetyFlags: [],
-          conversationalResponse: confirmationText,
+      if (fnName === "allow_cash_out") {
+        const amount = typeof args.amount === "number" ? args.amount : parseFloat(args.amount) || undefined;
+        const entities: EntitySlotMap = {
+          ...existingSlots,
+          ...(amount !== undefined ? { amount } : {}),
+          currency: "GHS",
+        };
+        const isTwi = detectedLang.startsWith("tw") || detectedLang.startsWith("ak");
+        const respText = isTwi
+          ? "Yɛabue Allow Cash-Out ama wo mfifii 15 mu wɔ wo wallet so. Wobɛpɛ sɛ yɛhwɛ wo sika a aka ansa na woayi?"
+          : "Cash-Out has been enabled on your wallet for the next 15 minutes. Would you like to check if your balance covers your withdrawal and the telco fee?";
+        return {
+          intent: "CASH_OUT",
+          confidence: 0.98,
+          language: detectedLang,
+          entities,
+          conversationAct: "REQUEST",
+          correction: null,
+          referenceResolution: null,
+          ambiguity: { isAmbiguous: false, candidates: [] },
+          requestedAction: {
+            type: "CASH_OUT",
+            tool: "allow_cash_out",
+            arguments: { amount },
+          },
+          requiresConfirmation: false,
+          safetyFlags: [],
+          conversationalResponse: respText,
           functionCall: {
-            name: "process_cash_out",
-            args: { agent_number: agentNumber, amount },
+            name: "allow_cash_out",
+            args: { amount },
+          },
+        };
+      }
+
+      if (fnName === "check_balance") {
+        const isTwi = detectedLang.startsWith("tw") || detectedLang.startsWith("ak");
+        const pinPrompt = isTwi
+          ? "Mesrɛ wo, bɔ wo secret 4-digit MoMo PIN no wɔ keypad so anaa ka kyerɛ me sɛ wobɛhwɛ wo balance."
+          : "Please mention your secret 4-digit MoMo PIN to check your account balance, or use your phone keypad.";
+        return {
+          intent: "CHECK_BALANCE",
+          confidence: 0.99,
+          language: detectedLang,
+          entities: existingSlots,
+          conversationAct: "REQUEST",
+          correction: null,
+          referenceResolution: null,
+          ambiguity: { isAmbiguous: false, candidates: [] },
+          requestedAction: {
+            type: "CHECK_BALANCE",
+            tool: "check_balance",
+            arguments: {},
+          },
+          requiresConfirmation: false,
+          safetyFlags: [],
+          conversationalResponse: pinPrompt,
+          functionCall: {
+            name: "check_balance",
+            args: {},
           },
         };
       }

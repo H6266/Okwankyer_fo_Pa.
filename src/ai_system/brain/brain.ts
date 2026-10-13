@@ -1238,6 +1238,28 @@ export class Brain {
           },
         };
       }
+
+      if (call.name === "check_balance") {
+        const isTwi = targetLanguage.startsWith("twi");
+        const prompt = isTwi
+          ? "Mesrɛ wo, bɔ wo secret 4-digit MoMo PIN no wɔ keypad so anaa ka kyerɛ me sɛ wobɛhwɛ wo balance."
+          : "Please mention your secret 4-digit MoMo PIN to check your account balance, or use your phone keypad.";
+
+        return {
+          intent: { id: "momo.check_balance", confidence: 0.99 },
+          slots: {},
+          signals: {
+            correction: false,
+            interruption: false,
+            user_confirmed: false,
+          },
+          reply: {
+            text_en: prompt,
+            target_language: targetLanguage,
+            reply_kind: "clarify_slot",
+          },
+        };
+      }
     }
 
     // 2. Check for Conversational Text follow-up
@@ -1320,7 +1342,8 @@ export class Brain {
     const isData = !isCashOut && !hasTransferWord && /\b(?:buy\s+data|data\s+bundle|internet\s+bundle|bundle|megabytes|gigabytes|wifi\s+bundle|tɔ\s+data|tɔ\s+bundle|intanɛt)\b/i.test(lower);
     const isCare = /\b(?:customer\s+care|agent|talk\s+to\s+agent|speak\s+to\s+person|human\s+support|help\s+desk|kasa\s+kyerɛ\s+agent|customer\s+service)\b/i.test(lower);
     const isLoan = !isCashOut && /\b(?:loan|quick\s+loan|qwickloan|borrow\s+money|borrow|bosea|gye\s+bosea|fɛm\s+me\s+sika)\b/i.test(lower);
-    const isBalance = /\b(?:balance|check\s+balance|hwɛ\s+balance|sika\s+dodoɔ\s+a\s+aka|sika\s+a\s+aka|hwɛ\s+me\s+sika|how\s+much\s+(?:do\s+i\s+have|in\s+my\s+account|in\s+my\s+wallet)|akontaabu)\b/i.test(lower);
+    const isBalance =
+      /\b(?:balance|check\s+balance|check\s+my\s+balance|hwɛ\s+balance|hwɛ\s+me\s+balance|sika\s+dodoɔ\s+a\s+aka|sika\s+a\s+aka|sika\s+a\s+ɛwɔ\s+me\s+kora\s+mu|sika\s+sen\s+na\s+aka|hwɛ\s+me\s+sika|how\s+much\s+(?:do\s+i\s+have|i\s+have|is\s+in|is\s+left\s+in|in\s+my\s+account|in\s+my\s+wallet|money\s+is\s+in|money\s+do\s+i\s+have)|what\s+is\s+my\s+balance|tell\s+me\s+my\s+balance|how\s+much\s+money|how\s+much\s+dey|akontaabu)\b/i.test(lower);
 
     if (isCashOut) scores['momo.cash_out'] += 0.99;
     if (isBill) scores['momo.pay_bill'] += 0.95;

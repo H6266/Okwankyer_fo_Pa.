@@ -802,8 +802,19 @@ export const api = {
   }): Promise<{
     success: boolean;
     error?: string;
+    remainingAttempts?: number;
+    isLocked?: boolean;
     referenceId?: string;
     request?: any;
+    balanceDetails?: {
+      currentBalance: number;
+      requestedAmount: number;
+      fee: number;
+      totalRequired: number;
+      shortage: number;
+      maxPossibleWithdrawal: number;
+      agentName: string;
+    };
     message?: string;
     messageEn?: string;
     messageTw?: string;
@@ -811,6 +822,29 @@ export const api = {
     privacyTipTw?: string;
   }> {
     const res = await fetch("/api/ai/cashout/approve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async understandCashOutIntent(params: {
+    transcript: string;
+    currentState: string;
+    callerPhone?: string;
+    requestedAmount?: number;
+    language?: string;
+  }): Promise<{
+    success: boolean;
+    intent: "AGENT_INITIATED" | "CONFIRM_PROCEED" | "REJECT_CANCEL" | "CHECK_BALANCE" | "WAITING" | "UNKNOWN";
+    action: "FETCH_PENDING" | "PROCEED" | "CANCEL" | "CHECK_BALANCE" | "WAIT" | "CLARIFY";
+    confidence: number;
+    reason?: string;
+    replyEn?: string;
+    replyTw?: string;
+  }> {
+    const res = await fetch("/api/ai/cashout/understand-intent", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
