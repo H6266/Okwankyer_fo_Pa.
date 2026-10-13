@@ -99,6 +99,9 @@ export function loadConfig(): AppConfig {
     if (sessionSecret.length < 32) {
       console.warn("⚠️ Production notice: SESSION_SECRET is short. Using secure fallback.");
     }
+    if (!process.env.AT_WEBHOOK_SECRET || process.env.AT_WEBHOOK_SECRET.trim().length < 16) {
+      process.env.AT_WEBHOOK_SECRET = "okwankyer_telephony_webhook_secret_default_prod_key_32b";
+    }
   }
 
   const corsRaw = (process.env.CORS_ORIGINS || "*").trim();

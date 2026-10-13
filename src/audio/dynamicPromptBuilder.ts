@@ -19,6 +19,7 @@ export interface SafeConfirmationOptions {
   recipientName: string | null;
   isVerified: boolean;
   callbackUrl: string;
+  speechCallbackUrl?: string;
 }
 
 export interface DynamicReceiptOptions {
@@ -51,7 +52,7 @@ export function buildSafeConfirmationPrompt(options: SafeConfirmationOptions): {
   spokenText: string;
   voiceXml: string;
 } {
-  const { language, amount, recipientPhone, recipientName, isVerified, callbackUrl } = options;
+  const { language, amount, recipientPhone, recipientName, isVerified, callbackUrl, speechCallbackUrl } = options;
   const phoneValidation = validateGhanaPhoneNumber(recipientPhone);
   const last4Spaced = phoneValidation.last4Spaced || recipientPhone.slice(-4).split("").join(" ");
   const amountValidation = parseAndValidateAmount(String(amount));
@@ -61,25 +62,29 @@ export function buildSafeConfirmationPrompt(options: SafeConfirmationOptions): {
 
   if (language === "twi") {
     if (isVerified && recipientName) {
-      spokenText = `Worepɛ sɛ womane ${amountFormatted} kɔma ${recipientName} a ne nɔmba wie ${last4Spaced}. Sɛ wopene so a, mia baako (1). Sɛ woampene so a, mia mmienu (2).`;
+      spokenText = `Worepɛ sɛ womane ${amountFormatted} kɔma ${recipientName} a ne nɔmba wie ${last4Spaced}. Sɛ wopene so a, mia baako (1) anaa ka aane. Sɛ woampene so a, mia mmienu (2) anaa ka dabi.`;
     } else {
       // Explicit unverified warning in Akan Twi
-      spokenText = `Kɔkɔbɔ: Yɛantumi anhu edin a ɛbata nɔmba a ɛwie ${last4Spaced} no ho wɔ nkyerɛwee mu. Woremane ${amountFormatted} kɔma nɔmba a yɛnhu ne din. Sɛ wopene so na womane a, mia baako (1). Sɛ woampene so a, mia mmienu (2).`;
+      spokenText = `Kɔkɔbɔ: Yɛantumi anhu edin a ɛbata nɔmba a ɛwie ${last4Spaced} no ho wɔ nkyerɛwee mu. Woremane ${amountFormatted} kɔma nɔmba a yɛnhu ne din. Sɛ wopene so na womane a, mia baako (1) anaa ka aane. Sɛ woampene so a, mia mmienu (2) anaa ka dabi.`;
     }
   } else {
     // English track
     if (isVerified && recipientName) {
-      spokenText = `You are about to send ${amountFormatted} to ${recipientName}, whose phone number ends with ${last4Spaced}. To confirm and continue, press 1. To cancel, press 2. To exit, press 0.`;
+      spokenText = `You are about to send ${amountFormatted} to ${recipientName}, whose phone number ends with ${last4Spaced}. To confirm and continue, press 1 or say confirm. To cancel or change, press 2 or say cancel.`;
     } else {
       // Explicit unverified warning in English
-      spokenText = `Warning: The recipient name for phone number ending with ${last4Spaced} could not be verified in the subscriber directory. You are sending ${amountFormatted} to an unverified recipient. To confirm and continue, press 1. To cancel, press 2. To exit, press 0.`;
+      spokenText = `Warning: The recipient name for phone number ending with ${last4Spaced} could not be verified in the subscriber directory. You are sending ${amountFormatted} to an unverified recipient. To confirm, press 1 or say confirm. To cancel, press 2 or say cancel.`;
     }
   }
 
-  // Africa's Talking compliant VoiceXML with <GetDigits> and dynamic <Say>
+  // Africa's Talking compliant VoiceXML with <GetDigits> and dynamic <Say> + <Record> fallback for voice response
+  const recordElement = speechCallbackUrl
+    ? `\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="6" timeout="4" callbackUrl="${speechCallbackUrl}"/>`
+    : "";
+
   const voiceXml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
         <Say voice="female">${escapeXml(spokenText)}</Say>
-    </GetDigits>`;
+    </GetDigits>${recordElement}`;
 
   return { spokenText, voiceXml };
 }

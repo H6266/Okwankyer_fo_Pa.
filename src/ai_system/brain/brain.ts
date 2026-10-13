@@ -61,6 +61,7 @@ import '../../services/momo';
 import { pilotControls } from '../../services/pilotControls';
 import { pilotMetrics } from '../../services/pilotMetrics';
 import { normalizeGhanaPhoneNumber } from '../../domain/validation';
+import { auditLogger } from '../../services/auditLogger';
 
 export interface BrainConfig {
   mode: BrainMode;
