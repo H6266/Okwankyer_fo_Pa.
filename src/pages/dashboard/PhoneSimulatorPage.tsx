@@ -104,6 +104,7 @@ const STEP_OPTIONS_MAP: Record<string, string> = {
   "verify-amount": "Amount followed by #",
   "safe-confirmation": "1=Confirm Transfer, 2=Edit, 9=Repeat, 0=Cancel",
   "safe-outcome": "1=Confirm Transfer, 0=Cancel",
+  "pin-authorization": "Speak 4-digit PIN aloud or enter via Keypad (0=Cancel)",
 };
 
 const STEP_FRIENDLY_NAMES: Record<string, string> = {
@@ -113,6 +114,7 @@ const STEP_FRIENDLY_NAMES: Record<string, string> = {
   "service-choice": "Service Selection",
   "provider-select": "Network Selection (MTN)",
   "provider-choice": "Network Provider",
+  "pin-authorization": "MoMo PIN Authorization (Voice & Keypad)",
   "action-select": "Supported Action (Send Money)",
   "action-choice": "Action Choice",
   "enter-recipient": "Recipient Phone Entry",
@@ -243,6 +245,10 @@ export const PhoneSimulatorPage: React.FC = () => {
   const isMicMutedRef = useRef<boolean>(false);
   const zeroPinOverlayRef = useRef<boolean>(false);
   const brainDraftRef = useRef<any>({ slots: {} });
+  const pinSilenceGenRef = useRef<number>(0);
+  const pinTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const startPinAuthorizationFlowRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const handlePinSubmissionRef = useRef<(pin: string) => Promise<void>>(() => Promise.resolve());
 
   useEffect(() => { callActiveRef.current = callActive; }, [callActive]);
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
@@ -520,22 +526,10 @@ export const PhoneSimulatorPage: React.FC = () => {
           (parsed.sayText && parsed.sayText.toLowerCase().includes("phone screen"));
 
         if (isPinHandoff) {
-          setZeroPinOverlay(true);
-          setCallStatus("Ended (PIN Handoff)");
-          const pinText = language === "twi"
-            ? "Yɛsrɛ wo, hwɛ wo fon no so na fa wo MoMo PIN a ɛyɛ kokoam no hyɛ mu."
-            : "Please check your phone screen and enter your secret MoMo PIN securely.";
-          setCurrentPrompt(pinText);
-          currentPromptRef.current = pinText;
-          addLog("state", "Zero-PIN Handoff: Telco USSD push sent to phone screen. Mic muted.");
-          addChatTurn({
-            sender: "system",
-            text: pinText,
-            stepName: "safe-outcome",
-            options: "Enter PIN on phone screen",
-            audioSource: "synthesis",
-          });
-          audioPlaybackController.speakText(pinText).catch(() => {});
+          if (startPinAuthorizationFlowRef.current) {
+            startPinAuthorizationFlowRef.current();
+            return;
+          }
         } else {
           setCallStatus("Ended");
           const endText = "Call ended. Lift handset or press Call to begin.";
@@ -787,6 +781,8 @@ export const PhoneSimulatorPage: React.FC = () => {
         } catch {}
       }
 
+      clearPinSilenceTimers();
+
       addLog("state", `Call ended (${reason})`);
       addChatTurn({
         sender: "system",
@@ -796,6 +792,174 @@ export const PhoneSimulatorPage: React.FC = () => {
     },
     [addLog, addChatTurn]
   );
+
+  const clearPinSilenceTimers = useCallback(() => {
+    pinSilenceGenRef.current += 1;
+    if (pinTimerRef.current) {
+      clearTimeout(pinTimerRef.current);
+      pinTimerRef.current = null;
+    }
+  }, []);
+
+  const schedulePinSilenceTimers = useCallback(() => {
+    clearPinSilenceTimers();
+    const gen = pinSilenceGenRef.current;
+    const curLang = languageRef.current || language;
+    const isTwi = curLang === "twi";
+
+    // Stage 1: 5s initial wait (5s + 15s + 20s = 40s total)
+    pinTimerRef.current = setTimeout(async () => {
+      if (pinSilenceGenRef.current !== gen || !callActiveRef.current || activeStepNameRef.current !== "pin-authorization") return;
+
+      const msg1 = isTwi
+        ? "Mepa wo kyɛw bɔ wo PIN no, yɛretwɛn deɛ worebɛka no na yɛawie dwumadie no."
+        : "Please mention your PIN, we are waiting for it to finalize the process.";
+      addLog("system", `[Silence Ladder Stage 1 @5s] "${msg1}"`);
+      addChatTurn({ sender: "ai", text: `⏳ ${msg1}`, audioSource: "synthesis", stepName: "pin-authorization" });
+      setCurrentPrompt(msg1);
+      currentPromptRef.current = msg1;
+      try {
+        await audioPlaybackController.speakText(msg1);
+      } catch {}
+
+      if (pinSilenceGenRef.current !== gen || !callActiveRef.current || activeStepNameRef.current !== "pin-authorization") return;
+
+      // Stage 2: 15s after Stage 1 finishes speaking
+      pinTimerRef.current = setTimeout(async () => {
+        if (pinSilenceGenRef.current !== gen || !callActiveRef.current || activeStepNameRef.current !== "pin-authorization") return;
+
+        const msg2 = isTwi
+          ? "Yɛda so retwɛn wo, mesrɛ wo fa wo keypad no bɔ mu sɛ worentumi nka no nteaseɛ a."
+          : "We are still waiting for you please, use your keypad if you cannot say it out loud.";
+        addLog("system", `[Silence Ladder Stage 2 @+15s] "${msg2}"`);
+        addChatTurn({ sender: "ai", text: `⏳ ${msg2}`, audioSource: "synthesis", stepName: "pin-authorization" });
+        setCurrentPrompt(msg2);
+        currentPromptRef.current = msg2;
+        try {
+          await audioPlaybackController.speakText(msg2);
+        } catch {}
+
+        if (pinSilenceGenRef.current !== gen || !callActiveRef.current || activeStepNameRef.current !== "pin-authorization") return;
+
+        // Stage 3: 20s after Stage 2 finishes speaking (total 40s silence reached -> termination)
+        pinTimerRef.current = setTimeout(async () => {
+          if (pinSilenceGenRef.current !== gen || !callActiveRef.current || activeStepNameRef.current !== "pin-authorization") return;
+
+          const msg3 = isTwi
+            ? "Ɛte sɛ nea yɛantumi ante wo PIN no, enti yɛrebɛto fon no mu seesei ara. Nante yie."
+            : "We are about to end the call as we could not receive your PIN. Goodbye.";
+          addLog("system", `[Silence Ladder Stage 3 @+20s, Total 40s reached] "${msg3}"`);
+          addChatTurn({ sender: "ai", text: `📞 ${msg3}`, audioSource: "synthesis", stepName: "pin-authorization" });
+          setCurrentPrompt(msg3);
+          currentPromptRef.current = msg3;
+          try {
+            await audioPlaybackController.speakText(msg3);
+          } catch {}
+          endCall("PIN silence timeout (40s reached without input)");
+        }, 20000);
+      }, 15000);
+    }, 5000);
+  }, [clearPinSilenceTimers, language, addLog, addChatTurn, endCall]);
+
+  const handlePinSubmission = useCallback(
+    async (pinValue: string) => {
+      clearPinSilenceTimers();
+      const cleanPin = pinValue.replace(/\D/g, "");
+      if (cleanPin.length !== 4) return;
+
+      const curSession = sessionIdRef.current || sessionId;
+      const curLang = languageRef.current || language;
+      const isTwi = curLang === "twi";
+      const slots = brainDraftRef.current?.slots || {};
+      const txAmount = typeof slots.amount === "number" ? slots.amount : 50;
+      const recPhone = slots.recipient?.phone || slots.recipientPhone || "0244123456";
+      const recName = slots.verifiedName || slots.recipient?.name || "Emmanuel Mensah";
+      const txNet = slots.network || "MTN";
+
+      addLog("caller", `PIN submitted: **** (4 digits secured)`);
+      addLog("state", `Submitting PIN directly to MoMo Sandbox authorization service...`);
+
+      try {
+        const res = await api.submitPin({
+          sessionId: curSession,
+          pin: cleanPin,
+          amount: txAmount,
+          recipientPhone: recPhone,
+          recipientName: recName,
+          network: txNet,
+          callerPhone: callerNumber,
+          language: curLang,
+        });
+
+        if (res.success) {
+          addLog("state", `✓ MoMo Sandbox Transaction Approved! Ref: ${res.reference}`);
+          const successText = (isTwi ? res.messageTw : res.message) || `Transfer of ${txAmount} Cedis completed successfully! Ref: ${res.reference}`;
+          addChatTurn({ sender: "ai", text: successText, audioSource: "synthesis", stepName: "completed" });
+          activeStepNameRef.current = "completed";
+          setActiveStepName("completed");
+          setCurrentPrompt(successText);
+          currentPromptRef.current = successText;
+          await audioPlaybackController.speakText(successText);
+        } else {
+          if (res.error === "WALLET_LOCKED") {
+            addLog("system", `🔒 Wallet locked due to 3 failed PIN attempts.`);
+            const lockText = (isTwi ? res.messageTw : res.message) || "Wallet locked for security. Goodbye.";
+            addChatTurn({ sender: "ai", text: lockText, audioSource: "synthesis", stepName: "locked" });
+            setCurrentPrompt(lockText);
+            currentPromptRef.current = lockText;
+            await audioPlaybackController.speakText(lockText);
+            endCall("Wallet locked (maximum PIN attempts exceeded)");
+          } else {
+            // INVALID_PIN: Re-engage AI reasoning & safety advice
+            addLog("AI", `[Safety Guard] PIN verification failed. Remaining attempts: ${res.remainingAttempts}. Speaking security & lockout advisory.`);
+            const warnText = (isTwi ? res.messageTw : res.message) || `PIN incorrect. ${res.remainingAttempts} attempts remaining. Please use your phone keypad if you prefer.`;
+            addChatTurn({ sender: "ai", text: warnText, audioSource: "synthesis", stepName: "pin-authorization" });
+            setCurrentPrompt(warnText);
+            currentPromptRef.current = warnText;
+            await audioPlaybackController.speakText(warnText);
+            schedulePinSilenceTimers();
+          }
+        }
+      } catch (err: any) {
+        addLog("system", `PIN verification error: ${err.message}`);
+        schedulePinSilenceTimers();
+      }
+    },
+    [clearPinSilenceTimers, sessionId, language, callerNumber, addLog, addChatTurn, endCall, schedulePinSilenceTimers]
+  );
+
+  const startPinAuthorizationFlow = useCallback(async () => {
+    clearPinSilenceTimers();
+    activeStepNameRef.current = "pin-authorization";
+    setActiveStepName("pin-authorization");
+    setDigitsBuffer("");
+
+    const curLang = languageRef.current || language;
+    const isTwi = curLang === "twi";
+    const promptText = isTwi
+      ? "Mepa wo kyɛw bɔ wo MoMo PIN ahintasɛm no, anaa fa wo keypad no bɔ mu."
+      : "Please mention your secret MoMo PIN, or use your phone keypad if you prefer.";
+
+    addLog("state", `Entering PIN authorization state. Microphone is active and listening for spoken digits or keypad entry.`);
+    addLog("AI", `[Zero-PIN Guard] LLM disabled during PIN collection. Digits are routed directly to MoMo Sandbox authorization service.`);
+    addChatTurn({ sender: "ai", text: promptText, audioSource: "synthesis", stepName: "pin-authorization" });
+    setCurrentPrompt(promptText);
+    currentPromptRef.current = promptText;
+
+    try {
+      await audioPlaybackController.speakText(promptText);
+    } catch {}
+
+    schedulePinSilenceTimers();
+  }, [clearPinSilenceTimers, language, addLog, addChatTurn, schedulePinSilenceTimers]);
+
+  useEffect(() => {
+    startPinAuthorizationFlowRef.current = startPinAuthorizationFlow;
+  }, [startPinAuthorizationFlow]);
+
+  useEffect(() => {
+    handlePinSubmissionRef.current = handlePinSubmission;
+  }, [handlePinSubmission]);
 
   // ── Speech Recognition & Spoken Turn Handler ──────────────────────────
   const processSpokenUtterance = useCallback(
@@ -861,6 +1025,42 @@ export const PhoneSimulatorPage: React.FC = () => {
       const curStep = activeStepNameRef.current;
       const curSession = sessionIdRef.current;
       const curLang = languageRef.current || "en";
+
+      // 0. PIN Authorization Step (AI LLM is BYPASSED for security!)
+      if (curStep === "pin-authorization") {
+        clearPinSilenceTimers();
+        const lower = effectiveClean.toLowerCase();
+        if (lower.includes("cancel") || lower.includes("dabi") || lower.includes("stop") || lower.includes("exit")) {
+          addLog("caller", "Spoken cancellation during PIN authorization.");
+          endCall("User cancelled PIN authorization");
+          return;
+        }
+
+        const digitsFromSpoken = normalizeSpokenDigits(effectiveClean);
+        const digitsOnly = digitsFromSpoken.replace(/\D/g, "");
+        const rawDigits = effectiveClean.replace(/\D/g, "");
+        let extractedPin = "";
+        if (digitsOnly.length === 4) {
+          extractedPin = digitsOnly;
+        } else if (rawDigits.length === 4) {
+          extractedPin = rawDigits;
+        } else {
+          const decoded = numberDecoder.decode(effectiveClean);
+          if (decoded.phoneNumberDigits && decoded.phoneNumberDigits.length === 4) {
+            extractedPin = decoded.phoneNumberDigits;
+          }
+        }
+
+        if (extractedPin.length === 4) {
+          addLog("asr", `Extracted 4 spoken PIN digits.`);
+          handlePinSubmission(extractedPin);
+          return;
+        }
+
+        schedulePinSilenceTimers();
+        return;
+      }
+
       const targetCallback =
         activeCallbackUrlRef.current ||
         activeCallbackUrl ||
@@ -917,6 +1117,29 @@ export const PhoneSimulatorPage: React.FC = () => {
       const matchedDtmf = isSingleChoice
         ? (navigationOptions[normalizedOption] || (stepGroup ? optionMap[stepGroup][normalizedOption] : undefined))
         : undefined;
+
+      if (curStep.includes("confirm") || curStep === "safe-confirmation") {
+        const isAffirmative = /\b(yes|confirm|proceed|okay|sure|aane|pene so|ampa|that's him|thats him|correct|send it|kɔ so|yie|1|baako)\b/i.test(effectiveClean) || matchedDtmf === "1";
+        const isNegative = /\b(no|cancel|wrong|dabi|stop|sesa|change|reject|2|mmienu)\b/i.test(effectiveClean) || matchedDtmf === "2";
+        if (isAffirmative) {
+          addLog("caller", `Spoken confirmation approval: "${effectiveClean}"`);
+          startPinAuthorizationFlow();
+          return;
+        } else if (isNegative) {
+          addLog("caller", `Spoken confirmation rejection: "${effectiveClean}"`);
+          brainDraftRef.current = { slots: {} };
+          const cancelMsg = curLang === "twi"
+            ? "Yɛatwa mu. Wo pɛ sɛ womane sika kɔ nɔmba foforɔ bɛn so?"
+            : "Transaction cancelled. What phone number would you like to send money to instead?";
+          addChatTurn({ sender: "ai", text: cancelMsg, audioSource: "synthesis" });
+          setCurrentPrompt(cancelMsg);
+          currentPromptRef.current = cancelMsg;
+          activeStepNameRef.current = "enter-recipient";
+          setActiveStepName("enter-recipient");
+          await audioPlaybackController.speakText(cancelMsg);
+          return;
+        }
+      }
 
       if (matchedDtmf) {
         addLog("asr", `Spoken menu choice "${effectiveClean}" mapped to keypad [${matchedDtmf}]`);
@@ -1017,13 +1240,11 @@ export const PhoneSimulatorPage: React.FC = () => {
           return;
         }
 
-        // Case 3: Explicit Dispatch after Confirmation
+        // Case 3: Explicit Dispatch after Confirmation -> Start PIN Authorization
         if (brainOutput.decision.kind === "dispatch") {
-          addLog("state", `Caller confirmed transaction. Dispatching MoMo execution.`);
-          return dispatchVoiceWebhook(
-            `/api/simulator/safe-confirmation?sessionId=${curSession}&lang=${curLang}`,
-            { dtmfDigits: "1" }
-          );
+          addLog("state", `Caller confirmed transaction. Starting active PIN authorization.`);
+          startPinAuthorizationFlow();
+          return;
         }
 
         const isTransfer = intent === "momo.transfer";
@@ -1279,6 +1500,34 @@ export const PhoneSimulatorPage: React.FC = () => {
         text: `Pressed Key '${digit}'`,
         stepName: activeStepNameRef.current,
       });
+
+      // Special Handling 1: Keypad input during PIN Authorization
+      if (activeStepNameRef.current === "pin-authorization") {
+        clearPinSilenceTimers();
+        if (digit === "0" && digitsBuffer.length === 0) {
+          addLog("caller", "Cancelled PIN authorization via Keypad 0.");
+          endCall("User pressed 0 to cancel PIN");
+          return;
+        }
+        const nextPin = digitsBuffer + digit;
+        setDigitsBuffer(nextPin);
+        addLog("caller", `Keypad PIN digit entered (*#*#)`);
+        if (nextPin.length === 4) {
+          setDigitsBuffer("");
+          handlePinSubmission(nextPin);
+        } else {
+          schedulePinSilenceTimers();
+        }
+        return;
+      }
+
+      // Special Handling 2: Keypad '1' during safe-confirmation
+      if (digit === "1" && (activeStepNameRef.current === "safe-confirmation" || activeStepNameRef.current.includes("confirm"))) {
+        setDigitsBuffer("");
+        addLog("caller", `Keypad '1' confirmed transaction. Entering PIN authorization.`);
+        startPinAuthorizationFlow();
+        return;
+      }
 
       // Multi-digit input with finish on key (#)
       if (digit === activeFinishOnKey) {

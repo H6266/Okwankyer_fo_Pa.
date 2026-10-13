@@ -227,7 +227,17 @@ export class ReplyComposer {
     let replyKind: 'confirm' | 'clarify_slot' | 'clarify_intent' | 'not_ready' | 'smalltalk' = 'smalltalk';
 
     if (decision.kind === 'confirm') {
-      templateKey = 'confirm';
+      if (slots.hasNameDiscrepancy && slots.hasNetworkDiscrepancy) {
+        templateKey = 'confirm_name_and_network_discrepancy';
+      } else if (slots.hasNameDiscrepancy) {
+        templateKey = 'confirm_name_discrepancy';
+      } else if (slots.hasNetworkDiscrepancy) {
+        templateKey = 'confirm_network_discrepancy';
+      } else if (slots.verifiedName) {
+        templateKey = 'confirm_with_verified_name';
+      } else {
+        templateKey = 'confirm';
+      }
       replyKind = 'confirm';
     } else if (decision.kind === 'dispatch') {
       templateKey = 'dispatch';
@@ -277,8 +287,8 @@ export class ReplyComposer {
     sentenceTracker.record(preInjectionTemplate);
 
     const hasAmount = typeof slots.amount === 'number';
-    const hasRecipient = Boolean(slots.recipient?.phone || slots.recipient?.name || (slots as any).recipientName || (slots as any).recipientPhone);
-    const readbackSpoken = decision.kind === 'confirm' && translationResult.template_key === 'confirm' && hasAmount && hasRecipient;
+    const hasRecipient = Boolean(slots.recipient?.phone || slots.recipient?.name || (slots as any).recipientName || (slots as any).recipientPhone || slots.verifiedName);
+    const readbackSpoken = decision.kind === 'confirm' && Boolean(translationResult.template_key?.startsWith('confirm')) && hasAmount && hasRecipient;
 
     return {
       text: translationResult.text,

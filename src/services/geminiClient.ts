@@ -232,7 +232,8 @@ export class UnifiedGeminiClient {
           msg.includes("429") ||
           msg.includes("RESOURCE_EXHAUSTED") ||
           msg.includes("Quota exceeded") ||
-          msg.includes("generativelanguage.googleapis.com");
+          msg.includes("quota limit") ||
+          msg.includes("Quota limits exceeded");
 
         const isForbidden =
           err.status === 403 ||

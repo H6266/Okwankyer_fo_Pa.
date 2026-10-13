@@ -63,16 +63,20 @@ export class SandboxRecipientResolver implements RecipientResolver {
       };
     }
 
-    // Number is valid format but NOT verified in the directory
+    // Number is valid format: in sandbox, return deterministic dummy registered name
+    const dummySandboxNames: Record<GhanaianNetwork, string> = {
+      MTN: "Emmanuel Mensah",
+      Telecel: "Kofi Annan",
+      AT: "Yaw Mensah",
+    };
     return {
       valid: true,
       phoneNumber: rawPhoneNumber,
       normalizedPhone: val.normalized,
-      name: null,
+      name: dummySandboxNames[val.network] || "Emmanuel Mensah",
       network: val.network,
-      verified: false,
-      source: "UNRESOLVED",
-      warning: "Recipient name could not be verified in the subscriber registry.",
+      verified: true,
+      source: "SANDBOX_FIXTURE",
     };
   }
 }

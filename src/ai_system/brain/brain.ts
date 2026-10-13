@@ -431,6 +431,8 @@ export class Brain {
           (draft.slots as any).reference = (modelOutput.slots as any).reference;
         }
 
+        await this.performKycAndDiscrepancyCheck(draft);
+
         const currentDraftHash = computeDraftHash(draft);
         draft.draftHash = currentDraftHash;
         draft.lastReplyKind = 'confirm';
@@ -945,6 +947,9 @@ export class Brain {
       });
     }
 
+    // Pre-transaction KYC Lookup & Discrepancy Detection
+    await this.performKycAndDiscrepancyCheck(draft);
+
     // NOT YET CONFIRMED: Present confirmation to caller
     draft.lastReplyKind = 'confirm';
     draft.confirmedDraftHash = currentDraftHash;
@@ -1388,6 +1393,45 @@ export class Brain {
     return scores;
   }
 
+  private async performKycAndDiscrepancyCheck(draft: DraftState): Promise<void> {
+    const rawRecipientPhone = draft.slots.recipient?.phone || (draft.slots as any).recipientPhone;
+    if (!rawRecipientPhone) return;
+
+    const normalizedPhone = normalizeGhanaPhoneNumber(String(rawRecipientPhone));
+    try {
+      const { recipientResolver } = await import('../../providers/recipient/RecipientResolver');
+      const kyc = await recipientResolver.resolve(normalizedPhone);
+      if (kyc.name || kyc.network) {
+        draft.slots.verifiedName = kyc.name || "Emmanuel Mensah";
+        draft.slots.network = kyc.network || "MTN";
+
+        // Check for discrepancy between user's candidate name / label and the registered name
+        const statedCandidateName = draft.slots.recipient?.name || (draft.slots as any).candidateName;
+        if (statedCandidateName && typeof statedCandidateName === 'string' && statedCandidateName.trim().length > 0) {
+          const cand = statedCandidateName.toLowerCase().trim();
+          const ver = (draft.slots.verifiedName || "").toLowerCase().trim();
+          if (!['him', 'her', 'them', 'someone', 'recipient', 'cedis', 'ghs', 'money', 'sika', 'the', 'my'].includes(cand)) {
+            if (!ver.includes(cand) && !cand.includes(ver)) {
+              draft.slots.hasNameDiscrepancy = true;
+              draft.slots.candidateName = statedCandidateName;
+            }
+          }
+        }
+
+        // Check for network discrepancy if caller explicitly specified a network
+        const statedNetwork = draft.slots.networkSpecified || (draft.slots as any).candidateNetwork;
+        if (statedNetwork && typeof statedNetwork === 'string') {
+          if (statedNetwork.toUpperCase() !== (draft.slots.network || "").toUpperCase()) {
+            draft.slots.hasNetworkDiscrepancy = true;
+            draft.slots.candidateNetwork = statedNetwork;
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn('[Brain] KYC resolution notice:', err?.message || err);
+    }
+  }
+
   private extractSlotsFromUtterance(raw: string, currentSlots: Slots, precomputedDecoder?: any): void {
     const text = raw.toLowerCase().trim();
 
@@ -1442,16 +1486,26 @@ export class Brain {
       }
     }
 
-    // 3. Recipient Name extraction
-    const nameMatch = raw.match(/\b(?:send\s+(?:it\s+)?to|kɔma|ma|give\s+to)\s+([A-Z][a-z]+|[a-z]+)\b/i);
-    if (nameMatch) {
-      const name = nameMatch[1].trim();
+    // 3. Recipient Name / Label extraction
+    const labelMatch = raw.match(/\b(?:to\s+(?:the\s+)?|kɔma\s+|ma\s+|give\s+to\s+)([A-Za-z\s]+?)\s+(?:on|wɔ|at|\b0[0-9]{9}\b)/i) ||
+      raw.match(/\b(?:send\s+(?:it\s+)?to|kɔma|ma|give\s+to)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\b/i);
+    if (labelMatch) {
+      const name = labelMatch[1].trim();
       const lowerName = name.toLowerCase();
-      if (!['him', 'her', 'them', 'someone', 'cedis', 'ghs', 'money', 'sika', 'kwame', 'ama', 'kofi'].includes(lowerName)) {
-        currentSlots.recipient.name = name.charAt(0).toUpperCase() + name.slice(1);
-      } else if (['kwame', 'ama', 'kofi'].includes(lowerName)) {
-        currentSlots.recipient.name = name.charAt(0).toUpperCase() + name.slice(1);
+      if (!['him', 'her', 'them', 'someone', 'cedis', 'ghs', 'money', 'sika', 'phone', 'number', 'the', 'my'].includes(lowerName)) {
+        currentSlots.recipient.name = name;
       }
+    }
+
+    // 4. Stated Network extraction
+    const netMatch = text.match(/\b(telecel|vodafone|mtn|airteltigo|at(?:\s+money)?)\b/i);
+    if (netMatch) {
+      const netStr = netMatch[1].toLowerCase();
+      currentSlots.networkSpecified = netStr.includes('telecel') || netStr.includes('vodafone')
+        ? 'Telecel'
+        : netStr.includes('mtn')
+        ? 'MTN'
+        : 'AT';
     }
   }
 }

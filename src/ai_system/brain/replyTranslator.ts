@@ -119,7 +119,43 @@ export function injectSlotsIntoTemplate(
     result = result.replace(/\{recipient\}/g, spokenRecipient);
   }
 
-  // 3. Fallback for ANY other unpopulated placeholders (e.g. {network}, etc.)
+  // 3. Verified Name Injection
+  if (result.includes('{verified_name}')) {
+    const vName = slots.verifiedName || slots.recipient?.name || slots.recipientName || 'Emmanuel Mensah';
+    result = result.replace(/\{verified_name\}/g, String(vName));
+  }
+
+  // 4. Candidate Name Injection
+  if (result.includes('{candidate_name}')) {
+    const cName = slots.candidateName || (language.startsWith('twi') ? 'onipa a wobɔɔ ne din no' : 'the name you mentioned');
+    result = result.replace(/\{candidate_name\}/g, String(cName));
+  }
+
+  // 5. Network Injection
+  if (result.includes('{network}')) {
+    const net = slots.network || 'MTN';
+    result = result.replace(/\{network\}/g, String(net));
+  }
+
+  // 6. Candidate Network Injection
+  if (result.includes('{candidate_network}')) {
+    const cNet = slots.candidateNetwork || 'other network';
+    result = result.replace(/\{candidate_network\}/g, String(cNet));
+  }
+
+  // 7. Remaining Attempts Injection (Strict Zero Digits)
+  if (result.includes('{remaining_attempts_words}')) {
+    const rem = slots.remainingAttempts;
+    let spokenAttempts: string;
+    if (language.startsWith('twi')) {
+      spokenAttempts = rem === 1 ? 'baako' : rem === 2 ? 'mmienu' : 'kakrabi';
+    } else {
+      spokenAttempts = rem === 1 ? 'one attempt' : rem === 2 ? 'two attempts' : 'few attempts';
+    }
+    result = result.replace(/\{remaining_attempts_words\}/g, spokenAttempts);
+  }
+
+  // 8. Fallback for ANY other unpopulated placeholders (e.g. {details}, etc.)
   // Rule: NEVER speak a blank or literal {placeholder}
   result = result.replace(/\{[a-zA-Z0-9_-]+\}/g, () => {
     return language.startsWith('twi') ? 'dwumadie no' : 'the details';

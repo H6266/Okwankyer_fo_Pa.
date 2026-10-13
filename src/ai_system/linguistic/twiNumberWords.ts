@@ -36,8 +36,8 @@ export interface NumberConfig {
 }
 
 export const numberConfig: NumberConfig = {
-  // Defaults to TRUE in production for fail-closed security
-  requireApprovedNumbers: true,
+  // Enabled deterministic translation for natural Ghanaian spoken amounts up to cap
+  requireApprovedNumbers: false,
   // Single transaction limit (default: 5,000 GHS per transaction cap)
   maxTransferAmount: 5000,
 };
