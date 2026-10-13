@@ -106,8 +106,8 @@ const STEP_OPTIONS_MAP: Record<string, string> = {
   "safe-confirmation": "1=Confirm Transfer, 2=Edit, 9=Repeat, 0=Cancel",
   "safe-outcome": "1=Confirm Transfer, 0=Cancel",
   "pin-authorization": "Speak 4-digit PIN aloud or enter via Keypad (0=Cancel)",
-  "cashout-offer-balance": "1=Yes (Check Balance & Fee), 2=No (Skip & Wait), 0=Cancel",
-  "cashout-balance-pin": "Speak 4-digit PIN aloud or enter via Keypad (0=Cancel)",
+  "cashout-offer-balance": "Balance check unavailable; 1=Continue to Agent, 0=Cancel",
+  "cashout-balance-pin": "Balance check unavailable",
   "cashout-awaiting-agent": "1=Agent is Done / Approve, 0=End Call",
   "cashout-confirm-approval": "1=Approve Withdrawal, 2=Reject, 0=Cancel",
 };
@@ -129,8 +129,8 @@ const STEP_FRIENDLY_NAMES: Record<string, string> = {
   "verify-amount": "Verify Amount",
   "safe-confirmation": "Safe Transfer Confirmation",
   "safe-outcome": "Zero-PIN Handoff & Authorization",
-  "cashout-offer-balance": "Cash-Out Enabled & Balance Offer",
-  "cashout-balance-pin": "Cash-Out Balance PIN Verification",
+  "cashout-offer-balance": "Cash-Out Enabled; Balance Check Unavailable",
+  "cashout-balance-pin": "Balance Check Unavailable",
   "cashout-awaiting-agent": "Awaiting Agent POS Submission",
   "cashout-confirm-approval": "Agent Withdrawal Approval",
 };
@@ -1193,8 +1193,8 @@ export const PhoneSimulatorPage: React.FC = () => {
           const res = await api.enableVoiceCashOut({ callerPhone: callerNumber, language: curLang });
           const speakText = (isTwi ? res.messageTw : res.messageEn) ||
             (isTwi
-              ? "Yɛabue Allow Cash-Out ama wo mfifii 15 mu sɛ wotumi yi sika wɔ MoMo agent hɔ. Wobɛpɛ sɛ yɛhwɛ wo sika a aka ne fee no ansa na woayi?"
-              : "Cash-Out has been successfully enabled on your wallet for the next 15 minutes. Would you like to check if you have enough balance to cover your withdrawal and the telco fee?");
+              ? "Yɛabue Allow Cash-Out ama wo mfifii 15 mu sɛ wotumi yi sika wɔ MoMo agent hɔ. Yɛrentumi nhwɛ wo balance wɔ assistant yi so; fa wo fon bɔ star, baako, nson, hwee, hash."
+              : "Cash-Out has been enabled on your wallet for the next 15 minutes. Balance checking through this assistant is currently unavailable; dial star, one, seven, zero, hash on your handset.");
           addLog("reply", `"${speakText}"`);
           addChatTurn({ sender: "ai", text: speakText, audioSource: "synthesis", stepName: "cashout-offer-balance" });
           setCurrentPrompt(speakText);
@@ -1209,29 +1209,16 @@ export const PhoneSimulatorPage: React.FC = () => {
       // Cash-Out Step 1: Offer to Check Balance & Fees
       if (curStep === "cashout-offer-balance") {
         clearPinSilenceTimers();
-
-        // Zero-PIN Boundary: Extract any spoken 4-digit PIN into secure memory, then blur from transcript
-        const digitsOnly = effectiveClean.replace(/\D/g, "");
-        let blurtedPin = "";
-        if (digitsOnly.length === 4) {
-          blurtedPin = digitsOnly;
-          heldPinRef.current = blurtedPin;
-        }
-
-        const textForAi = effectiveClean
-          .replace(/\b\d{4}\b/g, "[REDACTED_PIN]")
-          .replace(/\b(?:pin|secret|passcode|code)\s*(?:is|:)?\s*\d+\b/gi, "pin [REDACTED_PIN]");
-
         const aiRes = await api.understandCashOutIntent({
-          transcript: textForAi,
+          transcript: effectiveClean.replace(/\b\d{4}\b/g, "[REDACTED_PIN]"),
           currentState: curStep,
           callerPhone: callerNumber,
           requestedAmount: requestedWithdrawalAmountRef.current,
           language: curLang,
         });
 
+        // Keep the existing agent approval path available without collecting a PIN.
         if (aiRes.action === "FETCH_PENDING" || aiRes.intent === "AGENT_INITIATED") {
-          addLog("state", `AI Agent identified agent initiation directly from offer-balance state.`);
           let pending = await api.getPendingCashOutRequest(callerNumber);
           if (!pending?.hasPending) {
             const simRes = await api.simulateAgentCashOutRequest({
@@ -1245,12 +1232,9 @@ export const PhoneSimulatorPage: React.FC = () => {
           setPendingAgentRequest(pending.request);
           activeStepNameRef.current = "cashout-confirm-approval";
           setActiveStepName("cashout-confirm-approval");
-
           const readbackMsg = isTwi
             ? `MoMo Agent ${pending.request.agentName} rebisa sɛ obeyi sika ${pending.request.amount.toFixed(2)} cedis a telco fee yɛ pesewas ${(pending.request.fee * 100).toFixed(0)} afiri wo account mu. Wopene so?`
             : `MoMo Agent ${pending.request.agentName} is requesting a withdrawal of ${pending.request.amount.toFixed(2)} Cedis with a fee of ${pending.request.fee.toFixed(2)} Cedis. Do you approve this withdrawal?`;
-
-          addLog("reply", `"${readbackMsg}"`);
           addChatTurn({ sender: "ai", text: readbackMsg, audioSource: "synthesis", stepName: "cashout-confirm-approval" });
           setCurrentPrompt(readbackMsg);
           currentPromptRef.current = readbackMsg;
@@ -1258,130 +1242,15 @@ export const PhoneSimulatorPage: React.FC = () => {
           return;
         }
 
-        if (aiRes.action === "PROCEED" || aiRes.intent === "CONFIRM_PROCEED" || aiRes.intent === "CHECK_BALANCE") {
-          addLog("caller", `Caller agreed to check balance and fees: "${effectiveClean}"`);
-          activeStepNameRef.current = "cashout-balance-pin";
-          setActiveStepName("cashout-balance-pin");
-          const pinPrompt = isTwi
-            ? "Mepa wo kyɛw bɔ wo MoMo PIN ahintasɛm no na yɛnhwɛ wo sika ne fee no, anaa fa wo keypad no bɔ mu."
-            : "Please mention your secret 4-digit MoMo PIN to check your balance and fees, or use your phone keypad.";
-          addChatTurn({ sender: "ai", text: pinPrompt, audioSource: "synthesis", stepName: "cashout-balance-pin" });
-          setCurrentPrompt(pinPrompt);
-          currentPromptRef.current = pinPrompt;
-          await audioPlaybackController.speakText(pinPrompt);
-          schedulePinSilenceTimers();
-          return;
-        } else if (aiRes.action === "CANCEL" || aiRes.intent === "REJECT_CANCEL") {
-          addLog("caller", `Caller skipped balance check: "${effectiveClean}"`);
-          activeStepNameRef.current = "cashout-awaiting-agent";
-          setActiveStepName("cashout-awaiting-agent");
-          const waitPrompt = isTwi
-            ? `Yoo, mate aseɛ! Yɛabue kwan ama wo mfifii 15 mu. Wotumi ka wo phone nɔmba ${callerNumber} kyerɛ agent no. Metumi atwɛn wo wɔ call no so na woapene so, anaa wotumi fre me bio sɛ agent no wie a. Kae sɛ, nka wo PIN nkyerɛ agent no da.`
-            : `Understood! Cash-Out remains enabled for 15 minutes. You can tell the agent your number: ${callerNumber}. I can wait on the line with you to approve the request, or you can hang up and call back when they are done. Remember: never share your PIN with the agent.`;
-          addChatTurn({ sender: "ai", text: waitPrompt, audioSource: "synthesis", stepName: "cashout-awaiting-agent" });
-          setCurrentPrompt(waitPrompt);
-          currentPromptRef.current = waitPrompt;
-          await audioPlaybackController.speakText(waitPrompt);
-          return;
-        } else {
-          // Caller mentioned something else (e.g. repeated withdrawal, or said hello)
-          const amtMatch = effectiveClean.match(/(\d+(?:\.\d+)?)\s*(?:cedis?|ghs|gh¢)/i);
-          if (amtMatch) {
-            requestedWithdrawalAmountRef.current = parseFloat(amtMatch[1]);
-          }
-          const repeatMsg = isTwi
-            ? "Yɛabue Allow Cash-Out ama wo dada. Wobɛpɛ sɛ yɛhwɛ wo sika ne fee ansa na woakɔ agent no hɔ? Ka aane anaa daabi."
-            : "Cash-Out is already enabled on your wallet for the next 15 minutes. Would you like to check if your balance covers your withdrawal and the telco fee? Please say yes or no.";
-          addChatTurn({ sender: "ai", text: repeatMsg, audioSource: "synthesis", stepName: "cashout-offer-balance" });
-          setCurrentPrompt(repeatMsg);
-          currentPromptRef.current = repeatMsg;
-          await audioPlaybackController.speakText(repeatMsg);
-          return;
-        }
-      }
-
-      // Cash-Out Step 2: Balance PIN Verification & Affordability Calculation
-      if (curStep === "cashout-balance-pin") {
-        clearPinSilenceTimers();
-        const digitsOnly = effectiveClean.replace(/\D/g, "");
-        let extractedPin = "";
-        if (digitsOnly.length === 4) {
-          extractedPin = digitsOnly;
-        } else {
-          const decoded = numberDecoder.decode(effectiveClean);
-          if (decoded.phoneNumberDigits && decoded.phoneNumberDigits.length === 4) {
-            extractedPin = decoded.phoneNumberDigits;
-          }
-        }
-
-        if (extractedPin.length === 4) {
-          addLog("caller", `PIN submitted: **** (4 digits secured)`);
-          addLog("state", `Checking balance and withdrawal fee breakdown for ${callerNumber}...`);
-          try {
-            const reqAmt = requestedWithdrawalAmountRef.current || 30.0;
-            const balRes = await api.checkCashOutBalance({
-              callerPhone: callerNumber,
-              pin: extractedPin,
-              requestedAmount: reqAmt,
-              language: curLang,
-            });
-
-            if (!balRes.success) {
-              if (balRes.error === "WALLET_LOCKED") {
-                addLog("system", "Security Lockout: Wallet locked due to 3 failed attempts.");
-                const lockText = (isTwi ? balRes.messageTw : balRes.messageEn) || balRes.message || "Wallet locked.";
-                addChatTurn({ sender: "ai", text: lockText, audioSource: "synthesis", stepName: "completed" });
-                activeStepNameRef.current = "completed";
-                setActiveStepName("completed");
-                setCurrentPrompt(lockText);
-                currentPromptRef.current = lockText;
-                await audioPlaybackController.speakText(lockText);
-                endCall("Wallet locked: 3 failed PIN attempts");
-                return;
-              }
-
-              // Invalid PIN: warn and remain on cashout-balance-pin
-              addLog("system", `PIN rejection during balance check: ${balRes.error}`);
-              const warnText = (isTwi ? balRes.messageTw : balRes.messageEn) || balRes.message || "That PIN is incorrect. Please try again.";
-              addChatTurn({ sender: "ai", text: warnText, audioSource: "synthesis", stepName: "cashout-balance-pin" });
-              setCurrentPrompt(warnText);
-              currentPromptRef.current = warnText;
-              await audioPlaybackController.speakText(warnText);
-              schedulePinSilenceTimers();
-              return;
-            }
-
-            const balSpeech = (isTwi ? balRes.messageTw : balRes.messageEn) || balRes.message || "Balance checked.";
-            addLog("reply", `"${balSpeech}"`);
-            addChatTurn({ sender: "ai", text: balSpeech, audioSource: "synthesis", stepName: "cashout-awaiting-agent" });
-            setCurrentPrompt(balSpeech);
-            currentPromptRef.current = balSpeech;
-            await audioPlaybackController.speakText(balSpeech);
-
-            // Follow-up assistance advice
-            activeStepNameRef.current = "cashout-awaiting-agent";
-            setActiveStepName("cashout-awaiting-agent");
-            const followUp = isTwi
-              ? "Metumi atwɛn wo wɔ call no so kɔsi sɛ agent no bɛwie na woapene so, anaa wotumi twa call no mu na woafre bio. Nka wo PIN nkyerɛ agent no da."
-              : "I can wait on the line with you while the agent enters the withdrawal, or you can hang up and call back when they are ready. Remember: never share your PIN with the agent.";
-            addChatTurn({ sender: "ai", text: followUp, audioSource: "synthesis", stepName: "cashout-awaiting-agent" });
-            await audioPlaybackController.speakText(followUp);
-          } catch (err: any) {
-            addLog("system", `PIN balance check error: ${err.message}`);
-          }
-          return;
-        }
-
-        // When extractedPin is not 4 digits (e.g. "123k", 3 digits, or 5 digits)
-        const digitErrorText = isTwi
-          ? "MoMo PIN no yɛ nɔmba nan pɛpɛɛpɛ. Mesrɛ wo, bɔ wo PIN a ɛyɛ nɔmba nan no bio, anaa fa wo keypad no bɔ mu."
-          : "A Mobile Money PIN must be 4 digits. Please mention your 4-digit PIN, or enter it using your phone keypad.";
-        addLog("system", `Incomplete PIN: heard "${effectiveClean}". Prompting 4 digits.`);
-        addChatTurn({ sender: "ai", text: digitErrorText, audioSource: "synthesis", stepName: "cashout-balance-pin" });
-        setCurrentPrompt(digitErrorText);
-        currentPromptRef.current = digitErrorText;
-        await audioPlaybackController.speakText(digitErrorText);
-        schedulePinSilenceTimers();
+        const unavailableText = isTwi
+          ? "Yɛrentumi nhwɛ wo balance wɔ assistant yi so seesei. Fa wo fon bɔ star, baako, nson, hwee, hash."
+          : "Balance checking through this assistant is currently unavailable. Please dial star, one, seven, zero, hash on your handset.";
+        addChatTurn({ sender: "ai", text: unavailableText, audioSource: "synthesis", stepName: "cashout-awaiting-agent" });
+        setCurrentPrompt(unavailableText);
+        currentPromptRef.current = unavailableText;
+        activeStepNameRef.current = "cashout-awaiting-agent";
+        setActiveStepName("cashout-awaiting-agent");
+        await audioPlaybackController.speakText(unavailableText);
         return;
       }
 
@@ -2074,17 +1943,16 @@ export const PhoneSimulatorPage: React.FC = () => {
       // Special Handling 2: Keypad during Cash-Out steps
       if (activeStepNameRef.current === "cashout-offer-balance") {
         if (digit === "1") {
-          addLog("caller", "Keypad 1: Checking balance and fees.");
-          activeStepNameRef.current = "cashout-balance-pin";
-          setActiveStepName("cashout-balance-pin");
-          const pinPrompt = (languageRef.current === "twi")
-            ? "Mepa wo kyɛw bɔ wo MoMo PIN ahintasɛm no na yɛnhwɛ wo sika ne fee no, anaa fa wo keypad no bɔ mu."
-            : "Please enter your 4-digit MoMo PIN to check your balance and fees.";
-          addChatTurn({ sender: "ai", text: pinPrompt, audioSource: "synthesis", stepName: "cashout-balance-pin" });
-          setCurrentPrompt(pinPrompt);
-          currentPromptRef.current = pinPrompt;
-          audioPlaybackController.speakText(pinPrompt).catch(() => {});
-          schedulePinSilenceTimers();
+          addLog("caller", "Keypad 1: Requested a balance check, which is unavailable.");
+          activeStepNameRef.current = "cashout-awaiting-agent";
+          setActiveStepName("cashout-awaiting-agent");
+          const unavailableText = languageRef.current === "twi"
+            ? "Yɛrentumi nhwɛ wo balance wɔ assistant yi so seesei. Fa wo fon bɔ star, baako, nson, hwee, hash. Mɛtwɛn wo sɛ agent no de withdrawal request no ba."
+            : "Balance checking through this assistant is currently unavailable. Please dial star, one, seven, zero, hash on your handset. I can still wait for the agent's withdrawal request.";
+          addChatTurn({ sender: "ai", text: unavailableText, audioSource: "synthesis", stepName: "cashout-awaiting-agent" });
+          setCurrentPrompt(unavailableText);
+          currentPromptRef.current = unavailableText;
+          audioPlaybackController.speakText(unavailableText).catch(() => {});
           return;
         } else if (digit === "2") {
           addLog("caller", "Keypad 2: Skipping balance check.");
@@ -2103,26 +1971,16 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       if (activeStepNameRef.current === "cashout-balance-pin") {
         clearPinSilenceTimers();
-        const nextPin = digitsBuffer + digit;
-        setDigitsBuffer(nextPin);
-        if (nextPin.length === 4) {
-          setDigitsBuffer("");
-          addLog("caller", "Keypad entered PIN: **** (checking balance & fees)");
-          api.checkCashOutBalance({
-            callerPhone: callerNumber,
-            pin: nextPin,
-            requestedAmount: 30,
-            language: languageRef.current || "en",
-          }).then((res) => {
-            const msg = (languageRef.current === "twi" ? res.messageTw : res.messageEn) || res.message;
-            addChatTurn({ sender: "ai", text: msg, audioSource: "synthesis", stepName: "cashout-awaiting-agent" });
-            activeStepNameRef.current = "cashout-awaiting-agent";
-            setActiveStepName("cashout-awaiting-agent");
-            setCurrentPrompt(msg);
-            currentPromptRef.current = msg;
-            audioPlaybackController.speakText(msg).catch(() => {});
-          });
-        }
+        addLog("caller", "Ignored keypad input during unavailable balance check.");
+        activeStepNameRef.current = "cashout-awaiting-agent";
+        setActiveStepName("cashout-awaiting-agent");
+        const msg = languageRef.current === "twi"
+          ? "Yɛrentumi nhwɛ wo balance wɔ assistant yi so seesei. Fa wo fon bɔ star, baako, nson, hwee, hash."
+          : "Balance checking through this assistant is currently unavailable. Please dial star, one, seven, zero, hash on your handset.";
+        addChatTurn({ sender: "ai", text: msg, audioSource: "synthesis", stepName: "cashout-awaiting-agent" });
+        setCurrentPrompt(msg);
+        currentPromptRef.current = msg;
+        audioPlaybackController.speakText(msg).catch(() => {});
         return;
       }
 
@@ -2653,10 +2511,10 @@ export const PhoneSimulatorPage: React.FC = () => {
                 type="button"
                 onClick={() => simulateVoiceUtterance("Yes")}
                 disabled={isSimulatingSpeech}
-                title="Say Yes to check balance and telco fee"
+                title="Demonstrate that assistant balance checking is unavailable"
                 className="px-2.5 py-1 text-xs bg-slate-950 hover:bg-slate-800 text-slate-200 rounded-lg border border-slate-700 transition-colors cursor-pointer disabled:opacity-40"
               >
-                ✓ &ldquo;Yes, check balance&rdquo;
+                ✓ &ldquo;Yes, check balance (unavailable)&rdquo;
               </button>
 
               <button

@@ -8,7 +8,6 @@
 import { IntentId, ServiceDefinition, SlotSpec } from './types';
 import { ALL_INTENTS } from './intentTaxonomy';
 import { paymentSaga } from '../../integrations/momo/paymentSaga';
-import { serviceOrchestrator } from '../../modules/serviceOrchestrator';
 
 export class ServiceRegistry {
   private services = new Map<IntentId, ServiceDefinition>();
@@ -60,46 +59,12 @@ export class ServiceRegistry {
       },
     });
 
-    // 2. momo.check_balance - status: 'ready' (AI-first flow; local fallback only when AI is unavailable)
+    // 2. Personal subscriber balance is not available through the MTN Open API.
     this.register({
       intent: 'momo.check_balance',
-      status: 'ready',
+      status: 'not_ready',
       requiredSlots: [],
-      handler: async (context: any) => {
-        const secureVerification = Boolean(
-          (context?.pin && String(context.pin).trim().length >= 4) ||
-          context?.confirmedOnHandset ||
-          context?.verifiedByPhone
-        );
-
-        if (!secureVerification) {
-          return {
-            success: false,
-            error: 'PIN_REQUIRED_FOR_BALANCE_CHECK',
-            result: {
-              requiresSecureVerification: true,
-              message: 'Secure PIN or handset confirmation is required before checking the MoMo balance.',
-            },
-          };
-        }
-
-        const product = context?.product === 'collection' || context?.product === 'disbursement'
-          ? context.product
-          : 'disbursement';
-
-        const balance = await serviceOrchestrator.getAccountBalance('MTN', product);
-        return {
-          success: true,
-          result: {
-            balance: balance.balance,
-            currency: balance.currency,
-            formatted: balance.formatted,
-            network: balance.network,
-            product,
-            mode: balance.mode,
-          },
-        };
-      },
+      notReadyMessageKey: 'dial_170_check_balance',
     });
 
     // 3. momo.buy_airtime (Not ready in v1)

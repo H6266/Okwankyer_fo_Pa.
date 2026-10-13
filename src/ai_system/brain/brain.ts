@@ -1214,11 +1214,11 @@ export class Brain {
         const isTwi = targetLanguage.startsWith("twi");
         const promptText = isTwi
           ? (amount
-              ? `Yɛabue Allow Cash-Out ama wo mfifii 15 mu sɛ wobɛyi ${amount} cedis. Wobɛpɛ sɛ yɛhwɛ wo balance ne telco fee ansa na woayi?`
-              : "Yɛabue Allow Cash-Out ama wo mfifii 15 mu wɔ wo wallet so. Wobɛpɛ sɛ yɛhwɛ wo sika a aka ansa na woayi?")
+              ? `Yɛabue Allow Cash-Out ama wo mfifii 15 mu sɛ wobɛyi ${amount} cedis. Yɛrentumi nhwɛ wo balance wɔ assistant yi so; fa wo fon bɔ star, baako, nson, hwee, hash.`
+              : "Yɛabue Allow Cash-Out ama wo mfifii 15 mu wɔ wo wallet so. Yɛrentumi nhwɛ wo balance wɔ assistant yi so; fa wo fon bɔ star, baako, nson, hwee, hash.")
           : (amount
-              ? `Cash-Out has been enabled on your wallet for the next fifteen minutes for ${amount} Cedis. Would you like to check if your balance covers your withdrawal and the telco fee?`
-              : "Cash-Out has been enabled on your wallet for the next fifteen minutes. Would you like to check if your balance covers your withdrawal and fees?");
+              ? `Cash-Out has been enabled on your wallet for the next fifteen minutes for ${amount} Cedis. Balance checking through this assistant is unavailable; dial star, one, seven, zero, hash on your handset.`
+              : "Cash-Out has been enabled on your wallet for the next fifteen minutes. Balance checking through this assistant is unavailable; dial star, one, seven, zero, hash on your handset.");
 
         return {
           intent: { id: "momo.cash_out", confidence: 0.98 },
@@ -1240,11 +1240,6 @@ export class Brain {
       }
 
       if (call.name === "check_balance") {
-        const isTwi = targetLanguage.startsWith("twi");
-        const prompt = isTwi
-          ? "Mesrɛ wo, bɔ wo secret 4-digit MoMo PIN no wɔ keypad so anaa ka kyerɛ me sɛ wobɛhwɛ wo balance."
-          : "Please mention your secret 4-digit MoMo PIN to check your account balance, or use your phone keypad.";
-
         return {
           intent: { id: "momo.check_balance", confidence: 0.99 },
           slots: {},
@@ -1254,9 +1249,9 @@ export class Brain {
             user_confirmed: false,
           },
           reply: {
-            text_en: prompt,
+            text_en: "Balance checking through this assistant is currently unavailable. Please dial star, one, seven, zero, hash on your handset to check your balance.",
             target_language: targetLanguage,
-            reply_kind: "clarify_slot",
+            reply_kind: "not_ready",
           },
         };
       }

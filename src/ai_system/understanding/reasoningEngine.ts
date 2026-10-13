@@ -24,7 +24,7 @@ export const MOMO_SYSTEM_INSTRUCTION = `You are a voice-optimized accessibility 
 Available MoMo Services & Capabilities:
 - Send Money / Transfer (momo.transfer) to any mobile network (MTN, Telecel, AT)
 - Cash Out / Withdraw (momo.cash_out) at a registered agent
-- Check Balance (momo.check_balance)
+- Check Balance: unavailable through this assistant; direct callers to MTN's official handset channel
 - Buy Airtime (momo.buy_airtime)
 - Buy Internet Data (momo.buy_data)
 
@@ -35,7 +35,7 @@ Core Principles:
    - If the caller speaks English, reply in English.
    - Understand local Ghanaian terms and numbering: "cedis", "sika", "hwee", "baako", "mmienu", "aduonum", "ɔha", "apem".
 3. Distinguish Between Sending Money, Withdrawing Money, and Checking Balance:
-   - When a caller asks about their balance, how much they have, or asks to check their account ("how much is in my account", "check balance", "hwɛ me balance ma me", "sika a aka", "what is my balance"), this is a BALANCE INQUIRY (momo.check_balance)! Invoke the 'check_balance' tool immediately! NEVER ask "How many Ghana cedis do you want to send?" or ask for a recipient phone number for a balance inquiry!
+   - When a caller asks about their balance, how much they have, or asks to check their account ("how much is in my account", "check balance", "hwɛ me balance ma me", "sika a aka", "what is my balance"), recognize this as a BALANCE INQUIRY (momo.check_balance). Balance checks through this assistant are currently unavailable; tell the caller to dial *170# on their handset. Never ask for or accept a PIN, never invoke a balance tool, and never ask for a transfer amount or recipient number for a balance inquiry.
    - When a caller says they want to "withdraw money", "cash out", "allow cash out", or in Twi "meyi sika", this is a WITHDRAWAL (momo.cash_out), NOT a transfer!
    - In Ghana, cashing out at an agent works by enabling 'Allow Cash-Out' on the caller's wallet.
    - For a withdrawal or cash-out, the caller DOES NOT need to provide a recipient phone number! NEVER ask them "Who are you sending the money to?" when they said they want to withdraw or cash out.
@@ -52,7 +52,7 @@ Core Principles:
 7. The Clean Handoff:
    - When both the recipient phone number and transaction amount (in GHS) are clearly gathered for sending money, invoke 'process_send_money'.
    - When the caller wants to withdraw or cash out, invoke 'allow_cash_out' or 'process_cash_out'.
-   - When the caller asks to check their balance or account funds, invoke 'check_balance'.
+   - When the caller asks to check their balance or account funds, explain that balance checking through this assistant is currently unavailable and direct them to *170# on their handset.
    - If any required parameter is still missing or ambiguous, reply with a short conversational sentence asking for the missing piece.`;
 
 export const SEND_MONEY_TOOL: FunctionDeclaration = {
@@ -120,7 +120,7 @@ export const CASH_OUT_TOOL: FunctionDeclaration = {
 
 export const CHECK_BALANCE_TOOL: FunctionDeclaration = {
   name: "check_balance",
-  description: "Inquires or checks the caller's Mobile Money wallet account balance or funds (e.g. 'how much is in my account', 'check balance', 'hwɛ me balance', 'sika a aka').",
+  description: "Deprecated. Personal balance inquiries are unavailable through this assistant. Do not call this tool.",
   parameters: {
     type: Type.OBJECT,
     properties: {},
@@ -188,7 +188,7 @@ export class ReasoningEngine {
       model: modelName,
       config: {
         systemInstruction: MOMO_SYSTEM_INSTRUCTION,
-        tools: [{ functionDeclarations: [SEND_MONEY_TOOL, CASH_OUT_TOOL, ALLOW_CASH_OUT_TOOL, CHECK_BALANCE_TOOL] }],
+        tools: [{ functionDeclarations: [SEND_MONEY_TOOL, CASH_OUT_TOOL, ALLOW_CASH_OUT_TOOL] }],
         temperature: 0.2,
       },
     });
@@ -454,8 +454,8 @@ export class ReasoningEngine {
         };
         const isTwi = detectedLang.startsWith("tw") || detectedLang.startsWith("ak");
         const respText = isTwi
-          ? "Yɛabue Allow Cash-Out ama wo mfifii 15 mu wɔ wo wallet so. Wobɛpɛ sɛ yɛhwɛ wo sika a aka ansa na woayi?"
-          : "Cash-Out has been enabled on your wallet for the next 15 minutes. Would you like to check if your balance covers your withdrawal and the telco fee?";
+          ? "Yɛabue Allow Cash-Out ama wo mfifii 15 mu wɔ wo wallet so. Yɛrentumi nhwɛ wo balance wɔ assistant yi so; fa wo fon bɔ star, baako, nson, hwee, hash."
+          : "Cash-Out has been enabled on your wallet for the next 15 minutes. Balance checking through this assistant is unavailable; dial star, one, seven, zero, hash on your handset.";
 
         return {
           intent: "CASH_OUT",
@@ -483,9 +483,9 @@ export class ReasoningEngine {
 
       if (fnName === "check_balance") {
         const isTwi = detectedLang.startsWith("tw") || detectedLang.startsWith("ak");
-        const pinPrompt = isTwi
-          ? "Mesrɛ wo, bɔ wo secret 4-digit MoMo PIN no wɔ keypad so anaa ka kyerɛ me sɛ wobɛhwɛ wo balance."
-          : "Please mention your secret 4-digit MoMo PIN to check your account balance, or use your phone keypad.";
+        const unavailableMessage = isTwi
+          ? "Seesei, yɛrentumi nhwɛ wo balance wɔ assistant yi so. Fa wo fon bɔ star, baako, nson, hwee, hash na hwɛ wo balance."
+          : "Balance checking through this assistant is currently unavailable. Please dial star, one, seven, zero, hash on your handset.";
 
         return {
           intent: "CHECK_BALANCE",
@@ -497,17 +497,14 @@ export class ReasoningEngine {
           referenceResolution: null,
           ambiguity: { isAmbiguous: false, candidates: [] },
           requestedAction: {
-            type: "CHECK_BALANCE",
-            tool: "check_balance",
-            arguments: {},
+            type: "REJECT",
+            tool: null,
+            arguments: { reason: "BALANCE_CHECK_UNAVAILABLE", prompt: unavailableMessage },
           },
           requiresConfirmation: false,
           safetyFlags: [],
-          conversationalResponse: pinPrompt,
-          functionCall: {
-            name: "check_balance",
-            args: {},
-          },
+          conversationalResponse: unavailableMessage,
+          functionCall: null,
         };
       }
     }

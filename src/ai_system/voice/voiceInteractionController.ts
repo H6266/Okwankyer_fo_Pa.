@@ -364,12 +364,13 @@ export class VoiceInteractionController {
           return this.makeTurnResponse(session, prompt, audio, true, false);
         } else if (lower.includes("balance") || lower.includes("hwɛ") || lower === "4") {
           session.draft.intent = "momo.check_balance";
-          session.currentStep = "confirm_balance";
           const prompt = isTwi
-            ? "Wopɛ sɛ wohwɛ wo sika balance. Kɔ so anaa?"
-            : "You would like to check your MoMo balance. Would you like to proceed?";
+            ? "Seesei, yɛrentumi nhwɛ wo balance wɔ assistant yi so. Fa wo fon bɔ star, baako, nson, hwee, hash."
+            : "Balance checking through this assistant is currently unavailable. Please dial star, one, seven, zero, hash on your handset.";
+          session.currentStep = "balance_unavailable";
+          session.state = "COMPLETED";
           const audio = await openaiTts.synthesize({ text: prompt, language: session.language });
-          return this.makeTurnResponse(session, prompt, audio, true, false);
+          return this.makeTurnResponse(session, prompt, audio, false, true);
         } else {
           const prompt = isTwi
             ? "Mane sika, tɔ airtime, anaa hwɛ balance? Fa keypad no to so 1 ma sika a womane."

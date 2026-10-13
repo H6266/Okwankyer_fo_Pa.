@@ -1202,8 +1202,8 @@ aiRouter.post("/api/ai/cashout/enable", publicApiRateLimiter, async (req: Reques
     const state = cashOutService.enableCashOut(phone, 15);
     const isTwi = language === "twi" || language === "tw" || language === "ak" || language === "twi-asante";
 
-    const msgEn = `Cash-Out has been successfully enabled on your wallet for the next 15 minutes. Would you like to check if you have enough balance to cover your withdrawal and the telco fee?`;
-    const msgTw = `Yɛabue kwan ama wo mprɛpren ara sɛ wotumi yi sika wɔ MoMo agent hɔ mfifii 15 mu. Wobɛpɛ sɛ yɛhwɛ wo sika a aka ne sika a telco no bɛgye ansa na woayi?`;
+    const msgEn = `Cash-Out has been successfully enabled on your wallet for the next 15 minutes. Balance checking through this assistant is currently unavailable; dial star, one, seven, zero, hash on your handset.`;
+    const msgTw = `Yɛabue kwan ama wo sɛ wotumi yi sika wɔ MoMo agent hɔ mfifii 15 mu. Yɛrentumi nhwɛ wo balance wɔ assistant yi so seesei; fa wo fon bɔ star, baako, nson, hwee, hash.`;
 
     res.json({
       success: true,
@@ -1219,79 +1219,18 @@ aiRouter.post("/api/ai/cashout/enable", publicApiRateLimiter, async (req: Reques
   }
 });
 
-// 2. Check balance and withdrawal fee breakdown (PIN authorized)
-aiRouter.post("/api/ai/cashout/check-balance", publicApiRateLimiter, async (req: Request, res: Response) => {
-  try {
-    const { callerPhone, pin, requestedAmount, network, language } = req.body || {};
-    const phone = callerPhone || "0543546010";
-    const cleanPin = String(pin || "").replace(/\D/g, "");
-    const isTwi = language === "twi" || language === "tw" || language === "ak" || language === "twi-asante";
-
-    // Secure PIN verification with attempt tracking and lockout
-    const pinCheck = cashOutService.verifyPin(phone, cleanPin);
-    if (!pinCheck.success) {
-      if (pinCheck.error === "WALLET_LOCKED") {
-        const lockMsgEn = "Too many incorrect PIN attempts. For your security, your Mobile Money wallet has been temporarily locked. Please visit an MTN service centre or call 100 for assistance. Goodbye.";
-        const lockMsgTw = "Woabɔ PIN no mfomsoɔ mprɛnsa. Ahobammbɔ nti, yɛato wo MoMo wallet mu kakra. Mesrɛ wo kɔ MTN service centre anaa frɛ 100. Nante yie.";
-        return res.json({
-          success: false,
-          error: "WALLET_LOCKED",
-          isLocked: true,
-          remainingAttempts: 0,
-          message: isTwi ? lockMsgTw : lockMsgEn,
-          messageEn: lockMsgEn,
-          messageTw: lockMsgTw,
-        });
-      }
-
-      const rem = pinCheck.remainingAttempts ?? 2;
-      const errEn = `That PIN is incorrect. You have ${rem} attempt${rem === 1 ? "" : "s"} remaining before your wallet is locked. Please enter your PIN carefully on your phone keypad. Never share your PIN with anyone.`;
-      const errTw = `PIN no nyɛ pɛpɛɛpɛ. Wodeɛ aka mprɛ ${rem} pɛ ansa na yɛato wo wallet mu. Mesrɛ wo, fa wo keypad no bɔ mu pɛpɛɛpɛ na nka wo PIN nkyerɛ obiara da.`;
-      return res.json({
-        success: false,
-        error: "INVALID_PIN",
-        isLocked: false,
-        remainingAttempts: rem,
-        message: isTwi ? errTw : errEn,
-        messageEn: errEn,
-        messageTw: errTw,
-      });
-    }
-
-    const amt = Number(requestedAmount) || 30.0;
-    const affordability = cashOutService.checkAffordability(phone, amt, network || "MTN");
-
-    let speechEn = "";
-    let speechTw = "";
-
-    if (!affordability.isSufficient) {
-      const feeFormatted = affordability.fee.toFixed(2);
-      const balFormatted = affordability.balance.toFixed(2);
-      const maxFormatted = affordability.maxPossibleWithdrawal.toFixed(2);
-
-      speechEn = `You currently have ${balFormatted} Cedis in your account. Because the telco charges a cash-out fee of ${feeFormatted} Cedis, you cannot withdraw the full ${affordability.requestedAmount.toFixed(2)} Cedis. The maximum amount you can collect from the agent right now is ${maxFormatted} Cedis. Tell the agent to withdraw ${maxFormatted} Cedis.`;
-      speechTw = `Sika a ɛwɔ wo account mu nyinaa yɛ ${balFormatted} cedis. Esiane sɛ MTN gye sika kakra (${feeFormatted} cedis) ansa na woatumi ayi nti, wontumi nyi ${affordability.requestedAmount.toFixed(2)} cedis no nyinaa. Nea wotumi yi pɛpɛɛpɛ seesei ara yɛ ${maxFormatted} cedis. Ka kyerɛ agent no sɛ onyi ${maxFormatted} cedis mma wo.`;
-    } else {
-      const feeFormatted = affordability.fee.toFixed(2);
-      const balFormatted = affordability.balance.toFixed(2);
-      const totFormatted = affordability.totalRequired.toFixed(2);
-
-      speechEn = `You have sufficient balance! Your wallet balance is ${balFormatted} Cedis. For a ${affordability.requestedAmount.toFixed(2)} Cedis withdrawal, the telco fee is ${feeFormatted} Cedis, making a total of ${totFormatted} Cedis. You can proceed with the agent.`;
-      speechTw = `Wo sika dɔɔso pɛpɛɛpɛ! Sika a ɛwɔ wo account mu yɛ ${balFormatted} cedis. Sɛ woreyi ${affordability.requestedAmount.toFixed(2)} cedis a, MTN fee yɛ ${feeFormatted} cedis, a ne nyinaa yɛ ${totFormatted} cedis. Wotumi kɔ so yi sika no wɔ agent hɔ.`;
-    }
-
-    res.json({
-      success: true,
-      affordability,
-      message: isTwi ? speechTw : speechEn,
-      messageEn: speechEn,
-      messageTw: speechTw,
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message || "Failed to check balance and fees" });
-  }
+// 2. Personal balance checking is unavailable; do not accept a PIN for this operation.
+aiRouter.post("/api/ai/cashout/check-balance", publicApiRateLimiter, async (_req: Request, res: Response) => {
+  const messageEn = "Balance checking through this assistant is currently unavailable. Please dial star, one, seven, zero, hash on your handset.";
+  const messageTw = "Seesei, yɛrentumi nhwɛ wo balance wɔ assistant yi so. Fa wo fon bɔ star, baako, nson, hwee, hash na hwɛ wo balance.";
+  res.status(501).json({
+    success: false,
+    error: "BALANCE_CHECK_UNAVAILABLE",
+    message: messageEn,
+    messageEn,
+    messageTw,
+  });
 });
-
 // 3. Simulate Agent Submitting Withdrawal Request
 aiRouter.post("/api/ai/cashout/agent-request", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {

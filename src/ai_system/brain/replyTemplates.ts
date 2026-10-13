@@ -216,10 +216,10 @@ export const APPROVED_REPLY_TEMPLATES: Record<string, ApprovedTemplateDefinition
     kind: 'not_ready',
     approved: false,
     texts: {
-      'en': 'To protect your PIN, please dial star, one, seven, zero, hash to check your balance.',
-      'twi-asante': 'Fa wo fon no bɔ star, baako, nson, hwee, hash na hwɛ wo balance.',
-      'mixed-twi-en': 'Bɔ star, one, seven, zero, hash wɔ wo fon so na hwɛ wo balance.',
-      'twi-akuapem': 'Fa wo fon no bɔ star, baako, nson, hwee, hash na hwɛ wo balance.',
+      'en': 'Balance checking through this assistant is currently unavailable. Please dial star, one, seven, zero, hash on your handset.',
+      'twi-asante': 'Seesei, yɛrentumi nhwɛ wo balance wɔ assistant yi so. Fa wo fon bɔ star, baako, nson, hwee, hash na hwɛ wo balance.',
+      'mixed-twi-en': 'Balance check no is currently unavailable wɔ assistant yi so. Bɔ star, one, seven, zero, hash wɔ wo phone so.',
+      'twi-akuapem': 'Seesei, yɛrentumi nhwɛ wo balance wɔ assistant yi so. Fa wo fon bɔ star, baako, nson, hwee, hash na hwɛ wo balance.',
     },
   },
   not_ready_buy_data: {
