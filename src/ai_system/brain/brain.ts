@@ -170,7 +170,7 @@ export function isSpokenPinPresent(raw: string): boolean {
 
 // ── CONFIRMATION & CANCELLATION INTENT DETECTOR (Verbal + DTMF 1 / 2) ────────
 
-const EXPLICIT_CONFIRM_PHRASES = /^(?:(?:confirm(?: the transfer)?|yes|yeah|yep|proceed|send it|aane|yoo|kɔ so|okay|ok|sure|ɛyɛ|pene so|pene)(?:[,. ]+(?:please|confirm|proceed|send it))?|press 1)[.!?]*$/i;
+const EXPLICIT_CONFIRM_PHRASES = /^(?:(?:confirm(?: the transfer)?|yes|yeah|yep|proceed|send it|aane|yoo|kɔ so|okay|ok|sure|ɛyɛ|pene(?:\s+so)?)(?:[,. ]+(?:please|confirm|proceed|send it|pene\s+so|aane|yes|okay|ok|sure|ɛyɛ))?|press 1)[.!?]*$/i;
 const EXPLICIT_CANCEL_WORDS = /\b(cancel|stop|abort|gyae|daabi|dabi|don't send|mompɛ)\b/i;
 
 export function isExplicitConfirmation(raw: string): boolean {

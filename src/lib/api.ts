@@ -34,27 +34,41 @@ function getAdminAuthHeaders(customHeaders: Record<string, string> = {}): Record
 
 export interface AudioItem {
   id: string;
-  number: string;
+  number?: string;
   language: "en" | "twi" | "bilingual";
   step: number;
   filename: string;
   title: string;
   spokenText: string;
   description: string;
-  url: string;
+  url: string | null;
   exists: boolean;
   sizeBytes: number;
   sizeFormatted: string;
-  durationEstSec?: number;
+  promptId?: string | null;
+  assetRoot?: "supplied" | "public" | "additional";
   mimeType?: string;
+  isAlternate?: boolean;
+  recordingRole?: "fixed" | "dynamic" | "alternative" | "unmapped";
+  durationEstSec?: number;
 }
 
 export interface AudioManifestResponse {
   englishPrompts: AudioItem[];
   twiPrompts: AudioItem[];
-  sharedPrompts: AudioItem[];
+  sharedPrompts?: AudioItem[];
+  allPrompts?: AudioItem[];
+  unresolvedAssets?: AudioItem[];
+  missingPromptVariants?: Array<{
+    promptId: string;
+    language: "en" | "twi";
+    state: string;
+    status: string;
+  }>;
   totalClips: number;
-  allPresent: boolean;
+  englishClips?: number;
+  twiClips?: number;
+  allPresent?: boolean;
 }
 
 export interface SessionRecord {

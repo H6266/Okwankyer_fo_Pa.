@@ -28,6 +28,7 @@ import { isAcousticSystemEcho } from "../../domain/echoFilter";
 import {
   resolveSimulatorAudioUrl,
   resolveSimulatorPrompt,
+  resolvePrompt,
 } from "../../modules/ttsService";
 import { api } from "../../lib/api";
 import { getRecordingByUrl } from "../../audio/recordingRegistry";
@@ -91,10 +92,10 @@ const STEP_OPTIONS_MAP: Record<string, string> = {
   "language-selection": "1=English, 2=Twi, 0=Exit",
   "service-select": "1=Mobile Money, 2=Banking, 9=Repeat, 0=Exit",
   "service-choice": "1=Mobile Money, 2=Banking, 9=Repeat, 0=Exit",
-  "provider-select": "1=MTN, 2=Telecel, 3=AT, 9=Repeat, 0=Exit",
-  "provider-choice": "1=MTN, 2=Telecel, 3=AT, 9=Repeat, 0=Exit",
-  "action-select": "1=Send Money, 2=Check Balance, 8=Back, 9=Repeat, 0=Exit",
-  "action-choice": "1=Send Money, 2=Check Balance, 8=Back, 9=Repeat, 0=Exit",
+  "provider-select": "1=MTN, 9=Repeat, 0=Exit",
+  "provider-choice": "1=MTN, 9=Repeat, 0=Exit",
+  "action-select": "1=Send Money, 8=Back, 9=Repeat, 0=Exit",
+  "action-choice": "1=Send Money, 8=Back, 9=Repeat, 0=Exit",
   "enter-recipient": "10-digit number followed by #",
   "verify-recipient": "10-digit number followed by #",
   "recipient-verify-choice": "1=Confirm, 2=Re-enter, 8=Back, 9=Repeat",
@@ -109,9 +110,9 @@ const STEP_FRIENDLY_NAMES: Record<string, string> = {
   "language-selection": "Language Selection",
   "service-select": "Service Selection (MoMo / Banking)",
   "service-choice": "Service Selection",
-  "provider-select": "Network Selection (MTN / Telecel / AT)",
+  "provider-select": "Network Selection (MTN)",
   "provider-choice": "Network Provider",
-  "action-select": "Action Menu (Send / Balance)",
+  "action-select": "Supported Action (Send Money)",
   "action-choice": "Action Choice",
   "enter-recipient": "Recipient Phone Entry",
   "verify-recipient": "Verify Recipient Phone",
@@ -157,6 +158,8 @@ export const PhoneSimulatorPage: React.FC = () => {
   const [callActive, setCallActive] = useState<boolean>(false);
   const [callStatus, setCallStatus] = useState<string>("Idle");
   const [sessionId, setSessionId] = useState<string>("");
+  const [interactionMode, setInteractionMode] = useState<string>("UNSELECTED");
+  const [conversationState, setConversationState] = useState<string>("INITIATED");
   const [callerNumber] = useState<string>("0543546010");
   const [language, setLanguage] = useState<"en" | "twi" | null>(null);
   const [currentPrompt, setCurrentPrompt] = useState<string>("Lift handset or press Call to begin.");
@@ -672,6 +675,8 @@ export const PhoneSimulatorPage: React.FC = () => {
         };
 
         const guardReason = decodeHeader(res.headers.get("x-telephony-guard-reason")) || undefined;
+        setInteractionMode(res.headers.get("x-interaction-mode") || "UNSELECTED");
+        setConversationState(res.headers.get("x-conversation-state") || "INITIATED");
         const aiDecisionType = decodeHeader(res.headers.get("x-ai-decision-type"));
         const aiDecisionReason = decodeHeader(res.headers.get("x-ai-decision-reason"));
         const aiReplyText = decodeHeader(res.headers.get("x-ai-reply-text"));
@@ -722,6 +727,8 @@ export const PhoneSimulatorPage: React.FC = () => {
     currentPromptRef.current = "Welcome to Ɔkwankyerɛfo Pa. For English press 1, for Twi press 2.";
 
     setSessionId(newSession);
+    setInteractionMode("UNSELECTED");
+    setConversationState("INITIATED");
     setCallActive(true);
     setCallStatus("Connected");
     setLanguage(null);
@@ -1340,6 +1347,13 @@ export const PhoneSimulatorPage: React.FC = () => {
               }`}
             />
             <span>{isAudioSpeaking ? "Audio Speaking" : "Audio Ready"}</span>
+          </div>
+
+          <div className="bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 text-slate-300">
+            <span className="text-slate-500">Mode </span>
+            {interactionMode === "UNSELECTED" ? "Awaiting meaningful input" : interactionMode.replaceAll("_", " ")}
+            <span className="mx-1.5 text-slate-600">·</span>
+            <span className="text-slate-500">State </span>{conversationState}
           </div>
 
           <button

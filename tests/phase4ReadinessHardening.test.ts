@@ -8,7 +8,7 @@
  * 4c. Bind approval to content hash; edit after approval -> refused
  * 4d. Idempotency: replayed "aane", retried DTMF 1, redial -> exactly one payment
  * 4e. Live voice route: webhook calls brain.process; on error/timeout -> safe prompt & DTMF
- * 4f. Interim Twi path: 26 studio prompts mapped with placeholder reviewer; amounts stay on keypad
+ * 4f. Canonical audio inventory and reviewed template placeholders; amounts stay on keypad
  * 4g. Model config: production refuses to start without GEMINI_MODEL
  * 4h. Evaluation set: evalTranscripts.json validation
  * 4i. Not-ready taxonomy entries: buy data, reverse transaction, customer care, loan
@@ -30,7 +30,7 @@ import { summarizeShadowDisagreements } from '../scripts/summarize_shadow_disagr
 import { voiceRouter } from '../src/routes/voiceRoutes';
 import { TWI_INTENT_KEYWORDS } from '../src/ai_system/linguistic/twiLexicon';
 import { formatAmountAsSpokenWords, numberConfig } from '../src/ai_system/linguistic/twiNumberWords';
-import { AUDIO_CATALOG } from '../src/audio/catalog';
+import { AUDIO_ASSET_INVENTORY, AUDIO_CATALOG } from '../src/audio/catalog';
 
 describe('Phase 4: Readiness Hardening', () => {
 
@@ -365,9 +365,10 @@ describe('Phase 4: Readiness Hardening', () => {
   });
 
   // ── 4f. INTERIM TWI PATH ───────────────────────────────────────────────────
-  describe('4f. Interim Twi Path (26 Studio Prompts Mapped, Keypad for Amounts)', () => {
-    it('maps the 26 studio-recorded prompts to template keys with placeholder reviewer field', () => {
-      expect(AUDIO_CATALOG.length).toBe(24); // 12 English + 12 Twi studio catalog prompts (+ 2 alternates = 26 total assets)
+  describe('4f. Canonical Audio Inventory and Interim Twi Path', () => {
+    it('keeps the complete language-resolved audio catalog separate from reviewed templates', () => {
+      expect(AUDIO_ASSET_INVENTORY).toHaveLength(123);
+      expect(AUDIO_CATALOG).toHaveLength(67);
 
       const reviewedData = approvalWorkflow.loadReviewedData();
       expect(reviewedData.templates).toBeDefined();

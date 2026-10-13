@@ -113,7 +113,7 @@ export class VariableSpeechService {
         throw new Error("[VariableSpeechService] promptKey is required for RECORDED speech mode.");
       }
 
-      const recording = lang === "twi" ? getRecordingByPromptKey(instruction.promptKey) : null;
+      const recording = getRecordingByPromptKey(instruction.promptKey, lang);
       const audioUrl = recording ? resolvePrompt(instruction.promptKey, lang) : null;
       if (!audioUrl) {
         auditLogger.log("warn", "VARIABLE_SPEECH", `Missing recorded prompt asset for key: ${instruction.promptKey} [${lang}]. Falling back to explicit TTS.`);

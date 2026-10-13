@@ -30,7 +30,7 @@ describe("Professional Dynamic TTS & Variable Speech Layer", () => {
     audioPlaybackController.stop();
   });
 
-  it("1. Uses TTS for missing English recordings and the supplied Twi recording", () => {
+  it("1. Prefers a registered language-matched recording for English and Twi", () => {
     const decisionEn = variableSpeechService.evaluate({
       mode: "RECORDED",
       language: "en",
@@ -38,8 +38,8 @@ describe("Professional Dynamic TTS & Variable Speech Layer", () => {
       purpose: "FIXED_INSTRUCTION",
     });
 
-    expect(decisionEn.mode).toBe("SYNTHESIZE");
-    expect(decisionEn.audioUrl).toBeUndefined();
+    expect(decisionEn.mode).toBe("RECORDED");
+    expect(decisionEn.audioUrl).toBe("/audio/English/Welcome_prompt_01.mp3");
 
     const decisionTwi = variableSpeechService.evaluate({
       mode: "RECORDED",
