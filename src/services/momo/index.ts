@@ -6,6 +6,7 @@
 
 import { serviceRegistry } from '../../ai_system/brain/serviceRegistry';
 import { momoTransferHandler, TRANSFER_REQUIRED_SLOTS } from './transfer';
+import { serviceOrchestrator } from '../../modules/serviceOrchestrator';
 
 export function registerMomoServices(): void {
   // 1. momo.transfer - status: 'ready'
@@ -16,12 +17,28 @@ export function registerMomoServices(): void {
     handler: momoTransferHandler,
   });
 
-  // 2. momo.check_balance - status: 'not_ready' (Truth Engine / Zero-PIN enforces *170# dial)
+  // 2. momo.check_balance - enabled when the MTN balance API is configured
   serviceRegistry.register({
     intent: 'momo.check_balance',
-    status: 'not_ready',
+    status: 'ready',
     requiredSlots: [],
-    notReadyMessageKey: 'dial_170_check_balance',
+    handler: async (context: any) => {
+      const product = context?.product === 'collection' || context?.product === 'disbursement'
+        ? context.product
+        : 'disbursement';
+      const balance = await serviceOrchestrator.getAccountBalance('MTN', product);
+      return {
+        success: true,
+        result: {
+          balance: balance.balance,
+          currency: balance.currency,
+          formatted: balance.formatted,
+          network: balance.network,
+          product,
+          mode: balance.mode,
+        },
+      };
+    },
   });
 
   // 3. momo.buy_airtime - status: 'not_ready'

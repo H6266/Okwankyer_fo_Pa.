@@ -8,6 +8,7 @@
 import { IntentId, ServiceDefinition, SlotSpec } from './types';
 import { ALL_INTENTS } from './intentTaxonomy';
 import { paymentSaga } from '../../integrations/momo/paymentSaga';
+import { serviceOrchestrator } from '../../modules/serviceOrchestrator';
 
 export class ServiceRegistry {
   private services = new Map<IntentId, ServiceDefinition>();
@@ -43,12 +44,31 @@ export class ServiceRegistry {
       },
     });
 
-    // 2. momo.check_balance (Unbuilt in voice IVR - directs caller to *170# for Zero-PIN truth integrity)
+    // 2. momo.check_balance - real account balance inquiry via configured MTN API
     this.register({
       intent: 'momo.check_balance',
-      status: 'not_ready',
+      status: 'ready',
       requiredSlots: [],
-      notReadyMessageKey: 'dial_170_check_balance',
+      handler: async (context: any) => {
+        const product = context?.product === 'disbursement' || context?.product === 'collection'
+          ? context.product
+          : (serviceOrchestrator as any).getAccountBalance
+            ? 'disbursement'
+            : 'collection';
+
+        const balance = await serviceOrchestrator.getAccountBalance('MTN', product);
+        return {
+          success: true,
+          result: {
+            balance: balance.balance,
+            currency: balance.currency,
+            formatted: balance.formatted,
+            network: balance.network,
+            product,
+            mode: balance.mode,
+          },
+        };
+      },
     });
 
     // 3. momo.buy_airtime (Not ready in v1)
