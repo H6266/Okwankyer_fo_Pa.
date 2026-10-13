@@ -35,6 +35,7 @@ export interface ComposeReplyInput {
   slots: Slots;
   notReadyMessageKey?: string;
   isZeroPinAlert?: boolean;
+  conversationalText?: string;
 }
 
 export interface ComposeReplyResult {
@@ -203,6 +204,20 @@ export class ReplyComposer {
         language,
         promptId: findStudioPromptMatch(template, 'zero_pin'),
         source: 'DETERMINISTIC_TEMPLATE',
+        validationPassed: true,
+      };
+    }
+
+    // Natural Gemini conversational follow-up takes priority for conversational clarification
+    if (
+      input.conversationalText &&
+      input.conversationalText.trim() &&
+      (decision.kind === 'clarify_slot' || decision.kind === 'clarify_intent' || (decision as any).kind === 'smalltalk')
+    ) {
+      return {
+        text: input.conversationalText.trim(),
+        language,
+        source: 'MODEL_GENERATED',
         validationPassed: true,
       };
     }
