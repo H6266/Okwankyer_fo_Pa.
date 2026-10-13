@@ -11,6 +11,9 @@ export type SupportedLanguage = "en" | "twi";
 import {
   getRecordingByPromptKey,
   getRecordingByUrl,
+  getPromptManifestEntry,
+  normalizeRecordingLanguage,
+  PROMPT_KEY_TO_RECORDING_ID,
 } from "../audio/recordingRegistry";
 import { getStepDefinition } from "../domain/stepRegistry";
 
@@ -23,6 +26,18 @@ const TTS_SCRIPT_KEY_BY_PROMPT_KEY: Readonly<Record<string, string>> = {
  * Authoritative script text for prompt and reply keys across languages
  */
 export const PROMPT_SCRIPTS: Record<string, { en: string; twi: string }> = {
+  mtn_network_select: {
+    en: "Only MTN Mobile Money transfers are currently supported. For MTN, press 1. Press 9 to hear this again, or 0 to exit.",
+    twi: "Mprempren, yɛboa MTN Mobile Money nkutoo. Sɛ wo network yɛ MTN a, mia 1. Mia 9 na tie bio, anaasɛ mia 0 na woapue.",
+  },
+  supported_service_select: {
+    en: "MTN Mobile Money transfers are currently supported. Press 1 for Mobile Money. Banking is not supported in this pilot; press 2 to hear available alternatives. Press 9 to repeat or 0 to exit.",
+    twi: "Mprempren yɛboa MTN Mobile Money sika mane. Mia 1 ma Mobile Money. Banking nni pilot yi mu; mia 2 na wote dwumadie a yɛboa. Mia 9 na tie bio, anaa mia 0 na woapue.",
+  },
+  send_money_menu: {
+    en: "To send money, press 1. To go back, press 8. To hear this again, press 9. To exit, press 0.",
+    twi: "Sɛ wopɛ sɛ womane sika a, mia 1. Mia 8 na san kɔ akyi, mia 9 na tie bio, anaasɛ mia 0 na woapue.",
+  },
   invalid_choice: {
     en: "Option is not a valid choice. Please choose from the available options.",
     twi: "Deɛ wobɔe no nyɛ pɛpɛɛpɛ. Yɛsrɛ wo paw deɛ ɛwɔ menyu no so.",
@@ -70,21 +85,28 @@ export const PROMPT_SCRIPTS: Record<string, { en: string; twi: string }> = {
 };
 
 export function resolvePrompt(key: string, lang: SupportedLanguage = "en"): string | null {
-  if (lang === "twi") {
-    const recordingUrl = getRecordingByPromptKey(key)?.url;
-    if (recordingUrl) return recordingUrl;
-  }
+  const language = normalizeRecordingLanguage(lang);
+  if (!language) return null;
+  const recordingUrl = getRecordingByPromptKey(key, language)?.url;
+  if (recordingUrl) return recordingUrl;
   return resolvePromptText(key, lang)
     ? `/api/audio/prompt-tts/${lang}/${encodeURIComponent(key)}`
     : null;
 }
 
 export function resolvePromptText(key: string, lang: SupportedLanguage): string | null {
-  const recording = lang === "twi" ? getRecordingByPromptKey(key) : null;
+  const language = normalizeRecordingLanguage(lang);
+  if (!language) return null;
+  const recording = getRecordingByPromptKey(key, language);
   const scriptKey = TTS_SCRIPT_KEY_BY_PROMPT_KEY[key] || key;
-  const languageKey = lang === "twi" ? "twi" : "en";
+  const languageKey = language === "twi" ? "twi" : "en";
+  const promptId = key.match(/^OP\d{2}$/i)?.[0].toUpperCase() || PROMPT_KEY_TO_RECORDING_ID[key];
+  const manifestPrompt = getPromptManifestEntry(promptId || "");
   const stepPrompt = getStepDefinition(key.replace(/_/g, "-"))?.promptText[languageKey];
-  return recording?.spokenText || PROMPT_SCRIPTS[scriptKey]?.[languageKey] || stepPrompt || null;
+  const manifestText = manifestPrompt
+    ? language === "twi" ? manifestPrompt.twi : manifestPrompt.english
+    : null;
+  return recording?.spokenText || manifestText || PROMPT_SCRIPTS[scriptKey]?.[languageKey] || stepPrompt || null;
 }
 
 export function resolveSimulatorPrompt(key: string, lang: SupportedLanguage): string | null {
@@ -95,10 +117,13 @@ export function resolveSimulatorAudioUrl(
   audioUrl: string | null | undefined,
   lang: SupportedLanguage
 ): string | null {
-  if (!audioUrl || lang !== "twi") return null;
+  if (!audioUrl) return null;
+  const language = normalizeRecordingLanguage(lang);
+  if (!language) return null;
   try {
     const pathname = new URL(audioUrl, "http://localhost").pathname;
-    return getRecordingByUrl(pathname)?.url || null;
+    const recording = getRecordingByUrl(pathname);
+    return recording?.language === language ? recording.url : null;
   } catch {
     return null;
   }

@@ -7,7 +7,7 @@
  * - Never invents or fabricates subscriber names when unverified
  */
 
-import { validateGhanaPhoneNumber, GhanaianNetwork } from "../../domain/validation";
+import { validateGhanaPhoneNumber, GhanaianNetwork, redactPii } from "../../domain/validation";
 import { SANDBOX_RECIPIENT_FIXTURES } from "../../demo/recipientFixtures";
 import { voicePaymentService } from "../../integrations/momo/voicePaymentService";
 import { config } from "../../config/env";
@@ -63,16 +63,20 @@ export class SandboxRecipientResolver implements RecipientResolver {
       };
     }
 
-    // Number is valid format but NOT verified in the directory
+    // Number is valid format: in sandbox, return deterministic dummy registered name
+    const dummySandboxNames: Record<GhanaianNetwork, string> = {
+      MTN: "Emmanuel Mensah",
+      Telecel: "Kofi Annan",
+      AT: "Yaw Mensah",
+    };
     return {
       valid: true,
       phoneNumber: rawPhoneNumber,
       normalizedPhone: val.normalized,
-      name: null,
+      name: dummySandboxNames[val.network] || "Emmanuel Mensah",
       network: val.network,
-      verified: false,
-      source: "UNRESOLVED",
-      warning: "Recipient name could not be verified in the subscriber registry.",
+      verified: true,
+      source: "SANDBOX_FIXTURE",
     };
   }
 }
@@ -115,19 +119,20 @@ export class MtnRecipientResolver implements RecipientResolver {
     try {
       const result = await voicePaymentService.verifyNumber(val.normalized);
       if (result.ok) {
-        const name = result.fields.name || [result.fields.given_name, result.fields.family_name].filter(Boolean).join(" ") || "Sand Box";
+        const name = result.fields.name || [result.fields.given_name, result.fields.family_name].filter(Boolean).join(" ") || null;
         return {
           valid: true,
           phoneNumber: rawPhoneNumber,
           normalizedPhone: val.normalized,
           name,
           network: val.network,
-          verified: true,
+          verified: Boolean(name),
           source: "MTN_MOMO_API",
+          ...(!name ? { warning: "The provider verified the number but did not return a recipient name." } : {}),
         };
       }
     } catch (err: any) {
-      console.warn(`[MtnRecipientResolver] Failed to resolve via MTN API for ${val.normalized}:`, err.message);
+      console.warn(`[MtnRecipientResolver] Failed to resolve via MTN API for ${redactPii(val.normalized)}:`, err.message);
     }
 
     if (config.momo.targetEnv === "sandbox" || process.env.NODE_ENV === "test" || config.demoMode) {

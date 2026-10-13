@@ -11,6 +11,38 @@ import { MoMoConfig } from "./types";
 export const MOMO_SANDBOX_BASE_URL = "https://sandbox.momodeveloper.mtn.com";
 export const MOMO_PRODUCTION_BASE_URL = "https://proxy.momoapi.mtn.com";
 
+export function normalizeConfigValue(value?: string): string {
+  const normalized = (value || "").trim();
+  if (!normalized) return "";
+
+  const lower = normalized.toLowerCase();
+  if (
+    lower.includes("paste the") ||
+    lower.includes("replace the") ||
+    lower.includes("your_") ||
+    lower.includes("your ") ||
+    lower.includes("example") ||
+    lower.includes("placeholder") ||
+    lower.includes("mock-test-key") ||
+    lower.includes("mock_test_key") ||
+    lower.includes("mock-") ||
+    lower.includes("dummy") ||
+    lower.includes("changeme") ||
+    lower.includes("not set") ||
+    lower.includes("undefined") ||
+    lower.includes("null") ||
+    lower.includes("momo_api_user_id") ||
+    lower.includes("momo_subscription_key") ||
+    lower.includes("momo_api_key") ||
+    lower.includes("your api key") ||
+    lower.includes("your subscription key") ||
+    /^sk-(test|mock|dummy)/i.test(normalized)
+  ) {
+    return "";
+  }
+
+  return normalized;
+}
 
 /**
  * Strips non-ASCII characters and sanitizes text for telecom and banking gateways
@@ -72,46 +104,46 @@ export function loadConfigFromEnv(): MoMoConfig {
 
   // In MTN MoMo Open API, Collections and Disbursements are separate product subscriptions.
   // A Disbursement key is invalid for Collections endpoints and vice versa.
-  const collSubKey = (
+  const collSubKey = normalizeConfigValue(
     process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY ||
     process.env.MTN_COLLECTION_SUBSCRIPTION_KEY ||
     ""
-  ).trim();
+  );
 
-  const disbSubKey = (
+  const disbSubKey = normalizeConfigValue(
     process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY ||
     process.env.MTN_DISBURSEMENT_SUBSCRIPTION_KEY ||
     ""
-  ).trim();
+  );
 
-  const collUserId = (
+  const collUserId = normalizeConfigValue(
     process.env.MOMO_COLLECTION_API_USER_ID ||
     process.env.MTN_COLLECTION_API_USER_ID ||
     process.env.MTN_COLLECTION_X_REFERENCE_ID ||
     ""
-  ).trim();
+  );
 
-  const collApiKey = (
+  const collApiKey = normalizeConfigValue(
     process.env.MOMO_COLLECTION_API_KEY ||
     process.env.MTN_COLLECTION_API_KEY ||
     ""
-  ).trim();
+  );
 
-  const disbUserId = (
+  const disbUserId = normalizeConfigValue(
     process.env.MOMO_DISBURSEMENT_API_USER_ID ||
     process.env.MTN_DISBURSEMENT_API_USER_ID ||
     ""
-  ).trim();
+  );
 
-  const disbApiKey = (
+  const disbApiKey = normalizeConfigValue(
     process.env.MOMO_DISBURSEMENT_API_KEY ||
     process.env.MTN_DISBURSEMENT_API_KEY ||
     ""
-  ).trim();
+  );
 
-  const legacySubKey = (process.env.MOMO_SUBSCRIPTION_KEY || "").trim();
-  const legacyUserId = (process.env.MOMO_API_USER_ID || "").trim();
-  const legacyApiKey = (process.env.MOMO_API_KEY || "").trim();
+  const legacySubKey = normalizeConfigValue(process.env.MOMO_SUBSCRIPTION_KEY || "");
+  const legacyUserId = normalizeConfigValue(process.env.MOMO_API_USER_ID || "");
+  const legacyApiKey = normalizeConfigValue(process.env.MOMO_API_KEY || "");
 
   const legacyIsComplete = Boolean(legacySubKey && legacyUserId && legacyApiKey);
   const collIsComplete = Boolean(collSubKey && collUserId && collApiKey);

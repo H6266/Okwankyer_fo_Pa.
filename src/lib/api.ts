@@ -34,27 +34,41 @@ function getAdminAuthHeaders(customHeaders: Record<string, string> = {}): Record
 
 export interface AudioItem {
   id: string;
-  number: string;
+  number?: string;
   language: "en" | "twi" | "bilingual";
   step: number;
   filename: string;
   title: string;
   spokenText: string;
   description: string;
-  url: string;
+  url: string | null;
   exists: boolean;
   sizeBytes: number;
   sizeFormatted: string;
-  durationEstSec?: number;
+  promptId?: string | null;
+  assetRoot?: "supplied" | "public" | "additional";
   mimeType?: string;
+  isAlternate?: boolean;
+  recordingRole?: "fixed" | "dynamic" | "alternative" | "unmapped";
+  durationEstSec?: number;
 }
 
 export interface AudioManifestResponse {
   englishPrompts: AudioItem[];
   twiPrompts: AudioItem[];
-  sharedPrompts: AudioItem[];
+  sharedPrompts?: AudioItem[];
+  allPrompts?: AudioItem[];
+  unresolvedAssets?: AudioItem[];
+  missingPromptVariants?: Array<{
+    promptId: string;
+    language: "en" | "twi";
+    state: string;
+    status: string;
+  }>;
   totalClips: number;
-  allPresent: boolean;
+  englishClips?: number;
+  twiClips?: number;
+  allPresent?: boolean;
 }
 
 export interface SessionRecord {
@@ -712,6 +726,148 @@ export const api = {
     return res.json();
   },
 
+  async enableVoiceCashOut(params: {
+    callerPhone?: string;
+    language?: string;
+  }): Promise<{
+    success: boolean;
+    state: any;
+    callerPhone: string;
+    expiresInMinutes: number;
+    message: string;
+    messageEn: string;
+    messageTw: string;
+  }> {
+    const res = await fetch("/api/ai/cashout/enable", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async checkCashOutBalance(params: {
+    callerPhone?: string;
+    pin: string;
+    requestedAmount?: number;
+    network?: string;
+    language?: string;
+  }): Promise<{
+    success: boolean;
+    error?: string;
+    affordability?: any;
+    message?: string;
+    messageEn?: string;
+    messageTw?: string;
+  }> {
+    const res = await fetch("/api/ai/cashout/check-balance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async simulateAgentCashOutRequest(params: {
+    callerPhone?: string;
+    agentCode?: string;
+    agentName?: string;
+    amount?: number;
+  }): Promise<{
+    success: boolean;
+    request: any;
+    message: string;
+  }> {
+    const res = await fetch("/api/ai/cashout/agent-request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async getPendingCashOutRequest(callerPhone?: string): Promise<{
+    success: boolean;
+    hasPending: boolean;
+    request?: any;
+  }> {
+    const res = await fetch(`/api/ai/cashout/get-pending?callerPhone=${encodeURIComponent(callerPhone || "0543546010")}`);
+    return res.json();
+  },
+
+  async approveCashOut(params: {
+    callerPhone?: string;
+    pin: string;
+    language?: string;
+  }): Promise<{
+    success: boolean;
+    error?: string;
+    remainingAttempts?: number;
+    isLocked?: boolean;
+    referenceId?: string;
+    request?: any;
+    balanceDetails?: {
+      currentBalance: number;
+      requestedAmount: number;
+      fee: number;
+      totalRequired: number;
+      shortage: number;
+      maxPossibleWithdrawal: number;
+      agentName: string;
+    };
+    message?: string;
+    messageEn?: string;
+    messageTw?: string;
+    privacyTipEn?: string;
+    privacyTipTw?: string;
+  }> {
+    const res = await fetch("/api/ai/cashout/approve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async understandCashOutIntent(params: {
+    transcript: string;
+    currentState: string;
+    callerPhone?: string;
+    requestedAmount?: number;
+    language?: string;
+  }): Promise<{
+    success: boolean;
+    intent: "AGENT_INITIATED" | "CONFIRM_PROCEED" | "REJECT_CANCEL" | "CHECK_BALANCE" | "WAITING" | "UNKNOWN";
+    action: "FETCH_PENDING" | "PROCEED" | "CANCEL" | "CHECK_BALANCE" | "WAIT" | "CLARIFY";
+    confidence: number;
+    reason?: string;
+    replyEn?: string;
+    replyTw?: string;
+  }> {
+    const res = await fetch("/api/ai/cashout/understand-intent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async setCashOutWalletBalance(params: {
+    callerPhone?: string;
+    balance: number;
+  }): Promise<{
+    success: boolean;
+    callerPhone: string;
+    balance: number;
+  }> {
+    const res = await fetch("/api/ai/cashout/set-balance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
   async getMomoTransactions(): Promise<any> {
     const res = await fetch("/api/momo/transactions");
     return res.json();
@@ -895,6 +1051,62 @@ export const api = {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Brain processing failed");
+    return data;
+  },
+
+  async validateRecipient(payload: {
+    phone: string;
+    sessionId?: string;
+    candidateName?: string;
+    candidateNetwork?: string;
+  }): Promise<{
+    success: boolean;
+    phone: string;
+    verifiedName: string;
+    network: string;
+    verified: boolean;
+    nameMismatch: boolean;
+    networkMismatch: boolean;
+    candidateName: string | null;
+    candidateNetwork: string | null;
+  }> {
+    const res = await fetch("/api/ai/simulator/validate-recipient", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Recipient validation failed");
+    return data;
+  },
+
+  async submitPin(payload: {
+    sessionId: string;
+    pin: string;
+    amount: number;
+    recipientPhone: string;
+    recipientName?: string;
+    network?: string;
+    callerPhone?: string;
+    language?: string;
+  }): Promise<{
+    success: boolean;
+    error?: string;
+    remainingAttempts?: number;
+    message?: string;
+    messageTw?: string;
+    reference?: string;
+    amount?: number;
+    recipientName?: string;
+    recipientPhone?: string;
+  }> {
+    const res = await fetch("/api/ai/simulator/submit-pin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || data.message || "PIN submission failed");
     return data;
   },
 

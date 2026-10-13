@@ -57,7 +57,12 @@ export interface ReasonerInput {
 
 export class OpenAiReasoner {
   private get apiKey(): string {
-    return (process.env.OPENAI_API_KEY || "").trim();
+    const raw = (process.env.OPENAI_API_KEY || "").trim();
+    const lower = raw.toLowerCase();
+    if (!raw || lower.includes("paste the") || lower.includes("mock-") || lower.includes("placeholder") || lower.includes("example") || lower.includes("your api key") || lower.includes("changeme") || /^(sk-)?(test|mock|demo)/i.test(raw)) {
+      return "";
+    }
+    return raw;
   }
 
   private get model(): string {

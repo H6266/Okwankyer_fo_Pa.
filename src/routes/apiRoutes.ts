@@ -11,7 +11,8 @@ import fs from "fs";
 import { config } from "../config/env";
 import { runRealSmokeTests } from "../services/healthService";
 import { recipientResolver } from "../providers/recipient/RecipientResolver";
-import { AUDIO_CATALOG, audioFileExists } from "../audio/catalog";
+import { AUDIO_ASSET_INVENTORY, AUDIO_CATALOG, audioFileExists } from "../audio/catalog";
+import { getPromptManifestEntries, getRecordingByPromptId } from "../audio/recordingRegistry";
 import { callSessionRepository } from "../services/callSessionRepository";
 import { auditLogger } from "../services/auditLogger";
 import { runEvaluationHarness } from "../ai_eval/evalHarness";
@@ -163,11 +164,14 @@ apiRouter.post("/api/dev/smoke-test", adminRateLimiter, requireAdminAuth, async 
 
 // ── Audio Manifest & Catalog ──────────────────────────────────────────
 apiRouter.get("/api/audio/manifest", (_req: Request, res: Response) => {
-  const rootAudio = path.resolve(process.cwd(), "Audio_files", "audio");
-
-  const prompts = AUDIO_CATALOG.map((item) => {
-    const filePath = path.resolve(rootAudio, item.filename);
-    const exists = audioFileExists(item.filename);
+  const enrichAsset = (item: (typeof AUDIO_ASSET_INVENTORY)[number]) => {
+    const exists = audioFileExists(item.filename, item.assetRoot);
+    const root = item.assetRoot === "supplied"
+      ? path.resolve(process.cwd(), "Audio_files", "audio")
+      : item.assetRoot === "public"
+        ? path.resolve(process.cwd(), "public", "audio")
+        : path.resolve(process.cwd(), "Audio_files_2");
+    const filePath = path.resolve(root, item.filename);
     const sizeBytes = exists && fs.existsSync(filePath) ? fs.statSync(filePath).size : 0;
 
     return {
@@ -175,13 +179,25 @@ apiRouter.get("/api/audio/manifest", (_req: Request, res: Response) => {
       exists,
       sizeBytes,
       sizeFormatted: exists ? `${(sizeBytes / 1024).toFixed(1)} KB` : "Unavailable",
-      url: item.url,
-      mimeType: "audio/mp4",
     };
-  });
+  };
+  const prompts = AUDIO_CATALOG.map(enrichAsset);
 
-  const englishPrompts: typeof prompts = [];
-  const twiPrompts = prompts;
+  const englishPrompts = prompts.filter((prompt) => prompt.language === "en");
+  const twiPrompts = prompts.filter((prompt) => prompt.language === "twi");
+  const unresolvedAssets = AUDIO_ASSET_INVENTORY
+    .filter((item) => item.language === "unresolved")
+    .map(enrichAsset);
+  const missingPromptVariants = getPromptManifestEntries().flatMap((prompt) =>
+    (["en", "twi"] as const)
+      .filter((language) => !getRecordingByPromptId(prompt.id, language))
+      .map((language) => ({
+        promptId: prompt.id,
+        language,
+        state: prompt.state,
+        status: "recording_unavailable",
+      }))
+  );
 
   res.json({
     totalClips: prompts.length,
@@ -190,6 +206,8 @@ apiRouter.get("/api/audio/manifest", (_req: Request, res: Response) => {
     englishPrompts,
     twiPrompts,
     allPrompts: prompts,
+    unresolvedAssets,
+    missingPromptVariants,
     sessions: callSessionRepository.getAllSessions(),
   });
 });

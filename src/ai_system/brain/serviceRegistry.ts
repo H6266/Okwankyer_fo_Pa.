@@ -44,12 +44,33 @@ export class ServiceRegistry {
       },
     });
 
+<<<<<<< HEAD
     // 2. momo.check_balance - real account balance inquiry via configured MTN API
+=======
+    // 1b. momo.cash_out - status: 'ready' (Initiates Allow Cash-Out on subscriber wallet)
+    this.register({
+      intent: 'momo.cash_out',
+      status: 'ready',
+      requiredSlots: [],
+      handler: async (context: any) => {
+        const callerPhone = context?.callerNumber || '0543546010';
+        const { cashOutService } = await import('../../services/cashOutService');
+        const state = cashOutService.enableCashOut(callerPhone);
+        return {
+          success: true,
+          result: state,
+        };
+      },
+    });
+
+    // 2. momo.check_balance - status: 'ready' (Voice-enabled MoMo Balance Inquiry with PIN security)
+>>>>>>> 94aafc00d269488ec6debd2266570b3aab18f94a
     this.register({
       intent: 'momo.check_balance',
       status: 'ready',
       requiredSlots: [],
       handler: async (context: any) => {
+<<<<<<< HEAD
         const product = context?.product === 'disbursement' || context?.product === 'collection'
           ? context.product
           : (serviceOrchestrator as any).getAccountBalance
@@ -67,6 +88,14 @@ export class ServiceRegistry {
             product,
             mode: balance.mode,
           },
+=======
+        const callerPhone = context?.callerNumber || '0543546010';
+        const { cashOutService } = await import('../../services/cashOutService');
+        const balance = cashOutService.getWalletBalance(callerPhone);
+        return {
+          success: true,
+          result: { balance, currency: 'GHS' },
+>>>>>>> 94aafc00d269488ec6debd2266570b3aab18f94a
         };
       },
     });

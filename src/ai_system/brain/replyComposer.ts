@@ -35,6 +35,7 @@ export interface ComposeReplyInput {
   slots: Slots;
   notReadyMessageKey?: string;
   isZeroPinAlert?: boolean;
+  conversationalText?: string;
 }
 
 export interface ComposeReplyResult {
@@ -207,12 +208,36 @@ export class ReplyComposer {
       };
     }
 
+    // Natural Gemini conversational follow-up takes priority for conversational clarification
+    if (
+      input.conversationalText &&
+      input.conversationalText.trim() &&
+      (decision.kind === 'clarify_slot' || decision.kind === 'clarify_intent' || (decision as any).kind === 'smalltalk')
+    ) {
+      return {
+        text: input.conversationalText.trim(),
+        language,
+        source: 'MODEL_GENERATED',
+        validationPassed: true,
+      };
+    }
+
     // Determine target template key from decision
     let templateKey: string;
     let replyKind: 'confirm' | 'clarify_slot' | 'clarify_intent' | 'not_ready' | 'smalltalk' = 'smalltalk';
 
     if (decision.kind === 'confirm') {
-      templateKey = 'confirm';
+      if (slots.hasNameDiscrepancy && slots.hasNetworkDiscrepancy) {
+        templateKey = 'confirm_name_and_network_discrepancy';
+      } else if (slots.hasNameDiscrepancy) {
+        templateKey = 'confirm_name_discrepancy';
+      } else if (slots.hasNetworkDiscrepancy) {
+        templateKey = 'confirm_network_discrepancy';
+      } else if (slots.verifiedName) {
+        templateKey = 'confirm_with_verified_name';
+      } else {
+        templateKey = 'confirm';
+      }
       replyKind = 'confirm';
     } else if (decision.kind === 'dispatch') {
       templateKey = 'dispatch';
@@ -262,8 +287,8 @@ export class ReplyComposer {
     sentenceTracker.record(preInjectionTemplate);
 
     const hasAmount = typeof slots.amount === 'number';
-    const hasRecipient = Boolean(slots.recipient?.phone || slots.recipient?.name || (slots as any).recipientName || (slots as any).recipientPhone);
-    const readbackSpoken = decision.kind === 'confirm' && translationResult.template_key === 'confirm' && hasAmount && hasRecipient;
+    const hasRecipient = Boolean(slots.recipient?.phone || slots.recipient?.name || (slots as any).recipientName || (slots as any).recipientPhone || slots.verifiedName);
+    const readbackSpoken = decision.kind === 'confirm' && Boolean(translationResult.template_key?.startsWith('confirm')) && hasAmount && hasRecipient;
 
     return {
       text: translationResult.text,

@@ -12,6 +12,7 @@
  */
 
 import { GhanaianNetwork, validateGhanaPhoneNumber, parseAndValidateAmount } from "./validation";
+import { SUPPORTED_TRANSFER_NETWORKS } from "./serviceCapabilities";
 
 export type StepInputType = "single_digit" | "phone_number" | "amount" | "confirm";
 
@@ -70,7 +71,7 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
     collects: "language",
     nextStepMap: {
       "1": "service-select",
-      "2": "provider-select",
+      "2": "service-select",
     },
   },
 
@@ -96,23 +97,23 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
     collects: "language",
     nextStepMap: {
       "1": "service-select",
-      "2": "provider-select",
+      "2": "service-select",
     },
   },
 
   "service-select": {
     id: "service-select",
     name: "Service Selection",
-    promptKey: "service_select",
+    promptKey: "supported_service_select",
     promptText: {
-      en: "For telecom or mobile money services, press 1. For banking services, press 2. To hear this again, press 9. To exit, press 0.",
-      twi: "Sɛ wopɛ telecom anaa Mobile Money dwumadie a mia 1. Sɛ wopɛ sikakorabea dwumadie a mia 2. Sɛ wopɛ sɛ wote bio a mia 9. Sɛ wopɛ sɛ wotwa mu a mia 0.",
+      en: "MTN Mobile Money transfers are currently supported. Press 1 for Mobile Money. Banking is not supported in this pilot; press 2 to hear available alternatives. Press 9 to repeat or 0 to exit.",
+      twi: "Mprempren yɛboa MTN Mobile Money sika mane. Mia 1 ma Mobile Money. Banking nni pilot yi mu; mia 2 na wote dwumadie a yɛboa. Mia 9 na tie bio, anaa mia 0 na woapue.",
     },
     inputType: "single_digit",
     acceptedDigits: ["1", "2"],
     optionsDescription: {
-      en: "1 for Mobile Money, 2 for Banking",
-      twi: "1 ma Mobile Money, 2 ma Sikakorabea",
+      en: "1 for supported MTN Mobile Money, 2 for unavailable banking alternatives",
+      twi: "1 ma MTN Mobile Money a yɛboa, 2 ma banking a yɛmboa ne nkyerɛkyerɛmu",
     },
     navigation: {
       allowBack: true,
@@ -130,16 +131,16 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
   "provider-select": {
     id: "provider-select",
     name: "Network Provider Selection",
-    promptKey: "provider_select",
+    promptKey: "mtn_network_select",
     promptText: {
-      en: "Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again, or 0 to exit.",
-      twi: "Paw wo network. Sɛ ɛyɛ MTN a mia 1. Sɛ ɛyɛ Telecel a mia 2. Sɛ ɛyɛ AirtelTigo a mia 3. Sɛ wopɛ sɛ wote bio a mia 9. Sɛ wopɛ sɛ wotwa mu a mia 0.",
+      en: "Only MTN Mobile Money transfers are currently supported. For MTN, press 1. Press 9 to hear this again, or 0 to exit.",
+      twi: "Mprempren, yɛboa MTN Mobile Money nkutoo. Sɛ wo network yɛ MTN a, mia 1. Mia 9 na tie bio, anaasɛ mia 0 na woapue.",
     },
     inputType: "single_digit",
-    acceptedDigits: ["1", "2", "3"],
+    acceptedDigits: SUPPORTED_TRANSFER_NETWORKS.map((network) => network === "MTN" ? "1" : network === "Telecel" ? "2" : "3"),
     optionsDescription: {
-      en: "1 for MTN, 2 for Telecel, 3 for AT",
-      twi: "1 ma MTN, 2 ma Telecel, 3 ma AT",
+      en: "1 for MTN",
+      twi: "1 ma MTN",
     },
     navigation: {
       allowBack: false,
@@ -147,26 +148,25 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
       allowCancel: true,
     },
     collects: "network",
-    nextStepMap: {
-      "1": "action-select",
-      "2": "action-select",
-      "3": "action-select",
-    },
+    nextStepMap: Object.fromEntries(SUPPORTED_TRANSFER_NETWORKS.map((network) => [
+      network === "MTN" ? "1" : network === "Telecel" ? "2" : "3",
+      "action-select",
+    ])),
   },
 
   "action-select": {
     id: "action-select",
     name: "Action Menu",
-    promptKey: "action_select",
+    promptKey: "send_money_menu",
     promptText: {
-      en: "To send money, press 1. To check balance, press 2. To go back, press 8. To hear this again, press 9. To exit, press 0.",
-      twi: "Sɛ wopɛ sɛ womane sika a mia 1. Sɛ wopɛ sɛ wohwɛ wo sika dodow a mia 2. Sɛ wopɛ sɛ wosan kɔ akyi a mia 8. Sɛ wopɛ sɛ wote bio a mia 9. Sɛ wopɛ sɛ wotwa mu a mia 0.",
+      en: "To send money, press 1. To go back, press 8. To hear this again, press 9. To exit, press 0.",
+      twi: "Sɛ wopɛ sɛ womane sika a mia 1. Sɛ wopɛ sɛ wosan kɔ akyi a mia 8. Sɛ wopɛ sɛ wote bio a mia 9. Sɛ wopɛ sɛ wotwa mu a mia 0.",
     },
     inputType: "single_digit",
-    acceptedDigits: ["1", "2"],
+    acceptedDigits: ["1"],
     optionsDescription: {
-      en: "1 to Send Money, 2 to Check Balance",
-      twi: "1 ma Sika Mane, 2 ma Sika Dodow Hwɛ",
+      en: "1 to Send Money",
+      twi: "1 ma Sika Mane",
     },
     navigation: {
       allowBack: true,
@@ -177,7 +177,6 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
     collects: "action",
     nextStepMap: {
       "1": "enter-recipient",
-      "2": "check-balance",
     },
   },
 

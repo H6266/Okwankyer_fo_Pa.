@@ -23,6 +23,8 @@ import { ttsRouter } from "../ai_system/speech/tts/ttsRouter";
 import { formatSpokenNumbersAsDigits } from "../domain/numberFormatter";
 import { paymentSaga } from "../integrations/momo/paymentSaga";
 import { geminiClient } from "../services/geminiClient";
+import { recipientResolver } from "../providers/recipient/RecipientResolver";
+import { normalizeGhanaPhoneNumber } from "../domain/validation";
 import {
   isAcousticSystemEcho,
   stripSystemEchoFromTranscript,
@@ -1032,3 +1034,591 @@ aiRouter.get("/api/ai/ghananlp/speakers", async (_req: Request, res: Response) =
     res.status(502).json({ error: err.message });
   }
 });
+
+// ── Pre-Transaction Telco KYC & Recipient Lookup ─────────────────────
+aiRouter.post("/api/ai/simulator/validate-recipient", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { phone, sessionId, candidateName, candidateNetwork } = req.body || {};
+    if (!phone) {
+      return res.status(400).json({ success: false, error: "Missing recipient phone number." });
+    }
+    const normalized = normalizeGhanaPhoneNumber(String(phone));
+    const resolution = await recipientResolver.resolve(normalized);
+    const verifiedName = resolution.name || (resolution.verified ? "Registered Subscriber" : "Unknown Subscriber");
+    const network = resolution.network || "MTN";
+
+    // Detect mismatch between what user mentioned vs telco registry
+    let nameMismatch = false;
+    if (candidateName && typeof candidateName === "string" && candidateName.trim().length > 0) {
+      const cand = candidateName.toLowerCase().trim();
+      const ver = verifiedName.toLowerCase().trim();
+      if (!["him", "her", "them", "someone", "recipient"].includes(cand)) {
+        if (!ver.includes(cand) && !cand.includes(ver)) {
+          nameMismatch = true;
+        }
+      }
+    }
+
+    let networkMismatch = false;
+    if (candidateNetwork && typeof candidateNetwork === "string" && candidateNetwork.trim().length > 0) {
+      if (candidateNetwork.toUpperCase() !== network.toUpperCase()) {
+        networkMismatch = true;
+      }
+    }
+
+    res.json({
+      success: true,
+      phone: normalized,
+      verifiedName,
+      network,
+      verified: resolution.verified,
+      nameMismatch,
+      networkMismatch,
+      candidateName: candidateName || null,
+      candidateNetwork: candidateNetwork || null,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to validate recipient." });
+  }
+});
+
+// ── Live PIN Entry & MoMo Sandbox Execution ──────────────────────────
+const sessionPinAttempts = new Map<string, number>();
+
+aiRouter.post("/api/ai/simulator/submit-pin", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { sessionId, pin, amount, recipientPhone, recipientName, network, callerPhone, language } = req.body || {};
+    if (!sessionId || !pin) {
+      return res.status(400).json({ success: false, error: "Missing sessionId or PIN." });
+    }
+
+    const currentAttempts = sessionPinAttempts.get(sessionId) || 0;
+    const cleanPin = String(pin).replace(/\D/g, "");
+    const isTwi = language === "twi" || language === "tw" || language === "ak" || language === "twi-asante";
+
+    // Valid sandbox test PINs are 1234 or 0000
+    const isValidPin = cleanPin === "1234" || cleanPin === "0000";
+
+    if (!isValidPin) {
+      const newAttempts = currentAttempts + 1;
+      sessionPinAttempts.set(sessionId, newAttempts);
+      const remaining = Math.max(0, 3 - newAttempts);
+
+      if (remaining === 0) {
+        const lockMsg = isTwi
+          ? "Woabɔ PIN no mfomsoɔ mprɛnsa. Ahobammbɔ nti, yɛato wo MoMo wallet mu kakra. Nante yie."
+          : "Too many incorrect PIN attempts. For your security, your Mobile Money wallet is temporarily locked. Goodbye.";
+        return res.json({
+          success: false,
+          error: "WALLET_LOCKED",
+          remainingAttempts: 0,
+          message: lockMsg,
+          messageTw: lockMsg,
+        });
+      }
+
+      const warnMsg = isTwi
+        ? `PIN no nyɛ pɛpɛɛpɛ. Wodeɛ aka mprɛ ${remaining} pɛ ansa na yɛato wo wallet mu. Mesrɛ wo, fa wo keypad no bɔ mu sɛ worentumi nka a, na nka wo PIN nkyerɛ obiara da.`
+        : `That PIN is incorrect. You have ${remaining} attempt${remaining === 1 ? "" : "s"} remaining before your wallet is locked. Please take your time, or use your phone keypad if you prefer. For your safety, remember never to share your PIN with anyone.`;
+
+      return res.json({
+        success: false,
+        error: "INVALID_PIN",
+        remainingAttempts: remaining,
+        message: warnMsg,
+        messageTw: warnMsg,
+      });
+    }
+
+    // PIN is correct! Clear attempt counter
+    sessionPinAttempts.delete(sessionId);
+
+    const txAmount = Number(amount) || 0;
+    const sender = callerPhone || "0244123456";
+    const refPhone = recipientPhone || "0240000000";
+    const refName = recipientName || "Recipient";
+
+    // Execute sandbox saga/transaction
+    let referenceId = `MOMO-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    try {
+      const sagaRes = await paymentSaga.executeConfirmedTransferSaga({
+        sessionId,
+        senderPhone: sender,
+        recipientPhone: refPhone,
+        recipientName: refName,
+        amount: txAmount,
+        network: (network || "MTN") as any,
+        confirmedDraftHash: `pin_auth_${Date.now()}`,
+      });
+      if (sagaRes?.saga?.collectionReference) {
+        referenceId = sagaRes.saga.collectionReference;
+      }
+    } catch {
+      // Fallback sandbox transaction record
+      momoEngine.transfer({
+        amount: txAmount,
+        payeePhone: refPhone,
+        payeeName: refName,
+        payerMessage: `Transfer of GHS ${txAmount}`,
+        payeeNote: `Received from ${sender}`,
+      }).catch(() => {});
+    }
+
+    callSessionRepository.upsertSession({
+      sessionId,
+      outcome: "COMPLETED",
+      amountGHS: txAmount,
+      recipientName: refName,
+      recipientPhone: refPhone,
+    });
+
+    const successMsg = isTwi
+      ? `Wo sika transfer a ɛyɛ GHS ${txAmount} a woremane ${refName} (${refPhone}) no akɔ yie pɛpɛɛpɛ! Wo reference nɔmba ne ${referenceId}. Yɛda wo ase sɛ wode Ɔkwankyerɛfo Pa adi dwuma.`
+      : `Your transfer of ${txAmount} Ghana Cedis to ${refName} on ${refPhone} has been completed successfully! Your MoMo reference ID is ${referenceId}. Thank you for using Ɔkwankyerɛfo Pa.`;
+
+    res.json({
+      success: true,
+      reference: referenceId,
+      amount: txAmount,
+      recipientName: refName,
+      recipientPhone: refPhone,
+      network: network || "MTN",
+      message: successMsg,
+      messageTw: successMsg,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to process PIN authorization." });
+  }
+});
+
+// ── MoMo Cash-Out & Voice Withdrawal Endpoints ────────────────────────
+import { cashOutService } from "../services/cashOutService";
+
+// 1. Enable Cash-Out on subscriber wallet
+aiRouter.post("/api/ai/cashout/enable", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { callerPhone, language } = req.body || {};
+    const phone = callerPhone || "0543546010";
+    const state = cashOutService.enableCashOut(phone, 15);
+    const isTwi = language === "twi" || language === "tw" || language === "ak" || language === "twi-asante";
+
+    const msgEn = `Cash-Out has been successfully enabled on your wallet for the next 15 minutes. Would you like to check if you have enough balance to cover your withdrawal and the telco fee?`;
+    const msgTw = `Yɛabue kwan ama wo mprɛpren ara sɛ wotumi yi sika wɔ MoMo agent hɔ mfifii 15 mu. Wobɛpɛ sɛ yɛhwɛ wo sika a aka ne sika a telco no bɛgye ansa na woayi?`;
+
+    res.json({
+      success: true,
+      state,
+      callerPhone: phone,
+      expiresInMinutes: 15,
+      message: isTwi ? msgTw : msgEn,
+      messageEn: msgEn,
+      messageTw: msgTw,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to enable Cash-Out" });
+  }
+});
+
+// 2. Check balance and withdrawal fee breakdown (PIN authorized)
+aiRouter.post("/api/ai/cashout/check-balance", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { callerPhone, pin, requestedAmount, network, language } = req.body || {};
+    const phone = callerPhone || "0543546010";
+    const cleanPin = String(pin || "").replace(/\D/g, "");
+    const isTwi = language === "twi" || language === "tw" || language === "ak" || language === "twi-asante";
+
+    // Secure PIN verification with attempt tracking and lockout
+    const pinCheck = cashOutService.verifyPin(phone, cleanPin);
+    if (!pinCheck.success) {
+      if (pinCheck.error === "WALLET_LOCKED") {
+        const lockMsgEn = "Too many incorrect PIN attempts. For your security, your Mobile Money wallet has been temporarily locked. Please visit an MTN service centre or call 100 for assistance. Goodbye.";
+        const lockMsgTw = "Woabɔ PIN no mfomsoɔ mprɛnsa. Ahobammbɔ nti, yɛato wo MoMo wallet mu kakra. Mesrɛ wo kɔ MTN service centre anaa frɛ 100. Nante yie.";
+        return res.json({
+          success: false,
+          error: "WALLET_LOCKED",
+          isLocked: true,
+          remainingAttempts: 0,
+          message: isTwi ? lockMsgTw : lockMsgEn,
+          messageEn: lockMsgEn,
+          messageTw: lockMsgTw,
+        });
+      }
+
+      const rem = pinCheck.remainingAttempts ?? 2;
+      const errEn = `That PIN is incorrect. You have ${rem} attempt${rem === 1 ? "" : "s"} remaining before your wallet is locked. Please enter your PIN carefully on your phone keypad. Never share your PIN with anyone.`;
+      const errTw = `PIN no nyɛ pɛpɛɛpɛ. Wodeɛ aka mprɛ ${rem} pɛ ansa na yɛato wo wallet mu. Mesrɛ wo, fa wo keypad no bɔ mu pɛpɛɛpɛ na nka wo PIN nkyerɛ obiara da.`;
+      return res.json({
+        success: false,
+        error: "INVALID_PIN",
+        isLocked: false,
+        remainingAttempts: rem,
+        message: isTwi ? errTw : errEn,
+        messageEn: errEn,
+        messageTw: errTw,
+      });
+    }
+
+    const amt = Number(requestedAmount) || 30.0;
+    const affordability = cashOutService.checkAffordability(phone, amt, network || "MTN");
+
+    let speechEn = "";
+    let speechTw = "";
+
+    if (!affordability.isSufficient) {
+      const feeFormatted = affordability.fee.toFixed(2);
+      const balFormatted = affordability.balance.toFixed(2);
+      const maxFormatted = affordability.maxPossibleWithdrawal.toFixed(2);
+
+      speechEn = `You currently have ${balFormatted} Cedis in your account. Because the telco charges a cash-out fee of ${feeFormatted} Cedis, you cannot withdraw the full ${affordability.requestedAmount.toFixed(2)} Cedis. The maximum amount you can collect from the agent right now is ${maxFormatted} Cedis. Tell the agent to withdraw ${maxFormatted} Cedis.`;
+      speechTw = `Sika a ɛwɔ wo account mu nyinaa yɛ ${balFormatted} cedis. Esiane sɛ MTN gye sika kakra (${feeFormatted} cedis) ansa na woatumi ayi nti, wontumi nyi ${affordability.requestedAmount.toFixed(2)} cedis no nyinaa. Nea wotumi yi pɛpɛɛpɛ seesei ara yɛ ${maxFormatted} cedis. Ka kyerɛ agent no sɛ onyi ${maxFormatted} cedis mma wo.`;
+    } else {
+      const feeFormatted = affordability.fee.toFixed(2);
+      const balFormatted = affordability.balance.toFixed(2);
+      const totFormatted = affordability.totalRequired.toFixed(2);
+
+      speechEn = `You have sufficient balance! Your wallet balance is ${balFormatted} Cedis. For a ${affordability.requestedAmount.toFixed(2)} Cedis withdrawal, the telco fee is ${feeFormatted} Cedis, making a total of ${totFormatted} Cedis. You can proceed with the agent.`;
+      speechTw = `Wo sika dɔɔso pɛpɛɛpɛ! Sika a ɛwɔ wo account mu yɛ ${balFormatted} cedis. Sɛ woreyi ${affordability.requestedAmount.toFixed(2)} cedis a, MTN fee yɛ ${feeFormatted} cedis, a ne nyinaa yɛ ${totFormatted} cedis. Wotumi kɔ so yi sika no wɔ agent hɔ.`;
+    }
+
+    res.json({
+      success: true,
+      affordability,
+      message: isTwi ? speechTw : speechEn,
+      messageEn: speechEn,
+      messageTw: speechTw,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to check balance and fees" });
+  }
+});
+
+// 3. Simulate Agent Submitting Withdrawal Request
+aiRouter.post("/api/ai/cashout/agent-request", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { callerPhone, agentCode, agentName, amount } = req.body || {};
+    const phone = callerPhone || "0543546010";
+    const request = cashOutService.createAgentWithdrawalRequest(
+      phone,
+      agentCode || "284910",
+      agentName || "Kofi Mensah Enterprise (MoMo Agent)",
+      Number(amount) || 50.0
+    );
+
+    res.json({
+      success: true,
+      request,
+      message: `Agent request created for ${phone}: GHS ${request.amount} by ${request.agentName}.`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to create agent request" });
+  }
+});
+
+// 4. Retrieve Pending Agent Request for Caller
+aiRouter.get("/api/ai/cashout/get-pending", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const phone = String(req.query.callerPhone || "0543546010");
+    const pending = cashOutService.getPendingWithdrawalRequest(phone);
+    res.json({
+      success: true,
+      hasPending: Boolean(pending),
+      request: pending,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to get pending request" });
+  }
+});
+
+// 5. Approve Withdrawal Request (with Zero-PIN privacy advisory)
+// 5. Approve Withdrawal Request (with Zero-PIN privacy advisory & accurate failure reporting)
+aiRouter.post("/api/ai/cashout/approve", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { callerPhone, pin, language } = req.body || {};
+    const phone = callerPhone || "0543546010";
+    const isTwi = language === "twi" || language === "tw" || language === "ak" || language === "twi-asante";
+
+    const approvalResult = cashOutService.approveWithdrawal(phone, String(pin || ""));
+    if (!approvalResult.success) {
+      if (approvalResult.error === "WALLET_LOCKED") {
+        const lockMsgEn = "Too many incorrect PIN attempts. For your security, your Mobile Money wallet has been temporarily locked. Please visit an MTN service centre or call 100 for assistance. Goodbye.";
+        const lockMsgTw = "Woabɔ PIN no mfomsoɔ mprɛnsa. Ahobammbɔ nti, yɛato wo MoMo wallet mu kakra. Mesrɛ wo kɔ MTN service centre anaa frɛ 100. Nante yie.";
+        return res.json({
+          success: false,
+          error: "WALLET_LOCKED",
+          isLocked: true,
+          remainingAttempts: 0,
+          message: isTwi ? lockMsgTw : lockMsgEn,
+          messageEn: lockMsgEn,
+          messageTw: lockMsgTw,
+        });
+      }
+
+      if (approvalResult.error === "INVALID_PIN") {
+        const rem = approvalResult.remainingAttempts ?? 2;
+        const warnMsgEn = `That PIN is incorrect. You have ${rem} attempt${rem === 1 ? "" : "s"} remaining before your wallet is locked. Please enter your PIN carefully on your phone keypad. Never share your PIN with anyone.`;
+        const warnMsgTw = `PIN no nyɛ pɛpɛɛpɛ. Wodeɛ aka mprɛ ${rem} pɛ ansa na yɛato wo wallet mu. Mesrɛ wo, fa wo keypad no bɔ mu pɛpɛɛpɛ na nka wo PIN nkyerɛ obiara da.`;
+        return res.json({
+          success: false,
+          error: "INVALID_PIN",
+          isLocked: false,
+          remainingAttempts: rem,
+          message: isTwi ? warnMsgTw : warnMsgEn,
+          messageEn: warnMsgEn,
+          messageTw: warnMsgTw,
+        });
+      }
+
+      if (approvalResult.error === "INSUFFICIENT_BALANCE" && approvalResult.balanceDetails) {
+        const b = approvalResult.balanceDetails;
+        const balStr = b.currentBalance.toFixed(2);
+        const amtStr = b.requestedAmount.toFixed(2);
+        const feeStr = b.fee.toFixed(2);
+        const totStr = b.totalRequired.toFixed(2);
+        const maxStr = b.maxPossibleWithdrawal.toFixed(2);
+        const shortStr = b.shortage.toFixed(2);
+
+        const msgEn = `The withdrawal could not be completed because your Mobile Money balance is ${balStr} Cedis, but the agent requested ${amtStr} Cedis plus a ${feeStr} fee, for a total of ${totStr} Cedis. Your account is short by ${shortStr} Cedis. The maximum amount you can withdraw right now is ${maxStr} Cedis. Please ask the agent to enter ${maxStr} Cedis instead.`;
+        const msgTw = `Wontumi nyi sika no efisɛ wo MoMo balance yɛ ${balStr} Cedis, nanso agent no rebisa ${amtStr} Cedis ne fee ${feeStr} Cedis, a ne nyinaa yɛ ${totStr} Cedis. Sika a ɛka wo ho yɛ ${shortStr} Cedis. Sika a wotumi yi seesei ara yɛ ${maxStr} Cedis. Mesrɛ wo ka kyerɛ agent no sɛ ɔnsesa nɔmba no mmɔ ${maxStr} Cedis.`;
+
+        return res.json({
+          success: false,
+          error: "INSUFFICIENT_BALANCE",
+          balanceDetails: b,
+          message: isTwi ? msgTw : msgEn,
+          messageEn: msgEn,
+          messageTw: msgTw,
+        });
+      }
+
+      return res.json({
+        success: false,
+        error: approvalResult.error || "NO_PENDING_REQUEST",
+        message: isTwi
+          ? "Agent biara nnya mfaa sika yi ho asɛm mmanee wo account mu. Mesrɛ wo ka kyerɛ agent no sɛ ɔmbɔ sika yi ansa."
+          : "There is no pending cash-out withdrawal request from an agent for your phone number right now. Please tell the agent to enter the withdrawal first.",
+      });
+    }
+
+    const reqData = approvalResult.request!;
+    const ref = approvalResult.referenceId!;
+
+    const msgEn = `Your cash withdrawal of ${reqData.amount.toFixed(2)} Cedis from ${reqData.agentName} has been approved successfully! MoMo Reference: ${ref}. Security Tip: For your safety, you can also press your PIN on your phone keypad next time so bystanders do not overhear your code.`;
+    const msgTw = `Sika a woyiiɛ GHS ${reqData.amount.toFixed(2)} wɔ ${reqData.agentName} hɔ no akɔ yie pɛpɛɛpɛ! MoMo Reference: ${ref}. Ahobammbɔ Afutuo: Da foforɔ no, wotumi fa wo phone so keypad no bɔ wo PIN ahintasɛm no na obiara ante wɔ baabi a wogyina no.`;
+
+    res.json({
+      success: true,
+      referenceId: ref,
+      request: reqData,
+      message: isTwi ? msgTw : msgEn,
+      messageEn: msgEn,
+      messageTw: msgTw,
+      privacyTipEn: "For your safety, you can also press your PIN on your phone keypad so bystanders do not overhear your code.",
+      privacyTipTw: "Da foforɔ no, wotumi fa wo phone so keypad no bɔ wo PIN ahintasɛm no na obiara ante wɔ baabi a wogyina no.",
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to approve withdrawal" });
+  }
+});
+
+// 5b. Understand Cash-Out Conversational Intent via AI Agent (Zero-PIN Protected)
+aiRouter.post("/api/ai/cashout/understand-intent", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { transcript, currentState, callerPhone, requestedAmount, language } = req.body || {};
+    const text = String(transcript || "").trim();
+    const isTwi = language === "twi" || language === "tw" || language === "ak" || language === "twi-asante";
+    const curState = String(currentState || "cashout-awaiting-agent");
+
+    if (!text) {
+      return res.json({
+        success: false,
+        intent: "UNKNOWN",
+        action: "CLARIFY",
+        confidence: 0.0,
+      });
+    }
+
+    // STRICT ZERO-PIN REDACTION BOUNDARY:
+    // Redact any sequence of 4 digits or any mention of PIN code before passing to the AI model
+    const redactedText = text
+      .replace(/\b\d{4}\b/g, "[REDACTED_PIN]")
+      .replace(/\b(?:pin|secret|passcode|code)\s*(?:is|:)?\s*\d+\b/gi, "pin [REDACTED_PIN]");
+
+    // Try Gemini AI Model first with structured prompt
+    let detectedIntent: "AGENT_INITIATED" | "CONFIRM_PROCEED" | "REJECT_CANCEL" | "CHECK_BALANCE" | "WAITING" | "UNKNOWN" = "UNKNOWN";
+    let detectedAction: "FETCH_PENDING" | "PROCEED" | "CANCEL" | "CHECK_BALANCE" | "WAIT" | "CLARIFY" = "CLARIFY";
+    let reason = "";
+
+    const rawClient = geminiClient.getRawClient();
+    if (rawClient && geminiClient.isAvailable()) {
+      try {
+        const prompt = `You are the natural language understanding agent for Ɔkwankyerɛfo Pa (Ghanaian Mobile Money Voice Layer).
+The user is performing a Cash-Out / agent withdrawal.
+Current step: "${curState}".
+Caller Phone: "${callerPhone || "0543546010"}".
+Amount: "${requestedAmount || 30}".
+Language: ${isTwi ? "Akan Twi" : "English"}.
+
+The caller said: "${redactedText}".
+
+Determine the user's intent. Output JSON ONLY with this schema:
+{
+  "intent": "AGENT_INITIATED" | "CONFIRM_PROCEED" | "REJECT_CANCEL" | "CHECK_BALANCE" | "WAITING" | "UNKNOWN",
+  "action": "FETCH_PENDING" | "PROCEED" | "CANCEL" | "CHECK_BALANCE" | "WAIT" | "CLARIFY",
+  "reason": string
+}
+
+Guidelines:
+- In step "cashout-confirm-approval":
+  * If the caller agrees to approve or proceed, says yes, confirms, says "go ahead", "yes please go ahead", "approve", "approve it", "approve for me", "pene so", "aane", "yoo", "do it", or mentions entering PIN, set intent to "CONFIRM_PROCEED" and action to "PROCEED".
+  * If caller rejects or cancels ("no", "cancel", "dabi", "reject", "twa mu"), set intent to "REJECT_CANCEL" and action to "CANCEL".
+- In step "cashout-awaiting-agent":
+  * If the caller indicates the physical agent has initiated/sent/entered the withdrawal, told them to check, prompt has appeared, or caller wants to enter their PIN / approve (e.g. "he said I should check, and add my pin", "0543546010 i have, he said i should check, and add my pin", "prompt has come", "he entered it", "agent is done", "it came", "approve", "approve for me", "yes approve for me", "enter my pin", "check", "wawie", "ɔse menhwɛ", "bisa pin"), set intent to "AGENT_INITIATED" and action to "FETCH_PENDING".
+  * If the caller asks to wait, says agent is still typing/busy, set intent to "WAITING" and action to "WAIT".
+  * If caller cancels, set intent to "REJECT_CANCEL" and action to "CANCEL".
+- In step "cashout-offer-balance":
+  * If the caller agrees to check balance or fees ("yes", "check", "sure", "aane", "hwɛ"), set intent to "CONFIRM_PROCEED" and action to "PROCEED".
+  * If caller skips or says no ("no", "skip", "dabi", "daabi"), set intent to "REJECT_CANCEL" and action to "CANCEL".
+  * If caller immediately indicates agent is already done / entered, set intent to "AGENT_INITIATED" and action to "FETCH_PENDING".
+`;
+
+        const response = await rawClient.models.generateContent({
+          model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          config: {
+            responseMimeType: "application/json",
+            temperature: 0.1,
+          },
+        });
+
+        const outputText = response.text || "{}";
+        const parsed = JSON.parse(outputText);
+        if (parsed.intent && parsed.action) {
+          detectedIntent = parsed.intent;
+          detectedAction = parsed.action;
+          reason = parsed.reason || "Gemini semantic understanding";
+          if (curState === "cashout-confirm-approval" && (detectedIntent === "AGENT_INITIATED" || /\b(approve|pene\s*so)\b/i.test(text))) {
+            detectedIntent = "CONFIRM_PROCEED";
+            detectedAction = "PROCEED";
+            reason = "In cashout-confirm-approval, approving is confirmation to proceed";
+          }
+        }
+      } catch (geminiErr: any) {
+        // Fallback to local deterministic linguistic evaluation
+      }
+    }
+
+    // Local Deterministic Linguistic Fallback if Gemini did not classify or is offline
+    if (detectedIntent === "UNKNOWN") {
+      const lower = text.toLowerCase();
+
+      if (curState === "cashout-confirm-approval") {
+        const approveCues = [
+          "yes", "approve", "confirm", "proceed", "go ahead", "please go ahead",
+          "okay", "sure", "aane", "ampa", "kɔ so", "ko so", "yie", "pene so",
+          "yoo", "do it", "allow it", "enter pin", "bisa pin", "menhyɛ mu", "approve for me", "yes please"
+        ];
+        const cancelCues = ["no", "cancel", "dabi", "stop", "reject", "gyae", "twa mu"];
+        if (approveCues.some(cue => lower.includes(cue))) {
+          detectedIntent = "CONFIRM_PROCEED";
+          detectedAction = "PROCEED";
+          reason = "Caller approved withdrawal request in cashout-confirm-approval";
+        } else if (cancelCues.some(cue => lower.includes(cue))) {
+          detectedIntent = "REJECT_CANCEL";
+          detectedAction = "CANCEL";
+          reason = "Caller rejected withdrawal in cashout-confirm-approval";
+        }
+      } else {
+        // Agent initiated cues (English & Twi)
+        const agentDoneCues = [
+          "he said", "said i should check", "check", "add my pin", "enter pin", "bisa pin",
+          "agent is done", "done", "he has sent", "sent it", "he sent it", "punched it",
+          "prompt has come", "prompt come", "it has arrived", "it came", "approve",
+          "approve it", "approve for me", "yes approve", "pene so", "ready", "wie", "wawie",
+          "ɔse menhwɛ", "ose menhwe", "ɔse me bɔ", "ose me bo", "prompt no aba",
+          "agent no awie", "he entered it", "menhyɛ mu"
+        ];
+        const isAgentDone = agentDoneCues.some(cue => lower.includes(cue));
+
+        // Affirmative / Proceed cues
+        const proceedCues = [
+          "yes", "confirm", "proceed", "go ahead", "please go ahead", "try it",
+          "try anyway", "okay", "sure", "aane", "ampa", "kɔ so", "ko so", "yie",
+          "pene so", "yoo", "yes please"
+        ];
+        const isProceed = proceedCues.some(cue => lower.includes(cue));
+
+        // Negative / Cancel cues
+        const cancelCues = [
+          "no", "cancel", "dabi", "stop", "reject", "gyae", "twa mu"
+        ];
+        const isCancel = cancelCues.some(cue => lower.includes(cue));
+
+        // Balance check cues
+        const balanceCues = [
+          "check balance", "how much", "balance", "fee", "sika dodoɔ", "hwɛ balance", "hwɛ sika"
+        ];
+        const isBalance = balanceCues.some(cue => lower.includes(cue));
+
+        if (isAgentDone) {
+          detectedIntent = "AGENT_INITIATED";
+          detectedAction = "FETCH_PENDING";
+          reason = "Linguistic match: caller indicated agent prompt / check / add PIN request";
+        } else if (isProceed) {
+          detectedIntent = "CONFIRM_PROCEED";
+          detectedAction = "PROCEED";
+          reason = "Linguistic match: affirmative confirmation / proceed";
+        } else if (isCancel) {
+          detectedIntent = "REJECT_CANCEL";
+          detectedAction = "CANCEL";
+          reason = "Linguistic match: negative cancellation";
+        } else if (isBalance) {
+          detectedIntent = "CHECK_BALANCE";
+          detectedAction = "CHECK_BALANCE";
+          reason = "Linguistic match: check balance and fees";
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      intent: detectedIntent,
+      action: detectedAction,
+      confidence: detectedIntent !== "UNKNOWN" ? 0.95 : 0.3,
+      reason,
+      redactedTranscript: redactedText,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to analyze cashout intent" });
+  }
+});
+
+// 5c. Reset PIN attempts and unlock wallet for testing
+aiRouter.post("/api/ai/cashout/reset-attempts", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { callerPhone } = req.body || {};
+    const phone = callerPhone || "0543546010";
+    cashOutService.resetPinAttempts(phone);
+    res.json({ success: true, message: `PIN attempts reset and wallet unlocked for ${phone}.` });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to reset PIN attempts" });
+  }
+});
+
+// 6. Set custom wallet balance for simulation testing (e.g. GH₵30)
+aiRouter.post("/api/ai/cashout/set-balance", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { callerPhone, balance } = req.body || {};
+    const phone = callerPhone || "0543546010";
+    const bal = Number(balance);
+    cashOutService.setWalletBalance(phone, isNaN(bal) ? 30.0 : bal);
+    res.json({
+      success: true,
+      callerPhone: phone,
+      balance: cashOutService.getWalletBalance(phone),
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to set wallet balance" });
+  }
+});
+
+

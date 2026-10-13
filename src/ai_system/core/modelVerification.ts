@@ -227,34 +227,39 @@ export async function verifyModelsAtStartup(customApiKey?: string): Promise<{ ve
     return { verified: false, discovered: [], missing: [] };
   }
 
-  const ai = new GoogleGenAI({ apiKey });
-  const modelsPager = await ai.models.list();
-  const discovered: string[] = [];
-  for await (const m of modelsPager) {
-    if (m.name) {
-      discovered.push(m.name.replace(/^models\//, ""));
-    }
-  }
-
-  const required = [
-    "gemini-3.8-flash",
-    "gemini-flash-latest",
-    "gemini-3.5-transcribe",
-    "gemini-3.8-live"
-  ];
-
-  const missing: string[] = [];
-  for (const model of required) {
-    if (!discovered.includes(model)) {
-      missing.push(model);
-      if (process.env.NODE_ENV === "production") {
-        throw new Error(`FATAL: Model ${model} not found. Aborting production start.`);
-      } else {
-        console.warn(`Warning: Model ${model} not available. Using fallback.`);
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+    const modelsPager = await ai.models.list();
+    const discovered: string[] = [];
+    for await (const m of modelsPager) {
+      if (m.name) {
+        discovered.push(m.name.replace(/^models\//, ""));
       }
     }
-  }
 
-  console.log(`✅ All models verified: ${discovered.slice(0, 5).join(", ")}...`);
-  return { verified: missing.length === 0, discovered, missing };
+    const required = [
+      "gemini-3.8-flash",
+      "gemini-flash-latest",
+      "gemini-3.5-transcribe",
+      "gemini-3.8-live"
+    ];
+
+    const missing: string[] = [];
+    for (const model of required) {
+      if (!discovered.includes(model)) {
+        missing.push(model);
+        if (process.env.NODE_ENV === "production") {
+          console.warn(`Warning: Model ${model} not available in catalog. Using offline fallback.`);
+        } else {
+          console.warn(`Warning: Model ${model} not available. Using fallback.`);
+        }
+      }
+    }
+
+    console.log(`✅ Models probe complete: ${discovered.slice(0, 5).join(", ")}...`);
+    return { verified: missing.length === 0, discovered, missing };
+  } catch (err: any) {
+    console.warn("⚠️ verifyModelsAtStartup notice: Gemini API quota or probe unavailable. Operating with local deterministic fallback:", err?.message || err);
+    return { verified: false, discovered: [], missing: [] };
+  }
 }

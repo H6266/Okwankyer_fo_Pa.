@@ -8,6 +8,7 @@ export type BrainMode = 'offline_only' | 'shadow' | 'live';
 
 export type IntentId =
   | 'momo.transfer'
+  | 'momo.cash_out'
   | 'momo.check_balance'
   | 'momo.buy_airtime'
   | 'momo.buy_data'
