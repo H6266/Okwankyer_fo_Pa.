@@ -1191,3 +1191,178 @@ aiRouter.post("/api/ai/simulator/submit-pin", publicApiRateLimiter, async (req: 
   }
 });
 
+// ── MoMo Cash-Out & Voice Withdrawal Endpoints ────────────────────────
+import { cashOutService } from "../services/cashOutService";
+
+// 1. Enable Cash-Out on subscriber wallet
+aiRouter.post("/api/ai/cashout/enable", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { callerPhone, language } = req.body || {};
+    const phone = callerPhone || "0543546010";
+    const state = cashOutService.enableCashOut(phone, 15);
+    const isTwi = language === "twi" || language === "tw" || language === "ak" || language === "twi-asante";
+
+    const msgEn = `Cash-Out has been successfully enabled on your wallet for the next 15 minutes. Would you like to check if you have enough balance to cover your withdrawal and the telco fee?`;
+    const msgTw = `Yɛabue kwan ama wo mprɛpren ara sɛ wotumi yi sika wɔ MoMo agent hɔ mfifii 15 mu. Wobɛpɛ sɛ yɛhwɛ wo sika a aka ne sika a telco no bɛgye ansa na woayi?`;
+
+    res.json({
+      success: true,
+      state,
+      callerPhone: phone,
+      expiresInMinutes: 15,
+      message: isTwi ? msgTw : msgEn,
+      messageEn: msgEn,
+      messageTw: msgTw,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to enable Cash-Out" });
+  }
+});
+
+// 2. Check balance and withdrawal fee breakdown (PIN authorized)
+aiRouter.post("/api/ai/cashout/check-balance", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { callerPhone, pin, requestedAmount, network, language } = req.body || {};
+    const phone = callerPhone || "0543546010";
+    const cleanPin = String(pin || "").replace(/\D/g, "");
+    const isTwi = language === "twi" || language === "tw" || language === "ak" || language === "twi-asante";
+
+    // Secure PIN verification: must be 1234 or 0000 in sandbox
+    if (cleanPin !== "1234" && cleanPin !== "0000") {
+      const errEn = "That PIN is incorrect. Please try again or use your keypad.";
+      const errTw = "PIN no nyɛ pɛpɛɛpɛ. Mesrɛ wo bɔ bio anaa fa wo keypad no bɔ mu.";
+      return res.status(401).json({
+        success: false,
+        error: "INVALID_PIN",
+        message: isTwi ? errTw : errEn,
+        messageEn: errEn,
+        messageTw: errTw,
+      });
+    }
+
+    const amt = Number(requestedAmount) || 30.0;
+    const affordability = cashOutService.checkAffordability(phone, amt, network || "MTN");
+
+    let speechEn = "";
+    let speechTw = "";
+
+    if (!affordability.isSufficient) {
+      const feeFormatted = affordability.fee.toFixed(2);
+      const balFormatted = affordability.balance.toFixed(2);
+      const maxFormatted = affordability.maxPossibleWithdrawal.toFixed(2);
+
+      speechEn = `You currently have ${balFormatted} Cedis in your account. Because the telco charges a cash-out fee of ${feeFormatted} Cedis, you cannot withdraw the full ${affordability.requestedAmount.toFixed(2)} Cedis. The maximum amount you can collect from the agent right now is ${maxFormatted} Cedis. Tell the agent to withdraw ${maxFormatted} Cedis.`;
+      speechTw = `Sika a ɛwɔ wo account mu nyinaa yɛ ${balFormatted} cedis. Esiane sɛ MTN gye sika kakra (${feeFormatted} cedis) ansa na woatumi ayi nti, wontumi nyi ${affordability.requestedAmount.toFixed(2)} cedis no nyinaa. Nea wotumi yi pɛpɛɛpɛ seesei ara yɛ ${maxFormatted} cedis. Ka kyerɛ agent no sɛ onyi ${maxFormatted} cedis mma wo.`;
+    } else {
+      const feeFormatted = affordability.fee.toFixed(2);
+      const balFormatted = affordability.balance.toFixed(2);
+      const totFormatted = affordability.totalRequired.toFixed(2);
+
+      speechEn = `You have sufficient balance! Your wallet balance is ${balFormatted} Cedis. For a ${affordability.requestedAmount.toFixed(2)} Cedis withdrawal, the telco fee is ${feeFormatted} Cedis, making a total of ${totFormatted} Cedis. You can proceed with the agent.`;
+      speechTw = `Wo sika dɔɔso pɛpɛɛpɛ! Sika a ɛwɔ wo account mu yɛ ${balFormatted} cedis. Sɛ woreyi ${affordability.requestedAmount.toFixed(2)} cedis a, MTN fee yɛ ${feeFormatted} cedis, a ne nyinaa yɛ ${totFormatted} cedis. Wotumi kɔ so yi sika no wɔ agent hɔ.`;
+    }
+
+    res.json({
+      success: true,
+      affordability,
+      message: isTwi ? speechTw : speechEn,
+      messageEn: speechEn,
+      messageTw: speechTw,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to check balance and fees" });
+  }
+});
+
+// 3. Simulate Agent Submitting Withdrawal Request
+aiRouter.post("/api/ai/cashout/agent-request", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { callerPhone, agentCode, agentName, amount } = req.body || {};
+    const phone = callerPhone || "0543546010";
+    const request = cashOutService.createAgentWithdrawalRequest(
+      phone,
+      agentCode || "284910",
+      agentName || "Kofi Mensah Enterprise (MoMo Agent)",
+      Number(amount) || 50.0
+    );
+
+    res.json({
+      success: true,
+      request,
+      message: `Agent request created for ${phone}: GHS ${request.amount} by ${request.agentName}.`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to create agent request" });
+  }
+});
+
+// 4. Retrieve Pending Agent Request for Caller
+aiRouter.get("/api/ai/cashout/get-pending", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const phone = String(req.query.callerPhone || "0543546010");
+    const pending = cashOutService.getPendingWithdrawalRequest(phone);
+    res.json({
+      success: true,
+      hasPending: Boolean(pending),
+      request: pending,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to get pending request" });
+  }
+});
+
+// 5. Approve Withdrawal Request (with Zero-PIN privacy advisory)
+aiRouter.post("/api/ai/cashout/approve", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { callerPhone, pin, language } = req.body || {};
+    const phone = callerPhone || "0543546010";
+    const isTwi = language === "twi" || language === "tw" || language === "ak" || language === "twi-asante";
+
+    const approvalResult = cashOutService.approveWithdrawal(phone, String(pin || ""));
+    if (!approvalResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: approvalResult.error,
+        message: isTwi ? "PIN no nyɛ pɛpɛɛpɛ anaa sika no nnɔɔso." : "PIN incorrect or insufficient balance.",
+      });
+    }
+
+    const reqData = approvalResult.request!;
+    const ref = approvalResult.referenceId!;
+
+    const msgEn = `Your cash withdrawal of ${reqData.amount} Cedis from ${reqData.agentName} has been approved successfully! MoMo Reference: ${ref}. Security Tip: For your safety, you can also press your PIN on your phone keypad next time so bystanders do not overhear your code.`;
+    const msgTw = `Sika a woyiiɛ GHS ${reqData.amount} wɔ ${reqData.agentName} hɔ no akɔ yie pɛpɛɛpɛ! MoMo Reference: ${ref}. Ahobammbɔ Afutuo: Da foforɔ no, wotumi fa wo phone so keypad no bɔ wo PIN ahintasɛm no na obiara ante wɔ baabi a wogyina no.`;
+
+    res.json({
+      success: true,
+      referenceId: ref,
+      request: reqData,
+      message: isTwi ? msgTw : msgEn,
+      messageEn: msgEn,
+      messageTw: msgTw,
+      privacyTipEn: "For your safety, you can also press your PIN on your phone keypad so bystanders do not overhear your code.",
+      privacyTipTw: "Da foforɔ no, wotumi fa wo phone so keypad no bɔ wo PIN ahintasɛm no na obiara ante wɔ baabi a wogyina no.",
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to approve withdrawal" });
+  }
+});
+
+// 6. Set custom wallet balance for simulation testing (e.g. GH₵30)
+aiRouter.post("/api/ai/cashout/set-balance", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { callerPhone, balance } = req.body || {};
+    const phone = callerPhone || "0543546010";
+    const bal = Number(balance);
+    cashOutService.setWalletBalance(phone, isNaN(bal) ? 30.0 : bal);
+    res.json({
+      success: true,
+      callerPhone: phone,
+      balance: cashOutService.getWalletBalance(phone),
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to set wallet balance" });
+  }
+});
+
+

@@ -39,6 +39,21 @@ export const ALL_INTENTS: Record<IntentId, IntentMetadata> = {
     },
   },
 
+  'momo.cash_out': {
+    id: 'momo.cash_out',
+    name: 'MoMo Cash-Out & Withdrawal',
+    description: 'Enable Cash-Out on subscriber wallet for agent-initiated cash withdrawal, with balance check and approval assistance.',
+    category: 'momo',
+    requiredSlots: [],
+    optionalSlots: [
+      { name: 'amount', type: 'amount', required: false, description: 'Intended withdrawal amount in GHS' },
+    ],
+    keywords: {
+      en: ['withdraw', 'cash out', 'cashout', 'take out money', 'pull money', 'agent cash out', 'allow cash out', 'withdrawal', 'momo vendor'],
+      twi: ['yi sika', 'mepɛ sɛ meyi sika', 'allow cash out', 'cash out', 'agent', 'gye sika', 'sika yi'],
+    },
+  },
+
   'momo.check_balance': {
     id: 'momo.check_balance',
     name: 'MoMo Check Balance',

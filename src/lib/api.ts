@@ -726,6 +726,114 @@ export const api = {
     return res.json();
   },
 
+  async enableVoiceCashOut(params: {
+    callerPhone?: string;
+    language?: string;
+  }): Promise<{
+    success: boolean;
+    state: any;
+    callerPhone: string;
+    expiresInMinutes: number;
+    message: string;
+    messageEn: string;
+    messageTw: string;
+  }> {
+    const res = await fetch("/api/ai/cashout/enable", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async checkCashOutBalance(params: {
+    callerPhone?: string;
+    pin: string;
+    requestedAmount?: number;
+    network?: string;
+    language?: string;
+  }): Promise<{
+    success: boolean;
+    error?: string;
+    affordability?: any;
+    message?: string;
+    messageEn?: string;
+    messageTw?: string;
+  }> {
+    const res = await fetch("/api/ai/cashout/check-balance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async simulateAgentCashOutRequest(params: {
+    callerPhone?: string;
+    agentCode?: string;
+    agentName?: string;
+    amount?: number;
+  }): Promise<{
+    success: boolean;
+    request: any;
+    message: string;
+  }> {
+    const res = await fetch("/api/ai/cashout/agent-request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async getPendingCashOutRequest(callerPhone?: string): Promise<{
+    success: boolean;
+    hasPending: boolean;
+    request?: any;
+  }> {
+    const res = await fetch(`/api/ai/cashout/get-pending?callerPhone=${encodeURIComponent(callerPhone || "0543546010")}`);
+    return res.json();
+  },
+
+  async approveCashOut(params: {
+    callerPhone?: string;
+    pin: string;
+    language?: string;
+  }): Promise<{
+    success: boolean;
+    error?: string;
+    referenceId?: string;
+    request?: any;
+    message?: string;
+    messageEn?: string;
+    messageTw?: string;
+    privacyTipEn?: string;
+    privacyTipTw?: string;
+  }> {
+    const res = await fetch("/api/ai/cashout/approve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async setCashOutWalletBalance(params: {
+    callerPhone?: string;
+    balance: number;
+  }): Promise<{
+    success: boolean;
+    callerPhone: string;
+    balance: number;
+  }> {
+    const res = await fetch("/api/ai/cashout/set-balance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
   async getMomoTransactions(): Promise<any> {
     const res = await fetch("/api/momo/transactions");
     return res.json();

@@ -43,6 +43,22 @@ export class ServiceRegistry {
       },
     });
 
+    // 1b. momo.cash_out - status: 'ready' (Initiates Allow Cash-Out on subscriber wallet)
+    this.register({
+      intent: 'momo.cash_out',
+      status: 'ready',
+      requiredSlots: [],
+      handler: async (context: any) => {
+        const callerPhone = context?.callerNumber || '0543546010';
+        const { cashOutService } = await import('../../services/cashOutService');
+        const state = cashOutService.enableCashOut(callerPhone);
+        return {
+          success: true,
+          result: state,
+        };
+      },
+    });
+
     // 2. momo.check_balance (Unbuilt in voice IVR - directs caller to *170# for Zero-PIN truth integrity)
     this.register({
       intent: 'momo.check_balance',

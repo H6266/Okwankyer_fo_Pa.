@@ -34,20 +34,24 @@ Core Principles:
    - If the caller speaks Akan Twi (or asks to speak Twi), reply naturally in Akan Twi.
    - If the caller speaks English, reply in English.
    - Understand local Ghanaian terms and numbering: "cedis", "sika", "hwee", "baako", "mmienu", "aduonum", "ɔha", "apem".
-3. Conversational Context & Mental Math:
+3. Distinguish Between Sending Money vs Withdrawing Money:
+   - When a caller says they want to "withdraw money", "cash out", "allow cash out", or in Twi "meyi sika", this is a WITHDRAWAL (momo.cash_out), NOT a transfer!
+   - In Ghana, cashing out at an agent works by enabling 'Allow Cash-Out' on the caller's wallet.
+   - For a withdrawal or cash-out, the caller DOES NOT need to provide a recipient phone number! NEVER ask them "Who are you sending the money to?" when they said they want to withdraw or cash out.
+   - When the caller asks to withdraw money or cash out, invoke the 'allow_cash_out' or 'process_cash_out' tool with the amount mentioned.
+4. Conversational Context & Mental Math:
    - Perform mental math seamlessly: e.g. "the bill is 100cedis but i have 90 send so send half of my money to him" means the caller wants to send half of 90 = 45 cedis!
    - "a tenth of 100 cedis" is 10 cedis; "half of 50" is 25 cedis; "20 plus 30" is 50 cedis.
    - Retain details across multiple turns. If the caller gave the amount in turn 1 and gives the phone number in turn 2, remember both!
    - Handle revisions and corrections gracefully: e.g. "Actually send 20 instead of 50" updates the amount without losing the recipient.
-4. Messy Speech & Voice Robustness: Ignore background noise, voice-to-text filler words ("uh", "um", "ah"). Focus on the caller's true intent.
-5. Recipient Verification & Discrepancy Awareness:
+5. Messy Speech & Voice Robustness: Ignore background noise, voice-to-text filler words ("uh", "um", "ah"). Focus on the caller's true intent.
+6. Recipient Verification & Discrepancy Awareness:
    - When the system validates a recipient against the telco registry and returns the registered name and network, explain the details to the caller.
    - If there is any discrepancy between what the caller said (e.g. caller said "ECG man" or "Telecel") and what the telco registry returned (e.g. "Kwame Mensah" on "MTN"), clarify this discrepancy clearly with the caller and ask for their confirmation before proceeding.
-6. The Clean Handoff:
-   - When both the recipient phone number (or agent number) and transaction amount (in GHS) are clearly gathered, invoke the appropriate tool:
-     • 'process_send_money' for sending money (providing recipient_number, amount, reference, optional recipient_name, and optional network).
-     • 'process_cash_out' for cashing out with an agent (providing agent_number, amount).
-   - If any required parameter is still missing or ambiguous (e.g. amount is known but phone number is missing), DO NOT invoke any tool. Simply reply with a short conversational sentence asking for the missing piece.`;
+7. The Clean Handoff:
+   - When both the recipient phone number and transaction amount (in GHS) are clearly gathered for sending money, invoke 'process_send_money'.
+   - When the caller wants to withdraw or cash out, invoke 'allow_cash_out' or 'process_cash_out'.
+   - If any required parameter is still missing or ambiguous, reply with a short conversational sentence asking for the missing piece.`;
 
 export const SEND_MONEY_TOOL: FunctionDeclaration = {
   name: "process_send_money",
@@ -80,22 +84,35 @@ export const SEND_MONEY_TOOL: FunctionDeclaration = {
   },
 };
 
-export const CASH_OUT_TOOL: FunctionDeclaration = {
-  name: "process_cash_out",
-  description: "Process a Mobile Money Cash Out at an agent once the agent number and amount have been gathered.",
+export const ALLOW_CASH_OUT_TOOL: FunctionDeclaration = {
+  name: "allow_cash_out",
+  description: "Initiates Allow Cash-Out / Withdrawal on the caller's wallet when they request to withdraw money or enable cash out.",
   parameters: {
     type: Type.OBJECT,
     properties: {
-      agent_number: {
-        type: Type.STRING,
-        description: "The 6-digit agent code or phone number.",
-      },
       amount: {
         type: Type.NUMBER,
-        description: "The amount in Ghana Cedis (GHS) to cash out.",
+        description: "The amount in Ghana Cedis (GHS) the caller wishes to withdraw, if mentioned.",
       },
     },
-    required: ["agent_number", "amount"],
+  },
+};
+
+export const CASH_OUT_TOOL: FunctionDeclaration = {
+  name: "process_cash_out",
+  description: "Process a Mobile Money Cash Out / Withdrawal at an agent.",
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      amount: {
+        type: Type.NUMBER,
+        description: "The amount in Ghana Cedis (GHS) to cash out or withdraw.",
+      },
+      agent_number: {
+        type: Type.STRING,
+        description: "Optional 6-digit agent code or phone number if mentioned.",
+      },
+    },
   },
 };
 
@@ -160,7 +177,7 @@ export class ReasoningEngine {
       model: modelName,
       config: {
         systemInstruction: MOMO_SYSTEM_INSTRUCTION,
-        tools: [{ functionDeclarations: [SEND_MONEY_TOOL, CASH_OUT_TOOL] }],
+        tools: [{ functionDeclarations: [SEND_MONEY_TOOL, CASH_OUT_TOOL, ALLOW_CASH_OUT_TOOL] }],
         temperature: 0.2,
       },
     });

@@ -1205,42 +1205,26 @@ export class Brain {
         };
       }
 
-      if (call.name === "process_cash_out") {
+      if (call.name === "allow_cash_out" || call.name === "process_cash_out") {
         const amount = typeof args.amount === "number" ? args.amount : parseFloat(args.amount) || undefined;
         const agent = args.agent_number ? String(args.agent_number).replace(/[^0-9]/g, "") : undefined;
+        if (amount !== undefined) draft.slots.amount = amount;
+        if (agent) draft.slots.recipient = { phone: agent };
 
-        if (!agent || agent.length < 5) {
-          if (amount !== undefined) draft.slots.amount = amount;
-          return {
-            intent: { id: "momo.transfer", confidence: 0.98 },
-            slots: { amount },
-            signals: { correction: false, interruption: false, user_confirmed: false },
-            reply: {
-              text_en: "What is the agent number or code you want to cash out with?",
-              target_language: targetLanguage,
-              reply_kind: "clarify_slot",
-            },
-          };
-        }
-
-        if (amount === undefined || isNaN(amount)) {
-          return {
-            intent: { id: "momo.transfer", confidence: 0.98 },
-            slots: { recipient: { phone: agent } },
-            signals: { correction: false, interruption: false, user_confirmed: false },
-            reply: {
-              text_en: "How many Ghana cedis do you want to cash out?",
-              target_language: targetLanguage,
-              reply_kind: "clarify_slot",
-            },
-          };
-        }
+        const isTwi = targetLanguage.startsWith("twi");
+        const promptText = isTwi
+          ? (amount
+              ? `Yɛabue Allow Cash-Out ama wo mfifii 15 mu sɛ wobɛyi ${amount} cedis. Wobɛpɛ sɛ yɛhwɛ wo balance ne telco fee ansa na woayi?`
+              : "Yɛabue Allow Cash-Out ama wo mfifii 15 mu wɔ wo wallet so. Wobɛpɛ sɛ yɛhwɛ wo sika a aka ansa na woayi?")
+          : (amount
+              ? `Cash-Out has been enabled on your wallet for the next fifteen minutes for ${amount} Cedis. Would you like to check if your balance covers your withdrawal and the telco fee?`
+              : "Cash-Out has been enabled on your wallet for the next fifteen minutes. Would you like to check if your balance covers your withdrawal and fees?");
 
         return {
-          intent: { id: "momo.transfer", confidence: 0.98 },
+          intent: { id: "momo.cash_out", confidence: 0.98 },
           slots: {
-            amount,
-            recipient: { phone: agent },
+            ...(amount !== undefined ? { amount } : {}),
+            ...(agent ? { recipient: { phone: agent } } : {}),
           },
           signals: {
             correction: false,
@@ -1248,9 +1232,9 @@ export class Brain {
             user_confirmed: false,
           },
           reply: {
-            text_en: `You want to cash out ${amount} cedis with agent ${agent}. Please confirm.`,
+            text_en: promptText,
             target_language: targetLanguage,
-            reply_kind: "confirm",
+            reply_kind: "clarify_slot",
           },
         };
       }
@@ -1306,6 +1290,7 @@ export class Brain {
     const lower = text.toLowerCase();
     const scores: Record<IntentId, number> = {
       'momo.transfer': 0,
+      'momo.cash_out': 0,
       'momo.check_balance': 0,
       'momo.buy_airtime': 0,
       'momo.buy_data': 0,
@@ -1317,24 +1302,27 @@ export class Brain {
       'unknown': 0.1,
     };
 
-    const hasTransferAction = (/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && /\b(?:to|kɔma|give)\b/i.test(lower)) ||
-      (/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && (Boolean(draft.slots.recipient?.phone) || /\b0[235]\d{8}\b/.test(lower)));
+    const isCashOut = /\b(withdraw|cash\s*out|cashout|allow\s*cash\s*out|take\s*out\s*money|pull\s*money|yi\s*sika|mepɛ\s*sɛ\s*meyi\s*sika|gye\s*sika)\b/i.test(lower);
 
-    const isReverse = !hasTransferAction && /\b(?:reverse|reversal|sent\s+by\s+mistake|sesa\s+transaction|nɔmba\s+mfomsoɔ|san\s+fa\s+sika|mfomsoɔ|wrong\s+(?:number|transfer)|refund)\b/i.test(lower);
-    const hasTransferWord = !isReverse && /\b(?:send|sen|transfer|mane|kɔma|soma)\b/i.test(lower);
+    const hasTransferAction = !isCashOut && ((/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && /\b(?:to|kɔma|give)\b/i.test(lower)) ||
+      (/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && (Boolean(draft.slots.recipient?.phone) || /\b0[235]\d{8}\b/.test(lower))));
+
+    const isReverse = !isCashOut && !hasTransferAction && /\b(?:reverse|reversal|sent\s+by\s+mistake|sesa\s+transaction|nɔmba\s+mfomsoɔ|san\s+fa\s+sika|mfomsoɔ|wrong\s+(?:number|transfer)|refund)\b/i.test(lower);
+    const hasTransferWord = !isCashOut && !isReverse && /\b(?:send|sen|transfer|mane|kɔma|soma)\b/i.test(lower);
 
     // Contextual Invariant: When an utterance contains a transfer action or transfer verb ("send", "transfer", "mane"),
     // or when the ongoing session intent is already transfer, mentions of "bill", "bills", or "ECG"
     // represent the payment reference or recipient, NOT a utility inquiry.
-    const isBill = !hasTransferWord && !hasTransferAction && draft.intent !== 'momo.transfer' &&
+    const isBill = !isCashOut && !hasTransferWord && !hasTransferAction && draft.intent !== 'momo.transfer' &&
       !/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) &&
       /\b(?:tua\s+ka|tua\s+bills?|electricity\s+bill|water\s+bill|light\s+bill|meter\s+bill|prepaid\s+meter|postpaid|pay\s+(?:[a-z]+\s+)?(?:bill|bills|ecg|gwcl|electricity|water|light|meter))\b/i.test(lower);
-    const isAirtime = !hasTransferWord && /\b(?:airtime|credit|kɔkɔɔ|topup|recharge|tɔ\s+airtime|tɔ\s+credit)\b/i.test(lower);
-    const isData = !hasTransferWord && /\b(?:buy\s+data|data\s+bundle|internet\s+bundle|bundle|megabytes|gigabytes|wifi\s+bundle|tɔ\s+data|tɔ\s+bundle|intanɛt)\b/i.test(lower);
+    const isAirtime = !isCashOut && !hasTransferWord && /\b(?:airtime|credit|kɔkɔɔ|topup|recharge|tɔ\s+airtime|tɔ\s+credit)\b/i.test(lower);
+    const isData = !isCashOut && !hasTransferWord && /\b(?:buy\s+data|data\s+bundle|internet\s+bundle|bundle|megabytes|gigabytes|wifi\s+bundle|tɔ\s+data|tɔ\s+bundle|intanɛt)\b/i.test(lower);
     const isCare = /\b(?:customer\s+care|agent|talk\s+to\s+agent|speak\s+to\s+person|human\s+support|help\s+desk|kasa\s+kyerɛ\s+agent|customer\s+service)\b/i.test(lower);
-    const isLoan = /\b(?:loan|quick\s+loan|qwickloan|borrow\s+money|borrow|bosea|gye\s+bosea|fɛm\s+me\s+sika)\b/i.test(lower);
+    const isLoan = !isCashOut && /\b(?:loan|quick\s+loan|qwickloan|borrow\s+money|borrow|bosea|gye\s+bosea|fɛm\s+me\s+sika)\b/i.test(lower);
     const isBalance = /\b(?:balance|check\s+balance|hwɛ\s+balance|sika\s+dodoɔ\s+a\s+aka|sika\s+a\s+aka|hwɛ\s+me\s+sika|how\s+much\s+(?:do\s+i\s+have|in\s+my\s+account|in\s+my\s+wallet)|akontaabu)\b/i.test(lower);
 
+    if (isCashOut) scores['momo.cash_out'] += 0.99;
     if (isBill) scores['momo.pay_bill'] += 0.95;
     if (isAirtime) scores['momo.buy_airtime'] += 0.95;
     if (isData) scores['momo.buy_data'] += 0.95;
@@ -1344,7 +1332,7 @@ export class Brain {
     if (isBalance) scores['momo.check_balance'] += 0.95;
 
     const hasCurrencyWord = /\b(?:sika|cedi|cedis|sedis|ghs)\b/i.test(lower);
-    const isNonTransferSpecific = isBill || isAirtime || isData || isReverse || isCare || isLoan || isBalance;
+    const isNonTransferSpecific = isCashOut || isBill || isAirtime || isData || isReverse || isCare || isLoan || isBalance;
 
     const digitsOnlyInUtterance = lower.replace(/[^0-9]/g, "");
     const normalizedUtterancePhone = normalizeGhanaPhoneNumber(lower);
