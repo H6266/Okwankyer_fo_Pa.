@@ -496,7 +496,8 @@ export class Brain {
       }
 
       // (c) model-only hallucinated amount with no match in utterance -> clarify_slot
-      if (modelOutput.slots?.amount !== undefined && !hasUtteranceAmountMatch) {
+      const isExistingDraftAmount = draft.slots?.amount !== undefined && draft.slots.amount === modelOutput.slots?.amount;
+      if (modelOutput.slots?.amount !== undefined && !hasUtteranceAmountMatch && !isExistingDraftAmount) {
         delete draft.slots.amount;
         delete modelOutput.slots.amount;
         draft.lastReplyKind = 'clarify_slot';
@@ -837,7 +838,7 @@ export class Brain {
           };
         }
         // (c) model-only value with no decoder match -> clarify_slot
-        else if (!hasUtteranceAmountMatch) {
+        else if (!hasUtteranceAmountMatch && (draft.slots.amount === undefined || draft.slots.amount !== modelOutput.slots.amount)) {
           delete draft.slots.amount;
           draft.lastReplyKind = 'clarify_slot';
           const decision: BrainDecision = { kind: 'clarify_slot', slot: 'amount' };
@@ -883,7 +884,7 @@ export class Brain {
           };
         }
         // (c) model-only value with no decoder match -> clarify_slot
-        else if (!hasUtterancePhoneMatch) {
+        else if (!hasUtterancePhoneMatch && (!draft.slots.recipient?.phone || draft.slots.recipient.phone !== modelOutput.slots.recipient.phone)) {
           if (draft.slots.recipient) delete draft.slots.recipient.phone;
           draft.lastReplyKind = 'clarify_slot';
           const decision: BrainDecision = { kind: 'clarify_slot', slot: 'recipient' };
@@ -1222,7 +1223,7 @@ export class Brain {
     const candidateModels = [
       this.config.modelName || 'gemini-3.8-flash',
       'gemini-3.8-flash',
-      'gemini-2.5-flash',
+      'gemini-3.1-flash-lite',
     ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
 
     let response: any = null;
@@ -1567,10 +1568,12 @@ export class Brain {
 
     const isCashOut = /\b(withdraw|cash\s*out|cashout|allow\s*cash\s*out|take\s*out\s*money|pull\s*money|yi\s*sika|mepɛ\s*sɛ\s*meyi\s*sika|gye\s*sika)\b/i.test(lower);
 
-    const isReverse = !isCashOut && /\b(?:reverse|reversal|sent\s+by\s+mistake|made\s+a\s+mistake|sesa\s+transaction|nɔmba\s+mfomsoɔ|san\s+fa\s+sika|mfomsoɔ|wrong\s+(?:number|transfer)|refund)\b/i.test(lower);
-
-    const hasTransferAction = !isCashOut && !isReverse && ((/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && /\b(?:to|kɔma|give)\b/i.test(lower)) ||
+    const isTransferDirected = !isCashOut && ((/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && /\b(?:to|kɔma|give)\b/i.test(lower)) ||
       (/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && (Boolean(draft.slots.recipient?.phone) || /\b0[235]\d{8}\b/.test(lower))));
+
+    const isReverse = !isCashOut && !isTransferDirected && /\b(?:reverse|reversal|sent\s+by\s+mistake|made\s+a\s+mistake|sesa\s+transaction|nɔmba\s+mfomsoɔ|san\s+fa\s+sika|mfomsoɔ|wrong\s+(?:number|transfer)|refund)\b/i.test(lower);
+
+    const hasTransferAction = isTransferDirected;
 
     const hasTransferWord = !isCashOut && !isReverse && /\b(?:send|sen|transfer|mane|kɔma|soma)\b/i.test(lower);
 

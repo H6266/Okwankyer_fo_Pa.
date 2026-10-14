@@ -254,7 +254,7 @@ export class ReasoningEngine {
     const candidateModels = [
       AI_CONFIG.model || "gemini-3.8-flash",
       "gemini-3.8-flash",
-      "gemini-2.5-flash",
+      "gemini-3.1-flash-lite",
     ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
 
     const availableCandidates = candidateModels.filter((m) => {
@@ -508,8 +508,20 @@ export class ReasoningEngine {
       }
     }
 
-    const rawText = typeof response?.text === "string" ? response.text : (response?.text ? String(response.text) : "");
-    const conversationalText = rawText.trim() || "What would you like to do with Mobile Money today?";
+    let rawText = "";
+    if (typeof response?.text === "function") {
+      try { rawText = response.text() || ""; } catch {}
+    } else if (typeof response?.text === "string") {
+      rawText = response.text;
+    } else if (Array.isArray(response?.candidates?.[0]?.content?.parts)) {
+      for (const part of response.candidates[0].content.parts) {
+        if (typeof part.text === "string") {
+          rawText += part.text;
+        }
+      }
+    }
+    const isTwi = detectedLang.startsWith("tw") || detectedLang.startsWith("ak");
+    const conversationalText = rawText.trim() || (isTwi ? "Dɛn na wopɛ sɛ woyɛ wɔ Mobile Money so nnɛ?" : "What would you like to do with Mobile Money today?");
     const deterministicUnderstood = aiUnderstanding.understand(rawUtterance, "welcome", existingSlots);
 
     return {
@@ -586,7 +598,37 @@ export class ReasoningEngine {
       },
       requiresConfirmation: understood.intent === "SEND_MONEY" || understood.intent === "CONFIRM",
       safetyFlags: [],
-      conversationalResponse: undefined,
+      conversationalResponse: (() => {
+        const isTwi = detectedLang.startsWith("tw") || detectedLang.startsWith("ak");
+        if (understood.intent === "SEND_MONEY") {
+          const amt = understood.entities?.amount;
+          const rec = understood.entities?.recipientPhone;
+          if (amt && rec) {
+            return isTwi
+              ? `Worebɛmane ${amt} cedis akɔma ${rec}. Sɛ wopene so a ka confirm anaa mia 1, sɛ wogyae a ka cancel anaa mia 2.`
+              : `You are about to send ${amt} Cedis to ${rec}. Please say confirm or press 1 to proceed, or say cancel or press 2 to stop.`;
+          } else if (amt && !rec) {
+            return isTwi
+              ? "Yɛsrɛ wo bɔ obi a woremane no no fon nɔmba a ɛyɛ du."
+              : "Please enter or say the 10-digit mobile phone number of the recipient.";
+          } else if (!amt && rec) {
+            return isTwi
+              ? "Ghana cedis dodoɔ sɛn na wopɛ sɛ womane?"
+              : "How many Ghana cedis do you want to send?";
+          }
+        } else if (understood.intent === "CASH_OUT") {
+          return isTwi
+            ? "Yɛabue Allow Cash-Out ama wo mfifii 15 mu wɔ wo wallet so."
+            : "Cash-Out has been enabled on your wallet for the next 15 minutes. Dial *170# on your handset to complete your withdrawal at an agent.";
+        } else if (understood.intent === "CHECK_BALANCE") {
+          return isTwi
+            ? "Seesei, yɛrentumi nhwɛ wo balance wɔ assistant yi so. Fa wo fon bɔ star, baako, nson, hwee, hash na hwɛ wo balance."
+            : "Balance checking through this assistant is currently unavailable. Please dial star, one, seven, zero, hash on your handset.";
+        }
+        return isTwi
+          ? "Akwaaba kɔ Ɔkwankyerɛfo Pa so. Dɛn na wopɛ sɛ woyɛ wɔ Mobile Money so nnɛ?"
+          : "Welcome to Ɔkwankyerɛfo Pa. What would you like to do with Mobile Money today?";
+      })(),
       functionCall: null,
     };
   }

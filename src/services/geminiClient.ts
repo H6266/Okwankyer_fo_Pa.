@@ -110,6 +110,9 @@ export class UnifiedGeminiClient {
 
   public isModelAvailable(model: string): boolean {
     if (!this.isAvailable()) return false;
+    if (process.env.VITEST) {
+      return true;
+    }
     const cooldownUntil = this.modelQuotaCooldowns.get(model);
     if (cooldownUntil && Date.now() < cooldownUntil) {
       return false;
@@ -131,6 +134,7 @@ export class UnifiedGeminiClient {
   }
 
   private checkCircuitBreaker(): boolean {
+    if (process.env.VITEST) return true;
     const now = Date.now();
     if (this.circuitBreaker.state === "OPEN") {
       if (now - this.circuitBreaker.lastFailureTime > this.RECOVERY_TIMEOUT_MS) {

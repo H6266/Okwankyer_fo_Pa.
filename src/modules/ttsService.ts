@@ -104,10 +104,12 @@ export function resolvePrompt(key: string, lang: SupportedLanguage = "en"): stri
     if (flowStep?.audioUrl) return flowStep.audioUrl;
   }
 
-  // 3. Confidence-based Audio Matcher (>= 50% threshold)
-  const match = matchReplyToAudio(key, language, { minConfidence: 0.50 });
-  if (match.match && match.audioUrl) {
-    return match.audioUrl;
+  // 3. Confidence-based Audio Matcher (>= 50% threshold) - strictly for Twi language
+  if (language === "twi") {
+    const match = matchReplyToAudio(key, language, { minConfidence: 0.50 });
+    if (match.match && match.audioUrl) {
+      return match.audioUrl;
+    }
   }
 
   // 4. Fallback to dynamic TTS endpoint
