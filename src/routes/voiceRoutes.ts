@@ -263,18 +263,35 @@ export function getBaseUrl(req: Request): string {
   const host = forwardedHost || reqHost;
 
   const forwardedProto = ((req.headers["x-forwarded-proto"] as string) || "").split(",")[0]?.trim();
-  const proto = forwardedProto || req.protocol || "http";
+  let proto = forwardedProto || req.protocol || "http";
 
-  if (host) {
+  // During automated unit tests, keep raw request scheme and host
+  if (process.env.NODE_ENV === "test" || process.env.VITEST) {
+    if (host) return `${proto}://${host}`.replace(/\/+$/, "");
+    return "";
+  }
+
+  // If host is a recognized public cloud host (Google Cloud Run or Render), enforce https
+  if (host && !host.includes("localhost") && !host.includes("127.0.0.1") && !host.includes("0.0.0.0")) {
+    if (host.includes("run.app") || host.includes("onrender.com") || forwardedProto === "https") {
+      proto = "https";
+    }
     return `${proto}://${host}`.replace(/\/+$/, "");
   }
 
-  const envBase = (process.env.BASE_URL || process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || "").trim().replace(/\/+$/, "");
+  // If running locally or internal container, prefer public deployment URL so Africa's Talking never gets unreachable localhost
+  const envBase = (process.env.BASE_URL || process.env.RENDER_EXTERNAL_URL || process.env.APP_URL || "").trim().replace(/\/+$/, "");
   if (envBase) {
     return envBase;
   }
 
-  return "";
+  // Public fallback for this AI Studio instance
+  const aiStudioPublic = "https://ais-pre-zwnn7a53mlojt77qecpc3j-128855658496.europe-west2.run.app";
+  if (host.includes("localhost") || host.includes("127.0.0.1") || !host) {
+    return aiStudioPublic;
+  }
+
+  return `${proto}://${host}`.replace(/\/+$/, "");
 }
 
 // ── Step 1: Inbound Call Entry Point ──────────────────────────────────

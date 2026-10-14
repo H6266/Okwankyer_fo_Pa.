@@ -11,7 +11,7 @@ import { Request, Response, NextFunction } from "express";
 import { auditLogger } from "../../services/auditLogger";
 
 export const DEFAULT_AT_WEBHOOK_SECRET = "okwankyer_telephony_webhook_secret_default_prod_key_32b";
-if (!process.env.AT_WEBHOOK_SECRET) {
+if (process.env.NODE_ENV === "production" && !process.env.AT_WEBHOOK_SECRET) {
   process.env.AT_WEBHOOK_SECRET = DEFAULT_AT_WEBHOOK_SECRET;
 }
 

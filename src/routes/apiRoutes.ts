@@ -115,26 +115,57 @@ apiRouter.get("/api/health", handleHealth);
 // ── Africa's Talking Public Webhook Info Endpoint ─────────────────────
 apiRouter.get(["/api/telephony/public-url", "/api/telephony/webhook-info"], (req: Request, res: Response) => {
   const forwardedHost = ((req.headers["x-forwarded-host"] as string) || "").split(",")[0]?.trim();
-  const host = forwardedHost || req.get("host") || `localhost:${config.port}`;
+  const host = forwardedHost || req.get("host") || "";
   const forwardedProto = ((req.headers["x-forwarded-proto"] as string) || "").split(",")[0]?.trim();
-  const proto = forwardedProto || req.protocol || (host.includes("run.app") ? "https" : "http");
-  const publicBaseUrl = `${proto}://${host}`.replace(/\/+$/, "");
+  let proto = forwardedProto || req.protocol || "http";
+
+  const envBase = (
+    process.env.BASE_URL ||
+    process.env.RENDER_EXTERNAL_URL ||
+    process.env.APP_URL ||
+    ""
+  ).trim().replace(/\/+$/, "");
+
+  let publicBaseUrl = "";
+  if (host && !host.includes("localhost") && !host.includes("127.0.0.1") && !host.includes("0.0.0.0")) {
+    if (host.includes("run.app") || host.includes("onrender.com") || forwardedProto === "https") {
+      proto = "https";
+    }
+    publicBaseUrl = `${proto}://${host}`.replace(/\/+$/, "");
+  } else if (envBase) {
+    publicBaseUrl = envBase;
+  } else {
+    publicBaseUrl = "https://ais-pre-zwnn7a53mlojt77qecpc3j-128855658496.europe-west2.run.app";
+  }
+
+  const renderBaseUrl = "https://okwankyer-fo-pa.onrender.com";
+  const aiStudioPreviewUrl = "https://ais-pre-zwnn7a53mlojt77qecpc3j-128855658496.europe-west2.run.app";
 
   res.json({
     success: true,
-    port: 3000,
+    port: config.port,
     publicHttpsPort: 443,
     publicBaseUrl,
     voiceWebhookUrl: `${publicBaseUrl}/voice-menu`,
+    render: {
+      serviceUrl: renderBaseUrl,
+      webhookUrl: `${renderBaseUrl}/voice-menu`,
+      healthCheckUrl: `${renderBaseUrl}/health`,
+    },
+    africasTalking: {
+      productionWebhookUrl: `${renderBaseUrl}/voice-menu`,
+      previewWebhookUrl: `${aiStudioPreviewUrl}/voice-menu`,
+      currentWebhookUrl: `${publicBaseUrl}/voice-menu`,
+      virtualNumber: config.at.voiceNumber || "+233 30 804 8097",
+    },
     alternativeWebhookUrls: [
       `${publicBaseUrl}/voice-menu`,
       `${publicBaseUrl}/voice`,
       `${publicBaseUrl}/voice/callback`,
-      `${publicBaseUrl}/`,
     ],
-    atVoiceNumber: config.at.voiceNumber || "+233 30 804 8098",
+    atVoiceNumber: config.at.voiceNumber || "+233 30 804 8097",
     autoConnectEnabled: true,
-    instructions: "Paste 'voiceWebhookUrl' into Africa's Talking Voice dashboard under Numbers > Voice Callback URL. Calls to your AT number will connect automatically.",
+    instructions: "In Africa's Talking Voice dashboard > Phone Numbers > Edit Number, set the Callback URL to either Render production or AI Studio preview webhook URL.",
   });
 });
 
