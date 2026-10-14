@@ -40,7 +40,7 @@ export interface PlayOptions {
 type StateListener = (state: PlaybackState) => void;
 
 export class AudioPlaybackController {
-  private readonly playbackVolume = 1.35;
+  private readonly playbackVolume = 1.0;
   private audioElement: HTMLAudioElement | null = null;
   private currentToken: number = 0;
   private state: PlaybackState = {

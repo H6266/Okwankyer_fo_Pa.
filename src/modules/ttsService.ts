@@ -122,6 +122,10 @@ export function resolveSimulatorAudioUrl(
   if (!language) return null;
   try {
     const pathname = new URL(audioUrl, "http://localhost").pathname;
+    const ttsMatch = pathname.match(/^\/(?:api\/)?audio\/prompt-tts\/(en|twi)\//);
+    if (ttsMatch) {
+      return ttsMatch[1] === language ? pathname : null;
+    }
     const recording = getRecordingByUrl(pathname);
     return recording?.language === language ? recording.url : null;
   } catch {

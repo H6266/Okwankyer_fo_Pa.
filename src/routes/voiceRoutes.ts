@@ -211,9 +211,9 @@ function xmlResponse(res: Response, content: string, decision?: IvrDecision): vo
       return `${open}${clean}${close}`;
     });
 
-    // Convert absolute audio URLs to relative /audio/... paths so browser can play them on any domain
-    xml = xml.replace(/(<Play[^>]*url=["'])https?:\/\/[^"']+(\/audio\/[^"']*)(["'])/gi, "$1$2$3")
-             .replace(/(<Play[^>]*>)https?:\/\/[^<]+(\/audio\/[^<]+)(<\/Play>)/gi, "$1$2$3");
+    // Convert absolute audio URLs to relative /audio/... or /api/audio/... paths so browser can play them on any domain
+    xml = xml.replace(/(<Play[^>]*url=["'])https?:\/\/[^\/"'\s]+(\/(?:api\/)?audio\/[^"']*)(["'])/gi, "$1$2$3")
+             .replace(/(<Play[^>]*>)https?:\/\/[^\/"'\s]+(\/(?:api\/)?audio\/[^<]+)(<\/Play>)/gi, "$1$2$3");
   } else if (req && process.env.AT_WEBHOOK_SECRET) {
     const baseUrl = getBaseUrl(req);
     if (baseUrl) {

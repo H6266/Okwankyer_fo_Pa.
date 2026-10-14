@@ -1401,8 +1401,12 @@ export function usePhoneSimulator() {
       // 1. Studio Pre-Recorded Prompts Mode (Priority 1 for known workflow steps)
       const matchedPrompt = resolveStudioPrompt(text, lang, step || currentStep);
       const matchedPromptUnsupported =
-        matchedPrompt?.endsWith(".m4a") &&
-        !audioRef.current?.canPlayType('audio/mp4; codecs="mp4a.40.2"');
+        Boolean(matchedPrompt?.endsWith(".m4a") &&
+        audioRef.current &&
+        !audioRef.current.canPlayType('audio/mp4; codecs="mp4a.40.2"') &&
+        !audioRef.current.canPlayType('audio/mp4') &&
+        !audioRef.current.canPlayType('audio/x-m4a') &&
+        !audioRef.current.canPlayType('audio/aac'));
       if (matchedPrompt && voiceMode !== "BROWSER" && !matchedPromptUnsupported) {
         if (audioRef.current) {
           audioRef.current.src = matchedPrompt;

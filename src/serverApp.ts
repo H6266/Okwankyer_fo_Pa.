@@ -84,8 +84,11 @@ app.use((err: any, _req: Request, res: Response, next: any) => {
 app.use(express.static(path.resolve(process.cwd(), "public"), { index: false }));
 
 // ── Safe Audio Streaming (HTTP 206 Partial Content + Path Traversal Guard) ─
-app.all("/audio/*", (req: Request, res: Response) => {
+app.all("/audio/*", (req: Request, res: Response, next: any) => {
   const rawSubpath = decodeURIComponent((req.params as any)[0] || "");
+  if (rawSubpath.startsWith("prompt-tts/")) {
+    return next();
+  }
   try {
     const safePath = resolveSafeAudioPath(rawSubpath);
     if (!safePath) {

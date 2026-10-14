@@ -157,9 +157,14 @@ function resolvePlayableSimulatorAudioUrl(
   const suppliedUrl = resolveSimulatorAudioUrl(audioUrl, language);
   if (!suppliedUrl) return null;
 
-  if (suppliedUrl.endsWith(".m4a")) {
+  if (suppliedUrl.endsWith(".m4a") && typeof document !== "undefined") {
     const audio = document.createElement("audio");
-    if (!audio.canPlayType?.('audio/mp4; codecs="mp4a.40.2"')) return null;
+    const canPlay =
+      audio.canPlayType?.('audio/mp4; codecs="mp4a.40.2"') ||
+      audio.canPlayType?.('audio/mp4') ||
+      audio.canPlayType?.('audio/x-m4a') ||
+      audio.canPlayType?.('audio/aac');
+    if (!canPlay) return null;
   }
 
   return suppliedUrl;

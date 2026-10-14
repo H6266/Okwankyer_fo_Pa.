@@ -44,7 +44,7 @@ apiRouter.get(
 );
 
 apiRouter.get(
-  "/api/audio/prompt-tts/:lang/:key",
+  ["/api/audio/prompt-tts/:lang/:key", "/audio/prompt-tts/:lang/:key"],
   publicApiRateLimiter,
   async (req: Request, res: Response) => {
     const lang = req.params.lang;
