@@ -79,10 +79,7 @@ export function loadConfig(): AppConfig {
   ).replace(/\/+$/, "");
 
   if (!baseUrl && nodeEnv === "production") {
-    baseUrl = "https://okwankyer-fo-pa.onrender.com";
-  }
-  if (!baseUrl && nodeEnv !== "test") {
-    baseUrl = "https://ais-pre-zwnn7a53mlojt77qecpc3j-128855658496.europe-west2.run.app";
+    console.warn("⚠️ BASE_URL is not set in production. Telephony webhooks may fail to generate absolute URLs.");
   }
   if (!baseUrl) {
     baseUrl = `http://localhost:${port}`;

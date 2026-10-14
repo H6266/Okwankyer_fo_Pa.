@@ -460,8 +460,7 @@ export const ApiTesterPage: React.FC = () => {
 
   const generateCurl = () => {
     if (!selectedEndpoint) return "";
-    const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://ais-dev-zwnn7a53mlojt77qecpc3j-128855658496.europe-west2.run.app";
-    let cmd = `curl -X ${selectedEndpoint.method} "${baseUrl}${selectedEndpoint.path}"`;
+    let cmd = `curl -X ${selectedEndpoint.method} "https://ais-dev-iqel2ew5lrsri6dvcmvcpe-282440791493.europe-west2.run.app${selectedEndpoint.path}"`;
     if (selectedEndpoint.method === "POST" && requestBody) {
       cmd += ` \\\n  -H "Content-Type: application/json" \\\n  -d '${requestBody.replace(/'/g, "'\\''")}'`;
     }
@@ -1280,58 +1279,29 @@ export const ApiTesterPage: React.FC = () => {
               When callers dial your Africa&apos;s Talking voice number (<code>+233 30 804 8098</code>), Africa&apos;s Talking automatically connects to this endpoint.
             </p>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1 flex items-center justify-between">
-                  <span>🚀 Render Production Voice Webhook (Africa&apos;s Talking):</span>
-                  <span className="text-[11px] text-emerald-700 font-semibold font-mono">https://okwankyer-fo-pa.onrender.com/voice-menu</span>
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    readOnly
-                    value="https://okwankyer-fo-pa.onrender.com/voice-menu"
-                    className="flex-1 px-3 py-2.5 bg-white border-2 border-emerald-300 rounded-xl text-xs font-mono font-bold text-emerald-900 selection:bg-emerald-200"
-                  />
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText("https://okwankyer-fo-pa.onrender.com/voice-menu");
-                      setCopiedWebhook(true);
-                      setTimeout(() => setCopiedWebhook(false), 2000);
-                    }}
-                    className="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors shrink-0"
-                  >
-                    {copiedWebhook ? <Check className="w-4 h-4 text-amber-300" /> : <Copy className="w-4 h-4" />}
-                    <span>{copiedWebhook ? "Copied Render!" : "Copy Render URL"}</span>
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1 flex items-center justify-between">
-                  <span>⚡ AI Studio Live Preview Voice Webhook:</span>
-                  <span className="text-[11px] text-blue-700 font-semibold font-mono">Public HTTPS (Port 443 &rarr; 3000)</span>
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    readOnly
-                    value={typeof window !== "undefined" ? `${window.location.origin}/voice-menu` : "https://ais-pre-zwnn7a53mlojt77qecpc3j-128855658496.europe-west2.run.app/voice-menu"}
-                    className="flex-1 px-3 py-2.5 bg-white border-2 border-blue-300 rounded-xl text-xs font-mono font-bold text-blue-900 selection:bg-blue-200"
-                  />
-                  <button
-                    onClick={() => {
-                      const url = typeof window !== "undefined" ? `${window.location.origin}/voice-menu` : "https://ais-pre-zwnn7a53mlojt77qecpc3j-128855658496.europe-west2.run.app/voice-menu";
-                      navigator.clipboard.writeText(url);
-                      setCopiedWebhook(true);
-                      setTimeout(() => setCopiedWebhook(false), 2000);
-                    }}
-                    className="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors shrink-0"
-                  >
-                    <Copy className="w-4 h-4" />
-                    <span>Copy Preview URL</span>
-                  </button>
-                </div>
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-slate-800">
+                Primary Callback URL (Set this in Africa&apos;s Talking Voice Dashboard):
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={typeof window !== "undefined" ? `${window.location.origin}/voice-menu` : "https://ais-pre-2di4ul3vcelcb4sg4kc3gs-537806139713.europe-west1.run.app/voice-menu"}
+                  className="flex-1 px-3 py-2.5 bg-white border-2 border-emerald-300 rounded-xl text-xs font-mono font-bold text-emerald-900 selection:bg-emerald-200"
+                />
+                <button
+                  onClick={() => {
+                    const url = typeof window !== "undefined" ? `${window.location.origin}/voice-menu` : "";
+                    navigator.clipboard.writeText(url);
+                    setCopiedWebhook(true);
+                    setTimeout(() => setCopiedWebhook(false), 2000);
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors shrink-0"
+                >
+                  {copiedWebhook ? <Check className="w-4 h-4 text-amber-300" /> : <Copy className="w-4 h-4" />}
+                  <span>{copiedWebhook ? "Copied!" : "Copy URL"}</span>
+                </button>
               </div>
             </div>
 
@@ -1339,19 +1309,19 @@ export const ApiTesterPage: React.FC = () => {
               <div className="bg-white/80 p-3 rounded-xl border border-emerald-200">
                 <div className="font-bold text-slate-800">1. Dashboard Location</div>
                 <div className="text-slate-600 text-[11px] mt-0.5">
-                  Africa&apos;s Talking &gt; Voice &gt; Phone Numbers &gt; Edit Number (+233 30 804 8097 / 8098)
+                  Africa&apos;s Talking &gt; Voice &gt; Phone Numbers &gt; Edit Number
                 </div>
               </div>
               <div className="bg-white/80 p-3 rounded-xl border border-emerald-200">
                 <div className="font-bold text-slate-800">2. Fallback Aliases</div>
                 <div className="text-slate-600 text-[11px] mt-0.5 font-mono">
-                  /voice-menu, /voice, /callback, /voice/callback
+                  /voice, /callback, /voice/callback, /
                 </div>
               </div>
               <div className="bg-white/80 p-3 rounded-xl border border-emerald-200">
-                <div className="font-bold text-slate-800">3. Port Visibility</div>
+                <div className="font-bold text-slate-800">3. Inbound Flow</div>
                 <div className="text-slate-600 text-[11px] mt-0.5">
-                  Port 3000 is proxied via public HTTPS (443) on Render &amp; Cloud Run automatically.
+                  Bilingual IVR (1: English, 2: Twi) with Zero-PIN Security
                 </div>
               </div>
             </div>

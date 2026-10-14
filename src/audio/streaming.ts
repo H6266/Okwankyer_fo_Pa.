@@ -79,7 +79,7 @@ export function resolveSafeAudioPath(requestedSubpath: string): string | null {
     throw new PathTraversalError(`Path traversal attempt blocked: ${requestedSubpath}`);
   }
 
-  return realPath;
+  return resolved;
 }
 
 // High-Performance In-Memory Audio Buffer Cache

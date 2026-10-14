@@ -313,18 +313,18 @@
     },
     {
       "promptId": "OP21",
-      "state": "RECIPIENT_LAST4",
-      "englishScript": "The phone number ends in [DYNAMIC DIGITS].",
-      "twiWorkingScript": "Fon nɔma no awie wɔ [DYNAMIC DIGITS].",
+      "state": "RECIPIENT_FULL_NUMBER",
+      "englishScript": "The full recipient phone number is [ALL TEN DIGITS].",
+      "twiWorkingScript": "Ne phone nɔmba a ɛdi mũ no ne [ALL TEN DIGITS].",
       "type": "DYNAMIC",
       "dynamicFields": [
-        "DYNAMIC DIGITS"
+        "ALL TEN DIGITS"
       ],
       "assetCandidateIds": [
         "TW-06"
       ],
       "mappingStatus": "DYNAMIC_TTS_REQUIRED",
-      "usePolicy": "Never treat as a fixed recording. Insert values only at runtime using the approved HCI Lab TTS path after validating the live transaction/session data."
+      "usePolicy": "Never treat as a fixed recording. Insert values only at runtime using the approved HCI Lab TTS path after validating the live transaction/session data. All ten digits are spoken individually and in order."
     },
     {
       "promptId": "OP22",

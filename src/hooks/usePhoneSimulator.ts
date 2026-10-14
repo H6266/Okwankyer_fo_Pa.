@@ -1229,41 +1229,7 @@ export function usePhoneSimulator() {
       const nextBuf = digitsBuffer + digit;
       setDigitsBuffer(nextBuf);
 
-      const digitsOnly = nextBuf.replace(/\D/g, "");
-      // AUTOMATIC RECOGNITION: The moment user punches numbers up to 10 at a time
-      if (digitsOnly.length === 10) {
-        setDigitsBuffer("");
-        setTranscript((prev) => [
-          ...prev,
-          {
-            id: `caller_dtmf_${Date.now()}`,
-            role: "caller",
-            text: `[DTMF Keypad Entered - Auto 10-Digit Recipient]: ${digitsOnly}`,
-            timestamp: Date.now(),
-          },
-        ]);
-        setIsLoading(true);
-        try {
-          const verifyUrl = atCurrentCallbackUrl?.includes("verify-recipient")
-            ? atCurrentCallbackUrl
-            : "/verify-recipient";
-          const res = await api.dispatchAtVoiceWebhook(verifyUrl, {
-            sessionId: atSessionId,
-            callerNumber: atCallerPhone,
-            destinationNumber: "+233308048098",
-            isActive: "1",
-            dtmfDigits: digitsOnly + "#",
-          });
-          await processAtVoiceResponse(res, atSessionId, verifyUrl, {
-            dtmfDigits: digitsOnly + "#",
-          });
-        } catch (e: any) {
-          console.error("[AT Keypad] Dispatch error:", e);
-        } finally {
-          setIsLoading(false);
-        }
-        return;
-      }
+      // Rule 3: Do not auto-advance after the 10th digit alone; wait strictly for '#' finishOnKey!
 
       // 1-digit expectation: immediate submission ONLY when NOT buffering a phone number
       const isEnteringPhone = nextBuf.startsWith("0") || nextBuf.startsWith("233");
@@ -1926,12 +1892,7 @@ export function usePhoneSimulator() {
       return;
     }
 
-    // Auto submit complete 10-digit phone number immediately
-    const cleanDigits = nextBuffer.replace(/\D/g, "");
-    if (cleanDigits.length === 10) {
-      sendInputTurn(cleanDigits, "DTMF");
-      setDigitsBuffer("");
-    }
+    // Rule 3: Do not auto-advance after the 10th digit alone; wait strictly for '#' to submit!
   }, [gatewayMode, handleAtKeypadDigit, isActive, digitsBuffer, currentStep, playTone, startCall, sendInputTurn]);
 
   /**

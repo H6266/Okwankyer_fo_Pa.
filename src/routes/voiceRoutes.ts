@@ -263,35 +263,18 @@ export function getBaseUrl(req: Request): string {
   const host = forwardedHost || reqHost;
 
   const forwardedProto = ((req.headers["x-forwarded-proto"] as string) || "").split(",")[0]?.trim();
-  let proto = forwardedProto || req.protocol || "http";
+  const proto = forwardedProto || req.protocol || "http";
 
-  // During automated unit tests, keep raw request scheme and host
-  if (process.env.NODE_ENV === "test" || process.env.VITEST) {
-    if (host) return `${proto}://${host}`.replace(/\/+$/, "");
-    return "";
-  }
-
-  // If host is a recognized public cloud host (Google Cloud Run or Render), enforce https
-  if (host && !host.includes("localhost") && !host.includes("127.0.0.1") && !host.includes("0.0.0.0")) {
-    if (host.includes("run.app") || host.includes("onrender.com") || forwardedProto === "https") {
-      proto = "https";
-    }
+  if (host) {
     return `${proto}://${host}`.replace(/\/+$/, "");
   }
 
-  // If running locally or internal container, prefer public deployment URL so Africa's Talking never gets unreachable localhost
-  const envBase = (process.env.BASE_URL || process.env.RENDER_EXTERNAL_URL || process.env.APP_URL || "").trim().replace(/\/+$/, "");
+  const envBase = (process.env.BASE_URL || process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || "").trim().replace(/\/+$/, "");
   if (envBase) {
     return envBase;
   }
 
-  // Public fallback for this AI Studio instance
-  const aiStudioPublic = "https://ais-pre-zwnn7a53mlojt77qecpc3j-128855658496.europe-west2.run.app";
-  if (host.includes("localhost") || host.includes("127.0.0.1") || !host) {
-    return aiStudioPublic;
-  }
-
-  return `${proto}://${host}`.replace(/\/+$/, "");
+  return "";
 }
 
 // ── Step 1: Inbound Call Entry Point ──────────────────────────────────
@@ -873,18 +856,20 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
     ...(amountValidation?.valid && amountValidation.amount !== undefined ? { amount: amountValidation.amount } : {}),
   });
 
-  const last4Spaced = phoneValidation.last4Spaced;
-  const nameSpoken = resolution.name || (lang === "twi" ? `nɔmba a ɛwie ${last4Spaced}` : `subscriber ending in ${last4Spaced}`);
+  const fullPhoneSpoken = lang === "twi"
+    ? (phoneValidation.fullPhoneTwi || phoneValidation.fullPhoneSpaced || phoneValidation.normalized.split("").join(" "))
+    : (phoneValidation.fullPhoneSpaced || phoneValidation.normalized.split("").join(" "));
+  const nameSpoken = resolution.name || (lang === "twi" ? `fon nɔmba ${fullPhoneSpoken}` : `subscriber ${fullPhoneSpoken}`);
 
   let verifyPrompt = "";
   if (lang === "twi") {
-    verifyPrompt = `Worebɛmane sika akɔ ${nameSpoken} a ne nɔmba wie ${last4Spaced} so. Sɛ wopene so na wopɛ sɛ womane sika no a, mia 1. Sɛ wopɛ sɛ wosesa nɔmba no a, mia 2.`;
+    verifyPrompt = `Yɛahu obi a woremane no sika no. Tie ne din ne ne nɔmba a ɛdi mũ no yiye. Obi a woremane no no din ne ${nameSpoken}. Ne phone nɔmba a ɛdi mũ ne ${fullPhoneSpoken}. Sɛ wopene so na wopɛ sɛ womane sika no a, mia 1. Sɛ wopɛ sɛ wosesa nɔmba no a, mia 2. Sɛ wopɛ sɛ wogyae a, mia 0.`;
   } else {
-    verifyPrompt = `Sending money to ${nameSpoken}, whose phone number ends with ${last4Spaced}. To confirm this recipient, press 1. To re-enter the phone number, press 2.`;
+    verifyPrompt = `We found the recipient. Please listen carefully to the name and the full phone number. The recipient's name is ${nameSpoken}. The full recipient phone number is ${fullPhoneSpoken}. To confirm this recipient, press 1. To re-enter the phone number, press 2. To exit, press 0.`;
   }
 
   const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/recipient-verify-choice?sessionId=${sessionId}&amp;lang=${lang}">
-        <Say voice="female">${verifyPrompt}</Say>
+        <Say voice="female">${escapeVoiceXml(verifyPrompt)}</Say>
     </GetDigits>
     <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="8" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=recipient-verify-choice&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
 

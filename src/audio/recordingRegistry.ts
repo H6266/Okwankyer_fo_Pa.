@@ -401,7 +401,8 @@ export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
   recipient_found: "OP18",
   recipient_verify: "OP19",
   recipient_name: "OP20",
-  recipient_last4: "OP21",
+  recipient_full_number: "OP21",
+  recipient_last4: "OP21", // Backward-compatibility alias, redirects to full-number semantics
   recipient_confirm: "OP22",
   recipient_confirm_speech: "OP23",
   use_recipient: "OP24",

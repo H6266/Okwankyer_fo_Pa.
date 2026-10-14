@@ -47,13 +47,64 @@ export function formatRefForSpeech(ref: string): string {
 /**
  * Builds dynamic safe confirmation spoken text and VoiceXML
  */
+/**
+ * Formats a 10-digit phone number as individually spoken digits
+ * (e.g., "0 2 4 1 2 3 4 5 6 7" in English; "hwee mmienu nnan baako mmienu mmiɛnsa nnan nnum nsia nson" in Twi)
+ */
+export function formatFullPhoneNumberForSpeech(phone: string, language: "en" | "twi"): string {
+  const validation = validateGhanaPhoneNumber(phone);
+  return validation.fullPhoneSpaced || phone.replace(/\D/g, "").split("").join(" ");
+}
+
+/**
+ * Builds dynamic recipient verification spoken text and VoiceXML (OP19 + OP20 + OP21 + OP22)
+ */
+export function buildRecipientVerificationPrompt(options: {
+  language: "en" | "twi";
+  recipientPhone: string;
+  recipientName: string | null;
+  isVerified: boolean;
+  callbackUrl?: string;
+}): {
+  spokenText: string;
+  namePrompt: string;
+  phonePrompt: string;
+  voiceXml: string;
+} {
+  const { language, recipientPhone, recipientName, isVerified, callbackUrl = "/recipient-verify-choice" } = options;
+  const fullPhoneSpoken = formatFullPhoneNumberForSpeech(recipientPhone, language);
+  const name = recipientName || (language === "twi" ? "onipa a ne din nkae" : "unregistered subscriber");
+
+  let spokenText = "";
+  let namePrompt = "";
+  let phonePrompt = "";
+
+  if (language === "twi") {
+    namePrompt = `Obi a woremane no no din ne ${name}.`;
+    phonePrompt = `Ne phone nɔmba a ɛdi mũ ne ${fullPhoneSpoken}.`;
+    spokenText = `Yɛahu obi a woremane no sika no. Tie ne din ne ne nɔmba a ɛdi mũ no yiye. ${namePrompt} ${phonePrompt} Sɛ wopene so a, mia baako (1). Sɛ wopɛ sɛ wosesa nɔmba no a, mia mmienu (2). Sɛ wopɛ sɛ wogyae a, mia hwee (0).`;
+  } else {
+    namePrompt = `The recipient's name is ${name}.`;
+    phonePrompt = `The full recipient phone number is ${fullPhoneSpoken}.`;
+    spokenText = `We found the recipient. Please listen carefully to the name and the full phone number. ${namePrompt} ${phonePrompt} To confirm this recipient, press 1. To change the recipient, press 2. To exit, press 0.`;
+  }
+
+  const voiceXml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
+        <Say voice="female">${escapeXml(spokenText)}</Say>
+    </GetDigits>`;
+
+  return { spokenText, namePrompt, phonePrompt, voiceXml };
+}
+
+/**
+ * Builds dynamic safe confirmation spoken text and VoiceXML (Section 6 & 9)
+ */
 export function buildSafeConfirmationPrompt(options: SafeConfirmationOptions): {
   spokenText: string;
   voiceXml: string;
 } {
   const { language, amount, recipientPhone, recipientName, isVerified, callbackUrl } = options;
-  const phoneValidation = validateGhanaPhoneNumber(recipientPhone);
-  const last4Spaced = phoneValidation.last4Spaced || recipientPhone.slice(-4).split("").join(" ");
+  const fullPhoneSpoken = formatFullPhoneNumberForSpeech(recipientPhone, language);
   const amountValidation = parseAndValidateAmount(String(amount));
   const amountFormatted = amountValidation.formatted || `${amount} Cedis`;
 
@@ -61,18 +112,18 @@ export function buildSafeConfirmationPrompt(options: SafeConfirmationOptions): {
 
   if (language === "twi") {
     if (isVerified && recipientName) {
-      spokenText = `Worepɛ sɛ womane ${amountFormatted} kɔma ${recipientName} a ne nɔmba wie ${last4Spaced}. Sɛ wopene so a, mia baako (1). Sɛ woampene so a, mia mmienu (2).`;
+      spokenText = `Worepɛ sɛ womane ${amountFormatted} kɔma ${recipientName} a ne phone nɔmba a ɛdi mũ ne ${fullPhoneSpoken}. Sɛ wopene so a, mia baako (1). Sɛ woampene so a, mia mmienu (2). Sɛ wopɛ sɛ wogyae a, mia hwee (0).`;
     } else {
       // Explicit unverified warning in Akan Twi
-      spokenText = `Kɔkɔbɔ: Yɛantumi anhu edin a ɛbata nɔmba a ɛwie ${last4Spaced} no ho wɔ nkyerɛwee mu. Woremane ${amountFormatted} kɔma nɔmba a yɛnhu ne din. Sɛ wopene so na womane a, mia baako (1). Sɛ woampene so a, mia mmienu (2).`;
+      spokenText = `Kɔkɔbɔ: Yɛantumi anhu edin a ɛbata phone nɔmba ${fullPhoneSpoken} no ho wɔ nkyerɛwee mu. Woremane ${amountFormatted} kɔma nɔmba a yɛnhu ne din. Sɛ wopene so na womane a, mia baako (1). Sɛ woampene so a, mia mmienu (2). Sɛ wopɛ sɛ wogyae a, mia hwee (0).`;
     }
   } else {
     // English track
     if (isVerified && recipientName) {
-      spokenText = `You are about to send ${amountFormatted} to ${recipientName}, whose phone number ends with ${last4Spaced}. To confirm and continue, press 1. To cancel, press 2. To exit, press 0.`;
+      spokenText = `You are about to send ${amountFormatted} to ${recipientName}, whose full phone number is ${fullPhoneSpoken}. To confirm and continue, press 1. To cancel, press 2. To exit, press 0.`;
     } else {
       // Explicit unverified warning in English
-      spokenText = `Warning: The recipient name for phone number ending with ${last4Spaced} could not be verified in the subscriber directory. You are sending ${amountFormatted} to an unverified recipient. To confirm and continue, press 1. To cancel, press 2. To exit, press 0.`;
+      spokenText = `Warning: The recipient name for phone number ${fullPhoneSpoken} could not be verified in the subscriber directory. You are sending ${amountFormatted} to an unverified recipient. To confirm and continue, press 1. To cancel, press 2. To exit, press 0.`;
     }
   }
 

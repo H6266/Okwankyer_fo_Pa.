@@ -2121,20 +2121,7 @@ export const PhoneSimulatorPage: React.FC = () => {
       const nextBuf = digitsBuffer + digit;
       setDigitsBuffer(nextBuf);
 
-      // AUTOMATIC RECOGNITION: The moment user punches numbers up to 10 at a time
-      const digitsOnly = nextBuf.replace(/\D/g, "");
-      if (digitsOnly.length === 10) {
-        setDigitsBuffer("");
-        addLog("caller", `Keypad '${digitsOnly}#'`);
-        addLog("AI", `⚡ Auto-identified 10-digit number for sending money: ${digitsOnly}. Advancing to amount stage!`);
-        dispatchVoiceWebhook(
-          activeStepNameRef.current.includes("recipient")
-            ? targetCallback
-            : `/api/simulator/verify-recipient?sessionId=${sessionIdRef.current || sessionId}&lang=${languageRef.current || "en"}`,
-          { dtmfDigits: digitsOnly + "#" }
-        );
-        return;
-      }
+      // Rule 3: Do not auto-advance after the 10th digit alone; wait strictly for '#' finishOnKey!
 
       // Single-digit expectation (only when NOT accumulating a 10-digit phone number)
       const isAccumulatingPhone =
@@ -2343,8 +2330,38 @@ export const PhoneSimulatorPage: React.FC = () => {
               </div>
 
               {/* Center Display: Digits or State */}
-              <div className="my-auto py-1 text-center">
-                {digitsBuffer ? (
+              <div className="my-auto py-1 text-center w-full">
+                {activeStepName.includes("recipient") ? (
+                  <div className="flex flex-col items-center justify-center gap-1 w-full px-1">
+                    <div className="flex items-center justify-between w-full text-[10px] text-emerald-400 font-semibold uppercase tracking-wider">
+                      <span>Recipient phone number</span>
+                      <span className="bg-emerald-950/80 px-1.5 py-0.5 rounded text-emerald-300 border border-emerald-600/40">
+                        {digitsBuffer.replace(/\D/g, "").length} / 10 digits
+                      </span>
+                    </div>
+                    <div className="text-xl font-bold tracking-widest text-emerald-300 font-mono w-full bg-slate-950/80 py-1.5 px-2 rounded-lg border border-emerald-500/30">
+                      {digitsBuffer ? digitsBuffer : <span className="text-slate-500 tracking-normal text-xs">Enter 10 digits</span>}
+                    </div>
+                    <div className="flex items-center justify-between w-full text-[10px] text-slate-400">
+                      <span className="text-amber-400/90 font-medium animate-pulse">Waiting for # to submit</span>
+                      <span className="font-mono text-emerald-400">OP16</span>
+                    </div>
+                  </div>
+                ) : activeStepName.includes("amount") ? (
+                  <div className="flex flex-col items-center justify-center gap-1 w-full px-1">
+                    <div className="flex items-center justify-between w-full text-[10px] text-emerald-400 font-semibold uppercase tracking-wider">
+                      <span>Transfer amount</span>
+                      <span className="text-slate-400 text-[9px]">* for pesewas</span>
+                    </div>
+                    <div className="text-xl font-bold tracking-widest text-emerald-300 font-mono w-full bg-slate-950/80 py-1.5 px-2 rounded-lg border border-emerald-500/30">
+                      {digitsBuffer ? `GHS ${digitsBuffer.replace("*", ".")}` : <span className="text-slate-500 tracking-normal text-xs">GHS 0.00</span>}
+                    </div>
+                    <div className="flex items-center justify-between w-full text-[10px] text-slate-400">
+                      <span className="text-amber-400/90 font-medium animate-pulse">Waiting for # to submit</span>
+                      <span className="font-mono text-emerald-400">OP26</span>
+                    </div>
+                  </div>
+                ) : digitsBuffer ? (
                   <div className="text-2xl font-bold tracking-widest text-emerald-300 font-mono truncate px-2">
                     {digitsBuffer}
                   </div>

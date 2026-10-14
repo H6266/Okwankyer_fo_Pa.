@@ -44,7 +44,14 @@ export class LocalGhanaianTtsProvider implements TTSProvider {
 
     if (legacyAliases[cleanText]) {
       const legacyPath = legacyAliases[cleanText];
-      const resolved = path.resolve(process.cwd(), legacyPath);
+      let resolved = path.resolve(process.cwd(), legacyPath);
+      if (!fs.existsSync(resolved)) {
+        if (resolved.endsWith(".m4a") && fs.existsSync(resolved.replace(/\.m4a$/i, ".aac"))) {
+          resolved = resolved.replace(/\.m4a$/i, ".aac");
+        } else if (resolved.endsWith(".m4a") && fs.existsSync(resolved.replace(/\.m4a$/i, ".mp3"))) {
+          resolved = resolved.replace(/\.m4a$/i, ".mp3");
+        }
+      }
       if (fs.existsSync(resolved)) return resolved;
     }
 

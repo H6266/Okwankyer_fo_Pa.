@@ -366,7 +366,20 @@ export function checkAudioFilesHealth(): AudioCatalogHealth {
   const sampleFiles: { path: string; sizeBytes: number; readable: boolean }[] = [];
 
   for (const item of canonicalFiles) {
-    const abs = path.join(item.root, item.rel);
+    let abs = path.join(item.root, item.rel);
+    if (!fs.existsSync(abs)) {
+      const candidates = [
+        abs.replace(/\.mp3$/i, ".m4a"),
+        abs.replace(/\.mp3$/i, ".aac"),
+        abs.replace(/\.m4a$/i, ".aac"),
+        abs.replace(/\.m4a$/i, ".mp3"),
+      ];
+      const found = candidates.find((c) => fs.existsSync(c));
+      if (found) {
+        abs = found;
+      }
+    }
+
     try {
       if (fs.existsSync(abs)) {
         fs.accessSync(abs, fs.constants.R_OK);

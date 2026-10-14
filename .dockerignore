@@ -1,7 +1,0 @@
-node_modules
-.git
-.github
-.aistudio
-dist
-*.log
-.DS_Store

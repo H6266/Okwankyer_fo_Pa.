@@ -274,12 +274,12 @@
     {
       "id": "OP21",
       "category": "03_Recipient_Entry_Verification",
-      "state": "RECIPIENT_LAST4",
+      "state": "RECIPIENT_FULL_NUMBER",
       "type": "DYNAMIC",
-      "english": "The phone number ends in [DYNAMIC DIGITS].",
-      "twi": "Fon nɔma no awie wɔ [DYNAMIC DIGITS].",
+      "english": "The full recipient phone number is [ALL TEN DIGITS].",
+      "twi": "Ne phone nɔmba a ɛdi mũ no ne [ALL TEN DIGITS].",
       "placeholders": [
-        "DYNAMIC DIGITS"
+        "ALL TEN DIGITS"
       ],
       "audio": {
         "english": null,

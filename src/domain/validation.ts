@@ -10,6 +10,8 @@ export interface PhoneValidationResult {
   normalized?: string;
   network?: GhanaianNetwork;
   last4Spaced?: string;
+  fullPhoneSpaced?: string;
+  fullPhoneTwi?: string;
   error?: string;
 }
 
@@ -153,12 +155,28 @@ export function validateGhanaPhoneNumber(raw: string): PhoneValidationResult {
   }
 
   const last4Spaced = normalized.slice(-4).split("").join(" ");
+  const fullPhoneSpaced = normalized.split("").join(" ");
+  const twiDigits: Record<string, string> = {
+    "0": "hwee",
+    "1": "baako",
+    "2": "mmienu",
+    "3": "mmiɛnsa",
+    "4": "nnan",
+    "5": "nnum",
+    "6": "nsia",
+    "7": "nson",
+    "8": "nwɔtwe",
+    "9": "nkron",
+  };
+  const fullPhoneTwi = normalized.split("").map((d) => twiDigits[d] || d).join(" ");
 
   return {
     valid: true,
     normalized,
     network,
     last4Spaced,
+    fullPhoneSpaced,
+    fullPhoneTwi,
   };
 }
 

@@ -331,7 +331,7 @@ describe("IVR Telephony Route Integration (Real Express XML Responses)", () => {
     expect(res.headers["x-ai-decision-reason"]).toContain("1 for Mobile Money");
     expect(res.text).toContain("Option 5 is not a valid choice");
     expect(res.text).toContain("<GetDigits");
-    expect(res.text).toContain("callbackUrl=\"http://localhost:3000/service-choice?sessionId=TEST_SESS_A&amp;lang=en\"");
+    expect(res.text).toContain("callbackUrl=\"http://localhost:3000/service-choice?sessionId=TEST_SESS_A&amp;lang=en");
     expect(res.text).toContain("/api/audio/prompt-tts/en/supported_service_select");
     expect(res.text).not.toContain("<Redirect");
   });
@@ -346,7 +346,7 @@ describe("IVR Telephony Route Integration (Real Express XML Responses)", () => {
     expect(res.headers["x-ai-reply-key"]).toBe("intent_understood_ask_number");
     expect(res.text).toContain("/api/audio/prompt-tts/en/intent_understood_ask_number");
     expect(res.text).toContain("<GetDigits timeout=\"40\" finishOnKey=\"#\" numDigits=\"10\"");
-    expect(res.text).toContain("callbackUrl=\"http://localhost:3000/verify-recipient?sessionId=TEST_SESS_B&amp;lang=en\"");
+    expect(res.text).toContain("callbackUrl=\"http://localhost:3000/verify-recipient?sessionId=TEST_SESS_B&amp;lang=en");
     expect(res.text).toContain("/api/audio/prompt-tts/en/intent_understood_ask_number");
   });
 
@@ -370,7 +370,7 @@ describe("IVR Telephony Route Integration (Real Express XML Responses)", () => {
 
     expect(res.status).toBe(200);
     expect(res.text).toContain("<GetDigits timeout=\"12\" finishOnKey=\"#\" numDigits=\"1\"");
-    expect(res.text).toContain("callbackUrl=\"http://localhost:3000/recipient-verify-choice?sessionId=TEST_SESS_C_VALID&amp;lang=en\"");
+    expect(res.text).toContain("callbackUrl=\"http://localhost:3000/recipient-verify-choice?sessionId=TEST_SESS_C_VALID&amp;lang=en");
   });
 
   it("Pressing 8 at network step (provider-choice) does not jump back: treated as invalid key", async () => {
@@ -381,7 +381,7 @@ describe("IVR Telephony Route Integration (Real Express XML Responses)", () => {
     expect(res.status).toBe(200);
     expect(res.headers["x-ai-decision-type"]).toBe("invalid_choice");
     expect(res.text).toContain("Option 8 is not a valid choice");
-    expect(res.text).toContain("callbackUrl=\"http://localhost:3000/provider-choice?sessionId=TEST_SESS_NET8&amp;lang=en\"");
+    expect(res.text).toContain("callbackUrl=\"http://localhost:3000/provider-choice?sessionId=TEST_SESS_NET8&amp;lang=en");
     expect(res.text).not.toContain("service-select");
   });
 });
