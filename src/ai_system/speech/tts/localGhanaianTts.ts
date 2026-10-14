@@ -10,6 +10,7 @@
 
 import fs from "fs";
 import path from "path";
+import audioTranscripts from "../../../audio_transcripts.json";
 import { TTSProvider, TtsSynthesisRequest, TtsSynthesisResponse } from "./ttsProvider";
 import {
   AUDIO_RECORDINGS,
@@ -33,54 +34,33 @@ export class LocalGhanaianTtsProvider implements TTSProvider {
    */
   public findPromptMatch(text: string, language?: string): string | null {
     const cleanText = this.normalizeText(text);
-    const isTwi = language === "tw" || language === "twi" || language === "ak" ||
-      /([ɛɔ]|mepa|sika|mane|akwaaba|dabi|aane|paw|ntetewmu|kora|hyɛ|wore)/i.test(cleanText);
-    if (!isTwi) return null;
+    const selectedLanguage = language === "tw" || language === "twi" || language === "ak" ? "twi" : "en";
 
-    const resolveKey = (key: string): string | null => {
-      const recording = getRecordingByPromptKey(key);
-      const relativePath = recording && getRecordingFilePath(recording.relativePath);
-      return relativePath ? path.resolve(process.cwd(), relativePath) : null;
+    const legacyAliases: Record<string, string> = {
+      "welcome to okwankyerɛfo pa an easy financial transaction service for english press 1 for twi press 2": "public/audio/English/Welcome_prompt_01.mp3",
+      "for telecom or mobile money services press 1 for banking services press 2 to hear this again press 9 to exit press 0": "public/audio/English/Audio_prompt_02.mp3",
     };
 
+    if (legacyAliases[cleanText]) {
+      const legacyPath = legacyAliases[cleanText];
+      const resolved = path.resolve(process.cwd(), legacyPath);
+      if (fs.existsSync(resolved)) return resolved;
+    }
+
     for (const recording of AUDIO_RECORDINGS) {
-      const candidates = [recording.promptId || "", recording.state || "", recording.title, recording.spokenText || ""];
-      if (candidates.some((candidate) => candidate && this.normalizeText(candidate) === cleanText)) {
+      if (recording.url === null || recording.language !== selectedLanguage) continue;
+      const candidates = [recording.spokenText || "", recording.title, recording.state || ""].filter(Boolean);
+      if (candidates.some((candidate) => this.normalizeText(candidate) === cleanText)) {
         const relativePath = getRecordingFilePath(recording.relativePath);
         if (relativePath) return path.resolve(process.cwd(), relativePath);
       }
     }
 
-    const matches: Array<[string[], string]> = [
-      [["welcome", "akwaaba", "welcome to okwankyer"], "welcome"],
-      [["language selection", "kasa paw"], "language_selection"],
-      [["service selection", "mobile money service", "sikakorabea"], "service_select"],
-      [["network selection", "select your network", "paw wo network"], "provider_select"],
-      [["send money selected", "mtn services", "momo user", "tɔ airtime"], "action_select"],
-      [["recipient", "bɔ nɔmba", "nɔmba no"], "enter_recipient"],
-      [["invalid recipient", "recipient number invalid"], "invalid_recipient"],
-      [["recipient found"], "recipient_found"],
-      [["recipient verify", "verify recipient"], "recipient_verify"],
-      [["recipient name"], "recipient_name"],
-      [["recipient last"], "recipient_last4"],
-      [["recipient confirm"], "recipient_confirm"],
-      [["use recipient"], "use_recipient"],
-      [["change recipient"], "change_recipient"],
-      [["amount prompt", "enter amount", "sika dodow"], "enter_amount"],
-      [["invalid amount"], "invalid_amount"],
-      [["amount readback", "amount read back"], "amount_readback"],
-      [["repeat amount"], "repeat_amount"],
-      [["amount too high"], "amount_too_high"],
-      [["amount too low"], "amount_too_low"],
-      [["change amount"], "change_amount"],
-      [["confirmation intro"], "confirmation_intro"],
-      [["review transaction"], "review_transaction"],
-      [["confirm speech"], "confirm_speech"],
-      [["reject speech"], "reject_speech"],
-      [["ready submit"], "ready_submit"],
-    ];
-    const key = matches.find(([phrases]) => phrases.some((phrase) => cleanText.includes(this.normalizeText(phrase))))?.[1];
-    if (key && PROMPT_KEY_TO_RECORDING_ID[key]) return resolveKey(key);
+    const key = selectedLanguage === "twi" ? getRecordingByPromptKey(cleanText) : null;
+    if (key) {
+      const relativePath = getRecordingFilePath(key.relativePath);
+      if (relativePath) return path.resolve(process.cwd(), relativePath);
+    }
     return null;
   }
 
@@ -150,17 +130,7 @@ export class LocalGhanaianTtsProvider implements TTSProvider {
       } catch {}
     }
 
-    // 2. Offline Synthesizer: Clean 16kHz PCM WAV audio for un-cataloged dynamic text
-    const isElderly = request.voiceProfile === "elderly-accessible" || request.voiceProfile === "ghanaian-elderly";
-    const speed = request.speed || 1.0;
-    const wavBuffer = this.generatePcmWav(cleanText, speed, isElderly);
-    return {
-      audioBuffer: wavBuffer,
-      audioBase64: wavBuffer.toString("base64"),
-      audioMimeType: "audio/wav",
-      durationEstimateSec: Math.max(1, Math.round(cleanText.split(/\s+/).length * 0.36)),
-      providerUsed: "local-ghanaian-acoustic-synthesizer",
-    };
+    throw new Error("LOCAL_GHANAIAN_DYNAMIC_TTS_UNAVAILABLE: No verified local studio or dynamic provider is configured for this text.");
   }
 }
 

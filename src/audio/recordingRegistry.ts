@@ -1,5 +1,6 @@
 import promptManifest from "../../Audio_files/prompts.json";
 import canonicalManifestData from "../../Audio_files/TWI_AUDIO_LINK_MANIFEST.json";
+import audioTranscripts from "../../audio_transcripts.json";
 
 export type RecordingLanguage = "en" | "twi" | "unresolved";
 export type AudioAssetRoot = "supplied" | "public" | "additional";
@@ -59,8 +60,7 @@ export interface AudioRecording {
 
 const manifest = promptManifest as PromptManifest;
 const canonicalManifest = canonicalManifestData as unknown as CanonicalManifest;
-
-
+const transcriptLookup = audioTranscripts as Record<string, { verbatim?: string; language?: string; step?: string; options?: unknown }>;
 
 const canonicalPromptEntries: PromptManifestEntry[] = (canonicalManifest?.canonicalPrompts ?? []).map((prompt) => ({
   id: prompt.promptId,
@@ -209,7 +209,7 @@ const additionalUnresolvedFiles = [
 ] as const;
 
 const manifestEntryByPath = new Map<string, PromptManifestEntry>();
-for (const prompt of manifest.prompts) {
+for (const prompt of mergedPromptEntries) {
   for (const lang of ["english", "twi"] as const) {
     const primary = prompt.audio?.[lang];
     if (primary) manifestEntryByPath.set(primary.replace(/^audio\//, ""), prompt);
@@ -234,8 +234,10 @@ function createRecording(
   const legacyPromptId = assetRoot === "public" && language !== "unresolved"
     ? fileName.match(/(?:Welcome_prompt_|Audio_prompt_(?:twi_)?)(\d{2})/i)?.[1]
     : undefined;
+  const legacyId = legacyPromptId ? (language === "twi" ? `twi-${legacyPromptId}` : `en-${legacyPromptId}`) : null;
   const promptId = prompt?.id || (legacyPromptId ? `OP${legacyPromptId}` : null);
   const languageText = language === "en" ? prompt?.english : language === "twi" ? prompt?.twi : null;
+  const transcriptText = transcriptLookup[`audio/${relativePath}`]?.verbatim || transcriptLookup[relativePath]?.verbatim || null;
   const publicUrl = language === "unresolved"
     ? null
     : assetRoot === "public"
@@ -247,14 +249,14 @@ function createRecording(
           : null;
 
   return {
-    id: `${assetRoot}:${relativePath}`,
+    id: legacyId || `${assetRoot}:${relativePath}`,
     promptId,
     state: prompt?.state || null,
     category: prompt?.category || relativePath.split("/")[0] || "Uncategorized",
     context: prompt ? `${prompt.category}:${prompt.state}` : "Unresolved asset identity",
     language,
     title: prompt?.state.replaceAll("_", " ") || fileName.replace(/\.(m4a|mp3)$/i, ""),
-    spokenText: languageText || null,
+    spokenText: languageText || transcriptText || null,
     relativePath,
     assetRoot,
     url: publicUrl,
@@ -278,7 +280,7 @@ const suppliedRecordings = suppliedRecordingPaths.map((relativePath) => {
 
 const legacyRecordings = legacyLanguageRecordingPaths.map((relativePath) => {
   const language = relativePath.startsWith("English/") ? "en" : "twi";
-  const prompt = manifest.prompts.find((entry) => entry.id === `OP${relativePath.match(/\d{2}/)?.[0]}`);
+  const prompt = mergedPromptEntries.find((entry) => entry.id === `OP${relativePath.match(/\d{2}/)?.[0]}`);
   const isAlternate = relativePath.endsWith("welcome_prompt_01.mp3") ||
     (language === "twi" && suppliedRecordings.some((recording) =>
       recording.promptId === prompt?.id && !recording.isAlternate

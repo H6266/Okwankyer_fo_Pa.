@@ -69,20 +69,11 @@ describe("OfflineAIEngine (100% Autonomous Offline Execution)", () => {
     expect(resHome.cognitiveState.intent).toBe("GO_HOME");
   });
 
-  it("generates valid local WAV PCM speech audio without network calls", async () => {
-    const speechResult = await localGhanaianTtsProvider.synthesize({
+  it("fails closed instead of synthesizing fake local WAV PCM speech", async () => {
+    await expect(localGhanaianTtsProvider.synthesize({
       text: "Akwaaba kɔ Okwankyerɛfo Pa. Fa sidi aduonu kɔma Kwame.",
       language: "tw",
       voiceProfile: "ghanaian-warm",
-    });
-
-    expect(speechResult.audioBuffer).toBeDefined();
-    expect(speechResult.audioBuffer!.length).toBeGreaterThan(44);
-    // Verify 44-byte RIFF/WAVE header
-    const header = speechResult.audioBuffer!.toString("ascii", 0, 4);
-    expect(header).toBe("RIFF");
-    const waveFormat = speechResult.audioBuffer!.toString("ascii", 8, 12);
-    expect(waveFormat).toBe("WAVE");
-    expect(speechResult.audioMimeType).toBe("audio/wav");
+    })).rejects.toThrow("LOCAL_GHANAIAN_DYNAMIC_TTS_UNAVAILABLE");
   });
 });

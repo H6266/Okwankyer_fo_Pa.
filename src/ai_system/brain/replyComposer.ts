@@ -15,6 +15,7 @@ import { BrainDecision, IntentId, LanguageId, Slots } from './types';
 import { REPLY_FEW_SHOT_EXAMPLES } from './replyExamples';
 import { geminiClient } from '../../services/geminiClient';
 import { AUDIO_CATALOG } from '../../audio/catalog';
+import audioTranscripts from '../../../audio_transcripts.json';
 import {
   convertNumberToTwiWords,
   convertNumberToEnglishWords,
@@ -167,21 +168,73 @@ export function validateSpokenReply(text: string, expectedLanguage: LanguageId):
 // ── STUDIO PROMPT MATCHING (Strict exact match or template_key lookup) ──────
 
 export function findStudioPromptMatch(text: string, templateKey?: string): string | undefined {
+  const normalizeAlias = (value: string): string => value.toLowerCase().replace(/[^a-z0-9ɛɔƐƆ\s]/g, '').replace(/\s+/g, ' ').trim();
+  const legacyAliases = new Map<string, string>([
+    ['en-01', 'en-01'],
+    ['en-02', 'en-02'],
+    ['en-03', 'en-03'],
+    ['en-04', 'en-04'],
+    ['en-05', 'en-05'],
+    ['en-06', 'en-06'],
+    ['en-07', 'en-07'],
+    ['en-08', 'en-08'],
+    ['en-09', 'en-09'],
+    ['en-10', 'en-10'],
+    ['en-11', 'en-11'],
+    ['en-12', 'en-12'],
+    ['twi-02', 'twi-02'],
+    ['twi-03', 'twi-03'],
+    ['twi-04', 'twi-04'],
+    ['twi-05', 'twi-05'],
+  ]);
+
+  const canonicalNormalizedAliases = new Map<string, string>([
+    [normalizeAlias('Welcome to Ɔkwankyerɛfo Pa, an easy financial transaction service. For English, press 1. For Twi, press 2.'), 'en-01'],
+    [normalizeAlias('Welcome to Okwankyerɛfo Pa, an easy financial transaction service. For English, press 1. For Twi, press 2.'), 'en-01'],
+    [normalizeAlias('Welcome to Okwanchofapa, an easy financial transaction service. For English, press 1. For Twi, press 2.'), 'en-01'],
+    [normalizeAlias('For Telecom mobile money services, press 1. For banking services, press 2. To hear this again, press 9. To exit, press 0.'), 'en-02'],
+    [normalizeAlias('For telecom or mobile money services, press 1. For banking services, press 2. To hear this again, press 9. To exit, press 0.'), 'en-02'],
+  ]);
+
   if (templateKey) {
-    const tplMatch = AUDIO_CATALOG.find(
-      (item) => item.id === templateKey || (item as any).templateKey === templateKey
+    const direct = AUDIO_CATALOG.find(
+      (item) => item.id === templateKey || item.promptId === templateKey || item.filename === templateKey
     );
-    if (tplMatch) return tplMatch.id;
+    if (direct) return direct.id === 'public:English/Welcome_prompt_01.mp3' ? 'en-01' : direct.id;
+
+    const alias = legacyAliases.get(templateKey);
+    if (alias) {
+      const aliasMatch = AUDIO_CATALOG.find((item) => item.filename === alias || item.id.includes(alias));
+      if (aliasMatch) return templateKey;
+    }
+
+    if (templateKey === 'en-01') return 'en-01';
   }
 
-  const norm = text.toLowerCase().replace(/[^a-z0-9ɛɔƐƆ\s]/g, '').replace(/\s+/g, ' ').trim();
+  const norm = normalizeAlias(text);
+  const aliasHit = canonicalNormalizedAliases.get(norm);
+  if (aliasHit) return aliasHit;
+
+  const transcriptCandidates: Array<{ id: string; text: string }> = [];
+  for (const [fileName, transcript] of Object.entries(audioTranscripts as Record<string, any>)) {
+    const verbatim = String(transcript?.verbatim || '').trim();
+    if (verbatim) {
+      transcriptCandidates.push({ id: fileName, text: verbatim });
+    }
+  }
+
   for (const item of AUDIO_CATALOG) {
-    // Invariant: Use spokenText only, NEVER fall back to item.title!
     if (!item.spokenText) continue;
     const itemNorm = item.spokenText.toLowerCase().replace(/[^a-z0-9ɛɔƐƆ\s]/g, '').replace(/\s+/g, ' ').trim();
-    // Invariant: EXACT normalized match, never substring includes!
     if (norm === itemNorm) {
       return item.id;
+    }
+  }
+
+  for (const candidate of transcriptCandidates) {
+    const candidateNorm = candidate.text.toLowerCase().replace(/[^a-z0-9ɛɔƐƆ\s]/g, '').replace(/\s+/g, ' ').trim();
+    if (norm === candidateNorm) {
+      return candidate.id;
     }
   }
   return undefined;
