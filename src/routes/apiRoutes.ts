@@ -76,9 +76,13 @@ apiRouter.get(
 
 // ── Health Status ─────────────────────────────────────────────────────
 const handleHealth = (req: Request, res: Response) => {
-  const host = req.get("host") || `localhost:${config.port}`;
-  const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "http";
-  const baseUrl = config.baseUrl || `${proto}://${host}`.replace(/\/+$/, "");
+  const forwardedHost = ((req.headers["x-forwarded-host"] as string) || "").split(",")[0]?.trim();
+  const host = forwardedHost || req.get("host") || `localhost:${config.port}`;
+  const forwardedProto = ((req.headers["x-forwarded-proto"] as string) || "").split(",")[0]?.trim();
+  const proto = forwardedProto || req.protocol || (host.includes("run.app") ? "https" : "http");
+  const baseUrl = host.includes("localhost") && config.baseUrl && !config.baseUrl.includes("localhost")
+    ? config.baseUrl
+    : `${proto}://${host}`.replace(/\/+$/, "");
 
   res.json({
     status: "ok",
@@ -107,6 +111,32 @@ const handleHealth = (req: Request, res: Response) => {
 
 apiRouter.get("/health", handleHealth);
 apiRouter.get("/api/health", handleHealth);
+
+// ── Africa's Talking Public Webhook Info Endpoint ─────────────────────
+apiRouter.get(["/api/telephony/public-url", "/api/telephony/webhook-info"], (req: Request, res: Response) => {
+  const forwardedHost = ((req.headers["x-forwarded-host"] as string) || "").split(",")[0]?.trim();
+  const host = forwardedHost || req.get("host") || `localhost:${config.port}`;
+  const forwardedProto = ((req.headers["x-forwarded-proto"] as string) || "").split(",")[0]?.trim();
+  const proto = forwardedProto || req.protocol || (host.includes("run.app") ? "https" : "http");
+  const publicBaseUrl = `${proto}://${host}`.replace(/\/+$/, "");
+
+  res.json({
+    success: true,
+    port: 3000,
+    publicHttpsPort: 443,
+    publicBaseUrl,
+    voiceWebhookUrl: `${publicBaseUrl}/voice-menu`,
+    alternativeWebhookUrls: [
+      `${publicBaseUrl}/voice-menu`,
+      `${publicBaseUrl}/voice`,
+      `${publicBaseUrl}/voice/callback`,
+      `${publicBaseUrl}/`,
+    ],
+    atVoiceNumber: config.at.voiceNumber || "+233 30 804 8098",
+    autoConnectEnabled: true,
+    instructions: "Paste 'voiceWebhookUrl' into Africa's Talking Voice dashboard under Numbers > Voice Callback URL. Calls to your AT number will connect automatically.",
+  });
+});
 
 // Section 62: Dedicated Subsystem Health Endpoints
 apiRouter.get("/health/ai", (_req: Request, res: Response) => {

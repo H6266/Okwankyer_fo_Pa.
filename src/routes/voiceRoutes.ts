@@ -39,6 +39,14 @@ export const simulatorRouter = Router();
 
 const TELEPHONY_ROUTES = new Set([
   "/voice-menu",
+  "/voice",
+  "/voice/callback",
+  "/voice/webhook",
+  "/voice-callback",
+  "/callback",
+  "/telephony/callback",
+  "/api/voice",
+  "/api/voice/callback",
   "/language-selection",
   "/service-select",
   "/service-choice",
@@ -270,7 +278,7 @@ export function getBaseUrl(req: Request): string {
 }
 
 // ── Step 1: Inbound Call Entry Point ──────────────────────────────────
-ivrRouter.all("/voice-menu", (req: Request, res: Response) => {
+export const handleInboundCall = (req: Request, res: Response) => {
   const sessionId = (req.body?.sessionId || req.query?.sessionId || `call_${Date.now()}`) as string;
   const callerNumber = (req.body?.callerNumber || req.query?.callerNumber || req.body?.phoneNumber || "caller") as string;
   const isActive = req.body?.isActive ?? req.query?.isActive;
@@ -295,6 +303,38 @@ ivrRouter.all("/voice-menu", (req: Request, res: Response) => {
     <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=language-selection&amp;sessionId=${sessionId}&amp;retry=0"/>`;
 
   xmlResponse(res, xml);
+};
+
+// Mount across canonical and all common Africa's Talking webhook callback aliases
+const INBOUND_ENTRY_ROUTES = [
+  "/voice-menu",
+  "/voice",
+  "/voice/callback",
+  "/voice/webhook",
+  "/voice-callback",
+  "/callback",
+  "/telephony/callback",
+  "/api/voice",
+  "/api/voice/callback",
+];
+ivrRouter.all(INBOUND_ENTRY_ROUTES, handleInboundCall);
+
+// Intercept root POST requests from Africa's Talking when configured with root domain
+ivrRouter.post("/", (req: Request, res: Response, next: NextFunction) => {
+  const isTelephony = Boolean(
+    req.body?.sessionId ||
+    req.query?.sessionId ||
+    req.body?.callerNumber ||
+    req.query?.callerNumber ||
+    req.body?.phoneNumber ||
+    req.body?.isActive !== undefined ||
+    req.body?.direction ||
+    req.body?.callSessionState
+  );
+  if (isTelephony) {
+    return handleInboundCall(req, res);
+  }
+  return next();
 });
 
 // ── Step 2: Language Selection ────────────────────────────────────────

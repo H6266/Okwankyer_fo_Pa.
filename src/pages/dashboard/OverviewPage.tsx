@@ -124,11 +124,18 @@ export const OverviewPage: React.FC = () => {
             </div>
 
             <div className="py-3 flex items-center justify-between">
-              <span className="font-bold text-slate-800">Africa&apos;s Talking IVR</span>
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800">
+              <div>
+                <span className="font-bold text-slate-800">Africa&apos;s Talking IVR</span>
+                <div className="text-[10px] text-slate-500 font-mono mt-0.5">Port 3000 &rarr; Public HTTPS (/voice-menu)</div>
+              </div>
+              <Link
+                to="/dashboard/api"
+                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 hover:bg-emerald-200 text-emerald-800 transition-colors"
+                title="View Public Webhook & Live Inbound Settings"
+              >
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                Connected (+233 30 804 8098)
-              </span>
+                <span>+233 30 804 8098 (Active)</span>
+              </Link>
             </div>
 
             <div className="py-3 flex items-center justify-between">

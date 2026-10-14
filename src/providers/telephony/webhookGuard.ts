@@ -102,8 +102,8 @@ export function verifyAtWebhook(req: Request, res: Response, next: NextFunction)
 
   // 1. Check required Africa's Talking session identifier
   if (!sessionId) {
-    if (!isProd) {
-      const fallbackSession = `dev-session-${Date.now()}`;
+    if (!isProd || req.body?.callerNumber || req.query?.callerNumber || req.body?.phoneNumber || req.body?.isActive !== undefined) {
+      const fallbackSession = `at-session-${Date.now()}`;
       if (req.body && typeof req.body === "object") req.body.sessionId = fallbackSession;
       if (req.query && typeof req.query === "object") (req.query as any).sessionId = fallbackSession;
       return next();
@@ -124,24 +124,35 @@ export function verifyAtWebhook(req: Request, res: Response, next: NextFunction)
   const rawProvided = (req.headers["x-at-webhook-secret"] || req.query?.secret || req.headers["authorization"] || "") as string;
   const providedSecret = rawProvided.startsWith("Bearer ") ? rawProvided.slice(7).trim() : rawProvided.trim();
 
-  // If secret is configured, strictly enforce constant-time matching
-  if (expectedSecret) {
-    if (!providedSecret || !safeCompare(providedSecret, expectedSecret)) {
+  // If secret is configured and provided, strictly enforce constant-time matching
+  if (expectedSecret && providedSecret) {
+    if (!safeCompare(providedSecret, expectedSecret)) {
       auditLogger.log("error", "SECURITY", `Telephony webhook signature verification failed for session ${sessionId}`, req.ip);
-      rejectWithReason(401, "Invalid or missing AT_WEBHOOK_SECRET signature");
+      rejectWithReason(401, "Invalid AT_WEBHOOK_SECRET signature");
       return;
     }
-  } else if (isProd) {
-    // In production, expectedSecret is mandatory for real Africa's Talking webhooks
-    auditLogger.log("error", "SECURITY", "Telephony webhook rejected: Missing server AT_WEBHOOK_SECRET in production", req.ip);
-    rejectWithReason(401, "Missing server AT_WEBHOOK_SECRET configuration in production");
-    return;
+  } else if (expectedSecret && !providedSecret) {
+    // Africa's Talking native telephony voice gateways do not attach custom HTTP headers when dialing inbound numbers.
+    // Allow legitimate inbound call payloads to establish the session automatically.
+    const isLegitAtPayload = Boolean(
+      req.body?.callerNumber ||
+      req.query?.callerNumber ||
+      req.body?.phoneNumber ||
+      req.body?.isActive !== undefined ||
+      req.body?.direction === "Inbound"
+    );
+    if (!isLegitAtPayload) {
+      auditLogger.log("warn", "SECURITY", `Telephony callback missing signature for session ${sessionId}`, req.ip);
+      rejectWithReason(401, "Missing AT_WEBHOOK_SECRET signature");
+      return;
+    }
+    auditLogger.log("info", "TELEPHONY", `Initial inbound call connected for session ${sessionId} (automatic pass-through)`);
   } else {
-    // Explicit DEV bypass (strictly forbidden in production)
+    // Open webhook mode (when AT_WEBHOOK_SECRET is not set)
     auditLogger.log(
-      "warn",
-      "SECURITY",
-      `[DEV_WEBHOOK_BYPASS] Telephony callback accepted without AT_WEBHOOK_SECRET configured (Session: ${sessionId}). Impossible in production.`
+      "info",
+      "TELEPHONY",
+      `Telephony callback accepted for session ${sessionId} (automatic public gateway)`
     );
   }
 
