@@ -7,7 +7,7 @@
 
 export type MoMoTargetEnvironment = "sandbox" | "production" | "live";
 export type MoMoProductType = "collection" | "disbursement";
-export type MoMoMode = "LIVE_API" | "SANDBOX_API";
+export type MoMoMode = "LIVE_API" | "SANDBOX_API" | "SANDBOX_SIMULATOR";
 export type MoMoTransactionStatus = "PENDING" | "SUCCESSFUL" | "FAILED" | "REJECTED" | "TIMEOUT";
 
 export interface MoMoProductCredentials {

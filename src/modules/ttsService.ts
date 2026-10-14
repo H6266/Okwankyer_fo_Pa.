@@ -98,9 +98,11 @@ export function resolvePrompt(key: string, lang: SupportedLanguage = "en"): stri
   const recordingUrl = getRecordingByPromptKey(key, language)?.url;
   if (recordingUrl) return recordingUrl;
 
-  // 2. Direct Sequential Flow step check
-  const flowStep = getFlowStepById(key);
-  if (flowStep?.audioUrl) return flowStep.audioUrl;
+  // 2. Direct Sequential Flow step check (strictly for Twi language)
+  if (language === "twi") {
+    const flowStep = getFlowStepById(key);
+    if (flowStep?.audioUrl) return flowStep.audioUrl;
+  }
 
   // 3. Confidence-based Audio Matcher (>= 50% threshold)
   const match = matchReplyToAudio(key, language, { minConfidence: 0.50 });

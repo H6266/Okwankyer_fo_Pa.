@@ -145,7 +145,7 @@ export const AudioLibraryPage: React.FC = () => {
             activeTab === "manifest" ? "bg-[#0F382A] text-white" : "text-[#5E7265] hover:text-[#0F382A]"
           }`}
         >
-          Full Audio Catalog ({manifest?.totalRecordings || 0} files)
+          Full Audio Catalog ({manifest?.totalClips || manifest?.allPrompts?.length || 0} files)
         </button>
       </div>
 

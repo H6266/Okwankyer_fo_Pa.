@@ -252,10 +252,9 @@ export class ReasoningEngine {
     }
 
     const candidateModels = [
-      "gemini-3.1-flash-lite",
-      "gemini-3.1-flash-lite-preview",
-      "gemini-flash-latest",
       AI_CONFIG.model || "gemini-3.8-flash",
+      "gemini-3.8-flash",
+      "gemini-2.5-flash",
     ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
 
     const availableCandidates = candidateModels.filter((m) => {
@@ -283,10 +282,10 @@ export class ReasoningEngine {
             });
             return response;
           },
-          20000,
+          4000,
           0,
           undefined,
-          10000,
+          3000,
           modelName
         );
 

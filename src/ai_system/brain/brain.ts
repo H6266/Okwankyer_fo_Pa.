@@ -88,10 +88,10 @@ export const DEFAULT_BRAIN_CONFIG: BrainConfig = {
   shadowSamplingRate: 1.0,
   confidenceThreshold: 0.65,
   ambiguityMargin: 0.15,
-  modelTimeoutMs: 20000, // 20s spacious window for complex reasoning and arithmetic
+  modelTimeoutMs: 5000,
   skipModelTierConfidence: 0.85,
   maxTransferAmount: 5000,
-  modelName: process.env.GEMINI_MODEL || (process.env.NODE_ENV === 'production' ? '' : 'gemini-3.1-flash-lite'),
+  modelName: process.env.GEMINI_MODEL || (process.env.NODE_ENV === 'production' ? '' : 'gemini-3.8-flash'),
 };
 
 // ── SANITIZATION & MASKING HELPERS ──────────────────────────────────────────
@@ -1220,15 +1220,13 @@ export class Brain {
     const masked = maskPhoneNumbers(sanitized);
 
     const candidateModels = [
-      this.config.modelName || 'gemini-3.1-flash-lite',
-      'gemini-3.1-flash-lite',
-      'gemini-3.1-flash-lite-preview',
-      'gemini-flash-latest',
+      this.config.modelName || 'gemini-3.8-flash',
       'gemini-3.8-flash',
+      'gemini-2.5-flash',
     ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
 
     let response: any = null;
-    let selectedModel = this.config.modelName || 'gemini-3.1-flash-lite';
+    let selectedModel = this.config.modelName || 'gemini-3.8-flash';
     let lastError: any = null;
 
     for (const model of candidateModels) {
@@ -1569,10 +1567,11 @@ export class Brain {
 
     const isCashOut = /\b(withdraw|cash\s*out|cashout|allow\s*cash\s*out|take\s*out\s*money|pull\s*money|yi\s*sika|mepɛ\s*sɛ\s*meyi\s*sika|gye\s*sika)\b/i.test(lower);
 
-    const hasTransferAction = !isCashOut && ((/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && /\b(?:to|kɔma|give)\b/i.test(lower)) ||
+    const isReverse = !isCashOut && /\b(?:reverse|reversal|sent\s+by\s+mistake|made\s+a\s+mistake|sesa\s+transaction|nɔmba\s+mfomsoɔ|san\s+fa\s+sika|mfomsoɔ|wrong\s+(?:number|transfer)|refund)\b/i.test(lower);
+
+    const hasTransferAction = !isCashOut && !isReverse && ((/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && /\b(?:to|kɔma|give)\b/i.test(lower)) ||
       (/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && (Boolean(draft.slots.recipient?.phone) || /\b0[235]\d{8}\b/.test(lower))));
 
-    const isReverse = !isCashOut && !hasTransferAction && /\b(?:reverse|reversal|sent\s+by\s+mistake|sesa\s+transaction|nɔmba\s+mfomsoɔ|san\s+fa\s+sika|mfomsoɔ|wrong\s+(?:number|transfer)|refund)\b/i.test(lower);
     const hasTransferWord = !isCashOut && !isReverse && /\b(?:send|sen|transfer|mane|kɔma|soma)\b/i.test(lower);
 
     // Contextual Invariant: When an utterance contains an ambiguous choice between bill and transfer
@@ -1583,7 +1582,7 @@ export class Brain {
     // represent the payment reference or recipient, NOT a utility inquiry.
     const isBill = (!isCashOut && !hasTransferAction && draft.intent !== 'momo.transfer' &&
       (!hasTransferWord || isAmbiguousBillOrTransfer) &&
-      /\b(?:tua\s+ka|tua\s+bills?|electricity\s+bill|water\s+bill|light\s+bill|meter\s+bill|prepaid\s+meter|postpaid|pay\s+(?:[a-z]+\s+)?(?:bill|bills|ecg|gwcl|electricity|water|light|meter))\b/i.test(lower)) || isAmbiguousBillOrTransfer;
+      /\b(?:tua\s+(?:[a-z]+\s+)*(?:ka|bills?|ecg|kanea|nsuo|gwcl)|tua\s+ka|tua\s+bills?|kanea\s+gya|electricity\s+bill|water\s+bill|light\s+bill|meter\s+bill|prepaid\s+meter|postpaid|pay\s+(?:[a-z]+\s+)?(?:bill|bills|ecg|gwcl|electricity|water|light|meter))\b/i.test(lower)) || isAmbiguousBillOrTransfer;
     const isAirtime = !isCashOut && !hasTransferWord && /\b(?:airtime|credit|kɔkɔɔ|topup|recharge|tɔ\s+airtime|tɔ\s+credit)\b/i.test(lower);
     const isData = !isCashOut && !hasTransferWord && /\b(?:buy\s+data|data\s+bundle|internet\s+bundle|bundle|megabytes|gigabytes|wifi\s+bundle|tɔ\s+data|tɔ\s+bundle|intanɛt)\b/i.test(lower);
     const isCare = /\b(?:customer\s+care|agent|talk\s+to\s+agent|speak\s+to\s+person|human\s+support|help\s+desk|kasa\s+kyerɛ\s+agent|customer\s+service)\b/i.test(lower);

@@ -105,12 +105,13 @@ export function streamAudioFile(req: Request, res: Response, filePath: string): 
   const fileSize = cached.size;
   const ext = path.extname(filePath).toLowerCase();
 
+  const reqPath = (req.originalUrl || req.url || "").split("?")[0].toLowerCase();
   const mimeType =
-    ext === ".wav"
+    ext === ".wav" || reqPath.endsWith(".wav")
       ? "audio/wav"
-      : ext === ".ogg"
+      : ext === ".ogg" || reqPath.endsWith(".ogg")
       ? "audio/ogg"
-      : ext === ".m4a" || ext === ".aac"
+      : ext === ".m4a" || ext === ".aac" || reqPath.endsWith(".m4a") || reqPath.endsWith(".aac")
       ? "audio/mp4"
       : "audio/mpeg";
 

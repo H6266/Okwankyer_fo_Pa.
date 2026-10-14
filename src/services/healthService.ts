@@ -354,12 +354,12 @@ export interface AudioCatalogHealth {
 export function checkAudioFilesHealth(): AudioCatalogHealth {
   const canonicalFiles = [
     { root: path.resolve(process.cwd(), "public", "audio"), rel: "Welcome_prompt_01.mp3" },
-    { root: path.resolve(process.cwd(), "Audio_files", "audio"), rel: "Twi/01_Welcome_Session_Start/Welcome 1.m4a" },
-    { root: path.resolve(process.cwd(), "Audio_files", "audio"), rel: "Twi/02_Main_Service_Navigation/Service selection.m4a" },
-    { root: path.resolve(process.cwd(), "Audio_files", "audio"), rel: "Twi/03_Recipient_Entry_Verification/Enter recipient.m4a" },
-    { root: path.resolve(process.cwd(), "Audio_files", "audio"), rel: "Twi/04_Amount_Entry_Verification/Enter amount.m4a" },
-    { root: path.resolve(process.cwd(), "Audio_files_2"), rel: "Cancel.m4a" },
-    { root: path.resolve(process.cwd(), "Audio_files_2"), rel: "Exit.m4a" },
+    { root: path.resolve(process.cwd(), "Audio_files", "audio"), rel: "Twi/01_Welcome_Session_Start/Welcome back.mp3" },
+    { root: path.resolve(process.cwd(), "Audio_files", "audio"), rel: "Twi/02_Main_Service_Navigation/Service selection.mp3" },
+    { root: path.resolve(process.cwd(), "Audio_files", "audio"), rel: "Twi/03_Recipient_Entry_Verification/Enter recipient.mp3" },
+    { root: path.resolve(process.cwd(), "Audio_files", "audio"), rel: "Twi/04_Amount_Entry_Verification/Enter amount.mp3" },
+    { root: path.resolve(process.cwd(), "Audio_files_2"), rel: "11_Navigation_Recovery/Cancel.m4a" },
+    { root: path.resolve(process.cwd(), "Audio_files_2"), rel: "11_Navigation_Recovery/Exit.m4a" },
   ];
 
   const missingFiles: string[] = [];

@@ -238,26 +238,28 @@ export function matchReplyToAudio(
     isFallbackToTts: true,
   };
 
-  // 1. Check Sequential Flow Steps first
-  for (const step of TWI_SEQUENTIAL_FLOW_STEPS) {
-    if (!step.audioUrl) continue;
-    const targetScript = isTwi ? step.spokenTextTwi : step.spokenTextEn;
-    const aliases = STEP_ALIASES[step.id] || [];
+  // 1. Check Sequential Flow Steps (strictly for Twi language)
+  if (isTwi) {
+    for (const step of TWI_SEQUENTIAL_FLOW_STEPS) {
+      if (!step.audioUrl) continue;
+      const targetScript = step.spokenTextTwi;
+      const aliases = STEP_ALIASES[step.id] || [];
 
-    const { confidence, reason } = calculateMatchConfidence(text, targetScript, aliases);
-    if (confidence > bestResult.confidence) {
-      const diskPath = resolveDiskPath(step.audioUrl);
-      bestResult = {
-        match: confidence >= minConfidence,
-        confidence,
-        audioUrl: step.audioUrl,
-        title: step.name,
-        spokenText: targetScript,
-        filePath: diskPath || undefined,
-        flowStep: step,
-        isFallbackToTts: confidence < minConfidence,
-        matchReason: `flow_step:${step.id} (${reason})`,
-      };
+      const { confidence, reason } = calculateMatchConfidence(text, targetScript, aliases);
+      if (confidence > bestResult.confidence) {
+        const diskPath = resolveDiskPath(step.audioUrl);
+        bestResult = {
+          match: confidence >= minConfidence,
+          confidence,
+          audioUrl: step.audioUrl,
+          title: step.name,
+          spokenText: targetScript,
+          filePath: diskPath || undefined,
+          flowStep: step,
+          isFallbackToTts: confidence < minConfidence,
+          matchReason: `flow_step:${step.id} (${reason})`,
+        };
+      }
     }
   }
 

@@ -62,7 +62,7 @@ export interface ChatTurnItem {
   text: string;
   stepName?: string;
   audioUrl?: string | null;
-  audioSource?: "studio" | "synthesis" | "dtmf" | null;
+  audioSource?: "studio" | "synthesis" | "dtmf" | "matched-studio" | null;
   options?: string;
   phoneticRepairs?: PhoneticCorrection[];
   rawTranscript?: string;

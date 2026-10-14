@@ -69,8 +69,17 @@ export class StudioPromptRegistry {
     for (const recording of twiRecordings) {
       const sourcePath = getRecordingFilePath(recording.relativePath);
       if (!sourcePath) continue;
-      const absolutePath = path.resolve(process.cwd(), sourcePath);
-      if (!fs.existsSync(absolutePath) || fs.statSync(absolutePath).isDirectory()) continue;
+      let absolutePath = path.resolve(process.cwd(), sourcePath);
+      if (!fs.existsSync(absolutePath) || fs.statSync(absolutePath).isDirectory()) {
+        const altExt = absolutePath.endsWith(".m4a")
+          ? absolutePath.replace(/\.m4a$/i, ".mp3")
+          : absolutePath.replace(/\.mp3$/i, ".m4a");
+        if (fs.existsSync(altExt) && !fs.statSync(altExt).isDirectory()) {
+          absolutePath = altExt;
+        } else {
+          continue;
+        }
+      }
 
       const stats = fs.statSync(absolutePath);
       const key = keysByPromptId.get(recording.promptId!)?.[0] || recording.state || recording.promptId!;
