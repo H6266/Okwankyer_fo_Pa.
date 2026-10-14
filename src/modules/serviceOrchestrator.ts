@@ -9,6 +9,7 @@
 
 import crypto from "crypto";
 import { mtnMomoService, MoMoTransactionRecord } from "./mtnMomoService";
+import { telecelEngine } from "../integrations/telecel";
 import { durableTransactionStore, DurableTransactionStore } from "../services/durableTransactionStore";
 
 export interface TransactionRequest {
@@ -164,89 +165,135 @@ export class ServiceOrchestrator {
       hour12: true,
     });
 
-    if (network && network !== "MTN") {
-      throw new Error("Only MTN MoMo transactions are currently connected.");
+    if (network && network !== "MTN" && network !== "Telecel") {
+      throw new Error(`Only MTN MoMo and Telecel Cash transactions are currently supported (got: ${network}).`);
     }
 
     const mode = request.mode || (payerPhone ? "COLLECTION_REQUEST_TO_PAY" : "DISBURSEMENT_TRANSFER");
-    let momoTx: MoMoTransactionRecord;
+    const activeNetwork = network || "MTN";
 
-    if (mode === "DISBURSEMENT_TRANSFER") {
-      momoTx = await mtnMomoService.transfer({
-        amount,
-        payeePhone: recipient_phone,
-        payeeName: recipient_name,
-        payerMessage: `Payout of GH₵${amount} to ${recipient_name}`,
-        payeeNote: `Ɔkwankyerɛfo Pa Voice MoMo Payout to ${recipient_phone}`,
-        externalId: reference,
-      });
+    let txStatus: "SUCCESS" | "PENDING" | "FAILED" = "PENDING";
+    let txReferenceId = "";
+    let txMode: "LIVE_API" | "SANDBOX_API" | "MOCKED" | "UNCONFIGURED" = "MOCKED";
+    let txRawStatus = "PENDING";
+    let txFinancialId: string | undefined;
+    let txCurrency = "GHS";
+    let txRawPayload: any;
+    let txGatewayEvidence: any;
+
+    if (activeNetwork === "Telecel") {
+      let telecelTx;
+      if (mode === "DISBURSEMENT_TRANSFER") {
+        telecelTx = await telecelEngine.transfer({
+          amount,
+          payeePhone: recipient_phone,
+          payeeName: recipient_name,
+          payerMessage: `Telecel Cash Payout of GH₵${amount} to ${recipient_name}`,
+          payeeNote: `Ɔkwankyerɛfo Pa Voice Telecel Payout to ${recipient_phone}`,
+          externalId: reference,
+        });
+      } else {
+        telecelTx = await telecelEngine.requestToPay({
+          amount,
+          payerPhone,
+          payerName: request.payer_name || "Unknown (KYC not verified)",
+          payerMessage: `Telecel Cash Transfer of GH₵${amount} to ${recipient_name}`,
+          payeeNote: `Ɔkwankyerɛfo Pa Voice Telecel Transfer to ${recipient_phone}`,
+          externalId: reference,
+        });
+      }
+
+      txStatus = telecelTx.status === "SUCCESSFUL" ? "SUCCESS" : telecelTx.status === "PENDING" ? "PENDING" : "FAILED";
+      txReferenceId = telecelTx.referenceId;
+      txMode = telecelTx.mode === "LIVE_API" ? "LIVE_API" : telecelTx.mode === "SANDBOX_API" ? "SANDBOX_API" : "MOCKED";
+      txRawStatus = telecelTx.status;
+      txFinancialId = telecelTx.financialTransactionId;
+      txCurrency = telecelTx.currency;
+      txRawPayload = telecelTx.rawPayload;
+      txGatewayEvidence = telecelTx.gatewayEvidence;
     } else {
-      momoTx = await mtnMomoService.requestToPay({
-        amount,
-        payerPhone,
-        payerName: request.payer_name || "Unknown (KYC not verified)",
-        payerMessage: `Transfer of GH₵${amount} to ${recipient_name}`,
-        payeeNote: `Ɔkwankyerɛfo Pa Voice MoMo Transfer to ${recipient_phone}`,
-        externalId: reference,
-      });
+      let momoTx: MoMoTransactionRecord;
+      if (mode === "DISBURSEMENT_TRANSFER") {
+        momoTx = await mtnMomoService.transfer({
+          amount,
+          payeePhone: recipient_phone,
+          payeeName: recipient_name,
+          payerMessage: `Payout of GH₵${amount} to ${recipient_name}`,
+          payeeNote: `Ɔkwankyerɛfo Pa Voice MoMo Payout to ${recipient_phone}`,
+          externalId: reference,
+        });
+      } else {
+        momoTx = await mtnMomoService.requestToPay({
+          amount,
+          payerPhone,
+          payerName: request.payer_name || "Unknown (KYC not verified)",
+          payerMessage: `Transfer of GH₵${amount} to ${recipient_name}`,
+          payeeNote: `Ɔkwankyerɛfo Pa Voice MoMo Transfer to ${recipient_phone}`,
+          externalId: reference,
+        });
+      }
+
+      txStatus = momoTx.status === "SUCCESSFUL" ? "SUCCESS" : momoTx.status === "PENDING" ? "PENDING" : "FAILED";
+      txReferenceId = momoTx.referenceId;
+      txMode = momoTx.mode;
+      txRawStatus = momoTx.status;
+      txFinancialId = momoTx.financialTransactionId;
+      txCurrency = momoTx.currency;
+      txRawPayload = momoTx.rawPayload;
+      txGatewayEvidence = momoTx.gatewayEvidence;
     }
 
     const momoDetails: TransactionResult["momoDetails"] = {
-      referenceId: momoTx.referenceId,
-      mode: momoTx.mode,
-      status: momoTx.status,
-      financialTransactionId: momoTx.financialTransactionId,
+      referenceId: txReferenceId,
+      mode: txMode,
+      status: txRawStatus,
+      financialTransactionId: txFinancialId,
     };
-    const status: TransactionResult["status"] =
-      momoTx.status === "SUCCESSFUL"
-        ? "SUCCESS"
-        : momoTx.status === "PENDING"
-          ? "PENDING"
-          : "FAILED";
 
-    // ONLY generate spoken receipt after MTN returns SUCCESSFUL, and build it only from verified MTN fields
-    const spokenReceipt = momoTx.status === "SUCCESSFUL"
-      ? `Your MTN MoMo transfer of ${momoTx.amount} ${momoTx.currency} was successful. Completed at ${timeFormatted}. Reference: ${reference}.`
+    const providerLabel = activeNetwork === "Telecel" ? "Telecel Cash" : "MTN MoMo";
+
+    const spokenReceipt = txStatus === "SUCCESS"
+      ? `Your ${providerLabel} transfer of ${amount} ${txCurrency} was successful. Completed at ${timeFormatted}. Reference: ${reference}.`
       : undefined;
 
-    const currencyNotice = momoTx.currency !== "GHS"
-      ? `Note: MTN MoMo Sandbox settles transactions in ${momoTx.currency} by default. Production environment operates in GHS.`
+    const currencyNotice = txCurrency !== "GHS"
+      ? `Note: ${providerLabel} Sandbox settles transactions in ${txCurrency} by default. Production environment operates in GHS.`
       : undefined;
 
-    const message = momoTx.status === "SUCCESSFUL"
-      ? `Transaction ${reference} completed successfully via MTN MoMo Gateway.`
-      : momoTx.status === "PENDING"
-        ? `Transaction ${reference} was accepted by MTN MoMo Gateway and is pending authorization.`
-        : `Transaction ${reference} failed or was rejected by MTN MoMo Gateway.`;
+    const message = txStatus === "SUCCESS"
+      ? `Transaction ${reference} completed successfully via ${providerLabel} Gateway.`
+      : txStatus === "PENDING"
+        ? `Transaction ${reference} was accepted by ${providerLabel} Gateway and is pending authorization.`
+        : `Transaction ${reference} failed or was rejected by ${providerLabel} Gateway.`;
 
     const result: TransactionResult = {
-      status,
+      status: txStatus,
       reference,
       operationType: "SEND_MONEY",
       amount,
-      currency: momoTx.currency,
+      currency: txCurrency,
       requestedCurrency: "GHS",
-      executionCurrency: momoTx.currency,
+      executionCurrency: txCurrency,
       currencyNotice,
       recipient_name,
       recipient_phone,
-      network: network || "MTN",
+      network: activeNetwork,
       timestamp,
       message,
       spokenReceipt,
       authorizationModel: mode === "COLLECTION_REQUEST_TO_PAY"
-        ? "Customer enters PIN on their own mobile handset via MTN network USSD prompt (Zero-PIN in app)"
+        ? `Customer enters PIN on their own mobile handset via ${providerLabel} USSD prompt (Zero-PIN in app)`
         : "Direct business disbursement float transfer (No subscriber PIN required)",
       momoDetails,
-      rawPayload: momoTx.rawPayload,
-      gatewayEvidence: momoTx.gatewayEvidence,
+      rawPayload: txRawPayload,
+      gatewayEvidence: txGatewayEvidence,
     };
 
     // Store in durable idempotency cache
     this.store.saveIdempotencyResult(idempotencyKey, result);
 
     console.log(
-      `[ServiceOrchestrator] MTN transaction ${reference}: ${status} - ${amount} ${momoTx.currency} to ${recipient_name} via ${source || "API"}`
+      `[ServiceOrchestrator] ${providerLabel} transaction ${reference}: ${txStatus} - ${amount} ${txCurrency} to ${recipient_name} via ${source || "API"}`
     );
 
     return result;
