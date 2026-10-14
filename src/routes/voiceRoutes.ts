@@ -1076,13 +1076,14 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
     if (!isSimulated) {
       const callerNetwork = validateGhanaPhoneNumber(session.callerPhone).network;
       const recipientNetwork = validateGhanaPhoneNumber(session.recipientPhone).network;
-      if (callerNetwork !== "MTN" || recipientNetwork !== "MTN") {
+      const supportedLiveNetworks = ["MTN", "Telecel"];
+      if (!callerNetwork || !recipientNetwork || !supportedLiveNetworks.includes(callerNetwork) || !supportedLiveNetworks.includes(recipientNetwork)) {
         transactionStateMachine.transition(sessionId, "FAILED", {
-          failureReason: "Live voice transfer is only configured for MTN-to-MTN until additional provider adapters are implemented.",
+          failureReason: "Live voice transfer is configured for MTN and Telecel networks only.",
         });
         const providerUnavailable = lang === "twi"
-          ? "Mprempren, yɛn live voice transfer no yɛ MTN nkutoo. Sika biara nkɔe. Yɛsrɛ wo, frɛ MTN MoMo anaa bɔ mmɔden bio akyire yi."
-          : "Live voice transfers currently support MTN numbers only. No money was charged. Please use MTN numbers or try again later.";
+          ? "Mprempren, yɛn live voice transfer no yɛ MTN ne Telecel nkutoo. Sika biara nkɔe. Yɛsrɛ wo, frɛ MTN anaa Telecel bɔ mmɔden bio akyire yi."
+          : "Live voice transfers currently support MTN and Telecel numbers only. No money was charged. Please use MTN or Telecel numbers.";
         return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(providerUnavailable)}</Say>\n    <Reject/>`);
       }
     }

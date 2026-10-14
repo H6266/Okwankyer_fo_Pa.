@@ -306,7 +306,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .post("/safe-outcome")
       .send({ sessionId, lang: "en", dtmfDigits: "1" });
 
-    expect(res.text).toContain("currently support MTN numbers only");
+    expect(res.text).toContain("currently support MTN and Telecel numbers only");
     expect(startSaga).not.toHaveBeenCalled();
     expect(transactionStateMachine.getSession(sessionId)?.state).toBe("FAILED");
     startSaga.mockRestore();

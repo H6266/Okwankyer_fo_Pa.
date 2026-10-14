@@ -14,6 +14,7 @@ import { momoProvider } from "../integrations/momo";
 import { voicePaymentService } from "../integrations/momo/voicePaymentService";
 import { evidenceStore } from "../integrations/momo/evidenceStore";
 import { paymentSaga } from "../integrations/momo/paymentSaga";
+import { serviceOrchestrator } from "../modules/serviceOrchestrator";
 
 export const momoRouter = Router();
 
@@ -175,8 +176,8 @@ momoRouter.post("/api/momo/send", adminRateLimiter, requireAdminAuth, async (req
     if (!recipient_phone || typeof recipient_phone !== "string") {
       return res.status(400).json({ error: "Missing required recipient_phone." });
     }
-    if (network !== "MTN") {
-      return res.status(400).json({ error: "This endpoint currently supports only an explicitly selected MTN network." });
+    if (network && network !== "MTN" && network !== "Telecel") {
+      return res.status(400).json({ error: "This endpoint currently supports MTN Mobile Money and Telecel Cash." });
     }
 
     const validatedRecipient = validateGhanaPhoneNumber(recipient_phone);
@@ -184,6 +185,41 @@ momoRouter.post("/api/momo/send", adminRateLimiter, requireAdminAuth, async (req
       return res.status(400).json({ error: validatedRecipient.error || "Invalid recipient phone number." });
     }
     const finalRecipientPhone = validatedRecipient.normalized;
+
+    // Handle Telecel Send Money
+    if (network === "Telecel") {
+      const validatedPayer = payer_phone ? validateGhanaPhoneNumber(payer_phone) : undefined;
+      const tx = await serviceOrchestrator.executeSendMoney({
+        source: "WEB",
+        network: "Telecel",
+        recipient_phone: finalRecipientPhone,
+        recipient_name: typeof recipient_name === "string" ? recipient_name : "Telecel Subscriber",
+        amount: parsedAmount,
+        payer_phone: validatedPayer?.normalized || "0201234567",
+        payer_name: "Telecel Caller",
+        mode,
+      });
+
+      return res.status(202).json({
+        success: tx.status !== "FAILED",
+        transaction: {
+          status: tx.status === "SUCCESS" ? "SUCCESSFUL" : tx.status,
+          reference: tx.reference,
+          amount: parsedAmount,
+          requestedAmount: parsedAmount,
+          requestedCurrency: "GHS",
+          currency: tx.currency,
+          executionCurrency: tx.executionCurrency,
+          currencyNotice: tx.currencyNotice,
+          payer_phone: payer_phone || "FLOAT (Telecel Business Float)",
+          recipient_name: recipient_name || "Telecel Subscriber",
+          recipient_phone: finalRecipientPhone,
+          momoDetails: tx.momoDetails,
+        },
+        gatewayEvidence: tx.gatewayEvidence,
+        evidenceId: tx.reference,
+      });
+    }
 
     // Handle Direct Float Disbursement
     if (mode === "DISBURSEMENT_TRANSFER") {

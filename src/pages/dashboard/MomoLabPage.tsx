@@ -30,6 +30,7 @@ import { api } from "../../lib/api";
 
 type LabTab =
   | "send_money"
+  | "telecel"
   | "airtime"
   | "data"
   | "balance"
@@ -77,6 +78,7 @@ export const MomoLabPage: React.FC = () => {
     "COLLECTION_REQUEST_TO_PAY" |
     "DISBURSEMENT_TRANSFER"
   >("DISBURSEMENT_TRANSFER");
+  const [sendNetwork, setSendNetwork] = useState<"MTN" | "Telecel">("MTN");
   const [backendMatrix, setBackendMatrix] = useState<any[]>([]);
   const [recipientPhone, setRecipientPhone] = useState("0553838464");
   const [recipientName, setRecipientName] = useState("Sand Box");
@@ -86,6 +88,31 @@ export const MomoLabPage: React.FC = () => {
   const [sendingMoney, setSendingMoney] = useState(false);
   const [sendMoneyResult, setSendMoneyResult] = useState<any>(null);
   const [sendPollingActive, setSendPollingActive] = useState(false);
+
+  // Telecel Cash Sandbox State
+  const [telecelDiagnostics, setTelecelDiagnostics] = useState<any>(null);
+  const [loadingTelecelDiag, setLoadingTelecelDiag] = useState(false);
+  const [telecelApiKey, setTelecelApiKey] = useState("");
+  const [telecelClientId, setTelecelClientId] = useState("");
+  const [telecelClientSecret, setTelecelClientSecret] = useState("");
+  const [telecelMerchantId, setTelecelMerchantId] = useState("");
+  const [telecelTargetEnv, setTelecelTargetEnv] = useState<"sandbox" | "production">("sandbox");
+  const [telecelSavingKeys, setTelecelSavingKeys] = useState(false);
+  const [telecelKeysResult, setTelecelKeysResult] = useState<any>(null);
+  const [telecelKycPhone, setTelecelKycPhone] = useState("0201234567");
+  const [telecelCheckingKyc, setTelecelCheckingKyc] = useState(false);
+  const [telecelKycResult, setTelecelKycResult] = useState<any>(null);
+  const [telecelCollPhone, setTelecelCollPhone] = useState("0201234567");
+  const [telecelCollAmount, setTelecelCollAmount] = useState("15.00");
+  const [telecelVoucher, setTelecelVoucher] = useState("");
+  const [telecelRunningColl, setTelecelRunningColl] = useState(false);
+  const [telecelCollResult, setTelecelCollResult] = useState<any>(null);
+  const [telecelDisbPhone, setTelecelDisbPhone] = useState("0201234567");
+  const [telecelDisbAmount, setTelecelDisbAmount] = useState("10.00");
+  const [telecelRunningDisb, setTelecelRunningDisb] = useState(false);
+  const [telecelDisbResult, setTelecelDisbResult] = useState<any>(null);
+  const [telecelBalanceData, setTelecelBalanceData] = useState<any>(null);
+  const [telecelLoadingBalance, setTelecelLoadingBalance] = useState(false);
 
   // Airtime Form
   const [airtimePhone, setAirtimePhone] = useState("0553838464");
@@ -496,7 +523,7 @@ export const MomoLabPage: React.FC = () => {
         recipient_phone: recipientPhone,
         recipient_name: recipientName,
         amount: parseFloat(sendAmount) || 5.0,
-        network: "MTN",
+        network: sendNetwork,
         payer_phone: senderPhone,
         mode: sendMode,
       });
@@ -667,6 +694,119 @@ export const MomoLabPage: React.FC = () => {
       setCashingOut(false);
     }
   };
+
+  // ── Telecel Cash Handlers ───────────────────────────────────────────
+  const refreshTelecelDiagnostics = async () => {
+    setLoadingTelecelDiag(true);
+    try {
+      const res = await api.getTelecelDiagnostics();
+      if (res?.success) {
+        setTelecelDiagnostics(res.diagnostics);
+      }
+    } catch (err: any) {
+      console.warn("Telecel diag notice:", err);
+    } finally {
+      setLoadingTelecelDiag(false);
+    }
+  };
+
+  const handleSaveTelecelKeys = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTelecelSavingKeys(true);
+    setTelecelKeysResult(null);
+    try {
+      const res = await api.updateTelecelKeys({
+        apiKey: telecelApiKey || undefined,
+        clientId: telecelClientId || undefined,
+        clientSecret: telecelClientSecret || undefined,
+        merchantId: telecelMerchantId || undefined,
+        targetEnv: telecelTargetEnv,
+      });
+      setTelecelKeysResult(res);
+      if (res?.success) {
+        setTelecelDiagnostics(res.diagnostics);
+        fetchTelecelBalance();
+      }
+    } catch (err: any) {
+      setTelecelKeysResult({ success: false, error: err.message });
+    } finally {
+      setTelecelSavingKeys(false);
+    }
+  };
+
+  const handleTelecelKyc = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!telecelKycPhone.trim()) return;
+    setTelecelCheckingKyc(true);
+    setTelecelKycResult(null);
+    try {
+      const res = await api.lookupTelecelKyc(telecelKycPhone.trim());
+      setTelecelKycResult(res);
+    } catch (err: any) {
+      setTelecelKycResult({ success: false, error: err.message });
+    } finally {
+      setTelecelCheckingKyc(false);
+    }
+  };
+
+  const handleTelecelRequestToPay = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTelecelRunningColl(true);
+    setTelecelCollResult(null);
+    try {
+      const res = await api.telecelRequestToPay({
+        amount: parseFloat(telecelCollAmount) || 15.0,
+        payerPhone: telecelCollPhone.trim(),
+        voucherCode: telecelVoucher.trim() || undefined,
+        payerMessage: "Telecel Sandbox RequestToPay Test",
+      });
+      setTelecelCollResult(res);
+      refreshTelecelDiagnostics();
+    } catch (err: any) {
+      setTelecelCollResult({ success: false, error: err.message });
+    } finally {
+      setTelecelRunningColl(false);
+    }
+  };
+
+  const handleTelecelTransfer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTelecelRunningDisb(true);
+    setTelecelDisbResult(null);
+    try {
+      const res = await api.telecelTransfer({
+        amount: parseFloat(telecelDisbAmount) || 10.0,
+        payeePhone: telecelDisbPhone.trim(),
+        payerMessage: "Telecel Sandbox Transfer Payout",
+      });
+      setTelecelDisbResult(res);
+      refreshTelecelDiagnostics();
+      fetchTelecelBalance();
+    } catch (err: any) {
+      setTelecelDisbResult({ success: false, error: err.message });
+    } finally {
+      setTelecelRunningDisb(false);
+    }
+  };
+
+  const fetchTelecelBalance = async () => {
+    setTelecelLoadingBalance(true);
+    try {
+      const res = await api.getTelecelBalance();
+      setTelecelBalanceData(res);
+    } catch (err: any) {
+      setTelecelBalanceData({ error: err.message });
+    } finally {
+      setTelecelLoadingBalance(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === "telecel") {
+      refreshTelecelDiagnostics();
+      fetchTelecelBalance();
+    }
+  }, [activeTab]);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto font-sans pb-16">
@@ -915,6 +1055,7 @@ export const MomoLabPage: React.FC = () => {
       <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar border-b border-slate-200">
         {[
           { id: "send_money", label: "Send Money", statusBadge: "REAL", icon: Send },
+          { id: "telecel", label: "Telecel Cash", statusBadge: "SANDBOX", icon: Smartphone },
           { id: "airtime", label: "Airtime", statusBadge: "PARTIAL", icon: Smartphone },
           { id: "data", label: "Data Bundles", statusBadge: "PARTIAL", icon: Wifi },
           { id: "balance", label: "Balance Inquiry", statusBadge: "REAL", icon: Coins },
@@ -995,6 +1136,44 @@ export const MomoLabPage: React.FC = () => {
             </div>
 
             <form onSubmit={handleSendMoney} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Target Mobile Network Provider
+                </label>
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSendNetwork("MTN");
+                      setRecipientPhone("0553838464");
+                      setRecipientName("Sand Box");
+                    }}
+                    className={`p-2.5 text-center rounded-xl border font-bold text-xs transition-all ${
+                      sendNetwork === "MTN"
+                        ? "bg-amber-50 border-amber-500 text-amber-900 shadow-xs"
+                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    🟡 MTN Mobile Money
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSendNetwork("Telecel");
+                      setRecipientPhone("0201234567");
+                      setRecipientName("Kofi Annan");
+                    }}
+                    className={`p-2.5 text-center rounded-xl border font-bold text-xs transition-all ${
+                      sendNetwork === "Telecel"
+                        ? "bg-rose-50 border-rose-500 text-rose-900 shadow-xs"
+                        : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    🔴 Telecel Cash (Sandbox)
+                  </button>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Transaction Model
@@ -1315,6 +1494,449 @@ export const MomoLabPage: React.FC = () => {
             <div className="pt-3 border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
               <span>Security: No PIN required</span>
               <span className="text-emerald-400">Real MTN Sandbox</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB: TELECEL CASH (GHANA) SANDBOX & PRODUCTION LAB ────────────────── */}
+      {activeTab === "telecel" && (
+        <div className="space-y-6">
+          {/* Header Banner */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2.5">
+                  <span className="w-3 h-3 rounded-full bg-rose-500 animate-pulse" />
+                  <h2 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+                    <span>Telecel Cash (Ghana) Sandbox &amp; Live Gateway</span>
+                  </h2>
+                  <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300">
+                    {telecelDiagnostics?.activeMode || "SANDBOX_SIMULATOR"}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-1.5 max-w-2xl leading-relaxed">
+                  Full sandbox support for Telecel Ghana (formerly Vodafone Cash). Supports subscribers on{" "}
+                  <code className="bg-slate-100 px-1 py-0.5 rounded font-mono font-bold text-rose-700">020</code>,{" "}
+                  <code className="bg-slate-100 px-1 py-0.5 rounded font-mono font-bold text-rose-700">050</code>, and{" "}
+                  <code className="bg-slate-100 px-1 py-0.5 rounded font-mono font-bold text-rose-700">028</code>.
+                  Works immediately with the built-in Sandbox Simulator, and automatically promotes to live sandbox HTTP requests the moment developer keys are saved.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    refreshTelecelDiagnostics();
+                    fetchTelecelBalance();
+                  }}
+                  disabled={loadingTelecelDiag}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors shadow-2xs cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingTelecelDiag ? "animate-spin" : ""}`} />
+                  <span>Refresh Telecel State</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Stats Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-5 border-t border-slate-100">
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+                <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Operational Mode</div>
+                <div className="text-sm font-extrabold text-slate-800 mt-0.5 flex items-center gap-1.5">
+                  <span className={`w-2 h-2 rounded-full ${telecelDiagnostics?.configured ? "bg-emerald-500" : "bg-blue-500"}`} />
+                  {telecelDiagnostics?.activeMode === "SANDBOX_API" ? "Live Sandbox API" : telecelDiagnostics?.activeMode === "LIVE_PRODUCTION" ? "Live Production" : "Sandbox Simulator"}
+                </div>
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+                <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Telecel Float Balance</div>
+                <div className="text-sm font-extrabold text-rose-700 mt-0.5">
+                  {telecelBalanceData?.balance?.formatted || "GH₵ 4,850.00"}
+                </div>
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+                <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Target Base URL</div>
+                <div className="text-[11px] font-mono font-bold text-slate-700 mt-1 truncate">
+                  {telecelDiagnostics?.baseUrl || "https://sandbox.telecel.com.gh/api"}
+                </div>
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+                <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Recorded TXs</div>
+                <div className="text-sm font-extrabold text-slate-800 mt-0.5">
+                  {telecelDiagnostics?.stats?.totalTransactions || 0} Transactions
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left Column: Keys Setup & KYC Verification */}
+            <div className="lg:col-span-6 space-y-6">
+              {/* Telecel Sandbox Credentials Card */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Lock className="w-4 h-4 text-rose-600" />
+                    <h3 className="text-sm font-black text-slate-900">
+                      Configure Telecel Sandbox Developer Keys
+                    </h3>
+                  </div>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${telecelDiagnostics?.configured ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                    {telecelDiagnostics?.configured ? "Keys Loaded" : "Using Sandbox Simulator"}
+                  </span>
+                </div>
+
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Once you get your Telecel Developer sandbox keys (from the Telecel Ghana Developer portal), paste them below. The service updates in-memory and reloads configuration instantly without restarting the server.
+                </p>
+
+                <form onSubmit={handleSaveTelecelKeys} className="space-y-3.5">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Telecel API Key (or Bearer Token)
+                    </label>
+                    <input
+                      type="text"
+                      value={telecelApiKey}
+                      onChange={(e) => setTelecelApiKey(e.target.value)}
+                      placeholder="e.g. tel_sandbox_live_key_9382104"
+                      className="w-full text-xs border border-slate-300 rounded-xl px-3.5 py-2.5 font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Client ID (OAuth)
+                      </label>
+                      <input
+                        type="text"
+                        value={telecelClientId}
+                        onChange={(e) => setTelecelClientId(e.target.value)}
+                        placeholder="e.g. okwankyer-fo-pa-client"
+                        className="w-full text-xs border border-slate-300 rounded-xl px-3.5 py-2.5 font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Client Secret
+                      </label>
+                      <input
+                        type="password"
+                        value={telecelClientSecret}
+                        onChange={(e) => setTelecelClientSecret(e.target.value)}
+                        placeholder="••••••••••••"
+                        className="w-full text-xs border border-slate-300 rounded-xl px-3.5 py-2.5 font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Merchant ID / Shortcode
+                      </label>
+                      <input
+                        type="text"
+                        value={telecelMerchantId}
+                        onChange={(e) => setTelecelMerchantId(e.target.value)}
+                        placeholder="e.g. TEL-MCH-84920"
+                        className="w-full text-xs border border-slate-300 rounded-xl px-3.5 py-2.5 font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Environment
+                      </label>
+                      <select
+                        value={telecelTargetEnv}
+                        onChange={(e) => setTelecelTargetEnv(e.target.value as any)}
+                        className="w-full text-xs border border-slate-300 rounded-xl px-3.5 py-2.5 text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500 bg-white"
+                      >
+                        <option value="sandbox">Sandbox (Test Mode)</option>
+                        <option value="production">Production (Live Telecel)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2">
+                    <span className="text-[11px] text-slate-500">
+                      Masked active key: <strong className="font-mono text-slate-800">{telecelDiagnostics?.credentials?.maskedKey || "Not set"}</strong>
+                    </span>
+                    <button
+                      type="submit"
+                      disabled={telecelSavingKeys}
+                      className="px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+                    >
+                      {telecelSavingKeys ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Saving...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Save &amp; Activate Keys</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+
+                {telecelKeysResult && (
+                  <div className={`p-3 rounded-xl text-xs font-mono ${telecelKeysResult.success ? "bg-emerald-50 text-emerald-800 border border-emerald-200" : "bg-rose-50 text-rose-800 border border-rose-200"}`}>
+                    {telecelKeysResult.success ? "✓ " : "✕ "}{telecelKeysResult.message || telecelKeysResult.error}
+                  </div>
+                )}
+              </div>
+
+              {/* KYC Validation Box */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                    <h3 className="text-sm font-black text-slate-900">
+                      Telecel Subscriber KYC Lookup (020, 050, 028)
+                    </h3>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                    Directory Query
+                  </span>
+                </div>
+
+                <p className="text-xs text-slate-600">
+                  Verify subscriber registration before dispatching voice transfers. Presets for rapid test:{" "}
+                  <button type="button" onClick={() => setTelecelKycPhone("0201234567")} className="underline font-mono text-rose-700 font-bold">0201234567</button>,{" "}
+                  <button type="button" onClick={() => setTelecelKycPhone("0502345678")} className="underline font-mono text-rose-700 font-bold">0502345678</button>,{" "}
+                  <button type="button" onClick={() => setTelecelKycPhone("0283456789")} className="underline font-mono text-rose-700 font-bold">0283456789</button>.
+                </p>
+
+                <form onSubmit={handleTelecelKyc} className="flex gap-2">
+                  <input
+                    type="text"
+                    value={telecelKycPhone}
+                    onChange={(e) => setTelecelKycPhone(e.target.value)}
+                    placeholder="e.g. 0201234567"
+                    className="flex-1 text-xs border border-slate-300 rounded-xl px-3.5 py-2.5 font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                  />
+                  <button
+                    type="submit"
+                    disabled={telecelCheckingKyc || !telecelKycPhone.trim()}
+                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                  >
+                    {telecelCheckingKyc ? "Querying..." : "Verify KYC"}
+                  </button>
+                </form>
+
+                {telecelKycResult && (
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs font-mono space-y-1.5">
+                    <div className="flex items-center justify-between font-bold text-slate-900">
+                      <span>Subscriber Name:</span>
+                      <span className="text-emerald-700 font-extrabold">{telecelKycResult.kyc?.name || "Not Found"}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-600">
+                      <span>MSISDN:</span>
+                      <span>{telecelKycResult.kyc?.msisdn}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-600">
+                      <span>Network:</span>
+                      <span>{telecelKycResult.kyc?.network} Ghana</span>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-600">
+                      <span>Verified Active:</span>
+                      <span className={telecelKycResult.kyc?.verified ? "text-emerald-700 font-bold" : "text-rose-700 font-bold"}>
+                        {telecelKycResult.kyc?.verified ? "✓ Active Subscriber" : "✕ Inactive / Not Found"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-600">
+                      <span>Source Engine:</span>
+                      <span className="text-slate-700">{telecelKycResult.kyc?.mode}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Right Column: Interactive Sandbox Transactions & Evidence */}
+            <div className="lg:col-span-6 space-y-6">
+              {/* Telecel RequestToPay (Collection) */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Smartphone className="w-4 h-4 text-rose-600" />
+                    <h3 className="text-sm font-black text-slate-900">
+                      Test Telecel RequestToPay (Collection)
+                    </h3>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800">
+                    Handset USSD Push
+                  </span>
+                </div>
+
+                <p className="text-xs text-slate-600">
+                  Simulates sending a USSD payment authorization push to the customer&apos;s Telecel handset, or validating an in-hand Voucher Code.
+                </p>
+
+                <form onSubmit={handleTelecelRequestToPay} className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Payer Phone (020/050/028)
+                      </label>
+                      <input
+                        type="text"
+                        value={telecelCollPhone}
+                        onChange={(e) => setTelecelCollPhone(e.target.value)}
+                        placeholder="0201234567"
+                        className="w-full text-xs border border-slate-300 rounded-xl px-3 py-2 font-mono text-slate-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Amount (GH₵)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={telecelCollAmount}
+                        onChange={(e) => setTelecelCollAmount(e.target.value)}
+                        className="w-full text-xs border border-slate-300 rounded-xl px-3 py-2 font-mono text-slate-900"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Voucher Code (Optional - for Telecel voucher payments)
+                    </label>
+                    <input
+                      type="text"
+                      value={telecelVoucher}
+                      onChange={(e) => setTelecelVoucher(e.target.value)}
+                      placeholder="e.g. 849201"
+                      className="w-full text-xs border border-slate-300 rounded-xl px-3 py-2 font-mono text-slate-900"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={telecelRunningColl}
+                    className="w-full py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    {telecelRunningColl ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Dispatching Push...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="w-3.5 h-3.5" />
+                        <span>Dispatch Telecel Collection (RequestToPay)</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+
+                {telecelCollResult && (
+                  <div className="p-3.5 bg-slate-950 text-slate-100 rounded-xl text-xs font-mono space-y-1.5 border border-slate-800">
+                    <div className="flex items-center justify-between text-emerald-400 font-bold">
+                      <span>Status: {telecelCollResult.transaction?.status}</span>
+                      <span>Ref: {telecelCollResult.transaction?.referenceId}</span>
+                    </div>
+                    <div className="text-slate-300">
+                      Financial ID: {telecelCollResult.transaction?.financialTransactionId || "Pending"}
+                    </div>
+                    <div className="text-slate-400 text-[11px]">
+                      Payer: {telecelCollResult.transaction?.msisdn} | Amount: GH₵ {telecelCollResult.transaction?.amount}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Telecel Direct Transfer (Disbursement) */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Send className="w-4 h-4 text-emerald-600" />
+                    <h3 className="text-sm font-black text-slate-900">
+                      Test Telecel Transfer (Float Payout)
+                    </h3>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                    B2C Payout
+                  </span>
+                </div>
+
+                <p className="text-xs text-slate-600">
+                  Dispatches funds from the Telecel Cash merchant float balance directly to the recipient&apos;s mobile wallet.
+                </p>
+
+                <form onSubmit={handleTelecelTransfer} className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Payee Phone (020/050/028)
+                      </label>
+                      <input
+                        type="text"
+                        value={telecelDisbPhone}
+                        onChange={(e) => setTelecelDisbPhone(e.target.value)}
+                        placeholder="0201234567"
+                        className="w-full text-xs border border-slate-300 rounded-xl px-3 py-2 font-mono text-slate-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Payout Amount (GH₵)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={telecelDisbAmount}
+                        onChange={(e) => setTelecelDisbAmount(e.target.value)}
+                        className="w-full text-xs border border-slate-300 rounded-xl px-3 py-2 font-mono text-slate-900"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={telecelRunningDisb}
+                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    {telecelRunningDisb ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Transferring Funds...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3.5 h-3.5" />
+                        <span>Transfer GH₵ {telecelDisbAmount} to Telecel Wallet</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+
+                {telecelDisbResult && (
+                  <div className="p-3.5 bg-slate-950 text-slate-100 rounded-xl text-xs font-mono space-y-1.5 border border-slate-800">
+                    <div className="flex items-center justify-between text-emerald-400 font-bold">
+                      <span>Status: {telecelDisbResult.transaction?.status}</span>
+                      <span>Ref: {telecelDisbResult.transaction?.referenceId}</span>
+                    </div>
+                    <div className="text-slate-300">
+                      Disbursement FinID: {telecelDisbResult.transaction?.financialTransactionId || "N/A"}
+                    </div>
+                    <div className="text-slate-400 text-[11px]">
+                      Recipient: {telecelDisbResult.transaction?.msisdn} | Amount: GH₵ {telecelDisbResult.transaction?.amount}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

@@ -4,7 +4,7 @@ export const SERVICE_CAPABILITIES = {
   banking: { available: false },
   sendMoney: {
     available: true,
-    networks: ["MTN"] as GhanaianNetwork[],
+    networks: ["MTN", "Telecel"] as GhanaianNetwork[],
   },
   checkBalance: { available: false },
   buyAirtime: { available: false },

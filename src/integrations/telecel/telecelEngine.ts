@@ -87,12 +87,14 @@ export class TelecelEngine {
     );
 
     return {
+      gateway: "Telecel Cash (Ghana)",
       configured: isConfigured,
       activeMode: mode === "LIVE_API" ? "LIVE_PRODUCTION" : mode,
       targetEnvironment: this.config.targetEnv,
       baseUrl: this.config.baseUrl,
       currency: this.config.currency,
       credentials: {
+        configured: Boolean(creds.apiKey || creds.clientId),
         apiKeyConfigured: Boolean(creds.apiKey),
         clientIdConfigured: Boolean(creds.clientId),
         clientSecretConfigured: Boolean(creds.clientSecret),
@@ -505,6 +507,7 @@ export class TelecelEngine {
           const body = await res.json();
           const bal = parseFloat(body.availableBalance || body.balance || 0);
           return {
+            success: true,
             availableBalance: bal,
             currency: body.currency || "GHS",
             formatted: `GH₵ ${bal.toFixed(2)}`,
@@ -517,6 +520,7 @@ export class TelecelEngine {
     }
 
     return {
+      success: true,
       availableBalance: 4850.00,
       currency: "GHS",
       formatted: "GH₵ 4,850.00",
@@ -540,7 +544,7 @@ export class TelecelEngine {
    * Handles asynchronous payment notifications (Webhooks) from Telecel Gateway
    */
   public handleWebhookCallback(payload: any): { success: boolean; transaction?: TelecelTransactionRecord } {
-    const ref = payload.reference || payload.externalId || payload.transactionId;
+    const ref = payload.referenceId || payload.reference || payload.externalId || payload.transactionId;
     if (!ref) {
       return { success: false };
     }

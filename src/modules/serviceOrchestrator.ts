@@ -530,6 +530,68 @@ export class ServiceOrchestrator {
     const timestamp = new Date().toISOString();
     const targetPhone = payer_phone || phone;
 
+    if (
+      phone.startsWith("020") ||
+      phone.startsWith("050") ||
+      phone.startsWith("028") ||
+      targetPhone.startsWith("020") ||
+      targetPhone.startsWith("050") ||
+      targetPhone.startsWith("028")
+    ) {
+      try {
+        const telecelTx = await telecelEngine.requestToPay({
+          amount,
+          payerPhone: targetPhone,
+          payerName: `Cashout Agent ${agentId}`,
+          payerMessage: `Telecel Cash out of GH₵${amount} at Agent ${agentId}`,
+          payeeNote: `Ɔkwankyerɛfo Pa Telecel Cashout ${reference}`,
+          externalId: reference,
+        });
+
+        return {
+          status: telecelTx.status === "SUCCESSFUL" ? "SUCCESS" : "PENDING",
+          reference,
+          operationType: "CASH_OUT",
+          amount,
+          currency: telecelTx.currency,
+          requestedCurrency: "GHS",
+          executionCurrency: telecelTx.currency,
+          recipient_name: `Agent ${agentId}`,
+          recipient_phone: targetPhone,
+          network: "Telecel",
+          timestamp,
+          message: `Telecel Cash out prompt dispatched. Please approve on your mobile handset screen to collect your cash from Agent ${agentId}.`,
+          spokenReceipt: `Telecel cash out request of ${amount} Ghana Cedis has been sent to your handset. Please approve on your screen to receive cash.`,
+          authorizationModel: "Customer enters PIN on their own mobile handset via Telecel USSD prompt (Zero-PIN in app)",
+          momoDetails: {
+            referenceId: telecelTx.referenceId,
+            mode: telecelTx.mode === "LIVE_API" ? "LIVE_API" : telecelTx.mode === "SANDBOX_API" ? "SANDBOX_API" : "MOCKED",
+            status: telecelTx.status,
+            financialTransactionId: telecelTx.financialTransactionId,
+          },
+          rawPayload: telecelTx.rawPayload,
+          gatewayEvidence: telecelTx.gatewayEvidence,
+        };
+      } catch (err: any) {
+        return {
+          status: "FAILED",
+          reference,
+          operationType: "CASH_OUT",
+          amount,
+          currency: "GHS",
+          requestedCurrency: "GHS",
+          executionCurrency: "GHS",
+          recipient_name: `Agent ${agentId}`,
+          recipient_phone: targetPhone,
+          network: "Telecel",
+          timestamp,
+          message: `Telecel cash out request failed: ${err.message}`,
+          spokenReceipt: `Cash out request failed: ${err.message}`,
+          authorizationModel: "Telecel Cash Gateway",
+        };
+      }
+    }
+
     if (mtnMomoService.isConfigured("collection")) {
       try {
         const momoTx = await mtnMomoService.requestToPay({
@@ -608,8 +670,20 @@ export class ServiceOrchestrator {
   }
 
   public async getAccountBalance(network: string = "MTN", product: "collection" | "disbursement" = "collection"): Promise<AccountBalance> {
+    if (network === "Telecel") {
+      const balance = await telecelEngine.getBalance();
+      return {
+        currency: balance.currency,
+        balance: balance.availableBalance,
+        formatted: balance.formatted,
+        network: "Telecel",
+        product: "collection",
+        mode: balance.mode,
+      };
+    }
+
     if (network !== "MTN") {
-      throw new Error("Only MTN MoMo balance is currently connected.");
+      throw new Error(`Only MTN MoMo and Telecel Cash balances are currently supported (got: ${network}).`);
     }
 
     const balance = await mtnMomoService.getAccountBalance(product);
@@ -623,12 +697,38 @@ export class ServiceOrchestrator {
     };
   }
 
-  public async validateAccountHolder(phone: string) {
+  public async validateAccountHolder(phone: string, network?: string) {
+    const isTelecel =
+      network === "Telecel" ||
+      phone.startsWith("020") ||
+      phone.startsWith("050") ||
+      phone.startsWith("028") ||
+      phone.startsWith("23320") ||
+      phone.startsWith("23350") ||
+      phone.startsWith("23328");
+
+    if (isTelecel) {
+      const kyc = await telecelEngine.lookupKyc(phone);
+      return {
+        msisdn: kyc.msisdn,
+        name: kyc.name,
+        isActive: kyc.verified,
+        mode: kyc.mode,
+        gatewayEvidence: kyc.gatewayEvidence,
+      };
+    }
+
     return mtnMomoService.validateAccountHolder(phone);
   }
 
   public async getTransactionStatus(referenceId: string) {
-    return mtnMomoService.getTransactionStatus(referenceId);
+    if (referenceId.startsWith("TEL") || referenceId.includes("telecel") || referenceId.includes("TEL-")) {
+      const telecelTx = await telecelEngine.getTransactionStatus(referenceId);
+      if (telecelTx) return telecelTx;
+    }
+    const momoTx = await mtnMomoService.getTransactionStatus(referenceId);
+    if (momoTx) return momoTx;
+    return telecelEngine.getTransactionStatus(referenceId);
   }
 
   /**

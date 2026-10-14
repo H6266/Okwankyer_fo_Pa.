@@ -93,6 +93,7 @@ export interface TelecelKycResult {
 }
 
 export interface TelecelBalanceResult {
+  success?: boolean;
   availableBalance: number;
   currency: string;
   formatted: string;
@@ -101,12 +102,14 @@ export interface TelecelBalanceResult {
 }
 
 export interface TelecelDiagnostics {
+  gateway?: string;
   configured: boolean;
   activeMode: "LIVE_PRODUCTION" | "SANDBOX_API" | "SANDBOX_SIMULATOR" | "NOT_CONFIGURED";
   targetEnvironment: TelecelTargetEnvironment;
   baseUrl: string;
   currency: string;
   credentials: {
+    configured?: boolean;
     apiKeyConfigured: boolean;
     clientIdConfigured: boolean;
     clientSecretConfigured: boolean;

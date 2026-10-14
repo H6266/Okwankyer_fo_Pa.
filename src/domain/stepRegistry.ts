@@ -134,14 +134,14 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
     name: "Network Provider Selection",
     promptKey: "mtn_network_select",
     promptText: {
-      en: "Only MTN Mobile Money transfers are currently supported. For MTN, press 1. Press 9 to hear this again, or 0 to exit.",
-      twi: "Mprempren, yɛboa MTN Mobile Money nkutoo. Sɛ wo network yɛ MTN a, mia 1. Mia 9 na tie bio, anaasɛ mia 0 na woapue.",
+      en: "For MTN Mobile Money, press 1. For Telecel Cash, press 2. Press 9 to hear this again, or 0 to exit.",
+      twi: "Sɛ wo network yɛ MTN a, mia 1. Sɛ ɛyɛ Telecel Cash a, mia 2. Mia 9 na tie bio, anaasɛ mia 0 na woapue.",
     },
     inputType: "single_digit",
     acceptedDigits: SUPPORTED_TRANSFER_NETWORKS.map((network) => network === "MTN" ? "1" : network === "Telecel" ? "2" : "3"),
     optionsDescription: {
-      en: "1 for MTN",
-      twi: "1 ma MTN",
+      en: "1 for MTN, 2 for Telecel Cash",
+      twi: "1 ma MTN, 2 ma Telecel Cash",
     },
     navigation: {
       allowBack: false,

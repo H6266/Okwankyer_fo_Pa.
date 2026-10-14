@@ -600,6 +600,91 @@ export const api = {
     return res.json();
   },
 
+  // ── Telecel Cash Sandbox & Live API Methods ─────────────────────────
+  async getTelecelDiagnostics(): Promise<any> {
+    const res = await fetch("/api/telecel/status", {
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders(),
+    });
+    return res.json();
+  },
+
+  async updateTelecelKeys(params: {
+    apiKey?: string;
+    clientId?: string;
+    clientSecret?: string;
+    merchantId?: string;
+    targetEnv?: string;
+    baseUrl?: string;
+  }): Promise<any> {
+    const res = await fetch("/api/telecel/keys", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async getTelecelBalance(): Promise<any> {
+    const res = await fetch("/api/telecel/balance", {
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders(),
+    });
+    return res.json();
+  },
+
+  async lookupTelecelKyc(phone: string): Promise<any> {
+    const res = await fetch(`/api/telecel/kyc/${encodeURIComponent(phone)}`, {
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders(),
+    });
+    return res.json();
+  },
+
+  async telecelRequestToPay(params: {
+    amount: number;
+    payerPhone: string;
+    payerName?: string;
+    payerMessage?: string;
+    payeeNote?: string;
+    voucherCode?: string;
+    externalId?: string;
+  }): Promise<any> {
+    const res = await fetch("/api/telecel/collection", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async telecelTransfer(params: {
+    amount: number;
+    payeePhone: string;
+    payeeName?: string;
+    payerMessage?: string;
+    payeeNote?: string;
+    externalId?: string;
+  }): Promise<any> {
+    const res = await fetch("/api/telecel/transfer", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async getTelecelTransactionStatus(referenceId: string): Promise<any> {
+    const res = await fetch(`/api/telecel/transaction/${encodeURIComponent(referenceId)}`, {
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders(),
+    });
+    return res.json();
+  },
+
   async sendMoney(params: {
     recipient_phone: string;
     recipient_name: string;

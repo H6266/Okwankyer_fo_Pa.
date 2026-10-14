@@ -10,6 +10,7 @@
 import { validateGhanaPhoneNumber, GhanaianNetwork, redactPii } from "../../domain/validation";
 import { SANDBOX_RECIPIENT_FIXTURES } from "../../demo/recipientFixtures";
 import { voicePaymentService } from "../../integrations/momo/voicePaymentService";
+import { telecelEngine } from "../../integrations/telecel";
 import { config } from "../../config/env";
 
 export interface RecipientResolutionResult {
@@ -19,7 +20,7 @@ export interface RecipientResolutionResult {
   name: string | null;
   network: GhanaianNetwork;
   verified: boolean;
-  source: "SANDBOX_FIXTURE" | "MTN_MOMO_API" | "UNRESOLVED";
+  source: "SANDBOX_FIXTURE" | "MTN_MOMO_API" | "TELECEL_CASH_API" | "UNRESOLVED";
   warning?: string;
   error?: string;
 }
@@ -97,7 +98,27 @@ export class MtnRecipientResolver implements RecipientResolver {
       };
     }
 
-    // Non-MTN numbers cannot be verified via MTN MoMo directory
+    // Telecel Cash subscribers directory lookup
+    if (val.network === "Telecel") {
+      try {
+        const kyc = await telecelEngine.lookupKyc(val.normalized);
+        if (kyc.verified && kyc.name) {
+          return {
+            valid: true,
+            phoneNumber: rawPhoneNumber,
+            normalizedPhone: val.normalized,
+            name: kyc.name,
+            network: "Telecel",
+            verified: true,
+            source: kyc.mode === "SANDBOX_SIMULATOR" ? "SANDBOX_FIXTURE" : "TELECEL_CASH_API",
+          };
+        }
+      } catch (err: any) {
+        console.warn(`[RecipientResolver] Failed to resolve Telecel subscriber for ${redactPii(val.normalized)}:`, err.message);
+      }
+    }
+
+    // Other non-MTN numbers cannot be verified via MTN MoMo directory
     if (val.network !== "MTN") {
       return {
         valid: true,

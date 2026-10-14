@@ -26,6 +26,7 @@ import { durableIdempotencyLedger } from "../../services/durableIdempotencyLedge
 import { truthEngine } from "../../ai_system/core/truthEngine";
 import { financialPolicy } from "../../ai_system/core/financialPolicy";
 import { momoEngine } from "./momoEngine";
+import { telecelEngine } from "../telecel";
 
 export type SagaState =
   | "DRAFT"
@@ -1081,7 +1082,75 @@ export class PaymentSagaOrchestrator {
     this.requestConfirmation(draft.sagaId);
     const confirmedSaga = this.confirm(draft.sagaId);
 
-    // 3. Check sandbox credentials
+    // 3. Telecel Cash Execution Path
+    if (network === "Telecel") {
+      const mode = telecelEngine.isConfigured() ? "REAL_MTN_SANDBOX" : "MOCK_PROVIDER";
+      confirmedSaga.mode = mode as any;
+      try {
+        const telTx = await telecelEngine.requestToPay({
+          amount,
+          payerPhone: senderPhone,
+          payerName: params.recipientName || "Telecel Subscriber",
+          payerMessage: `Transfer of GH₵${amount} to ${params.recipientName || recipientPhone}`,
+          payeeNote: `Ɔkwankyerɛfo Pa Voice Telecel Transfer to ${recipientPhone}`,
+          externalId: confirmedSaga.sagaId,
+        });
+
+        this.markRequestToPaySent(confirmedSaga.sagaId, telTx.referenceId, {
+          provider: "Telecel",
+          httpStatus: 202,
+          providerStatus: telTx.status === "SUCCESSFUL" ? "SUCCESSFUL" : "PENDING",
+          referenceId: telTx.referenceId,
+          financialTransactionId: telTx.financialTransactionId,
+        });
+
+        if (telTx.status === "SUCCESSFUL") {
+          this.recordCollectionResult(confirmedSaga.sagaId, {
+            status: "SUCCESSFUL",
+            provider: "Telecel",
+            referenceId: telTx.referenceId,
+            financialTransactionId: telTx.financialTransactionId || `TEL-FTX-${Date.now()}`,
+            httpStatus: 200,
+          });
+
+          // Leg 2: Telecel Disbursement Payout
+          const disbTx = await telecelEngine.transfer({
+            amount,
+            payeePhone: recipientPhone,
+            payeeName: params.recipientName,
+            payerMessage: `Transfer from ${senderPhone}`,
+            payeeNote: `Payout to ${recipientPhone}`,
+            externalId: `payout_${confirmedSaga.sagaId}`,
+          });
+
+          this.initiateDisbursement(confirmedSaga.sagaId, disbTx.referenceId, {
+            provider: "Telecel",
+            providerStatus: disbTx.status === "SUCCESSFUL" ? "SUCCESSFUL" : "PENDING",
+            httpStatus: 200,
+            financialTransactionId: disbTx.financialTransactionId,
+          });
+
+          if (disbTx.status === "SUCCESSFUL" && disbTx.financialTransactionId) {
+            this.finalizeDisbursement(confirmedSaga.sagaId, true, undefined, disbTx.financialTransactionId);
+          }
+        }
+      } catch (err: any) {
+        this.recordCollectionResult(confirmedSaga.sagaId, {
+          status: "FAILED",
+          provider: "Telecel",
+          reason: err.message,
+        });
+      }
+
+      return {
+        saga: confirmedSaga,
+        status: confirmedSaga.state === "COMPLETED" ? "COMPLETED" : confirmedSaga.state === "COLLECTION_FAILED" ? "FAILED" : "PENDING",
+        mode: confirmedSaga.mode || "MOCK_PROVIDER",
+        reconciliationNotice: confirmedSaga.reconciliationNotice,
+      };
+    }
+
+    // 4. MTN MoMo Execution Path
     const hasRealCredentials = momoEngine.isConfigured("collection");
 
     if (hasRealCredentials) {

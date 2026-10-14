@@ -53,10 +53,10 @@ describe("Step Registry & Canonical Input Contracts", () => {
       }
     });
 
-    it("provider-select: accepts only MTN (1), repeat 9, and cancel 0", () => {
+    it("provider-select: accepts MTN (1) and Telecel (2), rejects AT (3), handles repeat 9 and cancel 0", () => {
       const step = getStepDefinition("provider-select")!;
       expect(validateKeypadInput(step, "1").valid).toBe(true);
-      expect(validateKeypadInput(step, "2").valid).toBe(false);
+      expect(validateKeypadInput(step, "2").valid).toBe(true);
       expect(validateKeypadInput(step, "3").valid).toBe(false);
       expect(validateKeypadInput(step, "9").isNavigation).toBe(true);
       expect(validateKeypadInput(step, "0").isNavigation).toBe(true);
