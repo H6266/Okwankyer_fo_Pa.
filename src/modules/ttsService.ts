@@ -16,6 +16,8 @@ import {
   PROMPT_KEY_TO_RECORDING_ID,
 } from "../audio/recordingRegistry";
 import { getStepDefinition } from "../domain/stepRegistry";
+import { getFlowStepById } from "../audio/twiSequentialAudioFlow";
+import { matchReplyToAudio } from "../audio/replyAudioMatcher";
 
 const TTS_SCRIPT_KEY_BY_PROMPT_KEY: Readonly<Record<string, string>> = {
   invalid_recipient: "number_invalid",
@@ -91,8 +93,22 @@ export const PROMPT_SCRIPTS: Record<string, { en: string; twi: string }> = {
 export function resolvePrompt(key: string, lang: SupportedLanguage = "en"): string | null {
   const language = normalizeRecordingLanguage(lang);
   if (!language) return null;
+
+  // 1. Direct recording lookup by prompt key (respects language variants like Twi vs English)
   const recordingUrl = getRecordingByPromptKey(key, language)?.url;
   if (recordingUrl) return recordingUrl;
+
+  // 2. Direct Sequential Flow step check
+  const flowStep = getFlowStepById(key);
+  if (flowStep?.audioUrl) return flowStep.audioUrl;
+
+  // 3. Confidence-based Audio Matcher (>= 50% threshold)
+  const match = matchReplyToAudio(key, language, { minConfidence: 0.50 });
+  if (match.match && match.audioUrl) {
+    return match.audioUrl;
+  }
+
+  // 4. Fallback to dynamic TTS endpoint
   return resolvePromptText(key, lang)
     ? `/api/audio/prompt-tts/${lang}/${encodeURIComponent(key)}`
     : null;
@@ -101,6 +117,12 @@ export function resolvePrompt(key: string, lang: SupportedLanguage = "en"): stri
 export function resolvePromptText(key: string, lang: SupportedLanguage): string | null {
   const language = normalizeRecordingLanguage(lang);
   if (!language) return null;
+
+  const flowStep = getFlowStepById(key);
+  if (flowStep) {
+    return language === "twi" ? flowStep.spokenTextTwi : flowStep.spokenTextEn;
+  }
+
   const scriptKey = TTS_SCRIPT_KEY_BY_PROMPT_KEY[key] || key;
   const languageKey = language === "twi" ? "twi" : "en";
   if (PROMPT_SCRIPTS[scriptKey]?.[languageKey]) {

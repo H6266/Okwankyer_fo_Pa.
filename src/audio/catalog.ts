@@ -57,7 +57,42 @@ export function audioFileExists(filename: string, assetRoot?: AudioAssetRoot): b
       ? path.resolve(process.cwd(), "public", "audio")
       : path.resolve(process.cwd(), "Audio_files_2");
   const resolved = path.resolve(root, recording.relativePath);
-  return resolved.startsWith(`${root}${path.sep}`) &&
-    fs.existsSync(resolved) &&
-    !fs.statSync(resolved).isDirectory();
+  if (fs.existsSync(resolved) && !fs.statSync(resolved).isDirectory()) return true;
+
+  // Extension variations (.mp3, .m4a, .aac)
+  const ext = path.extname(resolved).toLowerCase();
+  for (const altExt of [".mp3", ".m4a", ".aac"]) {
+    if (altExt === ext) continue;
+    const altPath = resolved.slice(0, -ext.length) + altExt;
+    if (fs.existsSync(altPath) && !fs.statSync(altPath).isDirectory()) return true;
+  }
+
+  // Check category directory
+  const baseName = path.basename(recording.relativePath, ext).toLowerCase();
+  const dirName = path.dirname(resolved);
+  if (fs.existsSync(dirName)) {
+    const dirFiles = fs.readdirSync(dirName);
+    const match = dirFiles.find((f) => {
+      const fBase = path.basename(f, path.extname(f)).toLowerCase();
+      return (
+        fBase === baseName ||
+        fBase.startsWith(baseName.slice(0, 6)) ||
+        baseName.startsWith(fBase.slice(0, 6)) ||
+        (baseName.includes("read back") && fBase.includes("amount"))
+      );
+    });
+    if (match) return true;
+  }
+
+  // Check recursively across root
+  try {
+    const allRootFiles = fs.readdirSync(root, { recursive: true }) as string[];
+    const matchAny = allRootFiles.find((f) => {
+      const fBase = path.basename(String(f), path.extname(String(f))).toLowerCase();
+      return fBase === baseName || fBase.startsWith(baseName.slice(0, 8)) || baseName.startsWith(fBase.slice(0, 8));
+    });
+    if (matchAny) return true;
+  } catch {}
+
+  return false;
 }

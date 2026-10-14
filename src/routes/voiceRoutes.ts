@@ -31,6 +31,7 @@ import { getStepDefinition, validateKeypadInput } from "../domain/stepRegistry";
 import { SERVICE_CAPABILITIES, SUPPORTED_TRANSFER_NETWORKS } from "../domain/serviceCapabilities";
 import { ivrDecisionEngine, IvrDecision } from "../ai_system/brain/ivrDecisionEngine";
 import { geminiClient } from "../services/geminiClient";
+import { matchReplyToAudio } from "../audio/replyAudioMatcher";
 
 export const voiceRouter = Router();
 export const ivrRouter = Router();
@@ -117,6 +118,12 @@ function brainPromptElement(promptId: string | undefined, replyText: string, bas
   const promptPath = promptId ? resolvePrompt(promptId, language) : null;
   if (promptPath) {
     return `<Play url="${escapeVoiceXml(`${baseUrl}${promptPath}`)}"/>`;
+  }
+  // Check Confidence-Based Audio Matcher (>= 50% threshold)
+  const match = matchReplyToAudio(replyText, language, { minConfidence: 0.50 });
+  if (match.match && match.audioUrl) {
+    const fullUrl = match.audioUrl.startsWith("http") ? match.audioUrl : `${baseUrl}${match.audioUrl}`;
+    return `<Play url="${escapeVoiceXml(fullUrl)}"/>`;
   }
   const scriptText = promptId ? resolvePromptText(promptId, language) : null;
   if (scriptText) {

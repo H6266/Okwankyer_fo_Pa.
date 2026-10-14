@@ -12,6 +12,8 @@
  * 8. Zero browser speechSynthesis or other browser TTS.
  */
 
+import { matchReplyToAudio } from "./replyAudioMatcher";
+
 export type PlaybackSourceType = "STUDIO_PROMPT" | "SYNTHESIZED_TTS" | "REMOTE_URL";
 
 export interface PlaybackState {
@@ -239,6 +241,15 @@ export class AudioPlaybackController {
     if (!text || !text.trim()) return false;
     const token = ++this.currentToken;
     const cleanText = text.trim();
+    const isTwi = /([ɛɔ]|mepa|sika|mane|akwaaba|dabi|aane|paw|bɔ|nɔmba)/i.test(cleanText);
+
+    // 0. Confidence-Based Audio Matcher (Plays studio audio if >= 50% confidence, falls back to TTS if < 50%)
+    try {
+      const match = matchReplyToAudio(cleanText, isTwi ? "tw" : "en", { minConfidence: 0.50 });
+      if (match.match && match.audioUrl) {
+        return this.play(match.audioUrl, options);
+      }
+    } catch {}
 
     this.setState({
       isPlaying: true,
@@ -250,7 +261,6 @@ export class AudioPlaybackController {
 
     // 1. Try server-side synthesis (/api/ai/synthesize)
     try {
-      const isTwi = /([ɛɔ]|mepa|sika|mane|akwaaba|dabi|aane|paw|bɔ|nɔmba)/i.test(cleanText);
       const res = await fetch("/api/ai/synthesize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

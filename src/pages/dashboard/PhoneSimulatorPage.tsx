@@ -34,6 +34,8 @@ import {
 import { api } from "../../lib/api";
 import { getRecordingByUrl } from "../../audio/recordingRegistry";
 import { resolvePromptText } from "../../modules/ttsService";
+import { matchReplyToAudio } from "../../audio/replyAudioMatcher";
+import { TWI_SEQUENTIAL_FLOW_STEPS, getFlowStepById } from "../../audio/twiSequentialAudioFlow";
 import { continuousAudioEngine, ContinuousAudioState } from "../../audio/continuousAudioEngine";
 import { AcousticVisualizer } from "../../components/audio/AcousticVisualizer";
 import { normalizeSpokenDigits } from "../../ai_system/speech/acousticModels/ghanaAcousticDataset";
@@ -525,7 +527,7 @@ export const PhoneSimulatorPage: React.FC = () => {
         const match = effectiveUrl.match(/\/([a-zA-Z0-9_-]+)(?:\?|$)/);
         if (match) stepName = match[1];
       }
-      const playbackUrl = resolvePlayableSimulatorAudioUrl(requestedPlayUrl, responseLanguage);
+      let playbackUrl = resolvePlayableSimulatorAudioUrl(requestedPlayUrl, responseLanguage);
       setRawVoiceXml(
         xmlText.replace(
           /<Play\b[^>]*(?:\/>|>[\s\S]*?<\/Play>)/gi,
@@ -617,6 +619,19 @@ export const PhoneSimulatorPage: React.FC = () => {
         promptText = responseLanguage === "twi" ? "Yɛsrɛ wo paw deɛ wopɛ wɔ menyu no so." : "Please select an option from the menu.";
       }
 
+      // Confidence-Based Audio Matcher (Connects AI replies to studio audios if 50%-100% confidence)
+      let matchSource: "studio" | "synthesis" | "matched-studio" = playbackUrl ? "studio" : "synthesis";
+      if (!playbackUrl && promptText) {
+        const audioMatch = matchReplyToAudio(promptText, responseLanguage, { minConfidence: 0.50 });
+        if (audioMatch.match && audioMatch.audioUrl) {
+          playbackUrl = audioMatch.audioUrl;
+          matchSource = "matched-studio";
+          addLog("audio", `🎯 Audio Match: ${Math.round(audioMatch.confidence * 100)}% match -> ${audioMatch.title || audioMatch.audioUrl}`);
+        } else {
+          addLog("audio", `🎙️ TTS Fallback: No recording >= 50% confidence (best: ${Math.round(audioMatch.confidence * 100)}%) -> Synthesizing speech`);
+        }
+      }
+
       setCurrentPrompt(promptText);
       currentPromptRef.current = promptText;
       setActivePlayUrl(playbackUrl);
@@ -632,7 +647,7 @@ export const PhoneSimulatorPage: React.FC = () => {
         text: promptText,
         stepName,
         audioUrl: playbackUrl,
-        audioSource: playbackUrl ? "studio" : "synthesis",
+        audioSource: matchSource,
         options: choices,
       });
 

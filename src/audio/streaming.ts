@@ -23,7 +23,7 @@ export class PathTraversalError extends Error {
  */
 export function resolveSafeAudioPath(requestedSubpath: string): string | null {
   const decoded = decodeURIComponent(requestedSubpath || "");
-  const normalized = decoded.replace(/\\/g, "/").replace(/^\/+/, "");
+  const normalized = decoded.replace(/\\/g, "/").replace(/^\/+/, "").replace(/^audio\//i, "");
 
   let rootDir: string;
   let relativePath: string;
@@ -34,9 +34,9 @@ export function resolveSafeAudioPath(requestedSubpath: string): string | null {
   } else if (normalized.startsWith("additional/")) {
     rootDir = path.resolve(process.cwd(), "Audio_files_2");
     relativePath = normalized.slice("additional/".length);
-  } else if (normalized.startsWith("Twi/")) {
+  } else if (/^twi\//i.test(normalized)) {
     rootDir = path.resolve(process.cwd(), "Audio_files", "audio");
-    relativePath = normalized;
+    relativePath = "Twi/" + normalized.slice(4);
   } else {
     const audio2Candidate = path.resolve(process.cwd(), "Audio_files_2", normalized);
     if (fs.existsSync(audio2Candidate) || fs.existsSync(audio2Candidate.replace(/\.m4a$/i, ".mp3"))) {
