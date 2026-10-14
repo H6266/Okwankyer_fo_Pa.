@@ -1,6 +1,0 @@
-{
-  "summary": "Comprehensive implementation plan for the MoMo Cash-Out voice withdrawal workflow, including automated Allow Cash-Out enablement, caller ID detection, proactive balance and fee verification, early PIN blurt redaction safeguards, and agent approval handling.",
-  "updatedAt": "2026-10-13T11:18:14.601161096Z",
-  "requestFeedback": true,
-  "userFacing": true
-}

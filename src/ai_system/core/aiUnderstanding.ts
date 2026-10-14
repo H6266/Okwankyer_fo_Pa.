@@ -411,25 +411,6 @@ export class AiUnderstanding {
       return inputNormalizer.extractNumber(chosenWord);
     }
 
-    // Arithmetic mental math support:
-    // e.g. "half of my 90", "half of 50", "a tenth of 100", "20 plus 30"
-    const halfMatch = text.match(/half\s+of\s+(?:my\s+)?(\d+)/i) || text.match(/(?:i have|got)\s+(\d+).*?half/i);
-    if (halfMatch) {
-      const base = parseFloat(halfMatch[1]);
-      if (!isNaN(base) && base > 0) return base / 2;
-    }
-    const tenthMatch = text.match(/(?:a\s+tenth|tenth)\s+of\s+(?:my\s+)?(\d+)/i);
-    if (tenthMatch) {
-      const base = parseFloat(tenthMatch[1]);
-      if (!isNaN(base) && base > 0) return base / 10;
-    }
-    const sumMatch = text.match(/(\d+)\s+(?:plus|\+)\s+(\d+)/i);
-    if (sumMatch) {
-      const a = parseFloat(sumMatch[1]);
-      const b = parseFloat(sumMatch[2]);
-      if (!isNaN(a) && !isNaN(b)) return a + b;
-    }
-
     // Normal extraction using inputNormalizer (supports Akan and digits)
     // Avoid matching phone numbers as amounts
     const textWithoutPhones = text.replace(/\b0\d{9}\b/g, "");
@@ -440,14 +421,12 @@ export class AiUnderstanding {
    * Context-aware Ghanaian name recognition
    */
   private extractRecipientName(text: string): string | null {
-    // Look for prepositional contexts: "to ECG Man on 024...", "to Kwame", "kɔma Ama", "ma Kofi", "send it to Yaw"
-    const prepMatchWithLabel = text.match(/\b(?:to\s+(?:the\s+)?|kɔma\s+|ma\s+|give\s+to\s+)([a-zA-Zɛɔ\s]+?)\s+(?:on|wɔ|at|\b0\d{9}\b)/i) ||
-      text.match(/\b(?:to|kɔma|ma|give)\s+([a-zA-Zɛɔ]+(?:\s+[a-zA-Zɛɔ]+)?)\b/i);
-    if (prepMatchWithLabel) {
-      const candidate = prepMatchWithLabel[1].trim();
-      const lower = candidate.toLowerCase();
-      if (!["send", "the", "him", "her", "them", "money", "sika", "cedis", "ghs", "phone", "number"].includes(lower)) {
-        return candidate.split(/\s+/).map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(" ");
+    // Look for prepositional contexts: "to Kwame", "kɔma Ama", "ma Kofi", "send it to Yaw"
+    const prepMatch = text.match(/\b(?:to|kɔma|ma|give)\s+([a-zA-Zɛɔ]+)\b/i);
+    if (prepMatch) {
+      const candidate = prepMatch[1].toLowerCase();
+      if (!["send", "the", "him", "her", "them", "money", "sika"].includes(candidate)) {
+        return this.capitalizeName(candidate);
       }
     }
 

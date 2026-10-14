@@ -34,9 +34,7 @@ export class AsrRouter {
     }
 
     // Step 1: Detect in-band DTMF tones (Hardware-grade precision)
-    const dtmfDigit = process.env.ENABLE_INBAND_DTMF_DETECTION === "true"
-      ? offlineSpeechRecognizer.detectDtmfTones(rawBuffer)
-      : null;
+    const dtmfDigit = offlineSpeechRecognizer.detectDtmfTones(rawBuffer);
     if (dtmfDigit) {
       return {
         text: dtmfDigit,

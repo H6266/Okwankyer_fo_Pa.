@@ -13,10 +13,15 @@ const TAG_LENGTH = 16; // 128 bits auth tag
 
 function getEncryptionKey(): Buffer {
   const envKey = process.env.ENCRYPTION_KEY;
-  if (!envKey || Buffer.byteLength(envKey, "utf8") < 32) {
-    console.warn("[security] ENCRYPTION_KEY is unset or short; deriving key via SHA-256.");
+  if (process.env.NODE_ENV === "production" && (!envKey || Buffer.byteLength(envKey, "utf8") < 32)) {
+    throw new Error("SECURITY_CONFIGURATION_ERROR: ENCRYPTION_KEY must be configured with at least 32 bytes in production.");
   }
-  const material = envKey || "okwankyer-fo-pa-production-default-encryption-key-32-bytes";
+  if (!envKey && process.env.NODE_ENV !== "production" && process.env.NODE_ENV !== "test") {
+    console.warn("[security] ENCRYPTION_KEY is unset; using an ephemeral development-only key.");
+  }
+  // In test and development, use a stable fallback if ENCRYPTION_KEY is unset
+  // so multi-worker test suites and process restarts can consistently decrypt test records.
+  const material = envKey || "okwankyer-fo-pa-dev-test-encryption-key-32-bytes";
   return crypto.createHash("sha256").update(material).digest();
 }
 

@@ -8,36 +8,136 @@
 
 export type SupportedLanguage = "en" | "twi";
 
-import {
-  getRecordingByPromptKey,
-  getRecordingByUrl,
-  getPromptManifestEntry,
-  normalizeRecordingLanguage,
-  PROMPT_KEY_TO_RECORDING_ID,
-} from "../audio/recordingRegistry";
-import { getStepDefinition } from "../domain/stepRegistry";
+export interface PromptEntry {
+  en?: string;
+  twi?: string;
+}
 
-const TTS_SCRIPT_KEY_BY_PROMPT_KEY: Readonly<Record<string, string>> = {
-  invalid_recipient: "number_invalid",
-  invalid_amount: "amount_invalid",
+export const PROMPT_TABLE: Record<string, PromptEntry> = {
+  welcome: {
+    en: "/audio/Welcome_prompt_01.mp3",
+    twi: "/audio/Welcome_prompt_01.mp3",
+  },
+  service_select: {
+    en: "/audio/English/Audio_prompt_02.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_03.mp3",
+  },
+  provider_select: {
+    en: "/audio/English/Audio_prompt_03.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_02.mp3",
+  },
+  provider_select_alt: {
+    en: "/audio/English/Audio_prompt_04.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_02.mp3",
+  },
+  action_select: {
+    en: "/audio/English/Audio_prompt_05.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_04.mp3",
+  },
+  enter_recipient: {
+    en: "/audio/English/Audio_prompt_06.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_05.mp3",
+  },
+  recipient_sample_digits: {
+    en: "/audio/English/Audio_prompt_07.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_05.mp3",
+  },
+  recipient_verify: {
+    en: "/audio/English/Audio_prompt_08.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_06.mp3",
+  },
+  enter_amount: {
+    en: "/audio/English/Audio_prompt_09.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_07.mp3",
+  },
+  safe_confirmation: {
+    en: "/audio/English/Audio_prompt_10.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_08.mp3",
+  },
+  pin_handoff: {
+    en: "/audio/English/Audio_prompt_11.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_09.mp3",
+  },
+  receipt: {
+    en: "/audio/English/Audio_prompt_12.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_10.mp3",
+  },
+  wrong_figure: {
+    en: "/audio/English/Audio_prompt_11.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_11.mp3",
+  },
+  exit: {
+    en: "/audio/English/Audio_prompt_11.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_12.mp3",
+  },
+  cancelled: {
+    en: "/audio/English/Audio_prompt_11.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_12.mp3",
+  },
+  // Agent conversational clarification keys
+  sorry_did_not_catch: {
+    en: "/audio/English/Audio_prompt_11.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_11.mp3",
+  },
+  let_me_repeat: {
+    en: "/audio/English/Audio_prompt_02.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_03.mp3",
+  },
+  going_back: {
+    en: "/audio/English/Audio_prompt_05.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_04.mp3",
+  },
+  // Cognitive IVR Decision reply keys with verified studio audio fallbacks
+  invalid_choice: {
+    en: "/audio/English/Audio_prompt_11.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_11.mp3",
+  },
+  intent_understood_ask_number: {
+    en: "/audio/English/Audio_prompt_06.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_05.mp3",
+  },
+  intent_understood_ask_amount: {
+    en: "/audio/English/Audio_prompt_09.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_07.mp3",
+  },
+  intent_understood_proceed: {
+    en: "/audio/English/Audio_prompt_10.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_08.mp3",
+  },
+  number_invalid: {
+    en: "/audio/English/Audio_prompt_11.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_11.mp3",
+  },
+  network_unsupported: {
+    en: "/audio/English/Audio_prompt_03.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_02.mp3",
+  },
+  service_unsupported: {
+    en: "/audio/English/Audio_prompt_02.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_03.mp3",
+  },
+  amount_invalid: {
+    en: "/audio/English/Audio_prompt_11.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_11.mp3",
+  },
+  balance_inquiry_unsupported: {
+    en: "/audio/English/Audio_prompt_05.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_04.mp3",
+  },
+  unknown_input: {
+    en: "/audio/English/Audio_prompt_11.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_11.mp3",
+  },
+  max_retries_exceeded: {
+    en: "/audio/English/Audio_prompt_11.mp3",
+    twi: "/audio/Twi/Audio_prompt_twi_12.mp3",
+  },
 };
 
 /**
  * Authoritative script text for prompt and reply keys across languages
  */
 export const PROMPT_SCRIPTS: Record<string, { en: string; twi: string }> = {
-  mtn_network_select: {
-    en: "Only MTN Mobile Money transfers are currently supported. For MTN, press 1. Press 9 to hear this again, or 0 to exit.",
-    twi: "Mprempren, yɛboa MTN Mobile Money nkutoo. Sɛ wo network yɛ MTN a, mia 1. Mia 9 na tie bio, anaasɛ mia 0 na woapue.",
-  },
-  supported_service_select: {
-    en: "MTN Mobile Money transfers are currently supported. Press 1 for Mobile Money. Banking is not supported in this pilot; press 2 to hear available alternatives. Press 9 to repeat or 0 to exit.",
-    twi: "Mprempren yɛboa MTN Mobile Money sika mane. Mia 1 ma Mobile Money. Banking nni pilot yi mu; mia 2 na wote dwumadie a yɛboa. Mia 9 na tie bio, anaa mia 0 na woapue.",
-  },
-  send_money_menu: {
-    en: "To send money, press 1. To go back, press 8. To hear this again, press 9. To exit, press 0.",
-    twi: "Sɛ wopɛ sɛ womane sika a, mia 1. Mia 8 na san kɔ akyi, mia 9 na tie bio, anaasɛ mia 0 na woapue.",
-  },
   invalid_choice: {
     en: "Option is not a valid choice. Please choose from the available options.",
     twi: "Deɛ wobɔe no nyɛ pɛpɛɛpɛ. Yɛsrɛ wo paw deɛ ɛwɔ menyu no so.",
@@ -84,81 +184,18 @@ export const PROMPT_SCRIPTS: Record<string, { en: string; twi: string }> = {
   },
 };
 
+/**
+ * Resolves prompt key and language into the canonical audio URL.
+ */
 export function resolvePrompt(key: string, lang: SupportedLanguage = "en"): string | null {
-  const language = normalizeRecordingLanguage(lang);
-  if (!language) return null;
-  const recordingUrl = getRecordingByPromptKey(key, language)?.url;
-  if (recordingUrl) return recordingUrl;
-  return resolvePromptText(key, lang)
-    ? `/api/audio/prompt-tts/${lang}/${encodeURIComponent(key)}`
-    : null;
-}
-
-export function resolvePromptText(key: string, lang: SupportedLanguage): string | null {
-  const language = normalizeRecordingLanguage(lang);
-  if (!language) return null;
-  const recording = getRecordingByPromptKey(key, language);
-  const scriptKey = TTS_SCRIPT_KEY_BY_PROMPT_KEY[key] || key;
-  const languageKey = language === "twi" ? "twi" : "en";
-  const promptId = key.match(/^OP\d{2}$/i)?.[0].toUpperCase() || PROMPT_KEY_TO_RECORDING_ID[key];
-  const manifestPrompt = getPromptManifestEntry(promptId || "");
-  const stepPrompt = getStepDefinition(key.replace(/_/g, "-"))?.promptText[languageKey];
-  const manifestText = manifestPrompt
-    ? language === "twi" ? manifestPrompt.twi : manifestPrompt.english
-    : null;
-  return recording?.spokenText || manifestText || PROMPT_SCRIPTS[scriptKey]?.[languageKey] || stepPrompt || null;
-}
-
-export function resolveSimulatorPrompt(key: string, lang: SupportedLanguage): string | null {
-  return resolvePrompt(key, lang);
-}
-
-export function resolveSimulatorAudioUrl(
-  audioUrl: string | null | undefined,
-  lang: SupportedLanguage
-): string | null {
-  if (!audioUrl) return null;
-  const language = normalizeRecordingLanguage(lang);
-  if (!language) return null;
-  try {
-    const pathname = new URL(audioUrl, "http://localhost").pathname;
-    const ttsMatch = pathname.match(/^\/(?:api\/)?audio\/prompt-tts\/(en|twi)\//);
-    if (ttsMatch) {
-      return ttsMatch[1] === language ? pathname : null;
-    }
-    const recording = getRecordingByUrl(pathname);
-    return recording?.language === language ? recording.url : null;
-  } catch {
-    return null;
-  }
-}
-
-function escapeXmlText(text: string): string {
-  return text.replace(/[<>&'"]/g, (character) => {
-    switch (character) {
-      case "<": return "&lt;";
-      case ">": return "&gt;";
-      case "&": return "&amp;";
-      case "'": return "&apos;";
-      default: return "&quot;";
-    }
-  });
-}
-
-export function resolvePromptXml(
-  key: string,
-  lang: SupportedLanguage,
-  baseUrl = "",
-  fallbackText?: string
-): string | null {
-  const audioUrl = resolvePrompt(key, lang);
-  if (audioUrl) return `<Play url="${baseUrl}${audioUrl}"/>`;
-  const text = fallbackText || resolvePromptText(key, lang);
-  return text ? `<Say voice="female">${escapeXmlText(text)}</Say>` : null;
+  const entry = PROMPT_TABLE[key];
+  if (!entry) return null;
+  return entry[lang] || entry["en"] || null;
 }
 
 /**
- * Resolves prompt key and language into the canonical audio URL.
+ * Synthesizes dynamic speech text into an audio buffer.
+ * Stub until the UG HCI Lab TTS API is connected.
  */
 export async function speak(_text: string, _lang: SupportedLanguage = "en"): Promise<Buffer> {
   // TODO(ug-hci-tts): Replace stub with UG HCI Lab TTS API when credentials are provided

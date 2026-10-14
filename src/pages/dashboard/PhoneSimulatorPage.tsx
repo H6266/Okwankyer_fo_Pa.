@@ -22,28 +22,20 @@ import {
   Radio,
   Clock,
   Check,
-  Brain,
 } from "lucide-react";
 import { audioPlaybackController } from "../../audio/audioPlaybackController";
 import { isAcousticSystemEcho } from "../../domain/echoFilter";
-import {
-  resolveSimulatorAudioUrl,
-  resolveSimulatorPrompt,
-  resolvePrompt,
-} from "../../modules/ttsService";
+import { resolvePrompt } from "../../modules/ttsService";
 import { api } from "../../lib/api";
-import { getRecordingByUrl } from "../../audio/recordingRegistry";
-import { resolvePromptText } from "../../modules/ttsService";
 import { continuousAudioEngine, ContinuousAudioState } from "../../audio/continuousAudioEngine";
 import { AcousticVisualizer } from "../../components/audio/AcousticVisualizer";
+import { parseLongDiscussion, ParsedDiscussionState } from "../../ai_system/brain/longDiscussionParser";
 import { normalizeSpokenDigits } from "../../ai_system/speech/acousticModels/ghanaAcousticDataset";
 import {
   repairGhanaianPronunciation,
   extractStreamingWords,
   PhoneticCorrection,
 } from "../../ai_system/speech/asr/ghanaianPhoneticMatcher";
-import { normalizeGhanaPhoneNumber } from "../../domain/validation";
-import { numberDecoder } from "../../ai_system/speech/asr/numberDecoder";
 
 // ── Types ─────────────────────────────────────────────────────────────
 interface TerminalLog {
@@ -94,10 +86,10 @@ const STEP_OPTIONS_MAP: Record<string, string> = {
   "language-selection": "1=English, 2=Twi, 0=Exit",
   "service-select": "1=Mobile Money, 2=Banking, 9=Repeat, 0=Exit",
   "service-choice": "1=Mobile Money, 2=Banking, 9=Repeat, 0=Exit",
-  "provider-select": "1=MTN, 9=Repeat, 0=Exit",
-  "provider-choice": "1=MTN, 9=Repeat, 0=Exit",
-  "action-select": "1=Send Money, 8=Back, 9=Repeat, 0=Exit",
-  "action-choice": "1=Send Money, 8=Back, 9=Repeat, 0=Exit",
+  "provider-select": "1=MTN, 2=Telecel, 3=AT, 9=Repeat, 0=Exit",
+  "provider-choice": "1=MTN, 2=Telecel, 3=AT, 9=Repeat, 0=Exit",
+  "action-select": "1=Send Money, 2=Check Balance, 8=Back, 9=Repeat, 0=Exit",
+  "action-choice": "1=Send Money, 2=Check Balance, 8=Back, 9=Repeat, 0=Exit",
   "enter-recipient": "10-digit number followed by #",
   "verify-recipient": "10-digit number followed by #",
   "recipient-verify-choice": "1=Confirm, 2=Re-enter, 8=Back, 9=Repeat",
@@ -105,11 +97,6 @@ const STEP_OPTIONS_MAP: Record<string, string> = {
   "verify-amount": "Amount followed by #",
   "safe-confirmation": "1=Confirm Transfer, 2=Edit, 9=Repeat, 0=Cancel",
   "safe-outcome": "1=Confirm Transfer, 0=Cancel",
-  "pin-authorization": "Speak 4-digit PIN aloud or enter via Keypad (0=Cancel)",
-  "cashout-offer-balance": "Balance check unavailable; 1=Continue to Agent, 0=Cancel",
-  "cashout-balance-pin": "Balance check unavailable",
-  "cashout-awaiting-agent": "1=Agent is Done / Approve, 0=End Call",
-  "cashout-confirm-approval": "1=Approve Withdrawal, 2=Reject, 0=Cancel",
 };
 
 const STEP_FRIENDLY_NAMES: Record<string, string> = {
@@ -117,10 +104,9 @@ const STEP_FRIENDLY_NAMES: Record<string, string> = {
   "language-selection": "Language Selection",
   "service-select": "Service Selection (MoMo / Banking)",
   "service-choice": "Service Selection",
-  "provider-select": "Network Selection (MTN)",
+  "provider-select": "Network Selection (MTN / Telecel / AT)",
   "provider-choice": "Network Provider",
-  "pin-authorization": "MoMo PIN Authorization (Voice & Keypad)",
-  "action-select": "Supported Action (Send Money)",
+  "action-select": "Action Menu (Send / Balance)",
   "action-choice": "Action Choice",
   "enter-recipient": "Recipient Phone Entry",
   "verify-recipient": "Verify Recipient Phone",
@@ -129,10 +115,6 @@ const STEP_FRIENDLY_NAMES: Record<string, string> = {
   "verify-amount": "Verify Amount",
   "safe-confirmation": "Safe Transfer Confirmation",
   "safe-outcome": "Zero-PIN Handoff & Authorization",
-  "cashout-offer-balance": "Cash-Out Enabled; Balance Check Unavailable",
-  "cashout-balance-pin": "Balance Check Unavailable",
-  "cashout-awaiting-agent": "Awaiting Agent POS Submission",
-  "cashout-confirm-approval": "Agent Withdrawal Approval",
 };
 
 const KEYPAD_BUTTONS = [
@@ -150,33 +132,11 @@ const KEYPAD_BUTTONS = [
   { digit: "#", sub: "send" },
 ];
 
-function resolvePlayableSimulatorAudioUrl(
-  audioUrl: string | null | undefined,
-  language: "en" | "twi"
-): string | null {
-  const suppliedUrl = resolveSimulatorAudioUrl(audioUrl, language);
-  if (!suppliedUrl) return null;
-
-  if (suppliedUrl.endsWith(".m4a") && typeof document !== "undefined") {
-    const audio = document.createElement("audio");
-    const canPlay =
-      audio.canPlayType?.('audio/mp4; codecs="mp4a.40.2"') ||
-      audio.canPlayType?.('audio/mp4') ||
-      audio.canPlayType?.('audio/x-m4a') ||
-      audio.canPlayType?.('audio/aac');
-    if (!canPlay) return null;
-  }
-
-  return suppliedUrl;
-}
-
 export const PhoneSimulatorPage: React.FC = () => {
   // ── Call Session State ────────────────────────────────────────────────
   const [callActive, setCallActive] = useState<boolean>(false);
   const [callStatus, setCallStatus] = useState<string>("Idle");
   const [sessionId, setSessionId] = useState<string>("");
-  const [interactionMode, setInteractionMode] = useState<string>("UNSELECTED");
-  const [conversationState, setConversationState] = useState<string>("INITIATED");
   const [callerNumber] = useState<string>("0543546010");
   const [language, setLanguage] = useState<"en" | "twi" | null>(null);
   const [currentPrompt, setCurrentPrompt] = useState<string>("Lift handset or press Call to begin.");
@@ -188,17 +148,6 @@ export const PhoneSimulatorPage: React.FC = () => {
   const [clock, setClock] = useState<string>("10:00");
   const [zeroPinOverlay, setZeroPinOverlay] = useState<boolean>(false);
   const [isAudioSpeaking, setIsAudioSpeaking] = useState<boolean>(false);
-  const [isAiReasoning, setIsAiReasoning] = useState<boolean>(false);
-  const [reasoningSec, setReasoningSec] = useState<number>(0);
-
-  // ── Cash-Out & Voice Withdrawal State ────────────────────────────────
-  const [cashOutActive, setCashOutActive] = useState<boolean>(false);
-  const [cashOutExpiryMin, setCashOutExpiryMin] = useState<number>(15);
-  const [walletBalance, setWalletBalance] = useState<number>(30.0);
-  const [pendingAgentRequest, setPendingAgentRequest] = useState<any | null>(null);
-  const heldPinRef = useRef<string | null>(null);
-  const isCashOutFlowRef = useRef<boolean>(false);
-  const requestedWithdrawalAmountRef = useRef<number>(30);
 
   // ── XML & Telephony Routing State ────────────────────────────────────
   const [activeCallbackUrl, setActiveCallbackUrl] = useState<string | null>(null);
@@ -209,14 +158,6 @@ export const PhoneSimulatorPage: React.FC = () => {
 
   // ── Terminal & Chat Timeline State ───────────────────────────────────
   const [activeTab, setActiveTab] = useState<"chat" | "terminal" | "asr_diag">("chat");
-  const [splitView, setSplitView] = useState<boolean>(true);
-  const [voiceSyncStatus, setVoiceSyncStatus] = useState<{
-    text: string;
-    action: string;
-    dtmf?: string;
-    timestamp: number;
-  } | null>(null);
-  const [activeKeypadPulse, setActiveKeypadPulse] = useState<string | null>(null);
   const [chatTurns, setChatTurns] = useState<ChatTurnItem[]>([
     {
       id: "init_prompt",
@@ -257,71 +198,6 @@ export const PhoneSimulatorPage: React.FC = () => {
   const lastUtteranceTimeRef = useRef<number>(0);
   const lastUtteranceTextRef = useRef<string>("");
   const prevInterimTranscriptRef = useRef<string>("");
-
-  // Synchronous session state refs
-  const callActiveRef = useRef<boolean>(false);
-  const sessionIdRef = useRef<string>("");
-  const activeCallbackUrlRef = useRef<string | null>(null);
-  const activeStepNameRef = useRef<string>("idle");
-  const languageRef = useRef<"en" | "twi" | null>(null);
-  const currentPromptRef = useRef<string>("");
-  const isMicMutedRef = useRef<boolean>(false);
-  const zeroPinOverlayRef = useRef<boolean>(false);
-  const brainDraftRef = useRef<any>({ slots: {} });
-  const pinSilenceGenRef = useRef<number>(0);
-  const pinTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const startPinAuthorizationFlowRef = useRef<() => Promise<void>>(() => Promise.resolve());
-  const handlePinSubmissionRef = useRef<(pin: string) => Promise<void>>(() => Promise.resolve());
-
-  useEffect(() => { callActiveRef.current = callActive; }, [callActive]);
-  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
-  useEffect(() => { activeCallbackUrlRef.current = activeCallbackUrl; }, [activeCallbackUrl]);
-  useEffect(() => { activeStepNameRef.current = activeStepName; }, [activeStepName]);
-  useEffect(() => { languageRef.current = language; }, [language]);
-  useEffect(() => { currentPromptRef.current = currentPrompt; }, [currentPrompt]);
-  useEffect(() => { isMicMutedRef.current = isMicMuted; }, [isMicMuted]);
-  useEffect(() => { zeroPinOverlayRef.current = zeroPinOverlay; }, [zeroPinOverlay]);
-
-  // Pre-unlock audio on any initial user touch or interaction so audio plays automatically
-  useEffect(() => {
-    const unlock = () => {
-      audioPlaybackController.unlockAudio();
-    };
-    window.addEventListener("pointerdown", unlock, { passive: true });
-    window.addEventListener("click", unlock, { passive: true });
-    window.addEventListener("keydown", unlock, { passive: true });
-    return () => {
-      window.removeEventListener("pointerdown", unlock);
-      window.removeEventListener("click", unlock);
-      window.removeEventListener("keydown", unlock);
-    };
-  }, []);
-
-  // Helper to resolve callback URL if none set
-  const getFallbackCallbackUrl = useCallback((stepName: string, sessId: string): string => {
-    if (stepName === "voice-menu" || stepName === "language-selection") {
-      return `/api/simulator/language-selection?sessionId=${sessId}`;
-    }
-    if (stepName === "service-select" || stepName === "service-choice") {
-      return `/api/simulator/service-choice?sessionId=${sessId}`;
-    }
-    if (stepName === "provider-select" || stepName === "provider-choice") {
-      return `/api/simulator/provider-choice?sessionId=${sessId}`;
-    }
-    if (stepName === "action-select" || stepName === "action-choice") {
-      return `/api/simulator/action-choice?sessionId=${sessId}`;
-    }
-    if (stepName.includes("recipient")) {
-      return `/api/simulator/verify-recipient?sessionId=${sessId}`;
-    }
-    if (stepName.includes("amount")) {
-      return `/api/simulator/verify-amount?sessionId=${sessId}`;
-    }
-    if (stepName.includes("confirm")) {
-      return `/api/simulator/safe-confirmation?sessionId=${sessId}`;
-    }
-    return `/api/simulator/voice-menu?sessionId=${sessId}`;
-  }, []);
 
   // ── Logging Helpers ──────────────────────────────────────────────────
   const addLog = useCallback((source: TerminalLog["source"], message: string) => {
@@ -380,6 +256,34 @@ export const PhoneSimulatorPage: React.FC = () => {
     };
   }, []);
 
+  // Preload studio audio prompts for instant 0ms playback
+  useEffect(() => {
+    audioPlaybackController.preload([
+      "/audio/Welcome_prompt_01.mp3",
+      "/audio/English/Audio_prompt_02.mp3",
+      "/audio/English/Audio_prompt_03.mp3",
+      "/audio/English/Audio_prompt_04.mp3",
+      "/audio/English/Audio_prompt_06.mp3",
+      "/audio/English/Audio_prompt_07.mp3",
+      "/audio/English/Audio_prompt_09.mp3",
+      "/audio/English/Audio_prompt_10.mp3",
+      "/audio/English/Audio_prompt_11.mp3",
+      "/audio/English/Audio_prompt_12.mp3",
+      "/audio/Twi/Welcome_prompt_01.mp3",
+      "/audio/Twi/Audio_prompt_twi_02.mp3",
+      "/audio/Twi/Audio_prompt_twi_03.mp3",
+      "/audio/Twi/Audio_prompt_twi_04.mp3",
+      "/audio/Twi/Audio_prompt_twi_05.mp3",
+      "/audio/Twi/Audio_prompt_twi_06.mp3",
+      "/audio/Twi/Audio_prompt_twi_07.mp3",
+      "/audio/Twi/Audio_prompt_twi_08.mp3",
+      "/audio/Twi/Audio_prompt_twi_09.mp3",
+      "/audio/Twi/Audio_prompt_twi_10.mp3",
+      "/audio/Twi/Audio_prompt_twi_11.mp3",
+      "/audio/Twi/Audio_prompt_twi_12.mp3",
+    ]);
+  }, []);
+
   // Call duration counter
   useEffect(() => {
     let timer: any = null;
@@ -399,39 +303,19 @@ export const PhoneSimulatorPage: React.FC = () => {
     terminalEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatTurns, terminalLogs, interimTranscript]);
 
-  // Audio controller subscription: keep mic strictly OFF while prompt audio is playing,
-  // and automatically turn on the mic ONLY after the prompt audio finishes playing.
+  // Audio controller subscription
   useEffect(() => {
-    let wasPlaying = false;
     const unsubscribe = audioPlaybackController.subscribe((state) => {
       setIsAudioSpeaking(state.isPlaying);
-      if (!callActiveRef.current) return;
+      if (!callActive) return;
       if (state.isPlaying) {
-        wasPlaying = true;
-        // Turn mic OFF while prompt is playing so internal audio is never recorded
-        setIsMicMuted(true);
-        isMicMutedRef.current = true;
-        continuousAudioEngine.pauseForPlayback();
         setCallStatus("Speaking");
-      } else {
-        if (wasPlaying && !zeroPinOverlayRef.current) {
-          wasPlaying = false;
-          // Brief 150ms acoustic tail buffer so speaker room echo isn't recorded, then auto-turn ON mic
-          setTimeout(() => {
-            if (!audioPlaybackController.isSpeaking() && callActiveRef.current && !zeroPinOverlayRef.current) {
-              setIsMicMuted(false);
-              isMicMutedRef.current = false;
-              continuousAudioEngine.setZeroPinMuted(false);
-              continuousAudioEngine.startAlwaysOnMic(languageRef.current || "en", activeStepNameRef.current);
-              setCallStatus("Listening");
-              addLog("asr", "🎙️ Audio prompt finished — Microphone automatically turned ON to record your need.");
-            }
-          }, 150);
-        }
+      } else if (!isMicMuted && !zeroPinOverlay) {
+        setCallStatus("Listening");
       }
     });
     return () => unsubscribe();
-  }, [addLog]);
+  }, [callActive, isMicMuted, zeroPinOverlay]);
 
   // Format MM:SS timer
   const formatTimer = (sec: number) => {
@@ -455,11 +339,10 @@ export const PhoneSimulatorPage: React.FC = () => {
     const digitsMatch = xml.match(/<GetDigits\s+([^>]+)>/i);
     if (digitsMatch) {
       const attrs = digitsMatch[1];
-
-         const timeout = attrs.match(/timeout=["'](\d+)["']/i);
-         const finishOnKey = attrs.match(/finishOnKey=["']([^"']+)["']/i);
-         const numDigits = attrs.match(/numDigits=["'](\d+)["']/i);
-         const callbackUrl = attrs.match(/callbackUrl=["']([^"']+)["']/i);
+      const timeout = attrs.match(/timeout=["'](\d+)["']/i);
+      const finishOnKey = attrs.match(/finishOnKey=["']([^"']+)["']/i);
+      const numDigits = attrs.match(/numDigits=["'](\d+)["']/i);
+      const callbackUrl = attrs.match(/callbackUrl=["']([^"']+)["']/i);
       result.getDigits = {
         timeout: timeout ? parseInt(timeout[1], 10) : undefined,
         finishOnKey: finishOnKey ? finishOnKey[1] : undefined,
@@ -493,39 +376,24 @@ export const PhoneSimulatorPage: React.FC = () => {
       effectiveUrl: string,
       meta?: { httpStatus?: number; guardReason?: string }
     ) => {
+      setRawVoiceXml(xmlText);
       const parsed = parseVoiceXml(xmlText);
       if (meta?.httpStatus) parsed.httpStatus = meta.httpStatus;
       if (meta?.guardReason) parsed.guardReason = meta.guardReason;
-      const requestedPlayUrl = parsed.playUrl;
 
       // Extract step name from URL
       let stepName = "voice-menu";
-      let responseLanguage: "en" | "twi" = language || "en";
       try {
         const u = new URL(effectiveUrl, window.location.origin);
         stepName = u.pathname.replace(/^\//, "").replace(/^api\/simulator\//, "") || "voice-menu";
         const langParam = u.searchParams.get("lang");
-        if (langParam === "twi") {
-          responseLanguage = "twi";
-          setLanguage("twi");
-        } else if (langParam === "en") {
-          responseLanguage = "en";
-          setLanguage("en");
-        }
+        if (langParam === "twi") setLanguage("twi");
+        else if (langParam === "en") setLanguage("en");
       } catch {
         const match = effectiveUrl.match(/\/([a-zA-Z0-9_-]+)(?:\?|$)/);
         if (match) stepName = match[1];
       }
-      const playbackUrl = resolvePlayableSimulatorAudioUrl(requestedPlayUrl, responseLanguage);
-      setRawVoiceXml(
-        xmlText.replace(
-          /<Play\b[^>]*(?:\/>|>[\s\S]*?<\/Play>)/gi,
-          playbackUrl ? `<Play url="${playbackUrl}"/>` : ""
-        )
-      );
-      activeStepNameRef.current = stepName;
       setActiveStepName(stepName);
-      continuousAudioEngine.setContext(stepName, responseLanguage);
 
       // Follow <Redirect> immediately
       if (parsed.redirectUrl) {
@@ -536,7 +404,6 @@ export const PhoneSimulatorPage: React.FC = () => {
       // Handle <Reject/>
       if (parsed.isReject) {
         audioPlaybackController.stop();
-        continuousAudioEngine.stop();
         if (recognitionRef.current) {
           try {
             recognitionRef.current.stop();
@@ -549,15 +416,25 @@ export const PhoneSimulatorPage: React.FC = () => {
           (parsed.sayText && parsed.sayText.toLowerCase().includes("phone screen"));
 
         if (isPinHandoff) {
-          if (startPinAuthorizationFlowRef.current) {
-            startPinAuthorizationFlowRef.current();
-            return;
-          }
+          setZeroPinOverlay(true);
+          setCallStatus("Ended (PIN Handoff)");
+          const pinText = language === "twi" 
+            ? "Yɛsrɛ wo, hwɛ wo fon no so na fa wo MoMo PIN a ɛyɛ kokoam no hyɛ mu."
+            : "Please check your phone screen and enter your secret MoMo PIN securely.";
+          setCurrentPrompt(pinText);
+          addLog("state", "Zero-PIN Handoff: Telco USSD push sent to phone screen. Mic muted.");
+          addChatTurn({
+            sender: "system",
+            text: pinText,
+            stepName: "safe-outcome",
+            options: "Enter PIN on phone screen",
+            audioSource: "synthesis",
+          });
+          audioPlaybackController.speakText(pinText).catch(() => {});
         } else {
           setCallStatus("Ended");
           const endText = "Call ended. Lift handset or press Call to begin.";
           setCurrentPrompt(endText);
-          currentPromptRef.current = endText;
           addLog("state", "Call terminated (<Reject/>).");
           addChatTurn({
             sender: "system",
@@ -567,18 +444,13 @@ export const PhoneSimulatorPage: React.FC = () => {
         }
 
         setCallActive(false);
-        callActiveRef.current = false;
         setActiveCallbackUrl(null);
-        activeCallbackUrlRef.current = null;
         return;
       }
 
       // Configure GetDigits expectations
       if (parsed.getDigits) {
-        if (parsed.getDigits.callbackUrl) {
-          activeCallbackUrlRef.current = parsed.getDigits.callbackUrl;
-          setActiveCallbackUrl(parsed.getDigits.callbackUrl);
-        }
+        setActiveCallbackUrl(parsed.getDigits.callbackUrl || null);
         setActiveNumDigits(parsed.getDigits.numDigits || 1);
         setActiveFinishOnKey(parsed.getDigits.finishOnKey || "#");
       }
@@ -587,22 +459,34 @@ export const PhoneSimulatorPage: React.FC = () => {
       let promptText = "";
       if (parsed.sayText) {
         promptText = parsed.sayText;
-      } else if (requestedPlayUrl) {
-        const pathname = new URL(requestedPlayUrl, window.location.origin).pathname;
-        const recording = getRecordingByUrl(pathname);
-        const ttsPromptKey = pathname.match(/^\/api\/audio\/prompt-tts\/(?:en|twi)\/([^/]+)$/)?.[1];
-        const promptKey = ttsPromptKey ? decodeURIComponent(ttsPromptKey) : null;
-        promptText = recording?.spokenText ||
-          (promptKey ? resolvePromptText(promptKey, responseLanguage) : null) ||
-          (responseLanguage === "twi" ? "Yɛsrɛ wo tie." : "Please listen to the prompt.");
+      } else if (parsed.playUrl) {
+        const filename = parsed.playUrl.split("/").pop() || "";
+        if (filename.includes("Welcome_prompt_01")) {
+          promptText = "Welcome to Ɔkwankyerɛfo Pa. For English press 1, for Twi press 2.";
+        } else if (filename.includes("02")) {
+          promptText = language === "twi" ? "Afei paw wo network." : "Select your service. Press 1 for MoMo, 2 for Banking.";
+        } else if (filename.includes("03")) {
+          promptText = language === "twi" ? "Sɛ wopɛ sɛ wosend sika kɔ ma momo user a mia 1." : "Select your network: Press 1 for MTN, 2 for Telecel, 3 for AT.";
+        } else if (filename.includes("04") || filename.includes("05")) {
+          promptText = language === "twi" ? "Afei bɔ nɔmba a wopɛ sɛ wosend sika no kɔ ma no." : "Action menu: Press 1 to send money, 2 to check balance.";
+        } else if (filename.includes("06")) {
+          promptText = language === "twi" ? "Bɔ nɔmba no a wopɛ sɛ wosend sika no kɔ ma no na fa # ka ho." : "Enter 10-digit recipient phone number followed by #.";
+        } else if (filename.includes("07") || filename.includes("09")) {
+          promptText = language === "twi" ? "Bɔ sika dodow a wopɛ sɛ womane no wɔ Cedi mu na fa # ka ho." : "Enter the amount in Cedis followed by #.";
+        } else if (filename.includes("10")) {
+          promptText = language === "twi" ? "Bammbɔ Nkaebɔ: Sɛ ɛyɛ ampa a mia 1 na fa to so." : "Safe confirmation: Press 1 to confirm transfer, 2 to change.";
+        } else if (filename.includes("11")) {
+          promptText = language === "twi" ? "Wobɔɔ nɔmba a ɛnyɛ pɛpɛɛpɛ. Yɛsrɛ wo san tie biom." : "Incorrect figure entered. Please listen carefully.";
+        } else {
+          promptText = "Listening for your response...";
+        }
       } else {
         // Fallback friendly script
-        promptText = responseLanguage === "twi" ? "Yɛsrɛ wo paw deɛ wopɛ wɔ menyu no so." : "Please select an option from the menu.";
+        promptText = language === "twi" ? "Yɛsrɛ wo paw deɛ wopɛ wɔ menyu no so." : "Please select an option from the menu.";
       }
 
       setCurrentPrompt(promptText);
-      currentPromptRef.current = promptText;
-      setActivePlayUrl(playbackUrl);
+      setActivePlayUrl(parsed.playUrl || null);
 
       // Log reply text and options
       addLog("reply", `"${promptText}"`);
@@ -614,23 +498,18 @@ export const PhoneSimulatorPage: React.FC = () => {
         sender: "system",
         text: promptText,
         stepName,
-        audioUrl: playbackUrl,
-        audioSource: playbackUrl ? "studio" : "synthesis",
+        audioUrl: parsed.playUrl || null,
+        audioSource: parsed.playUrl ? "studio" : "synthesis",
         options: choices,
       });
 
-      // Play audio automatically (studio audio or neural synthesis)
-      audioPlaybackController.unlockAudio();
-      if (playbackUrl) {
-        addLog("audio", `🔊 Auto-playing prompt: ${playbackUrl}`);
-        audioPlaybackController.play(playbackUrl, promptText).catch((err) => {
-          console.warn("[PhoneSimulator] Auto-play prompt failed; playing guidance tone indicator:", err);
-          addLog("audio", `🔔 Audio failed to play; emitted guidance tone indicator.`);
-          audioPlaybackController.playToneIndicator().catch(() => {});
-        });
+      // Play audio cleanly (never interrupted if already active)
+      if (parsed.playUrl) {
+        addLog("audio", parsed.playUrl);
+        audioPlaybackController.play(parsed.playUrl, promptText).catch(() => {});
       } else {
-        addLog("audio", `🔔 Prompt recording unavailable; playing guidance tone indicator.`);
-        audioPlaybackController.playToneIndicator().catch(() => {});
+        // Dynamic voice synthesis fallback
+        audioPlaybackController.play("", promptText).catch(() => {});
       }
     },
     [addLog, addChatTurn, language]
@@ -653,7 +532,7 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       const bodyParams = new URLSearchParams();
       const combinedParams: Record<string, string> = {
-        sessionId: sessionIdRef.current || sessionId || params.sessionId || `call_${Date.now()}`,
+        sessionId: sessionId || `call_${Date.now()}`,
         callerNumber,
         phoneNumber: callerNumber,
         isActive: "1",
@@ -680,27 +559,15 @@ export const PhoneSimulatorPage: React.FC = () => {
         const res = await fetch(targetUrl, {
           method: "POST",
           headers,
-          credentials: "same-origin",
+          credentials: "include",
           body: bodyParams.toString(),
         });
-        addLog("system", `Webhook POST ${targetUrl.split("?")[0]} status=${res.status}`);
 
-        const decodeHeader = (val: string | null) => {
-          if (!val) return null;
-          try {
-            return val.includes("%") ? decodeURIComponent(val) : val;
-          } catch {
-            return val;
-          }
-        };
-
-        const guardReason = decodeHeader(res.headers.get("x-telephony-guard-reason")) || undefined;
-        setInteractionMode(res.headers.get("x-interaction-mode") || "UNSELECTED");
-        setConversationState(res.headers.get("x-conversation-state") || "INITIATED");
-        const aiDecisionType = decodeHeader(res.headers.get("x-ai-decision-type"));
-        const aiDecisionReason = decodeHeader(res.headers.get("x-ai-decision-reason"));
-        const aiReplyText = decodeHeader(res.headers.get("x-ai-reply-text"));
-        const aiReplyKey = decodeHeader(res.headers.get("x-ai-reply-key"));
+        const guardReason = res.headers.get("x-telephony-guard-reason") || undefined;
+        const aiDecisionType = res.headers.get("x-ai-decision-type");
+        const aiDecisionReason = res.headers.get("x-ai-decision-reason");
+        const aiReplyText = res.headers.get("x-ai-reply-text");
+        const aiReplyKey = res.headers.get("x-ai-reply-key");
 
         if (aiDecisionType) {
           addLog("AI", `[AI Decision] type=${aiDecisionType} reason="${aiDecisionReason || ""}"`);
@@ -734,21 +601,11 @@ export const PhoneSimulatorPage: React.FC = () => {
 
   // ── Start Inbound Call ────────────────────────────────────────────────
   const startCall = useCallback(async () => {
-    // 1. Prime / unlock browser AudioContext & audio element on user gesture
+    // 1. Prime / unlock browser AudioContext on user gesture
     audioPlaybackController.unlockAudio();
 
     const newSession = `AT_CALL_${Date.now()}`;
-      brainDraftRef.current = { slots: {} };
-    callActiveRef.current = true;
-    sessionIdRef.current = newSession;
-    activeStepNameRef.current = "voice-menu";
-    const initialCallback = `/api/simulator/language-selection?sessionId=${newSession}`;
-    activeCallbackUrlRef.current = initialCallback;
-    currentPromptRef.current = "Welcome to Ɔkwankyerɛfo Pa. For English press 1, for Twi press 2.";
-
     setSessionId(newSession);
-    setInteractionMode("UNSELECTED");
-    setConversationState("INITIATED");
     setCallActive(true);
     setCallStatus("Connected");
     setLanguage(null);
@@ -759,32 +616,49 @@ export const PhoneSimulatorPage: React.FC = () => {
     addLog("system", `Call initiated. Session ID: ${newSession}`);
     addLog("state", "Connecting to phone simulator (/api/simulator/voice-menu)...");
 
-    // Keep microphone OFF during initial welcome prompt playback; it will automatically turn ON when the prompt finishes playing
-    setIsMicMuted(true);
-    isMicMutedRef.current = true;
-    continuousAudioEngine.pauseForPlayback();
+    // Launch Always-On Continuous Audio Engine & Web Speech
+    continuousAudioEngine.startAlwaysOnMic(language || "en", "voice-menu");
     continuousAudioEngine.resetDiscussionBuffer();
     setInterimTranscript("");
     setFinalizedTranscript("");
 
     // Initial step expectations
     setActiveStepName("voice-menu");
-    setActiveCallbackUrl(initialCallback);
+    setActiveCallbackUrl(`/api/simulator/language-selection?sessionId=${newSession}`);
     setActiveNumDigits(1);
     setActiveFinishOnKey("#");
 
+    // Play Welcome prompt with zero lag
+    const welcomeUrl = "/audio/Welcome_prompt_01.mp3";
+    const welcomePromptText = "Welcome to Ɔkwankyerɛfo Pa. For English press 1, for Twi press 2.";
+    setCurrentPrompt(welcomePromptText);
+    setActivePlayUrl(welcomeUrl);
+
+    addLog("reply", `"${welcomePromptText}"`);
+    addLog("audio", welcomeUrl);
+    addLog("state", "step=voice-menu, options: [1=English, 2=Twi, 0=Exit]");
+
+    addChatTurn({
+      sender: "system",
+      text: welcomePromptText,
+      stepName: "voice-menu",
+      audioUrl: welcomeUrl,
+      audioSource: "studio",
+      options: "1=English, 2=Twi, 0=Exit",
+    });
+
+    audioPlaybackController.play(welcomeUrl, welcomePromptText).catch(() => {});
+
+    if (!micUnavailable) {
+      startSpeechRecognition();
+    }
+
     await dispatchVoiceWebhook("/api/simulator/voice-menu", { sessionId: newSession });
-  }, [dispatchVoiceWebhook, addLog]);
+  }, [dispatchVoiceWebhook, language, micUnavailable, addLog, addChatTurn]);
 
   // ── End Call ──────────────────────────────────────────────────────────
   const endCall = useCallback(
     async (reason = "User hung up") => {
-      callActiveRef.current = false;
-      sessionIdRef.current = "";
-      brainDraftRef.current = { slots: {} };
-      activeCallbackUrlRef.current = null;
-      activeStepNameRef.current = "ended";
-
       setCallActive(false);
       setCallStatus("Ended");
       setCurrentPrompt("Call ended. Lift handset or press Call to begin.");
@@ -796,15 +670,12 @@ export const PhoneSimulatorPage: React.FC = () => {
       setFinalizedTranscript("");
 
       audioPlaybackController.stop();
-      continuousAudioEngine.stop();
 
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();
         } catch {}
       }
-
-      clearPinSilenceTimers();
 
       addLog("state", `Call ended (${reason})`);
       addChatTurn({
@@ -816,278 +687,16 @@ export const PhoneSimulatorPage: React.FC = () => {
     [addLog, addChatTurn]
   );
 
-  const clearPinSilenceTimers = useCallback(() => {
-    pinSilenceGenRef.current += 1;
-    if (pinTimerRef.current) {
-      clearTimeout(pinTimerRef.current);
-      pinTimerRef.current = null;
-    }
-  }, []);
-
-  const schedulePinSilenceTimers = useCallback(() => {
-    clearPinSilenceTimers();
-    const gen = pinSilenceGenRef.current;
-    const curLang = languageRef.current || language;
-    const isTwi = curLang === "twi";
-
-    // Stage 1: 5s initial wait (5s + 15s + 20s = 40s total)
-    pinTimerRef.current = setTimeout(async () => {
-      if (pinSilenceGenRef.current !== gen || !callActiveRef.current || activeStepNameRef.current !== "pin-authorization") return;
-
-      const msg1 = isTwi
-        ? "Mepa wo kyɛw bɔ wo PIN no, yɛretwɛn deɛ worebɛka no na yɛawie dwumadie no."
-        : "Please mention your PIN, we are waiting for it to finalize the process.";
-      addLog("system", `[Silence Ladder Stage 1 @5s] "${msg1}"`);
-      addChatTurn({ sender: "ai", text: `⏳ ${msg1}`, audioSource: "synthesis", stepName: "pin-authorization" });
-      setCurrentPrompt(msg1);
-      currentPromptRef.current = msg1;
-      try {
-        await audioPlaybackController.speakText(msg1);
-      } catch {}
-
-      if (pinSilenceGenRef.current !== gen || !callActiveRef.current || activeStepNameRef.current !== "pin-authorization") return;
-
-      // Stage 2: 15s after Stage 1 finishes speaking
-      pinTimerRef.current = setTimeout(async () => {
-        if (pinSilenceGenRef.current !== gen || !callActiveRef.current || activeStepNameRef.current !== "pin-authorization") return;
-
-        const msg2 = isTwi
-          ? "Yɛda so retwɛn wo, mesrɛ wo fa wo keypad no bɔ mu sɛ worentumi nka no nteaseɛ a."
-          : "We are still waiting for you please, use your keypad if you cannot say it out loud.";
-        addLog("system", `[Silence Ladder Stage 2 @+15s] "${msg2}"`);
-        addChatTurn({ sender: "ai", text: `⏳ ${msg2}`, audioSource: "synthesis", stepName: "pin-authorization" });
-        setCurrentPrompt(msg2);
-        currentPromptRef.current = msg2;
-        try {
-          await audioPlaybackController.speakText(msg2);
-        } catch {}
-
-        if (pinSilenceGenRef.current !== gen || !callActiveRef.current || activeStepNameRef.current !== "pin-authorization") return;
-
-        // Stage 3: 20s after Stage 2 finishes speaking (total 40s silence reached -> termination)
-        pinTimerRef.current = setTimeout(async () => {
-          if (pinSilenceGenRef.current !== gen || !callActiveRef.current || activeStepNameRef.current !== "pin-authorization") return;
-
-          const msg3 = isTwi
-            ? "Ɛte sɛ nea yɛantumi ante wo PIN no, enti yɛrebɛto fon no mu seesei ara. Nante yie."
-            : "We are about to end the call as we could not receive your PIN. Goodbye.";
-          addLog("system", `[Silence Ladder Stage 3 @+20s, Total 40s reached] "${msg3}"`);
-          addChatTurn({ sender: "ai", text: `📞 ${msg3}`, audioSource: "synthesis", stepName: "pin-authorization" });
-          setCurrentPrompt(msg3);
-          currentPromptRef.current = msg3;
-          try {
-            await audioPlaybackController.speakText(msg3);
-          } catch {}
-          endCall("PIN silence timeout (40s reached without input)");
-        }, 20000);
-      }, 15000);
-    }, 5000);
-  }, [clearPinSilenceTimers, language, addLog, addChatTurn, endCall]);
-
-  const handlePinSubmission = useCallback(
-    async (pinValue: string) => {
-      clearPinSilenceTimers();
-      const cleanPin = pinValue.replace(/\D/g, "");
-      if (cleanPin.length !== 4) return;
-
-      const curSession = sessionIdRef.current || sessionId;
-      const curLang = languageRef.current || language;
-      const isTwi = curLang === "twi";
-
-      // ── Handle Cash-Out Approval PIN ──
-      if (isCashOutFlowRef.current || pendingAgentRequest) {
-        addLog("caller", `PIN submitted: **** (4 digits secured)`);
-        addLog("state", `Submitting PIN to approve MoMo Cash-Out withdrawal...`);
-        try {
-          const appRes = await api.approveCashOut({
-            callerPhone: callerNumber,
-            pin: cleanPin,
-            language: curLang,
-          });
-          if (appRes.success) {
-            addLog("state", `✓ Cash-Out Withdrawal Approved! Ref: ${appRes.referenceId}`);
-            const successText = (isTwi ? appRes.messageTw : appRes.messageEn) || appRes.message || "Withdrawal approved.";
-            addChatTurn({ sender: "ai", text: successText, audioSource: "synthesis", stepName: "completed" });
-            activeStepNameRef.current = "completed";
-            setActiveStepName("completed");
-            setCurrentPrompt(successText);
-            currentPromptRef.current = successText;
-            await audioPlaybackController.speakText(successText);
-            isCashOutFlowRef.current = false;
-            setPendingAgentRequest(null);
-            heldPinRef.current = null;
-            return;
-          } else {
-            if (appRes.error === "WALLET_LOCKED") {
-              addLog("system", "Security Lockout: Wallet locked due to 3 failed attempts.");
-              const lockText = (isTwi ? appRes.messageTw : appRes.messageEn) || appRes.message || "Wallet locked.";
-              addChatTurn({ sender: "ai", text: lockText, audioSource: "synthesis", stepName: "completed" });
-              activeStepNameRef.current = "completed";
-              setActiveStepName("completed");
-              setCurrentPrompt(lockText);
-              currentPromptRef.current = lockText;
-              await audioPlaybackController.speakText(lockText);
-              endCall("Wallet locked: 3 failed PIN attempts");
-              return;
-            }
-
-            if (appRes.error === "INSUFFICIENT_BALANCE") {
-              addLog("system", `Deficit Read-Back: Balance insufficient for withdrawal (${appRes.balanceDetails?.shortage ?? 0} GHS deficit)`);
-              const balMsg = (isTwi ? appRes.messageTw : appRes.messageEn) || appRes.message || "Insufficient balance for withdrawal.";
-              addChatTurn({ sender: "ai", text: balMsg, audioSource: "synthesis", stepName: "cashout-awaiting-agent" });
-              activeStepNameRef.current = "cashout-awaiting-agent";
-              setActiveStepName("cashout-awaiting-agent");
-              setCurrentPrompt(balMsg);
-              currentPromptRef.current = balMsg;
-              await audioPlaybackController.speakText(balMsg);
-              return;
-            }
-
-            if (appRes.error === "INVALID_PIN") {
-              const rem = appRes.remainingAttempts ?? 2;
-              addLog("system", `PIN rejection: Remaining attempts = ${rem}`);
-              const warnText = (isTwi ? appRes.messageTw : appRes.messageEn) || appRes.message || `That PIN is incorrect. You have ${rem} attempts remaining.`;
-              addChatTurn({ sender: "ai", text: warnText, audioSource: "synthesis", stepName: "cashout-confirm-approval" });
-              setCurrentPrompt(warnText);
-              currentPromptRef.current = warnText;
-              await audioPlaybackController.speakText(warnText);
-              schedulePinSilenceTimers();
-              return;
-            }
-
-            addLog("system", `Cash-out rejection: ${appRes.error}`);
-            const errText = (isTwi ? appRes.messageTw : appRes.messageEn) || appRes.message || "Could not complete request.";
-            addChatTurn({ sender: "ai", text: errText, audioSource: "synthesis", stepName: "cashout-awaiting-agent" });
-            setCurrentPrompt(errText);
-            currentPromptRef.current = errText;
-            await audioPlaybackController.speakText(errText);
-            return;
-          }
-        } catch (err: any) {
-          addLog("system", `Cash-out approval error: ${err.message}`);
-          schedulePinSilenceTimers();
-          return;
-        }
-      }
-
-      const slots = brainDraftRef.current?.slots || {};
-      const txAmount = typeof slots.amount === "number" ? slots.amount : 50;
-      const recPhone = slots.recipient?.phone || slots.recipientPhone || "0244123456";
-      const recName = slots.verifiedName || slots.recipient?.name || "Emmanuel Mensah";
-      const txNet = slots.network || "MTN";
-
-      addLog("caller", `PIN submitted: **** (4 digits secured)`);
-      addLog("state", `Submitting PIN directly to MoMo Sandbox authorization service...`);
-
-      try {
-        const res = await api.submitPin({
-          sessionId: curSession,
-          pin: cleanPin,
-          amount: txAmount,
-          recipientPhone: recPhone,
-          recipientName: recName,
-          network: txNet,
-          callerPhone: callerNumber,
-          language: curLang,
-        });
-
-        if (res.success) {
-          addLog("state", `✓ MoMo Sandbox Transaction Approved! Ref: ${res.reference}`);
-          const successText = (isTwi ? res.messageTw : res.message) || `Transfer of ${txAmount} Cedis completed successfully! Ref: ${res.reference}`;
-          addChatTurn({ sender: "ai", text: successText, audioSource: "synthesis", stepName: "completed" });
-          activeStepNameRef.current = "completed";
-          setActiveStepName("completed");
-          setCurrentPrompt(successText);
-          currentPromptRef.current = successText;
-          await audioPlaybackController.speakText(successText);
-        } else {
-          if (res.error === "WALLET_LOCKED") {
-            addLog("system", `🔒 Wallet locked due to 3 failed PIN attempts.`);
-            const lockText = (isTwi ? res.messageTw : res.message) || "Wallet locked for security. Goodbye.";
-            addChatTurn({ sender: "ai", text: lockText, audioSource: "synthesis", stepName: "locked" });
-            setCurrentPrompt(lockText);
-            currentPromptRef.current = lockText;
-            await audioPlaybackController.speakText(lockText);
-            endCall("Wallet locked (maximum PIN attempts exceeded)");
-          } else {
-            // INVALID_PIN: Re-engage AI reasoning & safety advice
-            addLog("AI", `[Safety Guard] PIN verification failed. Remaining attempts: ${res.remainingAttempts}. Speaking security & lockout advisory.`);
-            const warnText = (isTwi ? res.messageTw : res.message) || `PIN incorrect. ${res.remainingAttempts} attempts remaining. Please use your phone keypad if you prefer.`;
-            addChatTurn({ sender: "ai", text: warnText, audioSource: "synthesis", stepName: "pin-authorization" });
-            setCurrentPrompt(warnText);
-            currentPromptRef.current = warnText;
-            await audioPlaybackController.speakText(warnText);
-            schedulePinSilenceTimers();
-          }
-        }
-      } catch (err: any) {
-        addLog("system", `PIN verification error: ${err.message}`);
-        schedulePinSilenceTimers();
-      }
-    },
-    [clearPinSilenceTimers, sessionId, language, callerNumber, addLog, addChatTurn, endCall, schedulePinSilenceTimers]
-  );
-
-  const startPinAuthorizationFlow = useCallback(async () => {
-    clearPinSilenceTimers();
-    activeStepNameRef.current = "pin-authorization";
-    setActiveStepName("pin-authorization");
-    setDigitsBuffer("");
-
-    const curLang = languageRef.current || language;
-    const isTwi = curLang === "twi";
-    const promptText = isTwi
-      ? "Mepa wo kyɛw bɔ wo MoMo PIN ahintasɛm no, anaa fa wo keypad no bɔ mu."
-      : "Please mention your secret MoMo PIN, or use your phone keypad if you prefer.";
-
-    addLog("state", `Entering PIN authorization state. Microphone is active and listening for spoken digits or keypad entry.`);
-    addLog("AI", `[Zero-PIN Guard] LLM disabled during PIN collection. Digits are routed directly to MoMo Sandbox authorization service.`);
-    addChatTurn({ sender: "ai", text: promptText, audioSource: "synthesis", stepName: "pin-authorization" });
-    setCurrentPrompt(promptText);
-    currentPromptRef.current = promptText;
-
-    try {
-      await audioPlaybackController.speakText(promptText);
-    } catch {}
-
-    schedulePinSilenceTimers();
-  }, [clearPinSilenceTimers, language, addLog, addChatTurn, schedulePinSilenceTimers]);
-
-  useEffect(() => {
-    startPinAuthorizationFlowRef.current = startPinAuthorizationFlow;
-  }, [startPinAuthorizationFlow]);
-
-  useEffect(() => {
-    handlePinSubmissionRef.current = handlePinSubmission;
-  }, [handlePinSubmission]);
-
   // ── Speech Recognition & Spoken Turn Handler ──────────────────────────
   const processSpokenUtterance = useCallback(
-    async (
-      utterance: string,
-      isDirectSimulated: boolean = false
-    ) => {
-      // If call is inactive, initiate call first
-      if (!callActiveRef.current) {
-        addLog("state", `Speech arrived while call inactive (previous step=${activeStepNameRef.current}); starting a new call.`);
-        await startCall();
-      }
-
-      if (zeroPinOverlayRef.current) return;
+    async (utterance: string, parsedDiscussion?: ParsedDiscussionState) => {
+      if (!callActive || !activeCallbackUrl || zeroPinOverlay) return;
 
       const clean = normalizeSpokenDigits(utterance.trim());
       if (!clean) return;
 
-      // Echo filter check: ignore system audio echoing back into mic (only for live mic, not for direct simulated)
-      if (
-        !isDirectSimulated &&
-        isAcousticSystemEcho(
-          clean,
-          currentPromptRef.current,
-          audioPlaybackController.isSpeaking(),
-          isDirectSimulated
-        )
-      ) {
+      // Echo filter check: ignore system audio echoing back into mic
+      if (isAcousticSystemEcho(clean, currentPrompt, audioPlaybackController.isSpeaking())) {
         return;
       }
 
@@ -1103,15 +712,8 @@ export const PhoneSimulatorPage: React.FC = () => {
       const phoneticRepair = repairGhanaianPronunciation(clean);
       const effectiveClean = phoneticRepair.normalizedTranscript || clean;
 
-      // Automatically turn the microphone OFF now that the user has finished their sentence!
-      // It will automatically turn back ON after the next audio prompt finishes playing.
-      setIsMicMuted(true);
-      isMicMutedRef.current = true;
-      continuousAudioEngine.pauseForPlayback();
-      setCallStatus("Processing");
-
       addLog("caller", `Speech "${clean}"`);
-      addLog("asr", `✅ Sentence complete: "${effectiveClean}" — Microphone automatically turned OFF.`);
+      addLog("asr", `✅ Recognized utterance: "${effectiveClean}"`);
 
       // Add to Chat Timeline with phonetic annotations
       addChatTurn({
@@ -1119,630 +721,148 @@ export const PhoneSimulatorPage: React.FC = () => {
         text: effectiveClean,
         rawTranscript: clean !== effectiveClean ? clean : undefined,
         phoneticRepairs: phoneticRepair.repairedWords,
-        confidence: 0.98,
+        confidence: 0.96,
       });
 
-      const curStep = activeStepNameRef.current;
-      const curSession = sessionIdRef.current;
-      const curLang = languageRef.current || "en";
-      const isTwi = curLang === "twi";
-
-      // 0. PIN Authorization Step (AI LLM is BYPASSED for security!)
-      if (curStep === "pin-authorization") {
-        clearPinSilenceTimers();
-        const lower = effectiveClean.toLowerCase();
-        if (lower.includes("cancel") || lower.includes("dabi") || lower.includes("stop") || lower.includes("exit")) {
-          addLog("caller", "Spoken cancellation during PIN authorization.");
-          endCall("User cancelled PIN authorization");
-          return;
-        }
-
-        const digitsFromSpoken = normalizeSpokenDigits(effectiveClean);
-        const digitsOnly = digitsFromSpoken.replace(/\D/g, "");
-        const rawDigits = effectiveClean.replace(/\D/g, "");
-        let extractedPin = "";
-        if (digitsOnly.length === 4) {
-          extractedPin = digitsOnly;
-        } else if (rawDigits.length === 4) {
-          extractedPin = rawDigits;
-        } else {
-          const decoded = numberDecoder.decode(effectiveClean);
-          if (decoded.phoneNumberDigits && decoded.phoneNumberDigits.length === 4) {
-            extractedPin = decoded.phoneNumberDigits;
-          }
-        }
-
-        if (extractedPin.length === 4) {
-          addLog("asr", `Extracted 4 spoken PIN digits.`);
-          handlePinSubmission(extractedPin);
-          return;
-        }
-
-        // When extractedPin is not exactly 4 digits (e.g. 3 digits, letters, or garbled)
-        const digitErrorText = isTwi
-          ? "MoMo PIN no yɛ nɔmba nan pɛpɛɛpɛ. Mesrɛ wo, fa wo keypad no bɔ wo PIN a ɛyɛ nɔmba nan no mu, anaa ka bio."
-          : "A Mobile Money PIN must be 4 digits. Please enter your 4-digit PIN on your phone keypad, or speak it carefully.";
-        addLog("system", `Incomplete PIN: heard "${effectiveClean}". Prompting 4 digits.`);
-        addChatTurn({ sender: "ai", text: digitErrorText, audioSource: "synthesis", stepName: "pin-authorization" });
-        setCurrentPrompt(digitErrorText);
-        currentPromptRef.current = digitErrorText;
-        await audioPlaybackController.speakText(digitErrorText);
-        schedulePinSilenceTimers();
-        return;
-      }
-
-      // ── CASH-OUT FLOW HANDLERS ──
-      const isCashOutInitiation =
-        !curStep.startsWith("cashout-") &&
-        /\b(withdraw|cash\s*out|cashout|take\s*out\s*money|pull\s*money|yi\s*sika|mepɛ\s*sɛ\s*meyi\s*sika|allow\s*cash\s*out|gye\s*sika)\b/i.test(effectiveClean);
-
-      if (isCashOutInitiation) {
-        clearPinSilenceTimers();
-        isCashOutFlowRef.current = true;
-        setCashOutActive(true);
-        setCashOutExpiryMin(15);
-        activeStepNameRef.current = "cashout-offer-balance";
-        setActiveStepName("cashout-offer-balance");
-
-        // Extract any mentioned withdrawal amount (e.g. "withdraw 40 cedis for me")
-        const amtMatch = effectiveClean.match(/(\d+(?:\.\d+)?)\s*(?:cedis?|ghs|gh¢)/i) || effectiveClean.match(/(?:withdraw|cash\s*out)\s*(\d+(?:\.\d+)?)/i);
-        if (amtMatch) {
-          const parsed = parseFloat(amtMatch[1]);
-          if (!isNaN(parsed) && parsed > 0) {
-            requestedWithdrawalAmountRef.current = parsed;
-          }
-        }
-
-        addLog("state", `Initiating Allow Cash-Out on wallet for ${callerNumber}...`);
+      // Long discussion parsing & fast-track
+      const discussion = parsedDiscussion || parseLongDiscussion(effectiveClean, activeStepName);
+      if (
+        discussion.shortcutSuggestedStep === "safe-confirmation" &&
+        discussion.slots.recipientPhone &&
+        discussion.slots.amount
+      ) {
+        addLog(
+          "AI",
+          `Transfer intention extracted: ${discussion.slots.amount} GHS to ${
+            discussion.slots.recipientName || discussion.slots.recipientPhone
+          }`
+        );
         try {
-          const res = await api.enableVoiceCashOut({ callerPhone: callerNumber, language: curLang });
-          const speakText = (isTwi ? res.messageTw : res.messageEn) ||
-            (isTwi
-              ? "Yɛabue Allow Cash-Out ama wo mfifii 15 mu sɛ wotumi yi sika wɔ MoMo agent hɔ. Yɛrentumi nhwɛ wo balance wɔ assistant yi so; fa wo fon bɔ star, baako, nson, hwee, hash."
-              : "Cash-Out has been enabled on your wallet for the next 15 minutes. Balance checking through this assistant is currently unavailable; dial star, one, seven, zero, hash on your handset.");
-          addLog("reply", `"${speakText}"`);
-          addChatTurn({ sender: "ai", text: speakText, audioSource: "synthesis", stepName: "cashout-offer-balance" });
-          setCurrentPrompt(speakText);
-          currentPromptRef.current = speakText;
-          await audioPlaybackController.speakText(speakText);
-        } catch (err: any) {
-          addLog("system", `Error enabling cash-out: ${err.message}`);
-        }
-        return;
+          await fetch(`/api/simulator/verify-recipient?sessionId=${sessionId}&lang=${language || "en"}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ dtmfDigits: discussion.slots.recipientPhone + "#" }),
+          });
+          await fetch(`/api/simulator/enter-amount?sessionId=${sessionId}&lang=${language || "en"}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ dtmfDigits: String(discussion.slots.amount) + "#" }),
+          });
+          return dispatchVoiceWebhook(
+            `/api/simulator/safe-confirmation?sessionId=${sessionId}&lang=${language || "en"}`
+          );
+        } catch {}
       }
 
-      // Cash-Out Step 1: Offer to Check Balance & Fees
-      if (curStep === "cashout-offer-balance") {
-        clearPinSilenceTimers();
-        const aiRes = await api.understandCashOutIntent({
-          transcript: effectiveClean.replace(/\b\d{4}\b/g, "[REDACTED_PIN]"),
-          currentState: curStep,
-          callerPhone: callerNumber,
-          requestedAmount: requestedWithdrawalAmountRef.current,
-          language: curLang,
-        });
-
-        // Keep the existing agent approval path available without collecting a PIN.
-        if (aiRes.action === "FETCH_PENDING" || aiRes.intent === "AGENT_INITIATED") {
-          let pending = await api.getPendingCashOutRequest(callerNumber);
-          if (!pending?.hasPending) {
-            const simRes = await api.simulateAgentCashOutRequest({
-              callerPhone: callerNumber,
-              agentCode: "284910",
-              agentName: "Kofi Mensah Enterprise (MoMo Agent)",
-              amount: requestedWithdrawalAmountRef.current || 30.0,
-            });
-            pending = { success: true, hasPending: true, request: simRes.request };
-          }
-          setPendingAgentRequest(pending.request);
-          activeStepNameRef.current = "cashout-confirm-approval";
-          setActiveStepName("cashout-confirm-approval");
-          const readbackMsg = isTwi
-            ? `MoMo Agent ${pending.request.agentName} rebisa sɛ obeyi sika ${pending.request.amount.toFixed(2)} cedis a telco fee yɛ pesewas ${(pending.request.fee * 100).toFixed(0)} afiri wo account mu. Wopene so?`
-            : `MoMo Agent ${pending.request.agentName} is requesting a withdrawal of ${pending.request.amount.toFixed(2)} Cedis with a fee of ${pending.request.fee.toFixed(2)} Cedis. Do you approve this withdrawal?`;
-          addChatTurn({ sender: "ai", text: readbackMsg, audioSource: "synthesis", stepName: "cashout-confirm-approval" });
-          setCurrentPrompt(readbackMsg);
-          currentPromptRef.current = readbackMsg;
-          await audioPlaybackController.speakText(readbackMsg);
-          return;
-        }
-
-        const unavailableText = isTwi
-          ? "Yɛrentumi nhwɛ wo balance wɔ assistant yi so seesei. Fa wo fon bɔ star, baako, nson, hwee, hash."
-          : "Balance checking through this assistant is currently unavailable. Please dial star, one, seven, zero, hash on your handset.";
-        addChatTurn({ sender: "ai", text: unavailableText, audioSource: "synthesis", stepName: "cashout-awaiting-agent" });
-        setCurrentPrompt(unavailableText);
-        currentPromptRef.current = unavailableText;
-        activeStepNameRef.current = "cashout-awaiting-agent";
-        setActiveStepName("cashout-awaiting-agent");
-        await audioPlaybackController.speakText(unavailableText);
-        return;
+      if (activeStepName.includes("recipient") && discussion.slots.recipientPhone) {
+        addLog("AI", `Recipient phone parsed: ${discussion.slots.recipientPhone}`);
+        return dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: discussion.slots.recipientPhone + "#" });
       }
 
-      // ── CASH-OUT STEP 3 & 4: AI AGENT REASONING OVER DIALOGUE (ZERO-PIN ISOLATED) ──
-      if (curStep === "cashout-awaiting-agent" || curStep === "cashout-confirm-approval") {
-        // Zero-PIN Boundary: Extract any spoken 4-digit PIN into secure memory, then blur from transcript
-        const digitsFromSpoken = normalizeSpokenDigits(effectiveClean);
-        const digitsOnly = digitsFromSpoken.replace(/\D/g, "");
-        const rawDigits = effectiveClean.replace(/\D/g, "");
-        let blurtedPin = "";
-        if (digitsOnly.length === 4) {
-          blurtedPin = digitsOnly;
-        } else if (rawDigits.length === 4) {
-          blurtedPin = rawDigits;
-        } else if (/\b\d{4}\b/.test(effectiveClean)) {
-          blurtedPin = effectiveClean.match(/\b\d{4}\b/)![0];
-        }
-
-        if (blurtedPin) {
-          heldPinRef.current = blurtedPin;
-          addLog("caller", `Early PIN blurt safely secured: **** (4 digits isolated from AI prompt)`);
-        }
-
-        // Mask PIN digits so the AI agent NEVER sees raw PIN digits
-        const textForAi = effectiveClean
-          .replace(/\b\d{4}\b/g, "[REDACTED_PIN]")
-          .replace(/\b\d\s+\d\s+\d\s+\d\b/g, "[REDACTED_PIN]")
-          .replace(/\b(?:pin|secret|passcode|code)\s*(?:is|:)?\s*\d+\b/gi, "pin [REDACTED_PIN]");
-
-        addLog("AI", `AI Agent analyzing caller utterance: "${textForAi}" in step="${curStep}"...`);
-        const aiDecision = await api.understandCashOutIntent({
-          transcript: textForAi,
-          currentState: curStep,
-          callerPhone: callerNumber,
-          requestedAmount: requestedWithdrawalAmountRef.current,
-          language: curLang,
-        });
-        addLog("AI", `AI Agent Feedback: intent=${aiDecision.intent} action=${aiDecision.action} (${aiDecision.reason || "Semantic evaluation"})`);
-
-        // Handle Step 3: Awaiting Agent
-        if (curStep === "cashout-awaiting-agent") {
-          // Check if caller updated the withdrawal amount (e.g. "okay withdraw 19.50")
-          const amtMatch = effectiveClean.match(/(\d+(?:\.\d+)?)\s*(?:cedis?|ghs|gh¢)/i) || effectiveClean.match(/(?:withdraw|cash\s*out|amount\s*(?:is|to)?)\s*(\d+(?:\.\d+)?)/i);
-          if (amtMatch && !aiDecision.intent.includes("AGENT_INITIATED") && aiDecision.action !== "FETCH_PENDING") {
-            const parsed = parseFloat(amtMatch[1]);
-            if (!isNaN(parsed) && parsed > 0) {
-              requestedWithdrawalAmountRef.current = parsed;
-              setPendingAgentRequest(null);
-              const fee = parsed <= 50 ? (parsed * 0.01 < 0.20 ? 0.20 : Math.round(parsed * 0.01 * 100) / 100) : parsed <= 1000 ? Math.round(parsed * 0.01 * 100) / 100 : 10.0;
-              const total = parsed + fee;
-              const updateMsg = isTwi
-                ? `Mate aseɛ, wobɛyi GHS ${parsed.toFixed(2)}. Telco fee bɛyɛ GHS ${fee.toFixed(2)}, ne nyinaa yɛ GHS ${total.toFixed(2)}. Ka wo phone nɔmba ${callerNumber} kyerɛ agent no sɛ ɔmbɔ GHS ${parsed.toFixed(2)}. Sɛ ɔwie a, ka kyerɛ me na yɛapene so.`
-                : `Understood, you want to withdraw ${parsed.toFixed(2)} Cedis. The telco fee will be ${fee.toFixed(2)} Cedis, for a total of ${total.toFixed(2)} Cedis. Tell the agent your number: ${callerNumber} and have them enter ${parsed.toFixed(2)} Cedis. Once they enter it, let me know and I will help you approve it.`;
-              addLog("reply", `"${updateMsg}"`);
-              addChatTurn({ sender: "ai", text: updateMsg, audioSource: "synthesis", stepName: "cashout-awaiting-agent" });
-              setCurrentPrompt(updateMsg);
-              currentPromptRef.current = updateMsg;
-              await audioPlaybackController.speakText(updateMsg);
-              return;
-            }
-          }
-
-          if (aiDecision.action === "FETCH_PENDING" || aiDecision.intent === "AGENT_INITIATED") {
-            clearPinSilenceTimers();
-            addLog("state", `AI Agent identified agent initiation. Fetching pending agent withdrawal request for ${callerNumber}...`);
-            let pending = await api.getPendingCashOutRequest(callerNumber);
-            if (!pending?.hasPending) {
-              const simRes = await api.simulateAgentCashOutRequest({
-                callerPhone: callerNumber,
-                agentCode: "284910",
-                agentName: "Kofi Mensah Enterprise (MoMo Agent)",
-                amount: requestedWithdrawalAmountRef.current || 30.0,
-              });
-              pending = { success: true, hasPending: true, request: simRes.request };
-            }
-            setPendingAgentRequest(pending.request);
-
-            activeStepNameRef.current = "cashout-confirm-approval";
-            setActiveStepName("cashout-confirm-approval");
-
-            const readbackMsg = isTwi
-              ? `MoMo Agent ${pending.request.agentName} rebisa sɛ obeyi sika ${pending.request.amount.toFixed(2)} cedis a telco fee yɛ pesewas ${(pending.request.fee * 100).toFixed(0)} afiri wo account mu. Wopene so?`
-              : `MoMo Agent ${pending.request.agentName} is requesting a withdrawal of ${pending.request.amount.toFixed(2)} Cedis with a fee of ${pending.request.fee.toFixed(2)} Cedis. Do you approve this withdrawal?`;
-
-            addLog("reply", `"${readbackMsg}"`);
-            addChatTurn({ sender: "ai", text: readbackMsg, audioSource: "synthesis", stepName: "cashout-confirm-approval" });
-            setCurrentPrompt(readbackMsg);
-            currentPromptRef.current = readbackMsg;
-            await audioPlaybackController.speakText(readbackMsg);
-            return;
-          } else if (aiDecision.action === "CANCEL" || aiDecision.intent === "REJECT_CANCEL") {
-            clearPinSilenceTimers();
-            heldPinRef.current = null;
-            addLog("caller", `Caller cancelled cash-out while awaiting agent.`);
-            const cancelMsg = isTwi
-              ? "Yɛatwa cash-out no mu. Wotumi frɛ bio berɛ biara. Nante yie."
-              : "Cash-Out cancelled. You can call back anytime. Goodbye.";
-            addChatTurn({ sender: "ai", text: cancelMsg, audioSource: "synthesis", stepName: "completed" });
-            setCurrentPrompt(cancelMsg);
-            currentPromptRef.current = cancelMsg;
-            activeStepNameRef.current = "completed";
-            setActiveStepName("completed");
-            await audioPlaybackController.speakText(cancelMsg);
-            endCall("User cancelled cash-out");
-            return;
-          } else {
-            // Caller spoke while waiting for agent
-            const waitPrompt = isTwi
-              ? `Meretwɛn agent no. Wotumi ka wo number ${callerNumber} kyerɛ no. Sɛ ɔwie a, ka kyerɛ me na yɛapene so.`
-              : `I am waiting on the line with you. You can give the agent your number: ${callerNumber}. Once they enter the withdrawal, just let me know and I will help you approve it.`;
-            addChatTurn({ sender: "ai", text: waitPrompt, audioSource: "synthesis", stepName: "cashout-awaiting-agent" });
-            setCurrentPrompt(waitPrompt);
-            currentPromptRef.current = waitPrompt;
-            await audioPlaybackController.speakText(waitPrompt);
-            return;
-          }
-        }
-
-        // Handle Step 4: Confirm Approval
-        if (curStep === "cashout-confirm-approval") {
-          const isApprovalUtterance =
-            aiDecision.action === "PROCEED" ||
-            aiDecision.intent === "CONFIRM_PROCEED" ||
-            Boolean(blurtedPin) ||
-            /\b(approve|pene\s*so|yes|aane|go\s*ahead|please\s*go\s*ahead|proceed|yoo|do\s*it|allow\s*it|yes\s*please)\b/i.test(effectiveClean);
-
-          if (isApprovalUtterance) {
-            clearPinSilenceTimers();
-            if (heldPinRef.current || blurtedPin) {
-              const pinToUse = heldPinRef.current || blurtedPin;
-              heldPinRef.current = null;
-              addLog("state", `Submitting securely held PIN to vault for withdrawal approval...`);
-              const appRes = await api.approveCashOut({
-                callerPhone: callerNumber,
-                pin: pinToUse,
-                language: curLang,
-              });
-
-              if (appRes.success) {
-                const successText = (isTwi ? appRes.messageTw : appRes.messageEn) || appRes.message || "Withdrawal approved.";
-                addChatTurn({ sender: "ai", text: successText, audioSource: "synthesis", stepName: "completed" });
-                setCurrentPrompt(successText);
-                currentPromptRef.current = successText;
-                activeStepNameRef.current = "completed";
-                setActiveStepName("completed");
-                await audioPlaybackController.speakText(successText);
-                isCashOutFlowRef.current = false;
-                setPendingAgentRequest(null);
-                return;
-              } else {
-                if (appRes.error === "WALLET_LOCKED") {
-                  addLog("system", "Security Lockout: Wallet locked due to 3 failed attempts.");
-                  const lockText = (isTwi ? appRes.messageTw : appRes.messageEn) || appRes.message || "Wallet locked.";
-                  addChatTurn({ sender: "ai", text: lockText, audioSource: "synthesis", stepName: "completed" });
-                  activeStepNameRef.current = "completed";
-                  setActiveStepName("completed");
-                  setCurrentPrompt(lockText);
-                  currentPromptRef.current = lockText;
-                  await audioPlaybackController.speakText(lockText);
-                  endCall("Wallet locked: 3 failed PIN attempts");
-                  return;
-                }
-
-                if (appRes.error === "INSUFFICIENT_BALANCE") {
-                  addLog("system", `Deficit Read-Back: Balance insufficient for withdrawal (${appRes.balanceDetails?.shortage ?? 0} GHS deficit)`);
-                  const balMsg = (isTwi ? appRes.messageTw : appRes.messageEn) || appRes.message || "Insufficient balance for withdrawal.";
-                  addChatTurn({ sender: "ai", text: balMsg, audioSource: "synthesis", stepName: "cashout-awaiting-agent" });
-                  activeStepNameRef.current = "cashout-awaiting-agent";
-                  setActiveStepName("cashout-awaiting-agent");
-                  setCurrentPrompt(balMsg);
-                  currentPromptRef.current = balMsg;
-                  await audioPlaybackController.speakText(balMsg);
-                  return;
-                }
-
-                if (appRes.error === "INVALID_PIN") {
-                  const rem = appRes.remainingAttempts ?? 2;
-                  addLog("system", `PIN rejection: Remaining attempts = ${rem}`);
-                  const warnText = (isTwi ? appRes.messageTw : appRes.messageEn) || appRes.message || `That PIN is incorrect. You have ${rem} attempts remaining.`;
-                  addChatTurn({ sender: "ai", text: warnText, audioSource: "synthesis", stepName: "cashout-confirm-approval" });
-                  setCurrentPrompt(warnText);
-                  currentPromptRef.current = warnText;
-                  await audioPlaybackController.speakText(warnText);
-                  schedulePinSilenceTimers();
-                  return;
-                }
-
-                addLog("system", `Cash-out rejection: ${appRes.error}`);
-                const errText = (isTwi ? appRes.messageTw : appRes.messageEn) || appRes.message || "Could not complete request.";
-                addChatTurn({ sender: "ai", text: errText, audioSource: "synthesis", stepName: "cashout-awaiting-agent" });
-                setCurrentPrompt(errText);
-                currentPromptRef.current = errText;
-                await audioPlaybackController.speakText(errText);
-                return;
-              }
-            } else {
-              // Caller agreed verbally without entering PIN yet -> transition to PIN authorization
-              isCashOutFlowRef.current = true;
-              activeStepNameRef.current = "pin-authorization";
-              setActiveStepName("pin-authorization");
-              const pinPrompt = isTwi
-                ? "Mepa wo kyɛw bɔ wo MoMo PIN ahintasɛm no, anaa fa wo keypad no bɔ mu."
-                : "Please mention your secret MoMo PIN to authorize this withdrawal, or use your phone keypad.";
-              addChatTurn({ sender: "ai", text: pinPrompt, audioSource: "synthesis", stepName: "pin-authorization" });
-              setCurrentPrompt(pinPrompt);
-              currentPromptRef.current = pinPrompt;
-              await audioPlaybackController.speakText(pinPrompt);
-              schedulePinSilenceTimers();
-              return;
-            }
-          } else if (aiDecision.action === "CANCEL" || aiDecision.intent === "REJECT_CANCEL") {
-            clearPinSilenceTimers();
-            heldPinRef.current = null;
-            addLog("caller", `Caller rejected agent withdrawal request.`);
-            const rejectMsg = isTwi
-              ? "Yɛatwa agent no sika yi mu. Yɛrenma sika no mfiri wo account mu. Nante yie."
-              : "Withdrawal request rejected. No money has been deducted from your account. Goodbye.";
-            addChatTurn({ sender: "ai", text: rejectMsg, audioSource: "synthesis", stepName: "completed" });
-            setCurrentPrompt(rejectMsg);
-            currentPromptRef.current = rejectMsg;
-            activeStepNameRef.current = "completed";
-            setActiveStepName("completed");
-            await audioPlaybackController.speakText(rejectMsg);
-            endCall("User rejected withdrawal");
-            return;
-          }
-        }
+      if (activeStepName.includes("amount") && discussion.slots.amount) {
+        addLog("AI", `Amount parsed: ${discussion.slots.amount} Cedis`);
+        return dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: String(discussion.slots.amount) + "#" });
       }
 
-      const targetCallback =
-        activeCallbackUrlRef.current ||
-        activeCallbackUrl ||
-        getFallbackCallbackUrl(curStep, curSession);
+      // Fast-path: map common spoken Ghanaian tokens to step digits
+      const lower = effectiveClean.toLowerCase();
+      let matchedDtmf: string | null = null;
 
-      const normalizedOption = effectiveClean.toLowerCase().replace(/[.,!?]/g, "").replace(/\s+/g, " ").trim();
-      const optionMap: Record<string, Record<string, string>> = {
-        language: {
-          "1": "1", one: "1", baako: "1", english: "1", borɔfo: "1", brofo: "1",
-          "2": "2", two: "2", mmienu: "2", mienu: "2", twi: "2", akan: "2", asante: "2",
-        },
-        service: {
-          "1": "1", one: "1", baako: "1", momo: "1", "mobile money": "1", telecom: "1",
-          "2": "2", two: "2", mmienu: "2", banking: "2", bank: "2",
-        },
-        provider: {
-          "1": "1", one: "1", mtn: "1", "2": "2", two: "2", telecel: "2", vodafone: "2",
-          "3": "3", three: "3", airteltigo: "3", tigo: "3", at: "3",
-        },
-        action: {
-          "1": "1", one: "1", send: "1", "send money": "1", transfer: "1", mane: "1",
-          "2": "2", two: "2", balance: "2", "check balance": "2",
-        },
-        confirmation: {
-          "1": "1", one: "1", yes: "1", confirm: "1", okay: "1", aane: "1", "pene so": "1",
-          "2": "2", two: "2", no: "2", cancel: "2", dabi: "2", sesa: "2",
-        },
-      };
-      const stepGroup = curStep.includes("language") || curStep === "voice-menu"
-        ? "language"
-        : curStep.includes("service")
-        ? "service"
-        : curStep.includes("provider")
-        ? "provider"
-        : curStep.includes("action")
-        ? "action"
-        : curStep.includes("confirm") || curStep.includes("verify-choice")
-        ? "confirmation"
-        : "";
-      const navigationOptions: Record<string, string> = {
-        back: "8",
-        "go back": "8",
-        previous: "8",
-        repeat: "9",
-        again: "9",
-        "say again": "9",
-        cancel: "0",
-        stop: "0",
-        exit: "0",
-      };
-      // Only single-token menu shortcuts (e.g. "1", "2", "8", "9", "0") trigger immediate DTMF auto-dial.
-      // Full natural conversation sentences are routed directly to the AI Brain.
-      const isSingleChoice = effectiveClean.split(/\s+/).length <= 2;
-      const matchedDtmf = isSingleChoice
-        ? (navigationOptions[normalizedOption] || (stepGroup ? optionMap[stepGroup][normalizedOption] : undefined))
-        : undefined;
+      if (
+        activeStepName.includes("welcome") ||
+        activeStepName.includes("language") ||
+        activeStepName === "voice-menu"
+      ) {
+        if (/^(1|one|won|wan|english|baako|bako)$/i.test(lower)) matchedDtmf = "1";
+        else if (/^(2|two|tu|twi|akan|mmienu|mienu)$/i.test(lower)) matchedDtmf = "2";
+      } else if (activeStepName.includes("service")) {
+        if (/^(1|one|momo|mobile money|telecom|baako)$/i.test(lower)) matchedDtmf = "1";
+        else if (/^(2|two|bank|banking|sikakorabea|mmienu)$/i.test(lower)) matchedDtmf = "2";
+      } else if (activeStepName.includes("provider")) {
+        if (/^(1|one|mtn|baako)$/i.test(lower)) matchedDtmf = "1";
+        else if (/^(2|two|telecel|vodafone|voda|mmienu)$/i.test(lower)) matchedDtmf = "2";
+        else if (/^(3|three|airteltigo|at|mmiɛnsa)$/i.test(lower)) matchedDtmf = "3";
+      } else if (activeStepName.includes("action")) {
+        if (/^(1|one|send|send money|transfer|baako|mane|soma)$/i.test(lower)) matchedDtmf = "1";
+        else if (/^(2|two|balance|check balance|my balance|mmienu)$/i.test(lower)) matchedDtmf = "2";
+      } else if (activeStepName.includes("confirm") || activeStepName.includes("verify-choice")) {
+        if (/^(1|one|yes|confirm|aane|pene so|yie|ampa|proceed|baako)$/i.test(lower)) matchedDtmf = "1";
+        else if (/^(2|two|no|dabi|sesa|change|cancel|mmienu)$/i.test(lower)) matchedDtmf = "2";
+      }
 
-      if (curStep.includes("confirm") || curStep === "safe-confirmation") {
-        const isAffirmative = /\b(yes|confirm|proceed|okay|sure|aane|pene so|ampa|that's him|thats him|correct|send it|kɔ so|yie|1|baako)\b/i.test(effectiveClean) || matchedDtmf === "1";
-        const isNegative = /\b(no|cancel|wrong|dabi|stop|sesa|change|reject|2|mmienu)\b/i.test(effectiveClean) || matchedDtmf === "2";
-        if (isAffirmative) {
-          addLog("caller", `Spoken confirmation approval: "${effectiveClean}"`);
-          startPinAuthorizationFlow();
-          return;
-        } else if (isNegative) {
-          addLog("caller", `Spoken confirmation rejection: "${effectiveClean}"`);
-          brainDraftRef.current = { slots: {} };
-          const cancelMsg = curLang === "twi"
-            ? "Yɛatwa mu. Wo pɛ sɛ womane sika kɔ nɔmba foforɔ bɛn so?"
-            : "Transaction cancelled. What phone number would you like to send money to instead?";
-          addChatTurn({ sender: "ai", text: cancelMsg, audioSource: "synthesis" });
-          setCurrentPrompt(cancelMsg);
-          currentPromptRef.current = cancelMsg;
-          activeStepNameRef.current = "enter-recipient";
-          setActiveStepName("enter-recipient");
-          await audioPlaybackController.speakText(cancelMsg);
-          return;
-        }
+      // Universal navigation
+      if (!matchedDtmf) {
+        if (/^(back|go back|previous|san|san akyi)$/i.test(lower)) matchedDtmf = "8";
+        else if (/^(repeat|again|say again|tie bio)$/i.test(lower)) matchedDtmf = "9";
+        else if (/^(cancel|stop|abort|quit|exit|gyae|hwee)$/i.test(lower)) matchedDtmf = "0";
+        else if (activeNumDigits === 1 && /^[0-9]$/.test(lower)) matchedDtmf = lower;
       }
 
       if (matchedDtmf) {
-        addLog("asr", `Spoken menu choice "${effectiveClean}" mapped to keypad [${matchedDtmf}]`);
-        setVoiceSyncStatus({ text: effectiveClean, action: `Auto-dialed DTMF [${matchedDtmf}]`, dtmf: matchedDtmf, timestamp: Date.now() });
-        setActiveKeypadPulse(matchedDtmf);
-        audioPlaybackController.playDtmfTone(matchedDtmf, 130);
-        setTimeout(() => setActiveKeypadPulse(null), 450);
-        return dispatchVoiceWebhook(targetCallback, { dtmfDigits: matchedDtmf });
+        addLog("AI", `dtmf=${matchedDtmf} (mapped from "${effectiveClean}")`);
+        return dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: matchedDtmf });
       }
 
-      if (curStep.includes("confirm") || curStep.includes("verify-choice")) {
-        addLog("state", "Routing spoken approval through the guarded simulator confirmation callback.");
-        return dispatchVoiceWebhook(
-          `/api/simulator/speech-fallback?step=${encodeURIComponent(curStep)}&sessionId=${encodeURIComponent(curSession)}&lang=${curLang}`,
-          { speechText: effectiveClean }
-        );
-      }
-
-      addLog("AI", `POST /api/ai/brain/process step=${curStep} language=${curLang} forceModel=true`);
-      setIsAiReasoning(true);
-      setReasoningSec(0);
-      const reasoningInterval = setInterval(() => {
-        setReasoningSec((prev) => prev + 1);
-      }, 1000);
-
-      let stallTimer: NodeJS.Timeout | null = setTimeout(async () => {
-        const stallMsg = curLang === "twi"
-          ? "Kyerɛ me kakra, mate deɛ wokaeɛ no na mereka akyerɛ wo seesei ara, mesrɛ wo twɛn kakra."
-          : "Please wait, I heard what you said and I am currently trying to find out what it means, sorry for the delay.";
-        addLog("AI", `[Comfort Loader @10s] "${stallMsg}"`);
-        addChatTurn({ sender: "ai", text: `⏳ ${stallMsg}`, audioSource: "synthesis" });
-        setCurrentPrompt(stallMsg);
-        try {
-          await audioPlaybackController.speakText(stallMsg);
-        } catch {
-          // safe audio playback
-        }
-      }, 10000);
-
-      let timeout20sTimer: NodeJS.Timeout | null = setTimeout(() => {
-        addLog("system", "⏱️ [Gemini Diagnosis @20s] Gemini reasoning reached 20-second threshold without response. Cause: Remote model latency spike or network stall. Transitioning to local deterministic processing.");
-      }, 20000);
-
+      // Brain path: POST /api/ivr/understand
       try {
-        const response = await api.processBrain({
-          transcript: effectiveClean,
-          language: curLang === "twi" ? "twi-asante" : "en",
-          draft: brainDraftRef.current,
-          callerNumber,
-          sessionId: curSession,
-          forceModel: true,
+        const brainRes = await fetch("/api/ivr/understand", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            utterance: effectiveClean,
+            currentStep: activeStepName,
+            callState: { lang: language, sessionId },
+            sessionId,
+          }),
         });
 
-        if (stallTimer) {
-          clearTimeout(stallTimer);
-          stallTimer = null;
-        }
-        if (timeout20sTimer) {
-          clearTimeout(timeout20sTimer);
-          timeout20sTimer = null;
-        }
-        clearInterval(reasoningInterval);
-        setIsAiReasoning(false);
+        if (brainRes.ok) {
+          const decision = await brainRes.json();
+          if (decision.type === "dtmf" && decision.dtmf) {
+            addLog("AI", `dtmf=${decision.dtmf} (${decision.reason || "brain resolved option"})`);
+            return dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: decision.dtmf });
+          }
 
-        const brainOutput = response.brainOutput;
-        brainDraftRef.current = brainOutput.updatedDraft || { slots: {} };
-        const slots = brainDraftRef.current.slots || {};
-        const intent = brainDraftRef.current.intent || "unknown";
-        addLog("AI", `Brain decision=${brainOutput.decision.kind} intent=${intent} modelUsed=${Boolean(brainOutput.modelOutput)}`);
-        addLog("AI", `Brain slots amount=${slots.amount ?? "missing"} recipient=${slots.recipient?.phone ? "provided" : "missing"}`);
+          if (decision.type === "skip" && decision.targetStep) {
+            const targetUrl = `/${decision.targetStep}?sessionId=${sessionId}&lang=${language || "en"}`;
+            return dispatchVoiceWebhook(targetUrl);
+          }
 
-        const replyText = String(brainOutput.reply?.text || "Please repeat your request.");
-        addChatTurn({ sender: "ai", text: replyText, audioSource: "synthesis" });
-
-        const recipientPhone = slots.recipient?.phone || slots.recipientPhone;
-        const amount = typeof slots.amount === "number" && Number.isFinite(slots.amount) ? slots.amount : undefined;
-
-        // Case 1: Conversational Turn (Gemini is conversing, clarifying, or asking questions)
-        // No local slot overrides or step transitions: speak Gemini's reply and await caller response!
-        if (brainOutput.decision.kind === "clarify_slot" && brainOutput.decision.slot === "conversational") {
-          addLog("AI", `Gemini conversational turn: "${replyText}"`);
-          setCurrentPrompt(replyText);
-          currentPromptRef.current = replyText;
-          await audioPlaybackController.speakText(replyText);
-          return;
-        }
-
-        // Case 2: Gemini Tool Handoff (Recipient & Amount Gathered -> Safe Confirmation)
-        if (brainOutput.decision.kind === "confirm") {
-          addLog("state", `AI handed over gathered transaction details: amount=${amount ?? "provided"}, recipient=${recipientPhone || "provided"}. Starting safe readback.`);
-          activeStepNameRef.current = "safe-confirmation";
-          activeCallbackUrlRef.current = `/api/simulator/safe-confirmation?sessionId=${curSession}&lang=${curLang}`;
-          setActiveStepName("safe-confirmation");
-          setActiveCallbackUrl(`/api/simulator/safe-confirmation?sessionId=${curSession}&lang=${curLang}`);
-          setCurrentPrompt(replyText);
-          currentPromptRef.current = replyText;
-          await audioPlaybackController.speakText(replyText);
-          return;
-        }
-
-        // Case 3: Explicit Dispatch after Confirmation -> Start PIN Authorization
-        if (brainOutput.decision.kind === "dispatch") {
-          addLog("state", `Caller confirmed transaction. Starting active PIN authorization.`);
-          startPinAuthorizationFlow();
-          return;
-        }
-
-        const isTransfer = intent === "momo.transfer";
-        if (isTransfer && recipientPhone) {
-          const normalizedPhone = normalizeGhanaPhoneNumber(String(recipientPhone));
-          if (normalizedPhone.length === 10) {
-            addLog("state", `Submitting Brain-identified recipient for provider verification; amount=${amount ?? "not provided"}.`);
-            return dispatchVoiceWebhook(
-              `/api/simulator/verify-recipient?sessionId=${curSession}&lang=${curLang}`,
-              { dtmfDigits: normalizedPhone + "#", ...(amount !== undefined ? { amount: String(amount) } : {}) }
-            );
+          if (decision.replyText) {
+            addLog("AI", `Brain reply: "${decision.replyText}"`);
+            addChatTurn({
+              sender: "ai",
+              text: decision.replyText,
+              audioSource: "synthesis",
+            });
+            if (decision.promptAudio) {
+              await audioPlaybackController.play(decision.promptAudio, decision.replyText);
+            } else {
+              await audioPlaybackController.speakText(decision.replyText);
+            }
+            return;
           }
         }
-
-        const missingSlot = brainOutput.decision.kind === "clarify_slot"
-          ? brainOutput.decision.slot
-          : isTransfer && !recipientPhone
-          ? "recipient"
-          : isTransfer && amount === undefined
-          ? "amount"
-          : undefined;
-        if (missingSlot === "recipient" || missingSlot === "amount") {
-          const nextStep = missingSlot === "recipient" ? "enter-recipient" : "enter-amount";
-          const nextCallback = missingSlot === "recipient"
-            ? `/api/simulator/verify-recipient?sessionId=${curSession}&lang=${curLang}`
-            : `/api/simulator/verify-amount?sessionId=${curSession}&lang=${curLang}`;
-          activeStepNameRef.current = nextStep;
-          activeCallbackUrlRef.current = nextCallback;
-          setActiveStepName(nextStep);
-          setActiveCallbackUrl(nextCallback);
-          setActiveNumDigits(missingSlot === "recipient" ? 10 : 6);
-          setCurrentPrompt(replyText);
-          currentPromptRef.current = replyText;
-          addLog("state", `Brain requested missing slot: ${missingSlot}`);
-          await audioPlaybackController.speakText(replyText);
-          return;
-        }
-
-        addLog("AI", `Brain reply: "${replyText}"`);
-        setCurrentPrompt(replyText);
-        currentPromptRef.current = replyText;
-        await audioPlaybackController.speakText(replyText);
       } catch (err: any) {
-        if (stallTimer) clearTimeout(stallTimer);
-        if (timeout20sTimer) clearTimeout(timeout20sTimer);
-        clearInterval(reasoningInterval);
-        setIsAiReasoning(false);
-        const errMsg = String(err?.message || "");
-        const isTimeout = errMsg.includes("Timeout") || errMsg.includes("20s");
-        if (isTimeout) {
-          addLog("system", "⏱️ [Gemini Diagnosis @20s] Gemini turn exceeded 20-second threshold. Cause: Remote API latency / processing delay. Seamlessly activating local fallback.");
-          addChatTurn({
-            sender: "system",
-            text: "⏱️ Gemini exceeded 20s budget due to API latency. Local offline fallback activated.",
-          });
-        } else {
-          addLog("system", `Brain request failed: ${errMsg}`);
-        }
-        const fallbackUrl = resolvePrompt("wrong_figure", curLang);
-        if (fallbackUrl) await audioPlaybackController.play(fallbackUrl, "Please choose from the available options.");
-      } finally {
-        if (stallTimer) clearTimeout(stallTimer);
-        if (timeout20sTimer) clearTimeout(timeout20sTimer);
-        clearInterval(reasoningInterval);
-        setIsAiReasoning(false);
+        addLog("system", `Cognitive reasoning note: ${err.message}`);
       }
 
+      // Default fallback replay
+      const fallbackUrl = resolvePrompt("wrong_figure", language || "en");
+      if (fallbackUrl) {
+        audioPlaybackController.play(fallbackUrl, "Please choose from the available options.").catch(() => {});
+      }
     },
     [
       activeCallbackUrl,
       activeNumDigits,
+      activeStepName,
+      callActive,
+      currentPrompt,
       dispatchVoiceWebhook,
-      getFallbackCallbackUrl,
-      startCall,
+      language,
+      sessionId,
+      zeroPinOverlay,
       addLog,
       addChatTurn,
     ]
@@ -1754,18 +874,15 @@ export const PhoneSimulatorPage: React.FC = () => {
       const phrase = textToSpeak.trim();
       if (!phrase || isSimulatingSpeech) return;
 
-      audioPlaybackController.unlockAudio();
       setIsSimulatingSpeech(true);
-      if (!callActiveRef.current) {
+      if (!callActive) {
         await startCall();
-        await new Promise((r) => setTimeout(r, 120));
       }
 
       audioPlaybackController.stop();
       setInterimTranscript("");
       setFinalizedTranscript("");
-      const currentLang = languageRef.current || language;
-      addLog("asr", `🎙️ Incoming speech stream detected (${currentLang === "twi" ? "Akan Twi" : "Ghanaian English"})`);
+      addLog("asr", `🎙️ Incoming speech stream detected (${language === "twi" ? "Akan Twi" : "Ghanaian English"})`);
 
       const words = phrase.split(/\s+/).filter(Boolean);
       let rolling = "";
@@ -1813,11 +930,137 @@ export const PhoneSimulatorPage: React.FC = () => {
       setFinalizedTranscript(effective);
       setIsSimulatingSpeech(false);
 
-      // Process utterance directly (bypassing mic acoustic echo filter since it is direct test input)
-      processSpokenUtterance(effective, true);
+      processSpokenUtterance(effective);
     },
-    [isSimulatingSpeech, language, processSpokenUtterance, startCall, addLog]
+    [callActive, isSimulatingSpeech, language, processSpokenUtterance, startCall, addLog]
   );
+
+  // ── Browser Web Speech API Setup ──────────────────────────────────────
+  const startSpeechRecognition = useCallback(() => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setMicUnavailable(true);
+      addLog("system", "Web Speech API not present in browser; simulated speech and keypad are active.");
+      return;
+    }
+
+    try {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch {}
+      }
+
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      // Ghanaian English is universally supported across Chrome/Safari
+      recognition.lang = language === "twi" ? "en-GH" : "en-GH";
+
+      recognition.onstart = () => {
+        if (!zeroPinOverlay && !isMicMuted) {
+          setCallStatus("Listening");
+        }
+      };
+
+      recognition.onresult = (event: any) => {
+        if (isMicMuted || zeroPinOverlay) return;
+
+        let interim = "";
+        let final = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const res = event.results[i];
+          const chunk = res[0]?.transcript || "";
+          if (res.isFinal) {
+            final += " " + chunk;
+          } else {
+            interim += " " + chunk;
+          }
+        }
+
+        interim = interim.trim();
+        final = final.trim();
+
+        if (interim) {
+          audioPlaybackController.stop();
+          const normalizedInterim = normalizeSpokenDigits(interim);
+          setInterimTranscript(normalizedInterim);
+
+          const streaming = extractStreamingWords(prevInterimTranscriptRef.current, normalizedInterim);
+          if (streaming.annotatedWords.length > 0) {
+            prevInterimTranscriptRef.current = normalizedInterim;
+            for (const item of streaming.annotatedWords) {
+              setRecentStreamingWords((prev) => [
+                ...prev.slice(-8),
+                { ...item, timestamp: Date.now() },
+              ]);
+              if (item.isPhoneticMatch && item.repaired) {
+                addLog("asr", `🎙️ Word: "${item.word}" ➔ "${item.repaired}" (phonetic match)`);
+              } else {
+                addLog("asr", `🎙️ Word: "${item.word}"`);
+              }
+            }
+          }
+
+          // Instant early dispatch on single-word commands
+          const lowerInterim = normalizedInterim.toLowerCase().trim();
+          const isInstantCmd = /^(?:[0-9]|one|two|three|four|five|six|seven|eight|nine|zero|english|twi|akan|baako|mmienu|mmiɛnsa|send money|mane sika|confirm|pene so|yes|aane|no|dabi|cancel|back|repeat)$/i.test(
+            lowerInterim
+          );
+          const now = Date.now();
+          if (isInstantCmd && now - lastUtteranceTimeRef.current > 300) {
+            lastUtteranceTimeRef.current = now;
+            prevInterimTranscriptRef.current = "";
+            const repair = repairGhanaianPronunciation(normalizedInterim);
+            const effective = repair.normalizedTranscript || normalizedInterim;
+            setInterimTranscript("");
+            setFinalizedTranscript(effective);
+            processSpokenUtterance(effective);
+            return;
+          }
+        }
+
+        if (final) {
+          audioPlaybackController.stop();
+          prevInterimTranscriptRef.current = "";
+          const normalizedFinal = normalizeSpokenDigits(final);
+          const repair = repairGhanaianPronunciation(normalizedFinal);
+          const effectiveFinal = repair.normalizedTranscript || normalizedFinal;
+          setInterimTranscript("");
+          setFinalizedTranscript(effectiveFinal);
+          processSpokenUtterance(effectiveFinal);
+        }
+      };
+
+      recognition.onerror = (e: any) => {
+        if (e.error === "not-allowed" || e.error === "permission-denied") {
+          setMicUnavailable(true);
+          setCallStatus("Mic Denied");
+          addLog("system", "Microphone access blocked. Interactive test chips & keypad active.");
+        } else if (e.error === "language-not-supported") {
+          try {
+            recognition.lang = "en-US";
+            recognition.start();
+          } catch {}
+        }
+      };
+
+      recognition.onend = () => {
+        if (callActive && !isMicMuted && !zeroPinOverlay) {
+          try {
+            recognition.start();
+          } catch {}
+        }
+      };
+
+      recognition.start();
+      recognitionRef.current = recognition;
+    } catch (e: any) {
+      setMicUnavailable(true);
+    }
+  }, [addLog, callActive, isMicMuted, language, processSpokenUtterance, zeroPinOverlay]);
 
   // Synchronize audio engine
   useEffect(() => {
@@ -1825,80 +1068,9 @@ export const PhoneSimulatorPage: React.FC = () => {
     continuousAudioEngine.setZeroPinMuted(zeroPinOverlay || isMicMuted);
   }, [activeStepName, language, zeroPinOverlay, isMicMuted]);
 
-  // Subscribe to Always-On continuous audio engine utterances & state
-  useEffect(() => {
-    const unsubUtterance = continuousAudioEngine.subscribeUtterance((utterance) => {
-      if (isMicMutedRef.current || zeroPinOverlayRef.current) return;
-      if (utterance && utterance.trim()) {
-        processSpokenUtterance(utterance);
-      }
-    });
-
-    const unsubWords = continuousAudioEngine.subscribeWordToken((token) => {
-      if (token && token.word) {
-        setRecentStreamingWords((prev) => [
-          ...prev.slice(-8),
-          {
-            word: token.word,
-            repaired: token.repaired,
-            isPhoneticMatch: token.isPhoneticMatch,
-            timestamp: token.timestamp,
-          },
-        ]);
-        // Show in simulator terminal as speech-to-text is recognized in real time
-        if (token.isPhoneticMatch && token.repaired) {
-          addLog("asr", `🎙️ Live STT: "${token.word}" ➔ "${token.repaired}" (phonetic repair)`);
-        } else {
-          addLog("asr", `🎙️ Live STT: "${token.word}"`);
-        }
-      }
-    });
-
-    const unsubState = continuousAudioEngine.subscribeState((state) => {
-      if (state.currentInterimTranscript) {
-        setInterimTranscript(state.currentInterimTranscript);
-      }
-      if (state.finalizedTranscript) {
-        setFinalizedTranscript(state.finalizedTranscript);
-      }
-      if (state.isListening && !isAudioSpeaking && !zeroPinOverlayRef.current && !isMicMutedRef.current) {
-        setCallStatus("Listening");
-      }
-      if (!state.isMicActive && !state.isPermissionGranted && !micUnavailable) {
-        setMicUnavailable(true);
-      }
-    });
-
-    return () => {
-      unsubUtterance();
-      unsubWords();
-      unsubState();
-    };
-  }, [processSpokenUtterance, isAudioSpeaking, micUnavailable]);
-
-
-  // Auto-scroll chat timeline to latest turn
-  useEffect(() => {
-    chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatTurns, interimTranscript]);
-
-  // One-time gesture audio unlock on page
-  useEffect(() => {
-    const handleGesture = () => {
-      audioPlaybackController.unlockAudio();
-    };
-    window.addEventListener("click", handleGesture, { once: true });
-    window.addEventListener("keydown", handleGesture, { once: true });
-    return () => {
-      window.removeEventListener("click", handleGesture);
-      window.removeEventListener("keydown", handleGesture);
-    };
-  }, []);
-
   // Keypad click handler with dual-tone audio beep
   const handleKeypadPress = useCallback(
-    async (digit: string) => {
-      audioPlaybackController.unlockAudio();
+    (digit: string) => {
       // 1. Play realistic DTMF telephone beep
       audioPlaybackController.playDtmfTone(digit);
 
@@ -1906,144 +1078,25 @@ export const PhoneSimulatorPage: React.FC = () => {
       audioPlaybackController.stop();
 
       // If inactive, dial in chosen language
-      if (!callActiveRef.current) {
-        await startCall();
+      if (!callActive) {
+        startCall();
         return;
       }
 
-      if (zeroPinOverlayRef.current) return;
-
-      const targetCallback =
-        activeCallbackUrlRef.current ||
-        activeCallbackUrl ||
-        getFallbackCallbackUrl(activeStepNameRef.current, sessionIdRef.current);
+      if (!activeCallbackUrl || zeroPinOverlay) return;
 
       // Add to Chat Timeline
       addChatTurn({
         sender: "dtmf",
         text: `Pressed Key '${digit}'`,
-        stepName: activeStepNameRef.current,
+        stepName: activeStepName,
       });
 
-      // Special Handling 1: Keypad input during PIN Authorization
-      if (activeStepNameRef.current === "pin-authorization") {
-        clearPinSilenceTimers();
-        if (digit === "0" && digitsBuffer.length === 0) {
-          addLog("caller", "Cancelled PIN authorization via Keypad 0.");
-          endCall("User pressed 0 to cancel PIN");
-          return;
-        }
-        const nextPin = digitsBuffer + digit;
-        setDigitsBuffer(nextPin);
-        addLog("caller", `Keypad PIN digit entered (*#*#)`);
-        if (nextPin.length === 4) {
-          setDigitsBuffer("");
-          handlePinSubmission(nextPin);
-        } else {
-          schedulePinSilenceTimers();
-        }
-        return;
-      }
-
-      // Special Handling 2: Keypad during Cash-Out steps
-      if (activeStepNameRef.current === "cashout-offer-balance") {
-        if (digit === "1") {
-          addLog("caller", "Keypad 1: Requested a balance check, which is unavailable.");
-          activeStepNameRef.current = "cashout-awaiting-agent";
-          setActiveStepName("cashout-awaiting-agent");
-          const unavailableText = languageRef.current === "twi"
-            ? "Yɛrentumi nhwɛ wo balance wɔ assistant yi so seesei. Fa wo fon bɔ star, baako, nson, hwee, hash. Mɛtwɛn wo sɛ agent no de withdrawal request no ba."
-            : "Balance checking through this assistant is currently unavailable. Please dial star, one, seven, zero, hash on your handset. I can still wait for the agent's withdrawal request.";
-          addChatTurn({ sender: "ai", text: unavailableText, audioSource: "synthesis", stepName: "cashout-awaiting-agent" });
-          setCurrentPrompt(unavailableText);
-          currentPromptRef.current = unavailableText;
-          audioPlaybackController.speakText(unavailableText).catch(() => {});
-          return;
-        } else if (digit === "2") {
-          addLog("caller", "Keypad 2: Skipping balance check.");
-          activeStepNameRef.current = "cashout-awaiting-agent";
-          setActiveStepName("cashout-awaiting-agent");
-          const waitPrompt = (languageRef.current === "twi")
-            ? `Yoo, mate aseɛ! Yɛabue kwan ama wo mfifii 15 mu. Wotumi ka wo phone nɔmba ${callerNumber} kyerɛ agent no.`
-            : `Understood! Cash-Out remains enabled for 15 minutes. Tell the agent your number: ${callerNumber}.`;
-          addChatTurn({ sender: "ai", text: waitPrompt, audioSource: "synthesis", stepName: "cashout-awaiting-agent" });
-          setCurrentPrompt(waitPrompt);
-          currentPromptRef.current = waitPrompt;
-          audioPlaybackController.speakText(waitPrompt).catch(() => {});
-          return;
-        }
-      }
-
-      if (activeStepNameRef.current === "cashout-balance-pin") {
-        clearPinSilenceTimers();
-        addLog("caller", "Ignored keypad input during unavailable balance check.");
-        activeStepNameRef.current = "cashout-awaiting-agent";
-        setActiveStepName("cashout-awaiting-agent");
-        const msg = languageRef.current === "twi"
-          ? "Yɛrentumi nhwɛ wo balance wɔ assistant yi so seesei. Fa wo fon bɔ star, baako, nson, hwee, hash."
-          : "Balance checking through this assistant is currently unavailable. Please dial star, one, seven, zero, hash on your handset.";
-        addChatTurn({ sender: "ai", text: msg, audioSource: "synthesis", stepName: "cashout-awaiting-agent" });
-        setCurrentPrompt(msg);
-        currentPromptRef.current = msg;
-        audioPlaybackController.speakText(msg).catch(() => {});
-        return;
-      }
-
-      if (activeStepNameRef.current === "cashout-awaiting-agent" && digit === "1") {
-        addLog("caller", "Keypad 1: Agent has completed entry, checking request...");
-        api.getPendingCashOutRequest(callerNumber).then(async (pending) => {
-          let req = pending?.request;
-          if (!req) {
-            const sim = await api.simulateAgentCashOutRequest({
-              callerPhone: callerNumber,
-              agentCode: "284910",
-              agentName: "Kofi Mensah Enterprise (MoMo Agent)",
-              amount: 50.0,
-            });
-            req = sim.request;
-          }
-          setPendingAgentRequest(req);
-          activeStepNameRef.current = "cashout-confirm-approval";
-          setActiveStepName("cashout-confirm-approval");
-          const readback = (languageRef.current === "twi")
-            ? `MoMo Agent ${req.agentName} rebisa sɛ obeyi sika ${req.amount.toFixed(2)} cedis afiri wo account mu. Wopene so? (1=Pene so, 2=Twa mu)`
-            : `MoMo Agent ${req.agentName} is requesting a withdrawal of ${req.amount.toFixed(2)} Cedis. Do you approve? (1=Approve, 2=Reject)`;
-          addChatTurn({ sender: "ai", text: readback, audioSource: "synthesis", stepName: "cashout-confirm-approval" });
-          setCurrentPrompt(readback);
-          currentPromptRef.current = readback;
-          audioPlaybackController.speakText(readback).catch(() => {});
-        });
-        return;
-      }
-
-      // Special Handling 3: Keypad '1' during safe-confirmation
-      if (digit === "1" && (activeStepNameRef.current === "safe-confirmation" || activeStepNameRef.current.includes("confirm"))) {
+      // Single-digit expectation
+      if (activeNumDigits === 1) {
         setDigitsBuffer("");
-        if (heldPinRef.current && activeStepNameRef.current === "cashout-confirm-approval") {
-          addLog("caller", `Keypad '1' approved using held PIN.`);
-          api.approveCashOut({
-            callerPhone: callerNumber,
-            pin: heldPinRef.current,
-            language: languageRef.current || "en",
-          }).then((appRes) => {
-            heldPinRef.current = null;
-            if (appRes.success) {
-              const successText = (languageRef.current === "twi" ? appRes.messageTw : appRes.messageEn) || appRes.message;
-              addChatTurn({ sender: "ai", text: successText, audioSource: "synthesis", stepName: "completed" });
-              setCurrentPrompt(successText);
-              currentPromptRef.current = successText;
-              activeStepNameRef.current = "completed";
-              setActiveStepName("completed");
-              audioPlaybackController.speakText(successText).catch(() => {});
-            }
-          });
-          return;
-        }
-        if (activeStepNameRef.current === "cashout-confirm-approval") {
-          isCashOutFlowRef.current = true;
-        }
-        addLog("caller", `Keypad '1' confirmed transaction. Entering PIN authorization.`);
-        startPinAuthorizationFlow();
+        addLog("caller", `Keypad '${digit}'`);
+        dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: digit });
         return;
       }
 
@@ -2053,7 +1106,7 @@ export const PhoneSimulatorPage: React.FC = () => {
           const submitted = digitsBuffer.trim();
           setDigitsBuffer("");
           addLog("caller", `Keypad '${submitted}#'`);
-          dispatchVoiceWebhook(targetCallback, { dtmfDigits: submitted });
+          dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: submitted });
         }
         return;
       }
@@ -2061,49 +1114,22 @@ export const PhoneSimulatorPage: React.FC = () => {
       const nextBuf = digitsBuffer + digit;
       setDigitsBuffer(nextBuf);
 
-      // AUTOMATIC RECOGNITION: The moment user punches numbers up to 10 at a time
-      const digitsOnly = nextBuf.replace(/\D/g, "");
-      if (digitsOnly.length === 10) {
-        setDigitsBuffer("");
-        addLog("caller", `Keypad '${digitsOnly}#'`);
-        addLog("AI", `⚡ Auto-identified 10-digit number for sending money: ${digitsOnly}. Advancing to amount stage!`);
-        dispatchVoiceWebhook(
-          activeStepNameRef.current.includes("recipient")
-            ? targetCallback
-            : `/api/simulator/verify-recipient?sessionId=${sessionIdRef.current || sessionId}&lang=${languageRef.current || "en"}`,
-          { dtmfDigits: digitsOnly + "#" }
-        );
-        return;
-      }
-
-      // Single-digit expectation (only when NOT accumulating a 10-digit phone number)
-      const isAccumulatingPhone =
-        nextBuf.startsWith("0") ||
-        nextBuf.startsWith("233") ||
-        activeStepNameRef.current.includes("recipient") ||
-        activeStepNameRef.current.includes("phone");
-
-      if (activeNumDigits === 1 && !isAccumulatingPhone) {
-        setDigitsBuffer("");
-        addLog("caller", `Keypad '${digit}'`);
-        dispatchVoiceWebhook(targetCallback, { dtmfDigits: digit });
-        return;
-      }
-
       if (!activeFinishOnKey && nextBuf.length >= activeNumDigits) {
         setDigitsBuffer("");
         addLog("caller", `Keypad '${nextBuf}'`);
-        dispatchVoiceWebhook(targetCallback, { dtmfDigits: nextBuf });
+        dispatchVoiceWebhook(activeCallbackUrl, { dtmfDigits: nextBuf });
       }
     },
     [
       activeCallbackUrl,
       activeFinishOnKey,
       activeNumDigits,
+      activeStepName,
+      callActive,
       digitsBuffer,
       dispatchVoiceWebhook,
-      getFallbackCallbackUrl,
       startCall,
+      zeroPinOverlay,
       addLog,
       addChatTurn,
     ]
@@ -2123,36 +1149,21 @@ export const PhoneSimulatorPage: React.FC = () => {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleKeypadPress]);
 
-  // Push-to-Talk (PTT) & Mic Toggle
-  const [isPushToTalkHeld, setIsPushToTalkHeld] = useState<boolean>(false);
-
-  const startPushToTalk = useCallback(() => {
-    if (!callActiveRef.current || zeroPinOverlayRef.current || isAudioSpeaking) return;
-    audioPlaybackController.unlockAudio();
-    setIsPushToTalkHeld(true);
-    setIsMicMuted(false);
-    isMicMutedRef.current = false;
-    continuousAudioEngine.setZeroPinMuted(false);
-    continuousAudioEngine.startAlwaysOnMic(languageRef.current || "en", activeStepName);
-    addLog("asr", "🎙️ Push-to-Talk active: recording speech for Whisper ASR...");
-  }, [isAudioSpeaking, activeStepName, addLog]);
-
-  const stopPushToTalk = useCallback(() => {
-    if (!isPushToTalkHeld) return;
-    setIsPushToTalkHeld(false);
-    addLog("asr", "🎙️ Push-to-Talk released.");
-  }, [isPushToTalkHeld, addLog]);
-
   // Toggle mic
   const toggleMic = () => {
-    audioPlaybackController.unlockAudio();
     const nextState = !isMicMuted;
     setIsMicMuted(nextState);
     continuousAudioEngine.setZeroPinMuted(nextState);
     if (nextState) {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch {}
+      }
       addLog("caller", "Microphone muted.");
     } else {
       continuousAudioEngine.startAlwaysOnMic(language || "en", activeStepName);
+      startSpeechRecognition();
       addLog("caller", "Microphone unmuted (live).");
     }
   };
@@ -2160,13 +1171,10 @@ export const PhoneSimulatorPage: React.FC = () => {
   // Replay a prompt's audio
   const handleReplayPrompt = (audioUrl?: string | null, text?: string) => {
     audioPlaybackController.unlockAudio();
-    const playbackUrl = resolvePlayableSimulatorAudioUrl(audioUrl, language || "en");
-    if (playbackUrl) {
-      audioPlaybackController.play(playbackUrl, text || currentPrompt).catch(() => {
-        audioPlaybackController.playToneIndicator().catch(() => {});
-      });
-    } else {
-      audioPlaybackController.playToneIndicator().catch(() => {});
+    if (audioUrl) {
+      audioPlaybackController.play(audioUrl, text || currentPrompt).catch(() => {});
+    } else if (text) {
+      audioPlaybackController.speakText(text).catch(() => {});
     }
   };
 
@@ -2175,11 +1183,7 @@ export const PhoneSimulatorPage: React.FC = () => {
     audioPlaybackController.unlockAudio();
     setTestAudioStatus("Testing sound...");
     try {
-      const testUrl = resolvePlayableSimulatorAudioUrl(
-        resolveSimulatorPrompt("welcome", "twi"),
-        "twi"
-      );
-      const ok = await audioPlaybackController.play(testUrl || "", "Akwaaba Ɔkwankyerɛfo Pa.");
+      const ok = await audioPlaybackController.play("/audio/Welcome_prompt_01.mp3", "Welcome to Okwankyerɛfo Pa.");
       if (ok) {
         setTestAudioStatus("Audio playing successfully!");
       } else {
@@ -2235,13 +1239,6 @@ export const PhoneSimulatorPage: React.FC = () => {
               }`}
             />
             <span>{isAudioSpeaking ? "Audio Speaking" : "Audio Ready"}</span>
-          </div>
-
-          <div className="bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 text-slate-300">
-            <span className="text-slate-500">Mode </span>
-            {interactionMode === "UNSELECTED" ? "Awaiting meaningful input" : interactionMode.replaceAll("_", " ")}
-            <span className="mx-1.5 text-slate-600">·</span>
-            <span className="text-slate-500">State </span>{conversationState}
           </div>
 
           <button
@@ -2302,32 +1299,6 @@ export const PhoneSimulatorPage: React.FC = () => {
                 )}
               </div>
 
-              {/* Active AI Reasoning Loader Indicator */}
-              {isAiReasoning && (
-                <div className="bg-emerald-950/70 rounded-xl p-2.5 border border-emerald-500/50 text-emerald-200 flex items-center justify-between gap-2 shadow-lg shadow-emerald-950/50 animate-pulse">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
-                    <div>
-                      <div className="text-[11px] font-semibold text-emerald-300 flex items-center gap-1.5">
-                        <Brain className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-                        <span>Gemini Reasoning</span>
-                        <span className="font-mono text-xs text-emerald-400">({reasoningSec}s / 20s)</span>
-                      </div>
-                      <p className="text-[10px] text-emerald-400/80 leading-tight">
-                        {reasoningSec >= 10
-                          ? "Stalling comfort prompt delivered: evaluating speech..."
-                          : "Processing voice, context & arithmetic..."}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-900/80 border border-emerald-700/60 text-emerald-300">
-                      {Math.max(0, 20 - reasoningSec)}s left
-                    </span>
-                  </div>
-                </div>
-              )}
-
               {/* Active Prompt Card with Replay Button */}
               <div className="bg-slate-950/80 rounded-xl p-2 border border-slate-800/80 flex items-start justify-between gap-2 text-slate-200">
                 <div className="flex-1">
@@ -2385,40 +1356,17 @@ export const PhoneSimulatorPage: React.FC = () => {
             <div className="w-full flex items-center justify-between mt-3 px-1">
               <button
                 type="button"
-                onMouseDown={startPushToTalk}
-                onMouseUp={stopPushToTalk}
-                onTouchStart={startPushToTalk}
-                onTouchEnd={stopPushToTalk}
                 onClick={toggleMic}
                 disabled={!callActive || zeroPinOverlay}
-                title="Hold down for Push-to-Talk (Whisper ASR) or click to toggle mic"
-                aria-label={isPushToTalkHeld ? "Release to stop speaking" : isMicMuted ? "Unmute microphone" : "Mute microphone"}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all border select-none ${
-                  isPushToTalkHeld
-                    ? "bg-rose-950/80 border-rose-500/90 text-rose-200 ring-2 ring-rose-500/50 scale-105 shadow-md shadow-rose-500/20"
-                    : isAudioSpeaking
-                    ? "bg-amber-950/40 border-amber-500/40 text-amber-300"
-                    : isMicMuted
-                    ? "bg-slate-800/80 border-slate-600/50 text-slate-300 hover:bg-slate-800"
-                    : "bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/60 shadow-sm shadow-emerald-500/20"
+                aria-label={isMicMuted ? "Unmute microphone" : "Mute microphone"}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors border ${
+                  isMicMuted
+                    ? "bg-rose-950/40 border-rose-500/50 text-rose-300 hover:bg-rose-900/60"
+                    : "bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/60"
                 } disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer`}
               >
-                {isPushToTalkHeld ? (
-                  <Radio className="w-3.5 h-3.5 animate-spin text-rose-400" />
-                ) : isAudioSpeaking || isMicMuted ? (
-                  <MicOff className="w-3.5 h-3.5" />
-                ) : (
-                  <Mic className={`w-3.5 h-3.5 ${callActive ? "animate-pulse text-emerald-400" : ""}`} />
-                )}
-                <span>
-                  {isPushToTalkHeld
-                    ? "Speaking (PTT)..."
-                    : isAudioSpeaking
-                    ? "Mic OFF (Audio Playing)"
-                    : isMicMuted
-                    ? "Push-to-Talk / Mic OFF"
-                    : "Push-to-Talk / Mic ON"}
-                </span>
+                {isMicMuted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+                <span>{isMicMuted ? "Mic Muted" : "Mic Live"}</span>
               </button>
 
               <div className="text-[11px] text-slate-400 font-mono">
@@ -2453,32 +1401,17 @@ export const PhoneSimulatorPage: React.FC = () => {
 
             {/* 4x3 Keypad Grid with Dual-Tone Audio */}
             <div className="w-full grid grid-cols-3 gap-2 mt-4">
-              {KEYPAD_BUTTONS.map(({ digit, sub }) => {
-                const isPulsing = activeKeypadPulse === digit;
-                return (
-                  <button
-                    key={digit}
-                    type="button"
-                    onClick={() => handleKeypadPress(digit)}
-                    className={`border rounded-xl py-2 flex flex-col items-center justify-center shadow transition-all cursor-pointer select-none ${
-                      isPulsing
-                        ? "bg-emerald-500 text-white border-emerald-300 ring-4 ring-emerald-400/80 scale-105 shadow-lg shadow-emerald-500/50"
-                        : "bg-slate-900 hover:bg-slate-800 active:bg-emerald-700 active:text-white text-slate-100 border-slate-800"
-                    }`}
-                  >
-                    <span className="text-base font-bold leading-none">{digit}</span>
-                    {sub && (
-                      <span
-                        className={`text-[9px] uppercase mt-0.5 ${
-                          isPulsing ? "text-emerald-100 font-bold" : "text-slate-400"
-                        }`}
-                      >
-                        {sub}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+              {KEYPAD_BUTTONS.map(({ digit, sub }) => (
+                <button
+                  key={digit}
+                  type="button"
+                  onClick={() => handleKeypadPress(digit)}
+                  className="bg-slate-900 hover:bg-slate-800 active:bg-emerald-700 active:text-white text-slate-100 border border-slate-800 rounded-xl py-2 flex flex-col items-center justify-center shadow transition-all cursor-pointer select-none"
+                >
+                  <span className="text-base font-bold leading-none">{digit}</span>
+                  {sub && <span className="text-[9px] text-slate-400 uppercase mt-0.5">{sub}</span>}
+                </button>
+              ))}
             </div>
 
             {/* Bottom Mic Grille */}
@@ -2492,132 +1425,6 @@ export const PhoneSimulatorPage: React.FC = () => {
 
         {/* ════ RIGHT COLUMN: Interactive Chat & Voice ASR Terminal (Col 7) ════ */}
         <div className="lg:col-span-7 flex flex-col space-y-4">
-          {/* MoMo Cash-Out (Withdrawal) & Agent Flow Test Control */}
-          <div className="bg-gradient-to-r from-amber-950/40 via-slate-900 to-emerald-950/40 border border-amber-500/30 rounded-2xl p-3 shadow-md">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
-              <div className="flex items-center gap-2">
-                <span className="text-base">🏧</span>
-                <span className="text-xs font-bold text-amber-300">
-                  MoMo Cash-Out (Withdrawal) &amp; Agent Approval Flow
-                </span>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                  cashOutActive
-                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse"
-                    : "bg-slate-800 text-slate-400 border border-slate-700"
-                }`}>
-                  {cashOutActive ? `🟢 Allow Cash-Out Active (15m)` : `⚪ Cash-Out Inactive`}
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2 text-xs">
-                <span className="text-slate-400 text-[11px]">Wallet Balance:</span>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const nextBal = walletBalance === 30.0 ? 250.0 : 30.0;
-                    setWalletBalance(nextBal);
-                    await api.setCashOutWalletBalance({ callerPhone: callerNumber, balance: nextBal });
-                    addLog("state", `Set test wallet balance for ${callerNumber} to GH₵ ${nextBal.toFixed(2)}`);
-                  }}
-                  className="px-2 py-0.5 rounded-lg bg-amber-900/60 hover:bg-amber-800 text-amber-200 border border-amber-600/40 font-mono text-[11px] font-bold transition-colors cursor-pointer"
-                  title="Click to toggle between GH₵30.00 and GH₵250.00"
-                >
-                  GH₵ {walletBalance.toFixed(2)} {walletBalance === 30.0 ? "(Tight/Shortage)" : "(Sufficient)"}
-                </button>
-              </div>
-            </div>
-
-            {/* Cash-Out Action Chips */}
-            <div className="flex flex-wrap gap-1.5">
-              <button
-                type="button"
-                onClick={() => simulateVoiceUtterance("Mepɛ sɛ meyi sika")}
-                disabled={isSimulatingSpeech}
-                title="Twi: Request to withdraw cash at MoMo vendor"
-                className="px-2.5 py-1 text-xs bg-amber-950/80 hover:bg-amber-900 active:bg-amber-700 text-amber-200 rounded-lg border border-amber-500/40 font-medium transition-colors cursor-pointer disabled:opacity-40"
-              >
-                🇬🇭 &ldquo;Mepɛ sɛ meyi sika&rdquo; (Twi Cash-Out)
-              </button>
-
-              <button
-                type="button"
-                onClick={() => simulateVoiceUtterance("I want to withdraw 30 cedis")}
-                disabled={isSimulatingSpeech}
-                title="English: Request to withdraw 30 Cedis"
-                className="px-2.5 py-1 text-xs bg-amber-950/80 hover:bg-amber-900 active:bg-amber-700 text-amber-200 rounded-lg border border-amber-500/40 font-medium transition-colors cursor-pointer disabled:opacity-40"
-              >
-                🇬🇧 &ldquo;I want to withdraw 30 cedis&rdquo;
-              </button>
-
-              <button
-                type="button"
-                onClick={() => simulateVoiceUtterance("Yes")}
-                disabled={isSimulatingSpeech}
-                title="Demonstrate that assistant balance checking is unavailable"
-                className="px-2.5 py-1 text-xs bg-slate-950 hover:bg-slate-800 text-slate-200 rounded-lg border border-slate-700 transition-colors cursor-pointer disabled:opacity-40"
-              >
-                ✓ &ldquo;Yes, check balance (unavailable)&rdquo;
-              </button>
-
-              <button
-                type="button"
-                onClick={() => simulateVoiceUtterance("No")}
-                disabled={isSimulatingSpeech}
-                title="Skip balance check and wait for agent"
-                className="px-2.5 py-1 text-xs bg-slate-950 hover:bg-slate-800 text-slate-200 rounded-lg border border-slate-700 transition-colors cursor-pointer disabled:opacity-40"
-              >
-                ✕ &ldquo;No, skip&rdquo;
-              </button>
-
-              <button
-                type="button"
-                onClick={() => simulateVoiceUtterance("1234")}
-                disabled={isSimulatingSpeech}
-                title="Spoken 4-digit sandbox PIN"
-                className="px-2.5 py-1 text-xs bg-emerald-950/80 hover:bg-emerald-900 text-emerald-200 rounded-lg border border-emerald-500/40 font-mono transition-colors cursor-pointer disabled:opacity-40"
-              >
-                🔢 Say PIN &ldquo;1234&rdquo;
-              </button>
-
-              <button
-                type="button"
-                onClick={() => simulateVoiceUtterance("Yes approve it my PIN is 1234")}
-                disabled={isSimulatingSpeech}
-                title="Early PIN Blurt Safeguard test"
-                className="px-2.5 py-1 text-xs bg-rose-950/80 hover:bg-rose-900 text-rose-200 rounded-lg border border-rose-500/40 font-medium transition-colors cursor-pointer disabled:opacity-40"
-              >
-                ⚡ Early Blurt: &ldquo;My PIN is 1234&rdquo;
-              </button>
-
-              <button
-                type="button"
-                onClick={() => simulateVoiceUtterance("The agent is done")}
-                disabled={isSimulatingSpeech}
-                title="Tell AI agent has finished entering withdrawal"
-                className="px-2.5 py-1 text-xs bg-sky-950/80 hover:bg-sky-900 text-sky-200 rounded-lg border border-sky-500/40 font-medium transition-colors cursor-pointer disabled:opacity-40"
-              >
-                📲 &ldquo;The agent is done&rdquo;
-              </button>
-
-              <button
-                type="button"
-                onClick={async () => {
-                  const sim = await api.simulateAgentCashOutRequest({
-                    callerPhone: callerNumber,
-                    agentCode: "284910",
-                    agentName: "Kofi Mensah Enterprise (MoMo Agent)",
-                    amount: 50.0,
-                  });
-                  setPendingAgentRequest(sim.request);
-                  addLog("state", `⚡ MoMo Agent terminal pushed request: GHS ${sim.request.amount} by ${sim.request.agentName}`);
-                }}
-                className="px-2.5 py-1 text-xs bg-teal-950/90 hover:bg-teal-900 text-teal-200 rounded-lg border border-teal-500/40 font-medium transition-colors cursor-pointer"
-              >
-                🏢 Push Agent Request (GH₵50)
-              </button>
-            </div>
-          </div>
-
           {/* Quick Ghanaian Speech Action Chips */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 shadow-sm">
             <div className="flex items-center justify-between mb-2">
@@ -2630,21 +1437,14 @@ export const PhoneSimulatorPage: React.FC = () => {
 
             <div className="flex flex-wrap gap-1.5">
               {[
-                { label: "1 (One)", desc: "Say 'One' -> Mapped to DTMF 1" },
-                { label: "2 (Two)", desc: "Say 'Two' -> Mapped to DTMF 2" },
-                { label: "3 (Three)", desc: "Say 'Three' -> Mapped to DTMF 3" },
-                { label: "English", desc: "Select English (DTMF 1)" },
-                { label: "Twi", desc: "Select Akan Twi (DTMF 2)" },
-                { label: "Mobile Money", desc: "Service 1 (MoMo)" },
-                { label: "MTN", desc: "Network 1 (MTN)" },
-                { label: "Send money", desc: "Action 1 (Send Money)" },
-                { label: "0553838464", desc: "10-Digit Recipient Phone" },
-                { label: "50 cedis", desc: "Amount 50 Cedis" },
-                { label: "Confirm", desc: "Confirm Safe Transfer (1)" },
-                { label: "Baako", desc: "Twi 1 (Baako)" },
-                { label: "Mmienu", desc: "Twi 2 (Mmienu)" },
+                { label: "Mepɛ sɛ mesoma 50 cedis", desc: "Twi send 50 Cedis" },
+                { label: "Send 100 cities to 0244123456", desc: "Accent 'cities' -> 'cedis'" },
+                { label: "1 bar", desc: "Slang: 1 bar = 10 GHS" },
+                { label: "Baako", desc: "Twi: 1 (English menu)" },
+                { label: "Mmienu", desc: "Twi: 2 (Twi menu)" },
                 { label: "Aane, pene so", desc: "Twi: Confirm transfer" },
-                { label: "Mepɛ sɛ mesoma 50 cedis", desc: "Twi: Send 50 Cedis" },
+                { label: "Dabi, san akyi", desc: "Twi: Back / Cancel" },
+                { label: "0244123456", desc: "10-Digit Recipient" },
               ].map((chip) => (
                 <button
                   key={chip.label}

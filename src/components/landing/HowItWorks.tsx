@@ -1,9 +1,6 @@
 import React, { useState } from "react";
 import { Play, Pause, Volume2, PhoneCall, Globe, CheckCheck, Smartphone, Receipt, ArrowRight } from "lucide-react";
 import { useThemeLanguage } from "../../context/ThemeLanguageContext";
-import { getRecordingByPromptKey } from "../../audio/recordingRegistry";
-
-const twiWelcomeRecording = getRecordingByPromptKey("welcome");
 
 export const HowItWorks: React.FC = () => {
   const { t } = useThemeLanguage();
@@ -88,7 +85,7 @@ export const HowItWorks: React.FC = () => {
                 </h3>
               </div>
               <p className="text-xs text-slate-600">
-                Listen to an authentic Twi studio prompt. English prompts use speech synthesis where available.
+                Listen to the real English and Akan Twi audio prompts recorded for Ghanaian phone users.
               </p>
             </div>
             <div className="text-xs font-mono font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200">
@@ -101,15 +98,19 @@ export const HowItWorks: React.FC = () => {
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">English Track</span>
-                <div className="font-bold text-xs text-slate-900">Speech synthesis fallback</div>
-                <div className="text-[11px] text-slate-500 font-mono mt-0.5">No supplied English recordings are available.</div>
+                <div className="font-bold text-xs text-slate-900">1. Welcome &amp; Language Choice</div>
+                <div className="text-[11px] text-slate-500 font-mono mt-0.5">&quot;Welcome to Ɔkwankyerɛfo Pa...&quot;</div>
               </div>
               <button
-                disabled
-                className="p-3 bg-slate-300 text-white rounded-xl shadow-xs shrink-0 ml-3 cursor-not-allowed"
-                aria-label="English welcome recording unavailable"
+                onClick={() => handleToggleAudio("/audio/Welcome_prompt_01.mp3")}
+                className="p-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-xs transition-colors shrink-0 ml-3"
+                aria-label="Play English welcome audio"
               >
-                <Play className="w-4 h-4 fill-current" />
+                {playingAudio === "/audio/Welcome_prompt_01.mp3" ? (
+                  <Pause className="w-4 h-4" />
+                ) : (
+                  <Play className="w-4 h-4 fill-current" />
+                )}
               </button>
             </div>
 
@@ -119,16 +120,15 @@ export const HowItWorks: React.FC = () => {
                 <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 font-semibold">
                   Akan Twi Track
                 </span>
-                <div className="font-bold text-xs text-slate-900">Twi Welcome</div>
-                <div className="text-[11px] text-slate-500 font-mono mt-0.5">{twiWelcomeRecording?.spokenText}</div>
+                <div className="font-bold text-xs text-slate-900">6. Spoken KYC Name Confirmation</div>
+                <div className="text-[11px] text-slate-500 font-mono mt-0.5">&quot;Me pɛ sɛ wo bɛ sendi sika kɔ...&quot;</div>
               </div>
               <button
-                onClick={() => twiWelcomeRecording && handleToggleAudio(twiWelcomeRecording.url)}
-                disabled={!twiWelcomeRecording}
+                onClick={() => handleToggleAudio("/audio/Twi/Audio_prompt_twi_06.mp3")}
                 className="p-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl shadow-xs transition-colors shrink-0 ml-3"
-                aria-label="Play Akan Twi welcome audio"
+                aria-label="Play Akan Twi KYC confirmation audio"
               >
-                {playingAudio === twiWelcomeRecording?.url ? (
+                {playingAudio === "/audio/Twi/Audio_prompt_twi_06.mp3" ? (
                   <Pause className="w-4 h-4" />
                 ) : (
                   <Play className="w-4 h-4 fill-current" />

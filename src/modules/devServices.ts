@@ -7,7 +7,6 @@ import fs from "fs";
 import path from "path";
 import { execSync } from "child_process";
 import { PRESET_SCENARIOS, VoiceScenario } from "./scenarioRecorder";
-import { resolvePrompt, resolvePromptText } from "./ttsService";
 
 export interface ChangedFile {
   path: string;
@@ -138,33 +137,16 @@ export function generateVoiceXmlStep(
   sampleRecipientName = "Kwame Boateng",
   sampleAmount = 50
 ): VoiceXmlStepSnapshot {
-  const promptKeyByStep: Record<number, string> = {
-    1: "welcome",
-    2: "service_select",
-    3: "enter_recipient",
-    4: "recipient_verify",
-    5: "enter_amount",
-    7: "pin_handoff",
-  };
-  const promptKey = promptKeyByStep[stepNumber];
-  const audioPath = promptKey ? resolvePrompt(promptKey, language) : null;
-  const audioUrl = audioPath ? `${baseUrl}${audioPath}` : "";
-  const promptText = promptKey ? resolvePromptText(promptKey, language) : null;
-  const escapeXml = (value: string) => value.replace(/[<>&'"]/g, (character) => ({
-    "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;",
-  })[character] || character);
-  const promptContent = audioUrl
-    ? `<Play url="${audioUrl}"/>`
-    : promptText
-    ? `<Say voice="female">${escapeXml(promptText)}</Say>`
-    : "";
+  const isEn = language === "en";
+  const audioBase = isEn ? `${baseUrl}/audio/English` : `${baseUrl}/audio/Twi`;
+  const prefix = isEn ? "Audio_prompt" : "Audio_prompt_twi";
 
   switch (stepNumber) {
     case 1:
       return {
         stepNumber: 1,
         stepName: "1. Inbound Welcome & Language Selection Gate",
-        promptAudioUrl: audioUrl,
+        promptAudioUrl: isEn ? `${baseUrl}/audio/Welcome_prompt_01.mp3` : `${audioBase}/Audio_prompt_twi_02.mp3`,
         inputWindowSec: 2, // Barge-in window
         dtmfGrammar: ["1 (English)", "2 (Akan Twi)", "0 (Exit)"],
         zeroPinMuted: false,
@@ -172,7 +154,7 @@ export function generateVoiceXmlStep(
 <Response>
   <!-- Step 1: Language Gate with Instant DTMF Barge-In -->
   <GetDigits timeout="2" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?retry=0">
-    ${promptContent}
+    <Play url="${isEn ? `${baseUrl}/audio/Welcome_prompt_01.mp3` : `${audioBase}/Audio_prompt_twi_02.mp3`}"/>
   </GetDigits>
   <!-- Dual-Track Speech Fallback Engine -->
   <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=language-selection&amp;retry=0"/>
@@ -183,13 +165,13 @@ export function generateVoiceXmlStep(
       return {
         stepNumber: 2,
         stepName: "2. Language Confirmation Track",
-        promptAudioUrl: audioUrl,
+        promptAudioUrl: `${audioBase}/${prefix}_02.mp3`,
         inputWindowSec: 3,
         dtmfGrammar: ["1 (Continue)", "8 (Go Back)", "0 (Exit)"],
         zeroPinMuted: false,
         xml: `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  ${promptContent}
+  <Play url="${audioBase}/${prefix}_02.mp3"/>
   <Redirect>${baseUrl}/recipient-input</Redirect>
 </Response>`,
       };
@@ -198,7 +180,7 @@ export function generateVoiceXmlStep(
       return {
         stepNumber: 3,
         stepName: "3. Recipient Phone Number Entry",
-        promptAudioUrl: audioUrl,
+        promptAudioUrl: `${audioBase}/${prefix}_06.mp3`,
         inputWindowSec: 40, // 40-second generous window for elderly
         dtmfGrammar: ["0-9 (10-digit Ghanaian Phone Number)", "# (Submit)", "8 (Back)", "0 (Exit)"],
         zeroPinMuted: false,
@@ -206,7 +188,7 @@ export function generateVoiceXmlStep(
 <Response>
   <!-- Step 3: Recipient Phone (Generous 40s input window for elderly callers) -->
   <GetDigits timeout="40" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/recipient-input">
-    ${promptContent}
+    <Play url="${audioBase}/${prefix}_06.mp3"/>
   </GetDigits>
   <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="12" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=recipient-input"/>
 </Response>`,
@@ -216,7 +198,7 @@ export function generateVoiceXmlStep(
       return {
         stepNumber: 4,
         stepName: "4. Spoken KYC Recipient Name Readback",
-        promptAudioUrl: audioUrl,
+        promptAudioUrl: `${audioBase}/${prefix}_08.mp3`,
         inputWindowSec: 10,
         dtmfGrammar: ["1 (Confirm Name)", "2 (Incorrect Name / Retry)", "9 (Repeat)", "0 (Exit)"],
         zeroPinMuted: false,
@@ -224,7 +206,7 @@ export function generateVoiceXmlStep(
 <Response>
   <!-- Step 4: Spoken KYC Readback for ${sampleRecipientName} before money moves -->
   <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/safe-confirmation">
-    ${promptContent}
+    <Play url="${audioBase}/${prefix}_08.mp3"/>
   </GetDigits>
 </Response>`,
       };
@@ -233,7 +215,7 @@ export function generateVoiceXmlStep(
       return {
         stepNumber: 5,
         stepName: "5. Cedi Amount Input",
-        promptAudioUrl: audioUrl,
+        promptAudioUrl: `${audioBase}/${prefix}_09.mp3`,
         inputWindowSec: 30, // 30-second window for amount
         dtmfGrammar: ["0-9 (Amount in Cedis)", "* (Decimal for Pesewas)", "# (Submit)", "8 (Back)", "0 (Exit)"],
         zeroPinMuted: false,
@@ -241,7 +223,7 @@ export function generateVoiceXmlStep(
 <Response>
   <!-- Step 5: Amount Entry (30s window, star key for pesewas) -->
   <GetDigits timeout="30" finishOnKey="#" numDigits="8" callbackUrl="${baseUrl}/amount-input">
-    ${promptContent}
+    <Play url="${audioBase}/${prefix}_09.mp3"/>
   </GetDigits>
   <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="8" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=amount-input"/>
 </Response>`,
@@ -251,15 +233,15 @@ export function generateVoiceXmlStep(
       return {
         stepNumber: 6,
         stepName: "6. Safe Transaction Summary & Readback",
-        promptAudioUrl: "",
+        promptAudioUrl: `${audioBase}/${prefix}_10.mp3`,
         inputWindowSec: 10,
         dtmfGrammar: ["1 (Authorize Handset Handoff)", "2 (Cancel)", "9 (Repeat)", "0 (Exit)"],
         zeroPinMuted: false,
         xml: `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <!-- Step 6: Confirmation uses dynamic values; no static recording is used. -->
+  <!-- Step 6: Confirmation of GH₵ ${sampleAmount} to ${sampleRecipientName} -->
   <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/zero-pin-handoff">
-    <Say voice="female">Confirm ${sampleAmount} Ghana cedis to ${escapeXml(sampleRecipientName)}. Press 1 to continue or 2 to cancel.</Say>
+    <Play url="${audioBase}/${prefix}_10.mp3"/>
   </GetDigits>
 </Response>`,
       };
@@ -268,7 +250,7 @@ export function generateVoiceXmlStep(
       return {
         stepNumber: 7,
         stepName: "7. Zero-PIN Security Boundary & Handset Handoff",
-        promptAudioUrl: audioUrl,
+        promptAudioUrl: `${audioBase}/${prefix}_11.mp3`,
         inputWindowSec: 45, // Waiting for telco USSD prompt on screen
         dtmfGrammar: ["NONE (Microphone completely muted; PIN entered strictly on screen)"],
         zeroPinMuted: true,
@@ -277,8 +259,8 @@ export function generateVoiceXmlStep(
   <!-- Step 7: ZERO-PIN SECURITY GATE -->
   <!-- Call audio never asks for PIN. Telephony microphones muted. -->
   <!-- Out-of-band telco USSD payment prompt pushed directly to mobile screen. -->
+  <Play url="${audioBase}/${prefix}_11.mp3"/>
   <!-- Redirect to poll payment status without taking voice input -->
-  ${promptContent}
   <Redirect>${baseUrl}/safe-outcome?ref=OKP-PENDING</Redirect>
 </Response>`,
       };
@@ -287,7 +269,7 @@ export function generateVoiceXmlStep(
       return {
         stepNumber: 8,
         stepName: "8. MTN MoMo Payment Status Polling",
-        promptAudioUrl: "",
+        promptAudioUrl: `${audioBase}/${prefix}_10.mp3`,
         inputWindowSec: 5,
         dtmfGrammar: ["NONE (Background Telco Polling)"],
         zeroPinMuted: true,
@@ -302,7 +284,7 @@ export function generateVoiceXmlStep(
       return {
         stepNumber: 9,
         stepName: "9. Spoken Transaction Receipt & Reference ID",
-        promptAudioUrl: "",
+        promptAudioUrl: `${audioBase}/${prefix}_12.mp3`,
         inputWindowSec: 8,
         dtmfGrammar: ["1 (Main Menu)", "9 (Repeat Receipt)", "0 (Hang Up)"],
         zeroPinMuted: false,
@@ -310,7 +292,7 @@ export function generateVoiceXmlStep(
 <Response>
   <!-- Step 9: Auditable Spoken Receipt -->
   <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/voice-menu">
-    <Say voice="female">Transaction completed. Reference ${escapeXml(sampleRecipientName)}.</Say>
+    <Play url="${audioBase}/${prefix}_12.mp3"/>
   </GetDigits>
   <Hangup/>
 </Response>`,
@@ -321,7 +303,7 @@ export function generateVoiceXmlStep(
       return {
         stepNumber: 10,
         stepName: "10. Safe Call Completion & Session Teardown",
-        promptAudioUrl: "",
+        promptAudioUrl: `${audioBase}/${prefix}_12.mp3`,
         inputWindowSec: 0,
         dtmfGrammar: ["NONE (Call Ended)"],
         zeroPinMuted: false,

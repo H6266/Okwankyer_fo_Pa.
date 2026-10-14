@@ -10,14 +10,60 @@
  */
 
 import fs from "fs";
+import path from "path";
+import { AUDIO_CATALOG } from "../../../audio/catalog";
 import { TTSProvider, TtsSynthesisRequest, TtsSynthesisResponse } from "./ttsProvider";
 import { localGhanaianTtsProvider } from "./localGhanaianTts";
 
 export class StudioCatalogProvider implements TTSProvider {
+  private catalog = new Map<string, string>(); // normalizedText -> absoluteFilePath
+
+  constructor() {
+    this.initCatalog();
+  }
+
+  private normalizeText(text: string): string {
+    return text
+      .toLowerCase()
+      .replace(/[^\w\sɛɔƐƆ]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  private initCatalog(): void {
+    const cwd = process.cwd();
+    for (const item of AUDIO_CATALOG) {
+      const fullPath = path.resolve(cwd, "audio", item.filename);
+      if (fs.existsSync(fullPath)) {
+        this.catalog.set(this.normalizeText(item.id), fullPath);
+        this.catalog.set(this.normalizeText(item.title), fullPath);
+        if (item.spokenText) {
+          this.catalog.set(this.normalizeText(item.spokenText), fullPath);
+        }
+      }
+    }
+
+    // Common short aliases
+    const registerAlias = (alias: string, relativePath: string) => {
+      const full = path.resolve(cwd, relativePath);
+      if (fs.existsSync(full)) {
+        this.catalog.set(this.normalizeText(alias), full);
+      }
+    };
+
+    registerAlias("welcome", "audio/Welcome_prompt_01.mp3");
+    registerAlias("akwaaba", "audio/Twi/Welcome_prompt_01.mp3");
+    registerAlias("select network", "audio/English/Audio_prompt_03.mp3");
+    registerAlias("enter recipient", "audio/English/Audio_prompt_06.mp3");
+    registerAlias("enter amount", "audio/English/Audio_prompt_07.mp3");
+    registerAlias("confirm transaction", "audio/English/Audio_prompt_08.mp3");
+  }
+
   /**
    * Checks if an exact or semantic matching human recording exists in the catalog.
    */
   public hasMatch(text: string, language?: string): boolean {
+    if (this.catalog.has(this.normalizeText(text))) return true;
     return localGhanaianTtsProvider.findPromptMatch(text, language) !== null;
   }
 
@@ -25,20 +71,24 @@ export class StudioCatalogProvider implements TTSProvider {
    * Retrieves the authentic audio file for a catalog prompt.
    */
   public async synthesize(request: TtsSynthesisRequest): Promise<TtsSynthesisResponse> {
-    const filePath = localGhanaianTtsProvider.findPromptMatch(request.text, request.language);
+    const key = this.normalizeText(request.text);
+    let filePath = this.catalog.get(key);
+    if (!filePath || !fs.existsSync(filePath)) {
+      filePath = localGhanaianTtsProvider.findPromptMatch(request.text, request.language) || undefined;
+    }
 
     if (!filePath || !fs.existsSync(filePath)) {
       throw new Error(`STUDIO_CATALOG_MISS: No pre-recorded studio audio for: "${request.text}"`);
     }
 
     const buffer = fs.readFileSync(filePath);
-    const mimeType = filePath.endsWith(".m4a") ? "audio/mp4" : filePath.endsWith(".mp3") ? "audio/mpeg" : "audio/wav";
+    const mimeType = filePath.endsWith(".wav") ? "audio/wav" : "audio/mpeg";
 
     return {
       audioBuffer: buffer,
       audioBase64: buffer.toString("base64"),
       audioMimeType: mimeType,
-      durationEstimateSec: filePath.endsWith(".m4a") ? 3.5 : Math.max(1, Math.round(buffer.length / 16000)),
+      durationEstimateSec: Math.max(1, Math.round(buffer.length / 16000)),
       providerUsed: "authentic-studio-catalog-recording",
     };
   }

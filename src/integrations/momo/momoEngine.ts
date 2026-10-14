@@ -33,7 +33,6 @@ import {
   generateReferenceId,
   MOMO_PRODUCTION_BASE_URL,
   MOMO_SANDBOX_BASE_URL,
-  normalizeConfigValue,
 } from "./config";
 
 export class MoMoEngine {
@@ -44,23 +43,19 @@ export class MoMoEngine {
 
   public readonly knownKeys = {
     primary:
-      normalizeConfigValue(
-        process.env.MOMO_PRIMARY_KEY ||
-        process.env.MTN_API_PRIMARY_KEY ||
-        process.env.mtn_api_primary_key ||
-        process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY ||
-        process.env.MOMO_SUBSCRIPTION_KEY ||
-        ""
-      ),
+      process.env.MOMO_PRIMARY_KEY ||
+      process.env.MTN_API_PRIMARY_KEY ||
+      process.env.mtn_api_primary_key ||
+      process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY ||
+      process.env.MOMO_SUBSCRIPTION_KEY ||
+      "",
     secondary:
-      normalizeConfigValue(
-        process.env.MOMO_SECONDARY_KEY ||
-        process.env.MTN_API_SECONDARY_KEY ||
-        process.env.mtn_api_secondary_key ||
-        process.env.MOMO_SUBSCRIPTION_KEY_SECONDARY ||
-        process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY ||
-        ""
-      ),
+      process.env.MOMO_SECONDARY_KEY ||
+      process.env.MTN_API_SECONDARY_KEY ||
+      process.env.mtn_api_secondary_key ||
+      process.env.MOMO_SUBSCRIPTION_KEY_SECONDARY ||
+      process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY ||
+      "",
     activeKeyType: "primary" as "primary" | "secondary" | "custom",
   };
 

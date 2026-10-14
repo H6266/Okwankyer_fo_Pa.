@@ -17,7 +17,6 @@ import { audioQualityAnalyzer, AudioQualityReport } from "./audioQuality";
 import { ghanaNlpAsrService } from "../../../services/ghanaNlpAsrService";
 import { geminiClient } from "../../../services/geminiClient";
 import { offlineSpeechRecognizer } from "./offlineAsrEngine";
-import { ghanaAsrProvider } from "./ghanaAsrProvider";
 import { formatSpokenNumbersAsDigits } from "../../../domain/numberFormatter";
 import { isAcousticSystemEcho, stripSystemEchoFromTranscript, isBackgroundNoiseOrStatic } from "../../../domain/echoFilter";
 import { isSpokenPinPattern } from "../../../modules/sttService";
@@ -50,7 +49,6 @@ export interface AsrTranscribeOptions {
   languageHint?: string;
   step?: string;
   allowFallback?: boolean;
-  skipEchoFiltering?: boolean;
 }
 
 export class AsrOrchestrator {
@@ -142,35 +140,6 @@ export class AsrOrchestrator {
       fallbackReason = "GHANANLP_UNCONFIGURED: Missing GHANANLP_API_KEY";
     }
 
-    // ── STEP 4B: Local neural ASR fallback ──
-    // Use the real Faster-Whisper worker before cloud/deterministic fallbacks.
-    if (!rawText && allowFallback) {
-      fallbackUsed = true;
-      try {
-        const localLanguageHint: "auto" | "en" | "tw" =
-          resolvedLanguage === "eng" ? "en" : isMixed ? "auto" : "tw";
-
-        const localResult = await ghanaAsrProvider.transcribe(
-          normalized.wavBuffer,
-          "audio/wav",
-          localLanguageHint
-        );
-
-        if (localResult.text && localResult.text.trim()) {
-          rawText = localResult.text.trim();
-          providerUsed = localResult.provider || "faster-whisper-local-neural-asr";
-          // The worker's confidence value is a diagnostic heuristic, not calibrated.
-          confidence = null;
-          confidenceSource = "provider_unreported";
-          auditLogger.log("info", "ASR_ORCHESTRATOR", `Local neural ASR produced a transcript (${providerUsed}).`);
-        }
-      } catch (err: any) {
-        const msg = String(err?.message || "Local neural ASR unavailable");
-        fallbackReason = msg;
-        auditLogger.log("warn", "ASR_ORCHESTRATOR", `Local neural ASR fallback unavailable: ${msg.slice(0, 180)}`);
-      }
-    }
-
     // ── STEP 5: Explicit Fallback Provider (Local Neural / Gemini / Offline) ──
     if (!rawText && allowFallback) {
       fallbackUsed = true;
@@ -198,7 +167,7 @@ export class AsrOrchestrator {
       // 5b. Gemini Multimodal Audio ASR with specialized Ghanaian dialectal & Akan Twi prompt
       if (!rawText && geminiClient.isAvailable()) {
         try {
-          const modelName = AI_CONFIG.transcriptionModel || "gemini-3.8-flash";
+          const modelName = AI_CONFIG.transcriptionModel || "gemini-2.5-flash";
           const geminiPrompt = resolvedLanguage === "eng"
             ? `You are an expert Automatic Speech Recognition (ASR) engine for Ghanaian telephony and mobile money.
 Transcribe this audio verbatim in Ghanaian English.
@@ -280,7 +249,7 @@ Output ONLY the transcription text without commentary.`;
     if (normalizedTranscript) {
       if (isBackgroundNoiseOrStatic(normalizedTranscript, audioQuality.rmsEnergy)) {
         normalizedTranscript = "";
-      } else if (!options.skipEchoFiltering && isAcousticSystemEcho(normalizedTranscript, step)) {
+      } else if (isAcousticSystemEcho(normalizedTranscript, step)) {
         const stripped = stripSystemEchoFromTranscript(normalizedTranscript, step);
         normalizedTranscript = (!stripped || isAcousticSystemEcho(stripped, step)) ? "" : stripped;
       }

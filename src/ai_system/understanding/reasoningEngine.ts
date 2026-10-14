@@ -1,12 +1,12 @@
 /**
- * Ɔkwankyerɛfo Pa - Conversational AI Reasoning Engine (reasoningEngine.ts)
+ * Ɔkwankyerɛfo Pa - Structured AI Reasoning Engine (reasoningEngine.ts)
  *
- * Implements Google Gemini Native Function Calling (Tools) and the Chat Session API
- * using @google/genai, with conversational dialogue and strict deterministic fallback
- * when offline or unavailable.
+ * Implements Google Gemini structured JSON reasoning using @google/genai
+ * with strict deterministic fallback when offline or unavailable.
  */
 
-import { FunctionDeclaration, GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
+import { z } from "zod";
 import {
   AiLanguage,
   EntitySlotMap,
@@ -14,129 +14,50 @@ import {
   StructuredReasoningResponse,
 } from "../core/aiTypes";
 import { AI_CONFIG } from "../core/aiConfig";
+import { inputNormalizer } from "../perception/inputNormalizer";
 import { languageDetector } from "../perception/languageDetector";
 import { aiUnderstanding } from "../core/aiUnderstanding";
 import { geminiClient } from "../../services/geminiClient";
 import { openAiReasoner } from "../../services/openai/openaiReasoner";
 
-export const MOMO_SYSTEM_INSTRUCTION = `You are a voice-optimized accessibility assistant for MTN Mobile Money (MoMo) in Ghana ("Ɔkwankyerɛfo Pa" - The Good Guide). Your job is to converse naturally with callers in Ghanaian English or Akan Twi to help them execute Mobile Money transactions.
-
-Available MoMo Services & Capabilities:
-- Send Money / Transfer (momo.transfer) to any mobile network (MTN, Telecel, AT)
-- Cash Out / Withdraw (momo.cash_out) at a registered agent
-- Check Balance: unavailable through this assistant; direct callers to MTN's official handset channel
-- Buy Airtime (momo.buy_airtime)
-- Buy Internet Data (momo.buy_data)
-
-Core Principles:
-1. You Own the Conversation: Converse naturally, be warm, clear, and concise. Speak in 1-2 short conversational sentences suitable for a phone call.
-2. Bilingual Fluency (English & Akan Twi):
-   - If the caller speaks Akan Twi (or asks to speak Twi), reply naturally in Akan Twi.
-   - If the caller speaks English, reply in English.
-   - Understand local Ghanaian terms and numbering: "cedis", "sika", "hwee", "baako", "mmienu", "aduonum", "ɔha", "apem".
-3. Distinguish Between Sending Money, Withdrawing Money, and Checking Balance:
-   - When a caller asks about their balance, how much they have, or asks to check their account ("how much is in my account", "check balance", "hwɛ me balance ma me", "sika a aka", "what is my balance"), recognize this as a BALANCE INQUIRY (momo.check_balance). Balance checks through this assistant are currently unavailable; tell the caller to dial *170# on their handset. Never ask for or accept a PIN, never invoke a balance tool, and never ask for a transfer amount or recipient number for a balance inquiry.
-   - When a caller says they want to "withdraw money", "cash out", "allow cash out", or in Twi "meyi sika", this is a WITHDRAWAL (momo.cash_out), NOT a transfer!
-   - In Ghana, cashing out at an agent works by enabling 'Allow Cash-Out' on the caller's wallet.
-   - For a withdrawal or cash-out, the caller DOES NOT need to provide a recipient phone number! NEVER ask them "Who are you sending the money to?" when they said they want to withdraw or cash out.
-   - When the caller asks to withdraw money or cash out, invoke the 'allow_cash_out' or 'process_cash_out' tool with the amount mentioned.
-4. Conversational Context & Mental Math:
-   - Perform mental math seamlessly: e.g. "the bill is 100cedis but i have 90 send so send half of my money to him" means the caller wants to send half of 90 = 45 cedis!
-   - "a tenth of 100 cedis" is 10 cedis; "half of 50" is 25 cedis; "20 plus 30" is 50 cedis.
-   - Retain details across multiple turns. If the caller gave the amount in turn 1 and gives the phone number in turn 2, remember both!
-   - Handle revisions and corrections gracefully: e.g. "Actually send 20 instead of 50" updates the amount without losing the recipient.
-5. Messy Speech & Voice Robustness: Ignore background noise, voice-to-text filler words ("uh", "um", "ah"). Focus on the caller's true intent.
-6. Recipient Verification & Discrepancy Awareness:
-   - When the system validates a recipient against the telco registry and returns the registered name and network, explain the details to the caller.
-   - If there is any discrepancy between what the caller said (e.g. caller said "ECG man" or "Telecel") and what the telco registry returned (e.g. "Kwame Mensah" on "MTN"), clarify this discrepancy clearly with the caller and ask for their confirmation before proceeding.
-7. The Clean Handoff:
-   - When both the recipient phone number and transaction amount (in GHS) are clearly gathered for sending money, invoke 'process_send_money'.
-   - When the caller wants to withdraw or cash out, invoke 'allow_cash_out' or 'process_cash_out'.
-   - When the caller asks to check their balance or account funds, explain that balance checking through this assistant is currently unavailable and direct them to *170# on their handset.
-   - If any required parameter is still missing or ambiguous, reply with a short conversational sentence asking for the missing piece.`;
-
-export const SEND_MONEY_TOOL: FunctionDeclaration = {
-  name: "process_send_money",
-  description: "Hand over the gathered Mobile Money transfer details once the recipient number and amount are known.",
-  parameters: {
-    type: Type.OBJECT,
-    properties: {
-      recipient_number: {
-        type: Type.STRING,
-        description: "10-digit Ghanaian mobile money phone number (e.g. 0244123456 or 0551234567).",
-      },
-      amount: {
-        type: Type.NUMBER,
-        description: "The transaction amount in Ghana Cedis (GHS).",
-      },
-      reference: {
-        type: Type.STRING,
-        description: "A brief note or reference for the transfer (e.g. school fees, food, transport, or default 'Transfer').",
-      },
-      recipient_name: {
-        type: Type.STRING,
-        description: "Optional recipient name if provided by user (e.g. Kwame, Mother, Ama, ECG man).",
-      },
-      network: {
-        type: Type.STRING,
-        description: "Optional Ghanaian telecom network (MTN, Telecel, AT).",
-      },
-    },
-    required: ["recipient_number", "amount"],
-  },
-};
-
-export const ALLOW_CASH_OUT_TOOL: FunctionDeclaration = {
-  name: "allow_cash_out",
-  description: "Initiates Allow Cash-Out / Withdrawal on the caller's wallet when they request to withdraw money or enable cash out.",
-  parameters: {
-    type: Type.OBJECT,
-    properties: {
-      amount: {
-        type: Type.NUMBER,
-        description: "The amount in Ghana Cedis (GHS) the caller wishes to withdraw, if mentioned.",
-      },
-    },
-  },
-};
-
-export const CASH_OUT_TOOL: FunctionDeclaration = {
-  name: "process_cash_out",
-  description: "Process a Mobile Money Cash Out / Withdrawal at an agent.",
-  parameters: {
-    type: Type.OBJECT,
-    properties: {
-      amount: {
-        type: Type.NUMBER,
-        description: "The amount in Ghana Cedis (GHS) to cash out or withdraw.",
-      },
-      agent_number: {
-        type: Type.STRING,
-        description: "Optional 6-digit agent code or phone number if mentioned.",
-      },
-    },
-  },
-};
-
-export const CHECK_BALANCE_TOOL: FunctionDeclaration = {
-  name: "check_balance",
-  description: "Deprecated. Personal balance inquiries are unavailable through this assistant. Do not call this tool.",
-  parameters: {
-    type: Type.OBJECT,
-    properties: {},
-  },
-};
-
-interface ActiveChatSession {
-  chat: any;
-  lastUsedAt: number;
-}
+const ModelReasoningSchema = z.object({
+  intent: z.string().default("UNKNOWN"),
+  confidence: z.coerce.number().min(0).max(1).default(0.85),
+  language: z.string().default("en"),
+  entities: z.object({
+    amount: z.union([z.number(), z.string()]).optional().nullable(),
+    recipientPhone: z.string().optional().nullable(),
+    recipientName: z.string().optional().nullable(),
+    network: z.string().optional().nullable(),
+  }).optional().nullable().default({}),
+  conversationAct: z.string().optional().nullable(),
+  correction: z.object({
+    isCorrection: z.boolean().optional(),
+    field: z.string().optional(),
+    oldValue: z.string().optional(),
+    newValue: z.string().optional(),
+    reason: z.string().optional(),
+  }).optional().nullable(),
+  referenceResolution: z.object({
+    hasReference: z.boolean().optional(),
+    referenceType: z.string().optional(),
+    resolvedField: z.string().optional(),
+    resolvedValue: z.string().optional(),
+  }).optional().nullable(),
+  ambiguity: z.object({
+    isAmbiguous: z.boolean().optional(),
+    candidates: z.array(z.string()).optional(),
+  }).optional().nullable(),
+  requestedAction: z.object({
+    type: z.string().optional(),
+    tool: z.string().optional().nullable(),
+  }).optional().nullable(),
+  requiresConfirmation: z.boolean().optional(),
+  safetyFlags: z.array(z.string()).optional(),
+}).passthrough();
 
 export class ReasoningEngine {
   private ai: GoogleGenAI | null = null;
-  private client = geminiClient;
-  private activeChatSessions = new Map<string, ActiveChatSession>();
-  private readonly SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
   constructor() {
     this.initClient();
@@ -156,66 +77,17 @@ export class ReasoningEngine {
     }
   }
 
+  /**
+   * Main entry: interprets utterance using Gemini structured output or deterministic fallback.
+   */
+  private client = geminiClient;
+
   public setClient(customClient: any): void {
     this.client = customClient;
   }
 
-  /**
-   * Cleans up expired chat sessions to avoid memory leaks.
-   */
-  private cleanExpiredSessions(): void {
-    const now = Date.now();
-    for (const [key, session] of this.activeChatSessions.entries()) {
-      if (now - session.lastUsedAt > this.SESSION_TTL_MS) {
-        this.activeChatSessions.delete(key);
-      }
-    }
-  }
-
-  /**
-   * Retrieves an existing stateful chat session or creates a new one.
-   */
-  public getOrCreateChatSession(sessionId: string, ai: GoogleGenAI, modelName: string = "gemini-3.8-flash"): any {
-    this.cleanExpiredSessions();
-    const cacheKey = `${sessionId}_${modelName}`;
-    const existing = this.activeChatSessions.get(cacheKey);
-    if (existing) {
-      existing.lastUsedAt = Date.now();
-      return existing.chat;
-    }
-
-    const chat = ai.chats.create({
-      model: modelName,
-      config: {
-        systemInstruction: MOMO_SYSTEM_INSTRUCTION,
-        tools: [{ functionDeclarations: [SEND_MONEY_TOOL, CASH_OUT_TOOL, ALLOW_CASH_OUT_TOOL] }],
-        temperature: 0.2,
-      },
-    });
-
-    this.activeChatSessions.set(cacheKey, {
-      chat,
-      lastUsedAt: Date.now(),
-    });
-
-    return chat;
-  }
-
-  public resetChatSession(sessionId: string): void {
-    for (const key of this.activeChatSessions.keys()) {
-      if (key.startsWith(sessionId)) {
-        this.activeChatSessions.delete(key);
-      }
-    }
-  }
-
-  /**
-   * Main entry: interprets utterance using Gemini Native Function Calling and Chat Session API,
-   * or falls back seamlessly to deterministic reasoning when offline.
-   */
   public async reason(params: {
     utterance: string;
-    sessionId?: string;
     languageHint?: AiLanguage;
     currentScreen?: string;
     currentStep?: string;
@@ -232,6 +104,7 @@ export class ReasoningEngine {
     }
 
     if (this.client && typeof (this.client as any).isAvailable === "function" && !(this.client as any).isAvailable()) {
+      // If Gemini client unavailable, check OpenAI reasoner before deterministic
       if (openAiReasoner.isAvailable()) {
         try {
           return await openAiReasoner.reason({
@@ -252,11 +125,9 @@ export class ReasoningEngine {
     }
 
     const candidateModels = [
-      "gemini-3.1-flash-lite",
-      "gemini-3.1-flash-lite-preview",
-      "gemini-flash-latest",
       AI_CONFIG.model || "gemini-3.8-flash",
-    ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
+      "gemini-flash-latest",
+    ];
 
     const availableCandidates = candidateModels.filter((m) => {
       if (typeof (this.client as any)?.isModelAvailable === "function") {
@@ -264,33 +135,62 @@ export class ReasoningEngine {
       }
       return true;
     });
-
     if (availableCandidates.length === 0) {
       return this.deterministicReasoning(params);
     }
 
-    const sessionKey = params.sessionId || `adhoc_${Date.now()}`;
+    // Delimit caller utterance to prevent prompt injection (Item 3.8)
     const sanitizedUtterance = cleanUtterance.slice(0, 500).replace(/<{3,}|>{3,}/g, "");
+    const prompt = `You are the natural language reasoning layer for Ɔkwankyerɛfo Pa (Ghana Voice Mobile Money).
+Analyze this caller's utterance in English, Akan/Twi, or Ghanaian code-switching.
+
+Caller utterance: <<<${sanitizedUtterance}>>>
+Current screen: "${params.currentScreen || "HOME"}"
+Current step: "${params.currentStep || "welcome"}"
+Existing transaction slots: ${JSON.stringify(params.existingSlots || {})}
+Recent conversation context: ${JSON.stringify(params.recentTurns || [])}
+
+Rules:
+1. Identify the caller's intent from [SEND_MONEY, PAY_BILL, BUY_AIRTIME, BUY_DATA, CASH_OUT, CHECK_BALANCE, CHECK_ACCOUNT, HELP, GO_BACK, GO_HOME, CANCEL, REPEAT, CHANGE_INFORMATION, CONFIRM, DENY, UNKNOWN].
+2. Extract financial entities: amount (number), recipientPhone (10 digits starting with 0), recipientName, network (MTN, Telecel, AT, G-Money).
+3. Do NOT treat phone numbers as amounts.
+4. Detect mid-turn corrections (e.g. "make it 200", "no send to Ama instead", "wrong number").
+5. Detect pronoun/coreferences (e.g. "to him", "same amount", "that person").
+6. If the user spoke a PIN or passcode, set safetyFlags: ["SPOKEN_PIN"].
+7. Output valid JSON adhering strictly to the schema.`;
 
     for (const modelName of availableCandidates) {
       try {
-        const result = await geminiClient.executeWithTimeout(
-          "REASONING_CHAT",
+        const rawJson = await geminiClient.executeWithTimeout(
+          "REASONING",
           async (ai, signal) => {
-            const chat = this.getOrCreateChatSession(sessionKey, ai, modelName);
-            const response = await chat.sendMessage({
-              message: sanitizedUtterance,
+            const resp = await ai.models.generateContent({
+              model: modelName,
+              contents: prompt,
+              config: {
+                systemInstruction: "You are an expert Ghanaian mobile financial voice cognitive engine. Analyze spoken English, Twi, and code-switched inputs accurately into structured JSON.",
+                responseMimeType: "application/json",
+                temperature: 0.1,
+              },
             });
-            return response;
+            return resp.text || "{}";
           },
-          20000,
-          0,
-          undefined,
-          10000,
-          modelName
+          2500,
+          0 // No inner retries; fail fast to next candidate
         );
 
-        return this.routeModelResponse(result, cleanUtterance, params.existingSlots);
+        let cleanJson = (rawJson || "").trim();
+        if (cleanJson.startsWith("```")) {
+          cleanJson = cleanJson.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+        }
+        const parsed = JSON.parse(cleanJson);
+        const validated = ModelReasoningSchema.safeParse(parsed);
+        if (!validated.success) {
+          console.warn("[ReasoningEngine] Model returned off-schema JSON; falling back to deterministic reasoning:", validated.error.message);
+          continue;
+        }
+
+        return this.normalizeModelResponse(validated.data, cleanUtterance, params.existingSlots);
       } catch (err: any) {
         const msg = String(err?.message || "");
         const isForbidden =
@@ -309,12 +209,12 @@ export class ReasoningEngine {
           if (typeof (this.client as any)?.recordAccessDenied === "function") {
             (this.client as any).recordAccessDenied(msg);
           }
-          console.info(`[ReasoningEngine] Gemini API access not permitted on current project (403). Operating with resilient Ghanaian deterministic reasoning.`);
-          break;
+          console.info(`[ReasoningEngine] Gemini API access not permitted on current project (403). Operating with 100% resilient Ghanaian deterministic reasoning.`);
+          break; // Stop querying subsequent models when project access is denied
         } else if (is503HighDemand) {
           const cooldownMs = 3 * 60 * 1000;
           this.client.recordModelQuotaExhausted(modelName, cooldownMs);
-          console.info(`[ReasoningEngine] Model '${modelName}' temporarily at high demand (503). Cooled down for 3m.`);
+          console.info(`[ReasoningEngine] Model '${modelName}' temporarily at high demand (503). Cooled down for 3m; proceeding with resilient reasoning.`);
         } else if (isQuota) {
           let cooldownMs = 15 * 60 * 1000;
           const retrySecMatch = msg.match(/retryDelay['":\s]+([0-9]+)/i);
@@ -322,7 +222,7 @@ export class ReasoningEngine {
             cooldownMs = Math.max(60 * 1000, parseInt(retrySecMatch[1], 10) * 1000);
           }
           this.client.recordModelQuotaExhausted(modelName, cooldownMs);
-          console.info(`[ReasoningEngine] Model '${modelName}' quota reached. Cooldown until ${new Date(Date.now() + cooldownMs).toLocaleTimeString()}.`);
+          console.info(`[ReasoningEngine] Model '${modelName}' free quota reached. Cooldown until ${new Date(Date.now() + cooldownMs).toLocaleTimeString()}.`);
         } else {
           console.warn(`[ReasoningEngine] Model '${modelName}' notice:`, msg.slice(0, 100));
         }
@@ -330,7 +230,7 @@ export class ReasoningEngine {
       }
     }
 
-    // If Gemini calls failed, try OpenAI Reasoner
+    // If all Gemini candidates failed or were exhausted, try OpenAI Reasoner
     if (openAiReasoner.isAvailable()) {
       try {
         return await openAiReasoner.reason({
@@ -348,190 +248,8 @@ export class ReasoningEngine {
       }
     }
 
+    // All cloud candidates failed or exhausted; fall back to deterministic Ghanaian reasoning
     return this.deterministicReasoning(params);
-  }
-
-  /**
-   * Evaluates the Gemini response object:
-   * 1. If functionCalls exists, extract arguments (slots are filled -> ready for confirmation).
-   * 2. If no functionCalls, extract response.text (conversational question -> TTS playback).
-   */
-  private routeModelResponse(
-    response: any,
-    rawUtterance: string,
-    existingSlots: EntitySlotMap = {}
-  ): StructuredReasoningResponse {
-    const functionCalls = response?.functionCalls;
-    const detectedLang = languageDetector.detect(rawUtterance);
-
-    if (functionCalls && Array.isArray(functionCalls) && functionCalls.length > 0) {
-      const call = functionCalls[0];
-      const fnName = call.name;
-      const args = call.args || {};
-
-      if (fnName === "process_send_money") {
-        const recipientPhone = String(args.recipient_number || "").replace(/[^0-9]/g, "");
-        const amount = Number(args.amount) || 0;
-        const reference = String(args.reference || "Transfer");
-
-        const entities: EntitySlotMap = {
-          ...existingSlots,
-          amount,
-          currency: "GHS",
-          recipientPhone,
-          reference,
-        };
-
-        const confirmationText = `You are about to send ${amount} Cedis to ${recipientPhone} for ${reference}. Please say confirm or press 1 to proceed, or say cancel or press 2 to stop.`;
-
-        return {
-          intent: "SEND_MONEY",
-          confidence: 0.98,
-          language: detectedLang,
-          entities,
-          conversationAct: "REQUEST",
-          correction: null,
-          referenceResolution: null,
-          ambiguity: { isAmbiguous: false, candidates: [] },
-          requestedAction: {
-            type: "SEND_MONEY",
-            tool: "process_send_money",
-            arguments: { recipient_number: recipientPhone, amount, reference },
-          },
-          requiresConfirmation: true,
-          safetyFlags: [],
-          conversationalResponse: confirmationText,
-          functionCall: {
-            name: "process_send_money",
-            args: { recipient_number: recipientPhone, amount, reference },
-          },
-        };
-      }
-
-      if (fnName === "process_cash_out") {
-        const agentNumber = String(args.agent_number || "").replace(/[^0-9]/g, "");
-        const amount = Number(args.amount) || 0;
-
-        const entities: EntitySlotMap = {
-          ...existingSlots,
-          amount,
-          currency: "GHS",
-          agentNumber,
-        };
-
-        const confirmationText = `You are cashing out ${amount} Cedis from agent ${agentNumber}. Please say confirm or press 1 to proceed, or press 2 to stop.`;
-
-        return {
-          intent: "CASH_OUT",
-          confidence: 0.98,
-          language: detectedLang,
-          entities,
-          conversationAct: "REQUEST",
-          correction: null,
-          referenceResolution: null,
-          ambiguity: { isAmbiguous: false, candidates: [] },
-          requestedAction: {
-            type: "CASH_OUT",
-            tool: "process_cash_out",
-            arguments: { agent_number: agentNumber, amount },
-          },
-          requiresConfirmation: true,
-          safetyFlags: [],
-          conversationalResponse: confirmationText,
-          functionCall: {
-            name: "process_cash_out",
-            args: { agent_number: agentNumber, amount },
-          },
-        };
-      }
-
-      if (fnName === "allow_cash_out") {
-        const amount = typeof args.amount === "number" ? args.amount : parseFloat(args.amount) || undefined;
-        const entities: EntitySlotMap = {
-          ...existingSlots,
-          ...(amount !== undefined ? { amount } : {}),
-          currency: "GHS",
-        };
-        const isTwi = detectedLang.startsWith("tw") || detectedLang.startsWith("ak");
-        const respText = isTwi
-          ? "Yɛabue Allow Cash-Out ama wo mfifii 15 mu wɔ wo wallet so. Yɛrentumi nhwɛ wo balance wɔ assistant yi so; fa wo fon bɔ star, baako, nson, hwee, hash."
-          : "Cash-Out has been enabled on your wallet for the next 15 minutes. Balance checking through this assistant is unavailable; dial star, one, seven, zero, hash on your handset.";
-
-        return {
-          intent: "CASH_OUT",
-          confidence: 0.98,
-          language: detectedLang,
-          entities,
-          conversationAct: "REQUEST",
-          correction: null,
-          referenceResolution: null,
-          ambiguity: { isAmbiguous: false, candidates: [] },
-          requestedAction: {
-            type: "CASH_OUT",
-            tool: "allow_cash_out",
-            arguments: { amount },
-          },
-          requiresConfirmation: false,
-          safetyFlags: [],
-          conversationalResponse: respText,
-          functionCall: {
-            name: "allow_cash_out",
-            args: { amount },
-          },
-        };
-      }
-
-      if (fnName === "check_balance") {
-        const isTwi = detectedLang.startsWith("tw") || detectedLang.startsWith("ak");
-        const unavailableMessage = isTwi
-          ? "Seesei, yɛrentumi nhwɛ wo balance wɔ assistant yi so. Fa wo fon bɔ star, baako, nson, hwee, hash na hwɛ wo balance."
-          : "Balance checking through this assistant is currently unavailable. Please dial star, one, seven, zero, hash on your handset.";
-
-        return {
-          intent: "CHECK_BALANCE",
-          confidence: 0.99,
-          language: detectedLang,
-          entities: existingSlots,
-          conversationAct: "REQUEST",
-          correction: null,
-          referenceResolution: null,
-          ambiguity: { isAmbiguous: false, candidates: [] },
-          requestedAction: {
-            type: "REJECT",
-            tool: null,
-            arguments: { reason: "BALANCE_CHECK_UNAVAILABLE", prompt: unavailableMessage },
-          },
-          requiresConfirmation: false,
-          safetyFlags: [],
-          conversationalResponse: unavailableMessage,
-          functionCall: null,
-        };
-      }
-    }
-
-    const rawText = typeof response?.text === "string" ? response.text : (response?.text ? String(response.text) : "");
-    const conversationalText = rawText.trim() || "What would you like to do with Mobile Money today?";
-    const deterministicUnderstood = aiUnderstanding.understand(rawUtterance, "welcome", existingSlots);
-
-    return {
-      intent: deterministicUnderstood.intent !== "UNKNOWN" ? deterministicUnderstood.intent : "SEND_MONEY",
-      confidence: 0.88,
-      language: detectedLang,
-      entities: { ...existingSlots, ...deterministicUnderstood.entities },
-      conversationAct: "INFORM",
-      correction: null,
-      referenceResolution: null,
-      ambiguity: { isAmbiguous: false, candidates: [] },
-      requestedAction: {
-        type: "CLARIFY",
-        tool: null,
-        arguments: deterministicUnderstood.entities,
-      },
-      requiresConfirmation: false,
-      safetyFlags: [],
-      conversationalResponse: conversationalText,
-      functionCall: null,
-    };
   }
 
   /**
@@ -587,8 +305,49 @@ export class ReasoningEngine {
       },
       requiresConfirmation: understood.intent === "SEND_MONEY" || understood.intent === "CONFIRM",
       safetyFlags: [],
-      conversationalResponse: undefined,
-      functionCall: null,
+    };
+  }
+
+  private normalizeModelResponse(parsed: any, rawUtterance: string, existingSlots: EntitySlotMap = {}): StructuredReasoningResponse {
+    const validIntents: IntentName[] = [
+      "SEND_MONEY", "PAY_BILL", "BUY_AIRTIME", "BUY_DATA", "CASH_OUT",
+      "CHECK_BALANCE", "CHECK_ACCOUNT", "HELP", "GO_BACK", "GO_HOME",
+      "CANCEL", "REPEAT", "CHANGE_INFORMATION", "CONFIRM", "DENY", "UNKNOWN",
+    ];
+
+    const intent = validIntents.includes(parsed.intent) ? (parsed.intent as IntentName) : "UNKNOWN";
+    const confidence = typeof parsed.confidence === "number" ? Math.min(1.0, Math.max(0.0, parsed.confidence)) : 0.85;
+
+    // Normalization on extracted entities
+    const entities: EntitySlotMap = { ...existingSlots, ...(parsed.entities || {}) };
+    if (parsed.entities?.amount !== undefined && parsed.entities?.amount !== null) {
+      entities.amount = Number(parsed.entities.amount);
+      entities.currency = "GHS";
+    }
+
+    if (parsed.entities?.recipientPhone) {
+      entities.recipientPhone = parsed.entities.recipientPhone.replace(/[^0-9]/g, "");
+    }
+
+    return {
+      intent,
+      confidence,
+      language: (parsed.language as AiLanguage) || "tw",
+      entities,
+      conversationAct: (parsed.conversationAct as any) || "INFORM",
+      correction: parsed.correction?.isCorrection ? parsed.correction : null,
+      referenceResolution: parsed.referenceResolution?.hasReference ? parsed.referenceResolution : null,
+      ambiguity: {
+        isAmbiguous: Boolean(parsed.ambiguity?.isAmbiguous),
+        candidates: parsed.ambiguity?.candidates || [],
+      },
+      requestedAction: {
+        type: parsed.requestedAction?.type || intent,
+        tool: parsed.requestedAction?.tool || null,
+        arguments: entities,
+      },
+      requiresConfirmation: Boolean(parsed.requiresConfirmation),
+      safetyFlags: Array.isArray(parsed.safetyFlags) ? parsed.safetyFlags : [],
     };
   }
 

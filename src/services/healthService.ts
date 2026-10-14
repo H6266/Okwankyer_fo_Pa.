@@ -10,16 +10,12 @@
  * Never fakes passes or fabricates synthetic latencies.
  */
 
-import fs from "fs";
-import path from "path";
 import { config } from "../config/env";
 import { audioFileExists } from "../audio/catalog";
-import { getRecordingByPromptKey } from "../audio/recordingRegistry";
 import { VoiceService } from "../../africastalking";
 import { mtnMomoService } from "../modules/mtnMomoService";
 import { GoogleGenAI } from "@google/genai";
 import { geminiClient } from "./geminiClient";
-import { modelVerificationEngine } from "../ai_system/core/modelVerification";
 
 export interface HealthCheckItem {
   id: string;
@@ -44,24 +40,21 @@ export async function runRealSmokeTests(): Promise<SmokeTestReport> {
 
   // Check 1: Audio Catalog on Disk
   const startAudio = Date.now();
-  const welcome = getRecordingByPromptKey("welcome");
-  const network = getRecordingByPromptKey("provider_select");
-  const amount = getRecordingByPromptKey("enter_amount");
-  const welcomeExists = Boolean(welcome && audioFileExists(welcome.relativePath));
-  const networkExists = Boolean(network && audioFileExists(network.relativePath));
-  const amountExists = Boolean(amount && audioFileExists(amount.relativePath));
+  const welcomeExists = audioFileExists("Welcome_prompt_01.mp3");
+  const enExists = audioFileExists("Audio_prompt_02.mp3");
+  const twiExists = audioFileExists("Audio_prompt_twi_02.mp3");
   const audioLatency = Date.now() - startAudio;
 
-  const allAudioFound = welcomeExists && networkExists && amountExists;
+  const allAudioFound = welcomeExists && enExists && twiExists;
   checks.push({
     id: "check_audio",
     name: "Audio Catalog & Studio Files on Disk",
-    description: "Verifies registered Twi welcome, network, and amount recordings exist on filesystem",
+    description: "Verifies core English, Akan Twi, and Welcome studio audio clips exist on filesystem",
     status: allAudioFound ? "pass" : "fail",
     latencyMs: audioLatency,
     details: allAudioFound
-      ? "Registered Twi source recordings verified on disk."
-      : "One or more registered Twi source recordings are missing from Audio_files/audio.",
+      ? "Welcome prompt and English/Twi studio prompt files verified on disk."
+      : "One or more core studio audio files are missing from /audio directory.",
   });
 
   // Check 2: Africa's Talking Gateway
@@ -249,267 +242,5 @@ export async function runRealSmokeTests(): Promise<SmokeTestReport> {
     passCount,
     failCount,
     warnCount,
-  };
-}
-
-export interface TelephonyHealth {
-  status: "configured" | "unconfigured" | "failed";
-  username: string;
-  voiceNumber: string;
-  hasApiKey: boolean;
-  details: string;
-}
-
-export async function checkTelephonyHealth(): Promise<TelephonyHealth> {
-  const hasKey = Boolean(config.at.apiKey && config.at.apiKey.trim().length > 0);
-  const username = config.at.username || "sandbox";
-  const voiceNumber = config.at.voiceNumber || "+233308048098";
-
-  if (!hasKey) {
-    return {
-      status: "unconfigured",
-      username,
-      voiceNumber,
-      hasApiKey: false,
-      details: "AT_API_KEY is not set. Outbound telephony runs in local simulator mode.",
-    };
-  }
-
-  try {
-    const voiceService = new VoiceService(username, config.at.apiKey);
-    const verifyResult = await voiceService.verifyCredentials();
-    return {
-      status: verifyResult.valid ? "configured" : "failed",
-      username,
-      voiceNumber,
-      hasApiKey: true,
-      details: verifyResult.valid
-        ? `Africa's Talking voice line verified: ${voiceNumber} (balance: ${verifyResult.balance || "Active"})`
-        : `Africa's Talking auth failed: ${verifyResult.errorMessage}`,
-    };
-  } catch (err: any) {
-    return {
-      status: "failed",
-      username,
-      voiceNumber,
-      hasApiKey: true,
-      details: `Africa's Talking probe error: ${err.message}`,
-    };
-  }
-}
-
-export interface MomoHealth {
-  status: "healthy" | "sandbox" | "unconfigured" | "failed";
-  environment: string;
-  collectionConfigured: boolean;
-  disbursementConfigured: boolean;
-  currency: string;
-  details: string;
-}
-
-export function checkMomoHealth(): MomoHealth {
-  const isProd = process.env.NODE_ENV === "production";
-  const hasColl = config.momo.collectionConfigured || Boolean(config.momo.subscriptionKey && config.momo.apiKey);
-  const hasDisb = config.momo.disbursementConfigured;
-
-  if (isProd && !hasColl) {
-    return {
-      status: "failed",
-      environment: config.momo.targetEnv,
-      collectionConfigured: false,
-      disbursementConfigured: hasDisb,
-      currency: config.momo.currency,
-      details: "FATAL: MTN MoMo collection credentials required in production environment.",
-    };
-  }
-
-  if (hasColl) {
-    return {
-      status: "healthy",
-      environment: config.momo.targetEnv,
-      collectionConfigured: true,
-      disbursementConfigured: hasDisb,
-      currency: config.momo.currency,
-      details: `MTN MoMo active in ${config.momo.targetEnv} mode (${config.momo.currency}).`,
-    };
-  }
-
-  return {
-    status: "sandbox",
-    environment: "sandbox-mock",
-    collectionConfigured: false,
-    disbursementConfigured: false,
-    currency: config.momo.currency,
-    details: "MTN MoMo running with verified sandbox mock accounts (Ama Mensah, Kwame Boateng).",
-  };
-}
-
-export interface AudioCatalogHealth {
-  verified: boolean;
-  totalFiles: number;
-  missingFiles: string[];
-  sampleFiles: { path: string; sizeBytes: number; readable: boolean }[];
-}
-
-export function checkAudioFilesHealth(): AudioCatalogHealth {
-  const legacyAudioRoot = path.resolve(process.cwd(), "audio");
-  const root = fs.existsSync(legacyAudioRoot)
-    ? legacyAudioRoot
-    : path.resolve(process.cwd(), "public", "audio");
-  const canonicalFiles = [
-    "Welcome_prompt_01.mp3",
-    "English/Audio_prompt_02.mp3",
-    "English/Audio_prompt_06.mp3",
-    "English/Audio_prompt_09.mp3",
-    "English/Audio_prompt_10.mp3",
-    "English/Audio_prompt_11.mp3",
-    "Twi/Audio_prompt_twi_02.mp3",
-    "Twi/Audio_prompt_twi_03.mp3",
-    "Twi/Audio_prompt_twi_04.mp3",
-    "Twi/Audio_prompt_twi_05.mp3",
-    "Twi/Audio_prompt_twi_07.mp3",
-    "Twi/Audio_prompt_twi_08.mp3",
-    "Twi/Audio_prompt_twi_09.mp3",
-  ];
-
-  const missingFiles: string[] = [];
-  const sampleFiles: { path: string; sizeBytes: number; readable: boolean }[] = [];
-
-  for (const rel of canonicalFiles) {
-    const abs = path.join(root, rel);
-    try {
-      if (fs.existsSync(abs)) {
-        fs.accessSync(abs, fs.constants.R_OK);
-        const stat = fs.statSync(abs);
-        sampleFiles.push({
-          path: `/audio/${rel}`,
-          sizeBytes: stat.size,
-          readable: true,
-        });
-      } else {
-        missingFiles.push(rel);
-      }
-    } catch {
-      missingFiles.push(rel);
-    }
-  }
-
-  return {
-    verified: missingFiles.length === 0,
-    totalFiles: sampleFiles.length,
-    missingFiles,
-    sampleFiles: sampleFiles.slice(0, 5),
-  };
-}
-
-export interface DiskSpaceReport {
-  availableMb: number;
-  totalMb: number;
-  sufficient: boolean;
-}
-
-export function checkDiskSpaceHealth(): DiskSpaceReport {
-  try {
-    if (typeof fs.statfsSync === "function") {
-      const stats = fs.statfsSync(process.cwd());
-      const availableBytes = stats.bavail * stats.bsize;
-      const totalBytes = stats.blocks * stats.bsize;
-      const availableMb = Math.round(availableBytes / (1024 * 1024));
-      const totalMb = Math.round(totalBytes / (1024 * 1024));
-      return {
-        availableMb,
-        totalMb,
-        sufficient: availableMb >= 50,
-      };
-    }
-  } catch {
-    // Non-fatal fallback
-  }
-
-  return {
-    availableMb: 512,
-    totalMb: 1024,
-    sufficient: true,
-  };
-}
-
-export interface FullAiDiagnosticReport {
-  status: "HEALTHY" | "DEGRADED" | "UNHEALTHY";
-  timestamp: string;
-  isProduction: boolean;
-  models: {
-    verified: boolean;
-    required: string[];
-    discovered: string[];
-    missing: string[];
-  };
-  telephony: TelephonyHealth;
-  momo: MomoHealth;
-  audio: AudioCatalogHealth;
-  disk: DiskSpaceReport;
-  security: {
-    zeroPinEnforced: boolean;
-    fieldEncryptionEnabled: boolean;
-  };
-  latencyMs: number;
-}
-
-export async function getFullAiHealthReport(): Promise<FullAiDiagnosticReport> {
-  const start = performance.now();
-  const isProd = process.env.NODE_ENV === "production";
-
-  // 1. Models
-  const lastModelReport = modelVerificationEngine.getLastReport();
-  const required = [
-    "gemini-3.8-flash",
-    "gemini-flash-latest",
-    "gemini-3.5-transcribe",
-    "gemini-3.8-live",
-  ];
-  const discovered = lastModelReport?.modelsFound || [];
-  const missing = required.filter((m) => !discovered.includes(m));
-  const modelsVerified = lastModelReport?.success || (missing.length === 0 && Boolean(process.env.GEMINI_API_KEY));
-
-  // 2. Telephony
-  const telephony = await checkTelephonyHealth();
-
-  // 3. MoMo
-  const momo = checkMomoHealth();
-
-  // 4. Audio
-  const audio = checkAudioFilesHealth();
-
-  // 5. Disk
-  const disk = checkDiskSpaceHealth();
-
-  // Overall status calculation
-  let status: FullAiDiagnosticReport["status"] = "HEALTHY";
-  if (isProd && (momo.status === "failed" || !modelsVerified || !audio.verified || !disk.sufficient)) {
-    status = "UNHEALTHY";
-  } else if (!modelsVerified || telephony.status === "unconfigured" || audio.missingFiles.length > 0 || !disk.sufficient) {
-    status = "DEGRADED";
-  }
-
-  const latencyMs = Math.round(performance.now() - start);
-
-  return {
-    status,
-    timestamp: new Date().toISOString(),
-    isProduction: isProd,
-    models: {
-      verified: modelsVerified,
-      required,
-      discovered,
-      missing,
-    },
-    telephony,
-    momo,
-    audio,
-    disk,
-    security: {
-      zeroPinEnforced: true,
-      fieldEncryptionEnabled: true,
-    },
-    latencyMs,
   };
 }

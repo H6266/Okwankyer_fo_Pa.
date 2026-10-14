@@ -25,13 +25,10 @@ export type TransactionState =
   | "CANCELLED"
   | "TIMEOUT";
 
-export type InteractionMode = "GUIDED_IVR" | "NATURAL_CONVERSATION";
-
 export interface TransactionSession {
   sessionId: string;
   idempotencyKey: string;
   source: "VOICE" | "KEYPAD";
-  interactionMode?: InteractionMode;
   language: "en" | "twi";
   network: GhanaianNetwork;
   callerPhone?: string;
@@ -148,7 +145,6 @@ export class TransactionStateMachine {
       if (payload.momoReferenceId !== undefined) session.momoReferenceId = payload.momoReferenceId;
       if (payload.failureReason !== undefined) session.failureReason = payload.failureReason;
       if (payload.language !== undefined) session.language = payload.language;
-      if (payload.interactionMode !== undefined) session.interactionMode = payload.interactionMode;
     }
 
     session.state = targetState;

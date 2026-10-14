@@ -34,41 +34,26 @@ function getAdminAuthHeaders(customHeaders: Record<string, string> = {}): Record
 
 export interface AudioItem {
   id: string;
-  number?: string;
+  number: string;
   language: "en" | "twi" | "bilingual";
   step: number;
   filename: string;
   title: string;
   spokenText: string;
   description: string;
-  url: string | null;
+  url: string;
   exists: boolean;
   sizeBytes: number;
   sizeFormatted: string;
-  promptId?: string | null;
-  assetRoot?: "supplied" | "public" | "additional";
-  mimeType?: string;
-  isAlternate?: boolean;
-  recordingRole?: "fixed" | "dynamic" | "alternative" | "unmapped";
-  durationEstSec?: number;
+  durationEstSec: number;
 }
 
 export interface AudioManifestResponse {
   englishPrompts: AudioItem[];
   twiPrompts: AudioItem[];
-  sharedPrompts?: AudioItem[];
-  allPrompts?: AudioItem[];
-  unresolvedAssets?: AudioItem[];
-  missingPromptVariants?: Array<{
-    promptId: string;
-    language: "en" | "twi";
-    state: string;
-    status: string;
-  }>;
+  sharedPrompts: AudioItem[];
   totalClips: number;
-  englishClips?: number;
-  twiClips?: number;
-  allPresent?: boolean;
+  allPresent: boolean;
 }
 
 export interface SessionRecord {
@@ -264,16 +249,6 @@ export function parseVoiceXml(xmlText: string): ParsedVoiceXml {
   return result;
 }
 
-async function parseJsonResponse(res: Response, endpoint: string): Promise<any> {
-  const contentType = res.headers.get("Content-Type") || "";
-  if (contentType.includes("text/html")) {
-    throw new Error(
-      `Expected JSON from ${endpoint}, received text/html (HTTP ${res.status}). Check that the request is routed to the backend API.`
-    );
-  }
-  return res.json();
-}
-
 export const api = {
   // ── Africa's Talking Telephony Webhook Dispatcher ───────────────────
   async dispatchAtVoiceWebhook(
@@ -319,24 +294,12 @@ export const api = {
       headers["Authorization"] = `Bearer ${token}`;
     }
 
-    let res: Response;
-    try {
-      res = await fetch(effectiveUrl, {
-        method: "POST",
-        headers,
-        credentials: "same-origin",
-        body: formParams.toString(),
-      });
-    } catch (fetchErr: any) {
-      // 1 automatic retry on transient socket reset or container reload
-      await new Promise((r) => setTimeout(r, 450));
-      res = await fetch(effectiveUrl, {
-        method: "POST",
-        headers,
-        credentials: "same-origin",
-        body: formParams.toString(),
-      });
-    }
+    const res = await fetch(effectiveUrl, {
+      method: "POST",
+      headers,
+      credentials: "include",
+      body: formParams.toString(),
+    });
 
     const xmlText = await res.text();
     return {
@@ -416,7 +379,7 @@ export const api = {
     const res = await fetch("/api/simulator/voice-menu", {
       method: "POST",
       headers,
-      credentials: "same-origin",
+      credentials: "include",
       body: params.toString(),
     });
     const xml = await res.text();
@@ -480,7 +443,7 @@ export const api = {
       credentials: "same-origin",
       headers: getAdminAuthHeaders(),
     });
-    return parseJsonResponse(res, "/api/momo/status");
+    return res.json();
   },
 
   async provisionMomoSandbox(subscriptionKey?: string): Promise<any> {
@@ -726,148 +689,6 @@ export const api = {
     return res.json();
   },
 
-  async enableVoiceCashOut(params: {
-    callerPhone?: string;
-    language?: string;
-  }): Promise<{
-    success: boolean;
-    state: any;
-    callerPhone: string;
-    expiresInMinutes: number;
-    message: string;
-    messageEn: string;
-    messageTw: string;
-  }> {
-    const res = await fetch("/api/ai/cashout/enable", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params),
-    });
-    return res.json();
-  },
-
-  async checkCashOutBalance(params: {
-    callerPhone?: string;
-    pin: string;
-    requestedAmount?: number;
-    network?: string;
-    language?: string;
-  }): Promise<{
-    success: boolean;
-    error?: string;
-    affordability?: any;
-    message?: string;
-    messageEn?: string;
-    messageTw?: string;
-  }> {
-    const res = await fetch("/api/ai/cashout/check-balance", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params),
-    });
-    return res.json();
-  },
-
-  async simulateAgentCashOutRequest(params: {
-    callerPhone?: string;
-    agentCode?: string;
-    agentName?: string;
-    amount?: number;
-  }): Promise<{
-    success: boolean;
-    request: any;
-    message: string;
-  }> {
-    const res = await fetch("/api/ai/cashout/agent-request", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params),
-    });
-    return res.json();
-  },
-
-  async getPendingCashOutRequest(callerPhone?: string): Promise<{
-    success: boolean;
-    hasPending: boolean;
-    request?: any;
-  }> {
-    const res = await fetch(`/api/ai/cashout/get-pending?callerPhone=${encodeURIComponent(callerPhone || "0543546010")}`);
-    return res.json();
-  },
-
-  async approveCashOut(params: {
-    callerPhone?: string;
-    pin: string;
-    language?: string;
-  }): Promise<{
-    success: boolean;
-    error?: string;
-    remainingAttempts?: number;
-    isLocked?: boolean;
-    referenceId?: string;
-    request?: any;
-    balanceDetails?: {
-      currentBalance: number;
-      requestedAmount: number;
-      fee: number;
-      totalRequired: number;
-      shortage: number;
-      maxPossibleWithdrawal: number;
-      agentName: string;
-    };
-    message?: string;
-    messageEn?: string;
-    messageTw?: string;
-    privacyTipEn?: string;
-    privacyTipTw?: string;
-  }> {
-    const res = await fetch("/api/ai/cashout/approve", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params),
-    });
-    return res.json();
-  },
-
-  async understandCashOutIntent(params: {
-    transcript: string;
-    currentState: string;
-    callerPhone?: string;
-    requestedAmount?: number;
-    language?: string;
-  }): Promise<{
-    success: boolean;
-    intent: "AGENT_INITIATED" | "CONFIRM_PROCEED" | "REJECT_CANCEL" | "CHECK_BALANCE" | "WAITING" | "UNKNOWN";
-    action: "FETCH_PENDING" | "PROCEED" | "CANCEL" | "CHECK_BALANCE" | "WAIT" | "CLARIFY";
-    confidence: number;
-    reason?: string;
-    replyEn?: string;
-    replyTw?: string;
-  }> {
-    const res = await fetch("/api/ai/cashout/understand-intent", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params),
-    });
-    return res.json();
-  },
-
-  async setCashOutWalletBalance(params: {
-    callerPhone?: string;
-    balance: number;
-  }): Promise<{
-    success: boolean;
-    callerPhone: string;
-    balance: number;
-  }> {
-    const res = await fetch("/api/ai/cashout/set-balance", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params),
-    });
-    return res.json();
-  },
-
   async getMomoTransactions(): Promise<any> {
     const res = await fetch("/api/momo/transactions");
     return res.json();
@@ -953,7 +774,7 @@ export const api = {
 
   async getAdminSession(): Promise<{ authenticated: boolean; isDev?: boolean; hint?: string }> {
     const res = await fetch("/api/admin/session", {
-      credentials: "same-origin",
+      credentials: "include",
       headers: getAdminAuthHeaders(),
     });
     return res.json();
@@ -962,7 +783,7 @@ export const api = {
   async adminLogin(token: string): Promise<any> {
     const res = await fetch("/api/admin/login", {
       method: "POST",
-      credentials: "same-origin",
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
       },
@@ -997,7 +818,7 @@ export const api = {
     }
     const res = await fetch("/api/admin/logout", {
       method: "POST",
-      credentials: "same-origin",
+      credentials: "include",
     });
 
     return res.json();
@@ -1042,7 +863,6 @@ export const api = {
     draft?: any;
     callerNumber?: string;
     sessionId?: string;
-    forceModel?: boolean;
   }): Promise<{ success: boolean; brainOutput: any; result: any }> {
     const res = await fetch("/api/ai/brain/process", {
       method: "POST",
@@ -1051,62 +871,6 @@ export const api = {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Brain processing failed");
-    return data;
-  },
-
-  async validateSimulatorRecipient(payload: {
-    phone: string;
-    sessionId?: string;
-    candidateName?: string;
-    candidateNetwork?: string;
-  }): Promise<{
-    success: boolean;
-    phone: string;
-    verifiedName: string;
-    network: string;
-    verified: boolean;
-    nameMismatch: boolean;
-    networkMismatch: boolean;
-    candidateName: string | null;
-    candidateNetwork: string | null;
-  }> {
-    const res = await fetch("/api/ai/simulator/validate-recipient", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Recipient validation failed");
-    return data;
-  },
-
-  async submitPin(payload: {
-    sessionId: string;
-    pin: string;
-    amount: number;
-    recipientPhone: string;
-    recipientName?: string;
-    network?: string;
-    callerPhone?: string;
-    language?: string;
-  }): Promise<{
-    success: boolean;
-    error?: string;
-    remainingAttempts?: number;
-    message?: string;
-    messageTw?: string;
-    reference?: string;
-    amount?: number;
-    recipientName?: string;
-    recipientPhone?: string;
-  }> {
-    const res = await fetch("/api/ai/simulator/submit-pin", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || data.message || "PIN submission failed");
     return data;
   },
 
@@ -1127,17 +891,7 @@ export const api = {
     language?: string,
     step?: string,
     hintText?: string
-  ): Promise<{
-    success: boolean;
-    result: {
-      text: string;
-      confidence: number;
-      languageDetected: string;
-      provider?: string;
-      durationMs?: number;
-      speechActivityDetected?: boolean;
-    };
-  }> {
+  ): Promise<{ success: boolean; result: { text: string; confidence: number; languageDetected: string; provider?: string } }> {
     const res = await fetch("/api/ai/transcribe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

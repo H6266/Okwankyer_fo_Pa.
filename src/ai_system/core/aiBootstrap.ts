@@ -94,9 +94,7 @@ export class AiBootstrap {
     const isProd = process.env.NODE_ENV === "production";
 
     if (!apiKey) {
-      console.log("[AiBootstrap] GEMINI_API_KEY not configured. Cognitive core active in autonomous local-first mode.");
-      this.sdkVerified = false;
-      this.verifiedModelList = [];
+      console.log("[AiBootstrap] GEMINI_API_KEY not configured. Cognitive core active in 100% autonomous local-first mode.");
       return {
         verified: false,
         modelsFound: [],
@@ -119,46 +117,30 @@ export class AiBootstrap {
 
       for await (const m of modelsPager) {
         if (m.name) {
-          discovered.push(m.name.replace(/^models\//, ""));
+          const cleanName = m.name.replace(/^models\//, "");
+          discovered.push(cleanName);
         }
       }
 
       this.verifiedModelList = discovered;
       const errors: string[] = [];
 
-      const required = [
-        AI_CONFIG.model,
-        AI_CONFIG.liveModel,
-        AI_CONFIG.transcriptionModel,
-        AI_CONFIG.ttsModel,
-        AI_CONFIG.embeddingModel,
-      ];
+      // Check reasoning model
+      if (!discovered.includes(AI_CONFIG.model)) {
+        const explicitFallbacks = (process.env.GEMINI_FALLBACK_MODELS || "")
+          .split(",")
+          .map((m) => m.trim())
+          .filter(Boolean);
+        const validFallback = explicitFallbacks.find((fb) => discovered.includes(fb));
 
-      const configuredSet = new Set(required.filter(Boolean));
-
-      for (const modelName of configuredSet) {
-        if (!discovered.includes(modelName)) {
-          const explicitFallbacks = (process.env.GEMINI_FALLBACK_MODELS || "")
-            .split(",")
-            .map((m) => m.trim())
-            .filter(Boolean);
-
-          const validFallback = explicitFallbacks.find((fb) => discovered.includes(fb));
-
-          if (validFallback) {
-            console.warn(`[AiBootstrap] Configured model '${modelName}' not in SDK list. Falling back to '${validFallback}'.`);
-            if (modelName === AI_CONFIG.model) AI_CONFIG.model = validFallback;
-            if (modelName === AI_CONFIG.liveModel) AI_CONFIG.liveModel = validFallback;
-            if (modelName === AI_CONFIG.transcriptionModel) AI_CONFIG.transcriptionModel = validFallback;
-            if (modelName === AI_CONFIG.ttsModel) AI_CONFIG.ttsModel = validFallback;
-            if (modelName === AI_CONFIG.embeddingModel) AI_CONFIG.embeddingModel = validFallback;
-          } else if (isProd) {
-            throw new Error(
-              `[FATAL BOOT ERROR] Configured model '${modelName}' was not found in the live Gemini catalog.`
-            );
-          } else {
-            errors.push(`Configured model '${modelName}' not found in live catalog.`);
-          }
+        if (validFallback) {
+          console.warn(`[AiBootstrap] Configured reasoning model '${AI_CONFIG.model}' not in SDK list. Using explicit fallback '${validFallback}'.`);
+          AI_CONFIG.model = validFallback;
+        } else if (isProd) {
+          const msg = `[FATAL BOOT ERROR] Configured reasoning model '${AI_CONFIG.model}' was NOT found in the live Gemini catalog (${discovered.slice(0, 5).join(", ")}...).`;
+          throw new Error(msg);
+        } else {
+          errors.push(`Configured model '${AI_CONFIG.model}' not found in live catalog.`);
         }
       }
 
@@ -172,7 +154,7 @@ export class AiBootstrap {
       if (isProd) {
         throw err;
       }
-      console.warn(`[AiBootstrap] SDK model verification notice: ${err.message}`);
+      console.warn(`[AiBootstrap] SDK live model catalog verification notice: ${err.message}`);
       return {
         verified: false,
         modelsFound: [],
@@ -250,8 +232,7 @@ export class AiBootstrap {
       }
 
       if (process.env.GEMINI_API_KEY) {
-        const sdkReport = await this.verifyModelsAgainstSdk();
-        this.sdkVerified = sdkReport.verified;
+        await this.verifyModelsAgainstSdk();
       }
 
       // 1. Preload global phonetic memory

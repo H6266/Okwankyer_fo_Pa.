@@ -371,11 +371,6 @@ export interface StructuredReasoningResponse {
   };
   requiresConfirmation: boolean;
   safetyFlags: string[];
-  conversationalResponse?: string;
-  functionCall?: {
-    name: string;
-    args: Record<string, any>;
-  } | null;
 }
 
 // ── Process Input & Outputs ──────────────────────────────────────────

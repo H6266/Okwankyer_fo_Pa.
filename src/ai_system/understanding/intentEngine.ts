@@ -106,16 +106,9 @@ export class IntentEngine {
       return { intent: "CASH_OUT", confidence: 0.93, matchedRule: "cash_out" };
     }
 
-    // 13. Auto-identify 10-Digit Recipient Phone Number for Sending Money
-    const digitsOnly = text.replace(/[^0-9]/g, "");
-    if (
-      digitsOnly.length === 10 ||
-      (digitsOnly.length === 12 && digitsOnly.startsWith("233")) ||
-      /\b(0[0-9]{9}|233[0-9]{9})\b/.test(text) ||
-      currentStep === "recipient" ||
-      currentStep === "kyc"
-    ) {
-      return { intent: "SEND_MONEY", confidence: 0.99, matchedRule: "ten_digit_phone_auto_detect" };
+    // 13. Contextual Slot Inputs: Phone Number / Recipient Step
+    if (/\b(0[25][0-9]{8}|233[25][0-9]{8})\b/.test(text) || currentStep === "recipient" || currentStep === "kyc") {
+      return { intent: "SEND_MONEY", confidence: 0.95, matchedRule: "recipient_slot" };
     }
 
     // 14. Contextual Slot Inputs: Amount Step

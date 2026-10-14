@@ -18,11 +18,9 @@ services:
       - key: AT_API_KEY
         sync: false
       - key: AT_VOICE_NUMBER
-        value: "+233308048097"
-      - key: AT_WEBHOOK_SECRET
-        sync: false
+        value: "+233308048098"
       - key: BASE_URL
-        value: "https://okwankyer-fo-pa.onrender.com"
+        sync: false
       - key: CORS_ORIGINS
         sync: false
       - key: GEMINI_API_KEY

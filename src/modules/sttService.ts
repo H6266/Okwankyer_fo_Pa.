@@ -45,64 +45,70 @@ export interface SpeechToTextProvider {
  */
 export function isSpokenPinPattern(text: string, step?: string): boolean {
   if (!text) return false;
-
   const lower = text.toLowerCase().trim();
-  const normalizedStep = (step || "").toLowerCase();
 
+  // 1. Explicit PIN/secret keywords: ALWAYS dropped anywhere
   if (/\b(pin|momo\s*pin|password|secret|passcode|kokoam|ahintasɛm)\b/i.test(lower)) {
     return true;
   }
 
+  // Spoken credentials like "my secret is one two three"
   if (/(secret|password|pin)/i.test(lower) && /(one|two|three|four|five|six|seven|eight|nine|zero)/i.test(lower)) {
     return true;
   }
 
-  const digitsOnly = text.replace(/[^0-9]/g, "");
-  const hasAmountLanguage =
-    /(cedis?|ghs|pesewas?|ghana|amount|send\s*\d+|transfer|sika|mane|money)/i.test(lower);
+  const digitsOnly = text.trim().replace(/[^0-9]/g, "");
+  const normalizedStep = (step || "").toLowerCase();
 
-  const hasPhoneLanguage =
-    /(phone|number|recipient|contact|mobile|nɔmba|fon)/i.test(lower);
+  // 2. Step: Amount Input ("enter-amount", "amount")
+  if (normalizedStep.includes("amount")) {
+    // Legitimate amounts: 1 to 4 digits (up to 5,000 GHS) or spoken cedi amounts
+    // Do NOT drop legitimate amounts like "1000", "2500", "5000", "send 3000", "1 0 0 0"
+    if (digitsOnly.length >= 1 && digitsOnly.length <= 4) {
+      return false; // Permitted amount
+    }
+    // If someone speaks 5-6 standalone digits without cedi words at amount step, drop as probable PIN
+    if (digitsOnly.length > 4 && digitsOnly.length <= 6 && !/(cedis?|ghs|pesewas|ghana)/i.test(lower)) {
+      return true;
+    }
+    return false;
+  }
 
-  const isMenu = normalizedStep.includes("menu") ||
+  // 3. Step: Menu / Selection ("language-selection", "service-choice", "menu")
+  if (
+    normalizedStep.includes("menu") ||
     normalizedStep.includes("selection") ||
-    normalizedStep.includes("choice") ||
-    normalizedStep.includes("service");
-
-  const isAmountStep = normalizedStep.includes("amount") ||
-    normalizedStep.includes("enter-amount") ||
-    normalizedStep.includes("cedi");
-
-  const isRecipientStep = normalizedStep.includes("recipient") ||
-    normalizedStep.includes("phone") ||
-    normalizedStep.includes("enter-recipient");
-
-  if (isAmountStep) {
-    if (digitsOnly.length === 0) return false;
-    if (digitsOnly.length <= 4) return false; // 1000, 2500, 5000 are valid amounts
-    if (digitsOnly.length <= 6 && !hasAmountLanguage) {
-      return true; // probable PIN, not an amount
+    normalizedStep.includes("choice")
+  ) {
+    // Menu step accepts only 1 single digit or single command word.
+    // ANY multi-digit input (e.g. "1234", "5544") is suspicious and dropped
+    if (digitsOnly.length >= 2) {
+      return true;
     }
-    return false;
-  }
-
-  if (isRecipientStep) {
-    if (digitsOnly.length >= 4 && digitsOnly.length <= 6 && !hasPhoneLanguage) {
+    // Check spoken digits (e.g. "one two three four")
+    const digitWords = lower.match(/\b(zero|one|two|three|four|five|six|seven|eight|nine|baako|mmienu|mmiensa)\b/g);
+    if (digitWords && digitWords.length >= 2) {
       return true;
     }
     return false;
   }
 
-  if (isMenu) {
-    if (digitsOnly.length >= 4 && digitsOnly.length <= 6 && !hasAmountLanguage && !hasPhoneLanguage) {
+  // 4. Step: Recipient Phone Input ("enter-recipient", "recipient")
+  if (normalizedStep.includes("recipient")) {
+    // Recipient phone numbers have 9-10 digits.
+    // Standalone 4-6 digits is not a phone number and dropped as a PIN candidate
+    if (digitsOnly.length >= 4 && digitsOnly.length <= 6 && !/(phone|number|recipient)/i.test(lower)) {
       return true;
     }
     return false;
   }
 
-  // Default: only reject strongly suspicious 4-6 digit PIN-like utterances.
-  if (digitsOnly.length >= 4 && digitsOnly.length <= 6) {
-    if (hasAmountLanguage || hasPhoneLanguage) return false;
+  // 5. Default fallback if step is unknown
+  if (
+    digitsOnly.length >= 4 &&
+    digitsOnly.length <= 6 &&
+    !/(cedis?|ghs|pesewas|ghana|phone|number)/i.test(lower)
+  ) {
     return true;
   }
 
@@ -401,17 +407,10 @@ export class TelephonySpeechService implements SpeechToTextProvider {
           return { text: "empty", confidence: 0.0, provider: "TelephonySpeechService" };
         }
 
-        const recordingPath = new URL(audioPayload).pathname.toLowerCase();
-        const extension = recordingPath.match(/\.[a-z0-9]+$/)?.[0];
-        const mime = extension === ".m4a" || extension === ".aac"
-          ? "audio/mp4"
-          : extension === ".wav"
-          ? "audio/wav"
-          : extension === ".ogg"
-          ? "audio/ogg"
-          : extension === ".webm"
-          ? "audio/webm"
-          : "audio/mpeg";
+        let mime = "audio/mp3";
+        if (audioPayload.toLowerCase().includes(".wav")) {
+          mime = "audio/wav";
+        }
         return await transcribeAudioBufferUnified(buffer, mime, step, 3000);
       } catch (err: any) {
         return { text: "empty", confidence: 0.0, provider: "TelephonySpeechService" };
@@ -479,21 +478,12 @@ export async function speechToText(
   audioBuffer: Buffer | string,
   mimeType?: string,
   step?: string
-): Promise<{
-  text: string;
-  confidence: number | null;
-  confidenceSource?: SttResult["confidenceSource"];
-  languageDetected?: "en" | "twi" | string;
-  pinDiscarded?: boolean;
-  provider?: string;
-}> {
+): Promise<{ text: string; confidence: number; languageDetected?: "en" | "twi" | string; pinDiscarded?: boolean }> {
   const result = await speechToTextService.transcribe(audioBuffer, mimeType, step);
   return {
     text: result.text,
     confidence: result.confidence,
     languageDetected: result.languageDetected,
     pinDiscarded: result.pinDiscarded,
-    provider: result.provider,
-    confidenceSource: result.confidenceSource,
   };
 }

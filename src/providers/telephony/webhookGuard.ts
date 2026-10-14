@@ -30,61 +30,13 @@ export function validateWebhookSecurityConfig(): void {
 /**
  * Constant-time string equality check to prevent timing side-channel attacks.
  */
-export function safeCompare(a: string, b: string): boolean {
+function safeCompare(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
   const bufB = Buffer.from(b);
   if (bufA.length !== bufB.length) {
     return false;
   }
   return crypto.timingSafeEqual(bufA, bufB);
-}
-
-const seenNonces = new Map<string, number>();
-
-export function resetReplayCache(): void {
-  seenNonces.clear();
-}
-
-export function checkReplayGuard(req: Request | any): { valid: boolean; reason?: string } {
-  const nonce = req.body?.nonce || req.query?.nonce || req.headers?.["x-at-nonce"];
-  const timestamp = req.body?.timestamp || req.query?.timestamp || req.headers?.["x-at-timestamp"];
-  const now = Date.now();
-
-  if (timestamp) {
-    const ts = typeof timestamp === "number" ? timestamp : parseInt(String(timestamp), 10);
-    if (!isNaN(ts) && (now - ts > 5 * 60 * 1000 || ts - now > 5 * 60 * 1000)) {
-      return { valid: false, reason: "STALE_TIMESTAMP_REPLAY" };
-    }
-  }
-
-  if (nonce) {
-    if (seenNonces.has(nonce)) {
-      return { valid: false, reason: "DUPLICATE_NONCE_REPLAY" };
-    }
-    seenNonces.set(nonce, now);
-  }
-
-  return { valid: true };
-}
-
-const callerCounts = new Map<string, { count: number; resetAt: number }>();
-
-export function resetCallerRateLimits(): void {
-  callerCounts.clear();
-}
-
-export function checkCallerRateLimit(caller: string, limit: number = 30): { allowed: boolean; remaining: number } {
-  const now = Date.now();
-  const entry = callerCounts.get(caller);
-  if (!entry || now > entry.resetAt) {
-    callerCounts.set(caller, { count: 1, resetAt: now + 60000 });
-    return { allowed: true, remaining: limit - 1 };
-  }
-  if (entry.count >= limit) {
-    return { allowed: false, remaining: 0 };
-  }
-  entry.count++;
-  return { allowed: true, remaining: limit - entry.count };
 }
 
 export function verifyAtWebhook(req: Request, res: Response, next: NextFunction): void {

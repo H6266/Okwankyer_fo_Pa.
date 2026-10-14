@@ -1,7 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { resolvePrompt, resolvePromptText } from "../modules/ttsService";
-
-const promptUrl = (key: string, language: "en" | "twi") => resolvePrompt(key, language) || "";
 
 export type CallStep =
   | "idle"
@@ -37,8 +34,8 @@ export const CALL_STEPS: StepDefinition[] = [
     nameEn: "1. Language Selector",
     nameTwi: "1. Kasa Paw",
     expectedInput: "1 (English) or 2 (Twi)",
-    audioEn: promptUrl("welcome", "en"),
-    audioTwi: promptUrl("welcome", "twi"),
+    audioEn: "/audio/Welcome_prompt_01.mp3",
+    audioTwi: "/audio/Welcome_prompt_01.mp3",
   },
   {
     stepIndex: 2,
@@ -46,8 +43,8 @@ export const CALL_STEPS: StepDefinition[] = [
     nameEn: "2. Service Selection",
     nameTwi: "2. Dwumadie Paw",
     expectedInput: "1 (Mobile Money) or 2 (Banking)",
-    audioEn: promptUrl("service_select", "en"),
-    audioTwi: promptUrl("service_select", "twi"),
+    audioEn: "/audio/English/Audio_prompt_02.mp3",
+    audioTwi: "/audio/Twi/Audio_prompt_twi_02.mp3",
   },
   {
     stepIndex: 3,
@@ -55,8 +52,8 @@ export const CALL_STEPS: StepDefinition[] = [
     nameEn: "3. Network Provider",
     nameTwi: "3. Network Paw",
     expectedInput: "1 (MTN), 2 (Telecel), 3 (AT)",
-    audioEn: promptUrl("provider_select", "en"),
-    audioTwi: promptUrl("provider_select", "twi"),
+    audioEn: "/audio/English/Audio_prompt_03.mp3",
+    audioTwi: "/audio/Twi/Audio_prompt_twi_03.mp3",
   },
   {
     stepIndex: 4,
@@ -64,8 +61,8 @@ export const CALL_STEPS: StepDefinition[] = [
     nameEn: "4. MoMo Action Menu",
     nameTwi: "4. MoMo Menyu",
     expectedInput: "1 (Send Money), 2 (Pay Bills), 3 (Airtime)",
-    audioEn: promptUrl("action_select", "en"),
-    audioTwi: promptUrl("action_select", "twi"),
+    audioEn: "/audio/English/Audio_prompt_05.mp3",
+    audioTwi: "/audio/Twi/Audio_prompt_twi_04.mp3",
   },
   {
     stepIndex: 5,
@@ -73,8 +70,8 @@ export const CALL_STEPS: StepDefinition[] = [
     nameEn: "5. Recipient Phone Entry",
     nameTwi: "5. Nɔma a Woremane",
     expectedInput: "10 Digits + #",
-    audioEn: promptUrl("enter_recipient", "en"),
-    audioTwi: promptUrl("enter_recipient", "twi"),
+    audioEn: "/audio/English/Audio_prompt_06.mp3",
+    audioTwi: "/audio/Twi/Audio_prompt_twi_05.mp3",
     timeoutSec: 40,
   },
   {
@@ -83,8 +80,8 @@ export const CALL_STEPS: StepDefinition[] = [
     nameEn: "6. Spoken KYC Verification",
     nameTwi: "6. KYC Din Ka Peefe",
     expectedInput: "1 (Confirm) or 2 (Cancel)",
-    audioEn: promptUrl("recipient_verify", "en"),
-    audioTwi: promptUrl("recipient_verify", "twi"),
+    audioEn: "/audio/English/Audio_prompt_08.mp3",
+    audioTwi: "/audio/Twi/Audio_prompt_twi_06.mp3",
   },
   {
     stepIndex: 7,
@@ -92,8 +89,8 @@ export const CALL_STEPS: StepDefinition[] = [
     nameEn: "7. Amount Entry (Cedis)",
     nameTwi: "7. Sika Dodow (Cedi)",
     expectedInput: "Amount + # (* for pesewas)",
-    audioEn: promptUrl("enter_amount", "en"),
-    audioTwi: promptUrl("enter_amount", "twi"),
+    audioEn: "/audio/English/Audio_prompt_09.mp3",
+    audioTwi: "/audio/Twi/Audio_prompt_twi_07.mp3",
     timeoutSec: 30,
   },
   {
@@ -102,8 +99,8 @@ export const CALL_STEPS: StepDefinition[] = [
     nameEn: "8. Safe Confirmation Summary",
     nameTwi: "8. Bammbɔ Nkaebɔ",
     expectedInput: "1 (Confirm) or 2 (Edit)",
-    audioEn: "",
-    audioTwi: "",
+    audioEn: "/audio/English/Audio_prompt_10.mp3",
+    audioTwi: "/audio/Twi/Audio_prompt_twi_08.mp3",
   },
   {
     stepIndex: 9,
@@ -111,8 +108,8 @@ export const CALL_STEPS: StepDefinition[] = [
     nameEn: "9. Zero-PIN Handset Handoff",
     nameTwi: "9. Zero-PIN Bammbɔ Apono",
     expectedInput: "Approve on phone screen (Voice muted)",
-    audioEn: "",
-    audioTwi: "",
+    audioEn: "/audio/English/Audio_prompt_11.mp3",
+    audioTwi: "/audio/Twi/Audio_prompt_twi_09.mp3",
   },
   {
     stepIndex: 10,
@@ -120,8 +117,8 @@ export const CALL_STEPS: StepDefinition[] = [
     nameEn: "10. Spoken Audio Receipt",
     nameTwi: "10. Nne Nkaedum & Ref ID",
     expectedInput: "0 (Exit)",
-    audioEn: "",
-    audioTwi: "",
+    audioEn: "/audio/English/Audio_prompt_12.mp3",
+    audioTwi: "/audio/Twi/Audio_prompt_twi_10.mp3",
   },
 ];
 
@@ -180,92 +177,74 @@ export function useCallSession() {
 
   const generateVoiceXml = useCallback((step: CallStep, lang: "en" | "twi" | null, details: Partial<CallSessionState>) => {
     const isTwi = lang === "twi";
-    const stepDefinition = CALL_STEPS.find((definition) => definition.id === step);
-    const audioUrl = stepDefinition ? (isTwi ? stepDefinition.audioTwi : stepDefinition.audioEn) : "";
-    const playback = audioUrl ? `<Play>${audioUrl}</Play>` : "";
-    const promptKeyByStep: Partial<Record<CallStep, string>> = {
-      welcome: "welcome",
-      service: "service_select",
-      provider: "provider_select",
-      action: "action_select",
-      recipient: "enter_recipient",
-      kyc: "recipient_verify",
-      amount: "enter_amount",
-    };
-    const promptKey = promptKeyByStep[step];
-    const fallbackText = promptKey && lang ? resolvePromptText(promptKey, lang) : null;
-    const escapeXml = (text: string) => text.replace(/[<>&'"]/g, (character) => ({
-      "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;",
-    })[character] || character);
-    const promptSay = !playback && fallbackText ? `<Say>${escapeXml(fallbackText)}</Say>` : "";
     switch (step) {
       case "welcome":
         return `<Response>
   <GetDigits timeout="10" finishOnKey="#" callbackUrl="/voice-menu">
-    ${playback || promptSay}
+    <Play>/audio/Welcome_prompt_01.mp3</Play>
   </GetDigits>
   <!-- 1: English, 2: Akan Twi -->
 </Response>`;
       case "service":
         return `<Response>
   <GetDigits timeout="15" finishOnKey="#" callbackUrl="/voice-menu">
-    ${playback || promptSay}
+    <Play>${isTwi ? "/audio/Twi/Audio_prompt_twi_02.mp3" : "/audio/English/Audio_prompt_02.mp3"}</Play>
   </GetDigits>
   <!-- 1: Mobile Money, 2: Banking, 0: Exit -->
 </Response>`;
       case "provider":
         return `<Response>
   <GetDigits timeout="15" finishOnKey="#" callbackUrl="/voice-menu">
-    ${playback || promptSay}
+    <Play>${isTwi ? "/audio/Twi/Audio_prompt_twi_03.mp3" : "/audio/English/Audio_prompt_03.mp3"}</Play>
   </GetDigits>
   <!-- 1: MTN, 2: Telecel, 3: AT -->
 </Response>`;
       case "action":
         return `<Response>
   <GetDigits timeout="20" finishOnKey="#" callbackUrl="/voice-menu">
-    ${playback || promptSay}
+    <Play>${isTwi ? "/audio/Twi/Audio_prompt_twi_04.mp3" : "/audio/English/Audio_prompt_05.mp3"}</Play>
   </GetDigits>
   <!-- 1: Send Money, 2: Pay Bills, 8: Back, 0: Exit -->
 </Response>`;
       case "recipient":
         return `<Response>
   <GetDigits timeout="40" numDigits="10" finishOnKey="#" callbackUrl="/voice-menu">
-    ${playback || promptSay}
+    <Play>${isTwi ? "/audio/Twi/Audio_prompt_twi_05.mp3" : "/audio/English/Audio_prompt_06.mp3"}</Play>
   </GetDigits>
   <!-- Generous 40s input window for accessibility -->
 </Response>`;
       case "kyc":
         return `<Response>
   <GetDigits timeout="25" finishOnKey="#" callbackUrl="/voice-menu">
-    ${playback || promptSay}
+    <Play>${isTwi ? "/audio/Twi/Audio_prompt_twi_06.mp3" : "/audio/English/Audio_prompt_08.mp3"}</Play>
   </GetDigits>
   <!-- Spoken KYC Verification: ${details.recipientName || "Kwame Nyamebere"} -->
 </Response>`;
       case "amount":
         return `<Response>
   <GetDigits timeout="30" finishOnKey="#" callbackUrl="/voice-menu">
-    ${playback || promptSay}
+    <Play>${isTwi ? "/audio/Twi/Audio_prompt_twi_07.mp3" : "/audio/English/Audio_prompt_09.mp3"}</Play>
   </GetDigits>
   <!-- Amount with * for pesewas (30s window) -->
 </Response>`;
       case "confirm":
         return `<Response>
   <GetDigits timeout="25" finishOnKey="#" callbackUrl="/voice-menu">
-    <Say>${isTwi
-      ? escapeXml(`Confirm ${details.amount || ""} Ghana cedis to ${details.recipientName || ""}.`)
-      : escapeXml(`Confirm ${details.amount || ""} Ghana cedis to ${details.recipientName || ""}.`)}</Say>
+    <Play>${isTwi ? "/audio/Twi/Audio_prompt_twi_08.mp3" : "/audio/English/Audio_prompt_10.mp3"}</Play>
   </GetDigits>
   <!-- Safe Confirmation: GHS ${details.amount || "500"} to ${details.recipientName} -->
 </Response>`;
       case "zero_pin":
         return `<Response>
   <!-- ZERO-PIN VOICE GATE: Audio muted, no DTMF PIN capture -->
+  <Play>${isTwi ? "/audio/Twi/Audio_prompt_twi_09.mp3" : "/audio/English/Audio_prompt_11.mp3"}</Play>
   <!-- Trigger telco RequestToPay USSD push to handset screen -->
 </Response>`;
       case "receipt":
         return `<Response>
+  <Play>${isTwi ? "/audio/Twi/Audio_prompt_twi_10.mp3" : "/audio/English/Audio_prompt_12.mp3"}</Play>
   <!-- Spoken Receipt Ref: ${details.referenceId || "OKP-847291"} -->
-  ${isTwi ? "" : `<Say>Thank you for using Okwankyerɛfo Pa. Goodbye.</Say>`}
+  <Say>Thank you for using Okwankyerɛfo Pa. Goodbye.</Say>
 </Response>`;
       default:
         return `<Response><Say>Call ended.</Say></Response>`;
@@ -381,21 +360,6 @@ export function useCallSession() {
       setSession((prev) => {
         if (!prev.isActive) return prev;
 
-        // Auto-detect 10-digit phone number for sending money across steps
-        const cleanDigitsOnly = digit.replace(/\D/g, "");
-        if (cleanDigitsOnly.length === 10 && prev.step !== "amount" && prev.step !== "confirm" && prev.step !== "zero_pin") {
-          const phone = cleanDigitsOnly;
-          const name = phone.endsWith("8464")
-            ? "Kwame Nyamebere"
-            : phone === "0241234567"
-            ? "Kwame Nyameba"
-            : phone === "0543546010"
-            ? "Hannes Aboagye"
-            : `Subscriber ending in ${phone.slice(-4)}`;
-          setTimeout(() => goToStep("amount", { recipientPhone: phone, recipientName: name }), 100);
-          return { ...prev, digitsBuffer: "", recipientPhone: phone, recipientName: name };
-        }
-
         // Universal grammar 0 = Cancel cleanly
         if (digit === "0" && prev.step !== "amount" && prev.step !== "recipient") {
           setTimeout(() => endCall("CANCELLED"), 50);
@@ -410,28 +374,6 @@ export function useCallSession() {
             setTimeout(() => goToStep(prevStep), 50);
           }
           return { ...prev, digitsBuffer: "" };
-        }
-
-        // UNIVERSAL AUTO-IDENTIFICATION: The moment user punches or says numbers up to 10 at a time,
-        // automatically identify it as recipient phone for sending money and allow user to next stage (amount sending)!
-        const nextAccumulated = (prev.digitsBuffer + digit).replace(/[^0-9]/g, "");
-        if (prev.step !== "amount" && prev.step !== "confirm" && prev.step !== "kyc" && (digit.length === 10 || nextAccumulated.length === 10)) {
-          const phone = digit.length === 10 ? digit : nextAccumulated;
-          const name = phone.endsWith("8464")
-            ? "Kwame Nyamebere"
-            : phone === "0241234567"
-            ? "Kwame Nyameba"
-            : phone === "0543546010"
-            ? "Hannes Aboagye"
-            : `Subscriber ending in ${phone.slice(-4)}`;
-          addLog(`[AUTO-IDENTIFIED] 10-digit number for sending money: ${phone} (${name}). Advancing to amount stage!`);
-          setTimeout(() => goToStep("amount", { recipientPhone: phone, recipientName: name }), 100);
-          return { ...prev, digitsBuffer: "", recipientPhone: phone, recipientName: name };
-        }
-
-        // If accumulating a phone number starting with '0', keep buffering without triggering single-digit menus
-        if ((prev.digitsBuffer.startsWith("0") || (digit === "0" && !prev.digitsBuffer)) && prev.step !== "amount" && prev.step !== "confirm" && prev.step !== "kyc") {
-          return { ...prev, digitsBuffer: prev.digitsBuffer + digit };
         }
 
         // Universal grammar 9 = Repeat prompt
@@ -478,20 +420,19 @@ export function useCallSession() {
           return { ...prev, digitsBuffer: "" };
         }
 
-        // Recipient step: Accumulate 10 digits and auto-advance immediately to amount stage!
+        // Recipient step: Accumulate 10 digits until #
         if (prev.step === "recipient") {
-          const nextDigits = (prev.digitsBuffer + digit).slice(0, 10);
-          if (nextDigits.length === 10 || digit === "#") {
-            const phone = nextDigits.length === 10 ? nextDigits : prev.digitsBuffer;
-            if (phone.length < 10) {
+          if (digit === "#") {
+            if (prev.digitsBuffer.length < 10) {
               return {
                 ...prev,
                 eventLogs: [
                   ...prev.eventLogs,
-                  `[INPUT ERROR] Incomplete phone number (${phone.length} digits entered). 10 digits required.`,
+                  `[INPUT ERROR] Incomplete phone number (${prev.digitsBuffer.length} digits entered). 10 digits required.`,
                 ],
               };
             }
+            const phone = prev.digitsBuffer;
             const name = phone.endsWith("8464")
               ? "Kwame Nyamebere"
               : phone === "0241234567"
@@ -499,11 +440,10 @@ export function useCallSession() {
               : phone === "0543546010"
               ? "Hannes Aboagye"
               : `Subscriber ending in ${phone.slice(-4)}`;
-            // Auto advance directly to amount stage without stacking!
-            setTimeout(() => goToStep("amount", { recipientPhone: phone, recipientName: name }), 100);
-            return { ...prev, digitsBuffer: "", recipientPhone: phone, recipientName: name };
+            setTimeout(() => goToStep("kyc", { recipientPhone: phone, recipientName: name }), 100);
+            return { ...prev, digitsBuffer: "" };
           }
-          return { ...prev, digitsBuffer: nextDigits };
+          return { ...prev, digitsBuffer: (prev.digitsBuffer + digit).slice(0, 10) };
         }
 
         // KYC step: 1 = Confirm, 2 = Edit/Cancel

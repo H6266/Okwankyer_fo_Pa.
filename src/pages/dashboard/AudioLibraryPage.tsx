@@ -28,8 +28,7 @@ export const AudioLibraryPage: React.FC = () => {
     }
   };
 
-  const handleTogglePlay = (url: string | null) => {
-    if (!url) return;
+  const handleTogglePlay = (url: string) => {
     if (isPlaying && currentUrl === url) {
       stopAudio();
     } else {
@@ -120,7 +119,7 @@ export const AudioLibraryPage: React.FC = () => {
             selectedLang === "en" ? "bg-[#0F382A] text-white" : "text-[#5E7265] hover:text-[#0F382A]"
           }`}
         >
-          English ({manifest?.englishClips ?? manifest?.englishPrompts.length ?? 0} clips)
+          English (12 Clips)
         </button>
         <button
           onClick={() => setSelectedLang("twi")}
@@ -128,7 +127,7 @@ export const AudioLibraryPage: React.FC = () => {
             selectedLang === "twi" ? "bg-[#0F382A] text-white" : "text-[#5E7265] hover:text-[#0F382A]"
           }`}
         >
-          Akan Twi ({manifest?.twiClips ?? manifest?.twiPrompts.length ?? 0} clips)
+          Akan Twi (12 Clips)
         </button>
       </div>
 
@@ -159,15 +158,12 @@ export const AudioLibraryPage: React.FC = () => {
 
                 <button
                   onClick={() => handleTogglePlay(clip.url)}
-                  disabled={!clip.url || !clip.exists}
                   className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-colors ${
                     isThisPlaying
                       ? "bg-[#A32828] text-white"
-                      : clip.url && clip.exists
-                        ? "bg-[#0F382A] text-white hover:bg-[#1A543F]"
-                        : "bg-slate-400 text-white cursor-not-allowed"
+                      : "bg-[#0F382A] text-white hover:bg-[#1A543F]"
                   }`}
-                  aria-label={isThisPlaying ? "Pause audio" : clip.exists ? "Play audio" : "Audio unavailable"}
+                  aria-label={isThisPlaying ? "Pause audio" : "Play audio"}
                 >
                   {isThisPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
                 </button>

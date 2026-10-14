@@ -10,7 +10,6 @@ import { VoiceService } from "../../africastalking";
 import { audioFileExists } from "../audio/catalog";
 import { requireAdminAuth } from "../middleware/adminAuth";
 import { adminRateLimiter } from "../middleware/rateLimiter";
-import { getRecordingByPromptKey } from "../audio/recordingRegistry";
 
 export const shippingRouter = Router();
 
@@ -33,10 +32,7 @@ shippingRouter.get("/api/shipping/status", adminRateLimiter, requireAdminAuth, a
     }
   }
 
-  const welcomeRecording = getRecordingByPromptKey("welcome");
-  const welcomeAudioExists = Boolean(
-    welcomeRecording && audioFileExists(welcomeRecording.relativePath)
-  );
+  const welcomeAudioExists = audioFileExists("Welcome_prompt_01.mp3");
 
   res.json({
     status: "ok",
@@ -149,3 +145,4 @@ shippingRouter.post("/api/shipping/update-config", adminRateLimiter, requireAdmi
     voiceNumber: config.at.voiceNumber,
   });
 });
+

@@ -27,7 +27,7 @@ export class NeuralAsrProvider {
   }
 
   private getTimeoutMs(): number {
-    return parseInt(process.env.LOCAL_GHANA_ASR_TIMEOUT_MS || "30000", 10);
+    return parseInt(process.env.LOCAL_GHANA_ASR_TIMEOUT_MS || "4500", 10);
   }
 
   private getAuthHeaders(): Record<string, string> {
@@ -46,7 +46,7 @@ export class NeuralAsrProvider {
     const url = `${this.getBaseUrl()}/health`;
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 30000);
+      const timeout = setTimeout(() => controller.abort(), 2000);
 
       const res = await fetch(url, {
         headers: this.getAuthHeaders(),

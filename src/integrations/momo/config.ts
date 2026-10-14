@@ -11,38 +11,6 @@ import { MoMoConfig } from "./types";
 export const MOMO_SANDBOX_BASE_URL = "https://sandbox.momodeveloper.mtn.com";
 export const MOMO_PRODUCTION_BASE_URL = "https://proxy.momoapi.mtn.com";
 
-export function normalizeConfigValue(value?: string): string {
-  const normalized = (value || "").trim();
-  if (!normalized) return "";
-
-  const lower = normalized.toLowerCase();
-  if (
-    lower.includes("paste the") ||
-    lower.includes("replace the") ||
-    lower.includes("your_") ||
-    lower.includes("your ") ||
-    lower.includes("example") ||
-    lower.includes("placeholder") ||
-    lower.includes("mock-test-key") ||
-    lower.includes("mock_test_key") ||
-    lower.includes("mock-") ||
-    lower.includes("dummy") ||
-    lower.includes("changeme") ||
-    lower.includes("not set") ||
-    lower.includes("undefined") ||
-    lower.includes("null") ||
-    lower.includes("momo_api_user_id") ||
-    lower.includes("momo_subscription_key") ||
-    lower.includes("momo_api_key") ||
-    lower.includes("your api key") ||
-    lower.includes("your subscription key") ||
-    /^sk-(test|mock|dummy)/i.test(normalized)
-  ) {
-    return "";
-  }
-
-  return normalized;
-}
 
 /**
  * Strips non-ASCII characters and sanitizes text for telecom and banking gateways
@@ -104,77 +72,57 @@ export function loadConfigFromEnv(): MoMoConfig {
 
   // In MTN MoMo Open API, Collections and Disbursements are separate product subscriptions.
   // A Disbursement key is invalid for Collections endpoints and vice versa.
-  const collSubKey = normalizeConfigValue(
+  const collSubKey = (
     process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY ||
     process.env.MTN_COLLECTION_SUBSCRIPTION_KEY ||
     ""
-  );
+  ).trim();
 
-  const disbSubKey = normalizeConfigValue(
+  const disbSubKey = (
     process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY ||
     process.env.MTN_DISBURSEMENT_SUBSCRIPTION_KEY ||
     ""
-  );
+  ).trim();
 
-  const collUserId = normalizeConfigValue(
+  const collUserId = (
     process.env.MOMO_COLLECTION_API_USER_ID ||
     process.env.MTN_COLLECTION_API_USER_ID ||
     process.env.MTN_COLLECTION_X_REFERENCE_ID ||
     ""
-  );
+  ).trim();
 
-  const collApiKey = normalizeConfigValue(
+  const collApiKey = (
     process.env.MOMO_COLLECTION_API_KEY ||
     process.env.MTN_COLLECTION_API_KEY ||
     ""
-  );
+  ).trim();
 
-  const disbUserId = normalizeConfigValue(
+  const disbUserId = (
     process.env.MOMO_DISBURSEMENT_API_USER_ID ||
     process.env.MTN_DISBURSEMENT_API_USER_ID ||
     ""
-  );
+  ).trim();
 
-  const disbApiKey = normalizeConfigValue(
+  const disbApiKey = (
     process.env.MOMO_DISBURSEMENT_API_KEY ||
     process.env.MTN_DISBURSEMENT_API_KEY ||
     ""
-  );
-
-  const legacySubKey = normalizeConfigValue(process.env.MOMO_SUBSCRIPTION_KEY || "");
-  const legacyUserId = normalizeConfigValue(process.env.MOMO_API_USER_ID || "");
-  const legacyApiKey = normalizeConfigValue(process.env.MOMO_API_KEY || "");
-
-  const legacyIsComplete = Boolean(legacySubKey && legacyUserId && legacyApiKey);
-  const collIsComplete = Boolean(collSubKey && collUserId && collApiKey);
-  const disbIsComplete = Boolean(disbSubKey && disbUserId && disbApiKey);
-
-  const collection = collIsComplete
-    ? { subscriptionKey: collSubKey, apiUserId: collUserId, apiKey: collApiKey }
-    : legacyIsComplete
-      ? { subscriptionKey: legacySubKey, apiUserId: legacyUserId, apiKey: legacyApiKey }
-      : {
-          subscriptionKey: collSubKey || legacySubKey,
-          apiUserId: collUserId || legacyUserId,
-          apiKey: collApiKey || legacyApiKey,
-        };
-
-  const disbursement = disbIsComplete
-    ? { subscriptionKey: disbSubKey, apiUserId: disbUserId, apiKey: disbApiKey }
-    : legacyIsComplete
-      ? { subscriptionKey: legacySubKey, apiUserId: legacyUserId, apiKey: legacyApiKey }
-      : {
-          subscriptionKey: disbSubKey || legacySubKey,
-          apiUserId: disbUserId || legacyUserId,
-          apiKey: disbApiKey || legacyApiKey,
-        };
+  ).trim();
 
   return {
     baseUrl,
     targetEnv,
     currency,
-    collection,
-    disbursement,
+    collection: {
+      subscriptionKey: collSubKey,
+      apiUserId: collUserId,
+      apiKey: collApiKey,
+    },
+    disbursement: {
+      subscriptionKey: disbSubKey,
+      apiUserId: disbUserId,
+      apiKey: disbApiKey,
+    },
     callbackHost: process.env.MOMO_CALLBACK_HOST,
   };
 }

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatSpokenNumbersAsDigits } from "../domain/numberFormatter";
-import { normalizeGhanaPhoneNumber } from "../domain/validation";
 import {
   isAcousticSystemEcho,
   stripSystemEchoFromTranscript,
@@ -45,26 +44,6 @@ export function useSpeechRecognition(options: {
         resolvedDigit: raw,
         resolvedIntent: `Digit ${raw}`,
         matchedRule: "Exact single digit match",
-        resolverType: "local_pattern",
-      };
-    }
-
-    // 1b. Auto-detect 10-digit phone number for sending money
-    const digitsOnly = formatted.replace(/\D/g, "");
-    const normalizedWords = normalizeGhanaPhoneNumber(text);
-    if (digitsOnly.length === 10 || (digitsOnly.length === 12 && digitsOnly.startsWith("233")) || (normalizedWords.length === 10 && normalizedWords.startsWith("0"))) {
-      const phone =
-        normalizedWords.length === 10 && normalizedWords.startsWith("0")
-          ? normalizedWords
-          : digitsOnly.length === 12
-          ? "0" + digitsOnly.slice(3)
-          : digitsOnly;
-      return {
-        transcript: formatted,
-        confidence: 0.99,
-        resolvedDigit: phone,
-        resolvedIntent: `RECIPIENT_PHONE_${phone}`,
-        matchedRule: "Auto-detected 10-digit recipient phone number for sending money",
         resolverType: "local_pattern",
       };
     }
@@ -228,45 +207,6 @@ export function useSpeechRecognition(options: {
     }
     setSupported(true);
 
-    let sentenceChunks: string[] = [];
-    let sentenceTimer: any = null;
-    const SENTENCE_END_SILENCE_MS = 2200;
-
-    const clearSentenceTimer = () => {
-      if (sentenceTimer) {
-        clearTimeout(sentenceTimer);
-        sentenceTimer = null;
-      }
-    };
-
-    const commitCompleteSentence = (pendingInterim: string = "") => {
-      clearSentenceTimer();
-      const fullSentence = [...sentenceChunks, pendingInterim]
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .join(" ")
-        .trim();
-      sentenceChunks = [];
-      if (!fullSentence) return;
-
-      const formattedText = formatSpokenNumbersAsDigits(fullSentence);
-      setTranscript(formattedText);
-
-      // Automatically turn off the microphone once the user finishes their sentence
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-        } catch {}
-      }
-      setIsListening(false);
-
-      const match = resolveSpokenText(formattedText, options.language);
-      setLastMatch(match);
-      if (onMatchRef.current) {
-        onMatchRef.current(match);
-      }
-    };
-
     try {
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
@@ -274,58 +214,34 @@ export function useSpeechRecognition(options: {
       recognition.lang = options.language === "twi" ? "ak-GH" : "en-US";
 
       recognition.onresult = (event: any) => {
-        if (options.isMuted || options.isSpeaking) return; // Strict muting during prompt playback or Zero-PIN
-
-        let interimPart = "";
-        let finalPart = "";
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const res = event.results[i];
-          const textChunk = (res[0]?.transcript || "").trim();
-          if (!textChunk) continue;
-          if (res.isFinal) {
-            finalPart += " " + textChunk;
-          } else {
-            interimPart += " " + textChunk;
-          }
-        }
-
-        interimPart = interimPart.trim();
-        finalPart = finalPart.trim();
-        const combinedCurrent = (finalPart || interimPart).trim();
-        if (!combinedCurrent || isBackgroundNoiseOrStatic(combinedCurrent)) return;
+        if (options.isMuted) return; // Strict Zero-PIN muting
+        const lastResultIndex = event.results.length - 1;
+        const res = event.results[lastResultIndex];
+        const rawText = (res[0]?.transcript || "").trim();
+        if (!rawText || isBackgroundNoiseOrStatic(rawText)) return;
 
         // Acoustic Echo Suppression
-        if (isAcousticSystemEcho(combinedCurrent, options.activePrompt, options.isSpeaking)) {
-          const stripped = stripSystemEchoFromTranscript(combinedCurrent, options.activePrompt);
+        if (isAcousticSystemEcho(rawText, options.activePrompt, options.isSpeaking)) {
+          const stripped = stripSystemEchoFromTranscript(rawText, options.activePrompt);
           if (!stripped || isAcousticSystemEcho(stripped, options.activePrompt)) {
             return;
           }
         }
 
-        if (finalPart) {
-          const strippedFinal = stripSystemEchoFromTranscript(finalPart, options.activePrompt) || finalPart;
-          sentenceChunks.push(formatSpokenNumbersAsDigits(strippedFinal));
-        }
+        const formattedText = formatSpokenNumbersAsDigits(rawText);
+        setTranscript(formattedText);
 
-        const preview = [...sentenceChunks, interimPart ? formatSpokenNumbersAsDigits(interimPart) : ""]
-          .filter(Boolean)
-          .join(" ")
-          .trim();
-        if (preview) {
-          setTranscript(preview);
+        if (res.isFinal) {
+          const match = resolveSpokenText(formattedText, options.language);
+          setLastMatch(match);
+          if (onMatchRef.current) {
+            onMatchRef.current(match);
+          }
         }
-
-        // Wait until user finishes their full sentence before turning off mic and dispatching
-        clearSentenceTimer();
-        sentenceTimer = setTimeout(() => {
-          commitCompleteSentence(interimPart);
-        }, SENTENCE_END_SILENCE_MS);
       };
 
       recognition.onstart = () => setIsListening(true);
-      recognition.onend = () => {
-        setIsListening(false);
-      };
+      recognition.onend = () => setIsListening(false);
       recognition.onerror = (e: any) => {
         if (e.error !== "no-speech") {
           console.warn("Speech recognition error:", e.error);
@@ -339,7 +255,6 @@ export function useSpeechRecognition(options: {
     }
 
     return () => {
-      clearSentenceTimer();
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();

@@ -1,6 +1,0 @@
-{
-  "summary": "Comprehensive implementation plan for integrating the canonical 94-prompt IVR library (OP01-OP94) with the existing 126 audio recordings, establishing strict bilingual English/Twi deterministic state routing, providing an in-place registry mapping, lifecycle-safe audio streaming with tone fallbacks, and adding an optional continuous push-to-talk Whisper speech recognition mode to the phone simulator.",
-  "updatedAt": "2026-10-13T18:03:01.768525692Z",
-  "requestFeedback": true,
-  "userFacing": true
-}

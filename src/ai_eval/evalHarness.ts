@@ -4,7 +4,7 @@
  * Benchmarks and measures accuracy, confidence thresholds, and DTMF fallback rates
  * across:
  * 1. Labeled text corpus (English, Akan Twi, colloquial noise, and out-of-scope).
- * 2. Real audio recordings (ASR evaluation using registered supplied recordings).
+ * 2. Real audio recordings (ASR evaluation using real MP3/WAV audio files from the repository).
  * 
  * Strict Rule 7 compliance: No fake accuracy figures or mock latencies.
  * All reported metrics come from real code executions.
@@ -14,7 +14,6 @@ import fs from "fs";
 import path from "path";
 import { parseUserIntent, IntentType } from "../modules/nluService";
 import { speechToText } from "../modules/sttService";
-import { AUDIO_RECORDINGS, getRecordingFilePath } from "../audio/recordingRegistry";
 
 export interface LabeledUtterance {
   id: string;
@@ -160,15 +159,33 @@ export interface AudioSampleBenchmark {
   isSilenceOrNoise?: boolean;
 }
 
-export const AUDIO_EVAL_SAMPLES: AudioSampleBenchmark[] = AUDIO_RECORDINGS.flatMap((recording) => {
-  const filePath = getRecordingFilePath(recording.relativePath);
-  if (!recording.promptId || !recording.spokenText || !filePath) return [];
-  return [{
-    id: `audio-${recording.promptId.toLowerCase()}`,
-    filePath,
-    expectedKeywords: recording.spokenText.split(/\s+/).filter((word) => word.length > 2).slice(0, 4),
-  }];
-}).slice(0, 5);
+export const AUDIO_EVAL_SAMPLES: AudioSampleBenchmark[] = [
+  {
+    id: "audio-welcome-en",
+    filePath: "audio/Welcome_prompt_01.mp3",
+    expectedKeywords: ["welcome", "english", "twi"],
+  },
+  {
+    id: "audio-menu-en",
+    filePath: "audio/English/Audio_prompt_02.mp3",
+    expectedKeywords: ["telecom", "mobile", "banking"],
+  },
+  {
+    id: "audio-network-en",
+    filePath: "audio/English/Audio_prompt_03.mp3",
+    expectedKeywords: ["network", "mtn", "telecel"],
+  },
+  {
+    id: "audio-momo-menu-en",
+    filePath: "audio/English/Audio_prompt_05.mp3",
+    expectedKeywords: ["send", "money", "bills", "airtime"],
+  },
+  {
+    id: "audio-welcome-twi",
+    filePath: "audio/Twi/Welcome_prompt_01.mp3",
+    expectedKeywords: ["akwaaba", "borɔfo", "twi"],
+  },
+];
 
 export interface AudioEvalReport {
   totalAudioSamples: number;
@@ -206,8 +223,7 @@ export async function runAudioEvaluationHarness(
     const audioBuffer = fs.readFileSync(fullPath);
     const start = performance.now();
 
-    const mimeType = path.extname(fullPath).toLowerCase() === ".m4a" ? "audio/mp4" : "audio/wav";
-    const stt = await speechToText(audioBuffer, mimeType);
+    const stt = await speechToText(audioBuffer, "audio/mp3");
     const latency = Math.round(performance.now() - start);
     totalLatency += latency;
 

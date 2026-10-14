@@ -8,7 +8,6 @@ export type BrainMode = 'offline_only' | 'shadow' | 'live';
 
 export type IntentId =
   | 'momo.transfer'
-  | 'momo.cash_out'
   | 'momo.check_balance'
   | 'momo.buy_airtime'
   | 'momo.buy_data'
@@ -34,7 +33,6 @@ export type ReplyKind =
   | 'confirm'
   | 'dispatch'
   | 'smalltalk'
-  | 'cancel'
   | 'error';
 
 export interface RecipientSlot {
@@ -52,7 +50,6 @@ export interface ModelOutputContract {
     amount?: number | null;
     recipient?: RecipientSlot | null;
     network?: string | null;
-    reference?: string | null;
   };
   signals: {
     correction: boolean;
@@ -98,7 +95,6 @@ export type ServiceHandler = (params: {
   sessionId?: string;
   confirmedDraftHash?: string;
   dispatchKey?: string;
-  [key: string]: any;
 }) => Promise<ServiceHandlerResult>;
 
 export interface ServiceDefinition {
@@ -114,7 +110,6 @@ export type BrainDecision =
   | { kind: 'clarify_slot'; slot: string }
   | { kind: 'confirm'; intent: IntentId; slots: Slots }
   | { kind: 'not_ready'; intent: IntentId }
-  | { kind: 'cancel'; intent?: IntentId }
   | { kind: 'dispatch'; intent: IntentId; slots: Slots };
 
 export interface TurnHistoryItem {
@@ -133,7 +128,6 @@ export interface DraftState {
   intent?: IntentId;
   slots: Slots;
   confirmed?: boolean;
-  clarificationLoops?: number;
   confirmationRevokedReason?: string;
   pendingClarification?: 'intent' | 'slot' | null;
   clarificationField?: string;
@@ -156,7 +150,6 @@ export interface BrainInput {
   draft: DraftState;
   callerNumber?: string;
   sessionId?: string;
-  forceModel?: boolean;
 }
 
 export interface BrainOutput {

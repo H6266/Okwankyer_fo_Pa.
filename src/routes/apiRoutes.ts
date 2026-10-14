@@ -11,68 +11,17 @@ import fs from "fs";
 import { config } from "../config/env";
 import { runRealSmokeTests } from "../services/healthService";
 import { recipientResolver } from "../providers/recipient/RecipientResolver";
-import { AUDIO_ASSET_INVENTORY, AUDIO_CATALOG, audioFileExists } from "../audio/catalog";
-import { getPromptManifestEntries, getRecordingByPromptId } from "../audio/recordingRegistry";
+import { AUDIO_CATALOG, audioFileExists } from "../audio/catalog";
 import { callSessionRepository } from "../services/callSessionRepository";
 import { auditLogger } from "../services/auditLogger";
 import { runEvaluationHarness } from "../ai_eval/evalHarness";
 import { requireAdminAuth } from "../middleware/adminAuth";
-import { kycLookupRateLimiter, adminRateLimiter, publicApiRateLimiter } from "../middleware/rateLimiter";
+import { kycLookupRateLimiter, adminRateLimiter } from "../middleware/rateLimiter";
 import { validateGhanaPhoneNumber } from "../domain/validation";
 import { aiBootstrap } from "../ai_system/core/aiBootstrap";
 import { modelRouter } from "../ai_system/providers/modelRouter";
-import { ttsRouter as speechSynthesisRouter } from "../ai_system/speech/tts/ttsRouter";
-import { resolvePrompt, resolvePromptText } from "../modules/ttsService";
 
 export const apiRouter = Router();
-
-apiRouter.get(
-  "/api/audio/prompt/:lang/:key",
-  publicApiRateLimiter,
-  (req: Request, res: Response) => {
-    const lang = req.params.lang;
-    if (lang !== "en" && lang !== "twi") {
-      return res.status(400).json({ error: "Unsupported prompt language." });
-    }
-
-    const promptUrl = resolvePrompt(req.params.key, lang);
-    if (!promptUrl) {
-      return res.status(404).json({ error: "No registered recording or TTS script exists for this prompt." });
-    }
-    return res.redirect(302, promptUrl);
-  }
-);
-
-apiRouter.get(
-  ["/api/audio/prompt-tts/:lang/:key", "/audio/prompt-tts/:lang/:key"],
-  publicApiRateLimiter,
-  async (req: Request, res: Response) => {
-    const lang = req.params.lang;
-    if (lang !== "en" && lang !== "twi") {
-      return res.status(400).json({ error: "Unsupported prompt language." });
-    }
-
-    const promptText = resolvePromptText(req.params.key, lang);
-    if (!promptText) {
-      return res.status(404).json({ error: "No registered prompt text or recording exists for this key." });
-    }
-
-    try {
-      const result = await speechSynthesisRouter.synthesize({
-        text: promptText,
-        language: lang === "twi" ? "tw" : "en",
-      });
-      res.status(200);
-      res.setHeader("Content-Type", result.audioMimeType);
-      res.setHeader("Content-Length", result.audioBuffer.length);
-      res.setHeader("Cache-Control", "public, max-age=3600");
-      return res.end(result.audioBuffer);
-    } catch (error) {
-      console.error("[AudioPromptTTS] Prompt synthesis failed.", error);
-      return res.status(502).json({ error: "Prompt speech synthesis is temporarily unavailable." });
-    }
-  }
-);
 
 // ── Health Status ─────────────────────────────────────────────────────
 const handleHealth = (req: Request, res: Response) => {
@@ -164,40 +113,29 @@ apiRouter.post("/api/dev/smoke-test", adminRateLimiter, requireAdminAuth, async 
 
 // ── Audio Manifest & Catalog ──────────────────────────────────────────
 apiRouter.get("/api/audio/manifest", (_req: Request, res: Response) => {
-  const enrichAsset = (item: (typeof AUDIO_ASSET_INVENTORY)[number]) => {
-    const exists = audioFileExists(item.filename, item.assetRoot);
-    const root = item.assetRoot === "supplied"
-      ? path.resolve(process.cwd(), "Audio_files", "audio")
-      : item.assetRoot === "public"
-        ? path.resolve(process.cwd(), "public", "audio")
-        : path.resolve(process.cwd(), "Audio_files_2");
-    const filePath = path.resolve(root, item.filename);
-    const sizeBytes = exists && fs.existsSync(filePath) ? fs.statSync(filePath).size : 0;
+  const rootAudio = path.resolve(process.cwd(), "audio");
+
+  const prompts = AUDIO_CATALOG.map((item) => {
+    const filePath = path.resolve(rootAudio, item.filename);
+    const exists = audioFileExists(item.filename);
+    let sizeBytes = 0;
+    if (exists && fs.existsSync(filePath)) {
+      try {
+        sizeBytes = fs.statSync(filePath).size;
+      } catch {}
+    }
 
     return {
       ...item,
       exists,
       sizeBytes,
-      sizeFormatted: exists ? `${(sizeBytes / 1024).toFixed(1)} KB` : "Unavailable",
+      sizeFormatted: exists ? `${(sizeBytes / 1024).toFixed(1)} KB` : "Dynamic TTS",
+      url: `/audio/${item.filename}`,
     };
-  };
-  const prompts = AUDIO_CATALOG.map(enrichAsset);
+  });
 
-  const englishPrompts = prompts.filter((prompt) => prompt.language === "en");
-  const twiPrompts = prompts.filter((prompt) => prompt.language === "twi");
-  const unresolvedAssets = AUDIO_ASSET_INVENTORY
-    .filter((item) => item.language === "unresolved")
-    .map(enrichAsset);
-  const missingPromptVariants = getPromptManifestEntries().flatMap((prompt) =>
-    (["en", "twi"] as const)
-      .filter((language) => !getRecordingByPromptId(prompt.id, language))
-      .map((language) => ({
-        promptId: prompt.id,
-        language,
-        state: prompt.state,
-        status: "recording_unavailable",
-      }))
-  );
+  const englishPrompts = prompts.filter((p) => p.language === "en" || p.language === "bilingual");
+  const twiPrompts = prompts.filter((p) => p.language === "twi" || p.language === "bilingual");
 
   res.json({
     totalClips: prompts.length,
@@ -206,8 +144,6 @@ apiRouter.get("/api/audio/manifest", (_req: Request, res: Response) => {
     englishPrompts,
     twiPrompts,
     allPrompts: prompts,
-    unresolvedAssets,
-    missingPromptVariants,
     sessions: callSessionRepository.getAllSessions(),
   });
 });

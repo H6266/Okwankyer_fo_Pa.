@@ -24,14 +24,7 @@ export const SANDBOX_RECIPIENT_FIXTURES: Record<string, DemoRecipientFixture> = 
   // Test fixture 2: Verified MTN subscriber
   "0241234567": {
     phoneNumber: "0241234567",
-    name: "Ama Mensah",
-    network: "MTN",
-    isVerified: true,
-  },
-  // Test fixture 3: Verified MTN subscriber (Emmanuel Mensah)
-  "0244123456": {
-    phoneNumber: "0244123456",
-    name: "Emmanuel Mensah",
+    name: "Ama Serwaa",
     network: "MTN",
     isVerified: true,
   },

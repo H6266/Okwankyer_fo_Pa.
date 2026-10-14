@@ -2588,13 +2588,13 @@
       const recipientName = this.callState.name || 'Kwame Nyamebere';
 
       // ─────────────────────────────────────────────────────────────────
-      // Prompt playback resolves through the central recording registry.
+      // DEDICATED PROMPTS SUITE FOR ENGLISH (Strictly /audio/English/*.mp3)
       // ─────────────────────────────────────────────────────────────────
       const ENGLISH_FLOW = {
         welcome: {
           tag: 'Step 1: Welcome & Language Choice',
-          audio: '/api/audio/prompt/en/welcome',
-          promptText: 'For English, press 1. For Twi, press 2.',
+          audio: '/audio/Welcome_prompt_01.mp3',
+          promptText: 'First introduction audio playing (Welcome_prompt_01.mp3). For English, press 1. For Twi, press 2.',
           xmlUrl: '/voice-menu',
           render: () => `
             <div class="step-options-grid">
@@ -2611,7 +2611,7 @@
         },
         service: {
           tag: 'Step 2: Service Selection (Telecoms vs Banking)',
-          audio: '/api/audio/prompt/en/service_select',
+          audio: '/audio/English/Audio_prompt_02.mp3',
           promptText: '"For telecom or mobile money services, press 1. For banking services, press 2. To hear this again, press 9. To exit, press 0."',
           xmlUrl: `/service-select?lang=en`,
           render: () => `
@@ -2637,7 +2637,7 @@
         },
         network: {
           tag: 'Step 3: Network Provider Selection',
-          audio: '/api/audio/prompt/en/provider_select',
+          audio: '/audio/English/Audio_prompt_03.mp3',
           promptText: '"Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again, or 0 to exit."',
           xmlUrl: `/provider-select?lang=en&service=momo`,
           render: () => `
@@ -2667,7 +2667,7 @@
         },
         services: {
           tag: 'Step 4: MTN Services Menu',
-          audio: '/api/audio/prompt/en/action_select',
+          audio: '/audio/English/Audio_prompt_05.mp3',
           promptText: '"MTN services. To send money to another MoMo user, press 1. To pay bills, press 2. To buy airtime or bundle, press 3. To allow cashout, press 4. To check your account, press 5. Press 8 to go back, or 0 to exit."',
           xmlUrl: `/action-select?lang=en&provider=${this.callState.provider || 'MTN'}`,
           render: () => `
@@ -2701,7 +2701,7 @@
         },
         recipient: {
           tag: 'Step 5: Recipient Number Entry (# to submit)',
-          audio: '/api/audio/prompt/en/enter_recipient',
+          audio: '/audio/English/Audio_prompt_06.mp3',
           promptText: '"Enter the 10-digit number you want to send money to, followed by hash. Press 0 to exit."',
           xmlUrl: `/enter-recipient?lang=en&provider=${this.callState.provider || 'MTN'}`,
           render: () => {
@@ -2731,8 +2731,8 @@
         },
         recipient_verify: {
           tag: 'Step 6: KYC Verification (Kwame Nyamebere)',
-          audio: null,
-          promptText: `"You are about to send money to ${recipientName}, whose phone number ends with ${last4}. To confirm and send the money, press 1. To cancel, press 2. To exit completely, press 0."`,
+          audio: '/audio/English/Audio_prompt_08.mp3',
+          promptText: `"You are about to send money to Kwame Nyamebere, whose phone number ends with ${last4}. To confirm and send the money, press 1. To cancel, press 2. To exit completely, press 0."`,
           render: () => `
             <div class="step-options-grid">
               <button class="step-opt-btn" onclick="window.app.pressKey('1')">
@@ -2752,8 +2752,8 @@
         },
         amount: {
           tag: 'Step 7: Enter Cedi Amount (# to submit)',
-          audio: '/api/audio/prompt/en/enter_amount',
-          promptText: `"Enter the cedi amount you want to send to ${recipientName}, followed by hash. Use star for pesewas."`,
+          audio: '/audio/English/Audio_prompt_09.mp3',
+          promptText: '"Enter the cedi amount you want to send to Kwame Nyamebere, followed by hash. Use star for pesewas."',
           xmlUrl: `/enter-amount?lang=en&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(recipientName)}`,
           render: () => {
             const trialAmt = this.linkedPhone ? parseFloat(this.linkedPhone.amount || 5).toFixed(2) : '5.00';
@@ -2779,8 +2779,8 @@
         },
         confirm: {
           tag: 'Step 8: Transfer Confirmation Read-Back',
-          audio: null,
-          promptText: `"You are about to send ${this.callState.amount || 50} Ghana cedis to ${recipientName}. To confirm and send, press 1. To cancel, press 2."`,
+          audio: '/audio/English/Audio_prompt_10.mp3',
+          promptText: '"You are about to send 500 Ghana cedis to Kwame Nyamebere. To confirm and send, press 1. To cancel, press 2."',
           xmlUrl: `/safe-confirmation?lang=en&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(recipientName)}&amount=${this.callState.amount}`,
           render: () => `
             <div class="step-options-grid">
@@ -2797,26 +2797,26 @@
         },
         pin_handoff: {
           tag: 'Step 9: Zero-PIN Security Handset Handoff',
-          audio: null,
-          promptText: '"Payment approval will appear on your phone screen. Never say or enter your PIN during this call."',
+          audio: '/audio/English/Audio_prompt_11.mp3',
+          promptText: '"Confirmed. Now, please check your phone screen and enter your momo pin accurately. Thank you for using Ɔkwankyerɛfo Pa. Goodbye."',
           xmlUrl: `/safe-outcome?lang=en&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(recipientName)}&amount=${this.callState.amount}&dtmfDigits=1`,
           render: () => this.renderPinPadUi('Transfer GH₵ 500.00 to Kwame Nyamebere', false)
         },
         receipt: {
           tag: 'Step 10: Transaction Receipt & Continuation',
-          audio: null,
-          promptText: `Your transfer of ${this.callState.amount || 50} Ghana cedis to ${recipientName} is complete.${this.callState.lastReference ? ` Reference ${this.callState.lastReference}.` : ''}`,
+          audio: '/audio/English/Audio_prompt_12.mp3',
+          promptText: '"Congratulations! You have successfully sent 500 Ghana cedis to Kwame Nyamebere. Your transaction was completed on 17 September 2026 at 5:00 PM. Your reference number is OKP-847291. Your transaction details have also been sent to you. Would you like to do anything else?"',
           render: () => this.renderReceiptUi(false)
         },
         not_available: {
           tag: 'Option Unavailable',
-          audio: '/api/audio/prompt/en/invalid_choice',
+          audio: '/audio/English/Audio_prompt_error.mp3',
           promptText: '"Sorry, that option is not available here. Thank you for using Ɔkwankyerɛfo Pa. Goodbye."',
           render: () => this.renderUnavailableUi('"Sorry, that option is not available here. Thank you for using Ɔkwankyerɛfo Pa. Goodbye."', 'Place New Call')
         },
         wrong_figure: {
           tag: '⚠️ Option Not in Prompt (Wrong Figure)',
-          audio: '/api/audio/prompt/en/invalid_choice',
+          audio: '/audio/English/Audio_prompt_11.mp3',
           promptText: '"That option was not recognized in the audio prompt. Please punch a valid number or option from the menu."',
           render: () => `
             <div style="background:#1e1e2e; border:1px solid var(--amber-accent); border-radius:8px; padding:12px; text-align:center; color:#fff;">
@@ -2825,7 +2825,7 @@
                 Option Not in Audio Prompt
               </div>
               <div style="font-size:11.5px; color:#cbd5e1; margin-bottom:10px;">
-                ${this.callState.lastInvalidKey ? `You punched <strong style="color:var(--amber-accent); font-size:14px;">[${this.callState.lastInvalidKey}]</strong>. ` : ''}That figure is not recognized. Please punch a valid option.
+                ${this.callState.lastInvalidKey ? `You punched <strong style="color:var(--amber-accent); font-size:14px;">[${this.callState.lastInvalidKey}]</strong>. ` : ''}Audio prompt 11 plays to inform you this figure is not recognized. Please punch a valid option.
               </div>
               <div style="display:flex; justify-content:center; gap:8px;">
                 <button class="btn btn-sm btn-primary" onclick="window.app.retryStepAfterError()">
@@ -2840,13 +2840,13 @@
         },
         done_exit: {
           tag: 'Call Finished',
-          audio: null,
+          audio: '/audio/English/Audio_prompt_11.mp3',
           promptText: '"Thank you for using Ɔkwankyerɛfo Pa. Goodbye."',
           render: () => this.renderDoneExitUi('"Thank you for using Ɔkwankyerɛfo Pa. Goodbye."', 'Place New Call')
         },
         cancel: {
           tag: 'Transaction Cancelled',
-          audio: null,
+          audio: '/audio/English/Audio_prompt_11.mp3',
           promptText: '"Transaction cancelled. No money has been deducted from your account. Goodbye."',
           render: () => `
             <button class="btn btn-sm btn-secondary" style="width:100%;" onclick="window.app.startCall()">
@@ -2857,13 +2857,13 @@
       };
 
       // ─────────────────────────────────────────────────────────────────
-      // Twi prompt playback resolves through the central recording registry.
+      // DEDICATED PROMPTS SUITE FOR TWI (Strictly /audio/Twi/*.mp3)
       // ─────────────────────────────────────────────────────────────────
       const TWI_FLOW = {
         welcome: {
           tag: 'Step 1: Welcome & Kasa Paw',
-          audio: '/api/audio/prompt/twi/welcome',
-          promptText: 'For English, press 1. Twi firi mu, mia 2.',
+          audio: '/audio/Welcome_prompt_01.mp3',
+          promptText: 'First introduction audio playing (Welcome_prompt_01.mp3). For English, press 1. Twi firi mu, mia 2.',
           xmlUrl: '/voice-menu',
           render: () => `
             <div class="step-options-grid">
@@ -2880,7 +2880,7 @@
         },
         service: {
           tag: 'Step 2: Dwumadie a Wopɛ (Telecom MoMo vs Sikakorabea)',
-          audio: '/api/audio/prompt/twi/service_select',
+          audio: '/audio/Twi/Audio_prompt_twi_03.mp3',
           promptText: '"Sɛ wopɛ sɛ wosende sika kɔ Mobile Money a, mia baako (1). Sikakorabea dwumadie no, mia mmienu (2). Tie biom, mia 9. Firi ha, mia 0."',
           xmlUrl: `/service-select?lang=twi`,
           render: () => `
@@ -2906,7 +2906,7 @@
         },
         network: {
           tag: 'Step 3: Yi Wo Network Dwumakuo (MTN, Telecel, AT)',
-          audio: '/api/audio/prompt/twi/provider_select',
+          audio: '/audio/Twi/Audio_prompt_twi_02.mp3',
           promptText: '"Afei selecte wo network. Sɛ MTN a, mia baako (1). Sɛ Telecel a, mia mmienu (2). Sɛ AirtelTigo a, mia mmiɛnsa (3). Mia anan (4) na tie wei biom. Mia zero (0) na si ha."',
           xmlUrl: `/provider-select?lang=twi&service=momo`,
           render: () => `
@@ -2936,7 +2936,7 @@
         },
         services: {
           tag: 'Step 4: MTN MoMo Dwumadie Menu (Actions)',
-          audio: '/api/audio/prompt/twi/action_select',
+          audio: '/audio/Twi/Audio_prompt_twi_04.mp3',
           promptText: '"Sɛ wopɛ sɛ wosend sika kɔ ma MoMo user a, mia 1. Sɛ wopɛ sɛ wotua bills a, mia 2. Sɛ wopɛ sɛ wotɔ airtime anaa bundle a, mia 3. Sɛ wopɛ sɛ woallow-i cash out a, mia 4. Sɛ wopɛ sɛ wocheck-i wo account no a, mia 5. Mia 8 na kɔ back. Mia 0 na firi ha."',
           xmlUrl: `/action-select?lang=twi&provider=${this.callState.provider || 'MTN'}`,
           render: () => `
@@ -2970,7 +2970,7 @@
         },
         recipient: {
           tag: 'Step 5: Bɔ Nɔmba Du No (# to submit)',
-          audio: '/api/audio/prompt/twi/enter_recipient',
+          audio: '/audio/Twi/Audio_prompt_twi_05.mp3',
           promptText: '"Afei, bɔ nɔmba no a wopɛ sɛ wosende sika no to so no. Wowie a, fa hash ka ho. Mia zero na san akyi."',
           xmlUrl: `/enter-recipient?lang=twi&provider=${this.callState.provider || 'MTN'}`,
           render: () => {
@@ -3000,8 +3000,8 @@
         },
         recipient_verify: {
           tag: 'Step 6: KYC Verification (Kwame Nyamebrɛ)',
-          audio: null,
-          promptText: `"Me pɛ sɛ wo bɛ sendi sika kɔ ${recipientName} fɔn so, anaa number ${last4} ɛna ɛtɔ. Sɛ wo pɛ sɛ wo gye tum na wo sendi sika ma me a baako (1). Sɛ wo pɛ sɛ wo cancel a mia mmienu (2). Sɛ wo pɛ sɛ wo firi mu a mia zero (0)."`,
+          audio: '/audio/Twi/Audio_prompt_twi_06.mp3',
+          promptText: `"Me pɛ sɛ wo bɛ sendi sika kɔ Kwame Nyamebrɛ fɔn so, anaa number ${last4} ɛna ɛtɔ. Sɛ wo pɛ sɛ wo gye tum na wo sendi sika ma me a baako (1). Sɛ wo pɛ sɛ wo cancel a mia mmienu (2). Sɛ wo pɛ sɛ wo firi mu a mia zero (0)."`,
           render: () => `
             <div class="step-options-grid">
               <button class="step-opt-btn" onclick="window.app.pressKey('1')">
@@ -3021,8 +3021,8 @@
         },
         amount: {
           tag: 'Step 7: Bɔ Cedi Dodow (# to submit)',
-          audio: '/api/audio/prompt/twi/enter_amount',
-          promptText: `"Mepa wo kyɛw, si di amount a wo pɛ sɛ wo send ɛkɔ ${recipientName} so, woyɛ a fa hash ɛntua to."`,
+          audio: '/audio/Twi/Audio_prompt_twi_07.mp3',
+          promptText: '"Mepa wo kyɛw, si di amount a wo pɛ sɛ wo send ɛkɔ Kwame Nyame Brɛfo so, woyɛ a fa hash ɛntua to."',
           xmlUrl: `/enter-amount?lang=twi&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(recipientName)}`,
           render: () => {
             const trialAmt = this.linkedPhone ? parseFloat(this.linkedPhone.amount || 5).toFixed(2) : '5.00';
@@ -3048,8 +3048,8 @@
         },
         confirm: {
           tag: 'Step 8: Pene Sika no so (Safe Confirmation)',
-          audio: null,
-          promptText: `"Wobɛsoma ${this.callState.amount || 50} Ghana cedis akɔma ${recipientName}. Sɛ wopɛ sɛ wosoma a, mia baako (1). Sɛ wopɛ sɛ wotwa mu a, mia mmienu (2)."`,
+          audio: '/audio/Twi/Audio_prompt_twi_08.mp3',
+          promptText: '"Me pɛ sɛ wo sendi 500 Ghana cedis asɛm a kɔ m\'abɛɛ na namba so. Sɛ wopɛ sɛ woyi tum na wo sendi a, mia baako (1). Sɛ wopɛ sɛ wo cancel a, mia mmienu (2)."',
           xmlUrl: `/safe-confirmation?lang=twi&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(recipientName)}&amount=${this.callState.amount}`,
           render: () => `
             <div class="step-options-grid">
@@ -3066,20 +3066,20 @@
         },
         pin_handoff: {
           tag: 'Step 9: Zero-PIN Fon Ahobammbɔ (Handset Handoff)',
-          audio: null,
-          promptText: '"Hwɛ wo fon screen so na wie payment no. Mmmɔ wo PIN wɔ frɛ no mu."',
+          audio: '/audio/Twi/Audio_prompt_twi_09.mp3',
+          promptText: '"Me pɛ sɛ ɔfa ɛsi wo phone no so na bɔ wo momo PIN."',
           xmlUrl: `/safe-outcome?lang=twi&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(recipientName)}&amount=${this.callState.amount}&dtmfDigits=1`,
           render: () => this.renderPinPadUi('Mena GH₵ 500.00 kɔma Kwame Nyamebrɛ', true)
         },
         receipt: {
           tag: 'Step 10: Nkratoɔ & Reference Nɔmba (Transaction Receipt)',
-          audio: null,
-          promptText: `"Wo sika a ɛyɛ ${this.callState.amount || 50} Ghana cedis a wosomaa kɔma ${recipientName} no awie.${this.callState.lastReference ? ` Reference ${this.callState.lastReference}.` : ''}`,
+          audio: '/audio/Twi/Audio_prompt_twi_10.mp3',
+          promptText: '"Congratulations! 500 Ghana Cedis a wosendee to Kwame Nyamebrɛ namba no so no yɛ successful. Wo transaction no yɛ completed wɔ 17th September 2026..."',
           render: () => this.renderReceiptUi(true)
         },
         wrong_figure: {
-          tag: '⚠️ Nɔmba a Wobɔe no Nni Hɔ (Wrong Figure)',
-          audio: '/api/audio/prompt/twi/unknown_input',
+          tag: '⚠️ Nɔmba a Wobɔe no Nni Hɔ (Wrong Figure - Prompt 11)',
+          audio: '/audio/Twi/Audio_prompt_twi_11.mp3',
           promptText: '"Mpanimfoɔ, fakyɛ yɛn sɛ option yi nni hɔ bio. Yɛdaase sɛ woayɛ use wɔ Ɔkwankyerɛfo Pa. Goodbye."',
           render: () => `
             <div style="background:#1e1e2e; border:1px solid var(--amber-accent); border-radius:8px; padding:12px; text-align:center; color:#fff;">
@@ -3088,7 +3088,7 @@
                 Nɔmba a Wobɔe no Nni Audio Prompt no Mu
               </div>
               <div style="font-size:11.5px; color:#cbd5e1; margin-bottom:10px;">
-                ${this.callState.lastInvalidKey ? `Wobɔɔ <strong style="color:var(--amber-accent); font-size:14px;">[${this.callState.lastInvalidKey}]</strong>. ` : ''}Option yi nni dwumadie no mu. Yɛsrɛ wo, san bɔ nɔmba pɔtee a wɔbɔɔ din no.
+                ${this.callState.lastInvalidKey ? `Wobɔɔ <strong style="color:var(--amber-accent); font-size:14px;">[${this.callState.lastInvalidKey}]</strong>. ` : ''}Audio prompt 11 reka kyerɛ wo sɛ option yi nni dwumadie no mu. Yɛsrɛ wo, san bɔ nɔmba pɔtee a wɔbɔɔ din no.
               </div>
               <div style="display:flex; justify-content:center; gap:8px;">
                 <button class="btn btn-sm btn-primary" onclick="window.app.retryStepAfterError()">
@@ -3103,19 +3103,19 @@
         },
         not_available: {
           tag: 'Option Yi Nni Hɔ Bio',
-          audio: null,
+          audio: '/audio/Twi/Audio_prompt_twi_11.mp3',
           promptText: '"Mpanimfoɔ, fakyɛ yɛn sɛ option yi nni hɔ bio. Yɛdaase sɛ woayɛ use wɔ Ɔkwankyerɛfo Pa. Goodbye."',
           render: () => this.renderUnavailableUi('"Mpanimfoɔ, fakyɛ yɛn sɛ option yi nni hɔ bio. Yɛdaase sɛ woayɛ use wɔ Ɔkwankyerɛfo Pa. Goodbye."', 'San Bɔ Fɔn Foforɔ')
         },
         done_exit: {
           tag: 'Dwumadie no Awie',
-          audio: null,
+          audio: '/audio/Twi/Audio_prompt_twi_12.mp3',
           promptText: '"Yɛda wo ase sɛ wode Ɔkwankyerɛfo Pa adi dwuma. Nante yie."',
           render: () => this.renderDoneExitUi('"Yɛda wo ase sɛ wode Ɔkwankyerɛfo Pa adi dwuma. Nante yie."', 'San Bɔ Fɔn Foforɔ')
         },
         cancel: {
           tag: 'Dwumadie no Atwa Mu',
-          audio: null,
+          audio: '/audio/Twi/Audio_prompt_twi_12.mp3',
           promptText: '"Yɛda wo ase sɛ wode Ɔkwankyerɛfo Pa adi dwuma. Nante yie."',
           render: () => `
             <button class="btn btn-sm btn-secondary" style="width:100%;" onclick="window.app.startCall()">
@@ -3143,7 +3143,7 @@
       const audioFile = stepConfig.audio;
       const audioEl = document.getElementById('phoneAudioElement');
       if (step === 'welcome') {
-        // Keep the introduction aligned with the selected language's registered prompt.
+        // First introduction audio is Welcome_prompt_01.mp3 - never read a synthetic welcome message
         if (!audioEl || audioEl.paused || audioEl.ended || this.currentAudioUrl !== audioFile) {
           this.playPhoneAudio(audioFile, null);
         }
@@ -3715,7 +3715,7 @@
     unlockAudio(targetUrl) {
       const audioEl = document.getElementById('phoneAudioElement');
       if (audioEl) {
-        const urlToPrime = targetUrl || this.currentAudioUrl || '/api/audio/prompt/en/welcome';
+        const urlToPrime = targetUrl || this.currentAudioUrl || '/audio/Welcome_prompt_01.mp3';
         if (audioEl.src !== urlToPrime && !audioEl.src.endsWith(urlToPrime)) {
           audioEl.src = urlToPrime;
         }
@@ -3756,7 +3756,7 @@
         window.speechSynthesis.cancel();
       }
 
-      const targetUrl = this.currentAudioUrl || '/api/audio/prompt/en/welcome';
+      const targetUrl = this.currentAudioUrl || '/audio/Welcome_prompt_01.mp3';
       if (audioEl.src !== targetUrl && !audioEl.src.endsWith(targetUrl)) {
         audioEl.src = targetUrl;
         audioEl.load();
@@ -3780,19 +3780,13 @@
       const sourceInd = document.getElementById('audioSourceIndicator');
       const playLabel = document.getElementById('playPromptLabel');
 
-      if (
-        audioUrl &&
-        this.callState.lang === 'twi' &&
-        audioUrl.startsWith('/api/audio/prompt/twi/') &&
-        audioEl &&
-        !audioEl.canPlayType('audio/mp4; codecs="mp4a.40.2"')
-      ) {
-        audioUrl = audioUrl.replace('/api/audio/prompt/twi/', '/api/audio/prompt-tts/twi/');
-      }
       this.stopPhoneAudio();
       this.currentAudioUrl = audioUrl;
 
-      if (this.isPinPromptOpen || this.callState.step === 'pin_handoff') fallbackTtsText = null;
+      // Never speak a fallback synthetic welcome message for the intro prompt
+      if ((audioUrl && audioUrl.toLowerCase().includes('welcome_prompt_01')) || this.callState.step === 'welcome') {
+        fallbackTtsText = null;
+      }
 
       const fileTag = document.getElementById('currentAudioFileName');
       if (fileTag) {
@@ -3812,7 +3806,7 @@
         audioEl.volume = 1.0;
       }
 
-      // Use the supplied recording when available; synthesize only when playback fails or no recording exists.
+      // In English mode or whenever an audioUrl is supplied, NEVER use computer TTS
       if (audioUrl) {
         if (audioEl.src !== audioUrl && !audioEl.src.endsWith(audioUrl)) {
           audioEl.src = audioUrl;
@@ -3858,31 +3852,35 @@
           this.isPromptPlaying = false;
           this.stopWaveformAnimation();
           if (this.callState.active && !this.optionSelectedForCurrentPrompt && this.listeningServiceEnabled && !this.isPinPromptOpen) {
-            this.speakFallback(fallbackTtsText);
+            this.setSpeechRecognitionActive(true, 'Audio error fallback, waiting for response');
           }
         };
       } else {
-        this.speakFallback(fallbackTtsText);
+        if (this.callState.lang === 'twi') {
+          this.speakFallback(fallbackTtsText);
+        } else {
+          this.isPromptPlaying = false;
+          if (this.callState.active && !this.optionSelectedForCurrentPrompt && this.listeningServiceEnabled && !this.isPinPromptOpen) {
+            this.setSpeechRecognitionActive(true, 'Prompt step ready (no audio URL)');
+          }
+        }
       }
     },
 
     speakFallback(text) {
+      // Only called for missing Akan Twi dynamic phrases, never for English prototype prompts
+      if (this.callState.lang === 'en') return;
+
       this.isPromptPlaying = true;
       this.setSpeechRecognitionActive(false, 'TTS fallback prompt playing');
 
       const sourceInd = document.getElementById('audioSourceIndicator');
-      if (sourceInd) sourceInd.innerText = 'TTS fallback';
+      if (sourceInd) sourceInd.innerText = 'TTS Audio Synthesis Simulation';
 
-      const playBrowserFallback = () => {
-        if (!('speechSynthesis' in window) || !text) {
-          this.isPromptPlaying = false;
-          this.setSpeechRecognitionActive(true, 'TTS unavailable, waiting for response');
-          return;
-        }
+      if ('speechSynthesis' in window && text) {
         window.speechSynthesis.cancel();
         const utter = new SpeechSynthesisUtterance(text);
         utter.rate = 0.95;
-        utter.lang = this.callState.lang === 'twi' ? 'ak-GH' : 'en-GH';
         this.startWaveformAnimation();
         const onDone = () => {
           this.isPromptPlaying = false;
@@ -3894,50 +3892,12 @@
         utter.onend = onDone;
         utter.onerror = onDone;
         window.speechSynthesis.speak(utter);
-      };
-
-      if (!text || this.isPinPromptOpen || this.callState.step === 'pin_handoff') {
+      } else {
         this.isPromptPlaying = false;
-        return;
-      }
-
-      fetch('/api/ai/synthesize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text,
-          language: this.callState.lang === 'twi' ? 'tw' : 'en',
-          style: 'ghanaian-warm'
-        })
-      }).then(async (response) => {
-        if (!response.ok) throw new Error(`TTS request returned ${response.status}`);
-        const payload = await response.json();
-        const result = payload?.result;
-        if (!result?.audioBase64) throw new Error('TTS response contained no audio.');
-        const audio = document.getElementById('phoneAudioElement');
-        const mime = result.audioMimeType || 'audio/wav';
-        if (mime === 'audio/mp4' && (!audio || !audio.canPlayType('audio/mp4; codecs="mp4a.40.2"'))) {
-          playBrowserFallback();
-          return;
+        if (this.callState.active && !this.optionSelectedForCurrentPrompt && this.listeningServiceEnabled && !this.isPinPromptOpen) {
+          this.setSpeechRecognitionActive(true, 'TTS unavailable, waiting for response');
         }
-        if (!audio) throw new Error('Phone audio player is unavailable.');
-        audio.src = `data:${mime};base64,${result.audioBase64}`;
-        audio.onended = () => {
-          this.isPromptPlaying = false;
-          this.stopWaveformAnimation();
-          if (this.callState.active && !this.optionSelectedForCurrentPrompt && this.listeningServiceEnabled && !this.isPinPromptOpen) {
-            this.setSpeechRecognitionActive(true, 'TTS prompt finished, waiting for response');
-          }
-        };
-        audio.onerror = playBrowserFallback;
-        audio.play().catch((error) => {
-          console.warn('TTS audio playback failed; using browser speech synthesis.', error);
-          playBrowserFallback();
-        });
-      }).catch((error) => {
-        console.warn('TTS service fallback unavailable; using browser speech synthesis.', error);
-        playBrowserFallback();
-      });
+      }
     },
 
     stopPhoneAudio() {
@@ -4483,21 +4443,21 @@
       const cleanEp = (endpoint || '').toLowerCase();
       let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n';
       if (cleanEp.includes('voice-menu') || cleanEp.includes('welcome')) {
-        xml += '    <GetDigits timeout="2" finishOnKey="#" numDigits="1" callbackUrl="/language-selection">\n        <Play url="/api/audio/prompt/en/welcome"/>\n    </GetDigits>\n';
+        xml += '    <GetDigits timeout="2" finishOnKey="#" numDigits="1" callbackUrl="/language-selection">\n        <Play url="/audio/Welcome_prompt_01.mp3"/>\n    </GetDigits>\n';
       } else if (cleanEp.includes('service-select')) {
-        xml += '    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="/provider-select">\n        <Play url="/api/audio/prompt/en/service_select"/>\n    </GetDigits>\n';
+        xml += '    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="/provider-select">\n        <Play url="/audio/English/Audio_prompt_02.mp3"/>\n    </GetDigits>\n';
       } else if (cleanEp.includes('provider-select')) {
-        xml += '    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="/action-select">\n        <Play url="/api/audio/prompt/en/provider_select"/>\n    </GetDigits>\n';
+        xml += '    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="/action-select">\n        <Play url="/audio/English/Audio_prompt_03.mp3"/>\n    </GetDigits>\n';
       } else if (cleanEp.includes('action-select')) {
-        xml += '    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="/enter-recipient">\n        <Play url="/api/audio/prompt/en/action_select"/>\n    </GetDigits>\n';
+        xml += '    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="/enter-recipient">\n        <Play url="/audio/English/Audio_prompt_05.mp3"/>\n    </GetDigits>\n';
       } else if (cleanEp.includes('enter-recipient')) {
-        xml += '    <GetDigits timeout="40" finishOnKey="#" numDigits="10" callbackUrl="/verify-recipient">\n        <Play url="/api/audio/prompt/en/enter_recipient"/>\n    </GetDigits>\n';
+        xml += '    <GetDigits timeout="40" finishOnKey="#" numDigits="10" callbackUrl="/verify-recipient">\n        <Play url="/audio/English/Audio_prompt_06.mp3"/>\n    </GetDigits>\n';
       } else if (cleanEp.includes('enter-amount')) {
-        xml += '    <GetDigits timeout="30" finishOnKey="#" numDigits="8" callbackUrl="/verify-amount">\n        <Play url="/api/audio/prompt/en/enter_amount"/>\n    </GetDigits>\n';
+        xml += '    <GetDigits timeout="30" finishOnKey="#" numDigits="8" callbackUrl="/verify-amount">\n        <Play url="/audio/English/Audio_prompt_09.mp3"/>\n    </GetDigits>\n';
       } else if (cleanEp.includes('safe-confirmation')) {
-        xml += '    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="/safe-outcome">\n        <Say>Confirm the transaction details shown on your screen, or cancel.</Say>\n    </GetDigits>\n';
+        xml += '    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="/safe-outcome">\n        <Play url="/audio/English/Audio_prompt_10.mp3"/>\n    </GetDigits>\n';
       } else if (cleanEp.includes('safe-outcome')) {
-        xml += '    <Reject/>\n';
+        xml += '    <Play url="/audio/English/Audio_prompt_11.mp3"/>\n    <Reject/>\n';
       } else {
         xml += '    <!-- Live VoiceXML stream ready for IVR ingress -->\n';
       }
@@ -4529,8 +4489,7 @@
         };
 
         mediaRecorder.onstop = () => {
-          const recordingMime = mediaRecorder.mimeType || this.recorder.audioChunks[0]?.type || 'audio/webm';
-          const blob = new Blob(this.recorder.audioChunks, { type: recordingMime });
+          const blob = new Blob(this.recorder.audioChunks, { type: 'audio/mp3' });
           this.recorder.recordedBlob = blob;
           const preview = document.getElementById('recordedAudioPreview');
           preview.src = URL.createObjectURL(blob);

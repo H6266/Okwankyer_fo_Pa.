@@ -27,11 +27,23 @@ export const VoiceTesterPage: React.FC = () => {
   const [activeSideTab, setActiveSideTab] = useState<"voicexml" | "state" | "logs">("voicexml");
   const [pressedKey, setPressedKey] = useState<string | null>(null);
 
+  // Audio player integration
+  const audio = useAudioPlayer();
+
+  // Play audio when currentAudioUrl changes
+  useEffect(() => {
+    if (session.isActive && session.currentAudioUrl) {
+      audio.playAudio(session.currentAudioUrl);
+    } else {
+      audio.stopAudio();
+    }
+  }, [session.isActive, session.currentAudioUrl]);
+
   // Speech recognition integration (disabled when muted or inactive)
   const speech = useSpeechRecognition({
     language: session.language || "en",
     isMuted: !session.isActive || session.isMicMuted,
-    isSpeaking: false,
+    isSpeaking: audio.isPlaying,
     activePrompt: session.currentAudioUrl || "",
     onMatch: (result) => {
       if (result.resolvedDigit) {
@@ -39,23 +51,6 @@ export const VoiceTesterPage: React.FC = () => {
       }
     },
   });
-
-  // Audio player integration — automatically turns on microphone when audio prompt finishes playing
-  const audio = useAudioPlayer(() => {
-    if (session.isActive && !session.isMicMuted && session.step !== "zero_pin") {
-      speech.startListening();
-    }
-  });
-
-  // Play audio when currentAudioUrl changes (pause mic while audio is playing)
-  useEffect(() => {
-    if (session.isActive && session.currentAudioUrl) {
-      speech.stopListening();
-      audio.playAudio(session.currentAudioUrl);
-    } else {
-      audio.stopAudio();
-    }
-  }, [session.isActive, session.currentAudioUrl]);
 
   const handleKeyPress = (digit: string) => {
     playTone(digit);

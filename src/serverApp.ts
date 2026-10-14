@@ -25,11 +25,8 @@ import { requireAdminAuth } from "./middleware/adminAuth";
 import { adminRateLimiter } from "./middleware/rateLimiter";
 import { validateGhanaPhoneNumber } from "./domain/validation";
 import { aiBootstrap } from "./ai_system/core/aiBootstrap";
-import { modelVerificationEngine } from "./ai_system/core/modelVerification";
 import { validateProductionModelConfig } from "./ai_system/brain/brain";
 import { approvalWorkflow } from "./ai_system/brain/approvalWorkflow";
-import { startPiperWorker } from "./ai_system/speech/tts/piperWorker";
-import { validateWebhookSecurityConfig } from "./providers/telephony/webhookGuard";
 
 export const app = express();
 
@@ -50,11 +47,8 @@ app.use(
 // CORS Allowlist
 app.use((req: Request, res: Response, next) => {
   const origin = req.headers.origin as string;
-  if (origin) {
-    res.header("Access-Control-Allow-Origin", origin);
-    res.header("Access-Control-Allow-Credentials", "true");
-  } else {
-    res.header("Access-Control-Allow-Origin", "*");
+  if (config.corsOrigins.includes("*") || (origin && config.corsOrigins.includes(origin))) {
+    res.header("Access-Control-Allow-Origin", origin || "*");
   }
   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD");
   res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, x-reference-id, x-reference_id");
@@ -84,11 +78,8 @@ app.use((err: any, _req: Request, res: Response, next: any) => {
 app.use(express.static(path.resolve(process.cwd(), "public"), { index: false }));
 
 // ── Safe Audio Streaming (HTTP 206 Partial Content + Path Traversal Guard) ─
-app.all("/audio/*", (req: Request, res: Response, next: any) => {
+app.all("/audio/*", (req: Request, res: Response) => {
   const rawSubpath = decodeURIComponent((req.params as any)[0] || "");
-  if (rawSubpath.startsWith("prompt-tts/")) {
-    return next();
-  }
   try {
     const safePath = resolveSafeAudioPath(rawSubpath);
     if (!safePath) {
@@ -160,7 +151,27 @@ app.all("/api/*", (_req: Request, res: Response) => {
 
 // ── Server Bootstrap & Frontend Serving ───────────────────────────────
 export async function startServer() {
-  validateWebhookSecurityConfig();
+  // Production Invariant Gates: Refuse startup on unapproved text or missing model
+  try {
+    validateProductionModelConfig();
+    approvalWorkflow.validateProductionApprovals();
+  } catch (err: any) {
+    if (process.env.NODE_ENV === "production") {
+      console.error("FATAL: Production Readiness Hardening Violation:", err.message);
+      throw err;
+    } else {
+      console.warn("⚠️ Production readiness notice:", err.message);
+    }
+  }
+
+  // Initialize AI Cognitive Core subsystem
+  try {
+    const bootReport = await aiBootstrap.initialize();
+    console.log(`🤖 AI Cognitive Core Initialized: ${bootReport.status}`);
+    auditLogger.log("info", "AI_BOOTSTRAP", `AI Core initialized with status: ${bootReport.status}`);
+  } catch (err: any) {
+    console.warn("⚠️ AI Core initialization warning:", err.message);
+  }
 
   const isDev =
     process.env.npm_lifecycle_event === "dev" ||
@@ -199,7 +210,7 @@ export async function startServer() {
       console.log("⚡ Mounting Vite dev server middleware...");
       const { createServer } = await import("vite");
       const vite = await createServer({
-        server: { middlewareMode: true, hmr: false, ws: false, watch: null },
+        server: { middlewareMode: true, hmr: false },
         appType: "spa",
       });
       app.use(vite.middlewares);
@@ -209,80 +220,14 @@ export async function startServer() {
   }
 
   const server = http.createServer(app);
-  const wss = new WebSocketServer({ noServer: true });
-  server.on("upgrade", (request, socket, head) => {
-    const pathname = new URL(request.url || "/", "http://localhost").pathname;
-    if (pathname === "/api/ai/live") {
-      wss.handleUpgrade(request, socket, head, (ws) => {
-        wss.emit("connection", ws, request);
-      });
-    } else {
-      // Gracefully accept and keep idle or ignore non-matching upgrade requests (e.g. Vite HMR probes)
-      wss.handleUpgrade(request, socket, head, (ws) => {
-        ws.send(JSON.stringify({ type: "connected" }));
-      });
-    }
-  });
+  const wss = new WebSocketServer({ server });
   liveVoiceGateway.attachServer(wss);
 
-  let portArg: number | undefined;
-  const portIdx = process.argv.indexOf("--port");
-  if (portIdx !== -1 && process.argv[portIdx + 1]) {
-    const parsed = parseInt(process.argv[portIdx + 1], 10);
-    if (!isNaN(parsed)) portArg = parsed;
-  }
-  const activePort = Number(portArg || (isDev ? 3000 : (process.env.PORT && process.env.PORT !== "8080" ? process.env.PORT : 3000)));
-
-  let hostArg = "0.0.0.0";
-  const hostIdx = process.argv.indexOf("--host");
-  if (hostIdx !== -1 && process.argv[hostIdx + 1]) {
-    hostArg = process.argv[hostIdx + 1];
-  }
-  const activeHost = hostArg || process.env.HOST || "0.0.0.0";
-
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", (err: any) => {
-      if (err.code === "EADDRINUSE") {
-        console.warn(`⚠️ Port ${activePort} is already in use; server is already running.`);
-        resolve();
-      } else {
-        reject(err);
-      }
-    });
-
-    server.listen(activePort, activeHost, () => {
-      console.log(`Ɔkwankyerɛfo Pa running on http://${activeHost}:${activePort}`);
-      auditLogger.log("info", "SYSTEM", `Server online on port ${activePort} (Env: ${config.nodeEnv})`);
-      // Start local Piper neural TTS worker for dynamic speech synthesis
-      startPiperWorker().catch((err: any) => console.warn("[Server] Piper worker start notice:", err?.message || err));
-      resolve();
-    });
+  const activePort = Number(process.env.TEST_PORT || 3000);
+  server.listen(activePort, "0.0.0.0", () => {
+    console.log(`Ɔkwankyerɛfo Pa running on http://0.0.0.0:${activePort}`);
+    auditLogger.log("info", "SYSTEM", `Server online on port ${activePort} (Env: ${config.nodeEnv})`);
   });
-
-  // Initialize AI Cognitive Core subsystem asynchronously to avoid blocking startup
-  (async () => {
-    try {
-      validateProductionModelConfig();
-      approvalWorkflow.validateProductionApprovals();
-      const modelReport = await modelVerificationEngine.verifyStartupModels();
-      console.log(`🔍 Startup Gemini Model Verification: ${modelReport.success ? "PASSED" : "FALLBACK"}`);
-    } catch (err: any) {
-      if (process.env.NODE_ENV === "production") {
-        console.error("FATAL: Production Readiness Hardening Violation:", err.message);
-        throw err;
-      } else {
-        console.warn("⚠️ Production readiness notice:", err.message);
-      }
-    }
-
-    try {
-      const bootReport = await aiBootstrap.initialize();
-      console.log(`🤖 AI Cognitive Core Initialized: ${bootReport.status}`);
-      auditLogger.log("info", "AI_BOOTSTRAP", `AI Core initialized with status: ${bootReport.status}`);
-    } catch (err: any) {
-      console.warn("⚠️ AI Core initialization warning:", err.message);
-    }
-  })();
 
   return { app, server, wss };
 }

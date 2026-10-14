@@ -12,15 +12,12 @@ export interface TtsSynthesisRequest {
   speed?: number;
   pitch?: number;
   provider?: "gemini" | "fallback" | "custom";
-  skipCatalogCheck?: boolean;
-  purpose?: string;
 }
 
 export interface TtsSynthesisResponse {
   audioBuffer?: Buffer;
   audioBase64?: string;
   audioMimeType: string;
-  mimeType?: string;
   durationEstimateSec?: number;
   providerUsed: string;
 }

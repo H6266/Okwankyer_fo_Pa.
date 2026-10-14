@@ -11,27 +11,6 @@
 import OpenAI from "openai";
 import { auditLogger } from "../auditLogger";
 
-function isPlaceholderOpenAiKey(value?: string): boolean {
-  const normalized = (value || "").trim();
-  if (!normalized) return true;
-
-  const lower = normalized.toLowerCase();
-  return (
-    lower.includes("mock-") ||
-    lower.includes("mock_") ||
-    lower.includes("mock-test-key") ||
-    lower.includes("paste the") ||
-    lower.includes("your api key") ||
-    lower.includes("placeholder") ||
-    lower.includes("example") ||
-    lower.includes("not set") ||
-    lower.includes("changeme") ||
-    lower.includes("test-key") ||
-    lower.includes("demo-key") ||
-    /^sk-(test|mock|demo)/i.test(normalized)
-  );
-}
-
 export interface OpenAiMetrics {
   stage: string;
   model: string;
@@ -73,11 +52,7 @@ export class OpenAIClientManager {
   }
 
   public getApiKey(): string | undefined {
-    const raw = (process.env.OPENAI_API_KEY || "").trim();
-    if (isPlaceholderOpenAiKey(raw)) {
-      return undefined;
-    }
-    return raw || undefined;
+    return process.env.OPENAI_API_KEY || (process.env.NODE_ENV === "test" || process.env.VITEST ? "mock-test-key" : undefined);
   }
 
   private initClient(): void {

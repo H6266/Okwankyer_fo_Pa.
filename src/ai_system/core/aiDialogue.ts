@@ -129,10 +129,10 @@ export class AiDialogue {
       case "DENY":
       case "CANCEL": {
         const response = isTwi
-          ? "Yɛatwa mu. Frɛ no bɛtwa mu wɔ sɛkɛnd 7 mu. Sɛ wopɛ sɛ wohyɛ aseɛ foforɔ a, mia key biara."
+          ? "Yoo, yɛagyae dwumadie no. Wobɛpɛ sɛ meyɛ biribi foforɔ ma wo?"
           : isCodeSwitch
-          ? "Alright, transaction ended. Waiting 7 seconds before exit. Press any key to start over."
-          : "Transaction ended. Waiting 7 seconds before exit. Press any key or Start Over to begin a new transfer.";
+          ? "Alright, we have cancelled the transaction. Wobɛpɛ something else?"
+          : "Alright, the transaction has been cancelled. How else may I assist you today?";
 
         return {
           type: "INFORM_AND_EXIT",

@@ -1,6 +1,6 @@
 /**
  * Ɔkwankyerɛfo Pa - Service Registry (serviceRegistry.ts)
- *
+ * 
  * Separates what the caller might want (Taxonomy) from what is actually built and executable (Registry).
  * Enables modular service expansion without modifying the central brain reasoning loop.
  */
@@ -43,23 +43,7 @@ export class ServiceRegistry {
       },
     });
 
-    // 1b. momo.cash_out - status: 'ready' (Initiates Allow Cash-Out on subscriber wallet)
-    this.register({
-      intent: 'momo.cash_out',
-      status: 'ready',
-      requiredSlots: [],
-      handler: async (context: any) => {
-        const callerPhone = context?.callerNumber || '0543546010';
-        const { cashOutService } = await import('../../services/cashOutService');
-        const state = cashOutService.enableCashOut(callerPhone);
-        return {
-          success: true,
-          result: state,
-        };
-      },
-    });
-
-    // 2. Personal subscriber balance is not available through the MTN Open API.
+    // 2. momo.check_balance (Unbuilt in voice IVR - directs caller to *170# for Zero-PIN truth integrity)
     this.register({
       intent: 'momo.check_balance',
       status: 'not_ready',

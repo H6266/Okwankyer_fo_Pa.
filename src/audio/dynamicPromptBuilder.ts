@@ -28,7 +28,6 @@ export interface DynamicReceiptOptions {
   recipientName: string | null;
   referenceId: string;
   timestamp: Date;
-  status?: "SUCCESSFUL" | "PENDING" | "FAILED";
 }
 
 /**
@@ -69,10 +68,10 @@ export function buildSafeConfirmationPrompt(options: SafeConfirmationOptions): {
   } else {
     // English track
     if (isVerified && recipientName) {
-      spokenText = `You are about to send ${amountFormatted} to ${recipientName}, whose phone number ends with ${last4Spaced}. To confirm and continue, press 1. To cancel, press 2. To exit, press 0.`;
+      spokenText = `You are about to send ${amountFormatted} to ${recipientName}, whose phone number ends with ${last4Spaced}. To confirm and send, press 1. To cancel, press 2.`;
     } else {
       // Explicit unverified warning in English
-      spokenText = `Warning: The recipient name for phone number ending with ${last4Spaced} could not be verified in the subscriber directory. You are sending ${amountFormatted} to an unverified recipient. To confirm and continue, press 1. To cancel, press 2. To exit, press 0.`;
+      spokenText = `Warning: The recipient name for phone number ending with ${last4Spaced} could not be verified in the subscriber directory. You are sending ${amountFormatted} to an unverified recipient. To confirm and proceed anyway, press 1. To cancel, press 2.`;
     }
   }
 
@@ -91,7 +90,7 @@ export function buildReceiptPrompt(options: DynamicReceiptOptions): {
   spokenText: string;
   voiceXml: string;
 } {
-  const { language, amount, recipientPhone, recipientName, referenceId, timestamp, status = "SUCCESSFUL" } = options;
+  const { language, amount, recipientPhone, recipientName, referenceId, timestamp } = options;
   const phoneValidation = validateGhanaPhoneNumber(recipientPhone);
   const last4Spaced = phoneValidation.last4Spaced || recipientPhone.slice(-4).split("").join(" ");
   const displayName = recipientName || `subscriber ending in ${last4Spaced}`;
@@ -112,37 +111,16 @@ export function buildReceiptPrompt(options: DynamicReceiptOptions): {
 
   let spokenText = "";
 
-  if (status === "FAILED") {
-    if (language === "twi") {
-      spokenText = `Mpaebo! Wo transfer a ɛyɛ ${amountFormatted} akɔma ${displayName} no a-fail. Wo reference nɔmba ne ${spacedRef}.`;
-    } else {
-      spokenText = `Your transfer of ${amountFormatted} to ${displayName} has failed. Reference number is ${spacedRef}. Please try again later.`;
-    }
-  } else if (status === "PENDING") {
-    if (language === "twi") {
-      spokenText = `Wo transfer a ɛyɛ ${amountFormatted} akɔma ${displayName} no da so retwɛn authorization. Wo reference nɔmba ne ${spacedRef}.`;
-    } else {
-      spokenText = `Your transfer of ${amountFormatted} to ${displayName} is pending authorization. Please authorize the prompt on your handset. Reference number is ${spacedRef}.`;
-    }
+  if (language === "twi") {
+    spokenText = `Mo! Woatumi amane ${amountFormatted} akɔma ${displayName} wɔ da ${dateStr} berɛ ${timeStr}. Wo reference nɔmba ne ${spacedRef}. Yɛdaase sɛ woayɛ use wɔ Ɔkwankyerɛfo Pa. Nante yiye.`;
   } else {
-    if (language === "twi") {
-      spokenText = `Mo! Woatumi amane ${amountFormatted} akɔma ${displayName} wɔ da ${dateStr} berɛ ${timeStr}. Wo reference nɔmba ne ${spacedRef}. Yɛdaase sɛ woayɛ use wɔ Ɔkwankyerɛfo Pa. Nante yiye.`;
-    } else {
-      spokenText = `Congratulations! You have successfully sent ${amountFormatted} to ${displayName} on ${dateStr} at ${timeStr}. Your reference number is ${spacedRef}. Your transaction details have been dispatched. Thank you for using Ɔkwankyerɛfo Pa. Goodbye.`;
-    }
+    spokenText = `Congratulations! You have successfully sent ${amountFormatted} to ${displayName} on ${dateStr} at ${timeStr}. Your reference number is ${spacedRef}. Your transaction details have been dispatched. Thank you for using Ɔkwankyerɛfo Pa. Goodbye.`;
   }
 
   const voiceXml = `    <Say voice="female">${escapeXml(spokenText)}</Say>
     <Reject/>`;
 
   return { spokenText, voiceXml };
-}
-
-export function buildPendingAuthorizationPrompt(options: DynamicReceiptOptions): {
-  spokenText: string;
-  voiceXml: string;
-} {
-  return buildReceiptPrompt({ ...options, status: "PENDING" });
 }
 
 function escapeXml(unsafe: string): string {

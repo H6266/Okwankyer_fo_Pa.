@@ -92,85 +92,17 @@ export class ContinuousAudioEngine {
   private lastDispatchTime: number = 0;
   private isZeroPinMuted: boolean = false;
 
-  private isPlaybackGated: boolean = false;
-  private sentenceBuffer: string[] = [];
-  private sentenceCompleteTimer: any = null;
-  private readonly SENTENCE_END_SILENCE_MS: number = 2200;
-
   constructor() {
-    // Listen to system audio playback to strictly keep the microphone OFF while prompt plays,
-    // and automatically turn on the mic to record the user's need ONLY after the audio finishes playing.
+    // Listen to system audio playback to dynamically coordinate echo cancellation
     if (typeof window !== "undefined") {
       audioPlaybackController.subscribe((pState) => {
-        if (pState.isPlaying) {
-          if (pState.activeText) {
-            this.activePromptText = pState.activeText;
-          }
-          this.pauseForPlayback();
-        } else {
-          const wasGated = this.isPlaybackGated;
-          this.isPlaybackGated = false;
-          setTimeout(() => {
-            if (!audioPlaybackController.isSpeaking()) {
-              this.activePromptText = "";
-            }
-          }, 500);
-          if (wasGated && !this.isExplicitlyStopped && !this.isZeroPinMuted) {
-            // Brief 150ms acoustic tail buffer so room reverb from the speaker isn't recorded
-            setTimeout(() => {
-              if (!audioPlaybackController.isSpeaking() && !this.isExplicitlyStopped && !this.isZeroPinMuted) {
-                this.resumeAfterPlayback();
-              }
-            }, 150);
-          }
+        if (pState.isPlaying && pState.activeText) {
+          this.activePromptText = pState.activeText;
+        } else if (!pState.isPlaying) {
+          this.activePromptText = "";
         }
       });
     }
-  }
-
-  private clearSentenceTimer(): void {
-    if (this.sentenceCompleteTimer) {
-      clearTimeout(this.sentenceCompleteTimer);
-      this.sentenceCompleteTimer = null;
-    }
-  }
-
-  /**
-   * Turns OFF microphone recording while system audio prompt is playing or after user finishes their sentence
-   */
-  public pauseForPlayback(): void {
-    this.isPlaybackGated = true;
-    this.clearSentenceTimer();
-    this.sentenceBuffer = [];
-    this.lastStreamedWordCount = 0;
-    if (this.recognition) {
-      try {
-        this.recognition.abort();
-      } catch {}
-    }
-    this.updateState({
-      isMicActive: false,
-      isListening: false,
-      isVoiceActive: false,
-      currentInterimTranscript: "",
-    });
-  }
-
-  /**
-   * Automatically turns ON microphone recording right after prompt audio finishes playing
-   */
-  public resumeAfterPlayback(): void {
-    this.isPlaybackGated = false;
-    this.clearSentenceTimer();
-    this.sentenceBuffer = [];
-    this.lastStreamedWordCount = 0;
-    if (this.isExplicitlyStopped || this.isZeroPinMuted || audioPlaybackController.isSpeaking()) return;
-    this.updateState({
-      isMicActive: true,
-      isListening: true,
-      currentInterimTranscript: "",
-    });
-    this.startContinuousSpeechRecognition();
   }
 
   public subscribeState(listener: AudioStateListener): () => void {
@@ -204,8 +136,7 @@ export class ContinuousAudioEngine {
   }
 
   /**
-   * Initializes microphone and Web Audio DSP pipeline.
-   * If system audio is currently playing, keeps mic OFF until playback ends.
+   * Initializes Always-On microphone and Web Audio DSP pipeline.
    */
   public async startAlwaysOnMic(language: "en" | "twi" = "en", stepName: string = "idle"): Promise<boolean> {
     this.isExplicitlyStopped = false;
@@ -235,6 +166,12 @@ export class ContinuousAudioEngine {
           }
         }
       }
+
+      this.updateState({
+        isMicActive: true,
+        isPermissionGranted: Boolean(this.mediaStream),
+        isListening: true,
+      });
 
       // 2. Setup Web Audio DSP Graph if stream is active
       if (this.mediaStream) {
@@ -288,20 +225,8 @@ export class ContinuousAudioEngine {
         }
       }
 
-      // 3. Only turn on Speech Recognition if system prompt is NOT playing
-      if (!audioPlaybackController.isSpeaking()) {
-        this.updateState({
-          isMicActive: true,
-          isPermissionGranted: Boolean(this.mediaStream),
-          isListening: true,
-        });
-        this.startContinuousSpeechRecognition();
-      } else {
-        this.updateState({
-          isPermissionGranted: Boolean(this.mediaStream),
-        });
-        this.pauseForPlayback();
-      }
+      // 3. Always Start Continuous Web Speech Recognition
+      this.startContinuousSpeechRecognition();
 
       return true;
     } catch (err) {
@@ -343,16 +268,20 @@ export class ContinuousAudioEngine {
           } catch {}
         });
 
-        // Update state (while system prompt is playing or mic is gated, voice active is false)
-        const canListen = !isSystemPlaying && !this.isPlaybackGated && !this.isZeroPinMuted;
+        // Update state
         this.updateState({
           rmsDb: frame.rmsDb,
           snrDb: frame.snrDb,
           noiseFloorDb: acousticNoiseFilterModel.getNoiseFloorDb(),
-          isVoiceActive: frame.isVoiceActive && canListen,
-          isSystemEchoBlocked: isSystemPlaying || frame.isSystemEchoSuspected,
+          isVoiceActive: frame.isVoiceActive && !this.isZeroPinMuted,
+          isSystemEchoBlocked: frame.isSystemEchoSuspected,
           noiseCategory: frame.noiseCategory,
         });
+
+        // Intentional Barge-In detection: If user speaks over system prompt, stop prompt immediately!
+        if (isSystemPlaying && frame.isVoiceActive && !this.isZeroPinMuted) {
+          audioPlaybackController.stop();
+        }
       }
 
       this.animationFrameId = requestAnimationFrame(analyze);
@@ -362,92 +291,7 @@ export class ContinuousAudioEngine {
   }
 
   /**
-   * Finalizes the user's complete sentence after they finish speaking,
-   * automatically turns the microphone OFF so no stray background noise is recorded,
-   * and dispatches the complete sentence.
-   */
-  private finalizeAndCommitUserSentence(pendingInterim: string = ""): void {
-    this.clearSentenceTimer();
-    const combinedRaw = [...this.sentenceBuffer, pendingInterim]
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .join(" ")
-      .trim();
-
-    this.sentenceBuffer = [];
-    this.lastStreamedWordCount = 0;
-
-    if (!combinedRaw) return;
-
-    // Strip any residual system prompt prefix
-    const cleaned = stripSystemEchoFromTranscript(combinedRaw, this.activePromptText);
-    if (!cleaned) {
-      this.updateState({ currentInterimTranscript: "" });
-      return;
-    }
-
-    // Phonetic and Ghanaian acoustic dataset repair with numeral normalization
-    const normalizedFinal = normalizeSpokenDigits(cleaned);
-    const repaired = repairNoisyAcousticTranscript(normalizedFinal, this.activeStepName);
-    const phonetic = repairGhanaianPronunciation(repaired.repairedText);
-    const effectiveText = (phonetic.normalizedTranscript || repaired.repairedText).trim();
-    if (!effectiveText) return;
-
-    // Automatically turn the microphone OFF now that the user has finished their sentence!
-    // It will automatically turn back ON after the next system prompt finishes playing.
-    this.isPlaybackGated = true;
-    if (this.recognition) {
-      try {
-        this.recognition.abort();
-      } catch {}
-    }
-
-    // Notify word token listeners of final sentence completion
-    const finalWords = effectiveText.split(/\s+/).filter(Boolean);
-    finalWords.forEach((fw) => {
-      const token: SpokenWordToken = {
-        word: fw,
-        isFinal: true,
-        timestamp: Date.now(),
-      };
-      this.wordTokenListeners.forEach((fn) => {
-        try { fn(token); } catch {}
-      });
-    });
-
-    // Accumulate into discussion buffer for long conversation comprehension
-    this.discussionAccumulator.push(effectiveText);
-    const fullDiscussion = this.discussionAccumulator.join(" ");
-
-    const parsedDiscussion = parseLongDiscussion(
-      fullDiscussion,
-      this.activeStepName
-    );
-
-    this.updateState({
-      isMicActive: false,
-      isListening: false,
-      isVoiceActive: false,
-      currentInterimTranscript: "",
-      finalizedTranscript: effectiveText,
-      lastParsedDiscussion: parsedDiscussion,
-    });
-
-    const now = Date.now();
-    if (now - this.lastDispatchTime > 250) {
-      this.lastDispatchTime = now;
-      this.utteranceListeners.forEach((fn) => {
-        try {
-          fn(effectiveText, parsedDiscussion);
-        } catch {}
-      });
-    }
-  }
-
-  /**
-   * Continuous Web Speech Recognition with full-sentence accumulation.
-   * Waits until the user has finished their entire sentence (2.2s pause window)
-   * before turning the mic off and submitting.
+   * Continuous Web Speech Recognition with resilient keep-alive loop.
    */
   private startContinuousSpeechRecognition(): void {
     const SpeechRecognition =
@@ -470,14 +314,11 @@ export class ContinuousAudioEngine {
       recognition.lang = "en-US";
 
       recognition.onstart = () => {
-        if (!this.isPlaybackGated && !this.isZeroPinMuted && !audioPlaybackController.isSpeaking()) {
-          this.updateState({ isMicActive: true, isListening: true });
-        }
+        this.updateState({ isListening: true });
       };
 
       recognition.onresult = (event: any) => {
-        // Strictly ignore any recognition while system audio is playing or mic is gated
-        if (this.isZeroPinMuted || this.isPlaybackGated || audioPlaybackController.isSpeaking()) return;
+        if (this.isZeroPinMuted) return; // Strict Zero-PIN privacy boundary
 
         let interimStr = "";
         let finalStr = "";
@@ -496,6 +337,7 @@ export class ContinuousAudioEngine {
         finalStr = finalStr.trim();
 
         // 1. Acoustic Echo Cancellation check: Ignore system prompts echoing into mic
+        // 1. Acoustic Echo Cancellation check: Ignore system prompts echoing into mic
         const isSpeaking = audioPlaybackController.isSpeaking();
         if (interimStr) {
           if (isAcousticSystemEcho(interimStr, this.activePromptText, isSpeaking)) {
@@ -503,12 +345,17 @@ export class ContinuousAudioEngine {
             return;
           }
 
+          // User spoke: Immediate barge-in stop of system prompt
+          if (isSpeaking) {
+            audioPlaybackController.stop();
+          }
+
+          // Phonetically normalize spoken digits ("one" -> "1", "won" -> "1", "baako" -> "1")
           const normalizedInterim = normalizeSpokenDigits(interimStr);
-          const fullPreview = [...this.sentenceBuffer, normalizedInterim].filter(Boolean).join(" ").trim();
-          this.updateState({ currentInterimTranscript: fullPreview, isSystemEchoBlocked: false });
+          this.updateState({ currentInterimTranscript: normalizedInterim, isSystemEchoBlocked: false });
 
           // Stream individual word tokens to subscribers for real-time word-by-word transcription
-          const interimWords = fullPreview.split(/\s+/).filter(Boolean);
+          const interimWords = normalizedInterim.split(/\s+/).filter(Boolean);
           if (interimWords.length > this.lastStreamedWordCount) {
             for (let wIdx = this.lastStreamedWordCount; wIdx < interimWords.length; wIdx++) {
               const rawWord = interimWords[wIdx];
@@ -528,18 +375,35 @@ export class ContinuousAudioEngine {
             this.lastStreamedWordCount = interimWords.length;
           }
 
-          // Reset the sentence completion timer every time the user speaks another word,
-          // so we NEVER cut the user off in the middle of a sentence!
-          this.clearSentenceTimer();
-          this.sentenceCompleteTimer = setTimeout(() => {
-            this.finalizeAndCommitUserSentence(normalizedInterim);
-          }, this.SENTENCE_END_SILENCE_MS);
+          // Fast-path: Instant dispatch on clear numeric digits or menu keywords (0ms latency)
+          const lowerInterim = normalizedInterim.toLowerCase().trim();
+          const isInstantCmd = /^(?:[0-9]|one|won|wan|two|too|three|tree|four|five|six|seven|eight|nine|zero|english|twi|akan|baako|mmienu|mmiɛnsa|send money|mane sika|confirm|pene so|yes|aane|no|dabi|cancel|back|repeat)$/i.test(lowerInterim);
+          const now = Date.now();
+          if (isInstantCmd && now - this.lastDispatchTime > 250) {
+            this.lastDispatchTime = now;
+            this.lastStreamedWordCount = 0;
+            const repaired = repairNoisyAcousticTranscript(normalizedInterim, this.activeStepName);
+            const phonetic = repairGhanaianPronunciation(repaired.repairedText);
+            const effective = phonetic.normalizedTranscript || repaired.repairedText;
+            const parsed = parseLongDiscussion(effective, this.activeStepName);
+            this.updateState({
+              currentInterimTranscript: "",
+              finalizedTranscript: effective,
+              lastParsedDiscussion: parsed,
+            });
+            this.utteranceListeners.forEach((fn) => {
+              try {
+                fn(effective, parsed);
+              } catch {}
+            });
+            return;
+          }
         }
 
-        // 2. Finalized chunk from browser SpeechRecognition:
-        // Append to sentenceBuffer and wait for the sentence silence window before turning off the mic,
-        // so if the user pauses briefly mid-sentence, they can keep speaking without being cut off.
+        // 2. Finalized Utterance Processing
         if (finalStr) {
+          this.lastStreamedWordCount = 0;
+          // Check system echo
           if (isAcousticSystemEcho(finalStr, this.activePromptText, isSpeaking)) {
             this.updateState({
               currentInterimTranscript: "",
@@ -548,27 +412,64 @@ export class ContinuousAudioEngine {
             return;
           }
 
+          // Strip any residual system prompt prefix
           const cleaned = stripSystemEchoFromTranscript(finalStr, this.activePromptText);
-          if (cleaned) {
-            const normalizedChunk = normalizeSpokenDigits(cleaned);
-            this.sentenceBuffer.push(normalizedChunk);
-            const accumulatedPreview = this.sentenceBuffer.join(" ").trim();
-            this.updateState({
-              currentInterimTranscript: accumulatedPreview,
-              isSystemEchoBlocked: false,
-            });
+          if (!cleaned) {
+            this.updateState({ currentInterimTranscript: "" });
+            return;
+          }
 
-            this.clearSentenceTimer();
-            this.sentenceCompleteTimer = setTimeout(() => {
-              this.finalizeAndCommitUserSentence("");
-            }, this.SENTENCE_END_SILENCE_MS);
+          // Phonetic and Ghanaian acoustic dataset repair with numeral normalization
+          const normalizedFinal = normalizeSpokenDigits(cleaned);
+          const repaired = repairNoisyAcousticTranscript(normalizedFinal, this.activeStepName);
+          const phonetic = repairGhanaianPronunciation(repaired.repairedText);
+          const effectiveText = phonetic.normalizedTranscript || repaired.repairedText;
+
+          // Notify word token listeners of final sentence completion
+          const finalWords = effectiveText.split(/\s+/).filter(Boolean);
+          finalWords.forEach((fw) => {
+            const token: SpokenWordToken = {
+              word: fw,
+              isFinal: true,
+              timestamp: Date.now(),
+            };
+            this.wordTokenListeners.forEach((fn) => {
+              try { fn(token); } catch {}
+            });
+          });
+
+          // Accumulate into discussion buffer for long conversation comprehension
+          this.discussionAccumulator.push(effectiveText);
+          const fullDiscussion = this.discussionAccumulator.join(" ");
+
+          const parsedDiscussion = parseLongDiscussion(
+            fullDiscussion,
+            this.activeStepName
+          );
+
+          this.updateState({
+            currentInterimTranscript: "",
+            finalizedTranscript: effectiveText,
+            lastParsedDiscussion: parsedDiscussion,
+          });
+
+          // Debounce rapid repeats (fast 250ms threshold)
+          const now = Date.now();
+          if (now - this.lastDispatchTime > 250) {
+            this.lastDispatchTime = now;
+            this.utteranceListeners.forEach((fn) => {
+              try {
+                fn(effectiveText, parsedDiscussion);
+              } catch {}
+            });
           }
         }
       };
 
       recognition.onerror = (e: any) => {
-        // Silently handle transient errors (no-speech, network) and maintain listening until user speaks
+        // Silently handle transient errors (no-speech, network) and maintain always-on state
         if (e.error === "no-speech") {
+          // Normal pause in conversation; do NOT terminate mic!
           return;
         }
         if (e.error === "not-allowed" || e.error === "permission-denied") {
@@ -577,10 +478,10 @@ export class ContinuousAudioEngine {
       };
 
       recognition.onend = () => {
-        // Keep-Alive Loop: While waiting for the user to finish their sentence, keep recognition alive
-        if (!this.isExplicitlyStopped && !this.isZeroPinMuted && !this.isPlaybackGated && !audioPlaybackController.isSpeaking()) {
+        // Always-On Keep-Alive Loop: If not explicitly stopped, restart immediately!
+        if (!this.isExplicitlyStopped && !this.isZeroPinMuted) {
           setTimeout(() => {
-            if (!this.isExplicitlyStopped && !this.isZeroPinMuted && !this.isPlaybackGated && !audioPlaybackController.isSpeaking()) {
+            if (!this.isExplicitlyStopped && !this.isZeroPinMuted) {
               try {
                 recognition.start();
               } catch {}

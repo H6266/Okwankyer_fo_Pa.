@@ -16,7 +16,7 @@ export function registerMomoServices(): void {
     handler: momoTransferHandler,
   });
 
-  // 2. Personal subscriber balance is not available through the MTN Open API.
+  // 2. momo.check_balance - status: 'not_ready' (Truth Engine / Zero-PIN enforces *170# dial)
   serviceRegistry.register({
     intent: 'momo.check_balance',
     status: 'not_ready',

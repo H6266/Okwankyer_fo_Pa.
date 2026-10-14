@@ -13,10 +13,9 @@
  * 9. 100% Deterministic Offline Operation
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { brain, Brain } from '../src/ai_system/brain/brain';
 import { serviceRegistry } from '../src/ai_system/brain/serviceRegistry';
-import { mtnMomoService } from '../src/modules/mtnMomoService';
 import { languagePolicy } from '../src/ai_system/brain/languagePolicy';
 import { validateSpokenReply, replyComposer, convertAmountToSpokenWords } from '../src/ai_system/brain/replyComposer';
 import { DraftState, BrainInput } from '../src/ai_system/brain/types';
@@ -55,46 +54,21 @@ describe('Central Reasoning Brain - Architectural Invariants', () => {
       }
     });
 
-    it('requires secure verification before checking a balance', async () => {
-      const service = serviceRegistry.get('momo.check_balance');
-      const result = await service!.handler!({
-        slots: {},
+    it('gates unbuilt intent (momo.check_balance) to not_ready with *170# prompt', async () => {
+      const input: BrainInput = {
+        transcript: 'Please check my balance',
+        language: 'en',
+        languageConfidence: 0.95,
         sessionLanguage: 'en',
-        callerNumber: '0553838464',
-        sessionId: 'sess_balance',
-      });
+        draft: { slots: {} },
+      };
 
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('PIN_REQUIRED_FOR_BALANCE_CHECK');
-      expect(result.result.requiresSecureVerification).toBe(true);
-    });
-
-    it('dispatches a real balance-check capability when the MoMo account API is configured and secure verification is present', async () => {
-      vi.spyOn(mtnMomoService, 'getAccountBalance').mockResolvedValueOnce({
-        availableBalance: 350.5,
-        currency: 'GHS',
-        formatted: '350.50 GHS',
-        mode: 'SANDBOX_API',
-        gatewayEvidence: { ok: true },
-        rawPayload: { availableBalance: '350.50', currency: 'GHS' },
-      });
-
-      const service = serviceRegistry.get('momo.check_balance');
-      expect(service?.status).toBe('ready');
-      expect(service?.handler).toBeTypeOf('function');
-
-      const result = await service!.handler!({
-        slots: {},
-        sessionLanguage: 'en',
-        callerNumber: '0553838464',
-        sessionId: 'sess_balance',
-        pin: '1234',
-        confirmedOnHandset: true,
-      });
-
-      expect(result.success).toBe(true);
-      expect(result.result.balance).toBe(350.5);
-      expect(result.result.currency).toBe('GHS');
+      const result = await brain.process(input);
+      expect(result.decision.kind).toBe('not_ready');
+      if (result.decision.kind === 'not_ready') {
+        expect(result.decision.intent).toBe('momo.check_balance');
+      }
+      expect(result.reply.text.replace(/,/g, '')).toContain('dial star one seven zero hash');
     });
 
     it('gates roadmap feature (momo.buy_airtime) to not_ready without guessing', async () => {

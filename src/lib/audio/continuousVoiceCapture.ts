@@ -4,7 +4,7 @@
  * Manages the real browser microphone pipeline:
  * - Real 16 kHz mono PCM capture via AudioWorklet (with ScriptProcessor fallback)
  * - Intelligent Voice Activity Detection (AdaptiveStreamingVad)
- * - Microphone gating during assistant playback to prevent prompt audio reaching ASR
+ * - True Conversational Barge-In (detecting caller voice while assistant speaks)
  * - Automatic turn endpointing without manual button clicks
  * - Automatic track recovery on unexpected device disconnect
  * - Full telemetry exposing genuine frame and audio byte counters
@@ -109,34 +109,6 @@ export function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return window.btoa(binary);
 }
 
-export function resampleAudioToPcm16(
-  input: Float32Array,
-  sourceSampleRate: number,
-  targetSampleRate: number = 16000
-): Int16Array {
-  if (!Number.isFinite(sourceSampleRate) || sourceSampleRate <= 0 ||
-      !Number.isFinite(targetSampleRate) || targetSampleRate <= 0) {
-    throw new RangeError("Audio sample rates must be positive finite numbers");
-  }
-
-  const ratio = sourceSampleRate / targetSampleRate;
-  const output = new Int16Array(Math.floor(input.length / ratio));
-  for (let i = 0; i < output.length; i++) {
-    const start = Math.floor(i * ratio);
-    const end = Math.max(start + 1, Math.min(input.length, Math.floor((i + 1) * ratio)));
-    let sum = 0;
-    for (let sample = start; sample < end; sample++) {
-      sum += input[sample];
-    }
-
-    const averagedSample = sum / (end - start);
-    const clampedSample = Math.max(-1, Math.min(1, averagedSample));
-    output[i] = Math.round(clampedSample < 0 ? clampedSample * 0x8000 : clampedSample * 0x7fff);
-  }
-
-  return output;
-}
-
 export class ContinuousVoiceCapture {
   private callbacks: ContinuousVoiceCaptureCallbacks;
   private state: MicrophoneState = "MIC_STOPPED";
@@ -145,7 +117,6 @@ export class ContinuousVoiceCapture {
   private workletNode: AudioWorkletNode | null = null;
   private scriptProcessor: ScriptProcessorNode | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
-  private scriptPcmPending = new Int16Array(0);
   private vad: AdaptiveStreamingVad;
 
   // Utterance accumulation
@@ -280,13 +251,7 @@ export class ContinuousVoiceCapture {
         throw new Error("Web Audio API AudioContext not supported");
       }
 
-      let ctx: AudioContext;
-      try {
-        ctx = new AudioCtx({ latencyHint: "interactive", sampleRate: 16000 });
-      } catch (sampleRateError) {
-        console.warn("[VoiceCapture] 16 kHz AudioContext unavailable; resampling microphone input:", sampleRateError);
-        ctx = new AudioCtx({ latencyHint: "interactive" });
-      }
+      const ctx = new AudioCtx({ latencyHint: "interactive" });
       this.audioContext = ctx;
       this.telemetry.sampleRate = ctx.sampleRate;
       this.telemetry.audioContextState = ctx.state;
@@ -305,40 +270,25 @@ export class ContinuousVoiceCapture {
 class PcmCaptureProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
-    this.ratio = sampleRate / 16000;
     this.bufferSize = 320; // 20ms at 16kHz
     this.buffer = new Float32Array(this.bufferSize);
     this.index = 0;
-    this.sampleAccumulator = 0;
-    this.sampleWeight = 0;
   }
   process(inputs) {
     const input = inputs[0];
     if (!input || !input[0]) return true;
     const channel = input[0];
     for (let i = 0; i < channel.length; i++) {
-      let remaining = 1;
-      while (remaining > 0) {
-        const portion = Math.min(remaining, this.ratio - this.sampleWeight);
-        this.sampleAccumulator += channel[i] * portion;
-        this.sampleWeight += portion;
-        remaining -= portion;
-
-        if (this.sampleWeight >= this.ratio - 1e-9) {
-          this.buffer[this.index++] = this.sampleAccumulator / this.ratio;
-          this.sampleAccumulator = 0;
-          this.sampleWeight = 0;
-          if (this.index >= this.bufferSize) {
-            const pcm16 = new Int16Array(this.bufferSize);
-            for (let j = 0; j < this.bufferSize; j++) {
-              const s = Math.max(-1, Math.min(1, this.buffer[j]));
-              pcm16[j] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-            }
-            this.port.postMessage({ pcm: pcm16.buffer }, [pcm16.buffer]);
-            this.buffer = new Float32Array(this.bufferSize);
-            this.index = 0;
-          }
+      this.buffer[this.index++] = channel[i];
+      if (this.index >= this.bufferSize) {
+        const pcm16 = new Int16Array(this.bufferSize);
+        for (let j = 0; j < this.bufferSize; j++) {
+          const s = Math.max(-1, Math.min(1, this.buffer[j]));
+          pcm16[j] = s < 0 ? s * 0x8000 : s * 0x7FFF;
         }
+        this.port.postMessage({ pcm: pcm16.buffer }, [pcm16.buffer]);
+        this.buffer = new Float32Array(this.bufferSize);
+        this.index = 0;
       }
     }
     return true;
@@ -348,11 +298,8 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
 `;
         const blob = new Blob([workletCode], { type: "application/javascript" });
         const blobUrl = URL.createObjectURL(blob);
-        try {
-          await ctx.audioWorklet.addModule(blobUrl);
-        } finally {
-          URL.revokeObjectURL(blobUrl);
-        }
+        await ctx.audioWorklet.addModule(blobUrl);
+        URL.revokeObjectURL(blobUrl);
 
         const worklet = new AudioWorkletNode(ctx, "pcm-capture-processor");
         worklet.port.onmessage = (event) => {
@@ -363,7 +310,6 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
         };
 
         this.sourceNode.connect(worklet);
-        worklet.connect(ctx.destination);
         this.workletNode = worklet;
         workletReady = true;
       } catch (workletErr) {
@@ -376,25 +322,20 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
         const scriptNode = ctx.createScriptProcessor(bufferSize, 1, 1);
         const nativeSampleRate = ctx.sampleRate;
         const targetSampleRate = 16000;
+        const downsampleRatio = nativeSampleRate / targetSampleRate;
 
         scriptNode.onaudioprocess = (e) => {
-          if (this.isMuted) {
-            this.scriptPcmPending = new Int16Array(0);
-            return;
-          }
           const inputData = e.inputBuffer.getChannelData(0);
-          const resampled = resampleAudioToPcm16(inputData, nativeSampleRate, targetSampleRate);
-          const combined = new Int16Array(this.scriptPcmPending.length + resampled.length);
-          combined.set(this.scriptPcmPending);
-          combined.set(resampled, this.scriptPcmPending.length);
+          const outSamples = Math.floor(inputData.length / downsampleRatio);
+          const pcm16 = new Int16Array(outSamples);
 
-          let offset = 0;
-          while (offset + 320 <= combined.length) {
-            this.handlePcmFrame(combined.subarray(offset, offset + 320));
-            offset += 320;
+          for (let i = 0; i < outSamples; i++) {
+            const srcIdx = Math.floor(i * downsampleRatio);
+            const s = Math.max(-1, Math.min(1, inputData[srcIdx]));
+            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
           }
 
-          this.scriptPcmPending = combined.slice(offset);
+          this.handlePcmFrame(pcm16);
         };
 
         this.sourceNode.connect(scriptNode);
@@ -455,9 +396,19 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
       this.telemetry.currentVADState = "SILENCE";
     }
 
-    // Strict playback gating: if assistant audio is playing, ignore frames so internal audio is never recorded
-    if (this.isAiSpeaking) {
-      return;
+    // ── TRUE BARGE-IN DETECTION ──
+    // If assistant is currently speaking and caller voice crosses the threshold:
+    if (this.isAiSpeaking && vadResult.speechActive && vadResult.speechDurationMs >= 140) {
+      // Caller interrupted!
+      this.telemetry.bargeIns++;
+      this.isAiSpeaking = false;
+      this.setState("MIC_INTERRUPTED");
+      this.callbacks.onBargeIn();
+      setTimeout(() => {
+        if (this.state === "MIC_INTERRUPTED") {
+          this.setState("MIC_ACTIVE");
+        }
+      }, 80);
     }
 
     // Utterance accumulation
@@ -465,7 +416,7 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
       this.utteranceChunks.push(pcm16);
       this.utteranceSampleCount += pcm16.length;
 
-      // Split exceptionally long utterances so they remain within the ASR limit.
+      // Check max utterance threshold (safety split at 15s)
       const currentDurationMs = (this.utteranceSampleCount / 16000) * 1000;
       if (currentDurationMs >= DEFAULT_VAD_CONFIG.ASR_MAX_UTTERANCE_MS) {
         this.finalizeUtterance();
@@ -474,8 +425,7 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
     }
 
     // ── NATURAL END-OF-TURN DETECTION ──
-    if (vadResult.turnCompleted &&
-        this.utteranceSampleCount >= 16000 * DEFAULT_VAD_CONFIG.ASR_MIN_SPEECH_MS / 1000) {
+    if (vadResult.turnCompleted && this.utteranceSampleCount >= 16000 * 0.7) {
       // Natural silence following user speech turn
       this.finalizeUtterance();
     }
@@ -510,11 +460,6 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
     this.utteranceChunks = [];
     this.utteranceSampleCount = 0;
     this.vad.resetTurn();
-
-    // Automatically mute/turn off the microphone once the user finishes their sentence;
-    // it will automatically turn back ON after the next audio prompt finishes playing.
-    this.isMuted = true;
-    this.setState("MIC_MUTED", "Sentence complete — microphone automatically turned off");
 
     // Trigger turn completion callback
     this.callbacks.onUtteranceComplete(wavBase64, durationMs);
@@ -552,18 +497,10 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
 
   public mute(): void {
     this.isMuted = true;
-    this.utteranceChunks = [];
-    this.utteranceSampleCount = 0;
-    this.scriptPcmPending = new Int16Array(0);
-    this.vad.resetTurn();
     this.setState("MIC_MUTED");
   }
 
   public unmute(): void {
-    this.utteranceChunks = [];
-    this.utteranceSampleCount = 0;
-    this.scriptPcmPending = new Int16Array(0);
-    this.vad.resetTurn();
     this.isMuted = false;
     this.setState("MIC_ACTIVE");
   }
@@ -600,7 +537,6 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
     }
     this.telemetry.streamActive = false;
     this.telemetry.audioContextState = "closed";
-    this.scriptPcmPending = new Int16Array(0);
     this.callbacks.onAudioLevel(0);
   }
 }

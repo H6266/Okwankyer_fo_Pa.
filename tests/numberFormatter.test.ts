@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatSpokenNumbersAsDigits, resolveSpokenLanguageChoice } from "../src/domain/numberFormatter";
+import { formatSpokenNumbersAsDigits } from "../src/domain/numberFormatter";
 
 describe("formatSpokenNumbersAsDigits - User Mandate: ASR writes numbers as digits not words", () => {
   it("converts single spoken digits (e.g. 'two' -> '2', 'one' -> '1')", () => {
@@ -8,25 +8,6 @@ describe("formatSpokenNumbersAsDigits - User Mandate: ASR writes numbers as digi
     expect(formatSpokenNumbersAsDigits("three")).toBe("3");
     expect(formatSpokenNumbersAsDigits("zero")).toBe("0");
     expect(formatSpokenNumbersAsDigits("nine")).toBe("9");
-  });
-
-  describe("resolveSpokenLanguageChoice", () => {
-    it.each([
-      ["one", "en"],
-      ["English, please", "en"],
-      ["Borɔfo", "en"],
-      ["two", "tw"],
-      ["Twi", "tw"],
-      ["mmienu", "tw"],
-      ["I choose Akan", "tw"],
-    ] as const)("resolves %s to %s", (utterance, expected) => {
-      expect(resolveSpokenLanguageChoice(utterance)).toBe(expected);
-    });
-
-    it("leaves contradictory and unrelated speech unresolved", () => {
-      expect(resolveSpokenLanguageChoice("English or Twi")).toBeNull();
-      expect(resolveSpokenLanguageChoice("I want to send two cedis")).toBeNull();
-    });
   });
 
   it("converts Akan Twi single spoken digits ('baako' -> '1', 'mmienu' -> '2')", () => {

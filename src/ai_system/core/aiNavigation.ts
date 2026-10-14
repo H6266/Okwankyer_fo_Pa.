@@ -57,23 +57,7 @@ export class AiNavigation {
     let action = "STAY";
 
     // 1. Handle Navigation Directives (GO_HOME, GO_BACK, CANCEL)
-    if (intent === "CANCEL") {
-      action = "NAVIGATE_HOME";
-      targetScreen = "HOME";
-      targetStep = "welcome";
-      breadcrumb = ["HOME"];
-      this.sessionBreadcrumbs.set(sessionId, breadcrumb);
-
-      return {
-        action,
-        targetScreen,
-        targetStep,
-        breadcrumb,
-        predictedNextIntent: "SEND_MONEY",
-      };
-    }
-
-    if (intent === "GO_HOME") {
+    if (intent === "GO_HOME" || intent === "CANCEL") {
       action = "NAVIGATE_HOME";
       targetScreen = "HOME";
       targetStep = "welcome";

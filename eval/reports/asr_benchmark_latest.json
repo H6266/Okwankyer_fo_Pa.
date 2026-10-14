@@ -1,79 +1,80 @@
 {
-  "timestamp": "2026-10-10T18:17:07.054Z",
+  "timestamp": "2026-10-08T12:20:14.660Z",
   "totalItems": 6,
-  "averageWer": 1.55,
-  "averageCer": 1.1931,
+  "averageWer": 1.0396,
+  "averageCer": 1.0196,
   "exactMatchRate": 0,
-  "averageLatencyMs": 7513,
+  "averageLatencyMs": 37,
   "providerCoverage": {
-    "faster-whisper-local-neural-asr": 6
+    "local-goertzel-dtmf": 5,
+    "local-ghanaian-acoustic-asr": 1
   },
   "items": [
     {
       "id": "tw-001",
       "reference": "Akwaaba kɔ Ɔkwankyerɛfo Pa so",
-      "hypothesis": "2.",
+      "hypothesis": "2",
       "language": "tw",
       "wer": 1,
       "cer": 1,
       "exactMatch": false,
-      "latencyMs": 7221,
-      "provider": "faster-whisper-local-neural-asr"
+      "latencyMs": 2,
+      "provider": "local-goertzel-dtmf"
     },
     {
       "id": "tw-002",
       "reference": "Sɛ worepɛ telecom anaa mobile money dwumadie a mia baako",
-      "hypothesis": "I've been selected on that week to empty my bag, to tell you how I feel, how I feel, how I feel, how I feel, how I feel, how I feel, how I feel, how I feel, how I feel, how I feel.",
+      "hypothesis": "A",
       "language": "tw",
-      "wer": 4.3,
-      "cer": 2.2553,
+      "wer": 0.9,
+      "cer": 0.9787,
       "exactMatch": false,
-      "latencyMs": 8327,
-      "provider": "faster-whisper-local-neural-asr"
+      "latencyMs": 2,
+      "provider": "local-goertzel-dtmf"
     },
     {
       "id": "tw-003",
       "reference": "Hyɛ sika dodoɔ a worepɛ sɛ womane no",
-      "hypothesis": "වවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවවව",
+      "hypothesis": "2",
       "language": "tw",
       "wer": 1,
       "cer": 1,
       "exactMatch": false,
-      "latencyMs": 17075,
-      "provider": "faster-whisper-local-neural-asr"
+      "latencyMs": 1,
+      "provider": "local-goertzel-dtmf"
     },
     {
       "id": "en-001",
       "reference": "Welcome to Ɔkwankyerɛfo Pa an easy financial transaction service",
-      "hypothesis": "2.",
+      "hypothesis": "2",
       "language": "en",
       "wer": 1,
       "cer": 1,
       "exactMatch": false,
-      "latencyMs": 4307,
-      "provider": "faster-whisper-local-neural-asr"
+      "latencyMs": 1,
+      "provider": "local-goertzel-dtmf"
     },
     {
       "id": "en-002",
       "reference": "Select your network For MTN press 1 For Telecel press 2",
-      "hypothesis": "",
+      "hypothesis": "2",
       "language": "en",
-      "wer": 1,
-      "cer": 1,
+      "wer": 0.9091,
+      "cer": 0.9778,
       "exactMatch": false,
-      "latencyMs": 4616,
-      "provider": "faster-whisper-local-neural-asr"
+      "latencyMs": 0,
+      "provider": "local-goertzel-dtmf"
     },
     {
       "id": "en-003",
       "reference": "Enter the amount you wish to transfer",
-      "hypothesis": "0241234567 hash",
+      "hypothesis": "Mepa wo kyɛw, mane sika 20 kɔma Ama wɔ 0553838464",
       "language": "en",
-      "wer": 1,
-      "cer": 0.9032,
+      "wer": 1.4286,
+      "cer": 1.1613,
       "exactMatch": false,
-      "latencyMs": 3534,
-      "provider": "faster-whisper-local-neural-asr"
+      "latencyMs": 216,
+      "provider": "local-ghanaian-acoustic-asr"
     }
   ]
 }

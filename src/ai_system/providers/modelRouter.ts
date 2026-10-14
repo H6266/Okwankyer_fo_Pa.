@@ -10,8 +10,6 @@
  */
 
 import { geminiClient } from "../../services/geminiClient";
-import { reasoningEngine } from "../understanding/reasoningEngine";
-import { localLanguageBrain } from "./LocalLanguageBrain";
 
 export type CognitiveCapability =
   | "LOCAL_NLU"
@@ -59,7 +57,7 @@ export class ModelRouter {
   private readonly FAILURE_THRESHOLD = 3;
   private readonly COOLDOWN_DURATION_MS = 60 * 1000; // 60s cooldown
 
-  constructor(registerDefaults: boolean = true) {
+  constructor(registerDefaults: boolean = !Boolean(process.env.VITEST)) {
     if (registerDefaults) {
       this.registerDefaultProviders();
     }
@@ -81,7 +79,7 @@ export class ModelRouter {
   }
 
   private registerDefaultProviders(): void {
-    // 1. Gemini API is the first content path for semantic reasoning when available.
+    // 1. Gemini Cloud Reasoning Provider (Tier 1 for complex semantic reasoning when available)
     this.register({
       id: "gemini_reasoning",
       name: "Gemini 3.8 Flash Cloud Reasoning",
@@ -108,49 +106,7 @@ export class ModelRouter {
       },
     });
 
-    // 2. Deterministic local reasoning is the first safety fallback when Gemini fails.
-    this.register({
-      id: "deterministic_reasoning",
-      name: "Deterministic Ghanaian Reasoning",
-      isLocal: true,
-      capabilities: new Set(["GEMINI_REASONING"]),
-      priority: 20,
-      timeoutMs: 800,
-      isAvailable: () => true,
-      execute: async (payload) => {
-        const utterance = payload?.utterance || payload?.prompt || "";
-        const response = reasoningEngine.deterministicReasoning({
-          utterance,
-          languageHint: payload?.languageHint || "en",
-          currentScreen: payload?.currentScreen || "HOME",
-          currentStep: payload?.currentStep || "welcome",
-          existingSlots: payload?.existingSlots || {},
-        });
-        return response;
-      },
-    });
-
-    // 3. Built-in local brain remains the final in-house fallback behind deterministic rules.
-    this.register({
-      id: "local_language_brain",
-      name: "Local Inbuilt Language Brain",
-      isLocal: true,
-      capabilities: new Set(["GEMINI_REASONING"]),
-      priority: 30,
-      timeoutMs: 1000,
-      isAvailable: () => true,
-      execute: async (payload) => {
-        const text = payload?.utterance || payload?.prompt || "";
-        return localLanguageBrain.understand({
-          text,
-          language: payload?.languageHint || "en",
-          previousSlots: payload?.existingSlots || {},
-          currentStep: payload?.currentStep || "welcome",
-        });
-      },
-    });
-
-    // Gemini Cloud TTS Provider
+    // 2. Gemini Cloud TTS Provider
     this.register({
       id: "gemini_tts",
       name: "Gemini Cloud Voice Synthesis",

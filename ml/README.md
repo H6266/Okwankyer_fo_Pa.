@@ -52,32 +52,6 @@ python ml/piper_tts_server.py
 ```
 *Health check:* `http://127.0.0.1:8766/health`
 
-## Optional local Akan/Twi ASR
-
-The neural worker uses faster-whisper for English. For Twi, it can optionally
-use the Apache-2.0 [ASR Africa Akan XLS-R model](https://huggingface.co/asr-africa/wav2vec2-xls-r-akan-50-hours)
-instead. Its model card reports 30.65% WER on its evaluation set; that result
-has not been independently validated against this project's Ghanaian English,
-Twi, or code-switching recordings.
-
-Install the additional CPU/GPU inference packages:
-```bash
-pip install -r ml/requirements-asr-twi.txt
-```
-
-Configure a local model directory or, when online model downloads are
-acceptable, the Hugging Face model ID:
-```bash
-export LOCAL_ASR_TWI_MODEL_PATH="asr-africa/wav2vec2-xls-r-akan-50-hours"
-export LOCAL_ASR_TWI_MODEL_LABEL="ASR Africa Akan XLS-R 50h"
-export LOCAL_ASR_ALLOW_MODEL_DOWNLOAD="true"
-```
-
-The model is loaded only when a Twi turn is routed to the local ASR worker.
-English turns continue to use the configured faster-whisper model. The Akan
-model is optional and should be evaluated with representative Ghanaian speech
-before production use; GhanaNLP remains the primary ASR provider.
-
 ---
 
 ## 2. University of Ghana HCI Lab Integration (Final Submission)
@@ -90,3 +64,4 @@ export UG_HCI_LAB_API_KEY="your-ug-api-key"
 ```
 
 The unified adapter in `src/ai_system/speech/speechProvider.ts` automatically routes all synthesis and transcription calls through the University of Ghana HCI Lab API.
+

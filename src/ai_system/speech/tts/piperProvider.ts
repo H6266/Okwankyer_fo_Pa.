@@ -10,7 +10,6 @@
  */
 
 import { TTSProvider, TtsSynthesisRequest, TtsSynthesisResponse } from "./ttsProvider";
-import { synthesizePiperAudio } from "./piperWorker";
 
 export interface PiperHealth {
   ready: boolean;
@@ -26,12 +25,7 @@ export class PiperTtsProvider implements TTSProvider {
   }
 
   private getTimeoutMs(): number {
-    return parseInt(process.env.PIPER_TTS_TIMEOUT_MS || "3500", 10);
-  }
-
-  private validateWavHeader(buf: Buffer): boolean {
-    if (!buf || buf.length < 128) return false;
-    return buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WAVE";
+    return parseInt(process.env.PIPER_TTS_TIMEOUT_MS || "5000", 10);
   }
 
   private getAuthHeaders(): Record<string, string> {
@@ -63,21 +57,26 @@ export class PiperTtsProvider implements TTSProvider {
         return {
           ready: Boolean(data.ready),
           provider: data.provider || "piper-local-neural-tts",
-          model: data.model || process.env.PIPER_MODEL || "en_US-lessac-medium",
+          model: data.model || process.env.PIPER_MODEL || "unknown-piper-model",
           dataDir: data.dataDir,
           details: data.details || "Ready for local neural TTS synthesis",
         };
       }
-    } catch {
-      // In-process worker is always ready as embedded fallback
-    }
 
-    return {
-      ready: true,
-      provider: "piper-local-neural-tts",
-      model: process.env.PIPER_MODEL || "en_US-lessac-medium",
-      details: "Ready via internal Piper neural synthesizer",
-    };
+      return {
+        ready: false,
+        provider: "piper-local-neural-tts",
+        model: process.env.PIPER_MODEL || "unknown",
+        details: `Worker returned HTTP ${res.status}`,
+      };
+    } catch (err: any) {
+      return {
+        ready: false,
+        provider: "piper-local-neural-tts",
+        model: process.env.PIPER_MODEL || "not-running",
+        details: `Worker connection failed at ${url}: ${err.message}`,
+      };
+    }
   }
 
   public async synthesize(request: TtsSynthesisRequest): Promise<TtsSynthesisResponse> {
@@ -93,11 +92,11 @@ export class PiperTtsProvider implements TTSProvider {
 
       const body = {
         text: request.text,
-        language: request.language || "en",
+        language: request.language || "tw",
         voiceProfile: request.voiceProfile || "ghanaian-clear",
         speed: request.speed || 1.0,
         pitch: request.pitch,
-        model: process.env.PIPER_MODEL || "en_US-lessac-medium",
+        model: process.env.PIPER_MODEL || undefined,
       };
 
       const res = await fetch(url, {
@@ -108,46 +107,31 @@ export class PiperTtsProvider implements TTSProvider {
       });
       clearTimeout(timeout);
 
-      if (res.ok) {
-        const arrayBuffer = await res.arrayBuffer();
-        const audioBuffer = Buffer.from(arrayBuffer);
-
-        if (this.validateWavHeader(audioBuffer)) {
-          const durationSec = parseFloat(res.headers.get("X-Piper-Duration-Seconds") || "1.0");
-          return {
-            audioBuffer,
-            audioBase64: audioBuffer.toString("base64"),
-            audioMimeType: "audio/wav",
-            durationEstimateSec: Math.round(durationSec),
-            providerUsed: `piper-local-neural-tts:${res.headers.get("X-Piper-Model") || "en_US-lessac-medium"}`,
-          };
-        }
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Local Piper TTS synthesis failed (${res.status}): ${errorText}`);
       }
-    } catch {
+
+      const arrayBuffer = await res.arrayBuffer();
+      const audioBuffer = Buffer.from(arrayBuffer);
+
+      if (audioBuffer.length < 64) {
+        throw new Error("Piper worker returned empty or corrupted WAV payload");
+      }
+
+      const durationSec = parseFloat(res.headers.get("X-Piper-Duration-Seconds") || "1.0");
+
+      return {
+        audioBuffer,
+        audioBase64: audioBuffer.toString("base64"),
+        audioMimeType: "audio/wav",
+        durationEstimateSec: Math.round(durationSec),
+        providerUsed: `piper-local-neural-tts:${res.headers.get("X-Piper-Model") || "local"}`,
+      };
+    } catch (err: any) {
       clearTimeout(timeout);
-      // Fallback seamlessly to in-process synthesis if HTTP worker connection fails
+      throw err;
     }
-
-    // In-process local Piper en_US-lessac-medium synthesis
-    const directBuf = synthesizePiperAudio(request.text, {
-      speed: request.speed,
-      pitch: request.pitch,
-      voiceProfile: request.voiceProfile,
-    });
-
-    if (!this.validateWavHeader(directBuf)) {
-      throw new Error("Piper worker returned invalid WAV header or undersized payload (<128 bytes)");
-    }
-
-    const durationSec = Math.max(0.8, (request.text.split(/\s+/).length * 0.24) / (request.speed || 1.0));
-
-    return {
-      audioBuffer: directBuf,
-      audioBase64: directBuf.toString("base64"),
-      audioMimeType: "audio/wav",
-      durationEstimateSec: Math.round(durationSec),
-      providerUsed: `piper-local-neural-tts:${process.env.PIPER_MODEL || "en_US-lessac-medium"}`,
-    };
   }
 }
 
