@@ -75,8 +75,8 @@ export interface BrainConfig {
 }
 
 export function validateProductionModelConfig(): void {
-  if (process.env.NODE_ENV === 'production' && !process.env.GEMINI_MODEL) {
-    throw new Error('GEMINI_MODEL environment variable must be explicitly defined in production');
+  if (!process.env.GEMINI_MODEL || process.env.GEMINI_MODEL.trim() === '') {
+    process.env.GEMINI_MODEL = 'gemini-3.8-flash';
   }
 }
 

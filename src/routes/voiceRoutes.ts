@@ -300,7 +300,8 @@ export const handleInboundCall = (req: Request, res: Response) => {
   const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?sessionId=${sessionId}">
         ${promptXml}
     </GetDigits>
-    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=language-selection&amp;sessionId=${sessionId}&amp;retry=0"/>`;
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=language-selection&amp;sessionId=${sessionId}&amp;retry=0"/>
+    <Redirect>${baseUrl}/voice-menu?sessionId=${sessionId}</Redirect>`;
 
   xmlResponse(res, xml);
 };

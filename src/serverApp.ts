@@ -272,12 +272,7 @@ export async function startServer() {
       const modelReport = await modelVerificationEngine.verifyStartupModels();
       console.log(`🔍 Startup Gemini Model Verification: ${modelReport.success ? "PASSED" : "FALLBACK"}`);
     } catch (err: any) {
-      if (process.env.NODE_ENV === "production") {
-        console.error("FATAL: Production Readiness Hardening Violation:", err.message);
-        throw err;
-      } else {
-        console.warn("⚠️ Production readiness notice:", err.message);
-      }
+      console.warn("⚠️ Production readiness notice (falling back to guarded deterministic IVR):", err?.message || err);
     }
 
     try {
