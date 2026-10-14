@@ -64,17 +64,16 @@ describe("TTS Studio Prompt Registry & Fallback Chain Invariants", () => {
     expect(resolveSimulatorPrompt("recipient_verify", "twi")).toBe(
       "/audio/supplied/Twi/03_Recipient_Entry_Verification/Recipient%20verify.m4a"
     );
-    expect(resolveSimulatorPrompt("welcome", "en")).toBe("/audio/English/Welcome_prompt_01.mp3");
+    expect(resolveSimulatorPrompt("welcome", "en")).toBe("/audio/Welcome_prompt_01.mp3");
     expect(resolveSimulatorPrompt("safe_confirmation", "twi")).toBe(
       "/api/audio/prompt-tts/twi/safe_confirmation"
     );
 
     expect(resolveSimulatorAudioUrl("/audio/English/Audio_prompt_06.mp3", "twi")).toBeNull();
-    expect(resolveSimulatorAudioUrl("/audio/English/Audio_prompt_06.mp3", "en")).toBe(
-      "/audio/English/Audio_prompt_06.mp3"
-    );
-    expect(resolveSimulatorAudioUrl("/audio/Twi/Audio_prompt_twi_08.mp3", "twi")).toBe(
-      "/audio/Twi/Audio_prompt_twi_08.mp3"
+    expect(resolveSimulatorAudioUrl("/audio/English/Audio_prompt_06.mp3", "en")).toBeNull();
+    expect(resolveSimulatorAudioUrl("/audio/Twi/Audio_prompt_twi_08.mp3", "twi")).toBeNull();
+    expect(resolveSimulatorAudioUrl("/audio/Welcome_prompt_01.mp3", "en")).toBe(
+      "/audio/Welcome_prompt_01.mp3"
     );
     expect(resolveSimulatorAudioUrl("https://example.com/clip.mp3", "twi")).toBeNull();
   });

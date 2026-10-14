@@ -74,6 +74,7 @@ interface ParsedVoiceXml {
   httpStatus?: number;
   guardReason?: string;
   playUrl?: string;
+  playUrls?: string[];
   sayText?: string;
   getDigits?: {
     callbackUrl?: string;
@@ -92,8 +93,8 @@ interface ParsedVoiceXml {
 const STEP_OPTIONS_MAP: Record<string, string> = {
   "voice-menu": "1=English, 2=Twi, 0=Exit",
   "language-selection": "1=English, 2=Twi, 0=Exit",
-  "service-select": "1=Mobile Money, 2=Banking, 9=Repeat, 0=Exit",
-  "service-choice": "1=Mobile Money, 2=Banking, 9=Repeat, 0=Exit",
+  "service-select": "1=Mobile Money, 2=Direct Transfer, 3=Banking, 9=Repeat, 0=Exit",
+  "service-choice": "1=Mobile Money, 2=Direct Transfer, 3=Banking, 9=Repeat, 0=Exit",
   "provider-select": "1=MTN, 9=Repeat, 0=Exit",
   "provider-choice": "1=MTN, 9=Repeat, 0=Exit",
   "action-select": "1=Send Money, 8=Back, 9=Repeat, 0=Exit",
@@ -164,7 +165,10 @@ function resolvePlayableSimulatorAudioUrl(
       audio.canPlayType?.('audio/mp4') ||
       audio.canPlayType?.('audio/x-m4a') ||
       audio.canPlayType?.('audio/aac');
-    if (!canPlay) return null;
+    if (!canPlay) {
+      // Browser rejects .m4a (AAC); seamlessly use .mp3 mirror
+      return suppliedUrl.replace(/\.m4a$/i, ".mp3");
+    }
   }
 
   return suppliedUrl;
@@ -282,18 +286,18 @@ export const PhoneSimulatorPage: React.FC = () => {
   useEffect(() => { isMicMutedRef.current = isMicMuted; }, [isMicMuted]);
   useEffect(() => { zeroPinOverlayRef.current = zeroPinOverlay; }, [zeroPinOverlay]);
 
-  // Pre-unlock audio on any initial user touch or interaction so audio plays automatically
+  // Prepare audio on any initial user touch or interaction so audio plays automatically
   useEffect(() => {
-    const unlock = () => {
-      audioPlaybackController.unlockAudio();
+    const handleInitialUserGesture = () => {
+      audioPlaybackController.enableAudio();
     };
-    window.addEventListener("pointerdown", unlock, { passive: true });
-    window.addEventListener("click", unlock, { passive: true });
-    window.addEventListener("keydown", unlock, { passive: true });
+    window.addEventListener("pointerdown", handleInitialUserGesture, { passive: true });
+    window.addEventListener("click", handleInitialUserGesture, { passive: true });
+    window.addEventListener("keydown", handleInitialUserGesture, { passive: true });
     return () => {
-      window.removeEventListener("pointerdown", unlock);
-      window.removeEventListener("click", unlock);
-      window.removeEventListener("keydown", unlock);
+      window.removeEventListener("pointerdown", handleInitialUserGesture);
+      window.removeEventListener("click", handleInitialUserGesture);
+      window.removeEventListener("keydown", handleInitialUserGesture);
     };
   }, []);
 
@@ -468,14 +472,19 @@ export const PhoneSimulatorPage: React.FC = () => {
       };
     }
 
-    const playMatch = xml.match(/<Play[^>]*url=["']([^"']+)["']/i);
-    if (playMatch) {
-      result.playUrl = playMatch[1].trim();
-    } else {
-      const playInnerMatch = xml.match(/<Play[^>]*>([^<]+)<\/Play>/i);
-      if (playInnerMatch) {
-        result.playUrl = playInnerMatch[1].trim();
-      }
+    const playUrls: string[] = [];
+    const urlMatches = xml.matchAll(/<Play[^>]*url=["']([^"']+)["']/gi);
+    for (const m of urlMatches) {
+      if (m[1]?.trim()) playUrls.push(m[1].trim());
+    }
+    const innerMatches = xml.matchAll(/<Play[^>]*>([^<]+)<\/Play>/gi);
+    for (const m of innerMatches) {
+      const val = m[1]?.trim();
+      if (val && !playUrls.includes(val)) playUrls.push(val);
+    }
+    if (playUrls.length > 0) {
+      result.playUrls = playUrls;
+      result.playUrl = playUrls[0];
     }
 
     const sayMatch = xml.match(/<Say[^>]*>([\s\S]*?)<\/Say>/i);
@@ -587,6 +596,14 @@ export const PhoneSimulatorPage: React.FC = () => {
       let promptText = "";
       if (parsed.sayText) {
         promptText = parsed.sayText;
+      } else if (parsed.playUrls && parsed.playUrls.length > 1) {
+        const texts = parsed.playUrls.map((u) => {
+          const pathname = new URL(u, window.location.origin).pathname;
+          return getRecordingByUrl(pathname)?.spokenText;
+        }).filter(Boolean);
+        promptText = texts.length > 0
+          ? texts.join(" ")
+          : (responseLanguage === "twi" ? "Akwaaba. Yɛsrɛ wo paw dwumadie a wopɛ." : "Welcome. Please select a service.");
       } else if (requestedPlayUrl) {
         const pathname = new URL(requestedPlayUrl, window.location.origin).pathname;
         const recording = getRecordingByUrl(pathname);
@@ -621,11 +638,39 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       // Play audio automatically (studio audio or neural synthesis)
       audioPlaybackController.unlockAudio();
-      if (playbackUrl) {
+      const resolvedSequence = (parsed.playUrls && parsed.playUrls.length > 1)
+        ? (parsed.playUrls.map(u => resolvePlayableSimulatorAudioUrl(u, responseLanguage)).filter(Boolean) as string[])
+        : [];
+
+      if (resolvedSequence.length > 1) {
+        addLog("audio", `🔊 Auto-playing sequence: ${resolvedSequence.join(" -> ")}`);
+        audioPlaybackController.playSequence(resolvedSequence).catch((err) => {
+          console.warn("[PhoneSimulator] Sequence auto-play failed; falling back to TTS:", err);
+          if (promptText && promptText.trim()) {
+            audioPlaybackController.speakText(promptText).catch(() => {
+              audioPlaybackController.playToneIndicator().catch(() => {});
+            });
+          } else {
+            audioPlaybackController.playToneIndicator().catch(() => {});
+          }
+        });
+      } else if (playbackUrl) {
         addLog("audio", `🔊 Auto-playing prompt: ${playbackUrl}`);
         audioPlaybackController.play(playbackUrl, promptText).catch((err) => {
-          console.warn("[PhoneSimulator] Auto-play prompt failed; playing guidance tone indicator:", err);
-          addLog("audio", `🔔 Audio failed to play; emitted guidance tone indicator.`);
+          console.warn("[PhoneSimulator] Auto-play prompt failed; falling back to TTS:", err);
+          if (promptText && promptText.trim()) {
+            addLog("audio", `🗣️ Synthesizing prompt via TTS: "${promptText}"`);
+            audioPlaybackController.speakText(promptText).catch(() => {
+              audioPlaybackController.playToneIndicator().catch(() => {});
+            });
+          } else {
+            audioPlaybackController.playToneIndicator().catch(() => {});
+          }
+        });
+      } else if (promptText && promptText.trim()) {
+        addLog("audio", `🗣️ Speaking via TTS: "${promptText}"`);
+        audioPlaybackController.speakText(promptText).catch((err) => {
+          console.warn("[PhoneSimulator] TTS synthesis failed; playing guidance tone indicator:", err);
           audioPlaybackController.playToneIndicator().catch(() => {});
         });
       } else {

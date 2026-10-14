@@ -79,7 +79,7 @@ const canonicalPromptEntries: PromptManifestEntry[] = (canonicalManifest?.canoni
   usePolicy: prompt.usePolicy || "",
 }));
 
-const mergedPromptEntries = [...(manifest.prompts ?? []), ...canonicalPromptEntries];
+const mergedPromptEntries = [...canonicalPromptEntries, ...(manifest.prompts ?? [])];
 const promptManifestLookup = new Map<string, PromptManifestEntry>();
 for (const prompt of mergedPromptEntries) {
   const existing = promptManifestLookup.get(prompt.id);
@@ -90,11 +90,13 @@ for (const prompt of mergedPromptEntries) {
   promptManifestLookup.set(prompt.id, {
     ...existing,
     ...prompt,
+    english: prompt.english || existing.english || "",
+    twi: prompt.twi || existing.twi || "",
     audio: {
-      ...existing.audio,
-      ...prompt.audio,
-      english_other_takes: prompt.audio?.english_other_takes ?? existing.audio?.english_other_takes ?? [],
-      twi_other_takes: prompt.audio?.twi_other_takes ?? existing.audio?.twi_other_takes ?? [],
+      english: prompt.audio?.english ?? existing.audio?.english ?? null,
+      twi: prompt.audio?.twi ?? existing.audio?.twi ?? null,
+      english_other_takes: prompt.audio?.english_other_takes?.length ? prompt.audio.english_other_takes : existing.audio?.english_other_takes ?? [],
+      twi_other_takes: prompt.audio?.twi_other_takes?.length ? prompt.audio.twi_other_takes : existing.audio?.twi_other_takes ?? [],
     },
   });
 }
@@ -103,6 +105,7 @@ const suppliedRecordingPaths = [
   "Twi/01_Welcome_Session_Start/Acknowledge.m4a",
   "Twi/01_Welcome_Session_Start/Language selection.m4a",
   "Twi/01_Welcome_Session_Start/Processing.m4a",
+  "Twi/01_Welcome_Session_Start/Service selection 2.m4a",
   "Twi/01_Welcome_Session_Start/Welcome 1.m4a",
   "Twi/01_Welcome_Session_Start/Welcome back.m4a",
   "Twi/01_Welcome_Session_Start/what do you want to do.m4a",
@@ -140,15 +143,6 @@ const suppliedRecordingPaths = [
   "Twi/05_Transaction_Confirmation/Ready submit.m4a",
   "Twi/05_Transaction_Confirmation/Reject speech.m4a",
   "Twi/05_Transaction_Confirmation/Review transaction.m4a",
-] as const;
-
-const legacyLanguageRecordingPaths = [
-  "English/Welcome_prompt_01.mp3",
-  "English/welcome_prompt_01.mp3",
-  ...Array.from({ length: 12 }, (_, index) => `English/Audio_prompt_${String(index + 2).padStart(2, "0")}.mp3`),
-  "Twi/Welcome_prompt_01.mp3",
-  "Twi/welcome_prompt_01.mp3",
-  ...Array.from({ length: 11 }, (_, index) => `Twi/Audio_prompt_twi_${String(index + 2).padStart(2, "0")}.mp3`),
 ] as const;
 
 const additionalUnresolvedFiles = [
@@ -231,11 +225,7 @@ function createRecording(
   isAlternate = false
 ): AudioRecording {
   const fileName = relativePath.split("/").pop() || relativePath;
-  const legacyPromptId = assetRoot === "public" && language !== "unresolved"
-    ? fileName.match(/(?:Welcome_prompt_|Audio_prompt_(?:twi_)?)(\d{2})/i)?.[1]
-    : undefined;
-  const legacyId = legacyPromptId ? (language === "twi" ? `twi-${legacyPromptId}` : `en-${legacyPromptId}`) : null;
-  const promptId = prompt?.id || (legacyPromptId ? `OP${legacyPromptId}` : null);
+  const promptId = prompt?.id || null;
   const languageText = language === "en" ? prompt?.english : language === "twi" ? prompt?.twi : null;
   const transcriptText = transcriptLookup[`audio/${relativePath}`]?.verbatim || transcriptLookup[relativePath]?.verbatim || null;
   const publicUrl = language === "unresolved"
@@ -249,11 +239,11 @@ function createRecording(
           : null;
 
   return {
-    id: legacyId || `${assetRoot}:${relativePath}`,
+    id: `${assetRoot}:${relativePath}`,
     promptId,
     state: prompt?.state || null,
     category: prompt?.category || relativePath.split("/")[0] || "Uncategorized",
-    context: prompt ? `${prompt.category}:${prompt.state}` : "Unresolved asset identity",
+    context: prompt ? `${prompt.category}:${prompt.state}` : "Audio asset",
     language,
     title: prompt?.state.replaceAll("_", " ") || fileName.replace(/\.(m4a|mp3)$/i, ""),
     spokenText: languageText || transcriptText || null,
@@ -278,19 +268,40 @@ const suppliedRecordings = suppliedRecordingPaths.map((relativePath) => {
   return createRecording(relativePath, "supplied", "twi", prompt, isAlternate);
 });
 
-const legacyRecordings = legacyLanguageRecordingPaths.map((relativePath) => {
-  const language = relativePath.startsWith("English/") ? "en" : "twi";
-  const prompt = mergedPromptEntries.find((entry) => entry.id === `OP${relativePath.match(/\d{2}/)?.[0]}`);
-  const isAlternate = relativePath.endsWith("welcome_prompt_01.mp3") ||
-    (language === "twi" && suppliedRecordings.some((recording) =>
-      recording.promptId === prompt?.id && !recording.isAlternate
-    ));
-  return createRecording(relativePath, "public", language, prompt, isAlternate);
-});
-
-const unresolvedPublicRecordings = [
-  createRecording("Welcome_prompt_01.mp3", "public", "unresolved"),
-  createRecording("welcome_prompt_01.mp3", "public", "unresolved", undefined, true),
+// Strictly use only the general welcome from the other source (public/audio)
+const publicWelcomeRecordings: AudioRecording[] = [
+  {
+    id: "public:Welcome_prompt_01.mp3",
+    promptId: "OP01",
+    state: "WELCOME",
+    category: "01_Welcome_Session_Start",
+    context: "01_Welcome_Session_Start:WELCOME",
+    language: "en",
+    title: "General Welcome & Language Selection",
+    spokenText: "Welcome to Okwankyerɛfo Pa, an easy financial transaction service. For English, press 1. For Twi, press 2.",
+    relativePath: "Welcome_prompt_01.mp3",
+    assetRoot: "public",
+    url: "/audio/Welcome_prompt_01.mp3",
+    mimeType: "audio/mpeg",
+    isAlternate: false,
+    recordingRole: "fixed",
+  },
+  {
+    id: "public:welcome_prompt_01.mp3",
+    promptId: "OP01",
+    state: "WELCOME",
+    category: "01_Welcome_Session_Start",
+    context: "01_Welcome_Session_Start:WELCOME",
+    language: "en",
+    title: "General Welcome & Language Selection (Lowercase)",
+    spokenText: "Welcome to Okwankyerɛfo Pa, an easy financial transaction service. For English, press 1. For Twi, press 2.",
+    relativePath: "welcome_prompt_01.mp3",
+    assetRoot: "public",
+    url: "/audio/welcome_prompt_01.mp3",
+    mimeType: "audio/mpeg",
+    isAlternate: true,
+    recordingRole: "alternative",
+  },
 ];
 
 export const ADDITIONAL_FILE_TO_PROMPT_MAP: Record<string, { promptId: string; language: "twi" | "en"; state: string }> = {
@@ -350,24 +361,35 @@ export const ADDITIONAL_FILE_TO_PROMPT_MAP: Record<string, { promptId: string; l
   "Finish.m4a": { promptId: "OP94", language: "twi", state: "FINISH" },
 };
 
-const additionalRecordings = additionalUnresolvedFiles.map((relativePath) =>
-  createRecording(relativePath, "additional", "unresolved")
-);
+const additionalRecordings = additionalUnresolvedFiles.map((relativePath) => {
+  const mapping = ADDITIONAL_FILE_TO_PROMPT_MAP[relativePath];
+  const prompt = mapping ? promptManifestLookup.get(mapping.promptId) : undefined;
+  const isAlternate = mapping ? Boolean(prompt && prompt.audio?.twi && !prompt.audio.twi.includes(relativePath)) : false;
+  return createRecording(
+    relativePath,
+    "additional",
+    mapping ? mapping.language : "twi",
+    prompt,
+    isAlternate
+  );
+});
 
 export const AUDIO_RECORDINGS: AudioRecording[] = [
   ...suppliedRecordings,
-  ...legacyRecordings,
-  ...unresolvedPublicRecordings,
   ...additionalRecordings,
+  ...publicWelcomeRecordings,
 ];
 
 export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
   welcome: "OP01",
   language_selection: "OP02",
   service_select: "OP07",
+  supported_service_select: "OP07",
   provider_select: "OP08",
   provider_select_alt: "OP08",
+  mtn_network_select: "OP08",
   action_select: "OP09",
+  send_money_menu: "OP09",
   send_money_selected: "OP10",
   service_unavailable: "OP11",
   service_alternative: "OP12",
@@ -457,15 +479,23 @@ export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
 
 function recordingRank(recording: AudioRecording): number {
   if (recording.assetRoot === "supplied" && !recording.isAlternate) return 0;
-  if (recording.assetRoot === "public" && !recording.isAlternate) return 1;
-  if (recording.assetRoot === "supplied") return 2;
-  return 3;
+  if (recording.assetRoot === "additional" && !recording.isAlternate) return 1;
+  if (recording.assetRoot === "public" && !recording.isAlternate) return 2;
+  if (recording.assetRoot === "supplied") return 3;
+  if (recording.assetRoot === "additional") return 4;
+  return 5;
 }
 
 export function getRecordingByPromptId(
   promptId: string,
   language: "en" | "twi" = "twi"
 ): AudioRecording | null {
+  if (language === "en") {
+    if (promptId === "OP01") {
+      return publicWelcomeRecordings[0];
+    }
+    return null;
+  }
   return AUDIO_RECORDINGS
     .filter((recording) => recording.promptId === promptId && recording.language === language && recording.url)
     .sort((a, b) => recordingRank(a) - recordingRank(b))[0] || null;
@@ -497,7 +527,12 @@ export function getRecordingByUrl(url: string): AudioRecording | null {
 
 export function getRecordingFilePath(relativePath: string): string | null {
   const recording = getRecordingByPath(relativePath);
-  if (!recording) return null;
+  if (!recording) {
+    if (/welcome_prompt_01\.mp3$/i.test(relativePath)) {
+      return `public/audio/Welcome_prompt_01.mp3`;
+    }
+    return null;
+  }
   if (recording.assetRoot === "supplied") {
     return `Audio_files/audio/${recording.relativePath}`;
   }

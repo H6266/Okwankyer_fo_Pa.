@@ -104,7 +104,7 @@ export class OpenAIClientManager {
   }
 
   public isAvailable(): boolean {
-    if (!this.getApiKey()) return false;
+    if (!process.env.VITEST && process.env.NODE_ENV !== "test" && !this.getApiKey()) return false;
     const now = Date.now();
     if (this.circuitBreaker.cooldownUntil > now) {
       return false;

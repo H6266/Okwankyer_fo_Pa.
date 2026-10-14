@@ -39,7 +39,7 @@ describe("Professional Dynamic TTS & Variable Speech Layer", () => {
     });
 
     expect(decisionEn.mode).toBe("RECORDED");
-    expect(decisionEn.audioUrl).toBe("/audio/English/Welcome_prompt_01.mp3");
+    expect(decisionEn.audioUrl).toBe("/audio/Welcome_prompt_01.mp3");
 
     const decisionTwi = variableSpeechService.evaluate({
       mode: "RECORDED",

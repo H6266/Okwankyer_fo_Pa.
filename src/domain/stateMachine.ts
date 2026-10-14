@@ -47,6 +47,7 @@ export interface TransactionSession {
   completedAt?: number;
   failureReason?: string;
   retryCount: number;
+  serviceSelected?: boolean;
 }
 
 const VALID_TRANSITIONS: Record<TransactionState, TransactionState[]> = {

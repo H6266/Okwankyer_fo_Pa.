@@ -352,45 +352,35 @@ export interface AudioCatalogHealth {
 }
 
 export function checkAudioFilesHealth(): AudioCatalogHealth {
-  const legacyAudioRoot = path.resolve(process.cwd(), "audio");
-  const root = fs.existsSync(legacyAudioRoot)
-    ? legacyAudioRoot
-    : path.resolve(process.cwd(), "public", "audio");
   const canonicalFiles = [
-    "Welcome_prompt_01.mp3",
-    "English/Audio_prompt_02.mp3",
-    "English/Audio_prompt_06.mp3",
-    "English/Audio_prompt_09.mp3",
-    "English/Audio_prompt_10.mp3",
-    "English/Audio_prompt_11.mp3",
-    "Twi/Audio_prompt_twi_02.mp3",
-    "Twi/Audio_prompt_twi_03.mp3",
-    "Twi/Audio_prompt_twi_04.mp3",
-    "Twi/Audio_prompt_twi_05.mp3",
-    "Twi/Audio_prompt_twi_07.mp3",
-    "Twi/Audio_prompt_twi_08.mp3",
-    "Twi/Audio_prompt_twi_09.mp3",
+    { root: path.resolve(process.cwd(), "public", "audio"), rel: "Welcome_prompt_01.mp3" },
+    { root: path.resolve(process.cwd(), "Audio_files", "audio"), rel: "Twi/01_Welcome_Session_Start/Welcome 1.m4a" },
+    { root: path.resolve(process.cwd(), "Audio_files", "audio"), rel: "Twi/02_Main_Service_Navigation/Service selection.m4a" },
+    { root: path.resolve(process.cwd(), "Audio_files", "audio"), rel: "Twi/03_Recipient_Entry_Verification/Enter recipient.m4a" },
+    { root: path.resolve(process.cwd(), "Audio_files", "audio"), rel: "Twi/04_Amount_Entry_Verification/Enter amount.m4a" },
+    { root: path.resolve(process.cwd(), "Audio_files_2"), rel: "Cancel.m4a" },
+    { root: path.resolve(process.cwd(), "Audio_files_2"), rel: "Exit.m4a" },
   ];
 
   const missingFiles: string[] = [];
   const sampleFiles: { path: string; sizeBytes: number; readable: boolean }[] = [];
 
-  for (const rel of canonicalFiles) {
-    const abs = path.join(root, rel);
+  for (const item of canonicalFiles) {
+    const abs = path.join(item.root, item.rel);
     try {
       if (fs.existsSync(abs)) {
         fs.accessSync(abs, fs.constants.R_OK);
         const stat = fs.statSync(abs);
         sampleFiles.push({
-          path: `/audio/${rel}`,
+          path: item.rel.startsWith("/audio/") ? item.rel : `/audio/${item.rel}`,
           sizeBytes: stat.size,
           readable: true,
         });
       } else {
-        missingFiles.push(rel);
+        missingFiles.push(item.rel);
       }
     } catch {
-      missingFiles.push(rel);
+      missingFiles.push(item.rel);
     }
   }
 

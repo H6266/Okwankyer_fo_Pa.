@@ -109,18 +109,12 @@ export class UnifiedGeminiClient {
   }
 
   public isModelAvailable(model: string): boolean {
-    if (this.accessDenied && Date.now() < this.accessDeniedUntil) {
-      return false;
-    }
-    if (this.globalQuotaCooldownUntil && Date.now() < this.globalQuotaCooldownUntil) {
-      return false;
-    }
-    if (!this.getRawClient()) return false;
+    if (!this.isAvailable()) return false;
     const cooldownUntil = this.modelQuotaCooldowns.get(model);
     if (cooldownUntil && Date.now() < cooldownUntil) {
       return false;
     }
-    return this.checkCircuitBreaker();
+    return true;
   }
 
   public recordAccessDenied(reason: string = "PERMISSION_DENIED", cooldownMs: number = 24 * 60 * 60 * 1000): void {

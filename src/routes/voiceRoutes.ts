@@ -279,12 +279,11 @@ ivrRouter.all("/voice-menu", (req: Request, res: Response) => {
   session.callerPhone = callerNumber;
 
   const welcomePrompt = resolvePromptXml("welcome", "en", baseUrl);
-  const languagePrompt = resolvePromptXml("language_selection", "en", baseUrl);
+  const promptXml = welcomePrompt || `        <Say voice="female">Welcome to Ɔkwankyerɛfo Pa, an easy financial transaction service. For English, press 1. For Twi, press 2.</Say>`;
 
-  // Keep the welcome and language-selection prompts in the same listen window.
+  // Inbound call plays the general welcome and listens for language selection (1=English, 2=Twi)
   const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?sessionId=${sessionId}">
-        ${welcomePrompt || `<Say voice="female">${escapeVoiceXml(resolvePromptText("welcome", "en") || "Welcome.")}</Say>`}
-        ${languagePrompt || `<Say voice="female">${escapeVoiceXml(resolvePromptText("language_selection", "en") || "For English, press 1. For Twi, press 2.")}</Say>`}
+        ${promptXml}
     </GetDigits>
     <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=language-selection&amp;sessionId=${sessionId}&amp;retry=0"/>`;
 
@@ -357,17 +356,29 @@ ivrRouter.all("/service-select", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const baseUrl = getBaseUrl(req);
+  const session = transactionStateMachine.getOrCreateSession(sessionId);
+
+  const shouldPlaySecondWelcome = lang === "twi" && !(session as any).twiWelcomePlayed;
+  if (shouldPlaySecondWelcome) {
+    (session as any).twiWelcomePlayed = true;
+  }
+
+  const welcomeElement = shouldPlaySecondWelcome
+    ? `<Play url="${baseUrl}/audio/supplied/Twi/01_Welcome_Session_Start/Welcome%201.m4a"/>\n        `
+    : "";
 
   const promptElement = canonicalPromptElement(
     "supported_service_select",
     lang,
     baseUrl,
     resolvePromptText("supported_service_select", lang)
-      || "MTN Mobile Money transfers are currently supported. Press 1 for Mobile Money. Banking is unavailable; press 2 for alternatives."
+      || (lang === "twi"
+        ? "Sɛ wopɛ mobile money services a, mia 1. Sɛ woremane sika kɔ wallet foforɔ so a, mia 2. Sɛ wopɛ banking services a, mia 3. Mia 9 na mate bio, anaasɛ mia 0 na woapue."
+        : "For Mobile Money services, press 1. To transfer money to another mobile wallet, press 2. For banking and international services, press 3. To hear these options again, press 9. To exit, press 0.")
   );
 
-  const xml = `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">
-        ${promptElement}
+  const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">
+        ${welcomeElement}${promptElement}
     </GetDigits>`;
 
   xmlResponse(res, xml);
@@ -422,6 +433,7 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
     }
     if (dtmf === "1") {
       session.retryCount = 0;
+      session.serviceSelected = true;
       const validDecision: IvrDecision = {
         type: "understood_intent",
         reason: "Selected Mobile Money service (1).",
@@ -432,13 +444,13 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
       };
       return xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, validDecision);
     }
-    if (dtmf === "2") {
+    if (!session.serviceSelected && (dtmf === "2" || dtmf === "3")) {
       const decision: IvrDecision = {
         type: "unsupported",
-        reason: "Banking is not supported in this pilot.",
+        reason: "Banking and international services are currently unavailable in this pilot.",
         replyText: lang === "twi"
-          ? "Yɛmpɛ banking service no wɔ pilot yi mu. Sɛ wopɛ Mobile Money a, mia 1. Sɛ wopɛ sɛ wote options no bio a, mia 9."
-          : "Banking is not supported in this pilot. For Mobile Money, press 1. To hear the options again, press 9.",
+          ? "Sikakorabea dwumadie nni pilot yi mu. Sɛ wopɛ Mobile Money a, mia 1. Sɛ wopɛ sɛ wote options no bio a, mia 9."
+          : "Banking is not supported in this pilot. Banking and international services are currently unavailable. For Mobile Money, press 1. To hear the options again, press 9.",
         replyKey: "service_unsupported",
         action: "replay",
         nextStep: "service-select",

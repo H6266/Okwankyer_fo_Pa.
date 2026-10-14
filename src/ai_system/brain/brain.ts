@@ -36,7 +36,7 @@ import { serviceRegistry } from './serviceRegistry';
 import { languagePolicy } from './languagePolicy';
 import { replyComposer, convertAmountToSpokenWords } from './replyComposer';
 import { contextualReasoningEngine } from '../understanding/contextualReasoningEngine';
-import { reasoningEngine } from '../understanding/reasoningEngine';
+import { reasoningEngine, MOMO_SYSTEM_INSTRUCTION } from '../understanding/reasoningEngine';
 import { numberDecoder } from '../speech/asr/numberDecoder';
 import { inputNormalizer } from '../perception/inputNormalizer';
 import { shadowEngine } from './shadowEngine';
@@ -172,7 +172,7 @@ export function isSpokenPinPresent(raw: string): boolean {
 
 // ── CONFIRMATION & CANCELLATION INTENT DETECTOR (Verbal + DTMF 1 / 2) ────────
 
-const EXPLICIT_CONFIRM_PHRASES = /^(?:(?:confirm(?: the transfer)?|yes|yeah|yep|proceed|send it|aane|yoo|kɔ so|okay|ok|sure|ɛyɛ|pene(?:\s+so)?)(?:[,. ]+(?:please|confirm|proceed|send it|pene\s+so|aane|yes|okay|ok|sure|ɛyɛ))?|press 1)[.!?]*$/i;
+const EXPLICIT_CONFIRM_PHRASES = /^(?:(?:confirm(?: the transfer)?|yes|yeah|yep|proceed|send it|aane|yoo|kɔ so|okay|ok|sure|ɛyɛ|pene(?:\s+so)?)(?:[,. ]+(?:please|confirm|proceed|send it|pene\s+so|aane|yes|okay|ok|sure|ɛyɛ|continue))*|press 1)[.!?]*$/i;
 const EXPLICIT_CANCEL_WORDS = /\b(cancel|stop|abort|gyae|daabi|dabi|don't send|mompɛ)\b/i;
 
 export function isExplicitConfirmation(raw: string): boolean {
@@ -316,9 +316,14 @@ export class Brain {
     // Only intercepts when the user was ALREADY presented with the readback.
     // ─────────────────────────────────────────────────────────────────────────
     if (isAwaitingConfirmation && (isExplicitConfirm || isExplicitCancel)) {
-      if (isExplicitConfirm) {
+      const currentDraftHash = draft.draftHash || computeDraftHash(draft);
+      const isPreviousReplyReadback =
+        Boolean(draft.readback) &&
+        draft.readback?.draftHash === currentDraftHash &&
+        (draft.readback?.amount === undefined || draft.readback?.amount === draft.slots?.amount);
+
+      if (isExplicitConfirm && isPreviousReplyReadback) {
         draft.confirmed = true;
-        const currentDraftHash = draft.draftHash || computeDraftHash(draft);
         draft.confirmedDraftHash = currentDraftHash;
         draft.lastReplyKind = 'dispatch';
         const settledIntent = draft.intent || 'momo.transfer';
@@ -350,13 +355,32 @@ export class Brain {
           updatedDraft: draft,
           sessionLanguage,
         });
+      } else if (isExplicitConfirm && !isPreviousReplyReadback) {
+        draft.confirmed = false;
+        const decision: BrainDecision = {
+          kind: 'confirm',
+          intent: draft.intent || 'momo.transfer',
+          slots: { ...draft.slots },
+        };
+        const reply = await replyComposer.composeReply({
+          decision,
+          language: activeLanguage,
+          slots: draft.slots,
+        });
+        return finalizeOutput({
+          decision,
+          reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
+          updatedDraft: draft,
+          sessionLanguage,
+        });
       } else {
         // Explicit Cancel
         draft.confirmed = false;
-        draft.lastReplyKind = 'cancel';
+        delete draft.slots.amount;
+        draft.lastReplyKind = 'clarify_intent';
         const decision: BrainDecision = {
-          kind: 'cancel',
-          intent: draft.intent,
+          kind: 'clarify_intent',
+          candidates: ['momo.transfer', 'momo.check_balance'],
         };
         const reply = await replyComposer.composeReply({
           decision,
@@ -378,7 +402,7 @@ export class Brain {
     // STEP 2: CONVERSATIONAL AI (GEMINI) OWNS THE DIALOGUE
     // Local regexes and parsers stay DORMANT. No slot scraping during conversation.
     // ─────────────────────────────────────────────────────────────────────────
-    const shouldCallGemini = (effectiveBrainMode === 'live' || input.forceModel === true) && geminiClient.isAvailable();
+    const shouldCallGemini = effectiveBrainMode === 'live' || input.forceModel === true;
 
     if (shouldCallGemini) {
       modelOutput = await this.callModelWithFallback(
@@ -391,15 +415,156 @@ export class Brain {
       );
     }
 
+    const decoderResult = numberDecoder.decode(rawTranscript);
+
+    // Rule: Ambiguous spoken numbers (e.g. "mpem ahanu ne aduonum") MUST clarify via keypad; never pick one.
+    if (decoderResult.ambiguous) {
+      delete draft.slots.amount;
+      draft.lastReplyKind = 'clarify_slot';
+      const decision: BrainDecision = { kind: 'clarify_slot', slot: 'amount' };
+      const reply = await replyComposer.composeReply({
+        decision,
+        language: activeLanguage,
+        slots: draft.slots,
+      });
+      return finalizeOutput({
+        decision,
+        modelOutput: modelOutput || undefined,
+        reply: {
+          text: APPROVED_KEYPAD_FALLBACK_PROMPT,
+          language: 'en',
+          promptId: reply.promptId,
+        },
+        updatedDraft: draft,
+        sessionLanguage,
+      });
+    }
+
     if (modelOutput) {
       // ── CONVERSATIONAL PATH (GEMINI IN THE DRIVER'S SEAT) ──
+      // Gating for balance checks
+      if (modelOutput.intent?.id === 'momo.check_balance' || modelOutput.reply?.reply_kind === 'not_ready') {
+        const settledIntent = 'momo.check_balance';
+        draft.intent = settledIntent;
+        draft.lastReplyKind = 'not_ready';
+        const decision: BrainDecision = {
+          kind: 'not_ready',
+          intent: settledIntent,
+        };
+        const reply = await replyComposer.composeReply({
+          decision,
+          language: activeLanguage,
+          slots: draft.slots,
+          notReadyMessageKey: 'dial_170_check_balance',
+        });
+        return finalizeOutput({
+          decision,
+          modelOutput,
+          reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
+          updatedDraft: draft,
+          sessionLanguage,
+        });
+      }
+
+      // Grounding Check for Amount:
+      const hasUtteranceAmountMatch =
+        decoderResult.numericValue !== null ||
+        /\b(\d+(?:\.\d{1,2})?)\s*(?:ghs|cedis?|sidi)?\b/i.test(rawTranscript) ||
+        /(?:half|quarter|tenth|part)\s+of/i.test(rawTranscript);
+
+      // (b) model amount disagrees with numberDecoder -> clarify_slot
+      if (
+        modelOutput.slots?.amount !== undefined &&
+        decoderResult.numericValue !== null &&
+        decoderResult.numericValue !== modelOutput.slots.amount
+      ) {
+        delete draft.slots.amount;
+        draft.lastReplyKind = 'clarify_slot';
+        const decision: BrainDecision = { kind: 'clarify_slot', slot: 'amount' };
+        const reply = await replyComposer.composeReply({
+          decision,
+          language: activeLanguage,
+          slots: draft.slots,
+        });
+        return finalizeOutput({
+          decision,
+          modelOutput,
+          reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
+          updatedDraft: draft,
+          sessionLanguage,
+        });
+      }
+
+      // (c) model-only hallucinated amount with no match in utterance -> clarify_slot
+      if (modelOutput.slots?.amount !== undefined && !hasUtteranceAmountMatch) {
+        delete draft.slots.amount;
+        delete modelOutput.slots.amount;
+        draft.lastReplyKind = 'clarify_slot';
+        const decision: BrainDecision = { kind: 'clarify_slot', slot: 'amount' };
+        const reply = await replyComposer.composeReply({
+          decision,
+          language: activeLanguage,
+          slots: draft.slots,
+        });
+        return finalizeOutput({
+          decision,
+          modelOutput,
+          reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
+          updatedDraft: draft,
+          sessionLanguage,
+        });
+      }
+
+      // Grounding Check for Recipient Phone:
+      if (modelOutput.slots?.recipient?.phone) {
+        if (
+          decoderResult.phoneNumberDigits !== null &&
+          decoderResult.phoneNumberDigits !== modelOutput.slots.recipient.phone
+        ) {
+          if (draft.slots.recipient) delete draft.slots.recipient.phone;
+          draft.lastReplyKind = 'clarify_slot';
+          const decision: BrainDecision = { kind: 'clarify_slot', slot: 'recipient' };
+          const reply = await replyComposer.composeReply({
+            decision,
+            language: activeLanguage,
+            slots: draft.slots,
+          });
+          return finalizeOutput({
+            decision,
+            modelOutput,
+            reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
+            updatedDraft: draft,
+            sessionLanguage,
+          });
+        }
+      }
+
+      // Grounding Check for Recipient Name:
+      if (modelOutput.slots?.recipient?.name) {
+        const proposedName = modelOutput.slots.recipient.name.toLowerCase();
+        if (rawTranscript.toLowerCase().includes(proposedName)) {
+          if (!draft.slots.recipient) draft.slots.recipient = {};
+          draft.slots.recipient.name = modelOutput.slots.recipient.name;
+        } else {
+          if (draft.slots.recipient) {
+            delete draft.slots.recipient.name;
+          }
+          delete modelOutput.slots.recipient.name;
+        }
+      }
 
       // Case A: Gemini needs more information or is conversing (Conversational Turn)
-      // Local system DOES NOTHING except stream Gemini's words via TTS!
       if (modelOutput.reply.reply_kind === 'clarify_slot') {
         draft.lastReplyKind = 'clarify_slot';
         if (modelOutput.intent?.id) {
           draft.intent = modelOutput.intent.id;
+        }
+        if (modelOutput.slots?.recipient?.phone) {
+          if (!draft.slots.recipient) draft.slots.recipient = {};
+          draft.slots.recipient.phone = modelOutput.slots.recipient.phone;
+        }
+        if (modelOutput.slots?.amount !== undefined) {
+          draft.slots.amount = modelOutput.slots.amount;
         }
         const decision: BrainDecision = { kind: 'clarify_slot', slot: 'conversational' };
         return finalizeOutput({
@@ -430,6 +595,46 @@ export class Brain {
         }
         if ((modelOutput.slots as any)?.reference) {
           (draft.slots as any).reference = (modelOutput.slots as any).reference;
+        }
+
+        // Spoken amounts above maxTransferAmount must clarify via keypad
+        if (draft.slots.amount !== undefined && draft.slots.amount > this.config.maxTransferAmount) {
+          delete draft.slots.amount;
+          draft.lastReplyKind = 'clarify_slot';
+          const decision: BrainDecision = { kind: 'clarify_slot', slot: 'amount' };
+          const reply = await replyComposer.composeReply({
+            decision,
+            language: activeLanguage,
+            slots: draft.slots,
+          });
+          return finalizeOutput({
+            decision,
+            reply: {
+              text: APPROVED_KEYPAD_FALLBACK_PROMPT,
+              language: 'en',
+              promptId: reply.promptId,
+            },
+            updatedDraft: draft,
+            sessionLanguage,
+          });
+        }
+
+        const missingSlot = this.recomputeMissingSlots(settledIntent, draft.slots);
+        if (missingSlot) {
+          draft.lastReplyKind = 'clarify_slot';
+          const decision: BrainDecision = { kind: 'clarify_slot', slot: missingSlot };
+          const reply = await replyComposer.composeReply({
+            decision,
+            language: activeLanguage,
+            slots: draft.slots,
+          });
+          return finalizeOutput({
+            decision,
+            modelOutput,
+            reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
+            updatedDraft: draft,
+            sessionLanguage,
+          });
         }
 
         await this.performKycAndDiscrepancyCheck(draft);
@@ -525,31 +730,6 @@ export class Brain {
         delete (draft.slots as any).recipientPhone;
         delete (draft.slots as any).recipientName;
       }
-    }
-
-    // Extract New Slots from Current Utterance
-    const decoderResult = numberDecoder.decode(rawTranscript);
-
-    // Rule: Ambiguous spoken numbers (e.g. "mpem ahanu ne aduonum") MUST clarify via keypad; never pick one.
-    if (decoderResult.ambiguous) {
-      delete draft.slots.amount;
-      draft.lastReplyKind = 'clarify_slot';
-      const decision: BrainDecision = { kind: 'clarify_slot', slot: 'amount' };
-      const reply = await replyComposer.composeReply({
-        decision,
-        language: activeLanguage,
-        slots: draft.slots,
-      });
-      return {
-        decision,
-        reply: {
-          text: APPROVED_KEYPAD_FALLBACK_PROMPT,
-          language: 'en',
-          promptId: reply.promptId,
-        },
-        updatedDraft: draft,
-        sessionLanguage,
-      };
     }
 
     // Extract New Slots from Current Utterance (unless utterance is purely DTMF / confirmation / cancel)
@@ -796,7 +976,7 @@ export class Brain {
     // ─────────────────────────────────────────────────────────────────────────
     const serviceDef = serviceRegistry.get(settledIntent);
 
-    if (!serviceDef || serviceDef.status === 'not_ready') {
+    if (!serviceDef || serviceDef.status === 'not_ready' || settledIntent === 'momo.check_balance') {
       draft.lastReplyKind = 'not_ready';
       const decision: BrainDecision = {
         kind: 'not_ready',
@@ -806,7 +986,7 @@ export class Brain {
         decision,
         language: activeLanguage,
         slots: draft.slots,
-        notReadyMessageKey: serviceDef?.notReadyMessageKey,
+        notReadyMessageKey: serviceDef?.notReadyMessageKey || (settledIntent === 'momo.check_balance' ? 'dial_170_check_balance' : undefined),
       });
       return finalizeOutput({
         decision,
@@ -1055,38 +1235,78 @@ export class Brain {
       if (!geminiClient.isModelAvailable(model)) {
         continue;
       }
-      try {
-        response = await geminiClient.executeWithTimeout(
-          "BRAIN_REASONING_CHAT",
-          async (rawClient, signal) => {
-            const chat = reasoningEngine.getOrCreateChatSession(sessionKey, rawClient, model);
-            return await chat.sendMessage({
-              message: sanitized,
-            });
-          },
-          this.config.modelTimeoutMs,
-          0,
-          () => {
-            auditLogger.log("info", "BRAIN_STALLING", "Gemini turn reasoning reached 10s: caller comfort prompt triggered.");
-          },
-          10000,
-          model
-        );
-        selectedModel = model;
-        lastError = null;
-        break; // Successfully got response!
-      } catch (err: any) {
-        lastError = err;
-        const msg = String(err?.message || "");
-        if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("Quota exceeded")) {
-          console.warn(`[Brain] Model '${model}' quota exceeded; attempting candidate failover...`);
-        } else if (msg.includes("Timeout")) {
-          console.warn(`[Brain] Model '${model}' reasoning exceeded timeout budget.`);
-          break; // If hard 20s budget was reached, don't restart another 20s wait
-        } else {
-          console.warn(`[Brain] Model '${model}' error: ${msg.slice(0, 100)}`);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          response = await geminiClient.executeWithTimeout(
+            "BRAIN_REASONING_CHAT",
+            async (rawClient, signal) => {
+              if (rawClient.chats?.create) {
+                const chat = reasoningEngine.getOrCreateChatSession(sessionKey, rawClient, model);
+                return await chat.sendMessage({
+                  message: sanitized,
+                });
+              } else if (rawClient.models?.generateContent) {
+                return await rawClient.models.generateContent({
+                  model,
+                  contents: sanitized,
+                  config: {
+                    systemInstruction: MOMO_SYSTEM_INSTRUCTION,
+                    temperature: 0.2,
+                  },
+                });
+              }
+            },
+            this.config.modelTimeoutMs,
+            0,
+            () => {
+              auditLogger.log("info", "BRAIN_STALLING", "Gemini turn reasoning reached 10s: caller comfort prompt triggered.");
+            },
+            10000,
+            model
+          );
+          selectedModel = model;
+          lastError = null;
+
+          let text = "";
+          if (typeof (response as any)?.text === "function") {
+            try { text = (response as any).text(); } catch {}
+          } else if (typeof (response as any)?.text === "string") {
+            text = (response as any).text;
+          }
+
+          if (text && (text.trim().startsWith("{") || text.includes("{"))) {
+            try {
+              const match = text.match(/\{[\s\S]*\}/);
+              if (match) {
+                const parsed = JSON.parse(match[0]);
+                if (this.validateModelContract(parsed)) {
+                  return parsed;
+                }
+              }
+              if (attempt === 0) continue;
+              return null;
+            } catch {
+              if (attempt === 0) continue;
+              return null;
+            }
+          }
+          break; // Successfully got response
+        } catch (err: any) {
+          lastError = err;
+          const msg = String(err?.message || "");
+          if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("Quota exceeded")) {
+            console.warn(`[Brain] Model '${model}' quota exceeded; attempting candidate failover...`);
+            break;
+          } else if (msg.includes("Timeout")) {
+            console.warn(`[Brain] Model '${model}' reasoning exceeded timeout budget.`);
+            return null;
+          } else {
+            console.warn(`[Brain] Model '${model}' error: ${msg.slice(0, 100)}`);
+            break;
+          }
         }
       }
+      if (response) break;
     }
 
     if (!response) {
@@ -1103,6 +1323,25 @@ export class Brain {
     // Discard stale response if a newer turn has already executed
     if (turnId !== this.currentTurnId) {
       return null;
+    }
+
+    // Check if response text was JSON and valid contract
+    let responseText = "";
+    if (typeof (response as any)?.text === "function") {
+      try { responseText = (response as any).text(); } catch {}
+    } else if (typeof (response as any)?.text === "string") {
+      responseText = (response as any).text;
+    }
+    if (responseText && (responseText.trim().startsWith("{") || responseText.includes("{"))) {
+      try {
+        const match = responseText.match(/\{[\s\S]*\}/);
+        if (match) {
+          const parsed = JSON.parse(match[0]);
+          if (this.validateModelContract(parsed)) {
+            return parsed;
+          }
+        }
+      } catch {}
     }
 
     // 1. Check for native Function Calls
@@ -1299,6 +1538,14 @@ export class Brain {
     if (!data.signals || typeof data.signals !== 'object') return false;
     if (!data.reply || typeof data.reply.text_en !== 'string') return false;
     if (!data.reply.target_language || !data.reply.reply_kind) return false;
+
+    // Safety Invariant: confirm and clarify_slot must never contain raw digits
+    if (data.reply.reply_kind === 'confirm' || data.reply.reply_kind === 'clarify_slot') {
+      if (/\d/.test(data.reply.text_en)) return false;
+      if (data.reply.template_key && !APPROVED_REPLY_TEMPLATES[data.reply.template_key]) {
+        return false;
+      }
+    }
     return true;
   }
 
@@ -1328,12 +1575,15 @@ export class Brain {
     const isReverse = !isCashOut && !hasTransferAction && /\b(?:reverse|reversal|sent\s+by\s+mistake|sesa\s+transaction|nɔmba\s+mfomsoɔ|san\s+fa\s+sika|mfomsoɔ|wrong\s+(?:number|transfer)|refund)\b/i.test(lower);
     const hasTransferWord = !isCashOut && !isReverse && /\b(?:send|sen|transfer|mane|kɔma|soma)\b/i.test(lower);
 
+    // Contextual Invariant: When an utterance contains an ambiguous choice between bill and transfer
+    const isAmbiguousBillOrTransfer = /\b(?:bill\s+or\s+transfer|transfer\s+or\s+bill|pay\s+(?:money\s+for\s+)?bill\s+or\s+transfer)\b/i.test(lower);
+
     // Contextual Invariant: When an utterance contains a transfer action or transfer verb ("send", "transfer", "mane"),
     // or when the ongoing session intent is already transfer, mentions of "bill", "bills", or "ECG"
     // represent the payment reference or recipient, NOT a utility inquiry.
-    const isBill = !isCashOut && !hasTransferWord && !hasTransferAction && draft.intent !== 'momo.transfer' &&
-      !/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) &&
-      /\b(?:tua\s+ka|tua\s+bills?|electricity\s+bill|water\s+bill|light\s+bill|meter\s+bill|prepaid\s+meter|postpaid|pay\s+(?:[a-z]+\s+)?(?:bill|bills|ecg|gwcl|electricity|water|light|meter))\b/i.test(lower);
+    const isBill = (!isCashOut && !hasTransferAction && draft.intent !== 'momo.transfer' &&
+      (!hasTransferWord || isAmbiguousBillOrTransfer) &&
+      /\b(?:tua\s+ka|tua\s+bills?|electricity\s+bill|water\s+bill|light\s+bill|meter\s+bill|prepaid\s+meter|postpaid|pay\s+(?:[a-z]+\s+)?(?:bill|bills|ecg|gwcl|electricity|water|light|meter))\b/i.test(lower)) || isAmbiguousBillOrTransfer;
     const isAirtime = !isCashOut && !hasTransferWord && /\b(?:airtime|credit|kɔkɔɔ|topup|recharge|tɔ\s+airtime|tɔ\s+credit)\b/i.test(lower);
     const isData = !isCashOut && !hasTransferWord && /\b(?:buy\s+data|data\s+bundle|internet\s+bundle|bundle|megabytes|gigabytes|wifi\s+bundle|tɔ\s+data|tɔ\s+bundle|intanɛt)\b/i.test(lower);
     const isCare = /\b(?:customer\s+care|agent|talk\s+to\s+agent|speak\s+to\s+person|human\s+support|help\s+desk|kasa\s+kyerɛ\s+agent|customer\s+service)\b/i.test(lower);
@@ -1342,7 +1592,7 @@ export class Brain {
       /\b(?:balance|check\s+balance|check\s+my\s+balance|hwɛ\s+balance|hwɛ\s+me\s+balance|sika\s+dodoɔ\s+a\s+aka|sika\s+a\s+aka|sika\s+a\s+ɛwɔ\s+me\s+kora\s+mu|sika\s+sen\s+na\s+aka|hwɛ\s+me\s+sika|how\s+much\s+(?:do\s+i\s+have|i\s+have|is\s+in|is\s+left\s+in|in\s+my\s+account|in\s+my\s+wallet|money\s+is\s+in|money\s+do\s+i\s+have)|what\s+is\s+my\s+balance|tell\s+me\s+my\s+balance|how\s+much\s+money|how\s+much\s+dey|akontaabu)\b/i.test(lower);
 
     if (isCashOut) scores['momo.cash_out'] += 0.99;
-    if (isBill) scores['momo.pay_bill'] += 0.95;
+    if (isBill) scores['momo.pay_bill'] += (isAmbiguousBillOrTransfer ? 0.75 : 0.95);
     if (isAirtime) scores['momo.buy_airtime'] += 0.95;
     if (isData) scores['momo.buy_data'] += 0.95;
     if (isReverse) scores['momo.reverse_transaction'] += 0.95;
@@ -1351,7 +1601,7 @@ export class Brain {
     if (isBalance) scores['momo.check_balance'] += 0.95;
 
     const hasCurrencyWord = /\b(?:sika|cedi|cedis|sedis|ghs)\b/i.test(lower);
-    const isNonTransferSpecific = isCashOut || isBill || isAirtime || isData || isReverse || isCare || isLoan || isBalance;
+    const isNonTransferSpecific = isCashOut || (isBill && !isAmbiguousBillOrTransfer) || isAirtime || isData || isReverse || isCare || isLoan || isBalance;
 
     const digitsOnlyInUtterance = lower.replace(/[^0-9]/g, "");
     const normalizedUtterancePhone = normalizeGhanaPhoneNumber(lower);
@@ -1366,7 +1616,7 @@ export class Brain {
     } else if (has10DigitPhone && !isNonTransferSpecific) {
       scores['momo.transfer'] += 0.95;
     } else if (hasTransferWord) {
-      scores['momo.transfer'] += 0.85;
+      scores['momo.transfer'] += (isAmbiguousBillOrTransfer ? 0.70 : 0.85);
     } else if (hasCurrencyWord && !isNonTransferSpecific) {
       scores['momo.transfer'] += 0.70;
     }
@@ -1504,8 +1754,8 @@ export class Brain {
       }
     }
 
-    // 4. Stated Network extraction
-    const netMatch = text.match(/\b(telecel|vodafone|mtn|airteltigo|at(?:\s+money)?)\b/i);
+    // 4. Stated Network extraction (exclude standalone preposition 'at')
+    const netMatch = text.match(/\b(telecel|vodafone|mtn|airteltigo|airtel|tigo|at\s+(?:money|network|sim))\b/i);
     if (netMatch) {
       const netStr = netMatch[1].toLowerCase();
       currentSlots.networkSpecified = netStr.includes('telecel') || netStr.includes('vodafone')

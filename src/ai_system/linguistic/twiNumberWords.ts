@@ -172,11 +172,12 @@ export function formatAmountAsSpokenWords(
     return APPROVED_KEYPAD_FALLBACK_PROMPT;
   }
 
+  // Security Gate 2: Fail-closed. Never speak an unapproved number prompt when requireApprovedNumbers is true.
+  if (checkApproved && !isNumberApproved(rounded)) {
+    return APPROVED_KEYPAD_FALLBACK_PROMPT;
+  }
+
   if (isTwi) {
-    // Security Gate 2: Fail-closed. Never speak an unapproved Twi string.
-    if (checkApproved && !isNumberApproved(rounded)) {
-      return APPROVED_KEYPAD_FALLBACK_PROMPT;
-    }
     const words = convertNumberToTwiWords(rounded);
     return `cedi ${words}`;
   }

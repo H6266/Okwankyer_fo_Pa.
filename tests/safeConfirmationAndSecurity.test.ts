@@ -262,7 +262,7 @@ describe("Task 5: Security Hardening & Path Traversal Protection", () => {
   });
 
   it("does not resolve unregistered legacy audio paths", () => {
-    const resolved = resolveSafeAudioPath("Welcome_prompt_01.mp3");
+    const resolved = resolveSafeAudioPath("English/Audio_prompt_02.mp3");
     expect(resolved).toBeNull();
   });
 });

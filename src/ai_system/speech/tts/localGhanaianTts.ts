@@ -10,7 +10,7 @@
 
 import fs from "fs";
 import path from "path";
-import audioTranscripts from "../../../audio_transcripts.json";
+import audioTranscripts from "../../../../audio_transcripts.json";
 import { TTSProvider, TtsSynthesisRequest, TtsSynthesisResponse } from "./ttsProvider";
 import {
   AUDIO_RECORDINGS,
@@ -37,8 +37,9 @@ export class LocalGhanaianTtsProvider implements TTSProvider {
     const selectedLanguage = language === "tw" || language === "twi" || language === "ak" ? "twi" : "en";
 
     const legacyAliases: Record<string, string> = {
-      "welcome to okwankyerɛfo pa an easy financial transaction service for english press 1 for twi press 2": "public/audio/English/Welcome_prompt_01.mp3",
-      "for telecom or mobile money services press 1 for banking services press 2 to hear this again press 9 to exit press 0": "public/audio/English/Audio_prompt_02.mp3",
+      "welcome to okwankyerɛfo pa an easy financial transaction service for english press 1 for twi press 2": "public/audio/Welcome_prompt_01.mp3",
+      "for telecom or mobile money services press 1 for banking services press 2 to hear this again press 9 to exit press 0": "Audio_files_2/Main menu.m4a",
+      "for mobile money services press 1 for banking services press 2 press 9 to hear this again or press 0 to exit": "Audio_files_2/Main menu.m4a",
     };
 
     if (legacyAliases[cleanText]) {

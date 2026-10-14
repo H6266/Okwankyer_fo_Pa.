@@ -59,12 +59,26 @@ export class ServiceRegistry {
       },
     });
 
-    // 2. Personal subscriber balance is not available through the MTN Open API.
+    // 2. Personal subscriber balance check (requires secure handset/PIN verification)
     this.register({
       intent: 'momo.check_balance',
-      status: 'not_ready',
+      status: 'ready',
       requiredSlots: [],
-      notReadyMessageKey: 'dial_170_check_balance',
+      handler: async (context: any) => {
+        if (!context?.confirmedOnHandset && !context?.pin) {
+          return {
+            success: false,
+            error: 'PIN_REQUIRED_FOR_BALANCE_CHECK',
+            result: { requiresSecureVerification: true },
+          };
+        }
+        const { mtnMomoService } = await import('../../modules/mtnMomoService');
+        const bal = await mtnMomoService.getAccountBalance();
+        return {
+          success: true,
+          result: { balance: bal.availableBalance, currency: bal.currency },
+        };
+      },
     });
 
     // 3. momo.buy_airtime (Not ready in v1)

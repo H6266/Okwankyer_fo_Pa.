@@ -119,6 +119,12 @@ export function injectSlotsIntoTemplate(
     result = result.replace(/\{recipient\}/g, spokenRecipient);
   }
 
+  if (result.includes('{recipient_phone}')) {
+    const recPhone = slots.recipient?.phone || slots.recipientPhone || slots.phone;
+    const spokenPhone = recPhone ? convertPhoneToSpokenWords(String(recPhone), language) : '';
+    result = result.replace(/\{recipient_phone\}/g, spokenPhone);
+  }
+
   // 3. Verified Name Injection
   if (result.includes('{verified_name}')) {
     const vName = slots.verifiedName || slots.recipient?.name || slots.recipientName || 'Emmanuel Mensah';

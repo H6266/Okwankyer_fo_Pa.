@@ -440,23 +440,29 @@ export class AiUnderstanding {
    * Context-aware Ghanaian name recognition
    */
   private extractRecipientName(text: string): string | null {
-    // Look for prepositional contexts: "to ECG Man on 024...", "to Kwame", "kɔma Ama", "ma Kofi", "send it to Yaw"
-    const prepMatchWithLabel = text.match(/\b(?:to\s+(?:the\s+)?|kɔma\s+|ma\s+|give\s+to\s+)([a-zA-Zɛɔ\s]+?)\s+(?:on|wɔ|at|\b0\d{9}\b)/i) ||
-      text.match(/\b(?:to|kɔma|ma|give)\s+([a-zA-Zɛɔ]+(?:\s+[a-zA-Zɛɔ]+)?)\b/i);
-    if (prepMatchWithLabel) {
-      const candidate = prepMatchWithLabel[1].trim();
-      const lower = candidate.toLowerCase();
-      if (!["send", "the", "him", "her", "them", "money", "sika", "cedis", "ghs", "phone", "number"].includes(lower)) {
-        return candidate.split(/\s+/).map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(" ");
-      }
-    }
-
-    // Direct Ghanaian names in utterance
+    // 1. Direct Ghanaian names in utterance (highest confidence)
     const words = text.split(/\s+/);
     for (const w of words) {
       const clean = w.toLowerCase().replace(/[^a-zɛɔ]/g, "");
       if (GHANAIAN_NAMES.has(clean)) {
         return this.capitalizeName(clean);
+      }
+    }
+
+    // 2. Prevent matching pronouns or coreferences as names
+    if (/\b(?:to\s+(?:him|her|them)|saa nipa no)\b/i.test(text)) {
+      return null;
+    }
+
+    // 3. Look for prepositional contexts: "to ECG Man on 024...", "to Ama", "kɔma Ama", "ma Kofi", "send it to Yaw"
+    const prepMatchWithLabel = text.match(/\b(?:(?:send\s+(?:money\s+)?to|transfer\s+to|kɔma|ma|give\s+to|to)\s+(?:the\s+)?)([a-zA-Zɛɔ\s]+?)(?:\s+(?:on|wɔ|at|\b0\d{9}\b)|$)/i);
+    if (prepMatchWithLabel) {
+      const candidate = prepMatchWithLabel[1].trim();
+      const lower = candidate.toLowerCase();
+      const tokens = lower.split(/\s+/);
+      const invalidWords = new Set(["send", "the", "him", "her", "them", "money", "sika", "cedis", "ghs", "phone", "number", "using", "that", "amount"]);
+      if (!tokens.some((t) => invalidWords.has(t)) && candidate.length > 1) {
+        return candidate.split(/\s+/).map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(" ");
       }
     }
 

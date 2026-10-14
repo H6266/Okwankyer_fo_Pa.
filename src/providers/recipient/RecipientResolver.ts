@@ -63,20 +63,15 @@ export class SandboxRecipientResolver implements RecipientResolver {
       };
     }
 
-    // Number is valid format: in sandbox, return deterministic dummy registered name
-    const dummySandboxNames: Record<GhanaianNetwork, string> = {
-      MTN: "Emmanuel Mensah",
-      Telecel: "Kofi Annan",
-      AT: "Yaw Mensah",
-    };
     return {
       valid: true,
       phoneNumber: rawPhoneNumber,
       normalizedPhone: val.normalized,
-      name: dummySandboxNames[val.network] || "Emmanuel Mensah",
+      name: null,
       network: val.network,
-      verified: true,
-      source: "SANDBOX_FIXTURE",
+      verified: false,
+      source: "UNRESOLVED",
+      warning: `Subscriber identity for ${redactPii(val.normalized)} could not be verified in sandbox fixtures.`,
     };
   }
 }

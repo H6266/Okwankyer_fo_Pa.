@@ -39,6 +39,30 @@ export interface PlayOptions {
 
 type StateListener = (state: PlaybackState) => void;
 
+/**
+ * Checks whether the current browser environment supports native playback of MPEG-4 AAC (.m4a).
+ * If the browser lacks AAC support (or is in a sandboxed iframe without codecs), returns false
+ * so the playback controller immediately routes to universal MP3.
+ */
+export function canBrowserPlayM4a(): boolean {
+  if (typeof document === "undefined" || typeof Audio === "undefined") return true;
+  try {
+    const probe = new Audio();
+    const canPlayMp4 = probe.canPlayType('audio/mp4; codecs="mp4a.40.2"') || probe.canPlayType("audio/mp4") || probe.canPlayType("audio/x-m4a");
+    return canPlayMp4 === "probably" || canPlayMp4 === "maybe";
+  } catch {
+    return true;
+  }
+}
+
+export function resolveSafePlayableUrl(url: string): string {
+  if (!url) return url;
+  if (!canBrowserPlayM4a() && url.includes(".m4a")) {
+    return url.replace(/\.m4a/gi, ".mp3");
+  }
+  return url;
+}
+
 export class AudioPlaybackController {
   private readonly playbackVolume = 1.0;
   private audioElement: HTMLAudioElement | null = null;
@@ -61,6 +85,13 @@ export class AudioPlaybackController {
     if (typeof window !== "undefined") {
       this.initAudioElement();
     }
+  }
+
+  /**
+   * Enables Web Audio & Audio element on user gesture
+   */
+  public enableAudio(): void {
+    this.unlockAudio();
   }
 
   /**
@@ -436,7 +467,7 @@ export class AudioPlaybackController {
     }
 
     if (url) {
-      url = url.replace(/^https?:\/\/[^/]+(\/audio\/.*)$/i, "$1");
+      url = resolveSafePlayableUrl(url.replace(/^https?:\/\/[^/]+(\/audio\/.*)$/i, "$1"));
     }
 
     // If identical clip is already actively playing, don't interrupt; just update text if given
@@ -522,14 +553,14 @@ export class AudioPlaybackController {
       return Promise.resolve(false);
     }
 
-      audio.volume = this.playbackVolume;
+    audio.volume = this.playbackVolume;
 
     return new Promise<boolean>((resolve) => {
       this.activeResolver = () => {
         resolve(false);
       };
 
-      audio.onended = () => {
+      const handleEnded = () => {
         if (this.currentToken !== token) return;
         this.activeResolver = null;
         this.setState({
@@ -542,8 +573,7 @@ export class AudioPlaybackController {
         resolve(true);
       };
 
-      audio.onerror = () => {
-        if (this.currentToken !== token) return;
+      const fallbackToText = () => {
         this.activeResolver = null;
         if (promptText && promptText.trim()) {
           this.speakText(promptText, options).then(resolve);
@@ -558,6 +588,30 @@ export class AudioPlaybackController {
         resolve(false);
       };
 
+      audio.onended = handleEnded;
+
+      audio.onerror = () => {
+        if (this.currentToken !== token) return;
+        if (url.includes(".m4a")) {
+          const mp3Fallback = url.replace(/\.m4a/gi, ".mp3");
+          console.warn("[AudioController] Browser rejected .m4a AAC; seamlessly playing .mp3:", mp3Fallback);
+          url = mp3Fallback;
+          try {
+            audio.src = mp3Fallback;
+            audio.currentTime = 0;
+            const p = audio.play();
+            if (p !== undefined) {
+              p.catch(() => fallbackToText());
+            }
+            return;
+          } catch {
+            fallbackToText();
+            return;
+          }
+        }
+        fallbackToText();
+      };
+
       try {
         audio.volume = this.playbackVolume;
         audio.src = url;
@@ -569,31 +623,29 @@ export class AudioPlaybackController {
               return;
             }
             if (this.currentToken === token) {
-              if (promptText && promptText.trim()) {
-                this.speakText(promptText, options).then(resolve);
-                return;
+              if (url.includes(".m4a")) {
+                const mp3Fallback = url.replace(/\.m4a/gi, ".mp3");
+                url = mp3Fallback;
+                try {
+                  audio.src = mp3Fallback;
+                  audio.currentTime = 0;
+                  const p2 = audio.play();
+                  if (p2 !== undefined) {
+                    p2.catch(() => fallbackToText());
+                  }
+                  return;
+                } catch {
+                  fallbackToText();
+                  return;
+                }
               }
-              this.activeResolver = null;
-              this.setState({
-                isPlaying: false,
-                activeClip: null,
-                activeText: null,
-                token,
-              });
-              resolve(false);
+              fallbackToText();
             }
           });
         }
       } catch {
         if (this.currentToken === token) {
-          this.activeResolver = null;
-          this.setState({
-            isPlaying: false,
-            activeClip: null,
-            activeText: null,
-            token,
-          });
-          resolve(false);
+          fallbackToText();
         }
       }
     });
@@ -606,8 +658,11 @@ export class AudioPlaybackController {
   public async playSequence(urls: string[]): Promise<boolean> {
     this.stop();
     const sequenceToken = ++this.currentToken;
+    const safeUrls = urls
+      .filter(Boolean)
+      .map((u) => resolveSafePlayableUrl(u.replace(/^https?:\/\/[^/]+(\/audio\/.*)$/i, "$1")));
 
-    for (const url of urls) {
+    for (let url of safeUrls) {
       if (this.currentToken !== sequenceToken) {
         return false; // Cancelled/superseded mid-sequence
       }
@@ -634,6 +689,22 @@ export class AudioPlaybackController {
 
         audio.onerror = () => {
           if (this.currentToken !== sequenceToken) return;
+          if (url.includes(".m4a")) {
+            const mp3 = url.replace(/\.m4a/gi, ".mp3");
+            url = mp3;
+            try {
+              audio.src = mp3;
+              audio.currentTime = 0;
+              const p = audio.play();
+              if (p !== undefined) {
+                p.catch(() => {
+                  this.activeResolver = null;
+                  resolve(false);
+                });
+              }
+              return;
+            } catch {}
+          }
           this.activeResolver = null;
           resolve(false);
         };
@@ -643,13 +714,33 @@ export class AudioPlaybackController {
         const p = audio.play();
         if (p !== undefined) {
           p.catch((err: any) => {
-            if (err?.name === "AbortError") return;
+            if (err?.name === "AbortError" || err?.message?.includes("interrupted")) {
+              return;
+            }
+            if (this.currentToken !== sequenceToken) return;
+            if (url.includes(".m4a")) {
+              const mp3 = url.replace(/\.m4a/gi, ".mp3");
+              url = mp3;
+              try {
+                audio.src = mp3;
+                audio.currentTime = 0;
+                const p2 = audio.play();
+                if (p2 !== undefined) {
+                  p2.catch(() => {
+                    this.activeResolver = null;
+                    resolve(false);
+                  });
+                }
+                return;
+              } catch {}
+            }
+            this.activeResolver = null;
             resolve(false);
           });
         }
       });
 
-      if (!ended || this.currentToken !== sequenceToken) {
+      if (!ended && this.currentToken !== sequenceToken) {
         return false;
       }
     }
@@ -663,9 +754,9 @@ export class AudioPlaybackController {
       });
       return true;
     }
-
     return false;
   }
 }
 
 export const audioPlaybackController = new AudioPlaybackController();
+

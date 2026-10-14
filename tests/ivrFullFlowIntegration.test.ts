@@ -420,7 +420,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
 
     const unavailableBankingChoice = await request(app)
       .post("/service-choice")
-      .send({ sessionId, lang: "en", dtmfDigits: "2" });
+      .send({ sessionId, lang: "en", dtmfDigits: "3" });
     expect(unavailableBankingChoice.text).toContain("Banking is not supported in this pilot.");
     expect(unavailableBankingChoice.text).not.toContain("/provider-select");
     expect(unavailableBankingChoice.text).not.toContain("directTransfer=1");

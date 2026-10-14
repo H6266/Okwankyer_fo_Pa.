@@ -43,31 +43,31 @@ export const APPROVED_REPLY_TEMPLATES: Record<string, ApprovedTemplateDefinition
   confirm: {
     key: 'confirm',
     kind: 'confirm',
-    approved: true,
+    approved: false,
     requiresPlaceholders: ['{amount}', '{recipient}'],
     texts: {
       'en': 'Do you confirm sending {amount} to {recipient}?',
       'twi-asante': 'Wopene so sɛ yɛmmane {amount} nkɔma {recipient}?',
-      'mixed-twi-en': 'Wopene so sɛ yɛ-send {amount} nkɔma {recipient}?',
+      'mixed-twi-en': 'Wopene so sɛ yɛsend {amount} kɔma {recipient}?',
       'twi-akuapem': 'Wopene so sɛ yɛnsoma {amount} nkɔma {recipient}?',
     },
   },
   confirm_with_verified_name: {
     key: 'confirm_with_verified_name',
     kind: 'confirm',
-    approved: true,
-    requiresPlaceholders: ['{network}', '{verified_name}', '{amount}'],
+    approved: false,
+    requiresPlaceholders: ['{network}', '{verified_name}', '{recipient}', '{amount}'],
     texts: {
-      'en': 'The registered name on this {network} number is {verified_name}. Do you confirm sending {amount} to {verified_name}?',
-      'twi-asante': 'Din a ɛwɔ saa {network} nɔmba yi so ne {verified_name}. Wopene so sɛ woremane {amount} kɔma {verified_name}?',
-      'mixed-twi-en': 'Registered name wɔ saa {network} number yi so ne {verified_name}. Wopene so sɛ wore-send {amount} kɔma {verified_name}?',
-      'twi-akuapem': 'Din a ɛwɔ saa {network} nɔmba yi so ne {verified_name}. Wopene so sɛ woresoma {amount} kɔma {verified_name}?',
+      'en': 'The registered name on this {network} number {recipient_phone} is {verified_name}. Do you confirm sending {amount} to {recipient}?',
+      'twi-asante': 'Din a ɛwɔ saa {network} nɔmba {recipient_phone} yi so ne {verified_name}. Wopene so sɛ woremane {amount} kɔma {recipient}?',
+      'mixed-twi-en': 'Registered name wɔ saa {network} number {recipient_phone} yi so ne {verified_name}. Wopene so sɛ wore-send {amount} kɔma {recipient}?',
+      'twi-akuapem': 'Din a ɛwɔ saa {network} nɔmba {recipient_phone} yi so ne {verified_name}. Wopene so sɛ woresoma {amount} kɔma {recipient}?',
     },
   },
   confirm_name_discrepancy: {
     key: 'confirm_name_discrepancy',
     kind: 'confirm',
-    approved: true,
+    approved: false,
     requiresPlaceholders: ['{network}', '{verified_name}', '{candidate_name}', '{amount}'],
     texts: {
       'en': 'Please note: the registered name on this {network} number is {verified_name}, but you mentioned {candidate_name}. Are you sure you want to proceed and send {amount} to {verified_name}?',
@@ -79,7 +79,7 @@ export const APPROVED_REPLY_TEMPLATES: Record<string, ApprovedTemplateDefinition
   confirm_network_discrepancy: {
     key: 'confirm_network_discrepancy',
     kind: 'confirm',
-    approved: true,
+    approved: false,
     requiresPlaceholders: ['{network}', '{candidate_network}', '{verified_name}', '{amount}'],
     texts: {
       'en': 'Please note: this phone number is registered on {network}, not {candidate_network}. Would you still like to proceed with sending {amount} to {verified_name} on {network}?',
@@ -91,7 +91,7 @@ export const APPROVED_REPLY_TEMPLATES: Record<string, ApprovedTemplateDefinition
   confirm_name_and_network_discrepancy: {
     key: 'confirm_name_and_network_discrepancy',
     kind: 'confirm',
-    approved: true,
+    approved: false,
     requiresPlaceholders: ['{network}', '{candidate_network}', '{verified_name}', '{candidate_name}', '{amount}'],
     texts: {
       'en': 'Please note: this phone number is registered on {network} under {verified_name}, but you mentioned {candidate_name} on {candidate_network}. Are you sure you want to proceed and send {amount} to {verified_name}?',
@@ -103,7 +103,7 @@ export const APPROVED_REPLY_TEMPLATES: Record<string, ApprovedTemplateDefinition
   pin_prompt: {
     key: 'pin_prompt',
     kind: 'clarify_slot',
-    approved: true,
+    approved: false,
     texts: {
       'en': 'Please mention your secret MoMo PIN, or use your phone keypad if you prefer.',
       'twi-asante': 'Mepa wo kyɛw bɔ wo MoMo PIN ahintasɛm no, anaa fa wo keypad no bɔ mu.',
@@ -114,7 +114,7 @@ export const APPROVED_REPLY_TEMPLATES: Record<string, ApprovedTemplateDefinition
   pin_silence_3s: {
     key: 'pin_silence_3s',
     kind: 'clarify_slot',
-    approved: true,
+    approved: false,
     texts: {
       'en': 'Please mention your PIN, we are waiting for it to finalize the process.',
       'twi-asante': 'Mepa wo kyɛw bɔ wo PIN no, yɛretwɛn deɛ worebɛka no na yɛawie dwumadie no.',
@@ -125,7 +125,7 @@ export const APPROVED_REPLY_TEMPLATES: Record<string, ApprovedTemplateDefinition
   pin_silence_6s: {
     key: 'pin_silence_6s',
     kind: 'clarify_slot',
-    approved: true,
+    approved: false,
     texts: {
       'en': 'We are still waiting for you please, use your keypad if you cannot say it out loud.',
       'twi-asante': 'Yɛda so retwɛn wo, mesrɛ wo fa wo keypad no bɔ mu sɛ worentumi nka no nteaseɛ a.',
@@ -136,7 +136,7 @@ export const APPROVED_REPLY_TEMPLATES: Record<string, ApprovedTemplateDefinition
   pin_silence_10s: {
     key: 'pin_silence_10s',
     kind: 'clarify_slot',
-    approved: true,
+    approved: false,
     texts: {
       'en': 'We are about to end the call as we could not receive your PIN. Goodbye.',
       'twi-asante': 'Ɛte sɛ nea yɛantumi ante wo PIN no, enti yɛrebɛto fon no mu seesei ara. Nante yie.',

@@ -31,8 +31,12 @@ export const PROMPT_SCRIPTS: Record<string, { en: string; twi: string }> = {
     twi: "Mprempren, yɛboa MTN Mobile Money nkutoo. Sɛ wo network yɛ MTN a, mia 1. Mia 9 na tie bio, anaasɛ mia 0 na woapue.",
   },
   supported_service_select: {
-    en: "MTN Mobile Money transfers are currently supported. Press 1 for Mobile Money. Banking is not supported in this pilot; press 2 to hear available alternatives. Press 9 to repeat or 0 to exit.",
-    twi: "Mprempren yɛboa MTN Mobile Money sika mane. Mia 1 ma Mobile Money. Banking nni pilot yi mu; mia 2 na wote dwumadie a yɛboa. Mia 9 na tie bio, anaa mia 0 na woapue.",
+    en: "For Mobile Money services, press 1. For banking services, press 2. Banking is not supported in this pilot. Press 9 to hear this again, or press 0 to exit.",
+    twi: "Sɛ wopɛ mobile money services a, mia 1. Sɛ wopɛ banking services a, mia 2. Sikakorabea dwumadie nni pilot yi mu. Mia 9 na mate bio, anaasɛ mia 0 na woapue.",
+  },
+  service_select: {
+    en: "For Mobile Money services, press 1. To transfer money to another mobile wallet, press 2. For banking and international services, press 3. To hear these options again, press 9. To exit, press 0.",
+    twi: "Sɛ wopɛ mobile money services a, mia 1. Sɛ woremane sika kɔ wallet foforɔ so a, mia 2. Sɛ wopɛ banking services a, mia 3. Mia 9 na mate bio, anaasɛ mia 0 na woapue.",
   },
   send_money_menu: {
     en: "To send money, press 1. To go back, press 8. To hear this again, press 9. To exit, press 0.",
@@ -97,16 +101,19 @@ export function resolvePrompt(key: string, lang: SupportedLanguage = "en"): stri
 export function resolvePromptText(key: string, lang: SupportedLanguage): string | null {
   const language = normalizeRecordingLanguage(lang);
   if (!language) return null;
-  const recording = getRecordingByPromptKey(key, language);
   const scriptKey = TTS_SCRIPT_KEY_BY_PROMPT_KEY[key] || key;
   const languageKey = language === "twi" ? "twi" : "en";
+  if (PROMPT_SCRIPTS[scriptKey]?.[languageKey]) {
+    return PROMPT_SCRIPTS[scriptKey][languageKey];
+  }
+  const recording = getRecordingByPromptKey(key, language);
   const promptId = key.match(/^OP\d{2}$/i)?.[0].toUpperCase() || PROMPT_KEY_TO_RECORDING_ID[key];
   const manifestPrompt = getPromptManifestEntry(promptId || "");
   const stepPrompt = getStepDefinition(key.replace(/_/g, "-"))?.promptText[languageKey];
   const manifestText = manifestPrompt
     ? language === "twi" ? manifestPrompt.twi : manifestPrompt.english
     : null;
-  return recording?.spokenText || manifestText || PROMPT_SCRIPTS[scriptKey]?.[languageKey] || stepPrompt || null;
+  return recording?.spokenText || manifestText || stepPrompt || null;
 }
 
 export function resolveSimulatorPrompt(key: string, lang: SupportedLanguage): string | null {
@@ -125,6 +132,9 @@ export function resolveSimulatorAudioUrl(
     const ttsMatch = pathname.match(/^\/(?:api\/)?audio\/prompt-tts\/(en|twi)\//);
     if (ttsMatch) {
       return ttsMatch[1] === language ? pathname : null;
+    }
+    if (/welcome_prompt_01\.mp3$/i.test(pathname)) {
+      return "/audio/Welcome_prompt_01.mp3";
     }
     const recording = getRecordingByUrl(pathname);
     return recording?.language === language ? recording.url : null;

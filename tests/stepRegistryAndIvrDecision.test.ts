@@ -328,7 +328,7 @@ describe("IVR Telephony Route Integration (Real Express XML Responses)", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers["x-ai-decision-type"]).toBe("invalid_choice");
-    expect(res.headers["x-ai-decision-reason"]).toContain("1 for supported MTN Mobile Money");
+    expect(res.headers["x-ai-decision-reason"]).toContain("1 for Mobile Money");
     expect(res.text).toContain("Option 5 is not a valid choice");
     expect(res.text).toContain("<GetDigits");
     expect(res.text).toContain("callbackUrl=\"http://localhost:3000/service-choice?sessionId=TEST_SESS_A&amp;lang=en\"");

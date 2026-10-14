@@ -34,17 +34,43 @@ export function resolveSafeAudioPath(requestedSubpath: string): string | null {
   } else if (normalized.startsWith("additional/")) {
     rootDir = path.resolve(process.cwd(), "Audio_files_2");
     relativePath = normalized.slice("additional/".length);
+  } else if (normalized.startsWith("Twi/")) {
+    rootDir = path.resolve(process.cwd(), "Audio_files", "audio");
+    relativePath = normalized;
   } else {
-    return null;
+    const audio2Candidate = path.resolve(process.cwd(), "Audio_files_2", normalized);
+    if (fs.existsSync(audio2Candidate) || fs.existsSync(audio2Candidate.replace(/\.m4a$/i, ".mp3"))) {
+      rootDir = path.resolve(process.cwd(), "Audio_files_2");
+      relativePath = normalized;
+    } else {
+      rootDir = path.resolve(process.cwd(), "public", "audio");
+      relativePath = normalized;
+    }
   }
 
-  const resolved = path.resolve(rootDir, relativePath);
+  let resolved = path.resolve(rootDir, relativePath);
   if (!resolved.startsWith(`${rootDir}${path.sep}`) && resolved !== rootDir) {
     throw new PathTraversalError(`Path traversal attempt blocked: ${requestedSubpath}`);
   }
 
   if (!fs.existsSync(resolved)) {
-    return null;
+    if (resolved.endsWith(".m4a")) {
+      const mp3Alt = resolved.replace(/\.m4a$/i, ".mp3");
+      if (fs.existsSync(mp3Alt)) {
+        resolved = mp3Alt;
+      } else {
+        return null;
+      }
+    } else if (resolved.endsWith(".mp3")) {
+      const m4aAlt = resolved.replace(/\.mp3$/i, ".m4a");
+      if (fs.existsSync(m4aAlt)) {
+        resolved = m4aAlt;
+      } else {
+        return null;
+      }
+    } else {
+      return null;
+    }
   }
 
   const realPath = fs.realpathSync(resolved);

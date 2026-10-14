@@ -12,9 +12,7 @@
       "audio": {
         "english": null,
         "twi": "audio/Twi/01_Welcome_Session_Start/Welcome 1.m4a",
-        "twi_other_takes": [
-          "audio/Twi/01_Welcome_Session_Start/Welcome 2.m4a"
-        ]
+        "twi_other_takes": []
       }
     },
     {
@@ -39,10 +37,8 @@
       "twi": "Agoo. Ɛdeɛn na metumi aboa wo wɔ nnɛ?",
       "audio": {
         "english": null,
-        "twi": "audio/Twi/01_Welcome_Session_Start/Greetings 1.m4a",
-        "twi_other_takes": [
-          "audio/Twi/01_Welcome_Session_Start/Greetings 2.m4a"
-        ]
+        "twi": null,
+        "twi_other_takes": []
       }
     },
     {
@@ -95,7 +91,7 @@
         "english": null,
         "twi": "audio/Twi/02_Main_Service_Navigation/Service selection.m4a",
         "twi_other_takes": [
-          "audio/Twi/02_Main_Service_Navigation/Service selection 2.m4a"
+          "audio/Twi/01_Welcome_Session_Start/Service selection 2.m4a"
         ]
       }
     },
@@ -109,9 +105,7 @@
       "audio": {
         "english": null,
         "twi": "audio/Twi/02_Main_Service_Navigation/Network selection.m4a",
-        "twi_other_takes": [
-          "audio/Twi/02_Main_Service_Navigation/Network selection 2.m4a"
-        ]
+        "twi_other_takes": []
       }
     },
     {
@@ -124,9 +118,7 @@
       "audio": {
         "english": null,
         "twi": "audio/Twi/02_Main_Service_Navigation/MTN menu.m4a",
-        "twi_other_takes": [
-          "audio/Twi/02_Main_Service_Navigation/MTN menu 2.m4a"
-        ]
+        "twi_other_takes": []
       }
     },
     {
@@ -153,8 +145,6 @@
         "english": null,
         "twi": "audio/Twi/02_Main_Service_Navigation/Service unavailable.m4a",
         "twi_other_takes": [
-          "audio/Twi/02_Main_Service_Navigation/Service unavailable 1.m4a",
-          "audio/Twi/02_Main_Service_Navigation/Service unavailable 2.m4a",
           "audio/Twi/02_Main_Service_Navigation/Main service Unavailable.m4a"
         ]
       }
@@ -221,9 +211,7 @@
       "audio": {
         "english": null,
         "twi": "audio/Twi/03_Recipient_Entry_Verification/Enter recipient.m4a",
-        "twi_other_takes": [
-          "audio/Twi/03_Recipient_Entry_Verification/Enter recipient 2.m4a"
-        ]
+        "twi_other_takes": []
       }
     },
     {
@@ -236,9 +224,7 @@
       "audio": {
         "english": null,
         "twi": "audio/Twi/03_Recipient_Entry_Verification/Invalid recipient.m4a",
-        "twi_other_takes": [
-          "audio/Twi/03_Recipient_Entry_Verification/Invalid recipient 2.m4a"
-        ]
+        "twi_other_takes": []
       }
     },
     {
@@ -251,9 +237,7 @@
       "audio": {
         "english": null,
         "twi": "audio/Twi/03_Recipient_Entry_Verification/Recipient found.m4a",
-        "twi_other_takes": [
-          "audio/Twi/03_Recipient_Entry_Verification/Recipient found (1).m4a"
-        ]
+        "twi_other_takes": []
       }
     },
     {
@@ -284,9 +268,7 @@
       "audio": {
         "english": null,
         "twi": "audio/Twi/03_Recipient_Entry_Verification/Recipient name.m4a",
-        "twi_other_takes": [
-          "audio/Twi/03_Recipient_Entry_Verification/Recipient name 2.m4a"
-        ]
+        "twi_other_takes": []
       }
     },
     {
@@ -315,9 +297,7 @@
       "audio": {
         "english": null,
         "twi": "audio/Twi/03_Recipient_Entry_Verification/Recipient confirm.m4a",
-        "twi_other_takes": [
-          "audio/Twi/03_Recipient_Entry_Verification/Recipient confirm 2.m4a"
-        ]
+        "twi_other_takes": []
       }
     },
     {
@@ -329,7 +309,7 @@
       "twi": "Saa recipient yi ne nea wopɛ anaa? Ka yes anaa no, anaasɛ mia 1 ma yes na mia 2 ma no.",
       "audio": {
         "english": null,
-        "twi": "audio/Twi/03_Recipient_Entry_Verification/Recipient confirm speech.m4a",
+        "twi": null,
         "twi_other_takes": []
       }
     },
@@ -343,9 +323,7 @@
       "audio": {
         "english": null,
         "twi": "audio/Twi/03_Recipient_Entry_Verification/Use recipient.m4a",
-        "twi_other_takes": [
-          "audio/Twi/03_Recipient_Entry_Verification/Use recipient 1.m4a"
-        ]
+        "twi_other_takes": []
       }
     },
     {
@@ -358,9 +336,7 @@
       "audio": {
         "english": null,
         "twi": "audio/Twi/03_Recipient_Entry_Verification/Change recipient.m4a",
-        "twi_other_takes": [
-          "audio/Twi/03_Recipient_Entry_Verification/Change recipient 2.m4a"
-        ]
+        "twi_other_takes": []
       }
     },
     {
@@ -373,11 +349,7 @@
       "audio": {
         "english": null,
         "twi": "audio/Twi/04_Amount_Entry_Verification/Enter amount.m4a",
-        "twi_other_takes": [
-          "audio/Twi/04_Amount_Entry_Verification/Enter amount 2.m4a",
-          "audio/Twi/04_Amount_Entry_Verification/Enter amount 3.m4a",
-          "audio/Twi/04_Amount_Entry_Verification/Enter amount 4.m4a"
-        ]
+        "twi_other_takes": []
       }
     },
     {
@@ -419,9 +391,7 @@
       "audio": {
         "english": null,
         "twi": "audio/Twi/04_Amount_Entry_Verification/Amount read back.m4a",
-        "twi_other_takes": [
-          "audio/Twi/04_Amount_Entry_Verification/Amount readback 2.m4a"
-        ]
+        "twi_other_takes": []
       }
     },
     {
@@ -434,9 +404,7 @@
       "audio": {
         "english": null,
         "twi": "audio/Twi/04_Amount_Entry_Verification/Repeat amount.m4a",
-        "twi_other_takes": [
-          "audio/Twi/04_Amount_Entry_Verification/Repeat amount (1).m4a"
-        ]
+        "twi_other_takes": []
       }
     },
     {
@@ -449,10 +417,7 @@
       "audio": {
         "english": null,
         "twi": "audio/Twi/04_Amount_Entry_Verification/Amount too high.m4a",
-        "twi_other_takes": [
-          "audio/Twi/04_Amount_Entry_Verification/Amount too high 2.m4a",
-          "audio/Twi/04_Amount_Entry_Verification/Amount too high 3.m4a"
-        ]
+        "twi_other_takes": []
       }
     },
     {
@@ -478,10 +443,7 @@
       "audio": {
         "english": null,
         "twi": "audio/Twi/04_Amount_Entry_Verification/Change amount.m4a",
-        "twi_other_takes": [
-          "audio/Twi/04_Amount_Entry_Verification/Change amount 2.m4a",
-          "audio/Twi/04_Amount_Entry_Verification/Change amount 3.m4a"
-        ]
+        "twi_other_takes": []
       }
     },
     {
@@ -519,7 +481,7 @@
       "twi": "Sɛ wopene so na yɛnkɔ so a, mia 1. Sɛ wopɛ sɛ wogyae a, mia 2. Mia 0 na woapue.",
       "audio": {
         "english": null,
-        "twi": "audio/Twi/05_Transaction_Confirmation/Confirm continue 1.m4a",
+        "twi": null,
         "twi_other_takes": []
       }
     },
@@ -559,10 +521,7 @@
       "audio": {
         "english": null,
         "twi": "audio/Twi/05_Transaction_Confirmation/Ready submit.m4a",
-        "twi_other_takes": [
-          "audio/Twi/05_Transaction_Confirmation/Ready submit 1.m4a",
-          "audio/Twi/05_Transaction_Confirmation/Ready submit 2.m4a"
-        ]
+        "twi_other_takes": []
       }
     },
     {
@@ -574,7 +533,7 @@
       "twi": "Wo transaction no ayɛ krado sɛ wode bɛma ho kwan. Yɛsrɛ wo, hwɛ wo fon screen na kyerɛw wo Mobile Money PIN wɔ hɔ. Nka wo PIN no wɔ nne mu da. Yɛda wo ase.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Pin Handoff.m4a",
         "twi_other_takes": []
       }
     },
@@ -587,7 +546,7 @@
       "twi": "Wo ahobammɔ nti, nka wo Mobile Money PIN wɔ nne mu da.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Security warning.m4a",
         "twi_other_takes": []
       }
     },
@@ -600,7 +559,7 @@
       "twi": "Yɛsrɛ wo, kyerɛw wo PIN no wɔ Mobile Money secure prompt a ɛwɔ wo fon so nkutoo.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Secure pin.m4a",
         "twi_other_takes": []
       }
     },
@@ -613,7 +572,7 @@
       "twi": "Mintumi nnya wo Mobile Money PIN anaa mfa so nyɛ adwuma denam voice service yi so.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Pin Block.m4a",
         "twi_other_takes": []
       }
     },
@@ -626,7 +585,7 @@
       "twi": "Mintumi nni saa adesrɛ no ho dwuma efisɛ ebetumi ama nsɛm a ɛyɛ kokoam ada adi.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Sensitive Block.m4a",
         "twi_other_takes": []
       }
     },
@@ -639,7 +598,7 @@
       "twi": "Wo transaction no de kɔma wɔde akɔ.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Submitted.m4a",
         "twi_other_takes": []
       }
     },
@@ -652,7 +611,7 @@
       "twi": "Yɛretwɛn confirmation a ɛfiri Mobile Money service no hɔ.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Waiting confirmation.m4a",
         "twi_other_takes": []
       }
     },
@@ -665,7 +624,7 @@
       "twi": "Yɛsrɛ wo, hwɛ wo fon na hwɛ authorization request no.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Check phone.m4a",
         "twi_other_takes": []
       }
     },
@@ -678,7 +637,7 @@
       "twi": "Yɛsrɛ wo, ma transaction no ho kwan wɔ wo fon so.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Authorize phone.m4a",
         "twi_other_takes": []
       }
     },
@@ -691,7 +650,7 @@
       "twi": "Yɛanya wo authorization no.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Auth received.m4a",
         "twi_other_takes": []
       }
     },
@@ -704,7 +663,7 @@
       "twi": "Yɛrehwɛ transaction no status a etwa to no.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Check final status.m4a",
         "twi_other_takes": []
       }
     },
@@ -717,7 +676,7 @@
       "twi": "Wɔda so redi wo authorization no ho dwuma. Yɛsrɛ wo, twɛn bere a yɛrehwɛ transaction no status.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Processing.m4a",
         "twi_other_takes": []
       }
     },
@@ -746,8 +705,10 @@
       "twi": "Wɔde sika no akɔma no yie.",
       "audio": {
         "english": null,
-        "twi": null,
-        "twi_other_takes": []
+        "twi": "Audio_files_2/Success sent.m4a",
+        "twi_other_takes": [
+          "Audio_files_2/Success.m4a"
+        ]
       }
     },
     {
@@ -759,7 +720,7 @@
       "twi": "Yɛsrɛ wo, sie reference yi ma wo records.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Keep reference.m4a",
         "twi_other_takes": []
       }
     },
@@ -772,7 +733,7 @@
       "twi": "Wo transaction no awie. Yɛda wo ase sɛ wode Ɔkwankyerɛfo Pa dii dwuma.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Success close.m4a",
         "twi_other_takes": []
       }
     },
@@ -785,7 +746,7 @@
       "twi": "Wopɛ sɛ meboa wo wɔ biribi foforo ho anaa?",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Anything else.m4a",
         "twi_other_takes": []
       }
     },
@@ -798,7 +759,7 @@
       "twi": "Wɔamma transaction no ho kwan. Yɛnhyɛɛ transfer biara a edi nkonim no den.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Customer Declined.m4a",
         "twi_other_takes": []
       }
     },
@@ -811,7 +772,7 @@
       "twi": "Yɛantumi anwie transaction no. Yɛnhyɛɛ transfer biara a edi nkonim no den. Yɛsrɛ wo, sɔ bio akyiri yi.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Failed.m4a",
         "twi_other_takes": []
       }
     },
@@ -824,7 +785,7 @@
       "twi": "Yɛannya confirmation wɔ bere a wɔde ama no mu. Yɛsrɛ wo, hwɛ wo Mobile Money messages ansa na woasɔ bio.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Timeout.m4a",
         "twi_other_takes": []
       }
     },
@@ -837,7 +798,7 @@
       "twi": "Awerɛhosɛm ne sɛ, yɛantumi anwie transaction no. Wopɛ sɛ wosɔ bio anaa?",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Failure Retry.m4a",
         "twi_other_takes": []
       }
     },
@@ -850,7 +811,7 @@
       "twi": "Yɛnhyɛɛ sika transfer biara den.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/No transfer confirmed.m4a",
         "twi_other_takes": []
       }
     },
@@ -863,7 +824,7 @@
       "twi": "Yɛsrɛ wo, hwɛ wo Mobile Money messages ansa na woasɔ bio.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Check messages.m4a",
         "twi_other_takes": []
       }
     },
@@ -876,7 +837,7 @@
       "twi": "Wopɛ sɛ yɛhyɛ ase bio anaa?",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Start Again.m4a",
         "twi_other_takes": []
       }
     },
@@ -889,7 +850,7 @@
       "twi": "Mante aseɛ. Yɛsrɛ wo, ka bio.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Not understood.m4a",
         "twi_other_takes": []
       }
     },
@@ -902,7 +863,7 @@
       "twi": "Mante nea wokae no. Yɛsrɛ wo, ka bio.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Did not get.m4a",
         "twi_other_takes": []
       }
     },
@@ -928,7 +889,7 @@
       "twi": "Mante mmuaeɛ biara. Yɛsrɛ wo, bua.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Please respond.m4a",
         "twi_other_takes": []
       }
     },
@@ -941,7 +902,7 @@
       "twi": "Mantumi anhu saa mmuaeɛ no. Yɛsrɛ wo, sɔ bio.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Input not recognized.m4a",
         "twi_other_takes": []
       }
     },
@@ -954,7 +915,7 @@
       "twi": "Mɛka no bio.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Repeat.m4a",
         "twi_other_takes": []
       }
     },
@@ -970,7 +931,7 @@
       ],
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Confirm understanding.m4a",
         "twi_other_takes": []
       }
     },
@@ -983,7 +944,7 @@
       "twi": "Meteɛ wo aseɛ yiye anaa?",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Correct prompt.m4a",
         "twi_other_takes": []
       }
     },
@@ -996,7 +957,7 @@
       "twi": "Sɛ ɛyɛ nokware a, ka yes anaasɛ mia 1. Sɛ ɛnyɛ nokware a, ka no anaasɛ mia 2.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Yes -No.m4a",
         "twi_other_takes": []
       }
     },
@@ -1009,7 +970,7 @@
       "twi": "Yoo. Yɛresan akɔ ɔkwan a yɛfaa so no akyi.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Back.m4a",
         "twi_other_takes": []
       }
     },
@@ -1022,7 +983,7 @@
       "twi": "Yɛresan akɔ main menu no mu.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Main menu.m4a",
         "twi_other_takes": []
       }
     },
@@ -1035,7 +996,7 @@
       "twi": "Yoo. Yɛbɛhyɛ ase bio.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Restart.m4a",
         "twi_other_takes": []
       }
     },
@@ -1048,7 +1009,7 @@
       "twi": "Wɔagyae transaction no. Yɛnhyɛɛ transfer biara a edi nkonim no den. Yɛda wo ase.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Cancel.m4a",
         "twi_other_takes": []
       }
     },
@@ -1061,7 +1022,7 @@
       "twi": "Yɛda wo ase sɛ wode Ɔkwankyerɛfo Pa dii dwuma. Yɛma wo nanteɛ yiye.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Exit.m4a",
         "twi_other_takes": []
       }
     },
@@ -1074,7 +1035,7 @@
       "twi": "Yɛadu session yi awiei.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Session End.m4a",
         "twi_other_takes": []
       }
     },
@@ -1087,7 +1048,7 @@
       "twi": "Wopɛ sɛ yɛkɔ so anaa?",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Continue.m4a",
         "twi_other_takes": []
       }
     },
@@ -1100,7 +1061,7 @@
       "twi": "Wo session no bɛba awiei sɛ yɛannya wo mmuaeɛ.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Session timeout.m4a",
         "twi_other_takes": []
       }
     },
@@ -1113,7 +1074,7 @@
       "twi": "Mɛka options no bio.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Repeat Option.m4a",
         "twi_other_takes": []
       }
     },
@@ -1126,7 +1087,7 @@
       "twi": "Wubetumi nso de wo fon keypad adi dwuma.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Keypad option.m4a",
         "twi_other_takes": []
       }
     },
@@ -1139,7 +1100,7 @@
       "twi": "Wubetumi aka wo mmuaeɛ anaa wode keypad adi dwuma.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Voice or keypad.m4a",
         "twi_other_takes": []
       }
     },
@@ -1152,7 +1113,7 @@
       "twi": "Fa wo bere. Ɛho nhia sɛ woyɛ no ntɛm.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Take your time.m4a",
         "twi_other_takes": []
       }
     },
@@ -1165,7 +1126,7 @@
       "twi": "Wubetumi mia 1 ama yes anaasɛ mia 2 ama no.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Yes -no- keypad.m4a",
         "twi_other_takes": []
       }
     },
@@ -1178,7 +1139,7 @@
       "twi": "Metumi aboa wo de wo nne anaa wo fon keypad akɔma obi sika.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Help.m4a",
         "twi_other_takes": []
       }
     },
@@ -1191,7 +1152,7 @@
       "twi": "Bere biara, wubetumi aka help, repeat, back, anaa cancel.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Help command.m4a",
         "twi_other_takes": []
       }
     },
@@ -1204,7 +1165,7 @@
       "twi": "Mintumi nhyɛ wo Mobile Money balance no den denam service yi so. Yɛsrɛ wo, fa MTN Mobile Money channel a ɛyɛ official no hwɛ wo balance.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Balance Unavailable.m4a",
         "twi_other_takes": []
       }
     },
@@ -1217,7 +1178,7 @@
       "twi": "Saa service yi nnyaa ho kwan seesei. Yɛsrɛ wo, paw service foforo a ɛwɔ hɔ.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Unsupported service.m4a",
         "twi_other_takes": []
       }
     },
@@ -1230,7 +1191,7 @@
       "twi": "Yɛsrɛ wo, kyɛw. Yɛantumi anwie saa adesrɛ yi seesei. Yɛsrɛ wo, sɔ bio akyiri yi.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/System Error.m4a",
         "twi_other_takes": []
       }
     },
@@ -1243,7 +1204,7 @@
       "twi": "Wo transaction no awie. Metumi aboa wo wɔ biribi foforo ho, te sɛ sika a wode bɛkɔma obi bio?",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Post success Help.m4a",
         "twi_other_takes": []
       }
     },
@@ -1256,7 +1217,7 @@
       "twi": "Wopɛ sɛ yɛyɛ transaction foforo anaa?",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Another transaction.m4a",
         "twi_other_takes": []
       }
     },
@@ -1269,7 +1230,7 @@
       "twi": "Wopɛ sɛ wode sika kɔma recipient foforo anaa?",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Another recipient.m4a",
         "twi_other_takes": []
       }
     },
@@ -1282,7 +1243,7 @@
       "twi": "Yoo. Wo adesrɛ no awie. Yɛda wo ase sɛ wode Ɔkwankyerɛfo Pa dii dwuma.",
       "audio": {
         "english": null,
-        "twi": null,
+        "twi": "Audio_files_2/Finish.m4a",
         "twi_other_takes": []
       }
     }
