@@ -274,33 +274,36 @@ export function resolveCanonicalAudioUrl(
   const spokenText = resolvePromptSpokenText(normId, lang, params);
   const cleanBase = baseUrl.replace(/\/+$/, "");
 
-  // Dynamic prompts NEVER return static recordings with placeholders
-  if (isDynamicPrompt(normId)) {
-    const q = new URLSearchParams();
-    if (params.name || params.recipientName) q.set("name", params.name || params.recipientName || "");
-    if (params.phone || params.recipientPhone) q.set("phone", params.phone || params.recipientPhone || "");
-    if (params.amount !== undefined) q.set("amount", String(params.amount));
-    if (params.referenceId || params.ref) q.set("ref", params.referenceId || params.ref || "");
-    if (params.response || params.utterance) q.set("response", params.response || params.utterance || "");
-
-    const queryStr = q.toString() ? `?${q.toString()}` : "";
-    const ttsPath = `/api/audio/prompt-tts/${lang}/${normId}${queryStr}`;
+  // English welcome greeting
+  if (normId === "OP01" && lang === "en") {
+    const welcomeUrl = "/audio/welcome_en.mp3";
     return {
-      url: cleanBase ? `${cleanBase}${ttsPath}` : ttsPath,
-      mode: "DYNAMIC_TTS",
+      url: cleanBase ? `${cleanBase}${welcomeUrl}` : welcomeUrl,
+      mode: "RECORDED",
       promptId: normId,
       state,
       spokenText,
     };
   }
 
-  // Fixed prompts: check studio recording
+  // All canonical prompts (OP01–OP94) resolve to loud, crystal-clear studio recordings
+  if (/^OP\d{2}$/.test(normId)) {
+    const canonicalPath = `/audio/canonical/${normId}.mp3`;
+    return {
+      url: cleanBase ? `${cleanBase}${canonicalPath}` : canonicalPath,
+      mode: "RECORDED",
+      promptId: normId,
+      state,
+      spokenText,
+    };
+  }
+
+  // Check studio recording registry
   const recorded = AUDIO_RECORDINGS.find(
     (r) =>
       r.promptId === normId &&
       (r.language === lang || (lang === "en" && r.language === "en")) &&
-      r.url &&
-      r.recordingRole === "fixed"
+      r.url
   );
 
   if (recorded && recorded.url) {
@@ -313,23 +316,10 @@ export function resolveCanonicalAudioUrl(
     };
   }
 
-  // Canonical welcome alias
-  if (normId === "OP01") {
-    const welcomeUrl = "/audio/Welcome_prompt_01.mp3";
-    return {
-      url: cleanBase ? `${cleanBase}${welcomeUrl}` : welcomeUrl,
-      mode: "RECORDED",
-      promptId: normId,
-      state,
-      spokenText,
-    };
-  }
-
-  // Fallback to TTS endpoint
-  const ttsPath = `/api/audio/prompt-tts/${lang}/${normId}`;
+  const defaultUrl = `/audio/canonical/OP01.mp3`;
   return {
-    url: cleanBase ? `${cleanBase}${ttsPath}` : ttsPath,
-    mode: "DYNAMIC_TTS",
+    url: cleanBase ? `${cleanBase}${defaultUrl}` : defaultUrl,
+    mode: "RECORDED",
     promptId: normId,
     state,
     spokenText,

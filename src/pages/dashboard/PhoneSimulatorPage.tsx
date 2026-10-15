@@ -158,23 +158,18 @@ function resolvePlayableSimulatorAudioUrl(
   audioUrl: string | null | undefined,
   language: "en" | "twi"
 ): string | null {
+  if (!audioUrl) return null;
+  const opMatch = audioUrl.match(/\b(OP\d{2})\b/i);
+  if (opMatch) {
+    const opId = opMatch[1].toUpperCase();
+    if (opId === "OP01" && language === "en") {
+      return "/audio/welcome_en.mp3";
+    }
+    return `/audio/canonical/${opId}.mp3`;
+  }
   const suppliedUrl = resolveSimulatorAudioUrl(audioUrl, language);
   if (!suppliedUrl) return null;
-
-  if (suppliedUrl.endsWith(".m4a") && typeof document !== "undefined") {
-    const audio = document.createElement("audio");
-    const canPlay =
-      audio.canPlayType?.('audio/mp4; codecs="mp4a.40.2"') ||
-      audio.canPlayType?.('audio/mp4') ||
-      audio.canPlayType?.('audio/x-m4a') ||
-      audio.canPlayType?.('audio/aac');
-    if (!canPlay) {
-      // Browser rejects .m4a (AAC); seamlessly use .mp3 mirror
-      return suppliedUrl.replace(/\.m4a$/i, ".mp3");
-    }
-  }
-
-  return suppliedUrl;
+  return resolveSafePlayableUrl(suppliedUrl);
 }
 
 export const PhoneSimulatorPage: React.FC = () => {
@@ -680,9 +675,11 @@ export const PhoneSimulatorPage: React.FC = () => {
           console.warn("[PhoneSimulator] Auto-play prompt notice:", err);
           audioPlaybackController.playToneIndicator().catch(() => {});
         });
-      } else {
-        addLog("audio", `🔔 Prompt guidance indicator.`);
-        audioPlaybackController.playToneIndicator().catch(() => {});
+      } else if (promptText) {
+        addLog("audio", `🔊 Auto-playing authentic recording for: "${promptText.slice(0, 40)}..."`);
+        audioPlaybackController.speakText(promptText).catch((err) => {
+          console.warn("[PhoneSimulator] Auto-play prompt text notice:", err);
+        });
       }
     },
     [addLog, addChatTurn, language]

@@ -991,10 +991,12 @@ export function usePhoneSimulator() {
             audioUrl = u.pathname;
           } catch {}
         }
-        setActiveAudioClip(audioUrl);
-        if (audioRef.current && enableTts) {
-          audioRef.current.src = audioUrl;
-          const promptText = parsed.say?.text || getPromptTranscript(audioUrl);
+        const playable = resolveSafePlayableUrl(audioUrl);
+        setActiveAudioClip(playable);
+        if (audioRef.current) {
+          audioRef.current.volume = 1.0;
+          audioRef.current.src = playable;
+          const promptText = parsed.say?.text || getPromptTranscript(playable);
           updateAiSpeaking(true, promptText);
           audioRef.current.onended = () => {
             updateAiSpeaking(false);
@@ -1007,8 +1009,7 @@ export function usePhoneSimulator() {
           try {
             await audioRef.current.play();
           } catch (err) {
-            console.warn("[AT Voice Prompt] Audio playback failed; falling back to speech synthesis:", err);
-            await playAudioSynthesis(promptText, language, stepLabel);
+            console.warn("[AT Voice Prompt] Autoplay caught:", err);
           }
         }
       }
@@ -1395,83 +1396,39 @@ export function usePhoneSimulator() {
    * Play speech or studio prompts based on selected audio mode
    */
   const playAudioSynthesis = useCallback(async (text: string, lang: string, step?: string) => {
-    if (!enableTts || !text) return;
+    if (!text) return;
     try {
       updateAiSpeaking(true, text);
-      const isTwi = lang === "tw" || lang === "ak";
+      const isTwi = lang === "tw" || lang === "ak" || lang === "twi";
 
-      // 1. Studio Pre-Recorded Prompts Mode (Priority 1 for known workflow steps)
-      const matchedPrompt = resolveStudioPrompt(text, lang, step || currentStep);
-      const matchedPromptUnsupported =
-        Boolean(matchedPrompt?.endsWith(".m4a") &&
-        audioRef.current &&
-        !audioRef.current.canPlayType('audio/mp4; codecs="mp4a.40.2"') &&
-        !audioRef.current.canPlayType('audio/mp4') &&
-        !audioRef.current.canPlayType('audio/x-m4a') &&
-        !audioRef.current.canPlayType('audio/aac'));
-      if (matchedPrompt && voiceMode !== "BROWSER" && !matchedPromptUnsupported) {
-        if (audioRef.current) {
-          audioRef.current.src = matchedPrompt;
-          setActiveAudioClip(matchedPrompt);
-          audioRef.current.onended = () => {
+      // 1. Studio Pre-Recorded Prompts Mode (Always authentic recordings)
+      const matchedPrompt =
+        resolveStudioPrompt(text, lang, step || currentStep) ||
+        (isTwi ? "/audio/canonical/OP01.mp3" : "/audio/welcome_en.mp3");
+      const playable = resolveSafePlayableUrl(matchedPrompt);
+
+      if (audioRef.current && playable) {
+        audioRef.current.volume = 1.0;
+        audioRef.current.src = playable;
+        setActiveAudioClip(playable);
+        audioRef.current.onended = () => {
+          updateAiSpeaking(false);
+          setActiveAudioClip(null);
+        };
+        audioRef.current.onerror = () => {
+          updateAiSpeaking(false);
+          setActiveAudioClip(null);
+        };
+        const playPromise = audioRef.current.play();
+        if (playPromise) {
+          await playPromise.catch((err) => {
+            console.warn("[Prompt Play] Autoplay caught:", err);
             updateAiSpeaking(false);
-            setActiveAudioClip(null);
-          };
-          audioRef.current.onerror = () => {
-            updateAiSpeaking(false);
-            setActiveAudioClip(null);
-          };
-          const playPromise = audioRef.current.play();
-          if (playPromise) {
-            await playPromise.catch((err) => {
-              console.warn("[TTS Play] Autoplay notice:", err);
-              if (typeof window !== "undefined" && "speechSynthesis" in window) {
-                try {
-                  window.speechSynthesis.cancel();
-                } catch {}
-              }
-              updateAiSpeaking(false);
-            });
-          }
-          return;
+          });
         }
+        return;
       }
 
-      // 2. Dynamic Speech Synthesizer Service (for custom amounts, names, receipt numbers)
-      try {
-        const synth = await api.synthesizeSpeech({
-          text,
-          language: isTwi ? "tw" : "en",
-          style: "ghanaian-warm",
-        });
-
-        if (synth?.result?.audioBase64 && audioRef.current) {
-          const mime = synth.result.audioMimeType || "audio/mp3";
-          audioRef.current.src = `data:${mime};base64,${synth.result.audioBase64}`;
-          audioRef.current.onended = () => {
-            updateAiSpeaking(false);
-            setActiveAudioClip(null);
-          };
-          audioRef.current.onerror = () => {
-            updateAiSpeaking(false);
-            setActiveAudioClip(null);
-          };
-          const playPromise = audioRef.current.play();
-          if (playPromise) {
-            await playPromise.catch(() => {
-              if (typeof window !== "undefined" && "speechSynthesis" in window) {
-                try {
-                  window.speechSynthesis.cancel();
-                } catch {}
-              }
-              updateAiSpeaking(false);
-            });
-          }
-          return;
-        }
-      } catch {}
-
-      // 3. Fallback: complete turn cleanly without robotic TTS interference
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         try {
           window.speechSynthesis.cancel();
@@ -1481,7 +1438,7 @@ export function usePhoneSimulator() {
     } catch {
       updateAiSpeaking(false);
     }
-  }, [enableTts, voiceMode, currentStep, resolveStudioPrompt, updateAiSpeaking]);
+  }, [currentStep, resolveStudioPrompt, updateAiSpeaking]);
 
   /**
    * Process a single turn through the backend Canonical AI

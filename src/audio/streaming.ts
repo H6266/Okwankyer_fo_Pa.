@@ -69,15 +69,14 @@ export async function getOrTranscodeMp3(sourceFilePath: string): Promise<string>
   const transcodePromise = (async () => {
     const tempPath = `${cachedMp3Path}.tmp.${Date.now()}`;
     try {
-      // 16kHz mono 64kbps MP3 is universally compatible with Africa's Talking / telco gateways (AMR-WB / G.711)
+      // EBU R128 broadcast loudness normalization (-14 LUFS, -0.5 dB peak) for clear, loud playback
       await execFileAsync("ffmpeg", [
         "-y",
         "-i", sourceFilePath,
+        "-af", "loudnorm=I=-14:TP=-0.5:LRA=9",
         "-codec:a", "libmp3lame",
-        "-b:a", "64k",
-        "-ar", "16000",
-        "-ac", "1",
-        "-f", "mp3",
+        "-b:a", "128k",
+        "-ar", "44100",
         tempPath,
       ]);
       fs.renameSync(tempPath, cachedMp3Path);
@@ -261,7 +260,8 @@ export async function streamAudioFile(req: Request, res: Response, filePath: str
     userAgent.includes("telephony");
 
   let activePath = filePath;
-  if (isTelephonyClient && !filePath.endsWith(".mp3")) {
+  const isAacOrM4a = /\.(m4a|aac)$/i.test(filePath);
+  if ((isAacOrM4a || reqPath.endsWith(".mp3") || formatQuery === "mp3" || isTelephonyClient) && !filePath.endsWith(".mp3")) {
     activePath = await getOrTranscodeMp3(filePath);
   }
 
