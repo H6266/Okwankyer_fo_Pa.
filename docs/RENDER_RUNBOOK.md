@@ -67,15 +67,34 @@ Configure the following variables in the Render Dashboard under **Service ➔ En
    The angle-bracketed text is a placeholder; do not paste it literally. The app adds the same secret to each subsequent callback and redirect URL.
 6. Click **Save**, then redeploy the Render service after changing its environment variables.
 
+Use the stable Render URL for the Africa's Talking callback in production.
+GitHub Codespaces also starts the app on port 3000 and exposes a public
+forwarded URL for development, but that URL can change and the development
+server is not a production endpoint. Do not configure a production phone
+number to use the Codespaces URL.
+
 An AT session marked **Aborted** can occur when the webhook is rejected. The production app returns HTTP 401 and `<Reject/>` if the URL's `secret` is missing or does not exactly match Render's `AT_WEBHOOK_SECRET`. If calls still fail after correcting this, inspect the AT session's request/response details and Render logs for the webhook status.
 
 ---
 
 ## 5. Post-Deployment Smoke Verification
 
-Verify deployment health by running:
+First check the public service status:
 ```bash
-curl -X POST https://okwankyer-fo-pa.onrender.com/api/dev/smoke-test
+curl --fail https://okwankyer-fo-pa.onrender.com/health
+```
+The response should report `"status":"ok"`, `"atConfigured":true`, and the
+configured `voiceNumber`. If `atConfigured` is false or `voiceNumber` is
+empty, set `AT_USERNAME`, `AT_API_KEY`, and `AT_VOICE_NUMBER` in the Render
+service environment. Do not put API keys or webhook secrets in source control
+or paste them into support messages.
+
+The full smoke test is admin-protected. Set `ADMIN_TOKEN` in your local shell
+to the value already configured in Render, then run:
+```bash
+curl --fail-with-body \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -X POST https://okwankyer-fo-pa.onrender.com/api/dev/smoke-test
 ```
 A healthy deployment returns:
 ```json
@@ -86,4 +105,9 @@ A healthy deployment returns:
   "warnCount": 0
 }
 ```
-If any check fails, inspect application logs in Render Dashboard to view correlation IDs and detailed probe diagnostics.
+If any check fails, inspect application logs in Render Dashboard to view correlation IDs and detailed probe diagnostics. An unsigned request to `/voice-menu` should return HTTP 401 in production; configure the callback URL in Africa's Talking with the URL-encoded `AT_WEBHOOK_SECRET` as shown above.
+
+The Blueprint currently uses Render's free plan. Free web services can spin
+down when idle and take time to start again, which can delay an inbound
+Africa's Talking webhook. For dependable live calling, use an always-on
+Render plan; changing the service plan may incur charges.

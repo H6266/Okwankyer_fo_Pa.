@@ -177,6 +177,13 @@ MOMO_CURRENCY=GHS
 npm run dev
 ```
 
+In GitHub Codespaces, the development server starts automatically when the
+container starts. Port 3000 is automatically forwarded and configured as
+public. Anyone with the forwarded URL can reach the development app, so use
+test credentials and data only. The development URL can change when the
+Codespace is recreated. Rebuild the Codespace once after adding the
+configuration; subsequent starts launch the server and forward the port.
+
 ### 4. Run Test Suite
 ```bash
 npm test
