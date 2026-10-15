@@ -342,9 +342,9 @@ export const handleInboundCall = (req: Request, res: Response) => {
   );
   const langPrompt = canonicalPromptElement(
     "language_selection",
-    "en",
+    "twi",
     baseUrl,
-    "For English, press 1. For Twi, press 2."
+    "Sɛ wopɛ Borɔfo a, mia 1. Sɛ wopɛ Twi a, mia 2."
   );
 
   // Play Welcome and Language Selection together within GetDigits for immediate audio playback with DTMF barge-in
