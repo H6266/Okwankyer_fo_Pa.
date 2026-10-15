@@ -66,7 +66,7 @@ export function resolveSafePlayableUrl(url: string): string {
 
 export class AudioPlaybackController {
   private playbackVolume: number = 1.0;
-  private volumeMultiplier: number = 2.2; // Loud audio boost (+7dB, 220% volume) for mobile/phone IVR clarity
+  private volumeMultiplier: number = 1.0; // Crystal-clear, unclipped master volume (100% natural studio fidelity)
   private audioElement: HTMLAudioElement | null = null;
   private currentToken: number = 0;
   private state: PlaybackState = {
@@ -84,7 +84,6 @@ export class AudioPlaybackController {
   private audioContext: AudioContext | null = null;
   private masterGainNode: GainNode | null = null;
   private compressorNode: DynamicsCompressorNode | null = null;
-  private mediaElementSource: MediaElementAudioSourceNode | null = null;
 
   constructor() {
     if (typeof window !== "undefined") {
@@ -93,10 +92,10 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Sets custom audio amplification multiplier (e.g. 1.0 = normal, 1.8 = loud, 2.2 = high, 3.0 = ultra boost)
+   * Sets custom audio amplification multiplier (1.0 = clear studio default)
    */
   public setVolumeMultiplier(multiplier: number): void {
-    this.volumeMultiplier = Math.max(0.5, Math.min(3.5, multiplier));
+    this.volumeMultiplier = Math.max(0.5, Math.min(2.0, multiplier));
     if (this.masterGainNode && this.audioContext) {
       try {
         this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
@@ -109,7 +108,7 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Configures Web Audio signal chain with high-gain amplifier and dynamics compressor
+   * Configures Web Audio signal chain for synthesized tones and DTMF beeps
    */
   private setupAudioGraph(): void {
     if (typeof window === "undefined") return;
@@ -121,22 +120,7 @@ export class AudioPlaybackController {
       if (this.audioContext && !this.masterGainNode) {
         this.masterGainNode = this.audioContext.createGain();
         this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
-
-        this.compressorNode = this.audioContext.createDynamicsCompressor();
-        this.compressorNode.threshold.setValueAtTime(-14, this.audioContext.currentTime);
-        this.compressorNode.knee.setValueAtTime(10, this.audioContext.currentTime);
-        this.compressorNode.ratio.setValueAtTime(4, this.audioContext.currentTime);
-        this.compressorNode.attack.setValueAtTime(0.003, this.audioContext.currentTime);
-        this.compressorNode.release.setValueAtTime(0.15, this.audioContext.currentTime);
-
-        this.masterGainNode.connect(this.compressorNode);
-        this.compressorNode.connect(this.audioContext.destination);
-      }
-      if (this.audioElement && this.audioContext && this.masterGainNode && !this.mediaElementSource) {
-        try {
-          this.mediaElementSource = this.audioContext.createMediaElementSource(this.audioElement);
-          this.mediaElementSource.connect(this.masterGainNode);
-        } catch {}
+        this.masterGainNode.connect(this.audioContext.destination);
       }
     } catch (err) {
       console.warn("[AudioController] Audio graph setup notice:", err);
@@ -378,33 +362,13 @@ export class AudioPlaybackController {
       console.warn("[AudioController] Speech synthesis fallback notice:", synthErr);
     }
 
-    // 4. Browser speech synthesis fallback if available (especially for English)
+    // 4. Acoustic guidance tone indicator as clear fail-safe (Zero robotic SpeechSynthesis interference)
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      return new Promise<boolean>((resolve) => {
-        try {
-          const utterance = new SpeechSynthesisUtterance(cleanText);
-          utterance.rate = 0.95;
-          utterance.onstart = () => {
-            this.setState({ isPlaying: true, activeText: cleanText, activeClip: "speechSynthesis", token });
-            options?.onStart?.();
-          };
-          utterance.onend = () => {
-            this.setState({ isPlaying: false, activeText: null, activeClip: null, token });
-            options?.onEnd?.();
-            resolve(true);
-          };
-          utterance.onerror = () => {
-            this.playToneIndicator(300).finally(() => resolve(false));
-          };
-          window.speechSynthesis.speak(utterance);
-          return;
-        } catch {
-          this.playToneIndicator(300).finally(() => resolve(false));
-        }
-      });
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
     }
 
-    // 5. Acoustic guidance tone indicator as final fail-safe
     try {
       await this.playToneIndicator(300);
       if (this.currentToken === token) {

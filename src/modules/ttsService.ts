@@ -154,12 +154,24 @@ export function resolveSimulatorAudioUrl(
     const pathname = new URL(audioUrl, "http://localhost").pathname;
     const ttsMatch = pathname.match(/^\/(?:api\/)?audio\/prompt-tts\/(en|twi)\//);
     if (ttsMatch) {
+      if (ttsMatch[1] !== language) return null;
       return pathname;
     }
-    const recording = getRecordingByUrl(pathname);
-    if (recording?.url) {
-      return recording.url.replace(/\.(m4a|aac)$/i, ".mp3");
+
+    // Cross-language prevention: reject Twi assets during English sessions and vice-versa
+    if (language === "en" && (pathname.includes("/Twi/") || /\b(twi)\b/i.test(pathname))) {
+      return null;
     }
+    if (language === "twi" && (pathname.includes("/English/") || /\b(english)\b/i.test(pathname))) {
+      return null;
+    }
+
+    const recording = getRecordingByUrl(pathname);
+    if (recording) {
+      if (recording.language !== language && !pathname.toLowerCase().includes("welcome_prompt")) return null;
+      return recording.url ? recording.url.replace(/\.(m4a|aac)$/i, ".mp3") : null;
+    }
+
     if (pathname.startsWith("/audio/") || pathname.startsWith("/Audio_files/")) {
       return pathname.replace(/\.(m4a|aac)$/i, ".mp3");
     }

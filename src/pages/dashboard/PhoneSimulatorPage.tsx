@@ -534,8 +534,16 @@ export const PhoneSimulatorPage: React.FC = () => {
       setActiveStepName(stepName);
       continuousAudioEngine.setContext(stepName, responseLanguage);
 
-      // Follow <Redirect> immediately
+      // Follow <Redirect> after auto-playing any associated audio prompt
       if (parsed.redirectUrl) {
+        if (playbackUrl) {
+          addLog("audio", `🔊 Auto-playing feed prompt: ${playbackUrl}`);
+          try {
+            await audioPlaybackController.play(playbackUrl, parsed.sayText || undefined);
+          } catch (err) {
+            console.warn("[PhoneSimulator] Redirect audio play notice:", err);
+          }
+        }
         addLog("state", `Redirecting to ${parsed.redirectUrl}`);
         return dispatchVoiceWebhook(parsed.redirectUrl);
       }
@@ -621,6 +629,14 @@ export const PhoneSimulatorPage: React.FC = () => {
         promptText = responseLanguage === "twi" ? "Yɛsrɛ wo paw deɛ wopɛ wɔ menyu no so." : "Please select an option from the menu.";
       }
 
+      if (!playbackUrl) {
+        const canonicalId = STATE_TO_CANONICAL_PROMPT_ID[stepName.toUpperCase()] || stepName.toUpperCase();
+        const autoAudio = resolveSimulatorPrompt(canonicalId, responseLanguage) || resolveSimulatorPrompt(stepName, responseLanguage);
+        if (autoAudio) {
+          playbackUrl = resolvePlayableSimulatorAudioUrl(autoAudio, responseLanguage);
+        }
+      }
+
       let matchSource: "studio" | "synthesis" | "matched-studio" = playbackUrl ? "studio" : "synthesis";
       if (resolvedPromptId && isDynamicPrompt(resolvedPromptId)) {
         matchSource = "synthesis";
@@ -646,7 +662,7 @@ export const PhoneSimulatorPage: React.FC = () => {
         options: choices,
       });
 
-      // Play audio automatically (studio audio or neural synthesis)
+      // Play audio automatically (studio audio with zero robotic TTS interference)
       audioPlaybackController.unlockAudio();
       const resolvedSequence = (parsed.playUrls && parsed.playUrls.length > 1)
         ? (parsed.playUrls.map(u => resolvePlayableSimulatorAudioUrl(u, responseLanguage)).filter(Boolean) as string[])
@@ -655,36 +671,17 @@ export const PhoneSimulatorPage: React.FC = () => {
       if (resolvedSequence.length > 1) {
         addLog("audio", `🔊 Auto-playing sequence: ${resolvedSequence.join(" -> ")}`);
         audioPlaybackController.playSequence(resolvedSequence).catch((err) => {
-          console.warn("[PhoneSimulator] Sequence auto-play failed; falling back to TTS:", err);
-          if (promptText && promptText.trim()) {
-            audioPlaybackController.speakText(promptText).catch(() => {
-              audioPlaybackController.playToneIndicator().catch(() => {});
-            });
-          } else {
-            audioPlaybackController.playToneIndicator().catch(() => {});
-          }
+          console.warn("[PhoneSimulator] Sequence auto-play notice:", err);
+          audioPlaybackController.playToneIndicator().catch(() => {});
         });
       } else if (playbackUrl) {
         addLog("audio", `🔊 Auto-playing prompt: ${playbackUrl}`);
         audioPlaybackController.play(playbackUrl, promptText).catch((err) => {
-          console.warn("[PhoneSimulator] Auto-play prompt failed; falling back to TTS:", err);
-          if (promptText && promptText.trim()) {
-            addLog("audio", `🗣️ Synthesizing prompt via TTS: "${promptText}"`);
-            audioPlaybackController.speakText(promptText).catch(() => {
-              audioPlaybackController.playToneIndicator().catch(() => {});
-            });
-          } else {
-            audioPlaybackController.playToneIndicator().catch(() => {});
-          }
-        });
-      } else if (promptText && promptText.trim()) {
-        addLog("audio", `🗣️ Speaking via TTS: "${promptText}"`);
-        audioPlaybackController.speakText(promptText).catch((err) => {
-          console.warn("[PhoneSimulator] TTS synthesis failed; playing guidance tone indicator:", err);
+          console.warn("[PhoneSimulator] Auto-play prompt notice:", err);
           audioPlaybackController.playToneIndicator().catch(() => {});
         });
       } else {
-        addLog("audio", `🔔 Prompt recording unavailable; playing guidance tone indicator.`);
+        addLog("audio", `🔔 Prompt guidance indicator.`);
         audioPlaybackController.playToneIndicator().catch(() => {});
       }
     },

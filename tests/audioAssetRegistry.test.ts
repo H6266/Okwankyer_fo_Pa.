@@ -41,7 +41,7 @@ describe("canonical audio asset registry", () => {
     );
     expect(AUDIO_RECORDINGS.filter((recording) => recording.assetRoot === "additional")
       .every((recording) => recording.language === "twi" && recording.promptId !== null)).toBe(true);
-    expect(resolveSimulatorAudioUrl("/audio/Welcome_prompt_01.mp3", "en")).toBeNull();
+    expect(resolveSimulatorAudioUrl("/audio/Welcome_prompt_01.mp3", "en")).toBe("/audio/Welcome_prompt_01.mp3");
     expect(matchReplyToAudio("Please enter the recipient phone number", "twi").match).toBe(false);
   });
 });

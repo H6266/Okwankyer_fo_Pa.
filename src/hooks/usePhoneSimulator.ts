@@ -892,18 +892,13 @@ export function usePhoneSimulator() {
       "Please listen to the prompt.";
   }
 
-  function playBrowserSpeechFallback(text: string): void {
-    if (!("speechSynthesis" in window) || !text) {
-      updateAiSpeaking(false);
-      return;
+  function playBrowserSpeechFallback(_text: string): void {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
     }
-    updateAiSpeaking(true, text);
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = language === "tw" || language === "ak" ? "ak-GH" : "en-GH";
-    utterance.onend = () => updateAiSpeaking(false);
-    utterance.onerror = () => updateAiSpeaking(false);
-    window.speechSynthesis.speak(utterance);
+    updateAiSpeaking(false);
   }
 
   /**
@@ -1430,21 +1425,12 @@ export function usePhoneSimulator() {
           if (playPromise) {
             await playPromise.catch((err) => {
               console.warn("[TTS Play] Autoplay notice:", err);
-              if ("speechSynthesis" in window) {
+              if (typeof window !== "undefined" && "speechSynthesis" in window) {
                 try {
-                  window.speechSynthesis.resume();
                   window.speechSynthesis.cancel();
-                  const utterance = new SpeechSynthesisUtterance(text);
-                  utterance.rate = 0.95;
-                  utterance.onend = () => updateAiSpeaking(false);
-                  utterance.onerror = () => updateAiSpeaking(false);
-                  window.speechSynthesis.speak(utterance);
-                } catch {
-                  updateAiSpeaking(false);
-                }
-              } else {
-                updateAiSpeaking(false);
+                } catch {}
               }
+              updateAiSpeaking(false);
             });
           }
           return;
@@ -1473,43 +1459,25 @@ export function usePhoneSimulator() {
           const playPromise = audioRef.current.play();
           if (playPromise) {
             await playPromise.catch(() => {
-              if ("speechSynthesis" in window) {
+              if (typeof window !== "undefined" && "speechSynthesis" in window) {
                 try {
-                  window.speechSynthesis.resume();
                   window.speechSynthesis.cancel();
-                  const utterance = new SpeechSynthesisUtterance(text);
-                  utterance.rate = 0.95;
-                  utterance.onend = () => updateAiSpeaking(false);
-                  utterance.onerror = () => updateAiSpeaking(false);
-                  window.speechSynthesis.speak(utterance);
-                } catch {
-                  updateAiSpeaking(false);
-                }
-              } else {
-                updateAiSpeaking(false);
+                } catch {}
               }
+              updateAiSpeaking(false);
             });
           }
           return;
         }
       } catch {}
 
-      // 3. Browser Speech Synthesis Fallback
-      if ("speechSynthesis" in window) {
+      // 3. Fallback: complete turn cleanly without robotic TTS interference
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
         try {
-          window.speechSynthesis.resume();
           window.speechSynthesis.cancel();
-          const utterance = new SpeechSynthesisUtterance(text);
-          utterance.rate = 0.95;
-          utterance.onend = () => updateAiSpeaking(false);
-          utterance.onerror = () => updateAiSpeaking(false);
-          window.speechSynthesis.speak(utterance);
-        } catch {
-          updateAiSpeaking(false);
-        }
-      } else {
-        updateAiSpeaking(false);
+        } catch {}
       }
+      updateAiSpeaking(false);
     } catch {
       updateAiSpeaking(false);
     }
@@ -2538,87 +2506,59 @@ export function usePhoneSimulator() {
           setActiveAudioClip(null);
         };
         const playPromise = audioRef.current.play();
-        if (playPromise) {
-          await playPromise.catch((e) => {
-            console.warn("Studio audio play notice:", e);
-            if ("speechSynthesis" in window) {
-              try {
-                window.speechSynthesis.resume();
-                window.speechSynthesis.cancel();
-                const utterance = new SpeechSynthesisUtterance(target);
-                utterance.rate = 0.95;
-                utterance.onend = () => updateAiSpeaking(false);
-                utterance.onerror = () => updateAiSpeaking(false);
-                window.speechSynthesis.speak(utterance);
-              } catch {
-                updateAiSpeaking(false);
-              }
-            } else {
-              updateAiSpeaking(false);
-            }
-          });
-        }
-        return;
-      }
-
-      // Dynamic text: synthesize speech
-      try {
-        const synth = await api.synthesizeSpeech({
-          text: target,
-          language: language === "tw" ? "tw" : "en",
-          style: "ghanaian-warm",
-        });
-
-        if (synth?.result?.audioBase64 && audioRef.current) {
-          audioRef.current.src = `data:${synth.result.audioMimeType || "audio/mp3"};base64,${synth.result.audioBase64}`;
-          audioRef.current.onended = () => {
-            updateAiSpeaking(false);
-            setActiveAudioClip(null);
-          };
-          audioRef.current.onerror = () => {
-            updateAiSpeaking(false);
-            setActiveAudioClip(null);
-          };
-          const playPromise = audioRef.current.play();
           if (playPromise) {
-            await playPromise.catch(() => {
-              if ("speechSynthesis" in window) {
+            await playPromise.catch((e) => {
+              console.warn("Studio audio play notice:", e);
+              if (typeof window !== "undefined" && "speechSynthesis" in window) {
                 try {
-                  window.speechSynthesis.resume();
                   window.speechSynthesis.cancel();
-                  const utterance = new SpeechSynthesisUtterance(target);
-                  utterance.rate = 0.95;
-                  utterance.onend = () => updateAiSpeaking(false);
-                  utterance.onerror = () => updateAiSpeaking(false);
-                  window.speechSynthesis.speak(utterance);
-                } catch {
-                  updateAiSpeaking(false);
-                }
-              } else {
-                updateAiSpeaking(false);
+                } catch {}
               }
+              updateAiSpeaking(false);
             });
           }
           return;
         }
-      } catch {}
 
-      // Browser TTS fallback
-      if ("speechSynthesis" in window) {
+        // Dynamic text: synthesize speech
         try {
-          window.speechSynthesis.resume();
-          window.speechSynthesis.cancel();
-          const utterance = new SpeechSynthesisUtterance(target);
-          utterance.rate = 0.95;
-          utterance.onend = () => updateAiSpeaking(false);
-          utterance.onerror = () => updateAiSpeaking(false);
-          window.speechSynthesis.speak(utterance);
-        } catch {
-          updateAiSpeaking(false);
+          const synth = await api.synthesizeSpeech({
+            text: target,
+            language: language === "tw" ? "tw" : "en",
+            style: "ghanaian-warm",
+          });
+
+          if (synth?.result?.audioBase64 && audioRef.current) {
+            audioRef.current.src = `data:${synth.result.audioMimeType || "audio/mp3"};base64,${synth.result.audioBase64}`;
+            audioRef.current.onended = () => {
+              updateAiSpeaking(false);
+              setActiveAudioClip(null);
+            };
+            audioRef.current.onerror = () => {
+              updateAiSpeaking(false);
+              setActiveAudioClip(null);
+            };
+            const playPromise = audioRef.current.play();
+            if (playPromise) {
+              await playPromise.catch(() => {
+                if (typeof window !== "undefined" && "speechSynthesis" in window) {
+                  try {
+                    window.speechSynthesis.cancel();
+                  } catch {}
+                }
+                updateAiSpeaking(false);
+              });
+            }
+            return;
+          }
+        } catch {}
+
+        if (typeof window !== "undefined" && "speechSynthesis" in window) {
+          try {
+            window.speechSynthesis.cancel();
+          } catch {}
         }
-      } else {
         updateAiSpeaking(false);
-      }
     } catch (err) {
       console.warn("Studio clip play notice:", err);
       updateAiSpeaking(false);
