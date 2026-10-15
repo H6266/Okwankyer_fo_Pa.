@@ -159,8 +159,17 @@ export function buildRecipientVerificationPrompt(options: {
     spokenText = `We found the recipient. Please listen carefully to the name and the full phone number. ${namePrompt} ${phonePrompt} To confirm this recipient, press 1. To change the recipient, press 2. To exit, press 0.`;
   }
 
+  const recipientFoundUrl = language === "twi"
+    ? `/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Recipient%20found.mp3`
+    : `/audio/Confirm%20understanding.m4a`;
+  const recipientConfirmUrl = language === "twi"
+    ? `/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Recipient%20confirm%20speech.mp3`
+    : `/audio/Continue.m4a`;
+
   const voiceXml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
+        <Play url="${recipientFoundUrl}"/>
         <Say voice="female">${escapeXml(spokenText)}</Say>
+        <Play url="${recipientConfirmUrl}"/>
     </GetDigits>`;
 
   return { spokenText, namePrompt, phonePrompt, voiceXml };
@@ -197,9 +206,18 @@ export function buildSafeConfirmationPrompt(options: SafeConfirmationOptions): {
     }
   }
 
-  // Africa's Talking compliant VoiceXML with <GetDigits> and dynamic <Say>
+  const introAudioUrl = language === "twi"
+    ? `/audio/supplied/Twi/5.Transaction%20Confirmation/Confirmation%20intro.mp3`
+    : `/audio/Confirm%20understanding.m4a`;
+  const confirmContinueAudioUrl = language === "twi"
+    ? `/audio/supplied/Twi/5.Transaction%20Confirmation/Confirm%20continue.mp3`
+    : `/audio/Continue.m4a`;
+
+  // Africa's Talking compliant VoiceXML with studio audio & dynamic readback
   const voiceXml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
+        <Play url="${introAudioUrl}"/>
         <Say voice="female">${escapeXml(spokenText)}</Say>
+        <Play url="${confirmContinueAudioUrl}"/>
     </GetDigits>`;
 
   return { spokenText, voiceXml };

@@ -157,14 +157,20 @@ export class AudioPlaybackController {
       if (!this.audioElement) {
         this.initAudioElement();
       }
-      if (this.audioElement && !this.state.isPlaying && !this.state.activeClip) {
-        this.audioElement.volume = this.playbackVolume;
+      if (this.audioElement) {
+        // Unlock HTML5 media element within the synchronous click gesture
         this.audioElement.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
-        this.audioElement.play().then(() => {
-          if (!this.state.activeClip) {
-            this.audioElement?.pause();
-          }
-        }).catch(() => {});
+        const playPromise = this.audioElement.play();
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => {
+              if (this.audioElement && !this.state.isPlaying) {
+                this.audioElement.pause();
+                this.audioElement.currentTime = 0;
+              }
+            })
+            .catch(() => {});
+        }
       }
     } catch {}
   }
@@ -583,49 +589,159 @@ export class AudioPlaybackController {
     // Ensure audio is unlocked
     this.unlockAudio();
 
-    // 2. High-performance Web Audio Buffer playback if cached
-    if (this.audioContext && this.audioBufferCache.has(url)) {
-      try {
-        if (this.audioContext.state === "suspended") {
-          await this.audioContext.resume().catch(() => {});
+  /**
+   * Plays an audio asset directly via the Web Audio API (AudioBufferSourceNode).
+   * Unrestricted by HTML5 media autoplay gates once AudioContext is initialized/resumed on user gesture.
+   */
+  public async playViaWebAudio(url: string, token: number, options?: PlayOptions): Promise<boolean> {
+    try {
+      if (!this.audioContext) {
+        const AudioCtx = typeof window !== "undefined" && ((window as any).AudioContext || (window as any).webkitAudioContext);
+        if (AudioCtx) {
+          this.audioContext = new AudioCtx();
         }
-        const buffer = this.audioBufferCache.get(url)!;
-        const source = this.audioContext.createBufferSource();
-        source.buffer = buffer;
-        source.connect(this.masterGainNode || this.audioContext.destination);
-        this.activeBufferSource = source;
+      }
+      if (this.audioContext && this.audioContext.state === "suspended") {
+        await this.audioContext.resume().catch(() => {});
+      }
+      if (!this.audioContext) return false;
 
-        return new Promise<boolean>((resolve) => {
-          this.activeResolver = () => {
-            resolve(false);
-          };
-          source.onended = () => {
-            if (this.currentToken !== token) return;
-            this.activeBufferSource = null;
-            this.activeResolver = null;
-            this.setState({
-              isPlaying: false,
-              activeClip: null,
-              activeText: null,
-              token,
-            });
-            options?.onEnd?.();
-            resolve(true);
-          };
-          source.start(0);
-        });
-      } catch (webAudioErr) {
-        console.warn("[AudioController] WebAudio buffer play fallback to HTML5 Audio:", webAudioErr);
+      let buffer = this.audioBufferCache.get(url);
+      if (!buffer) {
+        let res = await fetch(url).catch(() => null);
+        if (!res?.ok && url.endsWith(".mp3")) {
+          // If transcode not yet in cache, fetch source format (.m4a or .aac)
+          const m4a = url.replace(/\.mp3$/i, ".m4a");
+          const aac = url.replace(/\.mp3$/i, ".aac");
+          res = await fetch(m4a).catch(() => null);
+          if (!res?.ok) {
+            res = await fetch(aac).catch(() => null);
+          }
+        }
+        if (!res?.ok) return false;
+        const ab = await res.arrayBuffer();
+        buffer = await this.audioContext.decodeAudioData(ab);
+        if (buffer) {
+          this.audioBufferCache.set(url, buffer);
+        }
+      }
+
+      if (this.currentToken !== token || !buffer) return false;
+
+      const source = this.audioContext.createBufferSource();
+      source.buffer = buffer;
+      source.connect(this.masterGainNode || this.audioContext.destination);
+      this.activeBufferSource = source;
+
+      return new Promise<boolean>((resolve) => {
+        this.activeResolver = () => {
+          resolve(false);
+        };
+        source.onended = () => {
+          if (this.currentToken !== token) return;
+          this.activeBufferSource = null;
+          this.activeResolver = null;
+          this.setState({
+            isPlaying: false,
+            activeClip: null,
+            activeText: null,
+            token,
+          });
+          options?.onEnd?.();
+          resolve(true);
+        };
+        source.start(0);
+      });
+    } catch (err) {
+      console.warn("[AudioController] playViaWebAudio notice:", err);
+      return false;
+    }
+  }
+
+  /**
+   * Plays a single audio url. Accepts either a url string or a PlaybackRequest object.
+   * Returns a Promise that resolves when audio ends (or resolves immediately if stopped).
+   */
+  public async play(
+    target: string | PlaybackRequest,
+    optionsOrText?: PlayOptions | string
+  ): Promise<boolean> {
+    let url = "";
+    let promptText: string | null = null;
+    let options: PlayOptions | undefined;
+
+    if (typeof target === "string") {
+      url = target;
+      if (typeof optionsOrText === "string") {
+        promptText = optionsOrText;
+      } else if (optionsOrText) {
+        options = optionsOrText;
+      }
+    } else if (target && typeof target === "object") {
+      url = target.url || "";
+      if (!url && target.audioBase64) {
+        url = `data:${target.audioMimeType || "audio/wav"};base64,${target.audioBase64}`;
+      }
+      promptText = target.text || null;
+      if (typeof optionsOrText === "object") {
+        options = optionsOrText;
       }
     }
 
-    // 3. Play immediately through primary HTML5 audio element
-    const audio = this.initAudioElement();
-    if (!audio) {
+    if (url) {
+      url = resolveSafePlayableUrl(url.replace(/^https?:\/\/[^/]+(\/audio\/.*)$/i, "$1"));
+    }
+
+    // If identical clip is already actively playing, don't interrupt; just update text if given
+    if (url && this.state.isPlaying && this.state.activeClip === url) {
+      if (promptText && promptText !== this.state.activeText) {
+        this.setState({ activeText: promptText });
+      }
+      return Promise.resolve(true);
+    }
+
+    // 1. Stop any current playback and increment token
+    this.stop();
+    const token = ++this.currentToken;
+
+    if (!url) {
+      this.setState({
+        isPlaying: false,
+        activeClip: null,
+        activeText: promptText,
+        token,
+      });
       if (promptText && promptText.trim()) {
         return this.speakText(promptText, options);
       }
       return Promise.resolve(false);
+    }
+
+    this.setState({
+      isPlaying: true,
+      activeClip: url,
+      activeText: promptText,
+      token,
+    });
+    options?.onStart?.();
+
+    // Ensure audio is unlocked
+    this.unlockAudio();
+
+    // 2. High-performance Web Audio Buffer playback if cached
+    if (this.audioContext && this.audioBufferCache.has(url)) {
+      return this.playViaWebAudio(url, token, options);
+    }
+
+    // 3. Play through HTML5 audio element with automatic WebAudio fallback
+    const audio = this.initAudioElement();
+    if (!audio) {
+      const ok = await this.playViaWebAudio(url, token, options);
+      if (ok) return true;
+      if (promptText && promptText.trim()) {
+        return this.speakText(promptText, options);
+      }
+      return false;
     }
 
     audio.volume = this.playbackVolume;
@@ -663,28 +779,20 @@ export class AudioPlaybackController {
         resolve(false);
       };
 
+      const tryWebAudioFallback = async () => {
+        const ok = await this.playViaWebAudio(url, token, options);
+        if (ok) {
+          resolve(true);
+        } else {
+          fallbackToText();
+        }
+      };
+
       audio.onended = handleEnded;
 
       audio.onerror = () => {
         if (this.currentToken !== token) return;
-        if (/\.(m4a|aac)$/i.test(url)) {
-          const mp3Fallback = url.replace(/\.(m4a|aac)$/i, ".mp3");
-          console.warn("[AudioController] Browser rejected audio format; seamlessly playing .mp3:", mp3Fallback);
-          url = mp3Fallback;
-          try {
-            audio.src = mp3Fallback;
-            audio.currentTime = 0;
-            const p = audio.play();
-            if (p !== undefined) {
-              p.catch(() => fallbackToText());
-            }
-            return;
-          } catch {
-            fallbackToText();
-            return;
-          }
-        }
-        fallbackToText();
+        tryWebAudioFallback();
       };
 
       try {
@@ -698,29 +806,13 @@ export class AudioPlaybackController {
               return;
             }
             if (this.currentToken === token) {
-              if (/\.(m4a|aac)$/i.test(url)) {
-                const mp3Fallback = url.replace(/\.(m4a|aac)$/i, ".mp3");
-                url = mp3Fallback;
-                try {
-                  audio.src = mp3Fallback;
-                  audio.currentTime = 0;
-                  const p2 = audio.play();
-                  if (p2 !== undefined) {
-                    p2.catch(() => fallbackToText());
-                  }
-                  return;
-                } catch {
-                  fallbackToText();
-                  return;
-                }
-              }
-              fallbackToText();
+              tryWebAudioFallback();
             }
           });
         }
       } catch {
         if (this.currentToken === token) {
-          fallbackToText();
+          tryWebAudioFallback();
         }
       }
     });
@@ -739,81 +831,56 @@ export class AudioPlaybackController {
 
     for (let url of safeUrls) {
       if (this.currentToken !== sequenceToken) {
-        return false; // Cancelled/superseded mid-sequence
+        return false;
       }
-      const audio = this.initAudioElement();
-      if (!audio) continue;
 
-      audio.volume = this.playbackVolume;
-
-      const ended = await new Promise<boolean>((resolve) => {
-        this.activeResolver = () => resolve(false);
-
-        this.setState({
-          isPlaying: true,
-          activeClip: url,
-          activeText: null,
-          token: sequenceToken,
-        });
-
-        audio.onended = () => {
-          if (this.currentToken !== sequenceToken) return;
-          this.activeResolver = null;
-          resolve(true);
-        };
-
-        audio.onerror = () => {
-          if (this.currentToken !== sequenceToken) return;
-          if (/\.(m4a|aac)$/i.test(url)) {
-            const mp3 = url.replace(/\.(m4a|aac)$/i, ".mp3");
-            url = mp3;
-            try {
-              audio.src = mp3;
-              audio.currentTime = 0;
-              const p = audio.play();
-              if (p !== undefined) {
-                p.catch(() => {
-                  this.activeResolver = null;
-                  resolve(false);
-                });
-              }
-              return;
-            } catch {}
-          }
-          this.activeResolver = null;
-          resolve(false);
-        };
-
-        audio.src = url;
-        audio.currentTime = 0;
-        const p = audio.play();
-        if (p !== undefined) {
-          p.catch((err: any) => {
-            if (err?.name === "AbortError" || err?.message?.includes("interrupted")) {
-              return;
-            }
-            if (this.currentToken !== sequenceToken) return;
-            if (/\.(m4a|aac)$/i.test(url)) {
-              const mp3 = url.replace(/\.(m4a|aac)$/i, ".mp3");
-              url = mp3;
-              try {
-                audio.src = mp3;
-                audio.currentTime = 0;
-                const p2 = audio.play();
-                if (p2 !== undefined) {
-                  p2.catch(() => {
-                    this.activeResolver = null;
-                    resolve(false);
-                  });
-                }
-                return;
-              } catch {}
-            }
-            this.activeResolver = null;
-            resolve(false);
-          });
+      const ended = await (async () => {
+        if (this.audioContext && this.audioBufferCache.has(url)) {
+          return this.playViaWebAudio(url, sequenceToken);
         }
-      });
+
+        const audio = this.initAudioElement();
+        if (!audio) {
+          return this.playViaWebAudio(url, sequenceToken);
+        }
+
+        audio.volume = this.playbackVolume;
+
+        return new Promise<boolean>((resolve) => {
+          this.activeResolver = () => resolve(false);
+
+          this.setState({
+            isPlaying: true,
+            activeClip: url,
+            activeText: null,
+            token: sequenceToken,
+          });
+
+          audio.onended = () => {
+            if (this.currentToken !== sequenceToken) return;
+            this.activeResolver = null;
+            resolve(true);
+          };
+
+          audio.onerror = () => {
+            if (this.currentToken !== sequenceToken) return;
+            this.playViaWebAudio(url, sequenceToken).then(resolve);
+          };
+
+          audio.src = url;
+          audio.currentTime = 0;
+          const p = audio.play();
+          if (p !== undefined) {
+            p.catch((err: any) => {
+              if (err?.name === "AbortError" || err?.message?.includes("interrupted")) {
+                return;
+              }
+              if (this.currentToken !== sequenceToken) return;
+              this.playViaWebAudio(url, sequenceToken).then(resolve);
+            });
+          }
+        });
+      })();
 
       if (!ended && this.currentToken !== sequenceToken) {
         return false;
@@ -834,4 +901,5 @@ export class AudioPlaybackController {
 }
 
 export const audioPlaybackController = new AudioPlaybackController();
+
 

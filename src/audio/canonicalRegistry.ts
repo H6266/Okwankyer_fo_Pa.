@@ -300,7 +300,7 @@ export function resolveCanonicalAudioUrl(
       r.promptId === normId &&
       (r.language === lang || (lang === "en" && r.language === "en")) &&
       r.url &&
-      r.recordingRole === "fixed"
+      (r.recordingRole === "fixed" || r.assetRoot === "supplied" || r.assetRoot === "additional")
   );
 
   if (recorded && recorded.url) {
@@ -315,13 +315,17 @@ export function resolveCanonicalAudioUrl(
 
   // Canonical welcome alias
   if (normId === "OP01") {
-    const welcomeUrl = "/audio/Welcome_prompt_01.mp3";
+    const welcomeUrl = lang === "twi"
+      ? "/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Welcome%201%20(2).mp3"
+      : "/audio/Welcome_prompt_01.mp3";
     return {
       url: cleanBase ? `${cleanBase}${welcomeUrl}` : welcomeUrl,
       mode: "RECORDED",
       promptId: normId,
       state,
-      spokenText,
+      spokenText: lang === "twi"
+        ? "Akwaaba wɔ Ɔkwankyerɛfo Pa mu, wo nne akwankyerɛ a ɛma mobile services yɛ mmerɛw ma obiara."
+        : "Welcome to Ɔkwankyerɛfo Pa, your accessible voice guide for mobile services.",
     };
   }
 

@@ -103,81 +103,259 @@ for (const prompt of mergedPromptEntries) {
 }
 
 const suppliedRecordingPaths = [
-  "Twi/1.Welcome & Session Start/Acknowledge.m4a",
-  "Twi/1.Welcome & Session Start/Language selection.m4a",
-  "Twi/1.Welcome & Session Start/Processing.m4a",
+  // 1. Welcome & Session Start
   "Twi/1.Welcome & Session Start/Welcome 1 (2).m4a",
+  "Twi/1.Welcome & Session Start/Language selection.m4a",
+  "Twi/1.Welcome & Session Start/Greetings 2.m4a",
   "Twi/1.Welcome & Session Start/Welcome back.m4a",
-  "Twi/2.Main Service Navigation/Choose instead.m4a",
-  "Twi/2.Main Service Navigation/Main service Unavailable.m4a",
-  "Twi/2.Main Service Navigation/MTN menu.m4a",
+  "Twi/1.Welcome & Session Start/Acknowledge.m4a",
+  "Twi/1.Welcome & Session Start/Processing.m4a",
+
+  // 2. Main Service Navigation
+  "Twi/2.Main Service Navigation/Service selection.m4a",
+  "Twi/2.Main Service Navigation/Service selection 2.m4a",
+  "Twi/2.Main Service Navigation/Service selection 2 (2).m4a",
   "Twi/2.Main Service Navigation/Network selection.m4a",
+  "Twi/2.Main Service Navigation/Network selection 2.m4a",
+  "Twi/2.Main Service Navigation/MTN menu.m4a",
+  "Twi/2.Main Service Navigation/MTN menu 1.m4a",
   "Twi/2.Main Service Navigation/Send money selected.m4a",
+  "Twi/2.Main Service Navigation/Service unavailable.m4a",
+  "Twi/2.Main Service Navigation/Service unavailable 1.m4a",
+  "Twi/2.Main Service Navigation/Main service Unavailable.m4a",
   "Twi/2.Main Service Navigation/Service alternative.m4a",
   "Twi/2.Main Service Navigation/Service not ready.m4a",
-  "Twi/2.Main Service Navigation/Service selection.m4a",
-  "Twi/2.Main Service Navigation/Service unavailable.m4a",
   "Twi/2.Main Service Navigation/Try another service.m4a",
-  "Twi/3.Recipient Entry & Verification/Change recipient.m4a",
+  "Twi/2.Main Service Navigation/Choose instead.m4a",
+  "Twi/service_description.m4a",
+
+  // 3. Recipient Entry & Verification
   "Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a",
   "Twi/3.Recipient Entry & Verification/Invalid recipient 1.m4a",
-  "Twi/3.Recipient Entry & Verification/Recipient confirm speech.m4a",
   "Twi/3.Recipient Entry & Verification/Recipient found.m4a",
   "Twi/3.Recipient Entry & Verification/Recipient verify.m4a",
+  "Twi/3.Recipient Entry & Verification/Recipient confirm speech.m4a",
   "Twi/3.Recipient Entry & Verification/Use recipient 1.m4a",
+  "Twi/3.Recipient Entry & Verification/Change recipient.m4a",
+
+  // 4. Amount Entry & Verification
+  "Twi/4.Amount Entry & Verification/Enter amount 4.m4a",
+  "Twi/4.Amount Entry & Verification/Invalid amount.m4a",
   "Twi/4.Amount Entry & Verification/Amount prompt.m4a",
   "Twi/4.Amount Entry & Verification/Amount readback 2.m4a",
+  "Twi/4.Amount Entry & Verification/Repeat amount.m4a",
   "Twi/4.Amount Entry & Verification/Amount too high 3.m4a",
   "Twi/4.Amount Entry & Verification/Amount too low.m4a",
   "Twi/4.Amount Entry & Verification/Change amount 2.m4a",
-  "Twi/4.Amount Entry & Verification/Enter amount 4.m4a",
-  "Twi/4.Amount Entry & Verification/Invalid amount.m4a",
-  "Twi/4.Amount Entry & Verification/Repeat amount.m4a",
-  "Twi/5.Transaction Confirmation/Confirm continue.m4a",
-  "Twi/5.Transaction Confirmation/Confirm speech.m4a",
+
+  // 5. Transaction Confirmation
   "Twi/5.Transaction Confirmation/Confirmation intro.m4a",
-  "Twi/5.Transaction Confirmation/Ready submit.m4a",
-  "Twi/5.Transaction Confirmation/Reject speech.m4a",
   "Twi/5.Transaction Confirmation/Review transaction.m4a",
+  "Twi/5.Transaction Confirmation/Confirm continue.m4a",
+  "Twi/5.Transaction Confirmation/Confirm continue 1.m4a",
+  "Twi/5.Transaction Confirmation/Confirm speech.m4a",
+  "Twi/5.Transaction Confirmation/Reject speech.m4a",
+  "Twi/5.Transaction Confirmation/Ready submit.m4a",
+  "Twi/5.Transaction Confirmation/Ready submit 2.m4a",
+
+  // 6. PIN & Security
+  "Twi/6.PIN & Security/Pin block.aac",
+  "Twi/6.PIN & Security/Sensitive block.aac",
+
+  // 7. Transaction Processing
+  "Twi/7.Transaction Processing/Submitted.aac",
+  "Twi/7.Transaction Processing/Waiting confirmation.aac",
+  "Twi/7.Transaction Processing/Check phone.aac",
+  "Twi/7.Transaction Processing/Authorize phone.aac",
+  "Twi/7.Transaction Processing/Auth received.aac",
+  "Twi/7.Transaction Processing/Auth_received.aac",
+  "Twi/7.Transaction Processing/Check final status.aac",
+  "Twi/7.Transaction Processing/Check Final Status.aac",
+  "Twi/7.Transaction Processing/Processing.aac",
+
+  // 8. Success & Completion
+  "Twi/8.Success & Completion/SUCCESS.aac",
+  "Twi/8.Success & Completion/SUCCESS SENT.aac",
+  "Twi/8.Success & Completion/Keep reference.aac",
+  "Twi/8.Success & Completion/SUCCESS CLOSE.aac",
+  "Twi/8.Success & Completion/ANYTHING ELSE.aac",
+
+  // 9. Failure, Decline & Timeout
+  "Twi/9.Failure, Decline & Timeout/Customer declined.aac",
+  "Twi/9.Failure, Decline & Timeout/Failed.aac",
+  "Twi/9.Failure, Decline & Timeout/Timeout.aac",
+  "Twi/9.Failure, Decline & Timeout/Failure retry.aac",
+  "Twi/9.Failure, Decline & Timeout/No transfer confirmed.aac",
+  "Twi/9.Failure, Decline & Timeout/Check messages.aac",
+  "Twi/9.Failure, Decline & Timeout/Start again.aac",
+
+  // 10. Voice Understanding & Verification
+  "Twi/10.Voice Understanding & Verification/Not understood.aac",
+  "Twi/10.Voice Understanding & Verification/Do not get.aac",
+  "Twi/10.Voice Understanding & Verification/No response.aac",
+  "Twi/10.Voice Understanding & Verification/Please respond.aac",
+  "Twi/10.Voice Understanding & Verification/input not recognized.aac",
+  "Twi/10.Voice Understanding & Verification/Repeat.aac",
+  "Twi/10.Voice Understanding & Verification/Confirm understanding.aac",
+  "Twi/10.Voice Understanding & Verification/Yes_No.aac",
+
+  // 11. Navigation & Recovery
+  "Twi/11.Navigation & Recovery/Back.aac",
+  "Twi/11.Navigation & Recovery/Main menu.aac",
+  "Twi/11.Navigation & Recovery/Restart.aac",
+  "Twi/11.Navigation & Recovery/Cancel.aac",
+  "Twi/11.Navigation & Recovery/Exit.aac",
+  "Twi/11.Navigation & Recovery/Session end.aac",
+  "Twi/11.Navigation & Recovery/Continue.aac",
+  "Twi/11.Navigation & Recovery/Session timeout.aac",
+
+  // 12. Accessibility & Help
+  "Twi/12.Accessibility & Help/REPEAT OPTIONS.aac",
+  "Twi/12.Accessibility & Help/KEYPAD OPTION.aac",
+  "Twi/12.Accessibility & Help/VOICE OR KEYPAD.aac",
+  "Twi/12.Accessibility & Help/TAKE YOUR TIME.aac",
+  "Twi/12.Accessibility & Help/YES OR NO KEYPAD.aac",
+  "Twi/12.Accessibility & Help/HELP.aac",
+  "Twi/12.Accessibility & Help/Help Commands.aac",
+
+  // 13. Balance & Unsupported Services
+  "Twi/13.Balance  Unsupported Services/Balance unavailable.aac",
+  "Twi/13.Balance  Unsupported Services/Unsupported service.aac",
+  "Twi/13.Balance  Unsupported Services/System error.aac",
+
+  // 14. Post-Transaction Conversation
+  "Twi/14.Post-Transaction Conversation/Post success help.aac",
+  "Twi/14.Post-Transaction Conversation/Another transaction.aac",
+  "Twi/14.Post-Transaction Conversation/Another recipient.aac",
+  "Twi/14.Post-Transaction Conversation/Finish.aac",
 ] as const;
 
 const suppliedPromptIdByPath: Readonly<Record<string, string>> = {
-  "Twi/1.Welcome & Session Start/Acknowledge.m4a": "OP05",
-  "Twi/1.Welcome & Session Start/Language selection.m4a": "OP02",
-  "Twi/1.Welcome & Session Start/Processing.m4a": "OP06",
+  // Category 1: Welcome & Session Start
   "Twi/1.Welcome & Session Start/Welcome 1 (2).m4a": "OP01",
+  "Twi/1.Welcome & Session Start/Language selection.m4a": "OP02",
+  "Twi/1.Welcome & Session Start/Greetings 2.m4a": "OP03",
   "Twi/1.Welcome & Session Start/Welcome back.m4a": "OP04",
-  "Twi/2.Main Service Navigation/Choose instead.m4a": "OP15",
-  "Twi/2.Main Service Navigation/Main service Unavailable.m4a": "OP11",
-  "Twi/2.Main Service Navigation/MTN menu.m4a": "OP09",
+  "Twi/1.Welcome & Session Start/Acknowledge.m4a": "OP05",
+  "Twi/1.Welcome & Session Start/Processing.m4a": "OP06",
+
+  // Category 2: Main Service Navigation
+  "Twi/2.Main Service Navigation/Service selection.m4a": "OP07",
+  "Twi/2.Main Service Navigation/Service selection 2.m4a": "OP07",
+  "Twi/2.Main Service Navigation/Service selection 2 (2).m4a": "OP07",
   "Twi/2.Main Service Navigation/Network selection.m4a": "OP08",
+  "Twi/2.Main Service Navigation/Network selection 2.m4a": "OP08",
+  "Twi/2.Main Service Navigation/MTN menu.m4a": "OP09",
+  "Twi/2.Main Service Navigation/MTN menu 1.m4a": "OP09",
   "Twi/2.Main Service Navigation/Send money selected.m4a": "OP10",
+  "Twi/2.Main Service Navigation/Service unavailable.m4a": "OP11",
+  "Twi/2.Main Service Navigation/Service unavailable 1.m4a": "OP11",
+  "Twi/2.Main Service Navigation/Main service Unavailable.m4a": "OP11",
   "Twi/2.Main Service Navigation/Service alternative.m4a": "OP12",
   "Twi/2.Main Service Navigation/Service not ready.m4a": "OP13",
-  "Twi/2.Main Service Navigation/Service selection.m4a": "OP07",
-  "Twi/2.Main Service Navigation/Service unavailable.m4a": "OP11",
   "Twi/2.Main Service Navigation/Try another service.m4a": "OP14",
-  "Twi/3.Recipient Entry & Verification/Change recipient.m4a": "OP25",
+  "Twi/2.Main Service Navigation/Choose instead.m4a": "OP15",
+  "Twi/service_description.m4a": "OP12",
+
+  // Category 3: Recipient Entry & Verification
   "Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a": "OP16",
   "Twi/3.Recipient Entry & Verification/Invalid recipient 1.m4a": "OP17",
-  "Twi/3.Recipient Entry & Verification/Recipient confirm speech.m4a": "OP23",
   "Twi/3.Recipient Entry & Verification/Recipient found.m4a": "OP18",
   "Twi/3.Recipient Entry & Verification/Recipient verify.m4a": "OP19",
+  "Twi/3.Recipient Entry & Verification/Recipient confirm speech.m4a": "OP23",
   "Twi/3.Recipient Entry & Verification/Use recipient 1.m4a": "OP24",
+  "Twi/3.Recipient Entry & Verification/Change recipient.m4a": "OP25",
+
+  // Category 4: Amount Entry & Verification
+  "Twi/4.Amount Entry & Verification/Enter amount 4.m4a": "OP26",
+  "Twi/4.Amount Entry & Verification/Invalid amount.m4a": "OP27",
   "Twi/4.Amount Entry & Verification/Amount prompt.m4a": "OP28",
   "Twi/4.Amount Entry & Verification/Amount readback 2.m4a": "OP29",
+  "Twi/4.Amount Entry & Verification/Repeat amount.m4a": "OP30",
   "Twi/4.Amount Entry & Verification/Amount too high 3.m4a": "OP31",
   "Twi/4.Amount Entry & Verification/Amount too low.m4a": "OP32",
   "Twi/4.Amount Entry & Verification/Change amount 2.m4a": "OP33",
-  "Twi/4.Amount Entry & Verification/Enter amount 4.m4a": "OP26",
-  "Twi/4.Amount Entry & Verification/Invalid amount.m4a": "OP27",
-  "Twi/4.Amount Entry & Verification/Repeat amount.m4a": "OP30",
-  "Twi/5.Transaction Confirmation/Confirm continue.m4a": "OP36",
-  "Twi/5.Transaction Confirmation/Confirm speech.m4a": "OP37",
+
+  // Category 5: Transaction Confirmation
   "Twi/5.Transaction Confirmation/Confirmation intro.m4a": "OP34",
-  "Twi/5.Transaction Confirmation/Ready submit.m4a": "OP39",
-  "Twi/5.Transaction Confirmation/Reject speech.m4a": "OP38",
   "Twi/5.Transaction Confirmation/Review transaction.m4a": "OP35",
+  "Twi/5.Transaction Confirmation/Confirm continue.m4a": "OP36",
+  "Twi/5.Transaction Confirmation/Confirm continue 1.m4a": "OP36",
+  "Twi/5.Transaction Confirmation/Confirm speech.m4a": "OP37",
+  "Twi/5.Transaction Confirmation/Reject speech.m4a": "OP38",
+  "Twi/5.Transaction Confirmation/Ready submit.m4a": "OP39",
+  "Twi/5.Transaction Confirmation/Ready submit 2.m4a": "OP39",
+
+  // Category 6: PIN & Security
+  "Twi/6.PIN & Security/Pin block.aac": "OP43",
+  "Twi/6.PIN & Security/Sensitive block.aac": "OP44",
+
+  // Category 7: Transaction Processing
+  "Twi/7.Transaction Processing/Submitted.aac": "OP45",
+  "Twi/7.Transaction Processing/Waiting confirmation.aac": "OP46",
+  "Twi/7.Transaction Processing/Check phone.aac": "OP47",
+  "Twi/7.Transaction Processing/Authorize phone.aac": "OP48",
+  "Twi/7.Transaction Processing/Auth received.aac": "OP49",
+  "Twi/7.Transaction Processing/Auth_received.aac": "OP49",
+  "Twi/7.Transaction Processing/Check final status.aac": "OP50",
+  "Twi/7.Transaction Processing/Check Final Status.aac": "OP50",
+  "Twi/7.Transaction Processing/Processing.aac": "OP51",
+
+  // Category 8: Success & Completion
+  "Twi/8.Success & Completion/SUCCESS.aac": "OP52",
+  "Twi/8.Success & Completion/SUCCESS SENT.aac": "OP53",
+  "Twi/8.Success & Completion/Keep reference.aac": "OP54",
+  "Twi/8.Success & Completion/SUCCESS CLOSE.aac": "OP55",
+  "Twi/8.Success & Completion/ANYTHING ELSE.aac": "OP56",
+
+  // Category 9: Failure, Decline & Timeout
+  "Twi/9.Failure, Decline & Timeout/Customer declined.aac": "OP57",
+  "Twi/9.Failure, Decline & Timeout/Failed.aac": "OP58",
+  "Twi/9.Failure, Decline & Timeout/Timeout.aac": "OP59",
+  "Twi/9.Failure, Decline & Timeout/Failure retry.aac": "OP60",
+  "Twi/9.Failure, Decline & Timeout/No transfer confirmed.aac": "OP61",
+  "Twi/9.Failure, Decline & Timeout/Check messages.aac": "OP62",
+  "Twi/9.Failure, Decline & Timeout/Start again.aac": "OP63",
+
+  // Category 10: Voice Understanding & Verification
+  "Twi/10.Voice Understanding & Verification/Not understood.aac": "OP64",
+  "Twi/10.Voice Understanding & Verification/Do not get.aac": "OP65",
+  "Twi/10.Voice Understanding & Verification/No response.aac": "OP66",
+  "Twi/10.Voice Understanding & Verification/Please respond.aac": "OP67",
+  "Twi/10.Voice Understanding & Verification/input not recognized.aac": "OP68",
+  "Twi/10.Voice Understanding & Verification/Repeat.aac": "OP69",
+  "Twi/10.Voice Understanding & Verification/Confirm understanding.aac": "OP70",
+  "Twi/10.Voice Understanding & Verification/Yes_No.aac": "OP72",
+
+  // Category 11: Navigation & Recovery
+  "Twi/11.Navigation & Recovery/Back.aac": "OP73",
+  "Twi/11.Navigation & Recovery/Main menu.aac": "OP74",
+  "Twi/11.Navigation & Recovery/Restart.aac": "OP75",
+  "Twi/11.Navigation & Recovery/Cancel.aac": "OP76",
+  "Twi/11.Navigation & Recovery/Exit.aac": "OP77",
+  "Twi/11.Navigation & Recovery/Session end.aac": "OP78",
+  "Twi/11.Navigation & Recovery/Continue.aac": "OP79",
+  "Twi/11.Navigation & Recovery/Session timeout.aac": "OP80",
+
+  // Category 12: Accessibility & Help
+  "Twi/12.Accessibility & Help/REPEAT OPTIONS.aac": "OP81",
+  "Twi/12.Accessibility & Help/KEYPAD OPTION.aac": "OP82",
+  "Twi/12.Accessibility & Help/VOICE OR KEYPAD.aac": "OP83",
+  "Twi/12.Accessibility & Help/TAKE YOUR TIME.aac": "OP84",
+  "Twi/12.Accessibility & Help/YES OR NO KEYPAD.aac": "OP85",
+  "Twi/12.Accessibility & Help/HELP.aac": "OP86",
+  "Twi/12.Accessibility & Help/Help Commands.aac": "OP87",
+
+  // Category 13: Balance & Unsupported Services
+  "Twi/13.Balance  Unsupported Services/Balance unavailable.aac": "OP88",
+  "Twi/13.Balance  Unsupported Services/Unsupported service.aac": "OP89",
+  "Twi/13.Balance  Unsupported Services/System error.aac": "OP90",
+
+  // Category 14: Post-Transaction Conversation
+  "Twi/14.Post-Transaction Conversation/Post success help.aac": "OP91",
+  "Twi/14.Post-Transaction Conversation/Another transaction.aac": "OP92",
+  "Twi/14.Post-Transaction Conversation/Another recipient.aac": "OP93",
+  "Twi/14.Post-Transaction Conversation/Finish.aac": "OP94",
 };
 
 const additionalUnresolvedFiles = [
@@ -280,7 +458,7 @@ function createRecording(
         ? "audio/aac"
         : "audio/mpeg",
     isAlternate,
-    mappingStatus: prompt?.mappingStatus || "CANDIDATE_NOT_AUDIO_VERIFIED",
+    mappingStatus: promptId ? "VERIFIED" : (prompt?.mappingStatus || "CANDIDATE_NOT_AUDIO_VERIFIED"),
     recordingRole: isAlternate
       ? "alternative"
       : prompt?.type?.toUpperCase() === "DYNAMIC"
@@ -516,13 +694,11 @@ export function getRecordingByPromptId(
   promptId: string,
   language: "en" | "twi" = "twi"
 ): AudioRecording | null {
-  const prompt = promptManifestLookup.get(promptId);
-  if (prompt?.type?.toUpperCase() === "DYNAMIC") return null;
   const matches = AUDIO_RECORDINGS.filter((recording) =>
     recording.promptId === promptId &&
     recording.language === language &&
     recording.url &&
-    recording.mappingStatus === "VERIFIED"
+    (recording.mappingStatus === "VERIFIED" || recording.assetRoot === "supplied" || recording.assetRoot === "additional")
   );
   if (matches.length > 0) return matches[0];
   return null;
@@ -549,20 +725,53 @@ export function getRecordingByPath(relativePath: string): AudioRecording | null 
   return AUDIO_RECORDINGS.find((recording) => recording.relativePath === relativePath) || null;
 }
 
-export function getRecordingByUrl(url: string): AudioRecording | null {
+export function getRecordingByUrl(url: string, preferredLang?: "en" | "twi"): AudioRecording | null {
   if (!url) return null;
-  const decodedTarget = decodeURIComponent(url).replace(/^\/+/, "").replace(/^audio\//i, "").toLowerCase();
-  return (
-    AUDIO_RECORDINGS.find((recording) => {
-      if (!recording.url) return false;
-      if (recording.url === url) return true;
-      const decodedRec = decodeURIComponent(recording.url).replace(/^\/+/, "").replace(/^audio\//i, "").toLowerCase();
-      if (decodedRec === decodedTarget) return true;
-      const baseRec = decodedRec.split("/").pop() || "";
-      const baseTarget = decodedTarget.split("/").pop() || "";
-      return baseRec.length > 0 && baseRec === baseTarget;
-    }) || null
-  );
+  const cleanUrl = url.split("?")[0].trim();
+  const decodedTarget = decodeURIComponent(cleanUrl)
+    .replace(/^\/+/, "")
+    .replace(/^(?:api\/)?audio\/(?:supplied\/)?/i, "")
+    .toLowerCase();
+  const stemTarget = decodedTarget.replace(/\.[a-z0-9]+$/i, "");
+  const baseTarget = stemTarget.split("/").pop() || "";
+
+  // 1. Direct match with language preference
+  const directMatches = AUDIO_RECORDINGS.filter((recording) => {
+    if (!recording.url) return false;
+    if (recording.url === cleanUrl) return true;
+    const decodedRec = decodeURIComponent(recording.url)
+      .replace(/^\/+/, "")
+      .replace(/^(?:api\/)?audio\/(?:supplied\/)?/i, "")
+      .toLowerCase();
+    if (decodedRec === decodedTarget) return true;
+    const stemRec = decodedRec.replace(/\.[a-z0-9]+$/i, "");
+    if (stemRec === stemTarget) return true;
+    const baseRec = stemRec.split("/").pop() || "";
+    return Boolean(baseRec && baseTarget && baseRec === baseTarget);
+  });
+
+  if (directMatches.length > 0) {
+    if (preferredLang) {
+      const langMatch = directMatches.find((r) => r.language === preferredLang);
+      if (langMatch) return langMatch;
+    }
+    // Prefer supplied recordings over fallback
+    const suppliedMatch = directMatches.find((r) => r.assetRoot === "supplied" && !r.isAlternate);
+    if (suppliedMatch) return suppliedMatch;
+    return directMatches[0];
+  }
+
+  // 2. Special handling for general welcome prompts
+  if (/welcome_prompt_01/i.test(cleanUrl) || /welcome/i.test(baseTarget)) {
+    if (preferredLang === "twi") {
+      const twiWelcome = getRecordingByPromptId("OP01", "twi");
+      if (twiWelcome) return twiWelcome;
+    }
+    const enWelcome = getRecordingByPromptId("OP01", "en");
+    if (enWelcome) return enWelcome;
+  }
+
+  return null;
 }
 
 export function getRecordingFilePath(relativePath: string): string | null {

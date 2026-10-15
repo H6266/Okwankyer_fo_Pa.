@@ -272,7 +272,7 @@ export function matchReplyToAudio(
     return Boolean(
       r.spokenText &&
       r.url &&
-      r.mappingStatus === "VERIFIED" &&
+      (r.mappingStatus === "VERIFIED" || r.assetRoot === "supplied" || r.assetRoot === "additional") &&
       r.recordingRole === "fixed"
     );
   });

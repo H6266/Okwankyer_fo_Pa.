@@ -94,20 +94,19 @@ export function resolvePrompt(key: string, lang: SupportedLanguage = "en"): stri
   const language = normalizeRecordingLanguage(lang);
   if (!language) return null;
 
-  // Strict Invariant: Dynamic prompts (OP20, OP21, OP29, OP52, OP70) resolve strictly to approved TTS
-  if (isDynamicPrompt(key)) {
-    return `/api/audio/prompt-tts/${language}/${encodeURIComponent(key)}`;
-  }
-
   // 1. Direct recording lookup by prompt key (respects language variants like Twi vs English)
   const recordingUrl = getRecordingByPromptKey(key, language)?.url;
   if (recordingUrl) return recordingUrl;
+
+  // 2. Dynamic prompts resolve strictly to approved TTS when dynamic values are needed
+  if (isDynamicPrompt(key)) {
+    return `/api/audio/prompt-tts/${language}/${encodeURIComponent(key)}`;
+  }
 
   // Text fallback if no studio recording exists for requested language
   return resolvePromptText(key, lang)
     ? `/api/audio/prompt-tts/${lang}/${encodeURIComponent(key)}`
     : null;
-
 }
 
 export function resolvePromptText(
@@ -158,17 +157,22 @@ export function resolveSimulatorAudioUrl(
       return pathname;
     }
 
-    // Cross-language prevention: reject Twi assets during English sessions and vice-versa
+    // Cross-language prevention: reject Twi assets during English sessions only if an English alternative exists
     if (language === "en" && (pathname.includes("/Twi/") || /\b(twi)\b/i.test(pathname))) {
-      return null;
+      const rec = getRecordingByUrl(pathname, "en");
+      if (rec?.promptId && getRecordingByPromptId(rec.promptId, "en")) {
+        return null;
+      }
     }
     if (language === "twi" && (pathname.includes("/English/") || /\b(english)\b/i.test(pathname))) {
-      return null;
+      const rec = getRecordingByUrl(pathname, "twi");
+      if (rec?.promptId && getRecordingByPromptId(rec.promptId, "twi")) {
+        return null;
+      }
     }
 
-    const recording = getRecordingByUrl(pathname);
+    const recording = getRecordingByUrl(pathname, language);
     if (recording) {
-      if (recording.language !== language && !pathname.toLowerCase().includes("welcome_prompt")) return null;
       return recording.url ? recording.url.replace(/\.(m4a|aac)$/i, ".mp3") : null;
     }
 

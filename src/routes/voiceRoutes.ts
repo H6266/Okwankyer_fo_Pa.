@@ -345,15 +345,36 @@ export const handleInboundCall = (req: Request, res: Response) => {
   }
 
   auditLogger.log("info", "TELEPHONY", `Inbound call connected from ${redactPii(callerNumber)}`, sessionId);
-  const session = transactionStateMachine.getOrCreateSession(sessionId, "en", "VOICE");
+  const reqLang = (req.body?.lang || req.query?.lang || req.body?.language || req.query?.language || "twi") as string;
+  const initialLang = reqLang === "en" ? "en" : "twi";
+  const session = transactionStateMachine.getOrCreateSession(sessionId, initialLang, "VOICE");
   session.callerPhone = callerNumber;
+  session.language = initialLang;
 
-  const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?sessionId=${sessionId}">
-        <Play url="${escapeVoiceXml(`${baseUrl}/audio/Welcome_prompt_01.mp3`)}"/>
+  const welcomeUrl = initialLang === "twi"
+    ? `${baseUrl}/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Welcome%201%20(2).mp3`
+    : `${baseUrl}/audio/Welcome_prompt_01.mp3`;
+
+  const langSelectUrl = initialLang === "twi"
+    ? `${baseUrl}/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Language%20selection.mp3`
+    : `${baseUrl}/audio/Welcome_prompt_01.mp3`;
+
+  const xml = `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?sessionId=${sessionId}&amp;lang=${initialLang}">
+        <Play url="${escapeVoiceXml(welcomeUrl)}"/>
+        <Play url="${escapeVoiceXml(langSelectUrl)}"/>
     </GetDigits>
-    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=language-selection&amp;sessionId=${sessionId}&amp;retry=0"/>`;
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=language-selection&amp;sessionId=${sessionId}&amp;lang=${initialLang}&amp;retry=0"/>`;
 
-  xmlResponse(res, xml);
+  xmlResponse(res, xml, {
+    type: "understood_intent",
+    reason: "Call connected - playing canonical OP01 Welcome prompt",
+    replyText: initialLang === "twi"
+      ? "Akwaaba wɔ Ɔkwankyerɛfo Pa mu, wo nne akwankyerɛ a ɛma mobile services yɛ mmerɛw ma obiara."
+      : "Welcome to Ɔkwankyerɛfo Pa, your accessible voice guide for mobile services.",
+    replyKey: "OP01",
+    action: "repeat",
+    nextStep: "language-selection",
+  });
 };
 
 // Mount across canonical and all common Africa's Talking webhook callback aliases
@@ -1180,7 +1201,21 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
 
     const isSimulated = sessionId.startsWith("SIM_CALL_") || (req.baseUrl && req.baseUrl.startsWith("/api/simulator"));
     if (isSimulated) {
-      return xmlResponse(res, `    <Say voice="female">Simulation only. No Mobile Money payment request was sent.</Say>\n    <Reject/>`);
+      transactionStateMachine.transition(sessionId, "CONFIRMED");
+      transactionStateMachine.transition(sessionId, "PIN_PENDING", {
+        momoReferenceId: session.referenceId,
+      });
+      const pinHandoffAudio = lang === "twi"
+        ? `${baseUrl}/audio/supplied/Twi/6.PIN%20%26%20Security/Pin%20block.mp3`
+        : `${baseUrl}/audio/Pin%20Handoff.mp3`;
+      const handoffXml = `    <Play url="${escapeVoiceXml(pinHandoffAudio)}"/>\n    <Say voice="female">${lang === "twi" ? "Yɛsrɛ wo, hwɛ wo fon screen so na fa wo MoMo PIN bɔ mu ahobammbɔ mu." : "Please check your phone screen and enter your Mobile Money PIN securely to authorize this transfer."}</Say>\n    <Reject/>`;
+      return xmlResponse(res, handoffXml, {
+        type: "understood_intent",
+        reason: "Zero-PIN handoff initiated in phone simulator",
+        replyText: lang === "twi" ? "Yɛsrɛ wo, hwɛ wo fon screen so na fa wo MoMo PIN bɔ mu." : "Check your phone screen to enter your MoMo PIN.",
+        replyKey: "OP43",
+        action: "hangup",
+      });
     }
     if (!isSimulated) {
       const callerNetwork = validateGhanaPhoneNumber(session.callerPhone).network;
@@ -1716,11 +1751,11 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
     </GetDigits>
     <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="6" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=${encodeURIComponent(step)}&amp;sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}&amp;retry=${retry + 1}"/>`;
         return xmlResponse(res, promptXml, {
-          type: "clarification",
+          type: "clarify",
           reason: "Adaptive acoustic clarification: asking confirmation of noisy utterance before state commit",
           replyText: confirmationText,
           replyKey: "OP70",
-          action: "clarify",
+          action: "repeat",
         });
       } else {
         // Empty or silent audio on first attempt: repeat prompt gently

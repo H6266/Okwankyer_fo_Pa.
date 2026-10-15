@@ -184,8 +184,9 @@ export const PhoneSimulatorPage: React.FC = () => {
   const [sessionId, setSessionId] = useState<string>("");
   const [interactionMode, setInteractionMode] = useState<string>("UNSELECTED");
   const [conversationState, setConversationState] = useState<string>("INITIATED");
-  const [callerNumber] = useState<string>("0543546010");
-  const [language, setLanguage] = useState<"en" | "twi" | null>(null);
+  const [language, setLanguage] = useState<"en" | "twi" | null>("twi");
+  const [voiceMode, setVoiceMode] = useState<"twi" | "en" | "auto">("twi");
+  const voiceModeRef = useRef<"twi" | "en" | "auto">("twi");
   const [currentPrompt, setCurrentPrompt] = useState<string>("Lift handset or press Call to begin.");
   const [activePlayUrl, setActivePlayUrl] = useState<string | null>(null);
   const [digitsBuffer, setDigitsBuffer] = useState<string>("");
@@ -507,7 +508,7 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       // Extract step name from URL
       let stepName = "voice-menu";
-      let responseLanguage: "en" | "twi" = language || "en";
+      let responseLanguage: "en" | "twi" = languageRef.current || language || "twi";
       try {
         const u = new URL(effectiveUrl, window.location.origin);
         stepName = u.pathname.replace(/^\//, "").replace(/^api\/simulator\//, "") || "voice-menu";
@@ -515,9 +516,11 @@ export const PhoneSimulatorPage: React.FC = () => {
         if (langParam === "twi") {
           responseLanguage = "twi";
           setLanguage("twi");
+          languageRef.current = "twi";
         } else if (langParam === "en") {
           responseLanguage = "en";
           setLanguage("en");
+          languageRef.current = "en";
         }
       } catch {
         const match = effectiveUrl.match(/\/([a-zA-Z0-9_-]+)(?:\?|$)/);
@@ -794,16 +797,24 @@ export const PhoneSimulatorPage: React.FC = () => {
     callActiveRef.current = true;
     sessionIdRef.current = newSession;
     activeStepNameRef.current = "voice-menu";
-    const initialCallback = `/api/simulator/language-selection?sessionId=${newSession}`;
+    const currentMode = voiceModeRef.current;
+    const initialLang = currentMode === "en" ? "en" : "twi";
+    const initialCallback = `/api/simulator/language-selection?sessionId=${newSession}&lang=${initialLang}`;
     activeCallbackUrlRef.current = initialCallback;
-    currentPromptRef.current = "Welcome to Ɔkwankyerɛfo Pa. For English press 1, for Twi press 2.";
+
+    const initialWelcomeText = initialLang === "twi"
+      ? "Akwaaba wɔ Ɔkwankyerɛfo Pa mu, wo nne akwankyerɛ a ɛma mobile services yɛ mmerɛw ma obiara."
+      : "Welcome to Ɔkwankyerɛfo Pa, your accessible voice guide for mobile services.";
+    currentPromptRef.current = initialWelcomeText;
+    setCurrentPrompt(initialWelcomeText);
 
     setSessionId(newSession);
     setInteractionMode("UNSELECTED");
     setConversationState("INITIATED");
     setCallActive(true);
     setCallStatus("Connected");
-    setLanguage(null);
+    setLanguage(initialLang);
+    languageRef.current = initialLang;
     setDigitsBuffer("");
     setZeroPinOverlay(false);
     setRecentStreamingWords([]);
@@ -825,7 +836,7 @@ export const PhoneSimulatorPage: React.FC = () => {
     setActiveNumDigits(1);
     setActiveFinishOnKey("#");
 
-    await dispatchVoiceWebhook("/api/simulator/voice-menu", { sessionId: newSession });
+    await dispatchVoiceWebhook("/api/simulator/voice-menu", { sessionId: newSession, lang: initialLang });
   }, [dispatchVoiceWebhook, addLog]);
 
   // ── End Call ──────────────────────────────────────────────────────────

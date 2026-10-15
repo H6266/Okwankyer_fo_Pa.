@@ -177,7 +177,10 @@ export interface MomoTransactionStatus {
 export interface ParsedVoiceXml {
   raw: string;
   say?: { text: string; voice?: string };
+  sayText?: string;
   playUrl?: string;
+  playUrls?: string[];
+  redirect?: string;
   getDigits?: {
     timeout?: number;
     finishOnKey?: string;
@@ -194,6 +197,8 @@ export interface ParsedVoiceXml {
   };
   redirectUrl?: string;
   isReject: boolean;
+  httpStatus?: number;
+  guardReason?: string;
 }
 
 export function parseVoiceXml(xmlText: string): ParsedVoiceXml {
@@ -204,10 +209,19 @@ export function parseVoiceXml(xmlText: string): ParsedVoiceXml {
 
   if (!xmlText) return result;
 
-  // Play URL
-  const playMatch = xmlText.match(/<Play[^>]*>([^<]+)<\/Play>/i) || xmlText.match(/<Play\s+url=["']([^"']+)["']/i);
-  if (playMatch) {
-    result.playUrl = playMatch[1].trim();
+  // Extract all Play URLs in order
+  const playUrls: string[] = [];
+  const playRegex = /<Play\s+[^>]*url=["']([^"']+)["'][^>]*\/?>(?:<\/Play>)?|<Play[^>]*>([^<]+)<\/Play>/gi;
+  let pMatch: RegExpExecArray | null;
+  while ((pMatch = playRegex.exec(xmlText)) !== null) {
+    const matchedUrl = (pMatch[1] || pMatch[2] || "").trim();
+    if (matchedUrl) {
+      playUrls.push(matchedUrl);
+    }
+  }
+  if (playUrls.length > 0) {
+    result.playUrls = playUrls;
+    result.playUrl = playUrls[0];
   }
 
   // Say text and voice
@@ -217,6 +231,7 @@ export function parseVoiceXml(xmlText: string): ParsedVoiceXml {
       voice: sayMatch[1] || "female",
       text: sayMatch[2].trim(),
     };
+    result.sayText = sayMatch[2].trim();
   }
 
   // GetDigits attributes
