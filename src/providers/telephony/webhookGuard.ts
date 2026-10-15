@@ -11,9 +11,6 @@ import { Request, Response, NextFunction } from "express";
 import { auditLogger } from "../../services/auditLogger";
 
 export const DEFAULT_AT_WEBHOOK_SECRET = "okwankyer_telephony_webhook_secret_default_prod_key_32b";
-if (!process.env.AT_WEBHOOK_SECRET) {
-  process.env.AT_WEBHOOK_SECRET = DEFAULT_AT_WEBHOOK_SECRET;
-}
 
 /**
  * Validates that webhook security configuration is sound at boot time.
@@ -144,11 +141,7 @@ export function verifyAtWebhook(req: Request, res: Response, next: NextFunction)
       req.query?.callerNumber ||
       req.body?.phoneNumber ||
       req.body?.isActive !== undefined ||
-      req.body?.direction === "Inbound" ||
-      req.body?.speechText !== undefined ||
-      req.body?.recordingUrl !== undefined ||
-      req.body?.dtmfDigits !== undefined ||
-      req.query?.step !== undefined
+      req.body?.direction === "Inbound"
     );
     if (!isLegitAtPayload) {
       auditLogger.log("warn", "SECURITY", `Telephony callback missing signature for session ${sessionId}`, req.ip);

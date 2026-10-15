@@ -138,6 +138,7 @@ export interface MoMoBalanceResult {
 export interface MoMoAccountHolderResult {
   isActive: boolean;
   msisdn: string;
+  phone?: string;
   name?: string;
   mode: MoMoMode;
   gatewayEvidence?: GatewayEvidence;

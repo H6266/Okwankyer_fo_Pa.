@@ -29,18 +29,34 @@ export function resolveSafeAudioPath(requestedSubpath: string): string | null {
   let relativePath: string;
 
   if (normalized.startsWith("supplied/")) {
-    rootDir = path.resolve(process.cwd(), "Audio_files", "audio");
+    rootDir = path.resolve(process.cwd(), "Audio_files");
     relativePath = normalized.slice("supplied/".length);
+    if (!fs.existsSync(path.resolve(rootDir, relativePath)) && fs.existsSync(path.resolve(process.cwd(), "Audio_files", "audio", relativePath))) {
+      rootDir = path.resolve(process.cwd(), "Audio_files", "audio");
+    }
   } else if (normalized.startsWith("additional/")) {
-    rootDir = path.resolve(process.cwd(), "Audio_files_2");
+    rootDir = path.resolve(process.cwd(), "Audio_files");
     relativePath = normalized.slice("additional/".length);
   } else if (/^twi\//i.test(normalized)) {
-    rootDir = path.resolve(process.cwd(), "Audio_files", "audio");
     relativePath = "Twi/" + normalized.slice(4);
+    const audioDir = path.resolve(process.cwd(), "Audio_files", "audio");
+    const testCandidate = path.resolve(audioDir, relativePath);
+    const testDir = path.resolve(audioDir, path.dirname(relativePath));
+    if (
+      fs.existsSync(testCandidate) ||
+      fs.existsSync(testCandidate.replace(/\.mp3$/i, ".m4a")) ||
+      fs.existsSync(testCandidate.replace(/\.m4a$/i, ".mp3")) ||
+      fs.existsSync(testCandidate.replace(/\.(mp3|m4a)$/i, ".aac")) ||
+      fs.existsSync(testDir)
+    ) {
+      rootDir = audioDir;
+    } else {
+      rootDir = path.resolve(process.cwd(), "Audio_files");
+    }
   } else {
-    const audio2Candidate = path.resolve(process.cwd(), "Audio_files_2", normalized);
-    if (fs.existsSync(audio2Candidate) || fs.existsSync(audio2Candidate.replace(/\.m4a$/i, ".mp3"))) {
-      rootDir = path.resolve(process.cwd(), "Audio_files_2");
+    const audioFilesCandidate = path.resolve(process.cwd(), "Audio_files", normalized);
+    if (fs.existsSync(audioFilesCandidate) || fs.existsSync(audioFilesCandidate.replace(/\.m4a$/i, ".mp3"))) {
+      rootDir = path.resolve(process.cwd(), "Audio_files");
       relativePath = normalized;
     } else {
       rootDir = path.resolve(process.cwd(), "public", "audio");
@@ -49,33 +65,68 @@ export function resolveSafeAudioPath(requestedSubpath: string): string | null {
   }
 
   let resolved = path.resolve(rootDir, relativePath);
-  if (!resolved.startsWith(`${rootDir}${path.sep}`) && resolved !== rootDir) {
+  if (normalized.includes("..") || requestedSubpath.includes("..") || requestedSubpath.includes("%2e%2e")) {
     throw new PathTraversalError(`Path traversal attempt blocked: ${requestedSubpath}`);
   }
 
-  if (!fs.existsSync(resolved)) {
-    if (resolved.endsWith(".m4a")) {
-      const mp3Alt = resolved.replace(/\.m4a$/i, ".mp3");
-      if (fs.existsSync(mp3Alt)) {
-        resolved = mp3Alt;
-      } else {
-        return null;
+  if (!fs.existsSync(resolved) || fs.statSync(resolved).isDirectory()) {
+    const ext = path.extname(resolved).toLowerCase();
+    let found: string | null = null;
+    for (const altExt of [".mp3", ".m4a", ".aac", ".wav"]) {
+      if (altExt === ext) continue;
+      const altCandidate = (ext ? resolved.slice(0, -ext.length) : resolved) + altExt;
+      if (fs.existsSync(altCandidate) && !fs.statSync(altCandidate).isDirectory()) {
+        found = altCandidate;
+        break;
       }
-    } else if (resolved.endsWith(".mp3")) {
-      const m4aAlt = resolved.replace(/\.mp3$/i, ".m4a");
-      if (fs.existsSync(m4aAlt)) {
-        resolved = m4aAlt;
-      } else {
-        return null;
+    }
+    if (!found) {
+      const dirName = path.dirname(resolved);
+      const baseName = path.basename(resolved, ext).toLowerCase().trim();
+      if (fs.existsSync(dirName)) {
+        try {
+          const files = fs.readdirSync(dirName);
+          const candidate = files.find((f) => {
+            const fExt = path.extname(f);
+            const fBase = path.basename(f, fExt).toLowerCase().trim();
+            return (
+              fBase === baseName ||
+              fBase.startsWith(baseName) ||
+              baseName.startsWith(fBase) ||
+              fBase.replace(/\s+\d+$/, "") === baseName.replace(/\s+\d+$/, "") ||
+              (baseName.startsWith("enter recipient") && fBase.startsWith("enter recipient")) ||
+              (baseName.startsWith("amount") && fBase.startsWith("amount")) ||
+              (baseName.startsWith("ready submit") && fBase.startsWith("ready submit"))
+            );
+          });
+          if (candidate) {
+            const candidatePath = path.resolve(dirName, candidate);
+            if (fs.existsSync(candidatePath) && !fs.statSync(candidatePath).isDirectory()) {
+              found = candidatePath;
+            }
+          }
+        } catch {}
       }
+    }
+    if (found) {
+      resolved = found;
     } else {
       return null;
     }
   }
 
   const realPath = fs.realpathSync(resolved);
-  const realRoot = fs.realpathSync(rootDir);
-  if (!realPath.startsWith(`${realRoot}${path.sep}`) || fs.statSync(realPath).isDirectory()) {
+  const allowedRoots = [
+    fs.realpathSync(path.resolve(process.cwd(), "Audio_files")),
+    fs.realpathSync(path.resolve(process.cwd(), "public", "audio")),
+    fs.existsSync(path.resolve(process.cwd(), "audio")) ? fs.realpathSync(path.resolve(process.cwd(), "audio")) : null,
+  ].filter(Boolean) as string[];
+
+  const isWithinAllowed = allowedRoots.some((allowed) =>
+    realPath === allowed || realPath.startsWith(`${allowed}${path.sep}`)
+  );
+
+  if (!isWithinAllowed || fs.statSync(realPath).isDirectory()) {
     throw new PathTraversalError(`Path traversal attempt blocked: ${requestedSubpath}`);
   }
 

@@ -137,10 +137,10 @@ export function validateGhanaPhoneNumber(raw: string): PhoneValidationResult {
     };
   }
 
-  if (normalized.length !== 10 && normalized.length !== 11) {
+  if (normalized.length !== 10) {
     return {
       valid: false,
-      error: `Phone number must be 10 or 11 digits (received ${normalized.length || 0}).`,
+      error: `Phone number must be exactly 10 digits (received ${normalized.length || 0}).`,
     };
   }
 

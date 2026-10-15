@@ -1264,6 +1264,11 @@ export function usePhoneSimulator() {
         return;
       }
 
+      // Strict non-negotiable rule: never auto-advance multi-digit phone or amount entries on length alone. Wait for '#'
+      if (atFinishOnKey === "#" || isEnteringPhone) {
+        return;
+      }
+
       if (nextBuf.length >= atExpectedDigits) {
         const submitted = nextBuf;
         setDigitsBuffer("");

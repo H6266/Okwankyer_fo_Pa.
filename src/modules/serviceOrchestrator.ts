@@ -86,7 +86,7 @@ export interface TransactionResult {
   authorizationModel: string;
   momoDetails?: {
     referenceId: string;
-    mode: "LIVE_API" | "SANDBOX_API" | "MOCKED" | "UNCONFIGURED";
+    mode: "LIVE_API" | "SANDBOX_API" | "SANDBOX_SIMULATOR" | "MOCKED" | "UNCONFIGURED";
     status: string;
     financialTransactionId?: string;
   };
@@ -174,7 +174,7 @@ export class ServiceOrchestrator {
 
     let txStatus: "SUCCESS" | "PENDING" | "FAILED" = "PENDING";
     let txReferenceId = "";
-    let txMode: "LIVE_API" | "SANDBOX_API" | "MOCKED" | "UNCONFIGURED" = "MOCKED";
+    let txMode: "LIVE_API" | "SANDBOX_API" | "SANDBOX_SIMULATOR" | "MOCKED" | "UNCONFIGURED" = "MOCKED";
     let txRawStatus = "PENDING";
     let txFinancialId: string | undefined;
     let txCurrency = "GHS";
