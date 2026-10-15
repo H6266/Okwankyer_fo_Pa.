@@ -1,0 +1,6 @@
+{
+  "summary": "Comprehensive conversational audio architecture and flow plan for speech-driven Mobile Money transfers ('transfer money'), detailing intent classification, slot extraction, studio audio playback mapping (OP10/OP16/OP32), neural TTS synthesis for dynamic names/amounts, and zero-PIN security handoff.",
+  "updatedAt": "2026-10-15T00:15:55.907954029Z",
+  "requestFeedback": true,
+  "userFacing": true
+}
