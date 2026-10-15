@@ -44,6 +44,76 @@ export function formatRefForSpeech(ref: string): string {
   return ref.split("").join(" ");
 }
 
+export interface DynamicPromptParams {
+  name?: string;
+  recipientName?: string;
+  phone?: string;
+  recipientPhone?: string;
+  amount?: number | string;
+  referenceId?: string;
+  ref?: string;
+  response?: string;
+  utterance?: string;
+}
+
+export const DYNAMIC_PROMPT_IDS = new Set(["OP20", "OP21", "OP29", "OP52", "OP70"]);
+
+export function isDynamicPromptId(promptId: string): boolean {
+  return DYNAMIC_PROMPT_IDS.has(promptId.toUpperCase().trim());
+}
+
+/**
+ * Renders canonical dynamic prompt templates (OP20, OP21, OP29, OP52, OP70)
+ * with real variable values rather than placeholder strings.
+ */
+export function renderDynamicPromptTemplate(
+  promptId: string,
+  language: "en" | "twi",
+  params: DynamicPromptParams = {}
+): string | null {
+  const normId = promptId.toUpperCase().trim();
+  const isTwi = language === "twi";
+
+  switch (normId) {
+    case "OP20": {
+      const name = params.name || params.recipientName || (isTwi ? "obi a woremane no sika no" : "the recipient");
+      return isTwi
+        ? `Recipient no din ne ${name}.`
+        : `The recipient's name is ${name}.`;
+    }
+    case "OP21": {
+      const rawPhone = params.phone || params.recipientPhone || "0543546010";
+      const fullDigits = formatFullPhoneNumberForSpeech(rawPhone, language);
+      return isTwi
+        ? `Ne phone nɔmba a ɛdi mũ no ne ${fullDigits}.`
+        : `The full recipient phone number is ${fullDigits}.`;
+    }
+    case "OP29": {
+      const rawAmount = params.amount !== undefined ? String(params.amount) : "50";
+      const parsed = parseAndValidateAmount(rawAmount);
+      const amountStr = parsed.formatted || `${rawAmount} Cedis`;
+      return isTwi
+        ? `Mate sɛ ɛyɛ Ghana cedis ${amountStr}. Saa sika dodow yi yɛ nokware anaa?`
+        : `I heard ${amountStr} Ghana cedis. Is that amount correct?`;
+    }
+    case "OP52": {
+      const reference = params.referenceId || params.ref || "OKP-782914";
+      const spokenRef = formatRefForSpeech(reference);
+      return isTwi
+        ? `Wo transaction no dii nkonim. Transaction reference no ne ${spokenRef}.`
+        : `Your transaction was successful. The transaction reference is ${spokenRef}.`;
+    }
+    case "OP70": {
+      const utterance = params.response || params.utterance || (isTwi ? "wo nkaebɔ" : "your response");
+      return isTwi
+        ? `Mate sɛ wokae ${utterance}. Ɛyɛ nokware anaa?`
+        : `I heard you say ${utterance}. Is that correct?`;
+    }
+    default:
+      return null;
+  }
+}
+
 /**
  * Builds dynamic safe confirmation spoken text and VoiceXML
  */

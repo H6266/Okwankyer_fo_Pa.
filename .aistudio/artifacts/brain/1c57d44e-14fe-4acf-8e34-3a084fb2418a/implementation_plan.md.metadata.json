@@ -1,0 +1,6 @@
+{
+  "summary": "Comprehensive architectural plan establishing a unified canonical state-to-prompt audio system (OP01–OP94) with 1:1 parity between the Phone Simulator and Africa's Talking, template-driven dynamic TTS speech synthesis for variable slots (OP20, OP21, OP29, OP52, OP70), adaptive acoustic clarification for noisy speech recovery, and end-to-end regression validation.",
+  "updatedAt": "2026-10-15T16:50:53.627782181Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

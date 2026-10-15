@@ -19,10 +19,10 @@ import { runEvaluationHarness } from "../ai_eval/evalHarness";
 import { requireAdminAuth } from "../middleware/adminAuth";
 import { kycLookupRateLimiter, adminRateLimiter, publicApiRateLimiter } from "../middleware/rateLimiter";
 import { validateGhanaPhoneNumber } from "../domain/validation";
-import { aiBootstrap } from "../ai_system/core/aiBootstrap";
 import { modelRouter } from "../ai_system/providers/modelRouter";
 import { ttsRouter as speechSynthesisRouter } from "../ai_system/speech/tts/ttsRouter";
 import { resolvePrompt, resolvePromptText } from "../modules/ttsService";
+import { isDynamicPrompt, resolvePromptSpokenText } from "../audio/canonicalRegistry";
 
 export const apiRouter = Router();
 
@@ -52,7 +52,37 @@ apiRouter.get(
       return res.status(400).json({ error: "Unsupported prompt language." });
     }
 
-    const promptText = resolvePromptText(req.params.key, lang);
+    const {
+      name,
+      recipientName,
+      phone,
+      recipientPhone,
+      amount,
+      ref,
+      referenceId,
+      response: userResponse,
+      utterance,
+    } = req.query as Record<string, string>;
+
+    let promptText: string | null = null;
+    if (isDynamicPrompt(req.params.key) || Object.keys(req.query).length > 0) {
+      promptText = resolvePromptSpokenText(req.params.key, lang as "en" | "twi", {
+        name,
+        recipientName,
+        phone,
+        recipientPhone,
+        amount,
+        ref,
+        referenceId,
+        response: userResponse,
+        utterance,
+      });
+    }
+
+    if (!promptText) {
+      promptText = resolvePromptText(req.params.key, lang);
+    }
+
     if (!promptText) {
       return res.status(404).json({ error: "No registered prompt text or recording exists for this key." });
     }
@@ -62,11 +92,31 @@ apiRouter.get(
         text: promptText,
         language: lang === "twi" ? "tw" : "en",
       });
+
+      const buffer = result.audioBuffer;
+      const range = req.headers.range;
+
+      if (range) {
+        const parts = range.replace(/bytes=/, "").split("-");
+        const start = parseInt(parts[0], 10) || 0;
+        const end = parts[1] ? parseInt(parts[1], 10) : buffer.length - 1;
+        const chunk = buffer.subarray(start, end + 1);
+
+        res.status(206);
+        res.setHeader("Content-Range", `bytes ${start}-${end}/${buffer.length}`);
+        res.setHeader("Accept-Ranges", "bytes");
+        res.setHeader("Content-Length", chunk.length);
+        res.setHeader("Content-Type", result.audioMimeType);
+        res.setHeader("Cache-Control", "public, max-age=3600");
+        return res.end(chunk);
+      }
+
       res.status(200);
+      res.setHeader("Accept-Ranges", "bytes");
       res.setHeader("Content-Type", result.audioMimeType);
-      res.setHeader("Content-Length", result.audioBuffer.length);
+      res.setHeader("Content-Length", buffer.length);
       res.setHeader("Cache-Control", "public, max-age=3600");
-      return res.end(result.audioBuffer);
+      return res.end(buffer);
     } catch (error) {
       console.error("[AudioPromptTTS] Prompt synthesis failed.", error);
       return res.status(502).json({ error: "Prompt speech synthesis is temporarily unavailable." });

@@ -16,6 +16,8 @@ import {
   PROMPT_KEY_TO_RECORDING_ID,
 } from "../audio/recordingRegistry";
 import { getStepDefinition } from "../domain/stepRegistry";
+import { isDynamicPrompt, resolvePromptSpokenText } from "../audio/canonicalRegistry";
+import type { DynamicPromptParams } from "../audio/dynamicPromptBuilder";
 
 const TTS_SCRIPT_KEY_BY_PROMPT_KEY: Readonly<Record<string, string>> = {
   invalid_recipient: "number_invalid",
@@ -92,6 +94,11 @@ export function resolvePrompt(key: string, lang: SupportedLanguage = "en"): stri
   const language = normalizeRecordingLanguage(lang);
   if (!language) return null;
 
+  // Strict Invariant: Dynamic prompts (OP20, OP21, OP29, OP52, OP70) resolve strictly to approved TTS
+  if (isDynamicPrompt(key)) {
+    return `/api/audio/prompt-tts/${language}/${encodeURIComponent(key)}`;
+  }
+
   // 1. Direct recording lookup by prompt key (respects language variants like Twi vs English)
   const recordingUrl = getRecordingByPromptKey(key, language)?.url;
   if (recordingUrl) return recordingUrl;
@@ -103,12 +110,22 @@ export function resolvePrompt(key: string, lang: SupportedLanguage = "en"): stri
 
 }
 
-export function resolvePromptText(key: string, lang: SupportedLanguage): string | null {
+export function resolvePromptText(
+  key: string,
+  lang: SupportedLanguage,
+  params?: DynamicPromptParams
+): string | null {
   const language = normalizeRecordingLanguage(lang);
   if (!language) return null;
 
-  const scriptKey = TTS_SCRIPT_KEY_BY_PROMPT_KEY[key] || key;
   const languageKey = language === "twi" ? "twi" : "en";
+
+  // Dynamic prompts strictly resolve via template pipeline
+  if (isDynamicPrompt(key)) {
+    return resolvePromptSpokenText(key, languageKey, params || {});
+  }
+
+  const scriptKey = TTS_SCRIPT_KEY_BY_PROMPT_KEY[key] || key;
   if (PROMPT_SCRIPTS[scriptKey]?.[languageKey]) {
     return PROMPT_SCRIPTS[scriptKey][languageKey];
   }
