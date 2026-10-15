@@ -140,15 +140,19 @@ export function resolveSimulatorAudioUrl(
       return pathname;
     }
     const recording = getRecordingByUrl(pathname);
-    if (recording?.url) {
-      return recording.url.replace(/\.(m4a|aac)$/i, ".mp3");
+    if (recording) {
+      if (
+        recording.mappingStatus === "VERIFIED" &&
+        recording.recordingRole === "fixed" &&
+        recording.language === language
+      ) {
+        return recording.url?.replace(/\.(m4a|aac)$/i, ".mp3") || null;
+      }
+      return null;
     }
-    if (pathname.startsWith("/audio/") || pathname.startsWith("/Audio_files/")) {
-      return pathname.replace(/\.(m4a|aac)$/i, ".mp3");
-    }
-    return pathname.replace(/\.(m4a|aac)$/i, ".mp3");
+    return null;
   } catch {
-    return (audioUrl || "").replace(/\.(m4a|aac)$/i, ".mp3");
+    return null;
   }
 }
 
@@ -167,7 +171,13 @@ function escapeXmlText(text: string): string {
 
 export function toTelephonyAudioUrl(audioUrl: string): string {
   // Replace .m4a or .aac with .mp3 extension so telephony media servers receive MP3 audio
-  return audioUrl.replace(/\.(m4a|aac)$/i, ".mp3");
+  if (/\.(m4a|aac)$/i.test(audioUrl)) {
+    return audioUrl.replace(/\.(m4a|aac)$/i, ".mp3");
+  }
+  if (audioUrl.includes("/prompt-tts/") && !audioUrl.endsWith(".mp3")) {
+    return `${audioUrl}.mp3`;
+  }
+  return audioUrl;
 }
 
 export function resolvePromptXml(

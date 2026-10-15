@@ -52,7 +52,8 @@ apiRouter.get(
       return res.status(400).json({ error: "Unsupported prompt language." });
     }
 
-    const promptText = resolvePromptText(req.params.key, lang);
+    const cleanKey = req.params.key.replace(/\.(mp3|m4a|aac|wav)$/i, "");
+    const promptText = resolvePromptText(cleanKey, lang);
     if (!promptText) {
       return res.status(404).json({ error: "No registered prompt text or recording exists for this key." });
     }

@@ -150,6 +150,15 @@ export function resolveSafeAudioPath(requestedSubpath: string): string | null {
     throw new PathTraversalError(`Path traversal attempt blocked: ${requestedSubpath}`);
   }
 
+  const unverifiedCandidates = [
+    /network selection/i,
+    /welcome 1 \(\d+\)/i,
+    /01_welcome_session_start/i,
+  ];
+  if (unverifiedCandidates.some((re) => re.test(normalized))) {
+    return null;
+  }
+
   let assetRoot: AudioAssetRoot;
   let relativePath: string;
   let rootDir: string;

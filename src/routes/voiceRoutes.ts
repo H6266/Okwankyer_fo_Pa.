@@ -333,24 +333,17 @@ export const handleInboundCall = (req: Request, res: Response) => {
   const session = transactionStateMachine.getOrCreateSession(sessionId, "en", "VOICE");
   session.callerPhone = callerNumber;
 
-  const initialLang = ((req.query?.lang || req.body?.lang || "twi") as string).toLowerCase() === "en" ? "en" : "twi";
+  const initialLang = ((req.query?.lang || req.body?.lang || "en") as string).toLowerCase() === "twi" ? "twi" : "en";
   const welcomePrompt = canonicalPromptElement(
     "welcome",
     initialLang,
     baseUrl,
     "Welcome to Ɔkwankyerɛfo Pa, your accessible voice guide for mobile services."
   );
-  const langPrompt = canonicalPromptElement(
-    "language_selection",
-    "twi",
-    baseUrl,
-    "Sɛ wopɛ Borɔfo a, mia 1. Sɛ wopɛ Twi a, mia 2."
-  );
 
-  // Play Welcome and Language Selection together within GetDigits for immediate audio playback with DTMF barge-in
+  // Play Welcome prompt within GetDigits for immediate audio playback with DTMF barge-in, then move to language selection
   const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?sessionId=${sessionId}">
         ${welcomePrompt}
-        ${langPrompt}
     </GetDigits>
     <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=language-selection&amp;sessionId=${sessionId}&amp;retry=0"/>`;
 
@@ -940,24 +933,14 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
     return xmlResponse(res, xml);
   }
 
-  const readbackAnnouncement = lang === "twi"
-    ? `Yɛahu obi a woremane no sika no. Obi a woremane no din ne ${nameSpoken}. Ne phone nɔmba a ɛdi mũ ne ${fullPhoneSpoken}.`
-    : `We found the recipient. The recipient's name is ${nameSpoken}. The full recipient phone number is ${fullPhoneSpoken}.`;
+  const confirmPrompt = lang === "twi"
+    ? `Yɛahu obi a woremane no sika no. Obi a woremane no din ne ${nameSpoken}. Ne phone nɔmba a ɛdi mũ ne ${fullPhoneSpoken}. Sɛ wopene so na wopɛ sɛ wokɔ so a, mia 1. Sɛ wopɛ sɛ wosesa nɔmba no a, mia 2. Sɛ wopɛ sɛ wotwa mu a, mia 0.`
+    : `We found the recipient. The recipient's name is ${nameSpoken}, and the full phone number is ${fullPhoneSpoken}. To confirm and continue, press 1. To re-enter the recipient number, press 2. To cancel, press 0.`;
 
-  const amountPromptElement = canonicalPromptElement(
-    "enter_amount",
-    lang,
-    baseUrl,
-    lang === "twi"
-      ? "Afei bɔ sika dodow a wopɛ sɛ womane no wɔ Cedi mu na fa hash ka ho."
-      : "Please enter the amount in Ghana Cedis followed by the hash key."
-  );
-
-  const xml = `    <Say voice="female">${escapeVoiceXml(readbackAnnouncement)}</Say>
-    <GetDigits timeout="30" finishOnKey="#" callbackUrl="${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}">
-        ${amountPromptElement}
+  const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/recipient-verify-choice?sessionId=${sessionId}&amp;lang=${lang}">
+        <Say voice="female">${escapeVoiceXml(confirmPrompt)}</Say>
     </GetDigits>
-    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="10" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=enter-amount&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="8" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=recipient-verify&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
 
   xmlResponse(res, xml);
 });
@@ -1012,8 +995,10 @@ ivrRouter.all("/recipient-verify-choice", (req: Request, res: Response) => {
     return xmlResponse(res, `    <Redirect>${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${encodeURIComponent(dtmf)}</Redirect>`);
   }
 
-  if (session.amount && session.amount > 0 && session.state === "RECIPIENT_VERIFIED") {
-    transactionStateMachine.transition(sessionId, "AMOUNT_ENTERED", { amount: session.amount });
+  if (session.amount && session.amount > 0 && (session.state === "RECIPIENT_VERIFIED" || session.state === "AMOUNT_ENTERED")) {
+    if (session.state !== "AMOUNT_ENTERED") {
+      transactionStateMachine.transition(sessionId, "AMOUNT_ENTERED", { amount: session.amount });
+    }
     return xmlResponse(res, `    <Redirect>${baseUrl}/safe-confirmation?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
   }
 
@@ -1212,18 +1197,19 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
       return xmlResponse(res, `    <Say voice="female">${errorMsg}</Say>\n    <Reject/>`);
     }
 
-    const isSimulated = sessionId.startsWith("SIM_CALL_") || (req.baseUrl && req.baseUrl.startsWith("/api/simulator")) || !config.momo.targetEnvironment || config.momo.targetEnvironment === "sandbox";
+    const isSimulated = sessionId.startsWith("SIM_CALL_") || Boolean(req.baseUrl && req.baseUrl.startsWith("/api/simulator"));
     if (!isSimulated) {
-      const callerNetwork = validateGhanaPhoneNumber(session.callerPhone).network || "MTN";
-      const recipientNetwork = validateGhanaPhoneNumber(session.recipientPhone).network || "MTN";
-      const supportedLiveNetworks = ["MTN", "Telecel", "AT"];
-      if (!supportedLiveNetworks.includes(callerNetwork) || !supportedLiveNetworks.includes(recipientNetwork)) {
+      const callerNetwork = validateGhanaPhoneNumber(session.callerPhone).network || session.network || "MTN";
+      const recipientNetwork = validateGhanaPhoneNumber(session.recipientPhone).network || session.network || "MTN";
+      const sessionNetwork = session.network || recipientNetwork;
+      const supportedLiveNetworks = ["MTN", "Telecel"];
+      if (!supportedLiveNetworks.includes(callerNetwork) || !supportedLiveNetworks.includes(recipientNetwork) || !supportedLiveNetworks.includes(sessionNetwork)) {
         transactionStateMachine.transition(sessionId, "FAILED", {
-          failureReason: "Live voice transfer supports MTN, Telecel, and AT networks.",
+          failureReason: "Live voice transfer supports MTN and Telecel numbers only.",
         });
         const providerUnavailable = lang === "twi"
-          ? "Mprempren, yɛn live voice transfer no yɛ MTN, Telecel ne AT nkutoo. Sika biara nkɔe. Yɛsrɛ wo, frɛ bɔ mmɔden bio akyire yi."
-          : "Live voice transfers currently support MTN, Telecel, and AT numbers. No money was charged. Please use a recognized network number.";
+          ? "Mprempren, yɛn live voice transfer no yɛ MTN ne Telecel nkutoo. Sika biara nkɔe. Yɛsrɛ wo, frɛ bɔ mmɔden bio akyire yi."
+          : "Live voice transfers currently support MTN and Telecel numbers only. No money was charged. Please use a recognized network number.";
         return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(providerUnavailable)}</Say>\n    <Reject/>`);
       }
     }

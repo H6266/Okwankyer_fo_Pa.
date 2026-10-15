@@ -521,7 +521,9 @@ export function getRecordingByPromptId(
   const matches = AUDIO_RECORDINGS.filter((recording) =>
     recording.promptId === promptId &&
     recording.language === language &&
-    recording.url
+    recording.url &&
+    recording.mappingStatus === "VERIFIED" &&
+    recording.recordingRole === "fixed"
   );
   if (matches.length > 0) return matches[0];
   return null;
