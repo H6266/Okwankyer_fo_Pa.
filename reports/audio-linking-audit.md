@@ -1,0 +1,1363 @@
+# Ɔkwankyerɛfo Pa — IVR Audio-Linking Audit
+
+- Generated (UTC): 2026-10-15T16:09:30.564171+00:00
+- Repository root: `/workspaces/Okwankyer_fo_Pa.`
+- Audit type: static/read-only
+
+## 1. Summary
+
+- Audio files found: **171**
+- Source/config files scanned: **310**
+- Literal audio references found in scanned files: **505**
+- Reference resolution counts: `{'MISSING': 79, 'BASENAME_ONLY': 402, 'AMBIGUOUS': 16, 'EXACT': 8}`
+- Zero-byte audio files: **0**
+- Duplicate SHA-256 groups: **63**
+- Audio files not reached by a discovered literal path: **30**
+- Inventory rows: **170**
+
+> Important: a file not reached by a literal path may be linked indirectly through a prompt ID or registry. Treat it as a review item, not automatic proof that the recording is unused.
+
+## 2. Code-risk checks
+
+### [HIGH] Reply matching appears hard-coded to Twi
+audioPlaybackController.ts appears to call matchReplyToAudio with 'twi' for cleanText. Verify that English prompts and dynamic recipient readbacks cannot be replaced by Twi recordings.
+
+### [HIGH] Simulator can fall back to Twi audio
+PhoneSimulatorPage.tsx appears to attempt Twi after resolving the selected language. This can make an English flow play Twi.
+
+### [MEDIUM] Simulator may return an unresolved raw audio URL
+The simulator source appears to use the original audioUrl as a fallback. Check whether invalid paths are reported as errors instead of being passed to the player.
+
+### [HIGH] Review welcome and language-selection prompt separation
+voiceRoutes.ts contains welcome, language-selection, and GetDigits-related code. Manually verify that OP01 welcome finishes before OP02 language selection begins, rather than both being played together in one response.
+
+### [HIGH] Prompt-ID lookup may not enforce verified fixed recordings
+The getRecordingByPromptId lookup block does not visibly check mappingStatus/VERIFIED or recordingRole. Ensure ambiguous or unverified recordings cannot be selected for live prompts.
+
+### [MEDIUM] Review audio-extension rewriting
+ttsService.ts may rewrite an .m4a/.aac path to .mp3. Confirm that the target MP3 actually exists; do not change extensions without a real converted file.
+
+### [HIGH] Review simulator PIN authorization completion
+The simulator has a PIN-authorization/zero-PIN path. It should never collect the real MoMo PIN. Verify there is a test-only approval/result path or a provider status callback so the simulated transaction can continue after authorization.
+
+## 3. Missing audio references
+
+- `Audio_files/prompts.json:14` → `audio/Twi/01_Welcome_Session_Start/Welcome 1.m4a`
+- `Audio_files/prompts.json:213` → `audio/Twi/03_Recipient_Entry_Verification/Enter recipient.m4a`
+- `Audio_files/prompts.json:226` → `audio/Twi/03_Recipient_Entry_Verification/Invalid recipient.m4a`
+- `Audio_files/prompts.json:254` → `audio/Twi/03_Recipient_Entry_Verification/Recipient verification.m4a`
+- `Audio_files/prompts.json:270` → `audio/Twi/03_Recipient_Entry_Verification/Recipient name.m4a`
+- `Audio_files/prompts.json:299` → `audio/Twi/03_Recipient_Entry_Verification/Recipient confirm.m4a`
+- `Audio_files/prompts.json:325` → `audio/Twi/03_Recipient_Entry_Verification/Use recipient.m4a`
+- `Audio_files/prompts.json:351` → `audio/Twi/04_Amount_Entry_Verification/Enter amount.m4a`
+- `Audio_files/prompts.json:393` → `audio/Twi/04_Amount_Entry_Verification/Amount read back.m4a`
+- `Audio_files/prompts.json:419` → `audio/Twi/04_Amount_Entry_Verification/Amount too high.m4a`
+- `Audio_files/prompts.json:445` → `audio/Twi/04_Amount_Entry_Verification/Change amount.m4a`
+- `Audio_files/prompts.json:905` → `Audio_files_2/Input not recognized.m4a`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:56` → `audio/Twi/OPxx.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:57` → `audio/English/OPxx.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1198` → `Audio_prompt_twi_02.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1199` → `audio/Twi/Audio_prompt_twi_02.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1200` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/Twi/Audio_prompt_twi_02.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1215` → `Audio_prompt_twi_03.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1216` → `audio/Twi/Audio_prompt_twi_03.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1217` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/Twi/Audio_prompt_twi_03.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1233` → `Audio_prompt_twi_04.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1234` → `audio/Twi/Audio_prompt_twi_04.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1235` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/Twi/Audio_prompt_twi_04.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1250` → `Audio_prompt_twi_05.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1251` → `audio/Twi/Audio_prompt_twi_05.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1252` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/Twi/Audio_prompt_twi_05.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1267` → `Audio_prompt_twi_06.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1268` → `audio/Twi/Audio_prompt_twi_06.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1269` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/Twi/Audio_prompt_twi_06.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1287` → `Audio_prompt_twi_07.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1288` → `audio/Twi/Audio_prompt_twi_07.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1289` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/Twi/Audio_prompt_twi_07.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1304` → `Audio_prompt_twi_08.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1305` → `audio/Twi/Audio_prompt_twi_08.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1306` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/Twi/Audio_prompt_twi_08.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1323` → `Audio_prompt_twi_09.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1324` → `audio/Twi/Audio_prompt_twi_09.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1325` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/Twi/Audio_prompt_twi_09.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1341` → `Audio_prompt_twi_10.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1342` → `audio/Twi/Audio_prompt_twi_10.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1343` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/Twi/Audio_prompt_twi_10.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1361` → `Audio_prompt_twi_11.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1362` → `audio/Twi/Audio_prompt_twi_11.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1363` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/Twi/Audio_prompt_twi_11.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1381` → `Audio_prompt_twi_12.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1382` → `audio/Twi/Audio_prompt_twi_12.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1383` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/Twi/Audio_prompt_twi_12.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1401` → `01_service_select.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1403` → `audio/twi_recording/01_service_select.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1409` → `02_network_select.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1411` → `audio/twi_recording/02_network_select.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1417` → `03_network_select_alt.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1419` → `audio/twi_recording/03_network_select_alt.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1425` → `04_mtn_services_menu.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1427` → `audio/twi_recording/04_mtn_services_menu.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1433` → `05_enter_recipient_phone.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1435` → `audio/twi_recording/05_enter_recipient_phone.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1441` → `06_demo_recipient_digits.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1443` → `audio/twi_recording/06_demo_recipient_digits.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1449` → `07_confirm_recipient_name.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1451` → `audio/twi_recording/07_confirm_recipient_name.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1457` → `08_enter_amount_cedis.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1459` → `audio/twi_recording/08_enter_amount_cedis.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1465` → `09_confirm_transfer_summary.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1467` → `audio/twi_recording/09_confirm_transfer_summary.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1473` → `10_pin_prompt_screen_handoff.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1475` → `audio/twi_recording/10_pin_prompt_screen_handoff.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1481` → `11_transaction_receipt_summary.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1483` → `audio/twi_recording/11_transaction_receipt_summary.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1489` → `cancel_twi.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1491` → `audio/twi_recording/cancel_twi.mp3`
+- `src/ai_system/services/openaiTranscriber.ts:143` → `audio.wav`
+- `src/audio/recordingRegistry.ts:206` → `Input not recognized.m4a`
+- `src/audio/recordingRegistry.ts:303` → `public:Welcome_prompt_01.mp3`
+- `src/audio/recordingRegistry.ts:320` → `public:welcome_prompt_01.mp3`
+- `src/audio/recordingRegistry.ts:368` → `Input not recognized.m4a`
+- `src/audio/streaming.ts:58` → `${safeBase}_${hash}.mp3`
+- `src/audio/twiSequentialAudioFlow.ts:912` → `/audio/additional/Input%20not%20recognized.m4a`
+- `src/pages/dashboard/AsrLabPage.tsx:440` → `audio/*,.wav,.mp3,.webm,.ogg`
+
+## 4. Ambiguous references
+
+- `Audio_files/prompts.json:79` → `audio/Twi/01_Welcome_Session_Start/Processing.m4a`
+  - Possible match: `Audio_files/Processing.m4a`
+  - Possible match: `Audio_files/Twi/1.Welcome & Session Start/Processing.m4a`
+- `Audio_files/prompts.json:679` → `Audio_files_2/Processing.m4a`
+  - Possible match: `Audio_files/Processing.m4a`
+  - Possible match: `Audio_files/Twi/1.Welcome & Session Start/Processing.m4a`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1175` → `welcome_prompt_01.mp3`
+  - Possible match: `audio/Welcome_prompt_01.mp3`
+  - Possible match: `audio/welcome_prompt_01.mp3`
+  - Possible match: `public/audio/Welcome_prompt_01.mp3`
+  - Possible match: `public/audio/welcome_prompt_01.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1176` → `audio/Twi/welcome_prompt_01.mp3`
+  - Possible match: `audio/Welcome_prompt_01.mp3`
+  - Possible match: `audio/welcome_prompt_01.mp3`
+  - Possible match: `public/audio/Welcome_prompt_01.mp3`
+  - Possible match: `public/audio/welcome_prompt_01.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1177` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/welcome_prompt_01.mp3`
+  - Possible match: `audio/Welcome_prompt_01.mp3`
+  - Possible match: `audio/welcome_prompt_01.mp3`
+  - Possible match: `public/audio/Welcome_prompt_01.mp3`
+  - Possible match: `public/audio/welcome_prompt_01.mp3`
+- `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1191` → `audio/Twi/welcome_prompt_01.mp3`
+  - Possible match: `audio/Welcome_prompt_01.mp3`
+  - Possible match: `audio/welcome_prompt_01.mp3`
+  - Possible match: `public/audio/Welcome_prompt_01.mp3`
+  - Possible match: `public/audio/welcome_prompt_01.mp3`
+- `src/ai_system/brain/replyComposer.ts:203` → `public:English/Welcome_prompt_01.mp3`
+  - Possible match: `audio/Welcome_prompt_01.mp3`
+  - Possible match: `audio/welcome_prompt_01.mp3`
+  - Possible match: `public/audio/Welcome_prompt_01.mp3`
+  - Possible match: `public/audio/welcome_prompt_01.mp3`
+- `src/audio/recordingRegistry.ts:108` → `Twi/1.Welcome & Session Start/Processing.m4a`
+  - Possible match: `Audio_files/Processing.m4a`
+  - Possible match: `Audio_files/Twi/1.Welcome & Session Start/Processing.m4a`
+- `src/audio/recordingRegistry.ts:147` → `Twi/1.Welcome & Session Start/Processing.m4a`
+  - Possible match: `Audio_files/Processing.m4a`
+  - Possible match: `Audio_files/Twi/1.Welcome & Session Start/Processing.m4a`
+- `src/audio/recordingRegistry.ts:216` → `Processing.m4a`
+  - Possible match: `Audio_files/Processing.m4a`
+  - Possible match: `Audio_files/Twi/1.Welcome & Session Start/Processing.m4a`
+- `src/audio/recordingRegistry.ts:311` → `Welcome_prompt_01.mp3`
+  - Possible match: `audio/Welcome_prompt_01.mp3`
+  - Possible match: `audio/welcome_prompt_01.mp3`
+  - Possible match: `public/audio/Welcome_prompt_01.mp3`
+  - Possible match: `public/audio/welcome_prompt_01.mp3`
+- `src/audio/recordingRegistry.ts:328` → `welcome_prompt_01.mp3`
+  - Possible match: `audio/Welcome_prompt_01.mp3`
+  - Possible match: `audio/welcome_prompt_01.mp3`
+  - Possible match: `public/audio/Welcome_prompt_01.mp3`
+  - Possible match: `public/audio/welcome_prompt_01.mp3`
+- `src/audio/recordingRegistry.ts:352` → `Processing.m4a`
+  - Possible match: `Audio_files/Processing.m4a`
+  - Possible match: `Audio_files/Twi/1.Welcome & Session Start/Processing.m4a`
+- `src/audio/twiSequentialAudioFlow.ts:247` → `/audio/Twi/01_Welcome_Session_Start/Processing.m4a`
+  - Possible match: `Audio_files/Processing.m4a`
+  - Possible match: `Audio_files/Twi/1.Welcome & Session Start/Processing.m4a`
+- `src/audio/twiSequentialAudioFlow.ts:713` → `/audio/Twi/07_Transaction_Processing/Check%20final%20status.aac`
+  - Possible match: `Audio_files/Twi/7.Transaction Processing/Check final status.aac`
+  - Possible match: `Audio_files/Twi/7.Transaction Processing/Check Final Status.aac`
+- `src/audio/twiSequentialAudioFlow.ts:723` → `/audio/additional/Processing.m4a`
+  - Possible match: `Audio_files/Processing.m4a`
+  - Possible match: `Audio_files/Twi/1.Welcome & Session Start/Processing.m4a`
+
+## 5. Basename-only matches
+
+- `Audio_files/prompts.json:27` → `audio/Twi/01_Welcome_Session_Start/Language selection.m4a` matches `Audio_files/Twi/1.Welcome & Session Start/Language selection.m4a` by filename only
+- `Audio_files/prompts.json:53` → `audio/Twi/01_Welcome_Session_Start/Welcome back.m4a` matches `Audio_files/Twi/1.Welcome & Session Start/Welcome back.m4a` by filename only
+- `Audio_files/prompts.json:66` → `audio/Twi/01_Welcome_Session_Start/Acknowledge.m4a` matches `Audio_files/Twi/1.Welcome & Session Start/Acknowledge.m4a` by filename only
+- `Audio_files/prompts.json:92` → `audio/Twi/02_Main_Service_Navigation/Service selection.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Service selection.m4a` by filename only
+- `Audio_files/prompts.json:94` → `audio/Twi/01_Welcome_Session_Start/Service selection 2.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Service selection 2.m4a` by filename only
+- `Audio_files/prompts.json:107` → `audio/Twi/02_Main_Service_Navigation/Network selection.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Network selection.m4a` by filename only
+- `Audio_files/prompts.json:120` → `audio/Twi/02_Main_Service_Navigation/MTN menu.m4a` matches `Audio_files/Twi/2.Main Service Navigation/MTN menu.m4a` by filename only
+- `Audio_files/prompts.json:133` → `audio/Twi/02_Main_Service_Navigation/Send money selected.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Send money selected.m4a` by filename only
+- `Audio_files/prompts.json:146` → `audio/Twi/02_Main_Service_Navigation/Service unavailable.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Service unavailable.m4a` by filename only
+- `Audio_files/prompts.json:148` → `audio/Twi/02_Main_Service_Navigation/Main service Unavailable.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Main service Unavailable.m4a` by filename only
+- `Audio_files/prompts.json:161` → `audio/Twi/02_Main_Service_Navigation/Service alternative.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Service alternative.m4a` by filename only
+- `Audio_files/prompts.json:174` → `audio/Twi/02_Main_Service_Navigation/Service not ready.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Service not ready.m4a` by filename only
+- `Audio_files/prompts.json:187` → `audio/Twi/02_Main_Service_Navigation/Try another service.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Try another service.m4a` by filename only
+- `Audio_files/prompts.json:200` → `audio/Twi/02_Main_Service_Navigation/Choose instead.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Choose instead.m4a` by filename only
+- `Audio_files/prompts.json:239` → `audio/Twi/03_Recipient_Entry_Verification/Recipient found.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Recipient found.m4a` by filename only
+- `Audio_files/prompts.json:252` → `audio/Twi/03_Recipient_Entry_Verification/Recipient verify.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Recipient verify.m4a` by filename only
+- `Audio_files/prompts.json:338` → `audio/Twi/03_Recipient_Entry_Verification/Change recipient.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Change recipient.m4a` by filename only
+- `Audio_files/prompts.json:364` → `audio/Twi/04_Amount_Entry_Verification/Invalid amount.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Invalid amount.m4a` by filename only
+- `Audio_files/prompts.json:377` → `audio/Twi/04_Amount_Entry_Verification/Amount prompt.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Amount prompt.m4a` by filename only
+- `Audio_files/prompts.json:406` → `audio/Twi/04_Amount_Entry_Verification/Repeat amount.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Repeat amount.m4a` by filename only
+- `Audio_files/prompts.json:432` → `audio/Twi/04_Amount_Entry_Verification/Amount too low.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Amount too low.m4a` by filename only
+- `Audio_files/prompts.json:458` → `audio/Twi/05_Transaction_Confirmation/Confirmation intro.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Confirmation intro.m4a` by filename only
+- `Audio_files/prompts.json:471` → `audio/Twi/05_Transaction_Confirmation/Review transaction.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Review transaction.m4a` by filename only
+- `Audio_files/prompts.json:497` → `audio/Twi/05_Transaction_Confirmation/Confirm speech.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Confirm speech.m4a` by filename only
+- `Audio_files/prompts.json:510` → `audio/Twi/05_Transaction_Confirmation/Reject speech.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Reject speech.m4a` by filename only
+- `Audio_files/prompts.json:523` → `audio/Twi/05_Transaction_Confirmation/Ready submit.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Ready submit.m4a` by filename only
+- `Audio_files/prompts.json:536` → `Audio_files_2/Pin Handoff.m4a` matches `Audio_files/Pin Handoff.m4a` by filename only
+- `Audio_files/prompts.json:549` → `Audio_files_2/Security warning.m4a` matches `Audio_files/Security warning.m4a` by filename only
+- `Audio_files/prompts.json:562` → `Audio_files_2/Secure pin.m4a` matches `Audio_files/Secure pin.m4a` by filename only
+- `Audio_files/prompts.json:575` → `Audio_files_2/Pin Block.m4a` matches `Audio_files/Pin Block.m4a` by filename only
+- `Audio_files/prompts.json:588` → `Audio_files_2/Sensitive Block.m4a` matches `Audio_files/Sensitive Block.m4a` by filename only
+- `Audio_files/prompts.json:601` → `Audio_files_2/Submitted.m4a` matches `Audio_files/Submitted.m4a` by filename only
+- `Audio_files/prompts.json:614` → `Audio_files_2/Waiting confirmation.m4a` matches `Audio_files/Waiting confirmation.m4a` by filename only
+- `Audio_files/prompts.json:627` → `Audio_files_2/Check phone.m4a` matches `Audio_files/Check phone.m4a` by filename only
+- `Audio_files/prompts.json:640` → `Audio_files_2/Authorize phone.m4a` matches `Audio_files/Authorize phone.m4a` by filename only
+- `Audio_files/prompts.json:653` → `Audio_files_2/Auth received.m4a` matches `Audio_files/Auth received.m4a` by filename only
+- `Audio_files/prompts.json:666` → `Audio_files_2/Check final status.m4a` matches `Audio_files/Check final status.m4a` by filename only
+- `Audio_files/prompts.json:708` → `Audio_files_2/Success sent.m4a` matches `Audio_files/Success sent.m4a` by filename only
+- `Audio_files/prompts.json:710` → `Audio_files_2/Success.m4a` matches `Audio_files/Success.m4a` by filename only
+- `Audio_files/prompts.json:723` → `Audio_files_2/Keep reference.m4a` matches `Audio_files/Keep reference.m4a` by filename only
+- `Audio_files/prompts.json:736` → `Audio_files_2/Success close.m4a` matches `Audio_files/Success close.m4a` by filename only
+- `Audio_files/prompts.json:749` → `Audio_files_2/Anything else.m4a` matches `Audio_files/Anything else.m4a` by filename only
+- `Audio_files/prompts.json:762` → `Audio_files_2/Customer Declined.m4a` matches `Audio_files/Customer Declined.m4a` by filename only
+- `Audio_files/prompts.json:775` → `Audio_files_2/Failed.m4a` matches `Audio_files/Failed.m4a` by filename only
+- `Audio_files/prompts.json:788` → `Audio_files_2/Timeout.m4a` matches `Audio_files/Timeout.m4a` by filename only
+- `Audio_files/prompts.json:801` → `Audio_files_2/Failure Retry.m4a` matches `Audio_files/Failure Retry.m4a` by filename only
+- `Audio_files/prompts.json:814` → `Audio_files_2/No transfer confirmed.m4a` matches `Audio_files/No transfer confirmed.m4a` by filename only
+- `Audio_files/prompts.json:827` → `Audio_files_2/Check messages.m4a` matches `Audio_files/Check messages.m4a` by filename only
+- `Audio_files/prompts.json:840` → `Audio_files_2/Start Again.m4a` matches `Audio_files/Start Again.m4a` by filename only
+- `Audio_files/prompts.json:853` → `Audio_files_2/Not understood.m4a` matches `Audio_files/Not understood.m4a` by filename only
+- `Audio_files/prompts.json:866` → `Audio_files_2/Did not get.m4a` matches `Audio_files/Did not get.m4a` by filename only
+- `Audio_files/prompts.json:892` → `Audio_files_2/Please respond.m4a` matches `Audio_files/Please respond.m4a` by filename only
+- `Audio_files/prompts.json:918` → `Audio_files_2/Repeat.m4a` matches `Audio_files/Repeat.m4a` by filename only
+- `Audio_files/prompts.json:934` → `Audio_files_2/Confirm understanding.m4a` matches `Audio_files/Confirm understanding.m4a` by filename only
+- `Audio_files/prompts.json:947` → `Audio_files_2/Correct prompt.m4a` matches `Audio_files/Correct prompt.m4a` by filename only
+- `Audio_files/prompts.json:960` → `Audio_files_2/Yes -No.m4a` matches `Audio_files/Yes -No.m4a` by filename only
+- `Audio_files/prompts.json:973` → `Audio_files_2/Back.m4a` matches `Audio_files/Back.m4a` by filename only
+- `Audio_files/prompts.json:986` → `Audio_files_2/Main menu.m4a` matches `Audio_files/Main menu.m4a` by filename only
+- `Audio_files/prompts.json:999` → `Audio_files_2/Restart.m4a` matches `Audio_files/Restart.m4a` by filename only
+- `Audio_files/prompts.json:1012` → `Audio_files_2/Cancel.m4a` matches `Audio_files/Cancel.m4a` by filename only
+- `Audio_files/prompts.json:1025` → `Audio_files_2/Exit.m4a` matches `Audio_files/Exit.m4a` by filename only
+- `Audio_files/prompts.json:1038` → `Audio_files_2/Session End.m4a` matches `Audio_files/Session End.m4a` by filename only
+- `Audio_files/prompts.json:1051` → `Audio_files_2/Continue.m4a` matches `Audio_files/Continue.m4a` by filename only
+- `Audio_files/prompts.json:1064` → `Audio_files_2/Session timeout.m4a` matches `Audio_files/Session timeout.m4a` by filename only
+- `Audio_files/prompts.json:1077` → `Audio_files_2/Repeat Option.m4a` matches `Audio_files/Repeat Option.m4a` by filename only
+- `Audio_files/prompts.json:1090` → `Audio_files_2/Keypad option.m4a` matches `Audio_files/Keypad option.m4a` by filename only
+- `Audio_files/prompts.json:1103` → `Audio_files_2/Voice or keypad.m4a` matches `Audio_files/Voice or keypad.m4a` by filename only
+- `Audio_files/prompts.json:1116` → `Audio_files_2/Take your time.m4a` matches `Audio_files/Take your time.m4a` by filename only
+- `Audio_files/prompts.json:1129` → `Audio_files_2/Yes -no- keypad.m4a` matches `Audio_files/Yes -no- keypad.m4a` by filename only
+- `Audio_files/prompts.json:1142` → `Audio_files_2/Help.m4a` matches `Audio_files/Help.m4a` by filename only
+- `Audio_files/prompts.json:1155` → `Audio_files_2/Help command.m4a` matches `Audio_files/Help command.m4a` by filename only
+- `Audio_files/prompts.json:1168` → `Audio_files_2/Balance Unavailable.m4a` matches `Audio_files/Balance Unavailable.m4a` by filename only
+- `Audio_files/prompts.json:1181` → `Audio_files_2/Unsupported service.m4a` matches `Audio_files/Unsupported service.m4a` by filename only
+- `Audio_files/prompts.json:1194` → `Audio_files_2/System Error.m4a` matches `Audio_files/System Error.m4a` by filename only
+- `Audio_files/prompts.json:1207` → `Audio_files_2/Post success Help.m4a` matches `Audio_files/Post success Help.m4a` by filename only
+- `Audio_files/prompts.json:1220` → `Audio_files_2/Another transaction.m4a` matches `Audio_files/Another transaction.m4a` by filename only
+- `Audio_files/prompts.json:1233` → `Audio_files_2/Another recipient.m4a` matches `Audio_files/Another recipient.m4a` by filename only
+- `Audio_files/prompts.json:1246` → `Audio_files_2/Finish.m4a` matches `Audio_files/Finish.m4a` by filename only
+- `src/audio/audioPlaybackController.ts:319` → `/audio/supplied/Twi/4.Amount Entry & Verification/Enter amount 4.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Enter amount 4.m4a` by filename only
+- `src/audio/audioPlaybackController.ts:321` → `/audio/supplied/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a` by filename only
+- `src/audio/audioPlaybackController.ts:323` → `/audio/supplied/Twi/5.Transaction Confirmation/Review transaction.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Review transaction.m4a` by filename only
+- `src/audio/audioPlaybackController.ts:325` → `/audio/supplied/Twi/7.Handset PIN Delivery & Handoff/Pin handoff.m4a` matches `Audio_files/Pin Handoff.m4a` by filename only
+- `src/audio/audioPlaybackController.ts:327` → `/audio/supplied/Twi/13.Balance  Unsupported Services/Balance unavailable.aac` matches `Audio_files/Twi/13.Balance  Unsupported Services/Balance unavailable.aac` by filename only
+- `src/audio/audioPlaybackController.ts:329` → `/audio/supplied/Twi/2.Main Service Navigation/Send money selected.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Send money selected.m4a` by filename only
+- `src/audio/audioPlaybackController.ts:331` → `/audio/supplied/Twi/2.Main Service Navigation/MTN menu 1.m4a` matches `Audio_files/Twi/2.Main Service Navigation/MTN menu 1.m4a` by filename only
+- `src/audio/audioPlaybackController.ts:333` → `/audio/supplied/Twi/11.Navigation & Recovery/Cancel.aac` matches `Audio_files/Twi/11.Navigation & Recovery/Cancel.aac` by filename only
+- `src/audio/audioPlaybackController.ts:335` → `/audio/supplied/Twi/14.Post-Transaction Conversation/Finish.aac` matches `Audio_files/Twi/14.Post-Transaction Conversation/Finish.aac` by filename only
+- `src/audio/recordingRegistry.ts:106` → `Twi/1.Welcome & Session Start/Acknowledge.m4a` matches `Audio_files/Twi/1.Welcome & Session Start/Acknowledge.m4a` by filename only
+- `src/audio/recordingRegistry.ts:107` → `Twi/1.Welcome & Session Start/Language selection.m4a` matches `Audio_files/Twi/1.Welcome & Session Start/Language selection.m4a` by filename only
+- `src/audio/recordingRegistry.ts:109` → `Twi/1.Welcome & Session Start/Welcome 1 (2).m4a` matches `Audio_files/Twi/1.Welcome & Session Start/Welcome 1 (2).m4a` by filename only
+- `src/audio/recordingRegistry.ts:110` → `Twi/1.Welcome & Session Start/Welcome back.m4a` matches `Audio_files/Twi/1.Welcome & Session Start/Welcome back.m4a` by filename only
+- `src/audio/recordingRegistry.ts:111` → `Twi/2.Main Service Navigation/Choose instead.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Choose instead.m4a` by filename only
+- `src/audio/recordingRegistry.ts:112` → `Twi/2.Main Service Navigation/Main service Unavailable.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Main service Unavailable.m4a` by filename only
+- `src/audio/recordingRegistry.ts:113` → `Twi/2.Main Service Navigation/MTN menu.m4a` matches `Audio_files/Twi/2.Main Service Navigation/MTN menu.m4a` by filename only
+- `src/audio/recordingRegistry.ts:114` → `Twi/2.Main Service Navigation/Network selection.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Network selection.m4a` by filename only
+- `src/audio/recordingRegistry.ts:115` → `Twi/2.Main Service Navigation/Send money selected.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Send money selected.m4a` by filename only
+- `src/audio/recordingRegistry.ts:116` → `Twi/2.Main Service Navigation/Service alternative.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Service alternative.m4a` by filename only
+- `src/audio/recordingRegistry.ts:117` → `Twi/2.Main Service Navigation/Service not ready.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Service not ready.m4a` by filename only
+- `src/audio/recordingRegistry.ts:118` → `Twi/2.Main Service Navigation/Service selection.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Service selection.m4a` by filename only
+- `src/audio/recordingRegistry.ts:119` → `Twi/2.Main Service Navigation/Service unavailable.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Service unavailable.m4a` by filename only
+- `src/audio/recordingRegistry.ts:120` → `Twi/2.Main Service Navigation/Try another service.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Try another service.m4a` by filename only
+- `src/audio/recordingRegistry.ts:121` → `Twi/3.Recipient Entry & Verification/Change recipient.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Change recipient.m4a` by filename only
+- `src/audio/recordingRegistry.ts:122` → `Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a` by filename only
+- `src/audio/recordingRegistry.ts:123` → `Twi/3.Recipient Entry & Verification/Invalid recipient 1.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Invalid recipient 1.m4a` by filename only
+- `src/audio/recordingRegistry.ts:124` → `Twi/3.Recipient Entry & Verification/Recipient confirm speech.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Recipient confirm speech.m4a` by filename only
+- `src/audio/recordingRegistry.ts:125` → `Twi/3.Recipient Entry & Verification/Recipient found.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Recipient found.m4a` by filename only
+- `src/audio/recordingRegistry.ts:126` → `Twi/3.Recipient Entry & Verification/Recipient verify.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Recipient verify.m4a` by filename only
+- `src/audio/recordingRegistry.ts:127` → `Twi/3.Recipient Entry & Verification/Use recipient 1.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Use recipient 1.m4a` by filename only
+- `src/audio/recordingRegistry.ts:128` → `Twi/4.Amount Entry & Verification/Amount prompt.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Amount prompt.m4a` by filename only
+- `src/audio/recordingRegistry.ts:129` → `Twi/4.Amount Entry & Verification/Amount readback 2.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Amount readback 2.m4a` by filename only
+- `src/audio/recordingRegistry.ts:130` → `Twi/4.Amount Entry & Verification/Amount too high 3.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Amount too high 3.m4a` by filename only
+- `src/audio/recordingRegistry.ts:131` → `Twi/4.Amount Entry & Verification/Amount too low.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Amount too low.m4a` by filename only
+- `src/audio/recordingRegistry.ts:132` → `Twi/4.Amount Entry & Verification/Change amount 2.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Change amount 2.m4a` by filename only
+- `src/audio/recordingRegistry.ts:133` → `Twi/4.Amount Entry & Verification/Enter amount 4.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Enter amount 4.m4a` by filename only
+- `src/audio/recordingRegistry.ts:134` → `Twi/4.Amount Entry & Verification/Invalid amount.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Invalid amount.m4a` by filename only
+- `src/audio/recordingRegistry.ts:135` → `Twi/4.Amount Entry & Verification/Repeat amount.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Repeat amount.m4a` by filename only
+- `src/audio/recordingRegistry.ts:136` → `Twi/5.Transaction Confirmation/Confirm continue.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Confirm continue.m4a` by filename only
+- `src/audio/recordingRegistry.ts:137` → `Twi/5.Transaction Confirmation/Confirm speech.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Confirm speech.m4a` by filename only
+- `src/audio/recordingRegistry.ts:138` → `Twi/5.Transaction Confirmation/Confirmation intro.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Confirmation intro.m4a` by filename only
+- `src/audio/recordingRegistry.ts:139` → `Twi/5.Transaction Confirmation/Ready submit.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Ready submit.m4a` by filename only
+- `src/audio/recordingRegistry.ts:140` → `Twi/5.Transaction Confirmation/Reject speech.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Reject speech.m4a` by filename only
+- `src/audio/recordingRegistry.ts:141` → `Twi/5.Transaction Confirmation/Review transaction.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Review transaction.m4a` by filename only
+- `src/audio/recordingRegistry.ts:145` → `Twi/1.Welcome & Session Start/Acknowledge.m4a` matches `Audio_files/Twi/1.Welcome & Session Start/Acknowledge.m4a` by filename only
+- `src/audio/recordingRegistry.ts:146` → `Twi/1.Welcome & Session Start/Language selection.m4a` matches `Audio_files/Twi/1.Welcome & Session Start/Language selection.m4a` by filename only
+- `src/audio/recordingRegistry.ts:148` → `Twi/1.Welcome & Session Start/Welcome 1 (2).m4a` matches `Audio_files/Twi/1.Welcome & Session Start/Welcome 1 (2).m4a` by filename only
+- `src/audio/recordingRegistry.ts:149` → `Twi/1.Welcome & Session Start/Welcome back.m4a` matches `Audio_files/Twi/1.Welcome & Session Start/Welcome back.m4a` by filename only
+- `src/audio/recordingRegistry.ts:150` → `Twi/2.Main Service Navigation/Choose instead.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Choose instead.m4a` by filename only
+- `src/audio/recordingRegistry.ts:151` → `Twi/2.Main Service Navigation/Main service Unavailable.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Main service Unavailable.m4a` by filename only
+- `src/audio/recordingRegistry.ts:152` → `Twi/2.Main Service Navigation/MTN menu.m4a` matches `Audio_files/Twi/2.Main Service Navigation/MTN menu.m4a` by filename only
+- `src/audio/recordingRegistry.ts:153` → `Twi/2.Main Service Navigation/Network selection.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Network selection.m4a` by filename only
+- `src/audio/recordingRegistry.ts:154` → `Twi/2.Main Service Navigation/Send money selected.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Send money selected.m4a` by filename only
+- `src/audio/recordingRegistry.ts:155` → `Twi/2.Main Service Navigation/Service alternative.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Service alternative.m4a` by filename only
+- `src/audio/recordingRegistry.ts:156` → `Twi/2.Main Service Navigation/Service not ready.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Service not ready.m4a` by filename only
+- `src/audio/recordingRegistry.ts:157` → `Twi/2.Main Service Navigation/Service selection.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Service selection.m4a` by filename only
+- `src/audio/recordingRegistry.ts:158` → `Twi/2.Main Service Navigation/Service unavailable.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Service unavailable.m4a` by filename only
+- `src/audio/recordingRegistry.ts:159` → `Twi/2.Main Service Navigation/Try another service.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Try another service.m4a` by filename only
+- `src/audio/recordingRegistry.ts:160` → `Twi/3.Recipient Entry & Verification/Change recipient.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Change recipient.m4a` by filename only
+- `src/audio/recordingRegistry.ts:161` → `Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a` by filename only
+- `src/audio/recordingRegistry.ts:162` → `Twi/3.Recipient Entry & Verification/Invalid recipient 1.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Invalid recipient 1.m4a` by filename only
+- `src/audio/recordingRegistry.ts:163` → `Twi/3.Recipient Entry & Verification/Recipient confirm speech.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Recipient confirm speech.m4a` by filename only
+- `src/audio/recordingRegistry.ts:164` → `Twi/3.Recipient Entry & Verification/Recipient found.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Recipient found.m4a` by filename only
+- `src/audio/recordingRegistry.ts:165` → `Twi/3.Recipient Entry & Verification/Recipient verify.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Recipient verify.m4a` by filename only
+- `src/audio/recordingRegistry.ts:166` → `Twi/3.Recipient Entry & Verification/Use recipient 1.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Use recipient 1.m4a` by filename only
+- `src/audio/recordingRegistry.ts:167` → `Twi/4.Amount Entry & Verification/Amount prompt.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Amount prompt.m4a` by filename only
+- `src/audio/recordingRegistry.ts:168` → `Twi/4.Amount Entry & Verification/Amount readback 2.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Amount readback 2.m4a` by filename only
+- `src/audio/recordingRegistry.ts:169` → `Twi/4.Amount Entry & Verification/Amount too high 3.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Amount too high 3.m4a` by filename only
+- `src/audio/recordingRegistry.ts:170` → `Twi/4.Amount Entry & Verification/Amount too low.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Amount too low.m4a` by filename only
+- `src/audio/recordingRegistry.ts:171` → `Twi/4.Amount Entry & Verification/Change amount 2.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Change amount 2.m4a` by filename only
+- `src/audio/recordingRegistry.ts:172` → `Twi/4.Amount Entry & Verification/Enter amount 4.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Enter amount 4.m4a` by filename only
+- `src/audio/recordingRegistry.ts:173` → `Twi/4.Amount Entry & Verification/Invalid amount.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Invalid amount.m4a` by filename only
+- `src/audio/recordingRegistry.ts:174` → `Twi/4.Amount Entry & Verification/Repeat amount.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Repeat amount.m4a` by filename only
+- `src/audio/recordingRegistry.ts:175` → `Twi/5.Transaction Confirmation/Confirm continue.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Confirm continue.m4a` by filename only
+- `src/audio/recordingRegistry.ts:176` → `Twi/5.Transaction Confirmation/Confirm speech.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Confirm speech.m4a` by filename only
+- `src/audio/recordingRegistry.ts:177` → `Twi/5.Transaction Confirmation/Confirmation intro.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Confirmation intro.m4a` by filename only
+- `src/audio/recordingRegistry.ts:178` → `Twi/5.Transaction Confirmation/Ready submit.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Ready submit.m4a` by filename only
+- `src/audio/recordingRegistry.ts:179` → `Twi/5.Transaction Confirmation/Reject speech.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Reject speech.m4a` by filename only
+- `src/audio/recordingRegistry.ts:180` → `Twi/5.Transaction Confirmation/Review transaction.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Review transaction.m4a` by filename only
+- `src/audio/recordingRegistry.ts:184` → `Another recipient.m4a` matches `Audio_files/Another recipient.m4a` by filename only
+- `src/audio/recordingRegistry.ts:185` → `Another transaction.m4a` matches `Audio_files/Another transaction.m4a` by filename only
+- `src/audio/recordingRegistry.ts:186` → `Anything else.m4a` matches `Audio_files/Anything else.m4a` by filename only
+- `src/audio/recordingRegistry.ts:187` → `Auth received.m4a` matches `Audio_files/Auth received.m4a` by filename only
+- `src/audio/recordingRegistry.ts:188` → `Authorize phone.m4a` matches `Audio_files/Authorize phone.m4a` by filename only
+- `src/audio/recordingRegistry.ts:189` → `Back.m4a` matches `Audio_files/Back.m4a` by filename only
+- `src/audio/recordingRegistry.ts:190` → `Balance Unavailable.m4a` matches `Audio_files/Balance Unavailable.m4a` by filename only
+- `src/audio/recordingRegistry.ts:191` → `Cancel.m4a` matches `Audio_files/Cancel.m4a` by filename only
+- `src/audio/recordingRegistry.ts:192` → `Check final status.m4a` matches `Audio_files/Check final status.m4a` by filename only
+- `src/audio/recordingRegistry.ts:193` → `Check messages.m4a` matches `Audio_files/Check messages.m4a` by filename only
+- `src/audio/recordingRegistry.ts:194` → `Check phone.m4a` matches `Audio_files/Check phone.m4a` by filename only
+- `src/audio/recordingRegistry.ts:195` → `Confirm understanding.m4a` matches `Audio_files/Confirm understanding.m4a` by filename only
+- `src/audio/recordingRegistry.ts:196` → `Continue.m4a` matches `Audio_files/Continue.m4a` by filename only
+- `src/audio/recordingRegistry.ts:197` → `Correct prompt.m4a` matches `Audio_files/Correct prompt.m4a` by filename only
+- `src/audio/recordingRegistry.ts:198` → `Customer Declined.m4a` matches `Audio_files/Customer Declined.m4a` by filename only
+- `src/audio/recordingRegistry.ts:199` → `Did not get.m4a` matches `Audio_files/Did not get.m4a` by filename only
+- `src/audio/recordingRegistry.ts:200` → `Exit.m4a` matches `Audio_files/Exit.m4a` by filename only
+- `src/audio/recordingRegistry.ts:201` → `Failed.m4a` matches `Audio_files/Failed.m4a` by filename only
+- `src/audio/recordingRegistry.ts:202` → `Failure Retry.m4a` matches `Audio_files/Failure Retry.m4a` by filename only
+- `src/audio/recordingRegistry.ts:203` → `Finish.m4a` matches `Audio_files/Finish.m4a` by filename only
+- `src/audio/recordingRegistry.ts:204` → `Help command.m4a` matches `Audio_files/Help command.m4a` by filename only
+- `src/audio/recordingRegistry.ts:205` → `Help.m4a` matches `Audio_files/Help.m4a` by filename only
+- `src/audio/recordingRegistry.ts:207` → `Keep reference.m4a` matches `Audio_files/Keep reference.m4a` by filename only
+- `src/audio/recordingRegistry.ts:208` → `Keypad option.m4a` matches `Audio_files/Keypad option.m4a` by filename only
+- `src/audio/recordingRegistry.ts:209` → `Main menu.m4a` matches `Audio_files/Main menu.m4a` by filename only
+- `src/audio/recordingRegistry.ts:210` → `No transfer confirmed.m4a` matches `Audio_files/No transfer confirmed.m4a` by filename only
+- `src/audio/recordingRegistry.ts:211` → `Not understood.m4a` matches `Audio_files/Not understood.m4a` by filename only
+- `src/audio/recordingRegistry.ts:212` → `Pin Block.m4a` matches `Audio_files/Pin Block.m4a` by filename only
+- `src/audio/recordingRegistry.ts:213` → `Pin Handoff.m4a` matches `Audio_files/Pin Handoff.m4a` by filename only
+- `src/audio/recordingRegistry.ts:214` → `Please respond.m4a` matches `Audio_files/Please respond.m4a` by filename only
+- `src/audio/recordingRegistry.ts:215` → `Post success Help.m4a` matches `Audio_files/Post success Help.m4a` by filename only
+- `src/audio/recordingRegistry.ts:217` → `Repeat Option.m4a` matches `Audio_files/Repeat Option.m4a` by filename only
+- `src/audio/recordingRegistry.ts:218` → `Repeat.m4a` matches `Audio_files/Repeat.m4a` by filename only
+- `src/audio/recordingRegistry.ts:219` → `Restart.m4a` matches `Audio_files/Restart.m4a` by filename only
+- `src/audio/recordingRegistry.ts:220` → `Secure pin.m4a` matches `Audio_files/Secure pin.m4a` by filename only
+- `src/audio/recordingRegistry.ts:221` → `Security warning.m4a` matches `Audio_files/Security warning.m4a` by filename only
+- `src/audio/recordingRegistry.ts:222` → `Sensitive Block.m4a` matches `Audio_files/Sensitive Block.m4a` by filename only
+- `src/audio/recordingRegistry.ts:223` → `Session End.m4a` matches `Audio_files/Session End.m4a` by filename only
+- `src/audio/recordingRegistry.ts:224` → `Session timeout.m4a` matches `Audio_files/Session timeout.m4a` by filename only
+- `src/audio/recordingRegistry.ts:225` → `Start Again.m4a` matches `Audio_files/Start Again.m4a` by filename only
+- `src/audio/recordingRegistry.ts:226` → `Submitted.m4a` matches `Audio_files/Submitted.m4a` by filename only
+- `src/audio/recordingRegistry.ts:227` → `Success close.m4a` matches `Audio_files/Success close.m4a` by filename only
+- `src/audio/recordingRegistry.ts:228` → `Success sent.m4a` matches `Audio_files/Success sent.m4a` by filename only
+- `src/audio/recordingRegistry.ts:229` → `Success.m4a` matches `Audio_files/Success.m4a` by filename only
+- `src/audio/recordingRegistry.ts:230` → `System Error.m4a` matches `Audio_files/System Error.m4a` by filename only
+- `src/audio/recordingRegistry.ts:231` → `Take your time.m4a` matches `Audio_files/Take your time.m4a` by filename only
+- `src/audio/recordingRegistry.ts:232` → `Timeout.m4a` matches `Audio_files/Timeout.m4a` by filename only
+- `src/audio/recordingRegistry.ts:233` → `Unsupported service.m4a` matches `Audio_files/Unsupported service.m4a` by filename only
+- `src/audio/recordingRegistry.ts:234` → `Voice or keypad.m4a` matches `Audio_files/Voice or keypad.m4a` by filename only
+- `src/audio/recordingRegistry.ts:235` → `Waiting confirmation.m4a` matches `Audio_files/Waiting confirmation.m4a` by filename only
+- `src/audio/recordingRegistry.ts:236` → `Yes -No.m4a` matches `Audio_files/Yes -No.m4a` by filename only
+- `src/audio/recordingRegistry.ts:237` → `Yes -no- keypad.m4a` matches `Audio_files/Yes -no- keypad.m4a` by filename only
+- `src/audio/recordingRegistry.ts:339` → `Cancel.m4a` matches `Audio_files/Cancel.m4a` by filename only
+- `src/audio/recordingRegistry.ts:340` → `Exit.m4a` matches `Audio_files/Exit.m4a` by filename only
+- `src/audio/recordingRegistry.ts:341` → `Pin Handoff.m4a` matches `Audio_files/Pin Handoff.m4a` by filename only
+- `src/audio/recordingRegistry.ts:342` → `Security warning.m4a` matches `Audio_files/Security warning.m4a` by filename only
+- `src/audio/recordingRegistry.ts:343` → `Secure pin.m4a` matches `Audio_files/Secure pin.m4a` by filename only
+- `src/audio/recordingRegistry.ts:344` → `Pin Block.m4a` matches `Audio_files/Pin Block.m4a` by filename only
+- `src/audio/recordingRegistry.ts:345` → `Sensitive Block.m4a` matches `Audio_files/Sensitive Block.m4a` by filename only
+- `src/audio/recordingRegistry.ts:346` → `Submitted.m4a` matches `Audio_files/Submitted.m4a` by filename only
+- `src/audio/recordingRegistry.ts:347` → `Waiting confirmation.m4a` matches `Audio_files/Waiting confirmation.m4a` by filename only
+- `src/audio/recordingRegistry.ts:348` → `Check phone.m4a` matches `Audio_files/Check phone.m4a` by filename only
+- `src/audio/recordingRegistry.ts:349` → `Authorize phone.m4a` matches `Audio_files/Authorize phone.m4a` by filename only
+- `src/audio/recordingRegistry.ts:350` → `Auth received.m4a` matches `Audio_files/Auth received.m4a` by filename only
+- `src/audio/recordingRegistry.ts:351` → `Check final status.m4a` matches `Audio_files/Check final status.m4a` by filename only
+- `src/audio/recordingRegistry.ts:353` → `Success sent.m4a` matches `Audio_files/Success sent.m4a` by filename only
+- `src/audio/recordingRegistry.ts:354` → `Success.m4a` matches `Audio_files/Success.m4a` by filename only
+- `src/audio/recordingRegistry.ts:355` → `Keep reference.m4a` matches `Audio_files/Keep reference.m4a` by filename only
+- `src/audio/recordingRegistry.ts:356` → `Success close.m4a` matches `Audio_files/Success close.m4a` by filename only
+- `src/audio/recordingRegistry.ts:357` → `Anything else.m4a` matches `Audio_files/Anything else.m4a` by filename only
+- `src/audio/recordingRegistry.ts:358` → `Customer Declined.m4a` matches `Audio_files/Customer Declined.m4a` by filename only
+- `src/audio/recordingRegistry.ts:359` → `Failed.m4a` matches `Audio_files/Failed.m4a` by filename only
+- `src/audio/recordingRegistry.ts:360` → `Timeout.m4a` matches `Audio_files/Timeout.m4a` by filename only
+- `src/audio/recordingRegistry.ts:361` → `Failure Retry.m4a` matches `Audio_files/Failure Retry.m4a` by filename only
+- `src/audio/recordingRegistry.ts:362` → `No transfer confirmed.m4a` matches `Audio_files/No transfer confirmed.m4a` by filename only
+- `src/audio/recordingRegistry.ts:363` → `Check messages.m4a` matches `Audio_files/Check messages.m4a` by filename only
+- `src/audio/recordingRegistry.ts:364` → `Start Again.m4a` matches `Audio_files/Start Again.m4a` by filename only
+- `src/audio/recordingRegistry.ts:365` → `Not understood.m4a` matches `Audio_files/Not understood.m4a` by filename only
+- `src/audio/recordingRegistry.ts:366` → `Did not get.m4a` matches `Audio_files/Did not get.m4a` by filename only
+- `src/audio/recordingRegistry.ts:367` → `Please respond.m4a` matches `Audio_files/Please respond.m4a` by filename only
+- `src/audio/recordingRegistry.ts:369` → `Repeat.m4a` matches `Audio_files/Repeat.m4a` by filename only
+- `src/audio/recordingRegistry.ts:370` → `Confirm understanding.m4a` matches `Audio_files/Confirm understanding.m4a` by filename only
+- `src/audio/recordingRegistry.ts:371` → `Correct prompt.m4a` matches `Audio_files/Correct prompt.m4a` by filename only
+- `src/audio/recordingRegistry.ts:372` → `Yes -No.m4a` matches `Audio_files/Yes -No.m4a` by filename only
+- `src/audio/recordingRegistry.ts:373` → `Back.m4a` matches `Audio_files/Back.m4a` by filename only
+- `src/audio/recordingRegistry.ts:374` → `Main menu.m4a` matches `Audio_files/Main menu.m4a` by filename only
+- `src/audio/recordingRegistry.ts:375` → `Restart.m4a` matches `Audio_files/Restart.m4a` by filename only
+- `src/audio/recordingRegistry.ts:376` → `Session End.m4a` matches `Audio_files/Session End.m4a` by filename only
+- `src/audio/recordingRegistry.ts:377` → `Continue.m4a` matches `Audio_files/Continue.m4a` by filename only
+- `src/audio/recordingRegistry.ts:378` → `Session timeout.m4a` matches `Audio_files/Session timeout.m4a` by filename only
+- `src/audio/recordingRegistry.ts:379` → `Repeat Option.m4a` matches `Audio_files/Repeat Option.m4a` by filename only
+- `src/audio/recordingRegistry.ts:380` → `Keypad option.m4a` matches `Audio_files/Keypad option.m4a` by filename only
+- `src/audio/recordingRegistry.ts:381` → `Voice or keypad.m4a` matches `Audio_files/Voice or keypad.m4a` by filename only
+- `src/audio/recordingRegistry.ts:382` → `Take your time.m4a` matches `Audio_files/Take your time.m4a` by filename only
+- `src/audio/recordingRegistry.ts:383` → `Yes -no- keypad.m4a` matches `Audio_files/Yes -no- keypad.m4a` by filename only
+- `src/audio/recordingRegistry.ts:384` → `Help.m4a` matches `Audio_files/Help.m4a` by filename only
+- `src/audio/recordingRegistry.ts:385` → `Help command.m4a` matches `Audio_files/Help command.m4a` by filename only
+- `src/audio/recordingRegistry.ts:386` → `Balance Unavailable.m4a` matches `Audio_files/Balance Unavailable.m4a` by filename only
+- `src/audio/recordingRegistry.ts:387` → `Unsupported service.m4a` matches `Audio_files/Unsupported service.m4a` by filename only
+- `src/audio/recordingRegistry.ts:388` → `System Error.m4a` matches `Audio_files/System Error.m4a` by filename only
+- `src/audio/recordingRegistry.ts:389` → `Post success Help.m4a` matches `Audio_files/Post success Help.m4a` by filename only
+- `src/audio/recordingRegistry.ts:390` → `Another transaction.m4a` matches `Audio_files/Another transaction.m4a` by filename only
+- `src/audio/recordingRegistry.ts:391` → `Another recipient.m4a` matches `Audio_files/Another recipient.m4a` by filename only
+- `src/audio/recordingRegistry.ts:392` → `Finish.m4a` matches `Audio_files/Finish.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:196` → `/audio/Twi/01_Welcome_Session_Start/Welcome%201%20(2).m4a` matches `Audio_files/Twi/1.Welcome & Session Start/Welcome 1 (2).m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:207` → `/audio/Twi/01_Welcome_Session_Start/Language%20selection.m4a` matches `Audio_files/Twi/1.Welcome & Session Start/Language selection.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:217` → `/audio/Twi/01_Welcome_Session_Start/Greetings%202.m4a` matches `Audio_files/Twi/1.Welcome & Session Start/Greetings 2.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:227` → `/audio/Twi/01_Welcome_Session_Start/Welcome%20back.m4a` matches `Audio_files/Twi/1.Welcome & Session Start/Welcome back.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:237` → `/audio/Twi/01_Welcome_Session_Start/Acknowledge.m4a` matches `Audio_files/Twi/1.Welcome & Session Start/Acknowledge.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:265` → `/audio/Twi/02_Main_Service_Navigation/Service%20selection.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Service selection.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:275` → `/audio/Twi/02_Main_Service_Navigation/Network%20selection.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Network selection.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:285` → `/audio/Twi/02_Main_Service_Navigation/MTN%20menu.m4a` matches `Audio_files/Twi/2.Main Service Navigation/MTN menu.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:295` → `/audio/Twi/02_Main_Service_Navigation/Send%20money%20selected.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Send money selected.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:305` → `/audio/Twi/02_Main_Service_Navigation/Service%20unavailable.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Service unavailable.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:315` → `/audio/Twi/02_Main_Service_Navigation/Service%20alternative.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Service alternative.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:325` → `/audio/Twi/02_Main_Service_Navigation/Service%20not%20ready.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Service not ready.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:335` → `/audio/Twi/02_Main_Service_Navigation/Try%20another%20service.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Try another service.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:345` → `/audio/Twi/02_Main_Service_Navigation/Choose%20instead.m4a` matches `Audio_files/Twi/2.Main Service Navigation/Choose instead.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:363` → `/audio/Twi/03_Recipient_Entry_Verification/Enter%20recipient%202.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:373` → `/audio/Twi/03_Recipient_Entry_Verification/Invalid%20recipient%201.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Invalid recipient 1.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:383` → `/audio/Twi/03_Recipient_Entry_Verification/Recipient%20found.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Recipient found.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:393` → `/audio/Twi/03_Recipient_Entry_Verification/Recipient%20verify.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Recipient verify.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:403` → `/audio/Twi/03_Recipient_Entry_Verification/Recipient%20confirm%20speech.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Recipient confirm speech.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:413` → `/audio/Twi/03_Recipient_Entry_Verification/Use%20recipient%201.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Use recipient 1.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:423` → `/audio/Twi/03_Recipient_Entry_Verification/Change%20recipient.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Change recipient.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:441` → `/audio/Twi/04_Amount_Entry_Verification/Enter%20amount%204.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Enter amount 4.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:451` → `/audio/Twi/04_Amount_Entry_Verification/Invalid%20amount.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Invalid amount.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:461` → `/audio/Twi/04_Amount_Entry_Verification/Amount%20prompt.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Amount prompt.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:471` → `/audio/Twi/04_Amount_Entry_Verification/Amount%20readback%202.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Amount readback 2.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:481` → `/audio/Twi/04_Amount_Entry_Verification/Repeat%20amount.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Repeat amount.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:491` → `/audio/Twi/04_Amount_Entry_Verification/Amount%20too%20high%203.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Amount too high 3.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:501` → `/audio/Twi/04_Amount_Entry_Verification/Amount%20too%20low.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Amount too low.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:511` → `/audio/Twi/04_Amount_Entry_Verification/Change%20amount%202.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Change amount 2.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:529` → `/audio/Twi/05_Transaction_Confirmation/Confirmation%20intro.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Confirmation intro.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:539` → `/audio/Twi/05_Transaction_Confirmation/Review%20transaction.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Review transaction.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:549` → `/audio/Twi/05_Transaction_Confirmation/Confirm%20continue.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Confirm continue.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:559` → `/audio/Twi/05_Transaction_Confirmation/Confirm%20speech.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Confirm speech.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:569` → `/audio/Twi/05_Transaction_Confirmation/Reject%20speech.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Reject speech.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:579` → `/audio/Twi/05_Transaction_Confirmation/Ready%20submit.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Ready submit.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:597` → `/audio/additional/Pin%20Handoff.m4a` matches `Audio_files/Pin Handoff.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:607` → `/audio/additional/Security%20warning.m4a` matches `Audio_files/Security warning.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:617` → `/audio/additional/Secure%20pin.m4a` matches `Audio_files/Secure pin.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:627` → `/audio/additional/Pin%20Block.m4a` matches `Audio_files/Pin Block.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:628` → `/audio/Twi/06_PIN_Security/Pin%20block.aac` matches `Audio_files/Twi/6.PIN & Security/Pin block.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:638` → `/audio/additional/Sensitive%20Block.m4a` matches `Audio_files/Sensitive Block.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:639` → `/audio/Twi/06_PIN_Security/Sensitive%20block.aac` matches `Audio_files/Twi/6.PIN & Security/Sensitive block.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:657` → `/audio/additional/Submitted.m4a` matches `Audio_files/Submitted.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:658` → `/audio/Twi/07_Transaction_Processing/Submitted.aac` matches `Audio_files/Twi/7.Transaction Processing/Submitted.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:668` → `/audio/additional/Waiting%20confirmation.m4a` matches `Audio_files/Waiting confirmation.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:669` → `/audio/Twi/07_Transaction_Processing/Waiting%20confirmation.aac` matches `Audio_files/Twi/7.Transaction Processing/Waiting confirmation.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:679` → `/audio/additional/Check%20phone.m4a` matches `Audio_files/Check phone.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:680` → `/audio/Twi/07_Transaction_Processing/Check%20phone.aac` matches `Audio_files/Twi/7.Transaction Processing/Check phone.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:690` → `/audio/additional/Authorize%20phone.m4a` matches `Audio_files/Authorize phone.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:691` → `/audio/Twi/07_Transaction_Processing/Authorize%20phone.aac` matches `Audio_files/Twi/7.Transaction Processing/Authorize phone.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:701` → `/audio/additional/Auth%20received.m4a` matches `Audio_files/Auth received.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:702` → `/audio/Twi/07_Transaction_Processing/Auth%20received.aac` matches `Audio_files/Twi/7.Transaction Processing/Auth received.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:712` → `/audio/additional/Check%20final%20status.m4a` matches `Audio_files/Check final status.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:724` → `/audio/Twi/07_Transaction_Processing/Processing.aac` matches `Audio_files/Twi/7.Transaction Processing/Processing.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:742` → `/audio/additional/Success%20sent.m4a` matches `Audio_files/Success sent.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:743` → `/audio/Twi/08_Success_Completion/SUCCESS%20SENT.aac` matches `Audio_files/Twi/8.Success & Completion/SUCCESS SENT.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:753` → `/audio/additional/Keep%20reference.m4a` matches `Audio_files/Keep reference.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:754` → `/audio/Twi/08_Success_Completion/Keep%20reference.aac` matches `Audio_files/Twi/8.Success & Completion/Keep reference.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:764` → `/audio/additional/Success%20close.m4a` matches `Audio_files/Success close.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:765` → `/audio/Twi/08_Success_Completion/SUCCESS%20CLOSE.aac` matches `Audio_files/Twi/8.Success & Completion/SUCCESS CLOSE.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:775` → `/audio/additional/Anything%20else.m4a` matches `Audio_files/Anything else.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:776` → `/audio/Twi/08_Success_Completion/ANYTHING%20ELSE.aac` matches `Audio_files/Twi/8.Success & Completion/ANYTHING ELSE.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:794` → `/audio/additional/Customer%20Declined.m4a` matches `Audio_files/Customer Declined.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:795` → `/audio/Twi/09_Failure_Decline_Timeout/Customer%20declined.aac` matches `Audio_files/Twi/9.Failure, Decline & Timeout/Customer declined.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:805` → `/audio/additional/Failed.m4a` matches `Audio_files/Failed.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:806` → `/audio/Twi/09_Failure_Decline_Timeout/Failed.aac` matches `Audio_files/Twi/9.Failure, Decline & Timeout/Failed.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:816` → `/audio/additional/Timeout.m4a` matches `Audio_files/Timeout.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:817` → `/audio/Twi/09_Failure_Decline_Timeout/Timeout.aac` matches `Audio_files/Twi/9.Failure, Decline & Timeout/Timeout.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:827` → `/audio/additional/Failure%20Retry.m4a` matches `Audio_files/Failure Retry.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:828` → `/audio/Twi/09_Failure_Decline_Timeout/Failure%20retry.aac` matches `Audio_files/Twi/9.Failure, Decline & Timeout/Failure retry.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:838` → `/audio/additional/No%20transfer%20confirmed.m4a` matches `Audio_files/No transfer confirmed.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:839` → `/audio/Twi/09_Failure_Decline_Timeout/No%20transfer%20confirmed.aac` matches `Audio_files/Twi/9.Failure, Decline & Timeout/No transfer confirmed.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:849` → `/audio/additional/Check%20messages.m4a` matches `Audio_files/Check messages.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:850` → `/audio/Twi/09_Failure_Decline_Timeout/Check%20messages.aac` matches `Audio_files/Twi/9.Failure, Decline & Timeout/Check messages.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:860` → `/audio/additional/Start%20Again.m4a` matches `Audio_files/Start Again.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:861` → `/audio/Twi/09_Failure_Decline_Timeout/Start%20again.aac` matches `Audio_files/Twi/9.Failure, Decline & Timeout/Start again.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:879` → `/audio/additional/Not%20understood.m4a` matches `Audio_files/Not understood.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:880` → `/audio/Twi/10_Voice_Understanding_Verification/Not%20understood.aac` matches `Audio_files/Twi/10.Voice Understanding & Verification/Not understood.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:890` → `/audio/additional/Did%20not%20get.m4a` matches `Audio_files/Did not get.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:891` → `/audio/Twi/10_Voice_Understanding_Verification/Do%20not%20get.aac` matches `Audio_files/Twi/10.Voice Understanding & Verification/Do not get.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:901` → `/audio/additional/Please%20respond.m4a` matches `Audio_files/Please respond.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:902` → `/audio/Twi/10_Voice_Understanding_Verification/Please%20respond.aac` matches `Audio_files/Twi/10.Voice Understanding & Verification/Please respond.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:913` → `/audio/Twi/10_Voice_Understanding_Verification/input%20not%20recognized.aac` matches `Audio_files/Twi/10.Voice Understanding & Verification/input not recognized.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:923` → `/audio/additional/Repeat.m4a` matches `Audio_files/Repeat.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:924` → `/audio/Twi/10_Voice_Understanding_Verification/Repeat.aac` matches `Audio_files/Twi/10.Voice Understanding & Verification/Repeat.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:934` → `/audio/additional/Confirm%20understanding.m4a` matches `Audio_files/Confirm understanding.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:935` → `/audio/Twi/10_Voice_Understanding_Verification/Confirm%20understanding.aac` matches `Audio_files/Twi/10.Voice Understanding & Verification/Confirm understanding.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:945` → `/audio/additional/Correct%20prompt.m4a` matches `Audio_files/Correct prompt.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:946` → `/audio/Twi/10_Voice_Understanding_Verification/Correct%20prompt.aac` matches `Audio_files/Twi/10.Voice Understanding & Verification/Correct prompt.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:956` → `/audio/additional/Yes%20-No.m4a` matches `Audio_files/Yes -No.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:957` → `/audio/Twi/10_Voice_Understanding_Verification/Yes_No.aac` matches `Audio_files/Twi/10.Voice Understanding & Verification/Yes_No.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:975` → `/audio/additional/Back.m4a` matches `Audio_files/Back.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:976` → `/audio/Twi/11_Navigation_Recovery/Back.aac` matches `Audio_files/Twi/11.Navigation & Recovery/Back.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:986` → `/audio/additional/Main%20menu.m4a` matches `Audio_files/Main menu.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:987` → `/audio/Twi/11_Navigation_Recovery/Main%20menu.aac` matches `Audio_files/Twi/11.Navigation & Recovery/Main menu.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:997` → `/audio/additional/Restart.m4a` matches `Audio_files/Restart.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:998` → `/audio/Twi/11_Navigation_Recovery/Restart.aac` matches `Audio_files/Twi/11.Navigation & Recovery/Restart.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1008` → `/audio/additional/Cancel.m4a` matches `Audio_files/Cancel.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1009` → `/audio/Twi/11_Navigation_Recovery/Cancel.aac` matches `Audio_files/Twi/11.Navigation & Recovery/Cancel.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1019` → `/audio/additional/Exit.m4a` matches `Audio_files/Exit.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1020` → `/audio/Twi/11_Navigation_Recovery/Exit.aac` matches `Audio_files/Twi/11.Navigation & Recovery/Exit.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1030` → `/audio/additional/Session%20End.m4a` matches `Audio_files/Session End.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1031` → `/audio/Twi/11_Navigation_Recovery/Session%20end.aac` matches `Audio_files/Twi/11.Navigation & Recovery/Session end.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1041` → `/audio/additional/Continue.m4a` matches `Audio_files/Continue.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1042` → `/audio/Twi/11_Navigation_Recovery/Continue.aac` matches `Audio_files/Twi/11.Navigation & Recovery/Continue.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1052` → `/audio/additional/Session%20timeout.m4a` matches `Audio_files/Session timeout.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1053` → `/audio/Twi/11_Navigation_Recovery/Session%20timeout.aac` matches `Audio_files/Twi/11.Navigation & Recovery/Session timeout.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1071` → `/audio/additional/Repeat%20Option.m4a` matches `Audio_files/Repeat Option.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1072` → `/audio/Twi/12_Accessibility_Help/REPEAT%20OPTIONS.aac` matches `Audio_files/Twi/12.Accessibility & Help/REPEAT OPTIONS.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1082` → `/audio/additional/Keypad%20option.m4a` matches `Audio_files/Keypad option.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1083` → `/audio/Twi/12_Accessibility_Help/KEYPAD%20OPTION.aac` matches `Audio_files/Twi/12.Accessibility & Help/KEYPAD OPTION.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1093` → `/audio/additional/Voice%20or%20keypad.m4a` matches `Audio_files/Voice or keypad.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1094` → `/audio/Twi/12_Accessibility_Help/VOICE%20OR%20KEYPAD.aac` matches `Audio_files/Twi/12.Accessibility & Help/VOICE OR KEYPAD.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1104` → `/audio/additional/Take%20your%20time.m4a` matches `Audio_files/Take your time.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1105` → `/audio/Twi/12_Accessibility_Help/TAKE%20YOUR%20TIME.aac` matches `Audio_files/Twi/12.Accessibility & Help/TAKE YOUR TIME.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1115` → `/audio/additional/Yes%20-no-%20keypad.m4a` matches `Audio_files/Yes -no- keypad.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1116` → `/audio/Twi/12_Accessibility_Help/YES%20OR%20NO%20KEYPAD.aac` matches `Audio_files/Twi/12.Accessibility & Help/YES OR NO KEYPAD.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1126` → `/audio/additional/Help.m4a` matches `Audio_files/Help.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1127` → `/audio/Twi/12_Accessibility_Help/HELP.aac` matches `Audio_files/Twi/12.Accessibility & Help/HELP.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1137` → `/audio/additional/Help%20command.m4a` matches `Audio_files/Help command.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1138` → `/audio/Twi/12_Accessibility_Help/Help%20Commands.aac` matches `Audio_files/Twi/12.Accessibility & Help/Help Commands.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1156` → `/audio/additional/Balance%20Unavailable.m4a` matches `Audio_files/Balance Unavailable.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1157` → `/audio/Twi/13_Balance_Unsupported_Services/Balance%20unavailable.aac` matches `Audio_files/Twi/13.Balance  Unsupported Services/Balance unavailable.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1167` → `/audio/additional/Unsupported%20service.m4a` matches `Audio_files/Unsupported service.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1168` → `/audio/Twi/13_Balance_Unsupported_Services/Unsupported%20service.aac` matches `Audio_files/Twi/13.Balance  Unsupported Services/Unsupported service.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1178` → `/audio/additional/System%20Error.m4a` matches `Audio_files/System Error.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1179` → `/audio/Twi/13_Balance_Unsupported_Services/System%20error.aac` matches `Audio_files/Twi/13.Balance  Unsupported Services/System error.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1197` → `/audio/additional/Post%20success%20Help.m4a` matches `Audio_files/Post success Help.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1198` → `/audio/Twi/14_Post-Transaction_Conversation/Post%20success%20help.aac` matches `Audio_files/Twi/14.Post-Transaction Conversation/Post success help.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1208` → `/audio/additional/Another%20transaction.m4a` matches `Audio_files/Another transaction.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1209` → `/audio/Twi/14_Post-Transaction_Conversation/Another%20transaction.aac` matches `Audio_files/Twi/14.Post-Transaction Conversation/Another transaction.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1219` → `/audio/additional/Another%20recipient.m4a` matches `Audio_files/Another recipient.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1220` → `/audio/Twi/14_Post-Transaction_Conversation/Another%20recipient.aac` matches `Audio_files/Twi/14.Post-Transaction Conversation/Another recipient.aac` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1230` → `/audio/additional/Finish.m4a` matches `Audio_files/Finish.m4a` by filename only
+- `src/audio/twiSequentialAudioFlow.ts:1231` → `/audio/Twi/14_Post-Transaction_Conversation/Finish.aac` matches `Audio_files/Twi/14.Post-Transaction Conversation/Finish.aac` by filename only
+- `src/pages/dashboard/PhoneSimulatorPage.tsx:1423` → `/audio/supplied/Twi/5.Transaction Confirmation/Review transaction.m4a` matches `Audio_files/Twi/5.Transaction Confirmation/Review transaction.m4a` by filename only
+- `src/pages/dashboard/PhoneSimulatorPage.tsx:1448` → `/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Invalid%20recipient%201.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Invalid recipient 1.m4a` by filename only
+- `src/pages/dashboard/PhoneSimulatorPage.tsx:1485` → `/audio/supplied/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a` by filename only
+- `src/pages/dashboard/PhoneSimulatorPage.tsx:1486` → `/audio/supplied/Twi/4.Amount Entry & Verification/Enter amount 4.m4a` matches `Audio_files/Twi/4.Amount Entry & Verification/Enter amount 4.m4a` by filename only
+- `src/routes/voiceRoutes.ts:867` → `/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Invalid%20recipient%201.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Invalid recipient 1.m4a` by filename only
+- `src/routes/voiceRoutes.ts:1859` → `/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Invalid%20recipient%201.m4a` matches `Audio_files/Twi/3.Recipient Entry & Verification/Invalid recipient 1.m4a` by filename only
+
+## 6. Inventory status
+
+- Inventory file: `docs/IVR_AUDIO_INVENTORY.csv`
+- Rows: **170**
+- Columns: `['asset_id', 'filename', 'relative_path', 'extension', 'language', 'probable_prompt_id', 'duration_seconds', 'audio_format', 'file_size_bytes', 'transcription', 'mapped_prompt_id', 'mapping_status', 'playback_test_status', 'notes', 'sha256']`
+- Asset-like columns: `['asset_id', 'filename', 'relative_path', 'audio_format', 'file_size_bytes']`
+- Values in `mapping_status`: `{'UNMAPPED_CANDIDATE': 78, 'MISSING_OR_UNVERIFIED': 65, 'AMBIGUOUS_REQUIRES_LISTENING': 8, 'DYNAMIC_SAMPLE_DO_NOT_USE_LIVE': 6, 'AMBIGUOUS_COMBINED_WELCOME_LANGUAGE_PROMPT': 4, 'DYNAMIC_TTS_REQUIRED': 2, 'SECURITY_PROMPT_REQUIRES_VERIFICATION': 2, 'TRANSCRIPT_CANDIDATE_NOT_AUDIO_VERIFIED': 2, 'TRANSCRIPT_CANDIDATE_WITH_SCRIPT_DIFFERENCES': 1, 'AMBIGUOUS_CONFLICTING_DOCUMENTATION': 1, 'LEGACY_PROMPT_WITH_HARDCODED_SAMPLE_DETAILS': 1}`
+- Values in `playback_test_status`: `{'UNTESTED': 170}`
+
+## 7. Empty audio files
+
+None found.
+
+## 8. Duplicate recordings (same SHA-256)
+
+- SHA-256 `3cf03e776eb2f2dfaf0f15bd3f621fdceca9d757b4011f9ae3933f750ce54dda`
+  - `Audio_files/Twi/2.Main Service Navigation/Service selection 2 (2).m4a`
+  - `Audio_files/Twi/2.Main Service Navigation/Service selection 2 (2).mp3`
+  - `Audio_files/Twi/2.Main Service Navigation/Service selection 2.m4a`
+  - `Audio_files/Twi/2.Main Service Navigation/Service selection 2.mp3`
+  - `Audio_files/Twi/2.Main Service Navigation/Service selection.m4a`
+- SHA-256 `06201ee7893370f60a3f0d843079fe2dd125bf0fe63a5319f628d4e8059065e9`
+  - `Audio_files/Pin Block.m4a`
+  - `Audio_files/Pin Handoff.m4a`
+  - `Audio_files/Secure pin.m4a`
+  - `Audio_files/Twi/6.PIN & Security/Pin block.aac`
+- SHA-256 `632111aaa7104eac5e605d8777c68948f1cb0b66e95a6ac40b4cbdffad388683`
+  - `Audio_files/Twi/2.Main Service Navigation/MTN menu 1.m4a`
+  - `Audio_files/Twi/2.Main Service Navigation/MTN menu 1.mp3`
+  - `Audio_files/Twi/2.Main Service Navigation/MTN menu.m4a`
+  - `Audio_files/Twi/2.Main Service Navigation/MTN menu.mp3`
+- SHA-256 `a1e0ac1131ca6ae11e8c336e4529187f44fc0536e5d886faee2e0ff5121d750d`
+  - `Audio_files/Twi/2.Main Service Navigation/Network selection 2.m4a`
+  - `Audio_files/Twi/2.Main Service Navigation/Network selection 2.mp3`
+  - `Audio_files/Twi/2.Main Service Navigation/Network selection.m4a`
+  - `Audio_files/Twi/2.Main Service Navigation/Network selection.mp3`
+- SHA-256 `75b335b97d75c4b2a54dfd95f472a9f750e2a36231d13319e8e88592c1d2182f`
+  - `audio/Welcome_prompt_01.mp3`
+  - `audio/welcome_prompt_01.mp3`
+  - `public/audio/Welcome_prompt_01.mp3`
+  - `public/audio/welcome_prompt_01.mp3`
+- SHA-256 `2d4f74db9d32555e14390119aeb2211811b18f77734aa60cb13cb9618cc6d278`
+  - `Audio_files/Auth received.m4a`
+  - `Audio_files/Twi/7.Transaction Processing/Auth received.aac`
+  - `Audio_files/Twi/7.Transaction Processing/Auth_received.aac`
+- SHA-256 `3c10fb21239d30e03f68184cbb67a1268818d710406dff92895b29f263a2ccbe`
+  - `Audio_files/Check final status.m4a`
+  - `Audio_files/Twi/7.Transaction Processing/Check Final Status.aac`
+  - `Audio_files/Twi/7.Transaction Processing/Check final status.aac`
+- SHA-256 `ab8162c4ae77c05fb1f39caa3c26faf07f36fc3df7f01067a9dc706f02badf40`
+  - `Audio_files/Security warning.m4a`
+  - `Audio_files/Sensitive Block.m4a`
+  - `Audio_files/Twi/6.PIN & Security/Sensitive block.aac`
+- SHA-256 `58304f3ea82baad0030297256427d69cd1f7a68d79cbed0efcb16656ef563ea0`
+  - `Audio_files/Twi/1.Welcome & Session Start/Welcome 1 (2).m4a`
+  - `Audio_files/Twi/service_description.m4a`
+  - `Audio_files/audio/Twi/service_description.m4a`
+- SHA-256 `f228b9c206c274f0a9baa12dd7b1b250d13ce2382d836da31c8d9804c97442af`
+  - `Audio_files/Another recipient.m4a`
+  - `Audio_files/Twi/14.Post-Transaction Conversation/Another recipient.aac`
+- SHA-256 `6a8c30cf198b9499bd3acaba035e6ef9610d4f4fd91324a1de41d464c73e7f8f`
+  - `Audio_files/Another transaction.m4a`
+  - `Audio_files/Twi/14.Post-Transaction Conversation/Another transaction.aac`
+- SHA-256 `e22af813f6f86d5b8b16dc1d795105c3086801b4e55f7e9ce1482ccc2aec66ac`
+  - `Audio_files/Anything else.m4a`
+  - `Audio_files/Twi/8.Success & Completion/ANYTHING ELSE.aac`
+- SHA-256 `64dd4b1f3b2c5dd6acd47f373b924022ae0e82cf4b2c03662a37e823560a2575`
+  - `Audio_files/Authorize phone.m4a`
+  - `Audio_files/Twi/7.Transaction Processing/Authorize phone.aac`
+- SHA-256 `7e96dbb7ae76291d520c099c3941e4176ce9ca22150c34967c4c1391cd677686`
+  - `Audio_files/Back.m4a`
+  - `Audio_files/Twi/11.Navigation & Recovery/Back.aac`
+- SHA-256 `824e0b4af363928ac325f51ac30f0695037aaae2e6986f961e3bbaa284f79803`
+  - `Audio_files/Balance Unavailable.m4a`
+  - `Audio_files/Twi/13.Balance  Unsupported Services/Balance unavailable.aac`
+- SHA-256 `9d9fd7b8300a79f8fc56ceb5f4a0f1dc1ea5d5ee8a47ab65ec8a8325903a7b9e`
+  - `Audio_files/Cancel.m4a`
+  - `Audio_files/Twi/11.Navigation & Recovery/Cancel.aac`
+- SHA-256 `a5571cdde6e516edb2fe2ad9c8b7c64ea2a80a50ac25957f95b9b9bdc967558b`
+  - `Audio_files/Check messages.m4a`
+  - `Audio_files/Twi/9.Failure, Decline & Timeout/Check messages.aac`
+- SHA-256 `ebe17581c98c13081dc509a170342a2a382e28bef2a31d63d68f63257b3ba736`
+  - `Audio_files/Check phone.m4a`
+  - `Audio_files/Twi/7.Transaction Processing/Check phone.aac`
+- SHA-256 `dd314a5673480e62626fa481a0ed0909d506f86b76d8c50441f34b642473c0f8`
+  - `Audio_files/Confirm understanding.m4a`
+  - `Audio_files/Twi/10.Voice Understanding & Verification/Confirm understanding.aac`
+- SHA-256 `41cbdd8105df12e7d072c9ee030af6da45b8100b8143ea56bbd08b96801a0352`
+  - `Audio_files/Continue.m4a`
+  - `Audio_files/Twi/11.Navigation & Recovery/Continue.aac`
+- SHA-256 `55c4524802764b7c83fb686b4b58650cf8b541ccb290b891c66cc1235cab4d07`
+  - `Audio_files/Correct prompt.m4a`
+  - `Audio_files/Twi/10.Voice Understanding & Verification/Correct prompt.aac`
+- SHA-256 `f64121b875ba8799e503fb79ec4dc98fdb642fca60752f3eaebafc7d10938672`
+  - `Audio_files/Customer Declined.m4a`
+  - `Audio_files/Twi/9.Failure, Decline & Timeout/Customer declined.aac`
+- SHA-256 `74e1e71b67550a41b8be88570cac7e07d1f76ce33a985a7d5345ac941fafb370`
+  - `Audio_files/Did not get.m4a`
+  - `Audio_files/Twi/10.Voice Understanding & Verification/Do not get.aac`
+- SHA-256 `41f0105647ce2364425f983dcc066dc08e0f8952955a1468205b151857518002`
+  - `Audio_files/Exit.m4a`
+  - `Audio_files/Twi/11.Navigation & Recovery/Exit.aac`
+- SHA-256 `fbe895d74d644655d18d4259e4f4003702956d28587fa1253523b0c816abdfec`
+  - `Audio_files/Failed.m4a`
+  - `Audio_files/Twi/9.Failure, Decline & Timeout/Failed.aac`
+- SHA-256 `247bcea04fb36af7a70055e36ca0917f104f217ffa9d1222bef6da931283dfc6`
+  - `Audio_files/Failure Retry.m4a`
+  - `Audio_files/Twi/9.Failure, Decline & Timeout/Failure retry.aac`
+- SHA-256 `e33d27ffaa73b5172082f71748b5fe6fc0fd802cf8ccaac20a5e0d19ead3b610`
+  - `Audio_files/Finish.m4a`
+  - `Audio_files/Twi/14.Post-Transaction Conversation/Finish.aac`
+- SHA-256 `6f72ed9bb6f051851a5fda7711639da6bc33b82deaad8860ae50ff64913a359f`
+  - `Audio_files/Help command.m4a`
+  - `Audio_files/Twi/12.Accessibility & Help/Help Commands.aac`
+- SHA-256 `d42fa50d928dafa824e75155fd591337967712768ab6e7280aa3923accb0de30`
+  - `Audio_files/Help.m4a`
+  - `Audio_files/Twi/12.Accessibility & Help/HELP.aac`
+- SHA-256 `c9dc6e8abb4fafe5efb170c43d38f1118bd8fd9845065652234758b6c91ca5d1`
+  - `Audio_files/Keep reference.m4a`
+  - `Audio_files/Twi/8.Success & Completion/Keep reference.aac`
+- SHA-256 `ba2055f1fbf2ca24d3bf98fa19557275fe215cc19e0865a0b9bc81df8995e5ed`
+  - `Audio_files/Keypad option.m4a`
+  - `Audio_files/Twi/12.Accessibility & Help/KEYPAD OPTION.aac`
+- SHA-256 `ed39b955a6eb514a4c269ec6af83405f4ce2f9252b9a559d7f7040f7ee28497a`
+  - `Audio_files/Main menu.m4a`
+  - `Audio_files/Twi/11.Navigation & Recovery/Main menu.aac`
+- SHA-256 `698dec2e3c22899b31bd5be0937f9b03a9905ba50cd6588f5fa06ec2d6237451`
+  - `Audio_files/No transfer confirmed.m4a`
+  - `Audio_files/Twi/9.Failure, Decline & Timeout/No transfer confirmed.aac`
+- SHA-256 `b408b9902d562896b44b4638e9665f7113faf3435e8cdf7eff3aa29fb9b8ac87`
+  - `Audio_files/Not understood.m4a`
+  - `Audio_files/Twi/10.Voice Understanding & Verification/Not understood.aac`
+- SHA-256 `bfff6849d7ea79e37ff2f3f7afe9baf7d84dd4a242aa7f21a6b8ebbe7fd257ab`
+  - `Audio_files/Please respond.m4a`
+  - `Audio_files/Twi/10.Voice Understanding & Verification/Please respond.aac`
+- SHA-256 `475a86f784d23b37be147dc567f6089c5daa3118578282ac23e4036b2faf0b8e`
+  - `Audio_files/Post success Help.m4a`
+  - `Audio_files/Twi/14.Post-Transaction Conversation/Post success help.aac`
+- SHA-256 `16d3010619de7fab5d00157d3c89286c7a8cbaf6f633715af1920c2d0f601fab`
+  - `Audio_files/Processing.m4a`
+  - `Audio_files/Twi/7.Transaction Processing/Processing.aac`
+- SHA-256 `ee2359a85b38dec454b75a7cc3d22a41b3687582d72534c58d92819be94d823e`
+  - `Audio_files/Repeat Option.m4a`
+  - `Audio_files/Twi/12.Accessibility & Help/REPEAT OPTIONS.aac`
+- SHA-256 `2654a84e29b5ed95ab89fed0c87e3c5c5e32a96ef4c29a291dae13fb5c591aef`
+  - `Audio_files/Repeat.m4a`
+  - `Audio_files/Twi/10.Voice Understanding & Verification/Repeat.aac`
+- SHA-256 `0000dc62906fe42d29e5d91b91e5314906570bd0d06a01403ebbdac72a2bfc30`
+  - `Audio_files/Restart.m4a`
+  - `Audio_files/Twi/11.Navigation & Recovery/Restart.aac`
+- SHA-256 `6ea37281efdfef8499843b7b3e614e39017efdcd378a116600527d292278769c`
+  - `Audio_files/Session End.m4a`
+  - `Audio_files/Twi/11.Navigation & Recovery/Session end.aac`
+- SHA-256 `044afdc0aa8ff9893e4f555920249124c608f3b1b274e2f0e8119b7eaf0c5530`
+  - `Audio_files/Session timeout.m4a`
+  - `Audio_files/Twi/11.Navigation & Recovery/Session timeout.aac`
+- SHA-256 `d79bd150bd8b1a2113b27a1b0c23c107a0d0d15f7a71b2d487ec39dd98278fc0`
+  - `Audio_files/Start Again.m4a`
+  - `Audio_files/Twi/9.Failure, Decline & Timeout/Start again.aac`
+- SHA-256 `4891da16f0eed2f2756eb47d4ffcc5251c09c220e999ddf2d75920c905bab864`
+  - `Audio_files/Submitted.m4a`
+  - `Audio_files/Twi/7.Transaction Processing/Submitted.aac`
+- SHA-256 `d92cfaea5194a77936f6dcae3ae854145af13b25ec4c6a1a26eee32a8714b176`
+  - `Audio_files/Success close.m4a`
+  - `Audio_files/Twi/8.Success & Completion/SUCCESS CLOSE.aac`
+- SHA-256 `0dcf2f55fb4d4d7c7c3d8bcb05a02e5232b4a3f421dfc10bfc82670da58b894b`
+  - `Audio_files/Success sent.m4a`
+  - `Audio_files/Twi/8.Success & Completion/SUCCESS SENT.aac`
+- SHA-256 `d494fcd79bb3d0772d53a044db4cf0710a0111ba459f11717f4dfc2a5398e118`
+  - `Audio_files/Success.m4a`
+  - `Audio_files/Twi/8.Success & Completion/SUCCESS.aac`
+- SHA-256 `8c6d7eb13362bbaf7a634293e7827703ec0c62c199c55e3034d5600a783d7148`
+  - `Audio_files/System Error.m4a`
+  - `Audio_files/Twi/13.Balance  Unsupported Services/System error.aac`
+- SHA-256 `0b60698e8371fb1725df0c685214c8507dadba48b77932781f1a7ec08e799561`
+  - `Audio_files/Take your time.m4a`
+  - `Audio_files/Twi/12.Accessibility & Help/TAKE YOUR TIME.aac`
+- SHA-256 `9f3b1b2b83fdceae2fea9d14b1e478fce79043bbe9c8071f10ce1ef57f6dbb81`
+  - `Audio_files/Timeout.m4a`
+  - `Audio_files/Twi/9.Failure, Decline & Timeout/Timeout.aac`
+- SHA-256 `77164ddc1159e50eafc0792e4b4ffd272b6a523419535faa439d3cee4caae8ff`
+  - `Audio_files/Twi/10.Voice Understanding & Verification/Yes_No.aac`
+  - `Audio_files/Yes -No.m4a`
+- SHA-256 `91b9794898bb2c33d54e6d77d71dc0322fcb4844b29094fa794ba70547f2469a`
+  - `Audio_files/Twi/12.Accessibility & Help/VOICE OR KEYPAD.aac`
+  - `Audio_files/Voice or keypad.m4a`
+- SHA-256 `12d25958a19b13619bb93028a06e1cc613fa421698377abc20e062918429c299`
+  - `Audio_files/Twi/12.Accessibility & Help/YES OR NO KEYPAD.aac`
+  - `Audio_files/Yes -no- keypad.m4a`
+- SHA-256 `1b4935918b0e1bf443a34832c5b59338f7eeabfbb1eb024a18d8c5c28a6f4345`
+  - `Audio_files/Twi/13.Balance  Unsupported Services/Unsupported service.aac`
+  - `Audio_files/Unsupported service.m4a`
+- SHA-256 `4725ed26cba7a83253b3d1549c5dce6196481021bbcb0aef87fd3ce360ba04c3`
+  - `Audio_files/Twi/2.Main Service Navigation/Choose instead.m4a`
+  - `Audio_files/Twi/2.Main Service Navigation/Choose instead.mp3`
+- SHA-256 `53dbc2ec1614f81b7b15b92ecc897e14478de23bfca0b42221c5f5db1c4b4c25`
+  - `Audio_files/Twi/2.Main Service Navigation/Main service Unavailable.m4a`
+  - `Audio_files/Twi/2.Main Service Navigation/Main service Unavailable.mp3`
+- SHA-256 `468d9e721fc838832a01d8e9cc24189954b7fdedc75b27e8ee965f85ce048b56`
+  - `Audio_files/Twi/2.Main Service Navigation/Send money selected.m4a`
+  - `Audio_files/Twi/2.Main Service Navigation/Send money selected.mp3`
+- SHA-256 `18b61ae8761c1a733984f54aafd0cb49f9ce76d2a1bf990ffd2e4a796d25a70d`
+  - `Audio_files/Twi/2.Main Service Navigation/Service alternative.m4a`
+  - `Audio_files/Twi/2.Main Service Navigation/Service alternative.mp3`
+- SHA-256 `0db409aca42720a431c675fd0935da0495e103620aaf6aaa72f85a9e727bb441`
+  - `Audio_files/Twi/2.Main Service Navigation/Service not ready.m4a`
+  - `Audio_files/Twi/2.Main Service Navigation/Service not ready.mp3`
+- SHA-256 `3a52fa94f2717a5c1758c149473402fbab341f93baf5e0b9d11f7935383de080`
+  - `Audio_files/Twi/5.Transaction Confirmation/Confirm continue 1.m4a`
+  - `Audio_files/Twi/5.Transaction Confirmation/Confirm continue.m4a`
+- SHA-256 `ec975854751d0c6c812ca31142dd23d51818160f6b754c9de9a9aa8b2a7874c0`
+  - `Audio_files/Twi/5.Transaction Confirmation/Confirmation intro.m4a`
+  - `Audio_files/Twi/5.Transaction Confirmation/Review transaction.m4a`
+- SHA-256 `fe0f6df9d0011c119aef39c7f9603729923baad274c94e818fe0706b086002b5`
+  - `Audio_files/Twi/5.Transaction Confirmation/Ready submit 2.m4a`
+  - `Audio_files/Twi/5.Transaction Confirmation/Ready submit.m4a`
+- SHA-256 `56fbd1118033330e0b216d3ae5e1457a8233be6d22fb7362490d8312247a9a99`
+  - `Audio_files/Twi/7.Transaction Processing/Waiting confirmation.aac`
+  - `Audio_files/Waiting confirmation.m4a`
+
+## 9. Audio files not reached by literal source/config paths
+
+These need registry/prompt-ID review. Their absence from literal code does not prove they are unused.
+
+- `audio/Welcome_prompt_01.mp3`
+- `Audio_files/audio/Twi/service_description.m4a`
+- `Audio_files/Processing.m4a`
+- `Audio_files/Twi/1.Welcome & Session Start/Processing.m4a`
+- `Audio_files/Twi/10.Voice Understanding & Verification/No response.aac`
+- `Audio_files/Twi/2.Main Service Navigation/Choose instead.mp3`
+- `Audio_files/Twi/2.Main Service Navigation/Main service Unavailable.mp3`
+- `Audio_files/Twi/2.Main Service Navigation/MTN menu 1.mp3`
+- `Audio_files/Twi/2.Main Service Navigation/MTN menu.mp3`
+- `Audio_files/Twi/2.Main Service Navigation/Network selection 2.m4a`
+- `Audio_files/Twi/2.Main Service Navigation/Network selection 2.mp3`
+- `Audio_files/Twi/2.Main Service Navigation/Network selection.mp3`
+- `Audio_files/Twi/2.Main Service Navigation/Send money selected.mp3`
+- `Audio_files/Twi/2.Main Service Navigation/Service alternative.mp3`
+- `Audio_files/Twi/2.Main Service Navigation/Service not ready.mp3`
+- `Audio_files/Twi/2.Main Service Navigation/Service selection 2 (2).m4a`
+- `Audio_files/Twi/2.Main Service Navigation/Service selection 2 (2).mp3`
+- `Audio_files/Twi/2.Main Service Navigation/Service selection 2.mp3`
+- `Audio_files/Twi/2.Main Service Navigation/Service unavailable 1.m4a`
+- `Audio_files/Twi/5.Transaction Confirmation/Confirm continue 1.m4a`
+- `Audio_files/Twi/5.Transaction Confirmation/Ready submit 2.m4a`
+- `Audio_files/Twi/7.Transaction Processing/Auth_received.aac`
+- `Audio_files/Twi/7.Transaction Processing/Check final status.aac`
+- `Audio_files/Twi/7.Transaction Processing/Check Final Status.aac`
+- `Audio_files/Twi/8.Success & Completion/SUCCESS.aac`
+- `Audio_files/Twi/service_description.m4a`
+- `public/audio/welcome_en.mp3`
+- `public/audio/Welcome_prompt_01.mp3`
+- `public/audio/welcome_twi.mp3`
+- `test_render_welcome.mp3`
+
+## 10. Every discovered literal audio reference
+
+- **MISSING** — `Audio_files/prompts.json:14` → `audio/Twi/01_Welcome_Session_Start/Welcome 1.m4a` → (no local match)
+- **BASENAME_ONLY** — `Audio_files/prompts.json:27` → `audio/Twi/01_Welcome_Session_Start/Language selection.m4a` → Audio_files/Twi/1.Welcome & Session Start/Language selection.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:53` → `audio/Twi/01_Welcome_Session_Start/Welcome back.m4a` → Audio_files/Twi/1.Welcome & Session Start/Welcome back.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:66` → `audio/Twi/01_Welcome_Session_Start/Acknowledge.m4a` → Audio_files/Twi/1.Welcome & Session Start/Acknowledge.m4a
+- **AMBIGUOUS** — `Audio_files/prompts.json:79` → `audio/Twi/01_Welcome_Session_Start/Processing.m4a` → Audio_files/Processing.m4a, Audio_files/Twi/1.Welcome & Session Start/Processing.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:92` → `audio/Twi/02_Main_Service_Navigation/Service selection.m4a` → Audio_files/Twi/2.Main Service Navigation/Service selection.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:94` → `audio/Twi/01_Welcome_Session_Start/Service selection 2.m4a` → Audio_files/Twi/2.Main Service Navigation/Service selection 2.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:107` → `audio/Twi/02_Main_Service_Navigation/Network selection.m4a` → Audio_files/Twi/2.Main Service Navigation/Network selection.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:120` → `audio/Twi/02_Main_Service_Navigation/MTN menu.m4a` → Audio_files/Twi/2.Main Service Navigation/MTN menu.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:133` → `audio/Twi/02_Main_Service_Navigation/Send money selected.m4a` → Audio_files/Twi/2.Main Service Navigation/Send money selected.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:146` → `audio/Twi/02_Main_Service_Navigation/Service unavailable.m4a` → Audio_files/Twi/2.Main Service Navigation/Service unavailable.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:148` → `audio/Twi/02_Main_Service_Navigation/Main service Unavailable.m4a` → Audio_files/Twi/2.Main Service Navigation/Main service Unavailable.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:161` → `audio/Twi/02_Main_Service_Navigation/Service alternative.m4a` → Audio_files/Twi/2.Main Service Navigation/Service alternative.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:174` → `audio/Twi/02_Main_Service_Navigation/Service not ready.m4a` → Audio_files/Twi/2.Main Service Navigation/Service not ready.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:187` → `audio/Twi/02_Main_Service_Navigation/Try another service.m4a` → Audio_files/Twi/2.Main Service Navigation/Try another service.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:200` → `audio/Twi/02_Main_Service_Navigation/Choose instead.m4a` → Audio_files/Twi/2.Main Service Navigation/Choose instead.m4a
+- **MISSING** — `Audio_files/prompts.json:213` → `audio/Twi/03_Recipient_Entry_Verification/Enter recipient.m4a` → (no local match)
+- **MISSING** — `Audio_files/prompts.json:226` → `audio/Twi/03_Recipient_Entry_Verification/Invalid recipient.m4a` → (no local match)
+- **BASENAME_ONLY** — `Audio_files/prompts.json:239` → `audio/Twi/03_Recipient_Entry_Verification/Recipient found.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Recipient found.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:252` → `audio/Twi/03_Recipient_Entry_Verification/Recipient verify.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Recipient verify.m4a
+- **MISSING** — `Audio_files/prompts.json:254` → `audio/Twi/03_Recipient_Entry_Verification/Recipient verification.m4a` → (no local match)
+- **MISSING** — `Audio_files/prompts.json:270` → `audio/Twi/03_Recipient_Entry_Verification/Recipient name.m4a` → (no local match)
+- **MISSING** — `Audio_files/prompts.json:299` → `audio/Twi/03_Recipient_Entry_Verification/Recipient confirm.m4a` → (no local match)
+- **MISSING** — `Audio_files/prompts.json:325` → `audio/Twi/03_Recipient_Entry_Verification/Use recipient.m4a` → (no local match)
+- **BASENAME_ONLY** — `Audio_files/prompts.json:338` → `audio/Twi/03_Recipient_Entry_Verification/Change recipient.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Change recipient.m4a
+- **MISSING** — `Audio_files/prompts.json:351` → `audio/Twi/04_Amount_Entry_Verification/Enter amount.m4a` → (no local match)
+- **BASENAME_ONLY** — `Audio_files/prompts.json:364` → `audio/Twi/04_Amount_Entry_Verification/Invalid amount.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Invalid amount.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:377` → `audio/Twi/04_Amount_Entry_Verification/Amount prompt.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Amount prompt.m4a
+- **MISSING** — `Audio_files/prompts.json:393` → `audio/Twi/04_Amount_Entry_Verification/Amount read back.m4a` → (no local match)
+- **BASENAME_ONLY** — `Audio_files/prompts.json:406` → `audio/Twi/04_Amount_Entry_Verification/Repeat amount.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Repeat amount.m4a
+- **MISSING** — `Audio_files/prompts.json:419` → `audio/Twi/04_Amount_Entry_Verification/Amount too high.m4a` → (no local match)
+- **BASENAME_ONLY** — `Audio_files/prompts.json:432` → `audio/Twi/04_Amount_Entry_Verification/Amount too low.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Amount too low.m4a
+- **MISSING** — `Audio_files/prompts.json:445` → `audio/Twi/04_Amount_Entry_Verification/Change amount.m4a` → (no local match)
+- **BASENAME_ONLY** — `Audio_files/prompts.json:458` → `audio/Twi/05_Transaction_Confirmation/Confirmation intro.m4a` → Audio_files/Twi/5.Transaction Confirmation/Confirmation intro.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:471` → `audio/Twi/05_Transaction_Confirmation/Review transaction.m4a` → Audio_files/Twi/5.Transaction Confirmation/Review transaction.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:497` → `audio/Twi/05_Transaction_Confirmation/Confirm speech.m4a` → Audio_files/Twi/5.Transaction Confirmation/Confirm speech.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:510` → `audio/Twi/05_Transaction_Confirmation/Reject speech.m4a` → Audio_files/Twi/5.Transaction Confirmation/Reject speech.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:523` → `audio/Twi/05_Transaction_Confirmation/Ready submit.m4a` → Audio_files/Twi/5.Transaction Confirmation/Ready submit.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:536` → `Audio_files_2/Pin Handoff.m4a` → Audio_files/Pin Handoff.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:549` → `Audio_files_2/Security warning.m4a` → Audio_files/Security warning.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:562` → `Audio_files_2/Secure pin.m4a` → Audio_files/Secure pin.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:575` → `Audio_files_2/Pin Block.m4a` → Audio_files/Pin Block.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:588` → `Audio_files_2/Sensitive Block.m4a` → Audio_files/Sensitive Block.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:601` → `Audio_files_2/Submitted.m4a` → Audio_files/Submitted.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:614` → `Audio_files_2/Waiting confirmation.m4a` → Audio_files/Waiting confirmation.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:627` → `Audio_files_2/Check phone.m4a` → Audio_files/Check phone.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:640` → `Audio_files_2/Authorize phone.m4a` → Audio_files/Authorize phone.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:653` → `Audio_files_2/Auth received.m4a` → Audio_files/Auth received.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:666` → `Audio_files_2/Check final status.m4a` → Audio_files/Check final status.m4a
+- **AMBIGUOUS** — `Audio_files/prompts.json:679` → `Audio_files_2/Processing.m4a` → Audio_files/Processing.m4a, Audio_files/Twi/1.Welcome & Session Start/Processing.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:708` → `Audio_files_2/Success sent.m4a` → Audio_files/Success sent.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:710` → `Audio_files_2/Success.m4a` → Audio_files/Success.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:723` → `Audio_files_2/Keep reference.m4a` → Audio_files/Keep reference.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:736` → `Audio_files_2/Success close.m4a` → Audio_files/Success close.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:749` → `Audio_files_2/Anything else.m4a` → Audio_files/Anything else.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:762` → `Audio_files_2/Customer Declined.m4a` → Audio_files/Customer Declined.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:775` → `Audio_files_2/Failed.m4a` → Audio_files/Failed.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:788` → `Audio_files_2/Timeout.m4a` → Audio_files/Timeout.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:801` → `Audio_files_2/Failure Retry.m4a` → Audio_files/Failure Retry.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:814` → `Audio_files_2/No transfer confirmed.m4a` → Audio_files/No transfer confirmed.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:827` → `Audio_files_2/Check messages.m4a` → Audio_files/Check messages.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:840` → `Audio_files_2/Start Again.m4a` → Audio_files/Start Again.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:853` → `Audio_files_2/Not understood.m4a` → Audio_files/Not understood.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:866` → `Audio_files_2/Did not get.m4a` → Audio_files/Did not get.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:892` → `Audio_files_2/Please respond.m4a` → Audio_files/Please respond.m4a
+- **MISSING** — `Audio_files/prompts.json:905` → `Audio_files_2/Input not recognized.m4a` → (no local match)
+- **BASENAME_ONLY** — `Audio_files/prompts.json:918` → `Audio_files_2/Repeat.m4a` → Audio_files/Repeat.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:934` → `Audio_files_2/Confirm understanding.m4a` → Audio_files/Confirm understanding.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:947` → `Audio_files_2/Correct prompt.m4a` → Audio_files/Correct prompt.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:960` → `Audio_files_2/Yes -No.m4a` → Audio_files/Yes -No.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:973` → `Audio_files_2/Back.m4a` → Audio_files/Back.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:986` → `Audio_files_2/Main menu.m4a` → Audio_files/Main menu.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:999` → `Audio_files_2/Restart.m4a` → Audio_files/Restart.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:1012` → `Audio_files_2/Cancel.m4a` → Audio_files/Cancel.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:1025` → `Audio_files_2/Exit.m4a` → Audio_files/Exit.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:1038` → `Audio_files_2/Session End.m4a` → Audio_files/Session End.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:1051` → `Audio_files_2/Continue.m4a` → Audio_files/Continue.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:1064` → `Audio_files_2/Session timeout.m4a` → Audio_files/Session timeout.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:1077` → `Audio_files_2/Repeat Option.m4a` → Audio_files/Repeat Option.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:1090` → `Audio_files_2/Keypad option.m4a` → Audio_files/Keypad option.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:1103` → `Audio_files_2/Voice or keypad.m4a` → Audio_files/Voice or keypad.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:1116` → `Audio_files_2/Take your time.m4a` → Audio_files/Take your time.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:1129` → `Audio_files_2/Yes -no- keypad.m4a` → Audio_files/Yes -no- keypad.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:1142` → `Audio_files_2/Help.m4a` → Audio_files/Help.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:1155` → `Audio_files_2/Help command.m4a` → Audio_files/Help command.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:1168` → `Audio_files_2/Balance Unavailable.m4a` → Audio_files/Balance Unavailable.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:1181` → `Audio_files_2/Unsupported service.m4a` → Audio_files/Unsupported service.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:1194` → `Audio_files_2/System Error.m4a` → Audio_files/System Error.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:1207` → `Audio_files_2/Post success Help.m4a` → Audio_files/Post success Help.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:1220` → `Audio_files_2/Another transaction.m4a` → Audio_files/Another transaction.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:1233` → `Audio_files_2/Another recipient.m4a` → Audio_files/Another recipient.m4a
+- **BASENAME_ONLY** — `Audio_files/prompts.json:1246` → `Audio_files_2/Finish.m4a` → Audio_files/Finish.m4a
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:56` → `audio/Twi/OPxx.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:57` → `audio/English/OPxx.mp3` → (no local match)
+- **AMBIGUOUS** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1175` → `welcome_prompt_01.mp3` → audio/Welcome_prompt_01.mp3, audio/welcome_prompt_01.mp3, public/audio/Welcome_prompt_01.mp3, public/audio/welcome_prompt_01.mp3
+- **AMBIGUOUS** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1176` → `audio/Twi/welcome_prompt_01.mp3` → audio/Welcome_prompt_01.mp3, audio/welcome_prompt_01.mp3, public/audio/Welcome_prompt_01.mp3, public/audio/welcome_prompt_01.mp3
+- **AMBIGUOUS** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1177` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/welcome_prompt_01.mp3` → audio/Welcome_prompt_01.mp3, audio/welcome_prompt_01.mp3, public/audio/Welcome_prompt_01.mp3, public/audio/welcome_prompt_01.mp3
+- **AMBIGUOUS** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1191` → `audio/Twi/welcome_prompt_01.mp3` → audio/Welcome_prompt_01.mp3, audio/welcome_prompt_01.mp3, public/audio/Welcome_prompt_01.mp3, public/audio/welcome_prompt_01.mp3
+- **EXACT** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1192` → `audio/welcome_prompt_01.mp3` → audio/welcome_prompt_01.mp3
+- **EXACT** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1193` → `public/audio/Welcome_prompt_01.mp3` → public/audio/welcome_prompt_01.mp3
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1198` → `Audio_prompt_twi_02.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1199` → `audio/Twi/Audio_prompt_twi_02.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1200` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/Twi/Audio_prompt_twi_02.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1215` → `Audio_prompt_twi_03.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1216` → `audio/Twi/Audio_prompt_twi_03.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1217` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/Twi/Audio_prompt_twi_03.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1233` → `Audio_prompt_twi_04.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1234` → `audio/Twi/Audio_prompt_twi_04.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1235` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/Twi/Audio_prompt_twi_04.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1250` → `Audio_prompt_twi_05.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1251` → `audio/Twi/Audio_prompt_twi_05.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1252` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/Twi/Audio_prompt_twi_05.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1267` → `Audio_prompt_twi_06.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1268` → `audio/Twi/Audio_prompt_twi_06.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1269` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/Twi/Audio_prompt_twi_06.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1287` → `Audio_prompt_twi_07.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1288` → `audio/Twi/Audio_prompt_twi_07.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1289` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/Twi/Audio_prompt_twi_07.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1304` → `Audio_prompt_twi_08.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1305` → `audio/Twi/Audio_prompt_twi_08.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1306` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/Twi/Audio_prompt_twi_08.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1323` → `Audio_prompt_twi_09.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1324` → `audio/Twi/Audio_prompt_twi_09.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1325` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/Twi/Audio_prompt_twi_09.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1341` → `Audio_prompt_twi_10.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1342` → `audio/Twi/Audio_prompt_twi_10.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1343` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/Twi/Audio_prompt_twi_10.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1361` → `Audio_prompt_twi_11.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1362` → `audio/Twi/Audio_prompt_twi_11.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1363` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/Twi/Audio_prompt_twi_11.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1381` → `Audio_prompt_twi_12.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1382` → `audio/Twi/Audio_prompt_twi_12.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1383` → `https://github.com/Johannessiaw/Okwankyer_fo_Pa.-main/blob/main/audio/Twi/Audio_prompt_twi_12.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1401` → `01_service_select.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1403` → `audio/twi_recording/01_service_select.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1409` → `02_network_select.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1411` → `audio/twi_recording/02_network_select.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1417` → `03_network_select_alt.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1419` → `audio/twi_recording/03_network_select_alt.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1425` → `04_mtn_services_menu.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1427` → `audio/twi_recording/04_mtn_services_menu.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1433` → `05_enter_recipient_phone.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1435` → `audio/twi_recording/05_enter_recipient_phone.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1441` → `06_demo_recipient_digits.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1443` → `audio/twi_recording/06_demo_recipient_digits.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1449` → `07_confirm_recipient_name.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1451` → `audio/twi_recording/07_confirm_recipient_name.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1457` → `08_enter_amount_cedis.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1459` → `audio/twi_recording/08_enter_amount_cedis.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1465` → `09_confirm_transfer_summary.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1467` → `audio/twi_recording/09_confirm_transfer_summary.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1473` → `10_pin_prompt_screen_handoff.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1475` → `audio/twi_recording/10_pin_prompt_screen_handoff.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1481` → `11_transaction_receipt_summary.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1483` → `audio/twi_recording/11_transaction_receipt_summary.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1489` → `cancel_twi.mp3` → (no local match)
+- **MISSING** — `Audio_files/TWI_AUDIO_LINK_MANIFEST.json:1491` → `audio/twi_recording/cancel_twi.mp3` → (no local match)
+- **AMBIGUOUS** — `src/ai_system/brain/replyComposer.ts:203` → `public:English/Welcome_prompt_01.mp3` → audio/Welcome_prompt_01.mp3, audio/welcome_prompt_01.mp3, public/audio/Welcome_prompt_01.mp3, public/audio/welcome_prompt_01.mp3
+- **MISSING** — `src/ai_system/services/openaiTranscriber.ts:143` → `audio.wav` → (no local match)
+- **BASENAME_ONLY** — `src/audio/audioPlaybackController.ts:319` → `/audio/supplied/Twi/4.Amount Entry & Verification/Enter amount 4.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Enter amount 4.m4a
+- **BASENAME_ONLY** — `src/audio/audioPlaybackController.ts:321` → `/audio/supplied/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a
+- **BASENAME_ONLY** — `src/audio/audioPlaybackController.ts:323` → `/audio/supplied/Twi/5.Transaction Confirmation/Review transaction.m4a` → Audio_files/Twi/5.Transaction Confirmation/Review transaction.m4a
+- **BASENAME_ONLY** — `src/audio/audioPlaybackController.ts:325` → `/audio/supplied/Twi/7.Handset PIN Delivery & Handoff/Pin handoff.m4a` → Audio_files/Pin Handoff.m4a
+- **BASENAME_ONLY** — `src/audio/audioPlaybackController.ts:327` → `/audio/supplied/Twi/13.Balance  Unsupported Services/Balance unavailable.aac` → Audio_files/Twi/13.Balance  Unsupported Services/Balance unavailable.aac
+- **BASENAME_ONLY** — `src/audio/audioPlaybackController.ts:329` → `/audio/supplied/Twi/2.Main Service Navigation/Send money selected.m4a` → Audio_files/Twi/2.Main Service Navigation/Send money selected.m4a
+- **BASENAME_ONLY** — `src/audio/audioPlaybackController.ts:331` → `/audio/supplied/Twi/2.Main Service Navigation/MTN menu 1.m4a` → Audio_files/Twi/2.Main Service Navigation/MTN menu 1.m4a
+- **BASENAME_ONLY** — `src/audio/audioPlaybackController.ts:333` → `/audio/supplied/Twi/11.Navigation & Recovery/Cancel.aac` → Audio_files/Twi/11.Navigation & Recovery/Cancel.aac
+- **BASENAME_ONLY** — `src/audio/audioPlaybackController.ts:335` → `/audio/supplied/Twi/14.Post-Transaction Conversation/Finish.aac` → Audio_files/Twi/14.Post-Transaction Conversation/Finish.aac
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:106` → `Twi/1.Welcome & Session Start/Acknowledge.m4a` → Audio_files/Twi/1.Welcome & Session Start/Acknowledge.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:107` → `Twi/1.Welcome & Session Start/Language selection.m4a` → Audio_files/Twi/1.Welcome & Session Start/Language selection.m4a
+- **AMBIGUOUS** — `src/audio/recordingRegistry.ts:108` → `Twi/1.Welcome & Session Start/Processing.m4a` → Audio_files/Processing.m4a, Audio_files/Twi/1.Welcome & Session Start/Processing.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:109` → `Twi/1.Welcome & Session Start/Welcome 1 (2).m4a` → Audio_files/Twi/1.Welcome & Session Start/Welcome 1 (2).m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:110` → `Twi/1.Welcome & Session Start/Welcome back.m4a` → Audio_files/Twi/1.Welcome & Session Start/Welcome back.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:111` → `Twi/2.Main Service Navigation/Choose instead.m4a` → Audio_files/Twi/2.Main Service Navigation/Choose instead.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:112` → `Twi/2.Main Service Navigation/Main service Unavailable.m4a` → Audio_files/Twi/2.Main Service Navigation/Main service Unavailable.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:113` → `Twi/2.Main Service Navigation/MTN menu.m4a` → Audio_files/Twi/2.Main Service Navigation/MTN menu.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:114` → `Twi/2.Main Service Navigation/Network selection.m4a` → Audio_files/Twi/2.Main Service Navigation/Network selection.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:115` → `Twi/2.Main Service Navigation/Send money selected.m4a` → Audio_files/Twi/2.Main Service Navigation/Send money selected.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:116` → `Twi/2.Main Service Navigation/Service alternative.m4a` → Audio_files/Twi/2.Main Service Navigation/Service alternative.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:117` → `Twi/2.Main Service Navigation/Service not ready.m4a` → Audio_files/Twi/2.Main Service Navigation/Service not ready.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:118` → `Twi/2.Main Service Navigation/Service selection.m4a` → Audio_files/Twi/2.Main Service Navigation/Service selection.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:119` → `Twi/2.Main Service Navigation/Service unavailable.m4a` → Audio_files/Twi/2.Main Service Navigation/Service unavailable.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:120` → `Twi/2.Main Service Navigation/Try another service.m4a` → Audio_files/Twi/2.Main Service Navigation/Try another service.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:121` → `Twi/3.Recipient Entry & Verification/Change recipient.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Change recipient.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:122` → `Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:123` → `Twi/3.Recipient Entry & Verification/Invalid recipient 1.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Invalid recipient 1.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:124` → `Twi/3.Recipient Entry & Verification/Recipient confirm speech.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Recipient confirm speech.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:125` → `Twi/3.Recipient Entry & Verification/Recipient found.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Recipient found.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:126` → `Twi/3.Recipient Entry & Verification/Recipient verify.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Recipient verify.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:127` → `Twi/3.Recipient Entry & Verification/Use recipient 1.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Use recipient 1.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:128` → `Twi/4.Amount Entry & Verification/Amount prompt.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Amount prompt.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:129` → `Twi/4.Amount Entry & Verification/Amount readback 2.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Amount readback 2.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:130` → `Twi/4.Amount Entry & Verification/Amount too high 3.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Amount too high 3.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:131` → `Twi/4.Amount Entry & Verification/Amount too low.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Amount too low.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:132` → `Twi/4.Amount Entry & Verification/Change amount 2.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Change amount 2.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:133` → `Twi/4.Amount Entry & Verification/Enter amount 4.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Enter amount 4.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:134` → `Twi/4.Amount Entry & Verification/Invalid amount.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Invalid amount.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:135` → `Twi/4.Amount Entry & Verification/Repeat amount.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Repeat amount.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:136` → `Twi/5.Transaction Confirmation/Confirm continue.m4a` → Audio_files/Twi/5.Transaction Confirmation/Confirm continue.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:137` → `Twi/5.Transaction Confirmation/Confirm speech.m4a` → Audio_files/Twi/5.Transaction Confirmation/Confirm speech.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:138` → `Twi/5.Transaction Confirmation/Confirmation intro.m4a` → Audio_files/Twi/5.Transaction Confirmation/Confirmation intro.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:139` → `Twi/5.Transaction Confirmation/Ready submit.m4a` → Audio_files/Twi/5.Transaction Confirmation/Ready submit.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:140` → `Twi/5.Transaction Confirmation/Reject speech.m4a` → Audio_files/Twi/5.Transaction Confirmation/Reject speech.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:141` → `Twi/5.Transaction Confirmation/Review transaction.m4a` → Audio_files/Twi/5.Transaction Confirmation/Review transaction.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:145` → `Twi/1.Welcome & Session Start/Acknowledge.m4a` → Audio_files/Twi/1.Welcome & Session Start/Acknowledge.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:146` → `Twi/1.Welcome & Session Start/Language selection.m4a` → Audio_files/Twi/1.Welcome & Session Start/Language selection.m4a
+- **AMBIGUOUS** — `src/audio/recordingRegistry.ts:147` → `Twi/1.Welcome & Session Start/Processing.m4a` → Audio_files/Processing.m4a, Audio_files/Twi/1.Welcome & Session Start/Processing.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:148` → `Twi/1.Welcome & Session Start/Welcome 1 (2).m4a` → Audio_files/Twi/1.Welcome & Session Start/Welcome 1 (2).m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:149` → `Twi/1.Welcome & Session Start/Welcome back.m4a` → Audio_files/Twi/1.Welcome & Session Start/Welcome back.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:150` → `Twi/2.Main Service Navigation/Choose instead.m4a` → Audio_files/Twi/2.Main Service Navigation/Choose instead.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:151` → `Twi/2.Main Service Navigation/Main service Unavailable.m4a` → Audio_files/Twi/2.Main Service Navigation/Main service Unavailable.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:152` → `Twi/2.Main Service Navigation/MTN menu.m4a` → Audio_files/Twi/2.Main Service Navigation/MTN menu.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:153` → `Twi/2.Main Service Navigation/Network selection.m4a` → Audio_files/Twi/2.Main Service Navigation/Network selection.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:154` → `Twi/2.Main Service Navigation/Send money selected.m4a` → Audio_files/Twi/2.Main Service Navigation/Send money selected.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:155` → `Twi/2.Main Service Navigation/Service alternative.m4a` → Audio_files/Twi/2.Main Service Navigation/Service alternative.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:156` → `Twi/2.Main Service Navigation/Service not ready.m4a` → Audio_files/Twi/2.Main Service Navigation/Service not ready.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:157` → `Twi/2.Main Service Navigation/Service selection.m4a` → Audio_files/Twi/2.Main Service Navigation/Service selection.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:158` → `Twi/2.Main Service Navigation/Service unavailable.m4a` → Audio_files/Twi/2.Main Service Navigation/Service unavailable.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:159` → `Twi/2.Main Service Navigation/Try another service.m4a` → Audio_files/Twi/2.Main Service Navigation/Try another service.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:160` → `Twi/3.Recipient Entry & Verification/Change recipient.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Change recipient.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:161` → `Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:162` → `Twi/3.Recipient Entry & Verification/Invalid recipient 1.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Invalid recipient 1.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:163` → `Twi/3.Recipient Entry & Verification/Recipient confirm speech.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Recipient confirm speech.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:164` → `Twi/3.Recipient Entry & Verification/Recipient found.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Recipient found.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:165` → `Twi/3.Recipient Entry & Verification/Recipient verify.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Recipient verify.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:166` → `Twi/3.Recipient Entry & Verification/Use recipient 1.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Use recipient 1.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:167` → `Twi/4.Amount Entry & Verification/Amount prompt.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Amount prompt.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:168` → `Twi/4.Amount Entry & Verification/Amount readback 2.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Amount readback 2.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:169` → `Twi/4.Amount Entry & Verification/Amount too high 3.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Amount too high 3.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:170` → `Twi/4.Amount Entry & Verification/Amount too low.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Amount too low.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:171` → `Twi/4.Amount Entry & Verification/Change amount 2.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Change amount 2.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:172` → `Twi/4.Amount Entry & Verification/Enter amount 4.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Enter amount 4.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:173` → `Twi/4.Amount Entry & Verification/Invalid amount.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Invalid amount.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:174` → `Twi/4.Amount Entry & Verification/Repeat amount.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Repeat amount.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:175` → `Twi/5.Transaction Confirmation/Confirm continue.m4a` → Audio_files/Twi/5.Transaction Confirmation/Confirm continue.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:176` → `Twi/5.Transaction Confirmation/Confirm speech.m4a` → Audio_files/Twi/5.Transaction Confirmation/Confirm speech.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:177` → `Twi/5.Transaction Confirmation/Confirmation intro.m4a` → Audio_files/Twi/5.Transaction Confirmation/Confirmation intro.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:178` → `Twi/5.Transaction Confirmation/Ready submit.m4a` → Audio_files/Twi/5.Transaction Confirmation/Ready submit.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:179` → `Twi/5.Transaction Confirmation/Reject speech.m4a` → Audio_files/Twi/5.Transaction Confirmation/Reject speech.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:180` → `Twi/5.Transaction Confirmation/Review transaction.m4a` → Audio_files/Twi/5.Transaction Confirmation/Review transaction.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:184` → `Another recipient.m4a` → Audio_files/Another recipient.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:185` → `Another transaction.m4a` → Audio_files/Another transaction.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:186` → `Anything else.m4a` → Audio_files/Anything else.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:187` → `Auth received.m4a` → Audio_files/Auth received.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:188` → `Authorize phone.m4a` → Audio_files/Authorize phone.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:189` → `Back.m4a` → Audio_files/Back.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:190` → `Balance Unavailable.m4a` → Audio_files/Balance Unavailable.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:191` → `Cancel.m4a` → Audio_files/Cancel.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:192` → `Check final status.m4a` → Audio_files/Check final status.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:193` → `Check messages.m4a` → Audio_files/Check messages.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:194` → `Check phone.m4a` → Audio_files/Check phone.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:195` → `Confirm understanding.m4a` → Audio_files/Confirm understanding.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:196` → `Continue.m4a` → Audio_files/Continue.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:197` → `Correct prompt.m4a` → Audio_files/Correct prompt.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:198` → `Customer Declined.m4a` → Audio_files/Customer Declined.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:199` → `Did not get.m4a` → Audio_files/Did not get.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:200` → `Exit.m4a` → Audio_files/Exit.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:201` → `Failed.m4a` → Audio_files/Failed.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:202` → `Failure Retry.m4a` → Audio_files/Failure Retry.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:203` → `Finish.m4a` → Audio_files/Finish.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:204` → `Help command.m4a` → Audio_files/Help command.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:205` → `Help.m4a` → Audio_files/Help.m4a
+- **MISSING** — `src/audio/recordingRegistry.ts:206` → `Input not recognized.m4a` → (no local match)
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:207` → `Keep reference.m4a` → Audio_files/Keep reference.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:208` → `Keypad option.m4a` → Audio_files/Keypad option.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:209` → `Main menu.m4a` → Audio_files/Main menu.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:210` → `No transfer confirmed.m4a` → Audio_files/No transfer confirmed.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:211` → `Not understood.m4a` → Audio_files/Not understood.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:212` → `Pin Block.m4a` → Audio_files/Pin Block.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:213` → `Pin Handoff.m4a` → Audio_files/Pin Handoff.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:214` → `Please respond.m4a` → Audio_files/Please respond.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:215` → `Post success Help.m4a` → Audio_files/Post success Help.m4a
+- **AMBIGUOUS** — `src/audio/recordingRegistry.ts:216` → `Processing.m4a` → Audio_files/Processing.m4a, Audio_files/Twi/1.Welcome & Session Start/Processing.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:217` → `Repeat Option.m4a` → Audio_files/Repeat Option.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:218` → `Repeat.m4a` → Audio_files/Repeat.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:219` → `Restart.m4a` → Audio_files/Restart.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:220` → `Secure pin.m4a` → Audio_files/Secure pin.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:221` → `Security warning.m4a` → Audio_files/Security warning.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:222` → `Sensitive Block.m4a` → Audio_files/Sensitive Block.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:223` → `Session End.m4a` → Audio_files/Session End.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:224` → `Session timeout.m4a` → Audio_files/Session timeout.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:225` → `Start Again.m4a` → Audio_files/Start Again.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:226` → `Submitted.m4a` → Audio_files/Submitted.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:227` → `Success close.m4a` → Audio_files/Success close.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:228` → `Success sent.m4a` → Audio_files/Success sent.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:229` → `Success.m4a` → Audio_files/Success.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:230` → `System Error.m4a` → Audio_files/System Error.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:231` → `Take your time.m4a` → Audio_files/Take your time.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:232` → `Timeout.m4a` → Audio_files/Timeout.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:233` → `Unsupported service.m4a` → Audio_files/Unsupported service.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:234` → `Voice or keypad.m4a` → Audio_files/Voice or keypad.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:235` → `Waiting confirmation.m4a` → Audio_files/Waiting confirmation.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:236` → `Yes -No.m4a` → Audio_files/Yes -No.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:237` → `Yes -no- keypad.m4a` → Audio_files/Yes -no- keypad.m4a
+- **MISSING** — `src/audio/recordingRegistry.ts:303` → `public:Welcome_prompt_01.mp3` → (no local match)
+- **AMBIGUOUS** — `src/audio/recordingRegistry.ts:311` → `Welcome_prompt_01.mp3` → audio/Welcome_prompt_01.mp3, audio/welcome_prompt_01.mp3, public/audio/Welcome_prompt_01.mp3, public/audio/welcome_prompt_01.mp3
+- **EXACT** — `src/audio/recordingRegistry.ts:313` → `/audio/Welcome_prompt_01.mp3` → audio/welcome_prompt_01.mp3
+- **MISSING** — `src/audio/recordingRegistry.ts:320` → `public:welcome_prompt_01.mp3` → (no local match)
+- **AMBIGUOUS** — `src/audio/recordingRegistry.ts:328` → `welcome_prompt_01.mp3` → audio/Welcome_prompt_01.mp3, audio/welcome_prompt_01.mp3, public/audio/Welcome_prompt_01.mp3, public/audio/welcome_prompt_01.mp3
+- **EXACT** — `src/audio/recordingRegistry.ts:330` → `/audio/welcome_prompt_01.mp3` → audio/welcome_prompt_01.mp3
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:339` → `Cancel.m4a` → Audio_files/Cancel.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:340` → `Exit.m4a` → Audio_files/Exit.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:341` → `Pin Handoff.m4a` → Audio_files/Pin Handoff.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:342` → `Security warning.m4a` → Audio_files/Security warning.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:343` → `Secure pin.m4a` → Audio_files/Secure pin.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:344` → `Pin Block.m4a` → Audio_files/Pin Block.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:345` → `Sensitive Block.m4a` → Audio_files/Sensitive Block.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:346` → `Submitted.m4a` → Audio_files/Submitted.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:347` → `Waiting confirmation.m4a` → Audio_files/Waiting confirmation.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:348` → `Check phone.m4a` → Audio_files/Check phone.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:349` → `Authorize phone.m4a` → Audio_files/Authorize phone.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:350` → `Auth received.m4a` → Audio_files/Auth received.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:351` → `Check final status.m4a` → Audio_files/Check final status.m4a
+- **AMBIGUOUS** — `src/audio/recordingRegistry.ts:352` → `Processing.m4a` → Audio_files/Processing.m4a, Audio_files/Twi/1.Welcome & Session Start/Processing.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:353` → `Success sent.m4a` → Audio_files/Success sent.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:354` → `Success.m4a` → Audio_files/Success.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:355` → `Keep reference.m4a` → Audio_files/Keep reference.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:356` → `Success close.m4a` → Audio_files/Success close.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:357` → `Anything else.m4a` → Audio_files/Anything else.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:358` → `Customer Declined.m4a` → Audio_files/Customer Declined.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:359` → `Failed.m4a` → Audio_files/Failed.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:360` → `Timeout.m4a` → Audio_files/Timeout.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:361` → `Failure Retry.m4a` → Audio_files/Failure Retry.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:362` → `No transfer confirmed.m4a` → Audio_files/No transfer confirmed.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:363` → `Check messages.m4a` → Audio_files/Check messages.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:364` → `Start Again.m4a` → Audio_files/Start Again.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:365` → `Not understood.m4a` → Audio_files/Not understood.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:366` → `Did not get.m4a` → Audio_files/Did not get.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:367` → `Please respond.m4a` → Audio_files/Please respond.m4a
+- **MISSING** — `src/audio/recordingRegistry.ts:368` → `Input not recognized.m4a` → (no local match)
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:369` → `Repeat.m4a` → Audio_files/Repeat.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:370` → `Confirm understanding.m4a` → Audio_files/Confirm understanding.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:371` → `Correct prompt.m4a` → Audio_files/Correct prompt.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:372` → `Yes -No.m4a` → Audio_files/Yes -No.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:373` → `Back.m4a` → Audio_files/Back.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:374` → `Main menu.m4a` → Audio_files/Main menu.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:375` → `Restart.m4a` → Audio_files/Restart.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:376` → `Session End.m4a` → Audio_files/Session End.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:377` → `Continue.m4a` → Audio_files/Continue.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:378` → `Session timeout.m4a` → Audio_files/Session timeout.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:379` → `Repeat Option.m4a` → Audio_files/Repeat Option.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:380` → `Keypad option.m4a` → Audio_files/Keypad option.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:381` → `Voice or keypad.m4a` → Audio_files/Voice or keypad.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:382` → `Take your time.m4a` → Audio_files/Take your time.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:383` → `Yes -no- keypad.m4a` → Audio_files/Yes -no- keypad.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:384` → `Help.m4a` → Audio_files/Help.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:385` → `Help command.m4a` → Audio_files/Help command.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:386` → `Balance Unavailable.m4a` → Audio_files/Balance Unavailable.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:387` → `Unsupported service.m4a` → Audio_files/Unsupported service.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:388` → `System Error.m4a` → Audio_files/System Error.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:389` → `Post success Help.m4a` → Audio_files/Post success Help.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:390` → `Another transaction.m4a` → Audio_files/Another transaction.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:391` → `Another recipient.m4a` → Audio_files/Another recipient.m4a
+- **BASENAME_ONLY** — `src/audio/recordingRegistry.ts:392` → `Finish.m4a` → Audio_files/Finish.m4a
+- **EXACT** — `src/audio/recordingRegistry.ts:571` → `public/audio/Welcome_prompt_01.mp3` → public/audio/welcome_prompt_01.mp3
+- **MISSING** — `src/audio/streaming.ts:58` → `${safeBase}_${hash}.mp3` → (no local match)
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:196` → `/audio/Twi/01_Welcome_Session_Start/Welcome%201%20(2).m4a` → Audio_files/Twi/1.Welcome & Session Start/Welcome 1 (2).m4a
+- **EXACT** — `src/audio/twiSequentialAudioFlow.ts:197` → `/audio/Welcome_prompt_01.mp3` → audio/welcome_prompt_01.mp3
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:207` → `/audio/Twi/01_Welcome_Session_Start/Language%20selection.m4a` → Audio_files/Twi/1.Welcome & Session Start/Language selection.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:217` → `/audio/Twi/01_Welcome_Session_Start/Greetings%202.m4a` → Audio_files/Twi/1.Welcome & Session Start/Greetings 2.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:227` → `/audio/Twi/01_Welcome_Session_Start/Welcome%20back.m4a` → Audio_files/Twi/1.Welcome & Session Start/Welcome back.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:237` → `/audio/Twi/01_Welcome_Session_Start/Acknowledge.m4a` → Audio_files/Twi/1.Welcome & Session Start/Acknowledge.m4a
+- **AMBIGUOUS** — `src/audio/twiSequentialAudioFlow.ts:247` → `/audio/Twi/01_Welcome_Session_Start/Processing.m4a` → Audio_files/Processing.m4a, Audio_files/Twi/1.Welcome & Session Start/Processing.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:265` → `/audio/Twi/02_Main_Service_Navigation/Service%20selection.m4a` → Audio_files/Twi/2.Main Service Navigation/Service selection.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:275` → `/audio/Twi/02_Main_Service_Navigation/Network%20selection.m4a` → Audio_files/Twi/2.Main Service Navigation/Network selection.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:285` → `/audio/Twi/02_Main_Service_Navigation/MTN%20menu.m4a` → Audio_files/Twi/2.Main Service Navigation/MTN menu.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:295` → `/audio/Twi/02_Main_Service_Navigation/Send%20money%20selected.m4a` → Audio_files/Twi/2.Main Service Navigation/Send money selected.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:305` → `/audio/Twi/02_Main_Service_Navigation/Service%20unavailable.m4a` → Audio_files/Twi/2.Main Service Navigation/Service unavailable.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:315` → `/audio/Twi/02_Main_Service_Navigation/Service%20alternative.m4a` → Audio_files/Twi/2.Main Service Navigation/Service alternative.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:325` → `/audio/Twi/02_Main_Service_Navigation/Service%20not%20ready.m4a` → Audio_files/Twi/2.Main Service Navigation/Service not ready.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:335` → `/audio/Twi/02_Main_Service_Navigation/Try%20another%20service.m4a` → Audio_files/Twi/2.Main Service Navigation/Try another service.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:345` → `/audio/Twi/02_Main_Service_Navigation/Choose%20instead.m4a` → Audio_files/Twi/2.Main Service Navigation/Choose instead.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:363` → `/audio/Twi/03_Recipient_Entry_Verification/Enter%20recipient%202.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:373` → `/audio/Twi/03_Recipient_Entry_Verification/Invalid%20recipient%201.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Invalid recipient 1.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:383` → `/audio/Twi/03_Recipient_Entry_Verification/Recipient%20found.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Recipient found.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:393` → `/audio/Twi/03_Recipient_Entry_Verification/Recipient%20verify.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Recipient verify.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:403` → `/audio/Twi/03_Recipient_Entry_Verification/Recipient%20confirm%20speech.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Recipient confirm speech.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:413` → `/audio/Twi/03_Recipient_Entry_Verification/Use%20recipient%201.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Use recipient 1.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:423` → `/audio/Twi/03_Recipient_Entry_Verification/Change%20recipient.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Change recipient.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:441` → `/audio/Twi/04_Amount_Entry_Verification/Enter%20amount%204.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Enter amount 4.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:451` → `/audio/Twi/04_Amount_Entry_Verification/Invalid%20amount.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Invalid amount.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:461` → `/audio/Twi/04_Amount_Entry_Verification/Amount%20prompt.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Amount prompt.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:471` → `/audio/Twi/04_Amount_Entry_Verification/Amount%20readback%202.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Amount readback 2.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:481` → `/audio/Twi/04_Amount_Entry_Verification/Repeat%20amount.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Repeat amount.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:491` → `/audio/Twi/04_Amount_Entry_Verification/Amount%20too%20high%203.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Amount too high 3.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:501` → `/audio/Twi/04_Amount_Entry_Verification/Amount%20too%20low.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Amount too low.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:511` → `/audio/Twi/04_Amount_Entry_Verification/Change%20amount%202.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Change amount 2.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:529` → `/audio/Twi/05_Transaction_Confirmation/Confirmation%20intro.m4a` → Audio_files/Twi/5.Transaction Confirmation/Confirmation intro.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:539` → `/audio/Twi/05_Transaction_Confirmation/Review%20transaction.m4a` → Audio_files/Twi/5.Transaction Confirmation/Review transaction.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:549` → `/audio/Twi/05_Transaction_Confirmation/Confirm%20continue.m4a` → Audio_files/Twi/5.Transaction Confirmation/Confirm continue.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:559` → `/audio/Twi/05_Transaction_Confirmation/Confirm%20speech.m4a` → Audio_files/Twi/5.Transaction Confirmation/Confirm speech.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:569` → `/audio/Twi/05_Transaction_Confirmation/Reject%20speech.m4a` → Audio_files/Twi/5.Transaction Confirmation/Reject speech.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:579` → `/audio/Twi/05_Transaction_Confirmation/Ready%20submit.m4a` → Audio_files/Twi/5.Transaction Confirmation/Ready submit.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:597` → `/audio/additional/Pin%20Handoff.m4a` → Audio_files/Pin Handoff.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:607` → `/audio/additional/Security%20warning.m4a` → Audio_files/Security warning.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:617` → `/audio/additional/Secure%20pin.m4a` → Audio_files/Secure pin.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:627` → `/audio/additional/Pin%20Block.m4a` → Audio_files/Pin Block.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:628` → `/audio/Twi/06_PIN_Security/Pin%20block.aac` → Audio_files/Twi/6.PIN & Security/Pin block.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:638` → `/audio/additional/Sensitive%20Block.m4a` → Audio_files/Sensitive Block.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:639` → `/audio/Twi/06_PIN_Security/Sensitive%20block.aac` → Audio_files/Twi/6.PIN & Security/Sensitive block.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:657` → `/audio/additional/Submitted.m4a` → Audio_files/Submitted.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:658` → `/audio/Twi/07_Transaction_Processing/Submitted.aac` → Audio_files/Twi/7.Transaction Processing/Submitted.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:668` → `/audio/additional/Waiting%20confirmation.m4a` → Audio_files/Waiting confirmation.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:669` → `/audio/Twi/07_Transaction_Processing/Waiting%20confirmation.aac` → Audio_files/Twi/7.Transaction Processing/Waiting confirmation.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:679` → `/audio/additional/Check%20phone.m4a` → Audio_files/Check phone.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:680` → `/audio/Twi/07_Transaction_Processing/Check%20phone.aac` → Audio_files/Twi/7.Transaction Processing/Check phone.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:690` → `/audio/additional/Authorize%20phone.m4a` → Audio_files/Authorize phone.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:691` → `/audio/Twi/07_Transaction_Processing/Authorize%20phone.aac` → Audio_files/Twi/7.Transaction Processing/Authorize phone.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:701` → `/audio/additional/Auth%20received.m4a` → Audio_files/Auth received.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:702` → `/audio/Twi/07_Transaction_Processing/Auth%20received.aac` → Audio_files/Twi/7.Transaction Processing/Auth received.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:712` → `/audio/additional/Check%20final%20status.m4a` → Audio_files/Check final status.m4a
+- **AMBIGUOUS** — `src/audio/twiSequentialAudioFlow.ts:713` → `/audio/Twi/07_Transaction_Processing/Check%20final%20status.aac` → Audio_files/Twi/7.Transaction Processing/Check final status.aac, Audio_files/Twi/7.Transaction Processing/Check Final Status.aac
+- **AMBIGUOUS** — `src/audio/twiSequentialAudioFlow.ts:723` → `/audio/additional/Processing.m4a` → Audio_files/Processing.m4a, Audio_files/Twi/1.Welcome & Session Start/Processing.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:724` → `/audio/Twi/07_Transaction_Processing/Processing.aac` → Audio_files/Twi/7.Transaction Processing/Processing.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:742` → `/audio/additional/Success%20sent.m4a` → Audio_files/Success sent.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:743` → `/audio/Twi/08_Success_Completion/SUCCESS%20SENT.aac` → Audio_files/Twi/8.Success & Completion/SUCCESS SENT.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:753` → `/audio/additional/Keep%20reference.m4a` → Audio_files/Keep reference.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:754` → `/audio/Twi/08_Success_Completion/Keep%20reference.aac` → Audio_files/Twi/8.Success & Completion/Keep reference.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:764` → `/audio/additional/Success%20close.m4a` → Audio_files/Success close.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:765` → `/audio/Twi/08_Success_Completion/SUCCESS%20CLOSE.aac` → Audio_files/Twi/8.Success & Completion/SUCCESS CLOSE.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:775` → `/audio/additional/Anything%20else.m4a` → Audio_files/Anything else.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:776` → `/audio/Twi/08_Success_Completion/ANYTHING%20ELSE.aac` → Audio_files/Twi/8.Success & Completion/ANYTHING ELSE.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:794` → `/audio/additional/Customer%20Declined.m4a` → Audio_files/Customer Declined.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:795` → `/audio/Twi/09_Failure_Decline_Timeout/Customer%20declined.aac` → Audio_files/Twi/9.Failure, Decline & Timeout/Customer declined.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:805` → `/audio/additional/Failed.m4a` → Audio_files/Failed.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:806` → `/audio/Twi/09_Failure_Decline_Timeout/Failed.aac` → Audio_files/Twi/9.Failure, Decline & Timeout/Failed.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:816` → `/audio/additional/Timeout.m4a` → Audio_files/Timeout.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:817` → `/audio/Twi/09_Failure_Decline_Timeout/Timeout.aac` → Audio_files/Twi/9.Failure, Decline & Timeout/Timeout.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:827` → `/audio/additional/Failure%20Retry.m4a` → Audio_files/Failure Retry.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:828` → `/audio/Twi/09_Failure_Decline_Timeout/Failure%20retry.aac` → Audio_files/Twi/9.Failure, Decline & Timeout/Failure retry.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:838` → `/audio/additional/No%20transfer%20confirmed.m4a` → Audio_files/No transfer confirmed.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:839` → `/audio/Twi/09_Failure_Decline_Timeout/No%20transfer%20confirmed.aac` → Audio_files/Twi/9.Failure, Decline & Timeout/No transfer confirmed.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:849` → `/audio/additional/Check%20messages.m4a` → Audio_files/Check messages.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:850` → `/audio/Twi/09_Failure_Decline_Timeout/Check%20messages.aac` → Audio_files/Twi/9.Failure, Decline & Timeout/Check messages.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:860` → `/audio/additional/Start%20Again.m4a` → Audio_files/Start Again.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:861` → `/audio/Twi/09_Failure_Decline_Timeout/Start%20again.aac` → Audio_files/Twi/9.Failure, Decline & Timeout/Start again.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:879` → `/audio/additional/Not%20understood.m4a` → Audio_files/Not understood.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:880` → `/audio/Twi/10_Voice_Understanding_Verification/Not%20understood.aac` → Audio_files/Twi/10.Voice Understanding & Verification/Not understood.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:890` → `/audio/additional/Did%20not%20get.m4a` → Audio_files/Did not get.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:891` → `/audio/Twi/10_Voice_Understanding_Verification/Do%20not%20get.aac` → Audio_files/Twi/10.Voice Understanding & Verification/Do not get.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:901` → `/audio/additional/Please%20respond.m4a` → Audio_files/Please respond.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:902` → `/audio/Twi/10_Voice_Understanding_Verification/Please%20respond.aac` → Audio_files/Twi/10.Voice Understanding & Verification/Please respond.aac
+- **MISSING** — `src/audio/twiSequentialAudioFlow.ts:912` → `/audio/additional/Input%20not%20recognized.m4a` → (no local match)
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:913` → `/audio/Twi/10_Voice_Understanding_Verification/input%20not%20recognized.aac` → Audio_files/Twi/10.Voice Understanding & Verification/input not recognized.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:923` → `/audio/additional/Repeat.m4a` → Audio_files/Repeat.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:924` → `/audio/Twi/10_Voice_Understanding_Verification/Repeat.aac` → Audio_files/Twi/10.Voice Understanding & Verification/Repeat.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:934` → `/audio/additional/Confirm%20understanding.m4a` → Audio_files/Confirm understanding.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:935` → `/audio/Twi/10_Voice_Understanding_Verification/Confirm%20understanding.aac` → Audio_files/Twi/10.Voice Understanding & Verification/Confirm understanding.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:945` → `/audio/additional/Correct%20prompt.m4a` → Audio_files/Correct prompt.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:946` → `/audio/Twi/10_Voice_Understanding_Verification/Correct%20prompt.aac` → Audio_files/Twi/10.Voice Understanding & Verification/Correct prompt.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:956` → `/audio/additional/Yes%20-No.m4a` → Audio_files/Yes -No.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:957` → `/audio/Twi/10_Voice_Understanding_Verification/Yes_No.aac` → Audio_files/Twi/10.Voice Understanding & Verification/Yes_No.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:975` → `/audio/additional/Back.m4a` → Audio_files/Back.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:976` → `/audio/Twi/11_Navigation_Recovery/Back.aac` → Audio_files/Twi/11.Navigation & Recovery/Back.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:986` → `/audio/additional/Main%20menu.m4a` → Audio_files/Main menu.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:987` → `/audio/Twi/11_Navigation_Recovery/Main%20menu.aac` → Audio_files/Twi/11.Navigation & Recovery/Main menu.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:997` → `/audio/additional/Restart.m4a` → Audio_files/Restart.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:998` → `/audio/Twi/11_Navigation_Recovery/Restart.aac` → Audio_files/Twi/11.Navigation & Recovery/Restart.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1008` → `/audio/additional/Cancel.m4a` → Audio_files/Cancel.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1009` → `/audio/Twi/11_Navigation_Recovery/Cancel.aac` → Audio_files/Twi/11.Navigation & Recovery/Cancel.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1019` → `/audio/additional/Exit.m4a` → Audio_files/Exit.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1020` → `/audio/Twi/11_Navigation_Recovery/Exit.aac` → Audio_files/Twi/11.Navigation & Recovery/Exit.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1030` → `/audio/additional/Session%20End.m4a` → Audio_files/Session End.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1031` → `/audio/Twi/11_Navigation_Recovery/Session%20end.aac` → Audio_files/Twi/11.Navigation & Recovery/Session end.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1041` → `/audio/additional/Continue.m4a` → Audio_files/Continue.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1042` → `/audio/Twi/11_Navigation_Recovery/Continue.aac` → Audio_files/Twi/11.Navigation & Recovery/Continue.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1052` → `/audio/additional/Session%20timeout.m4a` → Audio_files/Session timeout.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1053` → `/audio/Twi/11_Navigation_Recovery/Session%20timeout.aac` → Audio_files/Twi/11.Navigation & Recovery/Session timeout.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1071` → `/audio/additional/Repeat%20Option.m4a` → Audio_files/Repeat Option.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1072` → `/audio/Twi/12_Accessibility_Help/REPEAT%20OPTIONS.aac` → Audio_files/Twi/12.Accessibility & Help/REPEAT OPTIONS.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1082` → `/audio/additional/Keypad%20option.m4a` → Audio_files/Keypad option.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1083` → `/audio/Twi/12_Accessibility_Help/KEYPAD%20OPTION.aac` → Audio_files/Twi/12.Accessibility & Help/KEYPAD OPTION.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1093` → `/audio/additional/Voice%20or%20keypad.m4a` → Audio_files/Voice or keypad.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1094` → `/audio/Twi/12_Accessibility_Help/VOICE%20OR%20KEYPAD.aac` → Audio_files/Twi/12.Accessibility & Help/VOICE OR KEYPAD.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1104` → `/audio/additional/Take%20your%20time.m4a` → Audio_files/Take your time.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1105` → `/audio/Twi/12_Accessibility_Help/TAKE%20YOUR%20TIME.aac` → Audio_files/Twi/12.Accessibility & Help/TAKE YOUR TIME.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1115` → `/audio/additional/Yes%20-no-%20keypad.m4a` → Audio_files/Yes -no- keypad.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1116` → `/audio/Twi/12_Accessibility_Help/YES%20OR%20NO%20KEYPAD.aac` → Audio_files/Twi/12.Accessibility & Help/YES OR NO KEYPAD.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1126` → `/audio/additional/Help.m4a` → Audio_files/Help.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1127` → `/audio/Twi/12_Accessibility_Help/HELP.aac` → Audio_files/Twi/12.Accessibility & Help/HELP.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1137` → `/audio/additional/Help%20command.m4a` → Audio_files/Help command.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1138` → `/audio/Twi/12_Accessibility_Help/Help%20Commands.aac` → Audio_files/Twi/12.Accessibility & Help/Help Commands.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1156` → `/audio/additional/Balance%20Unavailable.m4a` → Audio_files/Balance Unavailable.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1157` → `/audio/Twi/13_Balance_Unsupported_Services/Balance%20unavailable.aac` → Audio_files/Twi/13.Balance  Unsupported Services/Balance unavailable.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1167` → `/audio/additional/Unsupported%20service.m4a` → Audio_files/Unsupported service.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1168` → `/audio/Twi/13_Balance_Unsupported_Services/Unsupported%20service.aac` → Audio_files/Twi/13.Balance  Unsupported Services/Unsupported service.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1178` → `/audio/additional/System%20Error.m4a` → Audio_files/System Error.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1179` → `/audio/Twi/13_Balance_Unsupported_Services/System%20error.aac` → Audio_files/Twi/13.Balance  Unsupported Services/System error.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1197` → `/audio/additional/Post%20success%20Help.m4a` → Audio_files/Post success Help.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1198` → `/audio/Twi/14_Post-Transaction_Conversation/Post%20success%20help.aac` → Audio_files/Twi/14.Post-Transaction Conversation/Post success help.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1208` → `/audio/additional/Another%20transaction.m4a` → Audio_files/Another transaction.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1209` → `/audio/Twi/14_Post-Transaction_Conversation/Another%20transaction.aac` → Audio_files/Twi/14.Post-Transaction Conversation/Another transaction.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1219` → `/audio/additional/Another%20recipient.m4a` → Audio_files/Another recipient.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1220` → `/audio/Twi/14_Post-Transaction_Conversation/Another%20recipient.aac` → Audio_files/Twi/14.Post-Transaction Conversation/Another recipient.aac
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1230` → `/audio/additional/Finish.m4a` → Audio_files/Finish.m4a
+- **BASENAME_ONLY** — `src/audio/twiSequentialAudioFlow.ts:1231` → `/audio/Twi/14_Post-Transaction_Conversation/Finish.aac` → Audio_files/Twi/14.Post-Transaction Conversation/Finish.aac
+- **EXACT** — `src/hooks/usePhoneSimulator.ts:1344` → `/audio/Welcome_prompt_01.mp3` → audio/welcome_prompt_01.mp3
+- **MISSING** — `src/pages/dashboard/AsrLabPage.tsx:440` → `audio/*,.wav,.mp3,.webm,.ogg` → (no local match)
+- **BASENAME_ONLY** — `src/pages/dashboard/PhoneSimulatorPage.tsx:1423` → `/audio/supplied/Twi/5.Transaction Confirmation/Review transaction.m4a` → Audio_files/Twi/5.Transaction Confirmation/Review transaction.m4a
+- **BASENAME_ONLY** — `src/pages/dashboard/PhoneSimulatorPage.tsx:1448` → `/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Invalid%20recipient%201.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Invalid recipient 1.m4a
+- **BASENAME_ONLY** — `src/pages/dashboard/PhoneSimulatorPage.tsx:1485` → `/audio/supplied/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a
+- **BASENAME_ONLY** — `src/pages/dashboard/PhoneSimulatorPage.tsx:1486` → `/audio/supplied/Twi/4.Amount Entry & Verification/Enter amount 4.m4a` → Audio_files/Twi/4.Amount Entry & Verification/Enter amount 4.m4a
+- **BASENAME_ONLY** — `src/routes/voiceRoutes.ts:867` → `/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Invalid%20recipient%201.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Invalid recipient 1.m4a
+- **BASENAME_ONLY** — `src/routes/voiceRoutes.ts:1859` → `/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Invalid%20recipient%201.m4a` → Audio_files/Twi/3.Recipient Entry & Verification/Invalid recipient 1.m4a
+- **EXACT** — `src/services/callSessionRepository.ts:59` → `/audio/Welcome_prompt_01.mp3` → audio/welcome_prompt_01.mp3
+
+## 11. What this audit cannot prove
+
+- It cannot listen to the audio and confirm that a clip says the intended prompt.
+- It cannot prove that the welcome, language, recipient, amount, confirmation, and handoff recordings play in the correct order.
+- It cannot confirm that a live/sandbox MoMo authorization prompt was initiated.
+- A clean path report is not an end-to-end pass. Run the simulator/call tests and verify each prompt against its expected script.
