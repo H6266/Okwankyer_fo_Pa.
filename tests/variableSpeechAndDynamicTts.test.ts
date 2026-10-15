@@ -30,7 +30,7 @@ describe("Professional Dynamic TTS & Variable Speech Layer", () => {
     audioPlaybackController.stop();
   });
 
-  it("1. Prefers a registered language-matched recording for English and Twi", () => {
+  it("1. Uses explicit language-matched synthesis until fixed audio is reviewed", () => {
     const decisionEn = variableSpeechService.evaluate({
       mode: "RECORDED",
       language: "en",
@@ -38,8 +38,8 @@ describe("Professional Dynamic TTS & Variable Speech Layer", () => {
       purpose: "FIXED_INSTRUCTION",
     });
 
-    expect(decisionEn.mode).toBe("RECORDED");
-    expect(decisionEn.audioUrl).toBe("/audio/Welcome_prompt_01.mp3");
+    expect(decisionEn.mode).toBe("SYNTHESIZE");
+    expect(decisionEn.audioUrl).toBeUndefined();
 
     const decisionTwi = variableSpeechService.evaluate({
       mode: "RECORDED",
@@ -48,13 +48,11 @@ describe("Professional Dynamic TTS & Variable Speech Layer", () => {
       purpose: "FIXED_INSTRUCTION",
     });
 
-    expect(decisionTwi.mode).toBe("RECORDED");
-    expect(decisionTwi.audioUrl).toBe(
-      "/audio/supplied/Twi/02_Main_Service_Navigation/Service%20selection.m4a"
-    );
+    expect(decisionTwi.mode).toBe("SYNTHESIZE");
+    expect(decisionTwi.audioUrl).toBeUndefined();
   });
 
-  it("2. Changing recipient phone number changes the spoken confirmation last 4 digits", () => {
+  it("2. Changing recipient phone number changes the full spoken number", () => {
     const p1 = buildSafeConfirmationPrompt({
       language: "en",
       amount: 20,
@@ -73,8 +71,8 @@ describe("Professional Dynamic TTS & Variable Speech Layer", () => {
       callbackUrl: "/callback",
     });
 
-    expect(p1.spokenText).toContain("8 4 6 4");
-    expect(p2.spokenText).toContain("4 5 6 7");
+    expect(p1.spokenText).toContain("0 5 5 3 8 3 8 4 6 4");
+    expect(p2.spokenText).toContain("0 2 4 1 2 3 4 5 6 7");
     expect(p1.spokenText).not.toEqual(p2.spokenText);
   });
 

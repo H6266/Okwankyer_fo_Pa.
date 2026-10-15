@@ -5,7 +5,7 @@
  * with dynamic readback reflecting EXACT caller input:
  * - Real caller amount (Cedis & Pesewas)
  * - Verified recipient name OR explicit unverified warning with extra confirmation
- * - Digit-by-digit phone ending (last 4 digits)
+ * - Full recipient phone number, spoken digit by digit
  * - Unique per-transaction reference ID
  * - Real timestamp (date & time)
  */

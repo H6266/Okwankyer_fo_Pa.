@@ -269,7 +269,12 @@ export function matchReplyToAudio(
   // 2. Check full AUDIO_RECORDINGS library
   const catalogCandidates = AUDIO_RECORDINGS.filter((r) => {
     if (wantedLanguage && r.language !== wantedLanguage) return false;
-    return Boolean(r.spokenText && r.url);
+    return Boolean(
+      r.spokenText &&
+      r.url &&
+      r.mappingStatus === "VERIFIED" &&
+      r.recordingRole === "fixed"
+    );
   });
 
   for (const recording of catalogCandidates) {

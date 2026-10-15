@@ -245,8 +245,8 @@
       "category": "03_Recipient_Entry_Verification",
       "state": "RECIPIENT_VERIFY",
       "type": "FIXED",
-      "english": "We found the recipient. Please listen carefully to the name and the last four digits of the phone number.",
-      "twi": "Yɛahu recipient no. Yɛsrɛ wo, tie din no ne fon nɔma no digit anan a etwa to no yiye.",
+      "english": "We found the recipient. Please listen carefully to the name and the full ten-digit phone number.",
+      "twi": "Yɛahu recipient no. Yɛsrɛ wo, tie din no ne fon nɔma a ɛyɛ digit du no nyinaa yiye.",
       "audio": {
         "english": null,
         "twi": "audio/Twi/03_Recipient_Entry_Verification/Recipient verify.m4a",
@@ -283,7 +283,7 @@
       ],
       "audio": {
         "english": null,
-        "twi": "audio/Twi/03_Recipient_Entry_Verification/Recipient last 4.m4a",
+        "twi": null,
         "twi_other_takes": []
       }
     },

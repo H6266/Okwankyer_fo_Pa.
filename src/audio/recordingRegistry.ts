@@ -56,6 +56,7 @@ export interface AudioRecording {
   mimeType: string;
   isAlternate: boolean;
   recordingRole: RecordingRole;
+  mappingStatus: string;
 }
 
 const manifest = promptManifest as PromptManifest;
@@ -102,48 +103,82 @@ for (const prompt of mergedPromptEntries) {
 }
 
 const suppliedRecordingPaths = [
-  "Twi/01_Welcome_Session_Start/Acknowledge.m4a",
-  "Twi/01_Welcome_Session_Start/Language selection.m4a",
-  "Twi/01_Welcome_Session_Start/Processing.m4a",
-  "Twi/01_Welcome_Session_Start/Service selection 2.m4a",
-  "Twi/01_Welcome_Session_Start/Welcome 1.m4a",
-  "Twi/01_Welcome_Session_Start/Welcome back.m4a",
-  "Twi/01_Welcome_Session_Start/what do you want to do.m4a",
-  "Twi/02_Main_Service_Navigation/Choose instead.m4a",
-  "Twi/02_Main_Service_Navigation/Main service Unavailable.m4a",
-  "Twi/02_Main_Service_Navigation/MTN menu.m4a",
-  "Twi/02_Main_Service_Navigation/Network selection.m4a",
-  "Twi/02_Main_Service_Navigation/Send money selected.m4a",
-  "Twi/02_Main_Service_Navigation/Service alternative.m4a",
-  "Twi/02_Main_Service_Navigation/Service not ready.m4a",
-  "Twi/02_Main_Service_Navigation/Service selection.m4a",
-  "Twi/02_Main_Service_Navigation/Service unavailable.m4a",
-  "Twi/02_Main_Service_Navigation/Try another service.m4a",
-  "Twi/03_Recipient_Entry_Verification/Change recipient.m4a",
-  "Twi/03_Recipient_Entry_Verification/Enter recipient.m4a",
-  "Twi/03_Recipient_Entry_Verification/Invalid recipient.m4a",
-  "Twi/03_Recipient_Entry_Verification/Recipient confirm.m4a",
-  "Twi/03_Recipient_Entry_Verification/Recipient found.m4a",
-  "Twi/03_Recipient_Entry_Verification/Recipient last 4.m4a",
-  "Twi/03_Recipient_Entry_Verification/Recipient name.m4a",
-  "Twi/03_Recipient_Entry_Verification/Recipient verification.m4a",
-  "Twi/03_Recipient_Entry_Verification/Recipient verify.m4a",
-  "Twi/03_Recipient_Entry_Verification/Use recipient.m4a",
-  "Twi/04_Amount_Entry_Verification/Amount prompt.m4a",
-  "Twi/04_Amount_Entry_Verification/Amount read back.m4a",
-  "Twi/04_Amount_Entry_Verification/Amount readback.m4a",
-  "Twi/04_Amount_Entry_Verification/Amount too high.m4a",
-  "Twi/04_Amount_Entry_Verification/Amount too low.m4a",
-  "Twi/04_Amount_Entry_Verification/Change amount.m4a",
-  "Twi/04_Amount_Entry_Verification/Enter amount.m4a",
-  "Twi/04_Amount_Entry_Verification/Invalid amount.m4a",
-  "Twi/04_Amount_Entry_Verification/Repeat amount.m4a",
-  "Twi/05_Transaction_Confirmation/Confirm speech.m4a",
-  "Twi/05_Transaction_Confirmation/Confirmation intro.m4a",
-  "Twi/05_Transaction_Confirmation/Ready submit.m4a",
-  "Twi/05_Transaction_Confirmation/Reject speech.m4a",
-  "Twi/05_Transaction_Confirmation/Review transaction.m4a",
+  "Twi/1.Welcome & Session Start/Acknowledge.m4a",
+  "Twi/1.Welcome & Session Start/Language selection.m4a",
+  "Twi/1.Welcome & Session Start/Processing.m4a",
+  "Twi/1.Welcome & Session Start/Welcome 1 (2).m4a",
+  "Twi/1.Welcome & Session Start/Welcome back.m4a",
+  "Twi/2.Main Service Navigation/Choose instead.m4a",
+  "Twi/2.Main Service Navigation/Main service Unavailable.m4a",
+  "Twi/2.Main Service Navigation/MTN menu.m4a",
+  "Twi/2.Main Service Navigation/Network selection.m4a",
+  "Twi/2.Main Service Navigation/Send money selected.m4a",
+  "Twi/2.Main Service Navigation/Service alternative.m4a",
+  "Twi/2.Main Service Navigation/Service not ready.m4a",
+  "Twi/2.Main Service Navigation/Service selection.m4a",
+  "Twi/2.Main Service Navigation/Service unavailable.m4a",
+  "Twi/2.Main Service Navigation/Try another service.m4a",
+  "Twi/3.Recipient Entry & Verification/Change recipient.m4a",
+  "Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a",
+  "Twi/3.Recipient Entry & Verification/Invalid recipient 1.m4a",
+  "Twi/3.Recipient Entry & Verification/Recipient confirm speech.m4a",
+  "Twi/3.Recipient Entry & Verification/Recipient found.m4a",
+  "Twi/3.Recipient Entry & Verification/Recipient verify.m4a",
+  "Twi/3.Recipient Entry & Verification/Use recipient 1.m4a",
+  "Twi/4.Amount Entry & Verification/Amount prompt.m4a",
+  "Twi/4.Amount Entry & Verification/Amount readback 2.m4a",
+  "Twi/4.Amount Entry & Verification/Amount too high 3.m4a",
+  "Twi/4.Amount Entry & Verification/Amount too low.m4a",
+  "Twi/4.Amount Entry & Verification/Change amount 2.m4a",
+  "Twi/4.Amount Entry & Verification/Enter amount 4.m4a",
+  "Twi/4.Amount Entry & Verification/Invalid amount.m4a",
+  "Twi/4.Amount Entry & Verification/Repeat amount.m4a",
+  "Twi/5.Transaction Confirmation/Confirm continue.m4a",
+  "Twi/5.Transaction Confirmation/Confirm speech.m4a",
+  "Twi/5.Transaction Confirmation/Confirmation intro.m4a",
+  "Twi/5.Transaction Confirmation/Ready submit.m4a",
+  "Twi/5.Transaction Confirmation/Reject speech.m4a",
+  "Twi/5.Transaction Confirmation/Review transaction.m4a",
 ] as const;
+
+const suppliedPromptIdByPath: Readonly<Record<string, string>> = {
+  "Twi/1.Welcome & Session Start/Acknowledge.m4a": "OP05",
+  "Twi/1.Welcome & Session Start/Language selection.m4a": "OP02",
+  "Twi/1.Welcome & Session Start/Processing.m4a": "OP06",
+  "Twi/1.Welcome & Session Start/Welcome 1 (2).m4a": "OP01",
+  "Twi/1.Welcome & Session Start/Welcome back.m4a": "OP04",
+  "Twi/2.Main Service Navigation/Choose instead.m4a": "OP15",
+  "Twi/2.Main Service Navigation/Main service Unavailable.m4a": "OP11",
+  "Twi/2.Main Service Navigation/MTN menu.m4a": "OP09",
+  "Twi/2.Main Service Navigation/Network selection.m4a": "OP08",
+  "Twi/2.Main Service Navigation/Send money selected.m4a": "OP10",
+  "Twi/2.Main Service Navigation/Service alternative.m4a": "OP12",
+  "Twi/2.Main Service Navigation/Service not ready.m4a": "OP13",
+  "Twi/2.Main Service Navigation/Service selection.m4a": "OP07",
+  "Twi/2.Main Service Navigation/Service unavailable.m4a": "OP11",
+  "Twi/2.Main Service Navigation/Try another service.m4a": "OP14",
+  "Twi/3.Recipient Entry & Verification/Change recipient.m4a": "OP25",
+  "Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a": "OP16",
+  "Twi/3.Recipient Entry & Verification/Invalid recipient 1.m4a": "OP17",
+  "Twi/3.Recipient Entry & Verification/Recipient confirm speech.m4a": "OP23",
+  "Twi/3.Recipient Entry & Verification/Recipient found.m4a": "OP18",
+  "Twi/3.Recipient Entry & Verification/Recipient verify.m4a": "OP19",
+  "Twi/3.Recipient Entry & Verification/Use recipient 1.m4a": "OP24",
+  "Twi/4.Amount Entry & Verification/Amount prompt.m4a": "OP28",
+  "Twi/4.Amount Entry & Verification/Amount readback 2.m4a": "OP29",
+  "Twi/4.Amount Entry & Verification/Amount too high 3.m4a": "OP31",
+  "Twi/4.Amount Entry & Verification/Amount too low.m4a": "OP32",
+  "Twi/4.Amount Entry & Verification/Change amount 2.m4a": "OP33",
+  "Twi/4.Amount Entry & Verification/Enter amount 4.m4a": "OP26",
+  "Twi/4.Amount Entry & Verification/Invalid amount.m4a": "OP27",
+  "Twi/4.Amount Entry & Verification/Repeat amount.m4a": "OP30",
+  "Twi/5.Transaction Confirmation/Confirm continue.m4a": "OP36",
+  "Twi/5.Transaction Confirmation/Confirm speech.m4a": "OP37",
+  "Twi/5.Transaction Confirmation/Confirmation intro.m4a": "OP34",
+  "Twi/5.Transaction Confirmation/Ready submit.m4a": "OP39",
+  "Twi/5.Transaction Confirmation/Reject speech.m4a": "OP38",
+  "Twi/5.Transaction Confirmation/Review transaction.m4a": "OP35",
+};
 
 const additionalUnresolvedFiles = [
   "Another recipient.m4a",
@@ -202,17 +237,6 @@ const additionalUnresolvedFiles = [
   "Yes -no- keypad.m4a",
 ] as const;
 
-const manifestEntryByPath = new Map<string, PromptManifestEntry>();
-for (const prompt of mergedPromptEntries) {
-  for (const lang of ["english", "twi"] as const) {
-    const primary = prompt.audio?.[lang];
-    if (primary) manifestEntryByPath.set(primary.replace(/^audio\//, ""), prompt);
-    for (const alternate of prompt.audio?.[`${lang}_other_takes`] || []) {
-      manifestEntryByPath.set(alternate.replace(/^audio\//, ""), prompt);
-    }
-  }
-}
-
 function encodePath(path: string): string {
   return path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
 }
@@ -250,8 +274,13 @@ function createRecording(
     relativePath,
     assetRoot,
     url: publicUrl,
-    mimeType: /\.m4a$/i.test(relativePath) ? "audio/mp4" : "audio/mpeg",
+    mimeType: /\.m4a$/i.test(relativePath)
+      ? "audio/mp4"
+      : /\.aac$/i.test(relativePath)
+        ? "audio/aac"
+        : "audio/mpeg",
     isAlternate,
+    mappingStatus: prompt?.mappingStatus || "CANDIDATE_NOT_AUDIO_VERIFIED",
     recordingRole: isAlternate
       ? "alternative"
       : prompt?.type?.toUpperCase() === "DYNAMIC"
@@ -263,9 +292,9 @@ function createRecording(
 }
 
 const suppliedRecordings = suppliedRecordingPaths.map((relativePath) => {
-  const prompt = manifestEntryByPath.get(relativePath);
-  const isAlternate = Boolean(prompt && prompt.audio.twi !== `audio/${relativePath}`);
-  return createRecording(relativePath, "supplied", "twi", prompt, isAlternate);
+  const promptId = suppliedPromptIdByPath[relativePath];
+  const prompt = promptId ? promptManifestLookup.get(promptId) || undefined : undefined;
+  return createRecording(relativePath, "supplied", "twi", prompt);
 });
 
 // Strictly use only the general welcome from the other source (public/audio)
@@ -285,6 +314,7 @@ const publicWelcomeRecordings: AudioRecording[] = [
     mimeType: "audio/mpeg",
     isAlternate: false,
     recordingRole: "fixed",
+    mappingStatus: "AMBIGUOUS_COMBINED_WELCOME_LANGUAGE_PROMPT",
   },
   {
     id: "public:welcome_prompt_01.mp3",
@@ -301,6 +331,7 @@ const publicWelcomeRecordings: AudioRecording[] = [
     mimeType: "audio/mpeg",
     isAlternate: true,
     recordingRole: "alternative",
+    mappingStatus: "AMBIGUOUS_COMBINED_WELCOME_LANGUAGE_PROMPT",
   },
 ];
 
@@ -481,28 +512,20 @@ export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
   finish: "OP94",
 };
 
-function recordingRank(recording: AudioRecording): number {
-  if (recording.assetRoot === "supplied" && !recording.isAlternate) return 0;
-  if (recording.assetRoot === "additional" && !recording.isAlternate) return 1;
-  if (recording.assetRoot === "public" && !recording.isAlternate) return 2;
-  if (recording.assetRoot === "supplied") return 3;
-  if (recording.assetRoot === "additional") return 4;
-  return 5;
-}
-
 export function getRecordingByPromptId(
   promptId: string,
   language: "en" | "twi" = "twi"
 ): AudioRecording | null {
-  if (language === "en") {
-    if (promptId === "OP01") {
-      return publicWelcomeRecordings[0];
-    }
-    return null;
-  }
-  return AUDIO_RECORDINGS
-    .filter((recording) => recording.promptId === promptId && recording.language === language && recording.url)
-    .sort((a, b) => recordingRank(a) - recordingRank(b))[0] || null;
+  const prompt = promptManifestLookup.get(promptId);
+  if (prompt?.type.toUpperCase() === "DYNAMIC") return null;
+  const matches = AUDIO_RECORDINGS.filter((recording) =>
+    recording.promptId === promptId &&
+    recording.language === language &&
+    recording.url &&
+    recording.mappingStatus === "VERIFIED" &&
+    recording.recordingRole === "fixed"
+  );
+  return matches.length === 1 ? matches[0] : null;
 }
 
 export function getRecordingsByPromptId(promptId: string, language?: "en" | "twi"): AudioRecording[] {

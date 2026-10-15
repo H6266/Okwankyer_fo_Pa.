@@ -39,6 +39,16 @@ export interface SpeechToTextProvider {
   transcribe(audioPayload: Buffer | string, mimeType?: string, step?: string): Promise<SttResult>;
 }
 
+export function isVoiceCaptureBlockedForStep(step?: string): boolean {
+  return (step || "").toLowerCase() === "pin-authorization";
+}
+
+export function shouldDiscardSensitiveSpeech(text: string, step?: string): boolean {
+  return isVoiceCaptureBlockedForStep(step) ||
+    isSpokenPinPattern(text, step) ||
+    isSpokenPinPattern(formatSpokenNumbersAsDigits(text), step);
+}
+
 /**
  * Step-Aware PIN Safety Gate (Item 3.1)
  * Decides whether an utterance is a potential leaked PIN based on the dialogue step.

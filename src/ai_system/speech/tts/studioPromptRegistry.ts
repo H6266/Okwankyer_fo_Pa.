@@ -59,7 +59,7 @@ export class StudioPromptRegistry {
 
     // Sort so supplied recordings take precedence over legacy public recordings
     const twiRecordings = AUDIO_RECORDINGS
-      .filter((rec) => rec.language === "twi" && rec.promptId && rec.spokenText)
+      .filter((rec) => rec.language === "twi" && rec.promptId && rec.spokenText && rec.mappingStatus === "VERIFIED" && rec.recordingRole === "fixed")
       .sort((a, b) => {
         const rankA = a.assetRoot === "supplied" && !a.isAlternate ? 0 : a.assetRoot === "supplied" ? 1 : 2;
         const rankB = b.assetRoot === "supplied" && !b.isAlternate ? 0 : b.assetRoot === "supplied" ? 1 : 2;
@@ -69,17 +69,8 @@ export class StudioPromptRegistry {
     for (const recording of twiRecordings) {
       const sourcePath = getRecordingFilePath(recording.relativePath);
       if (!sourcePath) continue;
-      let absolutePath = path.resolve(process.cwd(), sourcePath);
-      if (!fs.existsSync(absolutePath) || fs.statSync(absolutePath).isDirectory()) {
-        const altExt = absolutePath.endsWith(".m4a")
-          ? absolutePath.replace(/\.m4a$/i, ".mp3")
-          : absolutePath.replace(/\.mp3$/i, ".m4a");
-        if (fs.existsSync(altExt) && !fs.statSync(altExt).isDirectory()) {
-          absolutePath = altExt;
-        } else {
-          continue;
-        }
-      }
+      const absolutePath = path.resolve(process.cwd(), sourcePath);
+      if (!fs.existsSync(absolutePath) || fs.statSync(absolutePath).isDirectory()) continue;
 
       const stats = fs.statSync(absolutePath);
       const key = keysByPromptId.get(recording.promptId!)?.[0] || recording.state || recording.promptId!;

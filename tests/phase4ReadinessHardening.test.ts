@@ -367,8 +367,8 @@ describe('Phase 4: Readiness Hardening', () => {
   // ── 4f. INTERIM TWI PATH ───────────────────────────────────────────────────
   describe('4f. Canonical Audio Inventory and Interim Twi Path', () => {
     it('keeps the complete language-resolved audio catalog separate from reviewed templates', () => {
-      expect(AUDIO_ASSET_INVENTORY).toHaveLength(97);
-      expect(AUDIO_CATALOG).toHaveLength(97);
+      expect(AUDIO_ASSET_INVENTORY).toHaveLength(92);
+      expect(AUDIO_CATALOG).toHaveLength(92);
 
       const reviewedData = approvalWorkflow.loadReviewedData();
       expect(reviewedData.templates).toBeDefined();

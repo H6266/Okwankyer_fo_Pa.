@@ -95,34 +95,6 @@ export class IvrDecisionEngine {
       };
     }
 
-    // ── Universal 10-Digit Phone Auto-Identification Across Any Step ──────────
-    // The moment the user punches or says numbers up to 10 at a time, automatically identify
-    // it as recipient phone for sending money and allow the user to the next stage (amount sending).
-    const digitsOnlyUniversal = clean.replace(/[^0-9]/g, "");
-    const isStepAmountOrConfirm = stepId.includes("amount") || stepId.includes("confirm") || stepId.includes("safe-outcome");
-    if (!isStepAmountOrConfirm && (digitsOnlyUniversal.length === 10 || (digitsOnlyUniversal.length === 12 && digitsOnlyUniversal.startsWith("233")))) {
-      const phoneVal = validateGhanaPhoneNumber(clean);
-      if (phoneVal.valid && phoneVal.normalized) {
-        return {
-          type: "understood_intent",
-          reason: `Auto-identified 10-digit recipient number ${phoneVal.normalized} for sending money. Advancing to recipient verification.`,
-          replyText:
-            language === "twi"
-              ? `Worebɛmane sika akɔ Kwame Boateng a ne nɔmba wie ${phoneVal.last4Spaced} so. Sɛ wopene so na wopɛ sɛ womane sika no a, mia 1. Sɛ wopɛ sɛ wosesa nɔmba no a, mia 2.`
-              : `Sending money to Kwame Boateng, whose phone number ends with ${phoneVal.last4Spaced}. To confirm this recipient, press 1. To re-enter the phone number, press 2.`,
-          replyKey: "recipient_verified_choice",
-          nextStep: "recipient-verify-choice",
-          action: "advance",
-          updatedSlots: {
-            action: "send_money",
-            recipientPhone: phoneVal.normalized,
-            network: phoneVal.network,
-            recipientName: "Kwame Boateng",
-          },
-        };
-      }
-    }
-
     // ── 1. Spoken Universal Navigation & Clarification ───────────────────
     if (inputMethod === "speech") {
       // Repeat / What did you say
@@ -303,7 +275,7 @@ export class IvrDecisionEngine {
 
       // A) Check length
       if (digitsOnly.length < 10) {
-        const reason = `Recipient number '${clean}' has only ${digitsOnly.length} digits. Ghana phone numbers must be 10 digits.`;
+        const reason = `Recipient number has only ${digitsOnly.length} digits. Ghana phone numbers must be 10 digits.`;
         return {
           type: "invalid_choice",
           reason,
@@ -319,7 +291,7 @@ export class IvrDecisionEngine {
       }
 
       if (digitsOnly.length > 11) {
-        const reason = `Recipient number '${clean}' has ${digitsOnly.length} digits, which exceeds valid length.`;
+        const reason = `Recipient number has ${digitsOnly.length} digits, which exceeds valid length.`;
         return {
           type: "invalid_choice",
           reason,
@@ -338,7 +310,7 @@ export class IvrDecisionEngine {
       const phoneVal = validateGhanaPhoneNumber(clean);
       if (!phoneVal.valid) {
         const prefix = digitsOnly.slice(0, 3);
-        const reason = `Recipient number '${clean}' has invalid network prefix '${prefix}' (error: ${phoneVal.error}).`;
+        const reason = `Recipient number has invalid network prefix '${prefix}'.`;
         return {
           type: "invalid_choice",
           reason,
@@ -353,21 +325,20 @@ export class IvrDecisionEngine {
         };
       }
 
-      // C) Valid number received: Immediately advance to recipient confirmation
+      // C) Valid number received: hand off to the route that performs recipient lookup
       return {
         type: "understood_intent",
-        reason: `Valid Ghanaian ${phoneVal.network} number ${phoneVal.normalized} recognized. Advancing to recipient verification.`,
+        reason: `Valid Ghanaian ${phoneVal.network} number received. Resolving recipient before confirmation.`,
         replyText:
           language === "twi"
-            ? `Worebɛmane sika akɔ Kwame Boateng a ne nɔmba wie ${phoneVal.last4Spaced} so. Sɛ wopene so na wopɛ sɛ womane sika no a, mia 1. Sɛ wopɛ sɛ wosesa nɔmba no a, mia 2.`
-            : `Sending money to Kwame Boateng, whose phone number ends with ${phoneVal.last4Spaced}. To confirm this recipient, press 1. To re-enter the phone number, press 2.`,
+            ? `Yɛagye wo nɔmba a ɛyɛ digit du no. Yɛrehwehwɛ recipient no seesei.`
+            : `I received the full ten-digit number. I am checking the recipient now.`,
         replyKey: "recipient_verified_choice",
         nextStep: "recipient-verify-choice",
         action: "advance",
         updatedSlots: {
           recipientPhone: phoneVal.normalized,
           network: phoneVal.network,
-          recipientName: "Kwame Boateng",
         },
       };
     }

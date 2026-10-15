@@ -213,7 +213,7 @@ describe("Cognitive IVR Decision Engine Structured Decisions", () => {
     expect(decision.replyText).toContain("enter the recipient's ten-digit phone number");
   });
 
-  it("decision type 'understood_intent': spoken number advances to recipient confirmation", () => {
+  it("decision type 'understood_intent': spoken number routes to recipient lookup without inventing a name", () => {
     const decision = engine.decide({
       stepId: "enter-recipient",
       language: "en",
@@ -226,6 +226,9 @@ describe("Cognitive IVR Decision Engine Structured Decisions", () => {
     expect(decision.action).toBe("advance");
     expect(decision.updatedSlots?.recipientPhone).toBe("0553838464");
     expect(decision.updatedSlots?.network).toBe("MTN");
+    expect(decision.updatedSlots?.recipientName).toBeUndefined();
+    expect(decision.replyText).toContain("full ten-digit number");
+    expect(decision.replyText).not.toContain("Kwame Boateng");
   });
 
   it("decision type 'unsupported': explains unsupported banking, loans, or balance inquiry", () => {
@@ -306,7 +309,7 @@ describe("TTS Fallback Scripts & Recording Registry", () => {
       expect(PROMPT_SCRIPTS[key].en.length).toBeGreaterThan(10);
       expect(PROMPT_SCRIPTS[key].twi.length).toBeGreaterThan(10);
     }
-    expect(getRecordingByPromptKey("enter_amount")?.promptId).toBe("OP26");
+    expect(getRecordingByPromptKey("enter_amount")).toBeNull();
     expect(getRecordingByPromptKey("safe_confirmation")).toBeNull();
   });
 });
@@ -345,7 +348,8 @@ describe("IVR Telephony Route Integration (Real Express XML Responses)", () => {
     expect(res.headers["x-ai-decision-type"]).toBe("understood_intent");
     expect(res.headers["x-ai-reply-key"]).toBe("intent_understood_ask_number");
     expect(res.text).toContain("/api/audio/prompt-tts/en/intent_understood_ask_number");
-    expect(res.text).toContain("<GetDigits timeout=\"40\" finishOnKey=\"#\" numDigits=\"10\"");
+    expect(res.text).toContain("<GetDigits timeout=\"40\" finishOnKey=\"#\"");
+    expect(res.text).not.toContain('numDigits="10"');
     expect(res.text).toContain("callbackUrl=\"http://localhost:3000/verify-recipient?sessionId=TEST_SESS_B&amp;lang=en");
     expect(res.text).toContain("/api/audio/prompt-tts/en/intent_understood_ask_number");
   });
@@ -359,7 +363,8 @@ describe("IVR Telephony Route Integration (Real Express XML Responses)", () => {
     expect(res.headers["x-ai-decision-type"]).toBe("invalid_choice");
     expect(res.headers["x-ai-decision-reason"]).toContain("prefix '666'");
     expect(res.text).toContain("/api/audio/prompt-tts/en/invalid_recipient");
-    expect(res.text).toContain("<GetDigits timeout=\"40\" finishOnKey=\"#\" numDigits=\"10\"");
+    expect(res.text).toContain("<GetDigits timeout=\"40\" finishOnKey=\"#\"");
+    expect(res.text).not.toContain('numDigits="10"');
     expect(res.text).toContain("/api/audio/prompt-tts/en/enter_recipient");
   });
 

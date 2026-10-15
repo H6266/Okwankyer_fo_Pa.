@@ -491,15 +491,14 @@ class ConversationManager {
    */
   private generateConfirmationPrompt(state: ConversationState): ConversationTurnResult {
     const cleanPhone = state.recipient_phone ? normalizePhoneNumber(state.recipient_phone) : "";
-    const last4Spaced = cleanPhone.length >= 4 ? cleanPhone.slice(-4).split("").join(" ") : "";
     const phoneSpaced = cleanPhone ? formatPhoneNumberForSpeech(cleanPhone) : "";
     const name = state.recipient_name || "Subscriber";
     const amt = state.amount || 0;
     const isTwi = state.language === "twi";
 
     const spokenPrompt = isTwi
-      ? `Worepɛ sɛ wosend ${amt} Ghana Cedis kɔ ${name} nɔmba a ɛwie ${last4Spaced} no so. Sɛ wopɛ sɛ wogye tum na wosend a, mia baako (1). Sɛ wopɛ sɛ wokansɛla a, mia mmienu (2).`
-      : `You are about to send ${amt} Ghana Cedis to ${name}, whose phone number ends with ${last4Spaced}. To confirm and send, press 1. To cancel, press 2.`;
+      ? `Worepɛ sɛ wosend ${amt} Ghana Cedis kɔ ${name} a ne phone nɔmba nyinaa ne ${phoneSpaced}. Sɛ wopɛ sɛ wogye tum na wosend a, mia baako (1). Sɛ wopɛ sɛ wokansɛla a, mia mmienu (2).`
+      : `You are about to send ${amt} Ghana Cedis to ${name}, whose full phone number is ${phoneSpaced}. To confirm and send, press 1. To cancel, press 2.`;
 
     return {
       state,

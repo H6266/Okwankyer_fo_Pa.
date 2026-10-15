@@ -21,9 +21,17 @@ import { auditLogger } from "../src/services/auditLogger";
 import { resolvePromptText } from "../src/modules/ttsService";
 
 import { durableTransactionStore } from "../src/services/durableTransactionStore";
+import { recipientResolver } from "../src/providers/recipient/RecipientResolver";
+
+let nextTestClientIp = 1;
 
 function createTestApp() {
   const app = express();
+  app.set("trust proxy", true);
+  app.use((req, _res, next) => {
+    req.headers["x-forwarded-for"] = `203.0.113.${nextTestClientIp++}`;
+    next();
+  });
   app.use(express.urlencoded({ extended: true }));
   app.use(express.json());
   app.use(voiceRouter);
@@ -113,6 +121,69 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(balanceAttempt.text).not.toContain("/enter-recipient");
   });
 
+  it("plays the welcome and language selection as separate prompts", async () => {
+    const sessionId = "AT-OPENING-SEPARATE-001";
+    const welcome = await request(app)
+      .post("/voice-menu")
+      .send({ sessionId, callerNumber: "+233543546010", isActive: "1" });
+
+    expect(welcome.text).toContain("/api/audio/prompt-tts/en/welcome");
+    expect(welcome.text).toContain(`/language-selection?sessionId=${sessionId}`);
+    expect(welcome.text).not.toContain("For English, press 1");
+
+    const languagePrompt = await request(app)
+      .post("/language-selection")
+      .query({ sessionId });
+    expect(languagePrompt.text).toContain("/api/audio/prompt-tts/en/language_selection");
+    expect(languagePrompt.text).not.toContain("Welcome to Ɔkwankyerɛfo Pa");
+  });
+
+  it("waits for # in recipient and amount DTMF collection", async () => {
+    const sessionId = "AT-DTMF-HASH-001";
+    const recipientPrompt = await request(app)
+      .post("/enter-recipient")
+      .query({ sessionId, lang: "en" });
+    const amountPrompt = await request(app)
+      .post("/enter-amount")
+      .query({ sessionId, lang: "en" });
+
+    expect(recipientPrompt.text).toContain('finishOnKey="#"');
+    expect(recipientPrompt.text).not.toContain('numDigits="10"');
+    expect(amountPrompt.text).toContain('finishOnKey="#"');
+    expect(amountPrompt.text).not.toMatch(/numDigits="(?:6|8)"/);
+  });
+
+  it.each(["024123456", "02412345678"])("rejects a %i-digit phone before recipient lookup", async (digits) => {
+    const lookup = vi.spyOn(recipientResolver, "resolve");
+    const response = await request(app)
+      .post("/verify-recipient")
+      .send({ sessionId: `AT-INVALID-${digits.length}`, lang: "en", dtmfDigits: digits });
+
+    expect(response.text).toContain("/verify-recipient");
+    expect(lookup).not.toHaveBeenCalled();
+    lookup.mockRestore();
+  });
+
+  it("runs recipient lookup once for duplicate valid callbacks", async () => {
+    const sessionId = "AT-RECIPIENT-LOOKUP-ONCE";
+    const lookup = vi.spyOn(recipientResolver, "resolve").mockResolvedValue({
+      valid: true,
+      phoneNumber: "0241234567",
+      normalizedPhone: "0241234567",
+      name: "Synthetic Recipient",
+      network: "MTN",
+      verified: true,
+      source: "SANDBOX_FIXTURE",
+    });
+
+    await request(app).post("/verify-recipient").send({ sessionId, lang: "en", dtmfDigits: "0241234567" });
+    const duplicate = await request(app).post("/verify-recipient").send({ sessionId, lang: "en", dtmfDigits: "0241234567" });
+
+    expect(duplicate.text).toContain("Synthetic Recipient");
+    expect(lookup).toHaveBeenCalledTimes(1);
+    lookup.mockRestore();
+  });
+
   it("completes full English transfer flow via sequential webhooks with dynamic readback", async () => {
     const sessionId = "AT-TEST-EN-001";
 
@@ -122,7 +193,13 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .send({ sessionId, callerNumber: "+233543546010", isActive: "1" });
     expect(callRes.status).toBe(200);
     expect(callRes.text).toContain("<Response>");
-    expect(callRes.text).toContain("Welcome_prompt_01.mp3");
+    expect(callRes.text).toContain("/api/audio/prompt-tts/en/welcome");
+    expect(callRes.text).not.toContain("For English, press 1");
+
+    const languagePrompt = await request(app)
+      .post("/language-selection")
+      .query({ sessionId });
+    expect(languagePrompt.text).toContain("/api/audio/prompt-tts/en/language_selection");
 
     // 2. Language Selection -> English (1)
     const langRes = await request(app)
@@ -135,6 +212,11 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .post("/service-choice")
       .send({ sessionId, lang: "en", dtmfDigits: "1" });
     expect(serviceRes.text).toContain("/provider-select");
+
+    const twiServicePrompt = await request(app)
+      .post("/service-select")
+      .query({ sessionId: "AT-TWI-NO-SECOND-WELCOME", lang: "twi" });
+    expect(twiServicePrompt.text).not.toContain("Welcome 1");
 
     // 4. Provider Select -> MTN (1)
     const providerRes = await request(app)
@@ -195,12 +277,18 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       amount: 75,
       network: "MTN",
     }));
-    startSaga.mockRestore();
     expect(outcomeRes.text).toContain("check your phone screen");
     expect(outcomeRes.text).not.toContain("Congratulations");
     expect(outcomeRes.text).not.toContain("<Record");
     expect(outcomeRes.text).not.toContain("<GetDigits");
     expect(outcomeRes.text).toContain("<Reject/>");
+
+    const duplicateOutcome = await request(app)
+      .post("/safe-outcome")
+      .send({ sessionId, lang: "en", dtmfDigits: "1" });
+    expect(duplicateOutcome.text).toContain("do not retry now");
+    expect(startSaga).toHaveBeenCalledTimes(1);
+    startSaga.mockRestore();
 
     // Verify session remains PIN_PENDING (never false COMPLETED before MoMo callback)
     const finalSession = transactionStateMachine.getSession(sessionId);
@@ -324,9 +412,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
         .query({ secret })
         .send({ sessionId, callerNumber: "+233543546010", isActive: "1" });
       expect(callRes.status).toBe(200);
-      expect(callRes.text).toMatch(
-        new RegExp(`callbackUrl="https?:\\/\\/[^"]+\\/language-selection\\?sessionId=${sessionId}&amp;secret=${secret}"`)
-      );
+      expect(callRes.text).toContain(`/language-selection?sessionId=${sessionId}&amp;secret=${secret}`);
 
       const languageRes = await request(app)
         .post("/language-selection")
@@ -366,7 +452,8 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .post("/safe-outcome")
       .send({ sessionId, lang: "en", dtmfDigits: "0" });
 
-    expect(cancelRes.text).toContain("Transaction cancelled. No money has been deducted");
+    expect(cancelRes.text).toContain("Your request was cancelled");
+    expect(cancelRes.text).toContain("Check your Mobile Money transaction status");
     expect(cancelRes.text).toContain("<Reject/>");
 
     const session = transactionStateMachine.getSession(sessionId);
@@ -445,7 +532,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .post("/voice-menu")
       .send({ sessionId, callerNumber: "+233543546010", isActive: "1" });
     expect(welcomeRes.status).toBe(200);
-    expect(welcomeRes.text).toContain("Welcome_prompt_01.mp3");
+    expect(welcomeRes.text).toContain("/api/audio/prompt-tts/en/welcome");
 
     // User selects English (1)
     const langRes = await request(app)

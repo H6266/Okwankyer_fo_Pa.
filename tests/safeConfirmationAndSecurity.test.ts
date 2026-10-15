@@ -43,8 +43,8 @@ describe("Task 1: Safe Confirmation Must Read Back What Caller Entered", () => {
 
     // Must contain exact caller entered amount
     expect(prompt.spokenText).toContain("25 Cedis");
-    // Must contain exact last 4 digits
-    expect(prompt.spokenText).toContain("1 2 3 4");
+    // Must contain all ten recipient digits in order
+    expect(prompt.spokenText).toContain("0 2 4 9 9 9 1 2 3 4");
     // Must contain explicit unverified warning
     expect(prompt.spokenText).toContain("could not be verified");
     expect(prompt.spokenText).toContain("unverified recipient");
@@ -68,7 +68,7 @@ describe("Task 1: Safe Confirmation Must Read Back What Caller Entered", () => {
 
     expect(prompt.spokenText).toContain("150 Cedis");
     expect(prompt.spokenText).toContain("Kwame Boateng");
-    expect(prompt.spokenText).toContain("8 4 6 4");
+    expect(prompt.spokenText).toContain("0 5 5 3 8 3 8 4 6 4");
     expect(prompt.spokenText).toContain("To confirm and continue, press 1. To cancel, press 2. To exit, press 0.");
     expect(prompt.spokenText).not.toContain("warning");
   });
@@ -85,7 +85,7 @@ describe("Task 1: Safe Confirmation Must Read Back What Caller Entered", () => {
 
     expect(prompt.spokenText).toContain("75 Cedis");
     expect(prompt.spokenText).toContain("Ama Serwaa");
-    expect(prompt.spokenText).toContain("4 5 6 7");
+    expect(prompt.spokenText).toContain("0 2 4 1 2 3 4 5 6 7");
     expect(prompt.spokenText).toContain("Worepɛ sɛ womane");
     expect(prompt.spokenText).toContain("mia baako (1)");
   });

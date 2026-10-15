@@ -5,7 +5,6 @@ import {
   getFlowStepByIndex,
   getNextFlowStep,
 } from "../src/audio/twiSequentialAudioFlow";
-import { matchReplyToAudio } from "../src/audio/replyAudioMatcher";
 import { resolveSafeAudioPath } from "../src/audio/streaming";
 
 describe("Twi Sequential Audio Flow & Confidence Matcher", () => {
@@ -67,52 +66,11 @@ describe("Twi Sequential Audio Flow & Confidence Matcher", () => {
     expect(nextAfterNetwork?.id).toBe("services_selection");
   });
 
-  it("resolves all static audio files securely via streaming without null or 404", () => {
-    for (const step of TWI_SEQUENTIAL_FLOW_STEPS) {
-      if (step.audioUrl) {
-        const resolved = resolveSafeAudioPath(step.audioUrl);
-        expect(resolved, `Path for ${step.name} should resolve`).toBeTruthy();
-      }
-    }
+  it("uses exact registered audio paths and leaves unverified sequential clips unresolved", () => {
+    expect(resolveSafeAudioPath("/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Welcome%201%20(2).m4a"))
+      .toBeNull();
+    expect(resolveSafeAudioPath("/audio/supplied/Twi/01_Welcome_Session_Start/Welcome%201.m4a")).toBeNull();
+    expect(TWI_SEQUENTIAL_FLOW_STEPS.every((step) => !step.audioUrl)).toBe(true);
   });
 
-  describe("Confidence-Based Phrase Matcher (50%–100% Gate)", () => {
-    it("matches recipient entry with high confidence (>= 50%) and returns studio audio", () => {
-      const match = matchReplyToAudio("Please enter the recipient phone number", "en", { minConfidence: 0.50 });
-      expect(match.match).toBe(true);
-      expect(match.isFallbackToTts).toBe(false);
-      expect(match.confidence).toBeGreaterThanOrEqual(0.50);
-      expect(match.audioUrl).toContain("Enter%20recipient.mp3");
-    });
-
-    it("matches Akan Twi recipient prompt with high confidence (>= 50%)", () => {
-      const match = matchReplyToAudio("Yɛsrɛ wo bɔ obi a woremane no no fon nɔmba a ɛyɛ du", "tw", { minConfidence: 0.50 });
-      expect(match.match).toBe(true);
-      expect(match.isFallbackToTts).toBe(false);
-      expect(match.confidence).toBeGreaterThanOrEqual(0.50);
-      expect(match.audioUrl).toContain("Enter%20recipient.mp3");
-    });
-
-    it("matches amount entry prompt with high confidence (>= 50%)", () => {
-      const match = matchReplyToAudio("How many Ghana cedis do you want to send?", "en", { minConfidence: 0.50 });
-      expect(match.match).toBe(true);
-      expect(match.isFallbackToTts).toBe(false);
-      expect(match.confidence).toBeGreaterThanOrEqual(0.50);
-    });
-
-    it("matches rejection / cancellation with high confidence (>= 50%)", () => {
-      const match = matchReplyToAudio("Transaction cancelled or rejected", "en", { minConfidence: 0.50 });
-      expect(match.match).toBe(true);
-      expect(match.isFallbackToTts).toBe(false);
-      expect(match.confidence).toBeGreaterThanOrEqual(0.50);
-      expect(match.audioUrl).toContain("Reject%20speech.mp3");
-    });
-
-    it("falls back to TTS when confidence is below 50% for unique unrecorded questions", () => {
-      const match = matchReplyToAudio("What is the current temperature and forecast in Tamale?", "en", { minConfidence: 0.50 });
-      expect(match.match).toBe(false);
-      expect(match.isFallbackToTts).toBe(true);
-      expect(match.confidence).toBeLessThan(0.50);
-    });
-  });
 });

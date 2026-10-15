@@ -45,32 +45,19 @@ export const AUDIO_CATALOG_ALTERNATES: AudioPromptMetadata[] = AUDIO_CATALOG.fil
 );
 export const ALL_AUDIO_CATALOG = AUDIO_CATALOG;
 
-import { resolveSafeAudioPath } from "./streaming";
+export function getAudioFilePath(filename: string, assetRoot?: AudioAssetRoot): string | null {
+  const recording = AUDIO_RECORDINGS.find((item) =>
+    item.relativePath === filename && (assetRoot === undefined || item.assetRoot === assetRoot)
+  );
+  if (!recording) return null;
 
-export function getAudioFilePath(filename: string, _assetRoot?: AudioAssetRoot): string | null {
-  try {
-    const safe = resolveSafeAudioPath(filename);
-    if (safe && fs.existsSync(safe) && !fs.statSync(safe).isDirectory()) {
-      return safe;
-    }
-  } catch {}
-
-  // Direct candidate checks
-  const candidates = [
-    path.resolve(process.cwd(), "Audio_files", filename),
-    path.resolve(process.cwd(), "Audio_files", "Twi", filename),
-    path.resolve(process.cwd(), "public", "audio", filename),
-    path.resolve(process.cwd(), "audio", filename),
-    path.resolve(process.cwd(), "Audio_files", path.basename(filename)),
-  ];
-
-  for (const c of candidates) {
-    if (fs.existsSync(c) && !fs.statSync(c).isDirectory()) {
-      return c;
-    }
-  }
-
-  return null;
+  const root = recording.assetRoot === "supplied"
+    ? path.resolve(process.cwd(), "Audio_files")
+    : recording.assetRoot === "public"
+      ? path.resolve(process.cwd(), "public", "audio")
+      : path.resolve(process.cwd(), "Audio_files");
+  const resolved = path.resolve(root, recording.relativePath);
+  return fs.existsSync(resolved) && !fs.statSync(resolved).isDirectory() ? resolved : null;
 }
 
 export function audioFileExists(filename: string, assetRoot?: AudioAssetRoot): boolean {

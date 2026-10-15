@@ -36,27 +36,13 @@ export class LocalGhanaianTtsProvider implements TTSProvider {
     const cleanText = this.normalizeText(text);
     const selectedLanguage = language === "tw" || language === "twi" || language === "ak" ? "twi" : "en";
 
-    const legacyAliases: Record<string, string> = {
-      "welcome to okwankyerɛfo pa an easy financial transaction service for english press 1 for twi press 2": "public/audio/Welcome_prompt_01.mp3",
-      "for telecom or mobile money services press 1 for banking services press 2 to hear this again press 9 to exit press 0": "Audio_files_2/11_Navigation_Recovery/Main menu.m4a",
-      "for mobile money services press 1 for banking services press 2 press 9 to hear this again or press 0 to exit": "Audio_files_2/11_Navigation_Recovery/Main menu.m4a",
-    };
-
-    if (legacyAliases[cleanText]) {
-      const legacyPath = legacyAliases[cleanText];
-      let resolved = path.resolve(process.cwd(), legacyPath);
-      if (!fs.existsSync(resolved)) {
-        if (resolved.endsWith(".m4a") && fs.existsSync(resolved.replace(/\.m4a$/i, ".aac"))) {
-          resolved = resolved.replace(/\.m4a$/i, ".aac");
-        } else if (resolved.endsWith(".m4a") && fs.existsSync(resolved.replace(/\.m4a$/i, ".mp3"))) {
-          resolved = resolved.replace(/\.m4a$/i, ".mp3");
-        }
-      }
-      if (fs.existsSync(resolved)) return resolved;
-    }
-
     for (const recording of AUDIO_RECORDINGS) {
-      if (recording.url === null || recording.language !== selectedLanguage) continue;
+      if (
+        recording.url === null ||
+        recording.language !== selectedLanguage ||
+        recording.mappingStatus !== "VERIFIED" ||
+        recording.recordingRole !== "fixed"
+      ) continue;
       const candidates = [recording.spokenText || "", recording.title, recording.state || ""].filter(Boolean);
       if (candidates.some((candidate) => this.normalizeText(candidate) === cleanText)) {
         const relativePath = getRecordingFilePath(recording.relativePath);

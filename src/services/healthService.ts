@@ -14,7 +14,7 @@ import fs from "fs";
 import path from "path";
 import { config } from "../config/env";
 import { audioFileExists } from "../audio/catalog";
-import { getRecordingByPromptKey } from "../audio/recordingRegistry";
+import { getAudioAssetInventory, getRecordingFilePath } from "../audio/recordingRegistry";
 import { VoiceService } from "../../africastalking";
 import { mtnMomoService } from "../modules/mtnMomoService";
 import { GoogleGenAI } from "@google/genai";
@@ -44,24 +44,33 @@ export async function runRealSmokeTests(): Promise<SmokeTestReport> {
 
   // Check 1: Audio Catalog on Disk
   const startAudio = Date.now();
-  const welcome = getRecordingByPromptKey("welcome");
-  const network = getRecordingByPromptKey("provider_select");
-  const amount = getRecordingByPromptKey("enter_amount");
-  const welcomeExists = Boolean(welcome && audioFileExists(welcome.relativePath));
-  const networkExists = Boolean(network && audioFileExists(network.relativePath));
-  const amountExists = Boolean(amount && audioFileExists(amount.relativePath));
+  const recordings = getAudioAssetInventory();
+  const findPrompt = (promptId: string) => recordings.find((recording) =>
+    recording.promptId === promptId && recording.language === "twi"
+  );
+  const welcome = findPrompt("OP01");
+  const network = findPrompt("OP08");
+  const amount = findPrompt("OP26");
+  const welcomeExists = Boolean(welcome && audioFileExists(welcome.relativePath, welcome.assetRoot));
+  const networkExists = Boolean(network && audioFileExists(network.relativePath, network.assetRoot));
+  const amountExists = Boolean(amount && audioFileExists(amount.relativePath, amount.assetRoot));
   const audioLatency = Date.now() - startAudio;
 
   const allAudioFound = welcomeExists && networkExists && amountExists;
+  const allAudioReviewed = [welcome, network, amount].every((recording) =>
+    recording?.mappingStatus === "VERIFIED" && recording.recordingRole === "fixed"
+  );
   checks.push({
     id: "check_audio",
     name: "Audio Catalog & Studio Files on Disk",
-    description: "Verifies registered Twi welcome, network, and amount recordings exist on filesystem",
-    status: allAudioFound ? "pass" : "fail",
+    description: "Checks registered Twi welcome, network, and amount files and their review status",
+    status: !allAudioFound ? "fail" : allAudioReviewed ? "pass" : "warn",
     latencyMs: audioLatency,
-    details: allAudioFound
-      ? "Registered Twi source recordings verified on disk."
-      : "One or more registered Twi source recordings are missing from Audio_files/audio.",
+    details: !allAudioFound
+      ? "One or more exact registered Twi source paths are missing or unreadable."
+      : allAudioReviewed
+        ? "Registered Twi source recordings are reviewed and readable."
+        : "Source files are readable, but no audio review approval is recorded; they are not eligible for automatic playback.",
   });
 
   // Check 2: Africa's Talking Gateway
@@ -348,59 +357,47 @@ export interface AudioCatalogHealth {
   verified: boolean;
   totalFiles: number;
   missingFiles: string[];
+  reviewedFiles: number;
   sampleFiles: { path: string; sizeBytes: number; readable: boolean }[];
 }
 
 export function checkAudioFilesHealth(): AudioCatalogHealth {
-  const canonicalFiles = [
-    { root: path.resolve(process.cwd(), "public", "audio"), rel: "Welcome_prompt_01.mp3" },
-    { root: path.resolve(process.cwd(), "Audio_files", "audio"), rel: "Twi/01_Welcome_Session_Start/Welcome back.mp3" },
-    { root: path.resolve(process.cwd(), "Audio_files", "audio"), rel: "Twi/02_Main_Service_Navigation/Service selection.mp3" },
-    { root: path.resolve(process.cwd(), "Audio_files", "audio"), rel: "Twi/03_Recipient_Entry_Verification/Enter recipient.mp3" },
-    { root: path.resolve(process.cwd(), "Audio_files", "audio"), rel: "Twi/04_Amount_Entry_Verification/Enter amount.mp3" },
-    { root: path.resolve(process.cwd(), "Audio_files_2"), rel: "11_Navigation_Recovery/Cancel.m4a" },
-    { root: path.resolve(process.cwd(), "Audio_files_2"), rel: "11_Navigation_Recovery/Exit.m4a" },
-  ];
-
+  const recordings = getAudioAssetInventory();
   const missingFiles: string[] = [];
   const sampleFiles: { path: string; sizeBytes: number; readable: boolean }[] = [];
+  let reviewedFiles = 0;
 
-  for (const item of canonicalFiles) {
-    let abs = path.join(item.root, item.rel);
-    if (!fs.existsSync(abs)) {
-      const candidates = [
-        abs.replace(/\.mp3$/i, ".m4a"),
-        abs.replace(/\.mp3$/i, ".aac"),
-        abs.replace(/\.m4a$/i, ".aac"),
-        abs.replace(/\.m4a$/i, ".mp3"),
-      ];
-      const found = candidates.find((c) => fs.existsSync(c));
-      if (found) {
-        abs = found;
-      }
+  for (const recording of recordings) {
+    const sourcePath = getRecordingFilePath(recording.relativePath);
+    if (!sourcePath) {
+      missingFiles.push(recording.relativePath);
+      continue;
     }
+    const abs = path.resolve(process.cwd(), sourcePath);
 
     try {
       if (fs.existsSync(abs)) {
         fs.accessSync(abs, fs.constants.R_OK);
         const stat = fs.statSync(abs);
+        if (recording.mappingStatus === "VERIFIED" && recording.recordingRole === "fixed") reviewedFiles += 1;
         sampleFiles.push({
-          path: item.rel.startsWith("/audio/") ? item.rel : `/audio/${item.rel}`,
+          path: sourcePath,
           sizeBytes: stat.size,
           readable: true,
         });
       } else {
-        missingFiles.push(item.rel);
+        missingFiles.push(sourcePath);
       }
     } catch {
-      missingFiles.push(item.rel);
+      missingFiles.push(sourcePath);
     }
   }
 
   return {
-    verified: missingFiles.length === 0,
+    verified: recordings.length > 0 && missingFiles.length === 0 && reviewedFiles === recordings.length,
     totalFiles: sampleFiles.length,
     missingFiles,
+    reviewedFiles,
     sampleFiles: sampleFiles.slice(0, 5),
   };
 }
@@ -489,7 +486,7 @@ export async function getFullAiHealthReport(): Promise<FullAiDiagnosticReport> {
   let status: FullAiDiagnosticReport["status"] = "HEALTHY";
   if (isProd && (momo.status === "failed" || !modelsVerified || !audio.verified || !disk.sufficient)) {
     status = "UNHEALTHY";
-  } else if (!modelsVerified || telephony.status === "unconfigured" || audio.missingFiles.length > 0 || !disk.sufficient) {
+  } else if (!modelsVerified || telephony.status === "unconfigured" || audio.missingFiles.length > 0 || !audio.verified || !disk.sufficient) {
     status = "DEGRADED";
   }
 

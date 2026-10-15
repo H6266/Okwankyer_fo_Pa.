@@ -233,7 +233,7 @@ export interface TransactionResult {
   authorizationModel: string;
   momoDetails?: {
     referenceId: string;
-    mode: "LIVE_API" | "SANDBOX_API" | "MOCKED" | "UNCONFIGURED";
+    mode: MoMoMode | "MOCKED" | "UNCONFIGURED";
     status: string;
     financialTransactionId?: string;
   };

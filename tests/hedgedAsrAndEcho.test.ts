@@ -48,10 +48,9 @@ describe("Hedged ASR & Echo Filtering Core Invariants", () => {
     expect(isSpokenPinPattern("my PIN is 1234", "service-select")).toBe(true);
   });
 
-  it("3. TTS Router adheres to proper fallback hierarchy: Studio Catalog -> Local Piper -> Local Synthesis", async () => {
-    // Exact match in catalog uses authentic human studio recording
+  it("3. TTS Router does not select unverified candidate audio", async () => {
     const isCatalog = studioCatalogProvider.hasMatch("For telecom or mobile money services, press 1. For banking services, press 2. To hear this again, press 9. To exit, press 0.", "en");
-    expect(isCatalog).toBe(true);
+    expect(isCatalog).toBe(false);
 
     // Synthesis through ttsRouter
     const response = await ttsRouter.synthesize({

@@ -140,34 +140,28 @@ describe("2. Step-Aware Amount vs PIN Separation", () => {
 });
 
 describe("3. Correct Prompt Fallback Order & TTS Audio Invariants", () => {
-  it("3.1. Tier 1: Canonical prompts route to Studio Recording Catalog with cached metadata", () => {
+  it("3.1. Unreviewed prompt candidates are not loaded into the Studio Recording Catalog", () => {
     // Welcome prompt
     const welcome = studioPromptRegistry.getPrompt("welcome", "tw");
-    expect(welcome).toBeDefined();
-    expect(welcome?.relativeUrl).toContain("Welcome%201.m4a");
-    expect(welcome?.fileSizeBytes).toBeGreaterThan(1000);
-    expect(welcome?.durationSec).toBeNull();
-    expect(welcome?.sampleRateHz).toBeNull();
-    expect(welcome?.bitrateKbps).toBeNull();
+    expect(welcome).toBeNull();
 
     const amountEn = studioPromptRegistry.getPrompt("enter_amount", "en");
     expect(amountEn).toBeNull();
 
     const amountTw = studioPromptRegistry.getPrompt("enter_amount", "tw");
-    expect(amountTw).toBeDefined();
-    expect(amountTw?.relativeUrl).toContain("Enter%20amount.m4a");
+    expect(amountTw).toBeNull();
   });
 
-  it("3.2. TTS Router retrieves Tier 1 studio prompts instantly with verified buffer and headers", async () => {
+  it("3.2. TTS Router synthesizes speech when no studio prompt is verified", async () => {
     const res = await ttsRouter.synthesize({
       text: "welcome",
       language: "tw",
     });
 
-    expect(res.providerUsed).toContain("tier1-studio-prompt-registry:welcome");
+    expect(res.providerUsed).not.toContain("tier1-studio-prompt-registry");
     expect(res.audioBuffer).toBeDefined();
     expect(res.audioBuffer!.length).toBeGreaterThan(128);
-    expect(res.mimeType).toBe("audio/mp4");
+    expect(res.audioMimeType).toMatch(/^audio\//);
   });
 
   it("3.3. Twi dynamic amounts use pre-recorded digit audio concatenation snippets without generic English TTS", () => {

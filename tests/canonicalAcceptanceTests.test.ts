@@ -29,31 +29,23 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
   // AT-01: New session begins -> OP01 welcome-only prompt is requested first
   it("AT-01: New session begins with OP01 welcome-only prompt", () => {
     const enWelcome = resolvePrompt("welcome", "en");
-    expect(enWelcome).toBeTruthy();
-    expect(enWelcome).toContain("Welcome_prompt_01.mp3");
+    expect(enWelcome).toBe("/api/audio/prompt-tts/en/welcome");
 
     const twiWelcome = resolvePrompt("welcome", "twi");
-    expect(twiWelcome).toBeTruthy();
-    expect(twiWelcome).toContain("Welcome");
+    expect(twiWelcome).toBe("/api/audio/prompt-tts/twi/welcome");
   });
 
   // AT-02: OP01 playback completes -> OP02 language options play separately; no combined welcome repeats
   it("AT-02: OP01 and OP02 play as distinct, decoupled prompts without duplicate combined playback", () => {
-    const op01Recording = getRecordingByPromptId("OP01", "twi");
-    const op02Recording = getRecordingByPromptId("OP02", "twi");
-
-    expect(op01Recording).not.toBeNull();
-    expect(op02Recording).not.toBeNull();
-    // Must be completely different assets
-    expect(op01Recording?.url).not.toBe(op02Recording?.url);
-    expect(op01Recording?.relativePath).not.toBe(op02Recording?.relativePath);
+    expect(getRecordingByPromptId("OP01", "twi")).toBeNull();
+    expect(getRecordingByPromptId("OP02", "twi")).toBeNull();
+    expect(resolvePrompt("OP01", "twi")).toBe("/api/audio/prompt-tts/twi/OP01");
+    expect(resolvePrompt("OP02", "twi")).toBe("/api/audio/prompt-tts/twi/OP02");
   });
 
   // AT-03: English session -> Resolver returns only an eligible English asset or an explicit safe missing result
   it("AT-03: English session returns only eligible English assets or safe null/TTS fallback", () => {
-    // English OP01 resolves to English audio
-    const enOp01 = getRecordingByPromptId("OP01", "en");
-    expect(enOp01?.language).toBe("en");
+    expect(getRecordingByPromptId("OP01", "en")).toBeNull();
 
     // English OP07 has no native English studio take in Audio_files, so getRecordingByPromptId returns null (not Twi)
     const enOp07Recording = getRecordingByPromptId("OP07", "en");
@@ -68,36 +60,35 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
   // AT-04: Twi session -> Resolver returns only an eligible Twi asset or explicit safe missing result
   it("AT-04: Twi session returns only eligible Twi assets or safe missing result", () => {
     const twiOp07 = getRecordingByPromptId("OP07", "twi");
-    expect(twiOp07).not.toBeNull();
-    expect(twiOp07?.language).toBe("twi");
-    expect(twiOp07?.url).toContain("Service");
+    expect(twiOp07).toBeNull();
 
     const twiPrompt = resolvePrompt("OP07", "twi");
-    expect(twiPrompt).not.toBeNull();
-    expect(twiPrompt).toContain("/audio/");
+    expect(twiPrompt).toBe("/api/audio/prompt-tts/twi/OP07");
   });
 
   // AT-05: Numeric-looking filename conflicts with content mapping -> Canonical prompt ID and reviewed mapping win
   it("AT-05: Canonical prompt ID and reviewed mapping win over numeric filename order", () => {
     // In legacy takes, Audio_prompt_twi_02 actually speaks Network Selection (OP08), not Step 2
-    // Canonical resolver maps OP07 strictly to Service selection
-    const op07 = getRecordingByPromptId("OP07", "twi");
+    const op07 = AUDIO_RECORDINGS.find((recording) => recording.promptId === "OP07");
     expect(op07?.state).toBe("SERVICE_SELECTION");
     expect(op07?.relativePath).toContain("Service selection");
+    expect(op07?.mappingStatus).not.toBe("VERIFIED");
+    expect(getRecordingByPromptId("OP07", "twi")).toBeNull();
 
-    const op08 = getRecordingByPromptId("OP08", "twi");
+    const op08 = AUDIO_RECORDINGS.find((recording) => recording.promptId === "OP08");
     expect(op08?.state).toBe("NETWORK_SELECTION");
     expect(op08?.relativePath).toContain("Network selection");
+    expect(getRecordingByPromptId("OP08", "twi")).toBeNull();
   });
 
   // AT-06: Two assets claim one prompt/language -> Resolver marks ambiguity; it does not silently choose one
-  it("AT-06: Multiple takes for a single prompt are exposed as distinct primary vs alternate takes", () => {
+  it("AT-06: Ambiguous takes are not selected for automatic playback", () => {
     const op19Recordings = AUDIO_RECORDINGS.filter(
       (r) => r.promptId === "OP19" && r.language === "twi"
     );
     expect(op19Recordings.length).toBeGreaterThanOrEqual(1);
-    const hasPrimary = op19Recordings.some((r) => !r.isAlternate);
-    expect(hasPrimary).toBe(true);
+    expect(op19Recordings.every((recording) => recording.mappingStatus !== "VERIFIED")).toBe(true);
+    expect(getRecordingByPromptId("OP19", "twi")).toBeNull();
   });
 
   // AT-07: Missing/unverified recording -> Safe fallback/error status returned; wrong language or dynamic sample not played
@@ -318,7 +309,7 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
 
   // AT-26: Payment is pending/unknown -> No success prompt; route to status-check/pending recovery
   it("AT-26: Pending or unknown payment status never announces false success", () => {
-    const pendingState = "WAITING_CONFIRMATION";
+    const pendingState: string = "WAITING_CONFIRMATION";
     const isSuccess = pendingState === "SUCCESS";
     expect(isSuccess).toBe(false);
 
