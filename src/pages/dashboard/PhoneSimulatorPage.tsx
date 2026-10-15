@@ -584,7 +584,19 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       // Determine display prompt text
       let promptText = "";
-      if (parsed.sayText) {
+      let resolvedPromptUrlText = "";
+      if (requestedPlayUrl) {
+        const pathname = new URL(requestedPlayUrl, window.location.origin).pathname;
+        const recording = getRecordingByUrl(pathname);
+        const ttsPromptKey = pathname.match(/^\/api\/audio\/prompt-tts\/(?:en|twi)\/([^/]+)$/)?.[1];
+        const promptKey = ttsPromptKey ? decodeURIComponent(ttsPromptKey) : null;
+        resolvedPromptUrlText = recording?.spokenText ||
+          (promptKey ? resolvePromptText(promptKey, responseLanguage) : "") || "";
+      }
+
+      if (parsed.sayText && resolvedPromptUrlText) {
+        promptText = `${parsed.sayText} ${resolvedPromptUrlText}`.trim();
+      } else if (parsed.sayText) {
         promptText = parsed.sayText;
       } else if (parsed.playUrls && parsed.playUrls.length > 1) {
         const texts = parsed.playUrls.map((u) => {
@@ -594,16 +606,9 @@ export const PhoneSimulatorPage: React.FC = () => {
         promptText = texts.length > 0
           ? texts.join(" ")
           : (responseLanguage === "twi" ? "Akwaaba. Yɛsrɛ wo paw dwumadie a wopɛ." : "Welcome. Please select a service.");
-      } else if (requestedPlayUrl) {
-        const pathname = new URL(requestedPlayUrl, window.location.origin).pathname;
-        const recording = getRecordingByUrl(pathname);
-        const ttsPromptKey = pathname.match(/^\/api\/audio\/prompt-tts\/(?:en|twi)\/([^/]+)$/)?.[1];
-        const promptKey = ttsPromptKey ? decodeURIComponent(ttsPromptKey) : null;
-        promptText = recording?.spokenText ||
-          (promptKey ? resolvePromptText(promptKey, responseLanguage) : null) ||
-          (responseLanguage === "twi" ? "Yɛsrɛ wo tie." : "Please listen to the prompt.");
+      } else if (resolvedPromptUrlText) {
+        promptText = resolvedPromptUrlText;
       } else {
-        // Fallback friendly script
         promptText = responseLanguage === "twi" ? "Yɛsrɛ wo paw deɛ wopɛ wɔ menyu no so." : "Please select an option from the menu.";
       }
 
@@ -634,49 +639,58 @@ export const PhoneSimulatorPage: React.FC = () => {
         ? (parsed.playUrls.map(u => resolvePlayableSimulatorAudioUrl(u, responseLanguage)).filter(Boolean) as string[])
         : [];
 
-      // If response contains a Redirect, play the prompt FIRST and then follow the redirect!
+      // If response contains a Redirect, only play if the response had an explicit prompt (<Play> or <Say>)
       if (parsed.redirectUrl) {
-        addLog("state", `Auto-playing prompt before following redirect to ${parsed.redirectUrl}...`);
-        try {
-          if (resolvedSequence.length > 1) {
-            await audioPlaybackController.playSequence(resolvedSequence);
-          } else if (playbackUrl) {
-            await audioPlaybackController.play(playbackUrl, promptText);
-          } else if (promptText && promptText.trim()) {
-            await audioPlaybackController.speakText(promptText);
+        const hasExplicitPrompt = Boolean(parsed.playUrls?.length || playbackUrl || (parsed.sayText && parsed.sayText.trim()));
+        if (hasExplicitPrompt) {
+          addLog("state", `Playing prompt before redirect to ${parsed.redirectUrl}...`);
+          try {
+            if (resolvedSequence.length > 1) {
+              await audioPlaybackController.playSequence(resolvedSequence);
+            } else if (playbackUrl) {
+              await audioPlaybackController.play(playbackUrl, promptText);
+            } else if (parsed.sayText && parsed.sayText.trim()) {
+              await audioPlaybackController.speakText(parsed.sayText);
+            }
+          } catch (playErr) {
+            console.warn("[PhoneSimulator] Audio playback before redirect notice:", playErr);
           }
-        } catch (playErr) {
-          console.warn("[PhoneSimulator] Audio playback before redirect notice:", playErr);
         }
         addLog("state", `Redirecting to ${parsed.redirectUrl}`);
         return dispatchVoiceWebhook(parsed.redirectUrl);
       }
 
-      if (resolvedSequence.length > 1) {
+      // Chain speech readback followed by studio prompt when both exist
+      if (parsed.sayText && parsed.sayText.trim() && (playbackUrl || resolvedSequence.length > 0)) {
+        addLog("audio", `🔊 Auto-playing spoken announcement followed by prompt`);
+        audioPlaybackController.speakText(parsed.sayText.trim()).then(() => {
+          if (resolvedSequence.length > 1) {
+            audioPlaybackController.playSequence(resolvedSequence).catch(() => {});
+          } else if (playbackUrl) {
+            audioPlaybackController.play(playbackUrl).catch(() => {});
+          }
+        }).catch(() => {
+          if (playbackUrl) audioPlaybackController.play(playbackUrl).catch(() => {});
+        });
+      } else if (resolvedSequence.length > 1) {
         addLog("audio", `🔊 Auto-playing sequence: ${resolvedSequence.join(" -> ")}`);
         audioPlaybackController.playSequence(resolvedSequence).catch((err) => {
-          console.warn("[PhoneSimulator] Sequence auto-play failed; playing chime:", err);
-          audioPlaybackController.playToneIndicator().catch(() => {});
+          console.warn("[PhoneSimulator] Sequence auto-play notice:", err);
+          audioPlaybackController.speakText(promptText).catch(() => {});
         });
       } else if (playbackUrl) {
         addLog("audio", `🔊 Auto-playing prompt: ${playbackUrl}`);
         audioPlaybackController.play(playbackUrl, promptText).catch((err) => {
-          console.warn("[PhoneSimulator] Auto-play prompt failed; playing chime:", err);
-          audioPlaybackController.playToneIndicator().catch(() => {});
+          console.warn("[PhoneSimulator] Auto-play prompt notice:", err);
+          audioPlaybackController.speakText(promptText).catch(() => {});
         });
       } else if (promptText && promptText.trim()) {
-        const matched = matchReplyToAudio(promptText, "twi", { minConfidence: 0.35 });
-        if (matched.match && matched.audioUrl) {
-          addLog("audio", `🔊 Auto-playing matched studio prompt: ${matched.audioUrl}`);
-          audioPlaybackController.play(matched.audioUrl, promptText).catch(() => {
-            audioPlaybackController.playToneIndicator().catch(() => {});
-          });
-        } else {
-          addLog("audio", `🔔 Playing gentle IVR notification tone.`);
+        addLog("audio", `🔊 Synthesizing speech for prompt: "${promptText.slice(0, 50)}..."`);
+        audioPlaybackController.speakText(promptText).catch((err) => {
+          console.warn("[PhoneSimulator] Speech synthesis notice:", err);
           audioPlaybackController.playToneIndicator().catch(() => {});
-        }
+        });
       } else {
-        addLog("audio", `🔔 Prompt recording unavailable; playing guidance tone indicator.`);
         audioPlaybackController.playToneIndicator().catch(() => {});
       }
     },

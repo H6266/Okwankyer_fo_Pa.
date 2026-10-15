@@ -141,14 +141,14 @@ export function resolveSimulatorAudioUrl(
     }
     const recording = getRecordingByUrl(pathname);
     if (recording?.url) {
-      return recording.url;
+      return recording.url.replace(/\.(m4a|aac)$/i, ".mp3");
     }
     if (pathname.startsWith("/audio/") || pathname.startsWith("/Audio_files/")) {
-      return pathname;
+      return pathname.replace(/\.(m4a|aac)$/i, ".mp3");
     }
-    return pathname;
+    return pathname.replace(/\.(m4a|aac)$/i, ".mp3");
   } catch {
-    return audioUrl;
+    return (audioUrl || "").replace(/\.(m4a|aac)$/i, ".mp3");
   }
 }
 

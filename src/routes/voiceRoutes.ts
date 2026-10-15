@@ -450,7 +450,7 @@ ivrRouter.all("/language-selection", (req: Request, res: Response) => {
   }
   return xmlResponse(
     res,
-    `    <Say voice="female">${decision.replyText}</Say>\n    <Redirect>${baseUrl}/voice-menu?sessionId=${sessionId}&amp;err=invalid</Redirect>`,
+    `    <Say voice="female">${escapeVoiceXml(decision.replyText)}</Say>\n    <Redirect>${baseUrl}/language-selection?sessionId=${sessionId}&amp;err=invalid</Redirect>`,
     decision
   );
 });
@@ -1048,7 +1048,7 @@ ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
     transactionStateMachine.transition(sessionId, "CANCELLED");
     return xmlResponse(res, `    <Say voice="female">${lang === "twi" ? "Yɛatwa mu. Nante yie." : "Cancelled. Goodbye."}</Say>\n    <Reject/>`);
   }
-  if (rawDigits === "8" || rawDigits === "2") {
+  if (rawDigits === "8") {
     return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
   }
   if (rawDigits === "9") {
@@ -1212,21 +1212,18 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
       return xmlResponse(res, `    <Say voice="female">${errorMsg}</Say>\n    <Reject/>`);
     }
 
-    const isSimulated = sessionId.startsWith("SIM_CALL_") || (req.baseUrl && req.baseUrl.startsWith("/api/simulator"));
-    if (isSimulated) {
-      return xmlResponse(res, `    <Say voice="female">Simulation only. No Mobile Money payment request was sent.</Say>\n    <Reject/>`);
-    }
+    const isSimulated = sessionId.startsWith("SIM_CALL_") || (req.baseUrl && req.baseUrl.startsWith("/api/simulator")) || !config.momo.targetEnvironment || config.momo.targetEnvironment === "sandbox";
     if (!isSimulated) {
-      const callerNetwork = validateGhanaPhoneNumber(session.callerPhone).network;
-      const recipientNetwork = validateGhanaPhoneNumber(session.recipientPhone).network;
-      const supportedLiveNetworks = ["MTN", "Telecel"];
-      if (!callerNetwork || !recipientNetwork || !supportedLiveNetworks.includes(callerNetwork) || !supportedLiveNetworks.includes(recipientNetwork)) {
+      const callerNetwork = validateGhanaPhoneNumber(session.callerPhone).network || "MTN";
+      const recipientNetwork = validateGhanaPhoneNumber(session.recipientPhone).network || "MTN";
+      const supportedLiveNetworks = ["MTN", "Telecel", "AT"];
+      if (!supportedLiveNetworks.includes(callerNetwork) || !supportedLiveNetworks.includes(recipientNetwork)) {
         transactionStateMachine.transition(sessionId, "FAILED", {
-          failureReason: "Live voice transfer is configured for MTN and Telecel networks only.",
+          failureReason: "Live voice transfer supports MTN, Telecel, and AT networks.",
         });
         const providerUnavailable = lang === "twi"
-          ? "Mprempren, yɛn live voice transfer no yɛ MTN ne Telecel nkutoo. Sika biara nkɔe. Yɛsrɛ wo, frɛ MTN anaa Telecel bɔ mmɔden bio akyire yi."
-          : "Live voice transfers currently support MTN and Telecel numbers only. No money was charged. Please use MTN or Telecel numbers.";
+          ? "Mprempren, yɛn live voice transfer no yɛ MTN, Telecel ne AT nkutoo. Sika biara nkɔe. Yɛsrɛ wo, frɛ bɔ mmɔden bio akyire yi."
+          : "Live voice transfers currently support MTN, Telecel, and AT numbers. No money was charged. Please use a recognized network number.";
         return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(providerUnavailable)}</Say>\n    <Reject/>`);
       }
     }

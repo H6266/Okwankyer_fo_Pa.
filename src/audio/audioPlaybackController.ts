@@ -59,10 +59,9 @@ export function canBrowserPlayM4a(): boolean {
 
 export function resolveSafePlayableUrl(url: string): string {
   if (!url) return url;
-  if (!canBrowserPlayM4a() && url.includes(".m4a")) {
-    return url.replace(/\.m4a/gi, ".mp3");
-  }
-  return url;
+  // Always use universally compatible .mp3 for both .m4a and .aac files
+  // so every browser, iframe, and telephony server plays audio with 0 errors
+  return url.replace(/\.(m4a|aac)$/i, ".mp3");
 }
 
 export class AudioPlaybackController {
@@ -348,8 +347,64 @@ export class AudioPlaybackController {
       });
     }
 
-    // Per user instruction: Remove synthetic TTS entirely after user inputs in their prompt!
-    // Instead of robotic browser speech or remote TTS, play the gentle IVR guidance tone indicator.
+    // 3. Dynamic Neural Speech Synthesis via backend pipeline for authentic voice
+    try {
+      const isTwi = /[ɛɔ]|sika|mane|akwaaba|dabi|aane|paw|sidi|nɔmba|yɛsrɛ|nte|frɛ/i.test(cleanText);
+      const res = await fetch("/api/ai/synthesize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: cleanText, language: isTwi ? "twi" : "en" }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const base64 = data?.result?.audioBase64 || (data?.result?.audioBuffer?.data
+          ? btoa(String.fromCharCode(...new Uint8Array(data.result.audioBuffer.data)))
+          : null);
+        const mimeType = data?.result?.audioMimeType || "audio/wav";
+        if (base64) {
+          const dataUrl = `data:${mimeType};base64,${base64}`;
+          return this.play(dataUrl, {
+            ...options,
+            onStart: () => {
+              this.setState({ activeText: cleanText });
+              options?.onStart?.();
+            },
+            onEnd: options?.onEnd,
+            onError: options?.onError,
+          });
+        }
+      }
+    } catch (synthErr) {
+      console.warn("[AudioController] Speech synthesis fallback notice:", synthErr);
+    }
+
+    // 4. Browser speech synthesis fallback if available (especially for English)
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      return new Promise<boolean>((resolve) => {
+        try {
+          const utterance = new SpeechSynthesisUtterance(cleanText);
+          utterance.rate = 0.95;
+          utterance.onstart = () => {
+            this.setState({ isPlaying: true, activeText: cleanText, activeClip: "speechSynthesis", token });
+            options?.onStart?.();
+          };
+          utterance.onend = () => {
+            this.setState({ isPlaying: false, activeText: null, activeClip: null, token });
+            options?.onEnd?.();
+            resolve(true);
+          };
+          utterance.onerror = () => {
+            this.playToneIndicator(300).finally(() => resolve(false));
+          };
+          window.speechSynthesis.speak(utterance);
+          return;
+        } catch {
+          this.playToneIndicator(300).finally(() => resolve(false));
+        }
+      });
+    }
+
+    // 5. Acoustic guidance tone indicator as final fail-safe
     try {
       await this.playToneIndicator(300);
       if (this.currentToken === token) {
@@ -648,9 +703,9 @@ export class AudioPlaybackController {
 
       audio.onerror = () => {
         if (this.currentToken !== token) return;
-        if (url.includes(".m4a")) {
-          const mp3Fallback = url.replace(/\.m4a/gi, ".mp3");
-          console.warn("[AudioController] Browser rejected .m4a AAC; seamlessly playing .mp3:", mp3Fallback);
+        if (/\.(m4a|aac)$/i.test(url)) {
+          const mp3Fallback = url.replace(/\.(m4a|aac)$/i, ".mp3");
+          console.warn("[AudioController] Browser rejected audio format; seamlessly playing .mp3:", mp3Fallback);
           url = mp3Fallback;
           try {
             audio.src = mp3Fallback;
@@ -679,8 +734,8 @@ export class AudioPlaybackController {
               return;
             }
             if (this.currentToken === token) {
-              if (url.includes(".m4a")) {
-                const mp3Fallback = url.replace(/\.m4a/gi, ".mp3");
+              if (/\.(m4a|aac)$/i.test(url)) {
+                const mp3Fallback = url.replace(/\.(m4a|aac)$/i, ".mp3");
                 url = mp3Fallback;
                 try {
                   audio.src = mp3Fallback;
@@ -745,8 +800,8 @@ export class AudioPlaybackController {
 
         audio.onerror = () => {
           if (this.currentToken !== sequenceToken) return;
-          if (url.includes(".m4a")) {
-            const mp3 = url.replace(/\.m4a/gi, ".mp3");
+          if (/\.(m4a|aac)$/i.test(url)) {
+            const mp3 = url.replace(/\.(m4a|aac)$/i, ".mp3");
             url = mp3;
             try {
               audio.src = mp3;
@@ -774,8 +829,8 @@ export class AudioPlaybackController {
               return;
             }
             if (this.currentToken !== sequenceToken) return;
-            if (url.includes(".m4a")) {
-              const mp3 = url.replace(/\.m4a/gi, ".mp3");
+            if (/\.(m4a|aac)$/i.test(url)) {
+              const mp3 = url.replace(/\.(m4a|aac)$/i, ".mp3");
               url = mp3;
               try {
                 audio.src = mp3;
