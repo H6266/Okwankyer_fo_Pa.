@@ -25,6 +25,7 @@ import {
   Brain,
 } from "lucide-react";
 import { audioPlaybackController } from "../../audio/audioPlaybackController";
+import { matchReplyToAudio } from "../../audio/replyAudioMatcher";
 import { isAcousticSystemEcho } from "../../domain/echoFilter";
 import {
   resolveSimulatorAudioUrl,
@@ -161,22 +162,7 @@ function resolvePlayableSimulatorAudioUrl(
     resolveSimulatorAudioUrl(audioUrl, language) ||
     resolveSimulatorAudioUrl(audioUrl, "twi") ||
     audioUrl;
-  if (!suppliedUrl) return null;
-
-  if (suppliedUrl.endsWith(".m4a") && typeof document !== "undefined") {
-    const audio = document.createElement("audio");
-    const canPlay =
-      audio.canPlayType?.('audio/mp4; codecs="mp4a.40.2"') ||
-      audio.canPlayType?.('audio/mp4') ||
-      audio.canPlayType?.('audio/x-m4a') ||
-      audio.canPlayType?.('audio/aac');
-    if (!canPlay) {
-      // Browser rejects .m4a (AAC); seamlessly use .mp3 mirror
-      return suppliedUrl.replace(/\.m4a$/i, ".mp3");
-    }
-  }
-
-  return suppliedUrl;
+  return suppliedUrl || null;
 }
 
 
@@ -185,6 +171,7 @@ export const PhoneSimulatorPage: React.FC = () => {
   const [callActive, setCallActive] = useState<boolean>(false);
   const [callStatus, setCallStatus] = useState<string>("Idle");
   const [sessionId, setSessionId] = useState<string>("");
+  const [callerNumber, setCallerNumber] = useState<string>("+233543546010");
   const [interactionMode, setInteractionMode] = useState<string>("UNSELECTED");
   const [conversationState, setConversationState] = useState<string>("INITIATED");
   const [language, setLanguage] = useState<"en" | "twi" | null>("twi");
@@ -198,6 +185,7 @@ export const PhoneSimulatorPage: React.FC = () => {
   const [clock, setClock] = useState<string>("10:00");
   const [zeroPinOverlay, setZeroPinOverlay] = useState<boolean>(false);
   const [isAudioSpeaking, setIsAudioSpeaking] = useState<boolean>(false);
+  const [volumeLevel, setVolumeLevel] = useState<number>(1.6);
   const [isAiReasoning, setIsAiReasoning] = useState<boolean>(false);
   const [reasoningSec, setReasoningSec] = useState<number>(0);
 
@@ -663,34 +651,26 @@ export const PhoneSimulatorPage: React.FC = () => {
       if (resolvedSequence.length > 1) {
         addLog("audio", `🔊 Auto-playing sequence: ${resolvedSequence.join(" -> ")}`);
         audioPlaybackController.playSequence(resolvedSequence).catch((err) => {
-          console.warn("[PhoneSimulator] Sequence auto-play failed; falling back to TTS:", err);
-          if (promptText && promptText.trim()) {
-            audioPlaybackController.speakText(promptText).catch(() => {
-              audioPlaybackController.playToneIndicator().catch(() => {});
-            });
-          } else {
-            audioPlaybackController.playToneIndicator().catch(() => {});
-          }
+          console.warn("[PhoneSimulator] Sequence auto-play failed; playing chime:", err);
+          audioPlaybackController.playToneIndicator().catch(() => {});
         });
       } else if (playbackUrl) {
         addLog("audio", `🔊 Auto-playing prompt: ${playbackUrl}`);
         audioPlaybackController.play(playbackUrl, promptText).catch((err) => {
-          console.warn("[PhoneSimulator] Auto-play prompt failed; falling back to TTS:", err);
-          if (promptText && promptText.trim()) {
-            addLog("audio", `🗣️ Synthesizing prompt via TTS: "${promptText}"`);
-            audioPlaybackController.speakText(promptText).catch(() => {
-              audioPlaybackController.playToneIndicator().catch(() => {});
-            });
-          } else {
-            audioPlaybackController.playToneIndicator().catch(() => {});
-          }
-        });
-      } else if (promptText && promptText.trim()) {
-        addLog("audio", `🗣️ Speaking via TTS: "${promptText}"`);
-        audioPlaybackController.speakText(promptText).catch((err) => {
-          console.warn("[PhoneSimulator] TTS synthesis failed; playing guidance tone indicator:", err);
+          console.warn("[PhoneSimulator] Auto-play prompt failed; playing chime:", err);
           audioPlaybackController.playToneIndicator().catch(() => {});
         });
+      } else if (promptText && promptText.trim()) {
+        const matched = matchReplyToAudio(promptText, "twi", { minConfidence: 0.35 });
+        if (matched.match && matched.audioUrl) {
+          addLog("audio", `🔊 Auto-playing matched studio prompt: ${matched.audioUrl}`);
+          audioPlaybackController.play(matched.audioUrl, promptText).catch(() => {
+            audioPlaybackController.playToneIndicator().catch(() => {});
+          });
+        } else {
+          addLog("audio", `🔔 Playing gentle IVR notification tone.`);
+          audioPlaybackController.playToneIndicator().catch(() => {});
+        }
       } else {
         addLog("audio", `🔔 Prompt recording unavailable; playing guidance tone indicator.`);
         audioPlaybackController.playToneIndicator().catch(() => {});
@@ -1386,12 +1366,18 @@ export const PhoneSimulatorPage: React.FC = () => {
         const amount = typeof slots.amount === "number" && Number.isFinite(slots.amount) ? slots.amount : undefined;
 
         // Case 1: Conversational Turn (Gemini is conversing, clarifying, or asking questions)
-        // No local slot overrides or step transitions: speak Gemini's reply and await caller response!
+        // No local slot overrides or step transitions: play matched studio audio and await caller response!
         if (brainOutput.decision.kind === "clarify_slot" && brainOutput.decision.slot === "conversational") {
           addLog("AI", `Gemini conversational turn: "${replyText}"`);
           setCurrentPrompt(replyText);
           currentPromptRef.current = replyText;
-          await audioPlaybackController.speakText(replyText);
+          const matched = matchReplyToAudio(replyText, "twi", { minConfidence: 0.35 });
+          if (matched.match && matched.audioUrl) {
+            addLog("audio", `🔊 Playing matched Akan Twi prompt: ${matched.audioUrl}`);
+            await audioPlaybackController.play(matched.audioUrl, replyText);
+          } else {
+            await audioPlaybackController.speakText(replyText);
+          }
           return;
         }
 
@@ -1404,7 +1390,9 @@ export const PhoneSimulatorPage: React.FC = () => {
           setActiveCallbackUrl(`/api/simulator/safe-confirmation?sessionId=${curSession}&lang=${curLang}`);
           setCurrentPrompt(replyText);
           currentPromptRef.current = replyText;
-          await audioPlaybackController.speakText(replyText);
+          const confirmAudio = resolvePrompt("safe_confirmation", "twi") || "/audio/supplied/Twi/5.Transaction Confirmation/Review transaction.m4a";
+          addLog("audio", `🔊 Playing Akan Twi confirmation prompt: ${confirmAudio}`);
+          await audioPlaybackController.play(confirmAudio, replyText);
           return;
         }
 
@@ -1447,14 +1435,24 @@ export const PhoneSimulatorPage: React.FC = () => {
           setCurrentPrompt(replyText);
           currentPromptRef.current = replyText;
           addLog("state", `Brain requested missing slot: ${missingSlot}`);
-          await audioPlaybackController.speakText(replyText);
+          const promptAudio = missingSlot === "recipient"
+            ? (resolvePrompt("enter_recipient", "twi") || "/audio/supplied/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a")
+            : (resolvePrompt("enter_amount", "twi") || "/audio/supplied/Twi/4.Amount Entry & Verification/Enter amount 4.m4a");
+          addLog("audio", `🔊 Playing Akan Twi prompt for ${missingSlot}: ${promptAudio}`);
+          await audioPlaybackController.play(promptAudio, replyText);
           return;
         }
 
         addLog("AI", `Brain reply: "${replyText}"`);
         setCurrentPrompt(replyText);
         currentPromptRef.current = replyText;
-        await audioPlaybackController.speakText(replyText);
+        const matched = matchReplyToAudio(replyText, "twi", { minConfidence: 0.35 });
+        if (matched.match && matched.audioUrl) {
+          addLog("audio", `🔊 Playing matched Akan Twi prompt: ${matched.audioUrl}`);
+          await audioPlaybackController.play(matched.audioUrl, replyText);
+        } else {
+          await audioPlaybackController.speakText(replyText);
+        }
       } catch (err: any) {
         if (stallTimer) clearTimeout(stallTimer);
         if (timeout20sTimer) clearTimeout(timeout20sTimer);
@@ -2083,16 +2081,25 @@ export const PhoneSimulatorPage: React.FC = () => {
                 </div>
               )}
 
-              {/* Active Prompt Card with Replay Button */}
-              <div className="bg-slate-950/80 rounded-xl p-2 border border-slate-800/80 flex items-start justify-between gap-2 text-slate-200">
-                <div className="flex-1">
+              {/* Active Prompt Card with Replay Button & Audio Diagnostics */}
+              <div className="bg-slate-950/80 rounded-xl p-2.5 border border-slate-800/80 flex items-start justify-between gap-2 text-slate-200">
+                <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 text-[10px] text-emerald-400 font-semibold mb-0.5">
-                    <Volume2 className="w-3 h-3" />
-                    <span>Prompt Selected</span>
+                    <Volume2 className={`w-3.5 h-3.5 ${isAudioSpeaking ? "text-emerald-300 animate-pulse" : "text-emerald-500"}`} />
+                    <span>{isAudioSpeaking ? "🔊 Playing Akan Twi Audio..." : "Akan Twi Audio Ready"}</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 ml-auto">
+                      {flowMode === "CONVERSATIONAL" ? "Auto-Unmute Mic" : "Prompt Mode"}
+                    </span>
                   </div>
-                  <p className="text-[11px] leading-tight line-clamp-2 text-slate-300 font-sans">
+                  <p className="text-[11px] leading-tight line-clamp-2 text-slate-200 font-sans">
                     {currentPrompt}
                   </p>
+                  {isAudioSpeaking && (
+                    <div className="flex items-center gap-1.5 mt-1 text-[9.5px] text-teal-300/90 font-mono">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-teal-400 animate-ping" />
+                      <span>Microphone muted during playback to prevent echo</span>
+                    </div>
+                  )}
                 </div>
                 {callActive && (
                   <button

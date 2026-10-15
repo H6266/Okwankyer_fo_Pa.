@@ -39,11 +39,17 @@ export interface SpeechToTextProvider {
   transcribe(audioPayload: Buffer | string, mimeType?: string, step?: string): Promise<SttResult>;
 }
 
-export {
+import {
   isVoiceCaptureBlockedForStep,
   shouldDiscardSensitiveSpeech,
   isSpokenPinPattern,
 } from "../domain/pinSafety";
+
+export {
+  isVoiceCaptureBlockedForStep,
+  shouldDiscardSensitiveSpeech,
+  isSpokenPinPattern,
+};
 
 
 /**

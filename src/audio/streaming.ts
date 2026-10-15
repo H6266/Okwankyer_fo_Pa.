@@ -56,35 +56,66 @@ export function resolveSafeAudioPath(requestedSubpath: string): string | null {
     throw new PathTraversalError(`Path traversal attempt blocked: ${requestedSubpath}`);
   }
 
-  // Check resolved path under rootDir
+  // 1. Direct check for exact resolved path under rootDir
   if (fs.existsSync(resolved) && !fs.statSync(resolved).isDirectory()) {
     const realPath = fs.realpathSync(resolved);
     const realRoot = fs.realpathSync(rootDir);
-    if (realPath !== realRoot && !realPath.startsWith(`${realRoot}${path.sep}`)) {
-      throw new PathTraversalError(`Path traversal attempt blocked: ${requestedSubpath}`);
+    if (realPath.startsWith(`${realRoot}${path.sep}`)) {
+      return realPath;
     }
-    return realPath;
   }
 
-  // Fallback: check flat Audio_files directory for additional recordings
+  // 2. Extension swap check on the resolved path (.m4a, .aac, .mp3, .wav)
+  const candidateDir = path.dirname(resolved);
+  const baseNameWithoutExt = path.basename(resolved, path.extname(resolved));
+  const audioExtensions = [".m4a", ".aac", ".mp3", ".wav"];
+
+  for (const ext of audioExtensions) {
+    const candidate = path.join(candidateDir, `${baseNameWithoutExt}${ext}`);
+    if (fs.existsSync(candidate) && !fs.statSync(candidate).isDirectory()) {
+      return fs.realpathSync(candidate);
+    }
+  }
+
+  // 3. Fallback: check flat Audio_files directory for matching filename with any audio extension
   const audioFilesDir = path.resolve(process.cwd(), "Audio_files");
-  const flatCandidate = path.resolve(audioFilesDir, path.basename(relativePath));
-  if (fs.existsSync(flatCandidate) && !fs.statSync(flatCandidate).isDirectory()) {
-    const realFlat = fs.realpathSync(flatCandidate);
-    const realAudioFiles = fs.realpathSync(audioFilesDir);
-    if (realFlat.startsWith(`${realAudioFiles}${path.sep}`)) {
-      return realFlat;
+  for (const ext of audioExtensions) {
+    const flatCandidate = path.resolve(audioFilesDir, `${baseNameWithoutExt}${ext}`);
+    if (fs.existsSync(flatCandidate) && !fs.statSync(flatCandidate).isDirectory()) {
+      return fs.realpathSync(flatCandidate);
     }
   }
 
-  // Fallback: check public/audio
+  // 4. Fallback: search Audio_files/Twi/ subdirectories recursively for the file
+  const twiDir = path.resolve(process.cwd(), "Audio_files", "Twi");
+  if (fs.existsSync(twiDir)) {
+    const targetBaseLower = baseNameWithoutExt.toLowerCase();
+    try {
+      const subdirs = fs.readdirSync(twiDir, { withFileTypes: true });
+      for (const entry of subdirs) {
+        if (entry.isDirectory()) {
+          const subDirPath = path.join(twiDir, entry.name);
+          const files = fs.readdirSync(subDirPath);
+          for (const f of files) {
+            const fNameWithoutExt = path.basename(f, path.extname(f)).toLowerCase();
+            if (fNameWithoutExt === targetBaseLower) {
+              const fullPath = path.join(subDirPath, f);
+              if (fs.existsSync(fullPath) && !fs.statSync(fullPath).isDirectory()) {
+                return fs.realpathSync(fullPath);
+              }
+            }
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // 5. Fallback: check public/audio
   const publicAudioDir = path.resolve(process.cwd(), "public", "audio");
-  const publicCandidate = path.resolve(publicAudioDir, path.basename(relativePath));
-  if (fs.existsSync(publicCandidate) && !fs.statSync(publicCandidate).isDirectory()) {
-    const realPublic = fs.realpathSync(publicCandidate);
-    const realPublicAudio = fs.realpathSync(publicAudioDir);
-    if (realPublic.startsWith(`${realPublicAudio}${path.sep}`)) {
-      return realPublic;
+  for (const ext of audioExtensions) {
+    const publicCandidate = path.resolve(publicAudioDir, `${baseNameWithoutExt}${ext}`);
+    if (fs.existsSync(publicCandidate) && !fs.statSync(publicCandidate).isDirectory()) {
+      return fs.realpathSync(publicCandidate);
     }
   }
 

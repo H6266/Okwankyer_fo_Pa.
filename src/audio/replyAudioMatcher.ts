@@ -1,4 +1,4 @@
-import { AUDIO_RECORDINGS, AudioRecording, normalizeRecordingLanguage } from "./recordingRegistry";
+import { AUDIO_RECORDINGS, AudioRecording, normalizeRecordingLanguage, getPromptManifestEntry } from "./recordingRegistry";
 import { TWI_SEQUENTIAL_FLOW_STEPS, FlowStepDefinition } from "./twiSequentialAudioFlow";
 
 function getNodeModules() {
@@ -266,8 +266,8 @@ export function matchReplyToAudio(
     }
   }
 
-  // 2. Check full AUDIO_RECORDINGS library
-  const catalogCandidates = AUDIO_RECORDINGS.filter((r) => {
+  // 2. Check full AUDIO_RECORDINGS library (with fallback to Twi recordings for English requests)
+  let catalogCandidates = AUDIO_RECORDINGS.filter((r) => {
     if (wantedLanguage && r.language !== wantedLanguage) return false;
     return Boolean(
       r.spokenText &&
@@ -277,9 +277,29 @@ export function matchReplyToAudio(
     );
   });
 
+  if (catalogCandidates.length === 0 && wantedLanguage === "en") {
+    catalogCandidates = AUDIO_RECORDINGS.filter((r) =>
+      r.language === "twi" &&
+      Boolean(r.spokenText && r.url && r.recordingRole === "fixed")
+    );
+  }
+
   for (const recording of catalogCandidates) {
     if (!recording.spokenText || !recording.url) continue;
-    const { confidence, reason } = calculateMatchConfidence(text, recording.spokenText, []);
+    let { confidence, reason } = calculateMatchConfidence(text, recording.spokenText, []);
+
+    // Also check if prompt manifest has an English script matching the text
+    if (confidence < minConfidence && recording.promptId) {
+      const manifestEntry = getPromptManifestEntry(recording.promptId);
+      if (manifestEntry?.english) {
+        const engMatch = calculateMatchConfidence(text, manifestEntry.english, []);
+        if (engMatch.confidence > confidence) {
+          confidence = engMatch.confidence;
+          reason = `manifest_english_crossmatch:${manifestEntry.id}`;
+        }
+      }
+    }
+
     if (confidence > bestResult.confidence) {
       const diskPath = resolveDiskPath(recording.url);
       bestResult = {
