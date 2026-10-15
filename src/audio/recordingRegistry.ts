@@ -516,40 +516,13 @@ export function getRecordingByPromptId(
   promptId: string,
   language: "en" | "twi" = "twi"
 ): AudioRecording | null {
-  const normId = promptId.toUpperCase().trim();
-  const prompt = promptManifestLookup.get(normId);
-
-  // If prompt is in OP01-OP94 range, return the loud, broadcast-normalized canonical MP3
-  if (/^OP\d{2}$/.test(normId)) {
-    const existing = AUDIO_RECORDINGS.find(
-      (r) => r.promptId === normId && (r.language === language || language === "twi")
-    );
-    const spokenText =
-      (language === "en" ? prompt?.english : prompt?.twi) || existing?.spokenText || null;
-    return {
-      id: `canonical:${normId}`,
-      promptId: normId,
-      state: prompt?.state || existing?.state || normId,
-      category: prompt?.category || existing?.category || "Canonical",
-      context: prompt ? `${prompt.category}:${prompt.state}` : `Canonical:${normId}`,
-      language,
-      title: prompt?.state ? prompt.state.replaceAll("_", " ") : normId,
-      spokenText,
-      relativePath: `canonical/${normId}.mp3`,
-      assetRoot: "public",
-      url: `/audio/canonical/${normId}.mp3`,
-      mimeType: "audio/mpeg",
-      isAlternate: false,
-      recordingRole: "fixed",
-      mappingStatus: "VERIFIED",
-    };
-  }
-
-  const matches = AUDIO_RECORDINGS.filter(
-    (recording) =>
-      recording.promptId === normId &&
-      recording.language === language &&
-      recording.url
+  const prompt = promptManifestLookup.get(promptId);
+  if (prompt?.type?.toUpperCase() === "DYNAMIC") return null;
+  const matches = AUDIO_RECORDINGS.filter((recording) =>
+    recording.promptId === promptId &&
+    recording.language === language &&
+    recording.url &&
+    recording.mappingStatus === "VERIFIED"
   );
   if (matches.length > 0) return matches[0];
   return null;

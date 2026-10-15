@@ -94,22 +94,20 @@ export function resolvePrompt(key: string, lang: SupportedLanguage = "en"): stri
   const language = normalizeRecordingLanguage(lang);
   if (!language) return null;
 
-  const promptId = key.match(/^OP\d{2}$/i)?.[0].toUpperCase() || PROMPT_KEY_TO_RECORDING_ID[key];
-  if (promptId && /^OP\d{2}$/.test(promptId)) {
-    if (promptId === "OP01" && language === "en") {
-      return "/audio/welcome_en.mp3";
-    }
-    return `/audio/canonical/${promptId}.mp3`;
+  // Strict Invariant: Dynamic prompts (OP20, OP21, OP29, OP52, OP70) resolve strictly to approved TTS
+  if (isDynamicPrompt(key)) {
+    return `/api/audio/prompt-tts/${language}/${encodeURIComponent(key)}`;
   }
 
-  // Direct recording lookup by prompt key
+  // 1. Direct recording lookup by prompt key (respects language variants like Twi vs English)
   const recordingUrl = getRecordingByPromptKey(key, language)?.url;
-  if (recordingUrl) {
-    return recordingUrl.replace(/\.(m4a|aac)$/i, ".mp3");
-  }
+  if (recordingUrl) return recordingUrl;
 
-  // Canonical fallback
-  return language === "en" ? "/audio/welcome_en.mp3" : "/audio/canonical/OP01.mp3";
+  // Text fallback if no studio recording exists for requested language
+  return resolvePromptText(key, lang)
+    ? `/api/audio/prompt-tts/${lang}/${encodeURIComponent(key)}`
+    : null;
+
 }
 
 export function resolvePromptText(
@@ -154,29 +152,29 @@ export function resolveSimulatorAudioUrl(
   if (!language) return null;
   try {
     const pathname = new URL(audioUrl, "http://localhost").pathname;
-
-    const opMatch = pathname.match(/\b(OP\d{2})\b/i);
-    if (opMatch) {
-      const opId = opMatch[1].toUpperCase();
-      if (opId === "OP01" && language === "en") {
-        return "/audio/welcome_en.mp3";
-      }
-      return `/audio/canonical/${opId}.mp3`;
+    const ttsMatch = pathname.match(/^\/(?:api\/)?audio\/prompt-tts\/(en|twi)\//);
+    if (ttsMatch) {
+      if (ttsMatch[1] !== language) return null;
+      return pathname;
     }
 
     // Cross-language prevention: reject Twi assets during English sessions and vice-versa
     if (language === "en" && (pathname.includes("/Twi/") || /\b(twi)\b/i.test(pathname))) {
-      return "/audio/welcome_en.mp3";
+      return null;
+    }
+    if (language === "twi" && (pathname.includes("/English/") || /\b(english)\b/i.test(pathname))) {
+      return null;
     }
 
     const recording = getRecordingByUrl(pathname);
     if (recording) {
-      if (recording.promptId && /^OP\d{2}$/.test(recording.promptId)) {
-        return `/audio/canonical/${recording.promptId}.mp3`;
-      }
+      if (recording.language !== language && !pathname.toLowerCase().includes("welcome_prompt")) return null;
       return recording.url ? recording.url.replace(/\.(m4a|aac)$/i, ".mp3") : null;
     }
 
+    if (pathname.startsWith("/audio/") || pathname.startsWith("/Audio_files/")) {
+      return pathname.replace(/\.(m4a|aac)$/i, ".mp3");
+    }
     return pathname.replace(/\.(m4a|aac)$/i, ".mp3");
   } catch {
     return (audioUrl || "").replace(/\.(m4a|aac)$/i, ".mp3");

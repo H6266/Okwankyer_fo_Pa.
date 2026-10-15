@@ -1716,11 +1716,11 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
     </GetDigits>
     <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="6" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=${encodeURIComponent(step)}&amp;sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}&amp;retry=${retry + 1}"/>`;
         return xmlResponse(res, promptXml, {
-          type: "clarify",
+          type: "clarification",
           reason: "Adaptive acoustic clarification: asking confirmation of noisy utterance before state commit",
           replyText: confirmationText,
           replyKey: "OP70",
-          action: "repeat",
+          action: "clarify",
         });
       } else {
         // Empty or silent audio on first attempt: repeat prompt gently

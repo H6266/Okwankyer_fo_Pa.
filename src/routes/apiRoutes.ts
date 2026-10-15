@@ -23,7 +23,6 @@ import { modelRouter } from "../ai_system/providers/modelRouter";
 import { ttsRouter as speechSynthesisRouter } from "../ai_system/speech/tts/ttsRouter";
 import { resolvePrompt, resolvePromptText } from "../modules/ttsService";
 import { isDynamicPrompt, resolvePromptSpokenText } from "../audio/canonicalRegistry";
-import { aiBootstrap } from "../ai_system/core/aiBootstrap";
 
 export const apiRouter = Router();
 
