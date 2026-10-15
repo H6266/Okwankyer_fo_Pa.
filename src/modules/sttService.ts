@@ -39,85 +39,12 @@ export interface SpeechToTextProvider {
   transcribe(audioPayload: Buffer | string, mimeType?: string, step?: string): Promise<SttResult>;
 }
 
-export function isVoiceCaptureBlockedForStep(step?: string): boolean {
-  return (step || "").toLowerCase() === "pin-authorization";
-}
+export {
+  isVoiceCaptureBlockedForStep,
+  shouldDiscardSensitiveSpeech,
+  isSpokenPinPattern,
+} from "../domain/pinSafety";
 
-export function shouldDiscardSensitiveSpeech(text: string, step?: string): boolean {
-  return isVoiceCaptureBlockedForStep(step) ||
-    isSpokenPinPattern(text, step) ||
-    isSpokenPinPattern(formatSpokenNumbersAsDigits(text), step);
-}
-
-/**
- * Step-Aware PIN Safety Gate (Item 3.1)
- * Decides whether an utterance is a potential leaked PIN based on the dialogue step.
- */
-export function isSpokenPinPattern(text: string, step?: string): boolean {
-  if (!text) return false;
-
-  const lower = text.toLowerCase().trim();
-  const normalizedStep = (step || "").toLowerCase();
-
-  if (/\b(pin|momo\s*pin|password|secret|passcode|kokoam|ahintasɛm)\b/i.test(lower)) {
-    return true;
-  }
-
-  if (/(secret|password|pin)/i.test(lower) && /(one|two|three|four|five|six|seven|eight|nine|zero)/i.test(lower)) {
-    return true;
-  }
-
-  const digitsOnly = text.replace(/[^0-9]/g, "");
-  const hasAmountLanguage =
-    /(cedis?|ghs|pesewas?|ghana|amount|send\s*\d+|transfer|sika|mane|money)/i.test(lower);
-
-  const hasPhoneLanguage =
-    /(phone|number|recipient|contact|mobile|nɔmba|fon)/i.test(lower);
-
-  const isMenu = normalizedStep.includes("menu") ||
-    normalizedStep.includes("selection") ||
-    normalizedStep.includes("choice") ||
-    normalizedStep.includes("service");
-
-  const isAmountStep = normalizedStep.includes("amount") ||
-    normalizedStep.includes("enter-amount") ||
-    normalizedStep.includes("cedi");
-
-  const isRecipientStep = normalizedStep.includes("recipient") ||
-    normalizedStep.includes("phone") ||
-    normalizedStep.includes("enter-recipient");
-
-  if (isAmountStep) {
-    if (digitsOnly.length === 0) return false;
-    if (digitsOnly.length <= 4) return false; // 1000, 2500, 5000 are valid amounts
-    if (digitsOnly.length <= 6 && !hasAmountLanguage) {
-      return true; // probable PIN, not an amount
-    }
-    return false;
-  }
-
-  if (isRecipientStep) {
-    if (digitsOnly.length >= 4 && digitsOnly.length <= 6 && !hasPhoneLanguage) {
-      return true;
-    }
-    return false;
-  }
-
-  if (isMenu) {
-    if (digitsOnly.length >= 4 && digitsOnly.length <= 6 && !hasAmountLanguage && !hasPhoneLanguage) {
-      return true;
-    }
-    return false;
-  }
-
-  // Default: only reject strongly suspicious 4-6 digit PIN-like utterances.
-  if (digitsOnly.length >= 4 && digitsOnly.length <= 6) {
-    if (hasAmountLanguage || hasPhoneLanguage) return false;
-    return true;
-  }
-
-  return false;
-}
 
 /**
  * Downloads a remote telephony audio recording with strict timeout and one retry.

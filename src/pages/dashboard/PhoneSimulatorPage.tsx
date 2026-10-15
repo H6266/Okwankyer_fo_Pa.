@@ -44,8 +44,7 @@ import {
   PhoneticCorrection,
 } from "../../ai_system/speech/asr/ghanaianPhoneticMatcher";
 import { normalizeGhanaPhoneNumber } from "../../domain/validation";
-import { numberDecoder } from "../../ai_system/speech/asr/numberDecoder";
-import { shouldDiscardSensitiveSpeech, isVoiceCaptureBlockedForStep } from "../../modules/sttService";
+import { shouldDiscardSensitiveSpeech, isVoiceCaptureBlockedForStep } from "../../domain/pinSafety";
 
 // ── Types ─────────────────────────────────────────────────────────────
 interface TerminalLog {
