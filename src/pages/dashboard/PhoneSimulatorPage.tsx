@@ -532,8 +532,8 @@ export const PhoneSimulatorPage: React.FC = () => {
       setActiveStepName(stepName);
       continuousAudioEngine.setContext(stepName, responseLanguage);
 
-      // Follow <Redirect> immediately
-      if (parsed.redirectUrl) {
+      // Redirect immediately only when the response contains no prompt to play.
+      if (parsed.redirectUrl && !requestedPlayUrl && !parsed.sayText && !parsed.playUrls?.length) {
         addLog("state", `Redirecting to ${parsed.redirectUrl}`);
         return dispatchVoiceWebhook(parsed.redirectUrl);
       }
@@ -636,44 +636,59 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       // Play audio automatically (studio audio or neural synthesis)
       audioPlaybackController.unlockAudio();
+      let playbackCompletion: Promise<unknown> = Promise.resolve();
       const resolvedSequence = (parsed.playUrls && parsed.playUrls.length > 1)
         ? (parsed.playUrls.map(u => resolvePlayableSimulatorAudioUrl(u, responseLanguage)).filter(Boolean) as string[])
         : [];
 
       if (resolvedSequence.length > 1) {
         addLog("audio", `🔊 Auto-playing sequence: ${resolvedSequence.join(" -> ")}`);
-        audioPlaybackController.playSequence(resolvedSequence).catch((err) => {
+        playbackCompletion = audioPlaybackController.playSequence(resolvedSequence).catch((err) => {
           console.warn("[PhoneSimulator] Sequence auto-play failed; falling back to TTS:", err);
           if (promptText && promptText.trim()) {
-            audioPlaybackController.speakText(promptText).catch(() => {
+            return audioPlaybackController.speakText(promptText).catch(() => {
               audioPlaybackController.playToneIndicator().catch(() => {});
             });
           } else {
-            audioPlaybackController.playToneIndicator().catch(() => {});
+            return audioPlaybackController.playToneIndicator();
           }
         });
       } else if (playbackUrl) {
         addLog("audio", `🔊 Auto-playing prompt: ${playbackUrl}`);
-        audioPlaybackController.play(playbackUrl, promptText).catch((err) => {
+        playbackCompletion = audioPlaybackController.play(playbackUrl, promptText).catch((err) => {
           console.warn("[PhoneSimulator] Auto-play prompt failed; falling back to TTS:", err);
           if (promptText && promptText.trim()) {
             addLog("audio", `🗣️ Synthesizing prompt via TTS: "${promptText}"`);
-            audioPlaybackController.speakText(promptText).catch(() => {
+            return audioPlaybackController.speakText(promptText).catch(() => {
               audioPlaybackController.playToneIndicator().catch(() => {});
             });
           } else {
-            audioPlaybackController.playToneIndicator().catch(() => {});
+            return audioPlaybackController.playToneIndicator();
           }
         });
       } else if (promptText && promptText.trim()) {
         addLog("audio", `🗣️ Speaking via TTS: "${promptText}"`);
-        audioPlaybackController.speakText(promptText).catch((err) => {
+        playbackCompletion = audioPlaybackController.speakText(promptText).catch((err) => {
           console.warn("[PhoneSimulator] TTS synthesis failed; playing guidance tone indicator:", err);
-          audioPlaybackController.playToneIndicator().catch(() => {});
+          return audioPlaybackController.playToneIndicator();
         });
       } else {
         addLog("audio", `🔔 Prompt recording unavailable; playing guidance tone indicator.`);
-        audioPlaybackController.playToneIndicator().catch(() => {});
+        playbackCompletion = audioPlaybackController.playToneIndicator();
+      }
+
+      if (parsed.redirectUrl) {
+        let redirectTimer: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([
+          playbackCompletion,
+          new Promise<void>((resolve) => {
+            redirectTimer = setTimeout(resolve, 10000);
+          }),
+        ]);
+        if (redirectTimer) clearTimeout(redirectTimer);
+        if (audioPlaybackController.isSpeaking()) audioPlaybackController.stop();
+        addLog("state", `Redirecting to ${parsed.redirectUrl}`);
+        return dispatchVoiceWebhook(parsed.redirectUrl);
       }
     },
     [addLog, addChatTurn, language]
