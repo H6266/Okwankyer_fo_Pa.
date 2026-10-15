@@ -306,7 +306,10 @@ export const PhoneSimulatorPage: React.FC = () => {
     if (stepName === "action-select" || stepName === "action-choice") {
       return `/api/simulator/action-choice?sessionId=${sessId}`;
     }
-    if (stepName.includes("recipient")) {
+    if (stepName === "recipient-verify-choice" || stepName === "verify-recipient") {
+      return `/api/simulator/recipient-verify-choice?sessionId=${sessId}`;
+    }
+    if (stepName.includes("recipient") || stepName.includes("phone")) {
       return `/api/simulator/verify-recipient?sessionId=${sessId}`;
     }
     if (stepName.includes("amount")) {
@@ -315,7 +318,8 @@ export const PhoneSimulatorPage: React.FC = () => {
     if (stepName.includes("confirm")) {
       return `/api/simulator/safe-confirmation?sessionId=${sessId}`;
     }
-    return `/api/simulator/voice-menu?sessionId=${sessId}`;
+    // NEVER fall back to voice-menu / language selection when an active call is running!
+    return callActiveRef.current ? `/api/simulator/enter-recipient?sessionId=${sessId}` : `/api/simulator/voice-menu?sessionId=${sessId}`;
   }, []);
 
   // ── Logging Helpers ──────────────────────────────────────────────────
@@ -1266,6 +1270,18 @@ export const PhoneSimulatorPage: React.FC = () => {
       }
 
 
+      if (curStep === "verify-recipient" || curStep === "recipient-verify-choice") {
+        const isAffirmative = /\b(yes|confirm|proceed|okay|sure|aane|pene so|ampa|that's him|thats him|correct|send it|kɔ so|yie|1|baako)\b/i.test(effectiveClean) || matchedDtmf === "1";
+        const isNegative = /\b(no|cancel|wrong|dabi|stop|sesa|change|reject|2|mmienu)\b/i.test(effectiveClean) || matchedDtmf === "2";
+        if (isAffirmative) {
+          addLog("caller", `Spoken recipient confirmation: "${effectiveClean}". Advancing to amount.`);
+          return dispatchVoiceWebhook(`/api/simulator/recipient-verify-choice?sessionId=${curSession}&lang=${curLang}`, { dtmfDigits: "1" });
+        } else if (isNegative) {
+          addLog("caller", `Spoken recipient rejection: "${effectiveClean}". Returning to recipient entry.`);
+          return dispatchVoiceWebhook(`/api/simulator/recipient-verify-choice?sessionId=${curSession}&lang=${curLang}`, { dtmfDigits: "2" });
+        }
+      }
+
       if (curStep.includes("confirm") || curStep === "safe-confirmation") {
         const isAffirmative = /\b(yes|confirm|proceed|okay|sure|aane|pene so|ampa|that's him|thats him|correct|send it|kɔ so|yie|1|baako)\b/i.test(effectiveClean) || matchedDtmf === "1";
         const isNegative = /\b(no|cancel|wrong|dabi|stop|sesa|change|reject|2|mmienu)\b/i.test(effectiveClean) || matchedDtmf === "2";
@@ -1412,6 +1428,22 @@ export const PhoneSimulatorPage: React.FC = () => {
               `/api/simulator/verify-recipient?sessionId=${curSession}&lang=${curLang}`,
               { dtmfDigits: normalizedPhone + "#", ...(amount !== undefined ? { amount: String(amount) } : {}) }
             );
+          } else {
+            addLog("audio", "🔊 Invalid recipient phone format. Playing authentic invalid recipient audio.");
+            const invalidAudio = curLang === "twi"
+              ? "/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Invalid%20recipient%201.m4a"
+              : (resolvePrompt("invalid_recipient", curLang) || "/api/audio/prompt-tts/en/invalid_recipient");
+            const rePromptText = curLang === "twi"
+              ? "Fon nɔmba no nyɛ pɛpɛɛpɛ. Yɛsrɛ wo san bɔ obi a woremane no sika no nɔmba a ɛyɛ du na fa hash ka ho."
+              : "The recipient phone number is invalid. Please re-enter the ten-digit recipient phone number followed by hash.";
+            setCurrentPrompt(rePromptText);
+            currentPromptRef.current = rePromptText;
+            activeStepNameRef.current = "enter-recipient";
+            setActiveStepName("enter-recipient");
+            activeCallbackUrlRef.current = `/api/simulator/verify-recipient?sessionId=${curSession}&lang=${curLang}`;
+            setActiveCallbackUrl(`/api/simulator/verify-recipient?sessionId=${curSession}&lang=${curLang}`);
+            await audioPlaybackController.play(invalidAudio, rePromptText);
+            return;
           }
         }
 
@@ -1766,13 +1798,11 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       // Rule 3: Do not auto-advance after the 10th digit alone; wait strictly for '#' finishOnKey!
 
-      // Single-digit expectation (only when NOT accumulating a 10-digit phone number)
+      // Single-digit expectation (only when NOT accumulating a 10-digit phone number or amount)
       const isAccumulatingInput =
-        nextBuf.startsWith("0") ||
-        nextBuf.startsWith("233") ||
-        activeStepNameRef.current.includes("recipient") ||
-        activeStepNameRef.current.includes("phone") ||
-        activeStepNameRef.current.includes("amount");
+        activeStepNameRef.current === "enter-recipient" ||
+        activeStepNameRef.current === "enter-amount" ||
+        ((nextBuf.startsWith("0") || nextBuf.startsWith("233")) && activeNumDigits > 1);
 
       if (activeNumDigits === 1 && !isAccumulatingInput) {
         setDigitsBuffer("");

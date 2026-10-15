@@ -96,13 +96,7 @@ export function resolvePrompt(key: string, lang: SupportedLanguage = "en"): stri
   const recordingUrl = getRecordingByPromptKey(key, language)?.url;
   if (recordingUrl) return recordingUrl;
 
-  // Fallback: If English recording is pending upload, use the ready Twi audio asset
-  if (language !== "twi") {
-    const twiRecordingUrl = getRecordingByPromptKey(key, "twi")?.url;
-    if (twiRecordingUrl) return twiRecordingUrl;
-  }
-
-  // Text fallback if no studio recording exists at all
+  // Text fallback if no studio recording exists for requested language
   return resolvePromptText(key, lang)
     ? `/api/audio/prompt-tts/${lang}/${encodeURIComponent(key)}`
     : null;
