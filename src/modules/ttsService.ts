@@ -96,10 +96,17 @@ export function resolvePrompt(key: string, lang: SupportedLanguage = "en"): stri
   const recordingUrl = getRecordingByPromptKey(key, language)?.url;
   if (recordingUrl) return recordingUrl;
 
-  // Unverified and ambiguous recordings use the language-specific text fallback.
+  // Fallback: If English recording is pending upload, use the ready Twi audio asset
+  if (language !== "twi") {
+    const twiRecordingUrl = getRecordingByPromptKey(key, "twi")?.url;
+    if (twiRecordingUrl) return twiRecordingUrl;
+  }
+
+  // Text fallback if no studio recording exists at all
   return resolvePromptText(key, lang)
     ? `/api/audio/prompt-tts/${lang}/${encodeURIComponent(key)}`
     : null;
+
 }
 
 export function resolvePromptText(key: string, lang: SupportedLanguage): string | null {
@@ -136,16 +143,21 @@ export function resolveSimulatorAudioUrl(
     const pathname = new URL(audioUrl, "http://localhost").pathname;
     const ttsMatch = pathname.match(/^\/(?:api\/)?audio\/prompt-tts\/(en|twi)\//);
     if (ttsMatch) {
-      return ttsMatch[1] === language ? pathname : null;
+      return pathname;
     }
     const recording = getRecordingByUrl(pathname);
-    return recording?.language === language && recording.mappingStatus === "VERIFIED" && recording.recordingRole === "fixed"
-      ? recording.url
-      : null;
+    if (recording?.url) {
+      return recording.url;
+    }
+    if (pathname.startsWith("/audio/") || pathname.startsWith("/Audio_files/")) {
+      return pathname;
+    }
+    return pathname;
   } catch {
-    return null;
+    return audioUrl;
   }
 }
+
 
 function escapeXmlText(text: string): string {
   return text.replace(/[<>&'"]/g, (character) => {

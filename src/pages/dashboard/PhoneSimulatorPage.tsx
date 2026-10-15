@@ -156,7 +156,11 @@ function resolvePlayableSimulatorAudioUrl(
   audioUrl: string | null | undefined,
   language: "en" | "twi"
 ): string | null {
-  const suppliedUrl = resolveSimulatorAudioUrl(audioUrl, language);
+  if (!audioUrl) return null;
+  const suppliedUrl =
+    resolveSimulatorAudioUrl(audioUrl, language) ||
+    resolveSimulatorAudioUrl(audioUrl, "twi") ||
+    audioUrl;
   if (!suppliedUrl) return null;
 
   if (suppliedUrl.endsWith(".m4a") && typeof document !== "undefined") {
@@ -175,6 +179,7 @@ function resolvePlayableSimulatorAudioUrl(
   return suppliedUrl;
 }
 
+
 export const PhoneSimulatorPage: React.FC = () => {
   // ── Call Session State ────────────────────────────────────────────────
   const [callActive, setCallActive] = useState<boolean>(false);
@@ -182,8 +187,8 @@ export const PhoneSimulatorPage: React.FC = () => {
   const [sessionId, setSessionId] = useState<string>("");
   const [interactionMode, setInteractionMode] = useState<string>("UNSELECTED");
   const [conversationState, setConversationState] = useState<string>("INITIATED");
-  const [callerNumber] = useState<string>("0543546010");
-  const [language, setLanguage] = useState<"en" | "twi" | null>(null);
+  const [language, setLanguage] = useState<"en" | "twi" | null>("twi");
+  const [flowMode, setFlowMode] = useState<"PROMPT" | "CONVERSATIONAL">("PROMPT");
   const [currentPrompt, setCurrentPrompt] = useState<string>("Lift handset or press Call to begin.");
   const [activePlayUrl, setActivePlayUrl] = useState<string | null>(null);
   const [digitsBuffer, setDigitsBuffer] = useState<string>("");
@@ -266,7 +271,8 @@ export const PhoneSimulatorPage: React.FC = () => {
   const sessionIdRef = useRef<string>("");
   const activeCallbackUrlRef = useRef<string | null>(null);
   const activeStepNameRef = useRef<string>("idle");
-  const languageRef = useRef<"en" | "twi" | null>(null);
+  const languageRef = useRef<"en" | "twi" | null>("twi");
+  const flowModeRef = useRef<"PROMPT" | "CONVERSATIONAL">("PROMPT");
   const currentPromptRef = useRef<string>("");
   const isMicMutedRef = useRef<boolean>(false);
   const zeroPinOverlayRef = useRef<boolean>(false);
@@ -278,6 +284,7 @@ export const PhoneSimulatorPage: React.FC = () => {
   useEffect(() => { activeCallbackUrlRef.current = activeCallbackUrl; }, [activeCallbackUrl]);
   useEffect(() => { activeStepNameRef.current = activeStepName; }, [activeStepName]);
   useEffect(() => { languageRef.current = language; }, [language]);
+  useEffect(() => { flowModeRef.current = flowMode; }, [flowMode]);
   useEffect(() => { currentPromptRef.current = currentPrompt; }, [currentPrompt]);
   useEffect(() => { isMicMutedRef.current = isMicMuted; }, [isMicMuted]);
   useEffect(() => { zeroPinOverlayRef.current = zeroPinOverlay; }, [zeroPinOverlay]);
@@ -505,7 +512,7 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       // Extract step name from URL
       let stepName = "voice-menu";
-      let responseLanguage: "en" | "twi" = language || "en";
+      let responseLanguage: "en" | "twi" = language || "twi";
       try {
         const u = new URL(effectiveUrl, window.location.origin);
         stepName = u.pathname.replace(/^\//, "").replace(/^api\/simulator\//, "") || "voice-menu";
@@ -521,6 +528,17 @@ export const PhoneSimulatorPage: React.FC = () => {
         const match = effectiveUrl.match(/\/([a-zA-Z0-9_-]+)(?:\?|$)/);
         if (match) stepName = match[1];
       }
+
+      // Configure GetDigits expectations
+      if (parsed.getDigits) {
+        if (parsed.getDigits.callbackUrl) {
+          activeCallbackUrlRef.current = parsed.getDigits.callbackUrl;
+          setActiveCallbackUrl(parsed.getDigits.callbackUrl);
+        }
+        setActiveNumDigits(parsed.getDigits.numDigits || 1);
+        setActiveFinishOnKey(parsed.getDigits.finishOnKey || "#");
+      }
+
       let playbackUrl = resolvePlayableSimulatorAudioUrl(requestedPlayUrl, responseLanguage);
       setRawVoiceXml(
         xmlText.replace(
@@ -531,12 +549,6 @@ export const PhoneSimulatorPage: React.FC = () => {
       activeStepNameRef.current = stepName;
       setActiveStepName(stepName);
       continuousAudioEngine.setContext(stepName, responseLanguage);
-
-      // Redirect immediately only when the response contains no prompt to play.
-      if (parsed.redirectUrl && !requestedPlayUrl && !parsed.sayText && !parsed.playUrls?.length) {
-        addLog("state", `Redirecting to ${parsed.redirectUrl}`);
-        return dispatchVoiceWebhook(parsed.redirectUrl);
-      }
 
       // Handle <Reject/>
       if (parsed.isReject) {
@@ -576,16 +588,6 @@ export const PhoneSimulatorPage: React.FC = () => {
         setActiveCallbackUrl(null);
         activeCallbackUrlRef.current = null;
         return;
-      }
-
-      // Configure GetDigits expectations
-      if (parsed.getDigits) {
-        if (parsed.getDigits.callbackUrl) {
-          activeCallbackUrlRef.current = parsed.getDigits.callbackUrl;
-          setActiveCallbackUrl(parsed.getDigits.callbackUrl);
-        }
-        setActiveNumDigits(parsed.getDigits.numDigits || 1);
-        setActiveFinishOnKey(parsed.getDigits.finishOnKey || "#");
       }
 
       // Determine display prompt text
@@ -636,59 +638,62 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       // Play audio automatically (studio audio or neural synthesis)
       audioPlaybackController.unlockAudio();
-      let playbackCompletion: Promise<unknown> = Promise.resolve();
       const resolvedSequence = (parsed.playUrls && parsed.playUrls.length > 1)
         ? (parsed.playUrls.map(u => resolvePlayableSimulatorAudioUrl(u, responseLanguage)).filter(Boolean) as string[])
         : [];
 
+      // If response contains a Redirect, play the prompt FIRST and then follow the redirect!
+      if (parsed.redirectUrl) {
+        addLog("state", `Auto-playing prompt before following redirect to ${parsed.redirectUrl}...`);
+        try {
+          if (resolvedSequence.length > 1) {
+            await audioPlaybackController.playSequence(resolvedSequence);
+          } else if (playbackUrl) {
+            await audioPlaybackController.play(playbackUrl, promptText);
+          } else if (promptText && promptText.trim()) {
+            await audioPlaybackController.speakText(promptText);
+          }
+        } catch (playErr) {
+          console.warn("[PhoneSimulator] Audio playback before redirect notice:", playErr);
+        }
+        addLog("state", `Redirecting to ${parsed.redirectUrl}`);
+        return dispatchVoiceWebhook(parsed.redirectUrl);
+      }
+
       if (resolvedSequence.length > 1) {
         addLog("audio", `🔊 Auto-playing sequence: ${resolvedSequence.join(" -> ")}`);
-        playbackCompletion = audioPlaybackController.playSequence(resolvedSequence).catch((err) => {
+        audioPlaybackController.playSequence(resolvedSequence).catch((err) => {
           console.warn("[PhoneSimulator] Sequence auto-play failed; falling back to TTS:", err);
           if (promptText && promptText.trim()) {
-            return audioPlaybackController.speakText(promptText).catch(() => {
+            audioPlaybackController.speakText(promptText).catch(() => {
               audioPlaybackController.playToneIndicator().catch(() => {});
             });
           } else {
-            return audioPlaybackController.playToneIndicator();
+            audioPlaybackController.playToneIndicator().catch(() => {});
           }
         });
       } else if (playbackUrl) {
         addLog("audio", `🔊 Auto-playing prompt: ${playbackUrl}`);
-        playbackCompletion = audioPlaybackController.play(playbackUrl, promptText).catch((err) => {
+        audioPlaybackController.play(playbackUrl, promptText).catch((err) => {
           console.warn("[PhoneSimulator] Auto-play prompt failed; falling back to TTS:", err);
           if (promptText && promptText.trim()) {
             addLog("audio", `🗣️ Synthesizing prompt via TTS: "${promptText}"`);
-            return audioPlaybackController.speakText(promptText).catch(() => {
+            audioPlaybackController.speakText(promptText).catch(() => {
               audioPlaybackController.playToneIndicator().catch(() => {});
             });
           } else {
-            return audioPlaybackController.playToneIndicator();
+            audioPlaybackController.playToneIndicator().catch(() => {});
           }
         });
       } else if (promptText && promptText.trim()) {
         addLog("audio", `🗣️ Speaking via TTS: "${promptText}"`);
-        playbackCompletion = audioPlaybackController.speakText(promptText).catch((err) => {
+        audioPlaybackController.speakText(promptText).catch((err) => {
           console.warn("[PhoneSimulator] TTS synthesis failed; playing guidance tone indicator:", err);
-          return audioPlaybackController.playToneIndicator();
+          audioPlaybackController.playToneIndicator().catch(() => {});
         });
       } else {
         addLog("audio", `🔔 Prompt recording unavailable; playing guidance tone indicator.`);
-        playbackCompletion = audioPlaybackController.playToneIndicator();
-      }
-
-      if (parsed.redirectUrl) {
-        let redirectTimer: ReturnType<typeof setTimeout> | undefined;
-        await Promise.race([
-          playbackCompletion,
-          new Promise<void>((resolve) => {
-            redirectTimer = setTimeout(resolve, 10000);
-          }),
-        ]);
-        if (redirectTimer) clearTimeout(redirectTimer);
-        if (audioPlaybackController.isSpeaking()) audioPlaybackController.stop();
-        addLog("state", `Redirecting to ${parsed.redirectUrl}`);
-        return dispatchVoiceWebhook(parsed.redirectUrl);
+        audioPlaybackController.playToneIndicator().catch(() => {});
       }
     },
     [addLog, addChatTurn, language]
@@ -809,13 +814,14 @@ export const PhoneSimulatorPage: React.FC = () => {
     setConversationState("INITIATED");
     setCallActive(true);
     setCallStatus("Connected");
-    setLanguage(null);
+    setLanguage("twi");
+    languageRef.current = "twi";
     setDigitsBuffer("");
     setZeroPinOverlay(false);
     setRecentStreamingWords([]);
 
-    addLog("system", `Call initiated. Session ID: ${newSession}`);
-    addLog("state", "Connecting to phone simulator (/api/simulator/voice-menu)...");
+    addLog("system", `Call initiated. Session ID: ${newSession} (🇬🇭 Akan Twi Audio Ready)`);
+    addLog("state", "Connecting to phone simulator (/api/simulator/voice-menu?lang=twi)...");
 
     // Keep microphone OFF during initial welcome prompt playback; it will automatically turn ON when the prompt finishes playing
     setIsMicMuted(true);
@@ -831,7 +837,7 @@ export const PhoneSimulatorPage: React.FC = () => {
     setActiveNumDigits(1);
     setActiveFinishOnKey("#");
 
-    await dispatchVoiceWebhook("/api/simulator/voice-menu", { sessionId: newSession });
+    await dispatchVoiceWebhook("/api/simulator/voice-menu?lang=twi", { sessionId: newSession, lang: "twi" });
   }, [dispatchVoiceWebhook, addLog]);
 
   // ── End Call ──────────────────────────────────────────────────────────
@@ -1255,12 +1261,30 @@ export const PhoneSimulatorPage: React.FC = () => {
         stop: "0",
         exit: "0",
       };
-      // Only single-token menu shortcuts (e.g. "1", "2", "8", "9", "0") trigger immediate DTMF auto-dial.
-      // Full natural conversation sentences are routed directly to the AI Brain.
+      // In Prompt Mode, both single words ("one", "baako") and intent phrases ("send money", "mtn") map to DTMF menu keys.
+      // In Conversational Mode, freeform multi-sentence utterances route directly to the AI Brain for natural slot extraction.
+      const isPromptMode = flowModeRef.current === "PROMPT";
       const isSingleChoice = effectiveClean.split(/\s+/).length <= 2;
-      const matchedDtmf = isSingleChoice
+      let matchedDtmf = (isPromptMode || isSingleChoice)
         ? (navigationOptions[normalizedOption] || (stepGroup ? optionMap[stepGroup][normalizedOption] : undefined))
         : undefined;
+
+      if (isPromptMode && !matchedDtmf) {
+        if (/\b(send\s*money|transfer|mane\s*sika|mobile\s*money|momo)\b/i.test(effectiveClean)) {
+          if (stepGroup === "action" || stepGroup === "service") matchedDtmf = "1";
+        } else if (/\b(mtn)\b/i.test(effectiveClean)) {
+          matchedDtmf = "1";
+        } else if (/\b(telecel)\b/i.test(effectiveClean)) {
+          matchedDtmf = "2";
+        } else if (/\b(one|baako)\b/i.test(effectiveClean)) {
+          matchedDtmf = "1";
+        } else if (/\b(two|mmienu)\b/i.test(effectiveClean)) {
+          matchedDtmf = "2";
+        } else if (/\b(three|mmiɛnsa)\b/i.test(effectiveClean)) {
+          matchedDtmf = "3";
+        }
+      }
+
 
       if (curStep.includes("confirm") || curStep === "safe-confirmation") {
         const isAffirmative = /\b(yes|confirm|proceed|okay|sure|aane|pene so|ampa|that's him|thats him|correct|send it|kɔ so|yie|1|baako)\b/i.test(effectiveClean) || matchedDtmf === "1";
@@ -1906,12 +1930,44 @@ export const PhoneSimulatorPage: React.FC = () => {
             <span>{isAudioSpeaking ? "Audio Speaking" : "Audio Ready"}</span>
           </div>
 
-          <div className="bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 text-slate-300">
-            <span className="text-slate-500">Mode </span>
-            {interactionMode === "UNSELECTED" ? "Awaiting meaningful input" : interactionMode.replaceAll("_", " ")}
-            <span className="mx-1.5 text-slate-600">·</span>
-            <span className="text-slate-500">State </span>{conversationState}
+          <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+            <button
+              type="button"
+              onClick={() => {
+                setFlowMode("PROMPT");
+                addLog("system", "Switched flow to: Step-by-Step Prompt Mode (Voice & Keypad IVR menus)");
+              }}
+              className={`px-2.5 py-1 rounded-lg font-medium transition-all cursor-pointer ${
+                flowMode === "PROMPT"
+                  ? "bg-emerald-600 text-white shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+              title="Sequential IVR menus with authentic Akan Twi audio prompts, accepting spoken menu choices and DTMF keypad"
+            >
+              📱 Prompt Mode
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setFlowMode("CONVERSATIONAL");
+                addLog("system", "Switched flow to: Conversational Mode (AI Brain Natural Speech & Keypad)");
+              }}
+              className={`px-2.5 py-1 rounded-lg font-medium transition-all cursor-pointer ${
+                flowMode === "CONVERSATIONAL"
+                  ? "bg-teal-600 text-white shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+              title="Continuous natural speech with AI Brain slot extraction, plus keypad digit support"
+            >
+              🧠 Conversational Mode
+            </button>
           </div>
+
+          <div className="flex items-center gap-1.5 bg-emerald-950/60 px-3 py-1.5 rounded-xl border border-emerald-500/30 text-emerald-300">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span className="font-medium">🇬🇭 Twi Audio Ready (88 Prompts)</span>
+          </div>
+
 
           <button
             type="button"

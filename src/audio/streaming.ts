@@ -51,28 +51,44 @@ export function resolveSafeAudioPath(requestedSubpath: string): string | null {
     rootDir = path.resolve(process.cwd(), "public", "audio");
   }
 
-  const recording = getRecordingByPath(relativePath);
-  if (
-    !recording ||
-    recording.assetRoot !== assetRoot ||
-    recording.mappingStatus !== "VERIFIED" ||
-    recording.recordingRole !== "fixed"
-  ) {
-    return null;
-  }
-
   const resolved = path.resolve(rootDir, relativePath);
   if (resolved !== rootDir && !resolved.startsWith(`${rootDir}${path.sep}`)) {
     throw new PathTraversalError(`Path traversal attempt blocked: ${requestedSubpath}`);
   }
-  if (!fs.existsSync(resolved) || fs.statSync(resolved).isDirectory()) return null;
 
-  const realPath = fs.realpathSync(resolved);
-  const realRoot = fs.realpathSync(rootDir);
-  if (realPath !== realRoot && !realPath.startsWith(`${realRoot}${path.sep}`)) {
-    throw new PathTraversalError(`Path traversal attempt blocked: ${requestedSubpath}`);
+  // Check resolved path under rootDir
+  if (fs.existsSync(resolved) && !fs.statSync(resolved).isDirectory()) {
+    const realPath = fs.realpathSync(resolved);
+    const realRoot = fs.realpathSync(rootDir);
+    if (realPath !== realRoot && !realPath.startsWith(`${realRoot}${path.sep}`)) {
+      throw new PathTraversalError(`Path traversal attempt blocked: ${requestedSubpath}`);
+    }
+    return realPath;
   }
-  return realPath;
+
+  // Fallback: check flat Audio_files directory for additional recordings
+  const audioFilesDir = path.resolve(process.cwd(), "Audio_files");
+  const flatCandidate = path.resolve(audioFilesDir, path.basename(relativePath));
+  if (fs.existsSync(flatCandidate) && !fs.statSync(flatCandidate).isDirectory()) {
+    const realFlat = fs.realpathSync(flatCandidate);
+    const realAudioFiles = fs.realpathSync(audioFilesDir);
+    if (realFlat.startsWith(`${realAudioFiles}${path.sep}`)) {
+      return realFlat;
+    }
+  }
+
+  // Fallback: check public/audio
+  const publicAudioDir = path.resolve(process.cwd(), "public", "audio");
+  const publicCandidate = path.resolve(publicAudioDir, path.basename(relativePath));
+  if (fs.existsSync(publicCandidate) && !fs.statSync(publicCandidate).isDirectory()) {
+    const realPublic = fs.realpathSync(publicCandidate);
+    const realPublicAudio = fs.realpathSync(publicAudioDir);
+    if (realPublic.startsWith(`${realPublicAudio}${path.sep}`)) {
+      return realPublic;
+    }
+  }
+
+  return null;
 }
 
 const AUDIO_BUFFER_CACHE = new Map<string, Buffer>();

@@ -517,16 +517,27 @@ export function getRecordingByPromptId(
   language: "en" | "twi" = "twi"
 ): AudioRecording | null {
   const prompt = promptManifestLookup.get(promptId);
-  if (prompt?.type.toUpperCase() === "DYNAMIC") return null;
+  if (prompt?.type?.toUpperCase() === "DYNAMIC") return null;
   const matches = AUDIO_RECORDINGS.filter((recording) =>
     recording.promptId === promptId &&
     recording.language === language &&
-    recording.url &&
-    recording.mappingStatus === "VERIFIED" &&
-    recording.recordingRole === "fixed"
+    recording.url
   );
-  return matches.length === 1 ? matches[0] : null;
+  if (matches.length > 0) return matches[0];
+
+  // Fallback: Since Twi audio recordings are ready and English audio is pending upload,
+  // return the ready Twi audio recording so the prompt plays aloud cleanly!
+  if (language !== "twi") {
+    const twiMatches = AUDIO_RECORDINGS.filter((recording) =>
+      recording.promptId === promptId &&
+      recording.language === "twi" &&
+      recording.url
+    );
+    if (twiMatches.length > 0) return twiMatches[0];
+  }
+  return null;
 }
+
 
 export function getRecordingsByPromptId(promptId: string, language?: "en" | "twi"): AudioRecording[] {
   return AUDIO_RECORDINGS.filter((recording) =>

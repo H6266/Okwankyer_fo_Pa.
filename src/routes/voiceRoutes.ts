@@ -329,12 +329,14 @@ export const handleInboundCall = (req: Request, res: Response) => {
   const session = transactionStateMachine.getOrCreateSession(sessionId, "en", "VOICE");
   session.callerPhone = callerNumber;
 
-  const welcomePrompt = resolvePromptXml("welcome", "en", baseUrl)
+  const initialLang = ((req.query?.lang || req.body?.lang || "twi") as string).toLowerCase() === "en" ? "en" : "twi";
+  const welcomePrompt = resolvePromptXml("welcome", initialLang, baseUrl)
     || `<Say voice="female">Welcome to Ɔkwankyerɛfo Pa, your accessible voice guide for mobile services.</Say>`;
-  const xml = `${welcomePrompt}\n    <Redirect>${baseUrl}/language-selection?sessionId=${sessionId}</Redirect>`;
+  const xml = `${welcomePrompt}\n    <Redirect>${baseUrl}/language-selection?sessionId=${sessionId}&amp;lang=${initialLang}</Redirect>`;
 
   xmlResponse(res, xml);
 };
+
 
 // Mount across canonical and all common Africa's Talking webhook callback aliases
 const INBOUND_ENTRY_ROUTES = [
