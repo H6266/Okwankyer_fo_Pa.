@@ -46,23 +46,28 @@ function normalizeReplyText(text: string): string {
     .trim();
 }
 
-function resolveDiskPath(audioUrlOrRelative: string, assetRoot: "supplied" | "public" = "supplied"): string | null {
+function resolveDiskPath(audioUrlOrRelative: string, _assetRoot: "supplied" | "public" = "supplied"): string | null {
   const { fs, path } = getNodeModules();
   if (!fs || !path) return null;
+
+  try {
+    const { resolveSafeAudioPath } = require("./streaming");
+    const safe = resolveSafeAudioPath(audioUrlOrRelative);
+    if (safe && fs.existsSync(safe) && !fs.statSync(safe).isDirectory()) {
+      return safe;
+    }
+  } catch {}
 
   const clean = audioUrlOrRelative.replace(/^\/audio\//, "").replace(/^\/+/, "");
   const decoded = decodeURIComponent(clean);
 
-  // 1. Direct checks
   const candidates = [
-    path.resolve(process.cwd(), "Audio_files", "audio", decoded),
+    path.resolve(process.cwd(), "Audio_files", decoded),
+    path.resolve(process.cwd(), "Audio_files", "Twi", decoded),
     path.resolve(process.cwd(), "public", "audio", decoded),
-    path.resolve(process.cwd(), "Audio_files_2", decoded),
+    path.resolve(process.cwd(), "audio", decoded),
+    path.resolve(process.cwd(), "Audio_files", path.basename(decoded)),
   ];
-
-  if (/^twi\//i.test(decoded)) {
-    candidates.unshift(path.resolve(process.cwd(), "Audio_files", "audio", "Twi", decoded.slice(4)));
-  }
 
   for (const candidate of candidates) {
     if (fs.existsSync(candidate) && !fs.statSync(candidate).isDirectory()) {

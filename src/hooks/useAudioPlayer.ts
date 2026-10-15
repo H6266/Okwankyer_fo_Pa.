@@ -210,7 +210,9 @@ export function useAudioPlayer(onEnded?: () => void) {
       const playPromise = audioRef.current.play();
       if (playPromise !== undefined) {
         playPromise.catch((err) => {
-          // Autoplay policy or cancellation
+          if (err?.name === "AbortError") {
+            return;
+          }
           console.warn("[useAudioPlayer] Play attempt notice:", err?.message || err);
           if (playbackIdRef.current === currentPlaybackId) {
             setState((s) => ({

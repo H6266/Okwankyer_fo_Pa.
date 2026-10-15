@@ -18,6 +18,7 @@ import {
 } from "../domain/echoFilter";
 import { getRecordingByPromptKey, getRecordingByUrl } from "../audio/recordingRegistry";
 import { resolvePromptText } from "../modules/ttsService";
+import { matchReplyToAudio } from "../audio/replyAudioMatcher";
 import {
   ContinuousVoiceCapture,
   MicrophoneState,
@@ -1338,24 +1339,59 @@ export function usePhoneSimulator() {
    */
   const resolveStudioPrompt = useCallback((text: string, lang: string, step?: string): string | null => {
     const isTwi = lang === "tw" || lang === "ak";
-    if (!isTwi) return null;
+    if (!isTwi) {
+      if (step?.includes("welcome") || text?.toLowerCase().includes("welcome")) {
+        return "/audio/Welcome_prompt_01.mp3";
+      }
+      return null;
+    }
+
+    // 1. Confidence-based phrase matcher (>= 50% match)
+    if (text) {
+      try {
+        const audioMatch = matchReplyToAudio(text, "tw", { minConfidence: 0.50 });
+        if (audioMatch.match && audioMatch.audioUrl) {
+          return audioMatch.audioUrl;
+        }
+      } catch {}
+    }
+
+    // 2. Step and intent heuristics
     const lower = (text || "").toLowerCase().replace(/[-_]/g, " ");
     const currentCheck = (step || "").toLowerCase();
-    const key = currentCheck.includes("amount") || lower.includes("enter amount") || lower.includes("sika dodow")
-      ? "enter_amount"
-      : currentCheck.includes("recipient") || currentCheck.includes("phone") || lower.includes("bɔ nɔmba")
-      ? "enter_recipient"
-      : currentCheck.includes("verify") || lower.includes("recipient verify")
-      ? "recipient_verify"
-      : currentCheck.includes("network") || currentCheck.includes("provider") || lower.includes("paw wo network")
-      ? "provider_select"
-      : currentCheck.includes("service") || lower.includes("service selection")
-      ? "service_select"
-      : currentCheck.includes("action") || lower.includes("send money selected")
-      ? "action_select"
-      : currentCheck.includes("welcome") || currentCheck.includes("language") || lower.includes("akwaaba")
-      ? "welcome"
-      : null;
+
+    let key: string | null = null;
+    if (currentCheck.includes("amount") || lower.includes("enter amount") || lower.includes("sika dodow")) {
+      key = "enter_amount";
+    } else if (currentCheck.includes("recipient") || currentCheck.includes("phone") || lower.includes("bɔ nɔmba")) {
+      key = "enter_recipient";
+    } else if (currentCheck.includes("verify") || lower.includes("recipient verify") || lower.includes("din")) {
+      key = "recipient_verify";
+    } else if (currentCheck.includes("network") || currentCheck.includes("provider") || lower.includes("paw wo network")) {
+      key = "provider_select";
+    } else if (currentCheck.includes("service") || lower.includes("service selection") || lower.includes("paw dwumadie")) {
+      key = "service_select";
+    } else if (currentCheck.includes("action") || lower.includes("send money selected") || lower.includes("woremane sika")) {
+      key = "action_select";
+    } else if (currentCheck.includes("confirm") || lower.includes("confirmation intro") || lower.includes("pene so")) {
+      key = "confirmation_intro";
+    } else if (lower.includes("ready submit") || lower.includes("mia 1 anaasɛ ka aane")) {
+      key = "ready_submit";
+    } else if (lower.includes("success") || lower.includes("sika no akɔ")) {
+      key = "success";
+    } else if (lower.includes("failed") || lower.includes("mfomsoɔ")) {
+      key = "failed";
+    } else if (lower.includes("cancel") || lower.includes("wotwaa")) {
+      key = "cancel";
+    } else if (lower.includes("timeout") || lower.includes("berɛ atwa mu")) {
+      key = "timeout";
+    } else if (lower.includes("repeat") || lower.includes("tie bio")) {
+      key = "repeat";
+    } else if (lower.includes("help") || lower.includes("mboa")) {
+      key = "help";
+    } else if (currentCheck.includes("welcome") || currentCheck.includes("language") || lower.includes("akwaaba")) {
+      key = "welcome";
+    }
 
     return key ? getRecordingByPromptKey(key)?.url || null : null;
   }, []);

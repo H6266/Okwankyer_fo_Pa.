@@ -45,54 +45,45 @@ export const AUDIO_CATALOG_ALTERNATES: AudioPromptMetadata[] = AUDIO_CATALOG.fil
 );
 export const ALL_AUDIO_CATALOG = AUDIO_CATALOG;
 
-export function audioFileExists(filename: string, assetRoot?: AudioAssetRoot): boolean {
-  const recording = AUDIO_RECORDINGS.find((item) =>
-    item.relativePath === filename && (assetRoot === undefined || item.assetRoot === assetRoot)
-  );
-  if (!recording) return false;
+import { resolveSafeAudioPath } from "./streaming";
 
-  const root = recording.assetRoot === "supplied"
-    ? path.resolve(process.cwd(), "Audio_files", "audio")
-    : recording.assetRoot === "public"
-      ? path.resolve(process.cwd(), "public", "audio")
-      : path.resolve(process.cwd(), "Audio_files_2");
-  const resolved = path.resolve(root, recording.relativePath);
-  if (fs.existsSync(resolved) && !fs.statSync(resolved).isDirectory()) return true;
-
-  // Extension variations (.mp3, .m4a, .aac)
-  const ext = path.extname(resolved).toLowerCase();
-  for (const altExt of [".mp3", ".m4a", ".aac"]) {
-    if (altExt === ext) continue;
-    const altPath = resolved.slice(0, -ext.length) + altExt;
-    if (fs.existsSync(altPath) && !fs.statSync(altPath).isDirectory()) return true;
-  }
-
-  // Check category directory
-  const baseName = path.basename(recording.relativePath, ext).toLowerCase();
-  const dirName = path.dirname(resolved);
-  if (fs.existsSync(dirName)) {
-    const dirFiles = fs.readdirSync(dirName);
-    const match = dirFiles.find((f) => {
-      const fBase = path.basename(f, path.extname(f)).toLowerCase();
-      return (
-        fBase === baseName ||
-        fBase.startsWith(baseName.slice(0, 6)) ||
-        baseName.startsWith(fBase.slice(0, 6)) ||
-        (baseName.includes("read back") && fBase.includes("amount"))
-      );
-    });
-    if (match) return true;
-  }
-
-  // Check recursively across root
+export function getAudioFilePath(filename: string, _assetRoot?: AudioAssetRoot): string | null {
   try {
-    const allRootFiles = fs.readdirSync(root, { recursive: true }) as string[];
-    const matchAny = allRootFiles.find((f) => {
-      const fBase = path.basename(String(f), path.extname(String(f))).toLowerCase();
-      return fBase === baseName || fBase.startsWith(baseName.slice(0, 8)) || baseName.startsWith(fBase.slice(0, 8));
-    });
-    if (matchAny) return true;
+    const safe = resolveSafeAudioPath(filename);
+    if (safe && fs.existsSync(safe) && !fs.statSync(safe).isDirectory()) {
+      return safe;
+    }
   } catch {}
 
-  return false;
+  // Direct candidate checks
+  const candidates = [
+    path.resolve(process.cwd(), "Audio_files", filename),
+    path.resolve(process.cwd(), "Audio_files", "Twi", filename),
+    path.resolve(process.cwd(), "public", "audio", filename),
+    path.resolve(process.cwd(), "audio", filename),
+    path.resolve(process.cwd(), "Audio_files", path.basename(filename)),
+  ];
+
+  for (const c of candidates) {
+    if (fs.existsSync(c) && !fs.statSync(c).isDirectory()) {
+      return c;
+    }
+  }
+
+  return null;
 }
+
+export function audioFileExists(filename: string, assetRoot?: AudioAssetRoot): boolean {
+  return getAudioFilePath(filename, assetRoot) !== null;
+}
+
+export function getAudioFileSize(filename: string, assetRoot?: AudioAssetRoot): number {
+  const filePath = getAudioFilePath(filename, assetRoot);
+  if (filePath) {
+    try {
+      return fs.statSync(filePath).size;
+    } catch {}
+  }
+  return 0;
+}
+

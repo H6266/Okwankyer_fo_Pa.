@@ -628,7 +628,21 @@ export const PhoneSimulatorPage: React.FC = () => {
           matchSource = "matched-studio";
           addLog("audio", `🎯 Audio Match: ${Math.round(audioMatch.confidence * 100)}% match -> ${audioMatch.title || audioMatch.audioUrl}`);
         } else {
-          addLog("audio", `🎙️ TTS Fallback: No recording >= 50% confidence (best: ${Math.round(audioMatch.confidence * 100)}%) -> Synthesizing speech`);
+          const stepAudio = resolvePrompt(stepName.replace(/-/g, "_"), responseLanguage);
+          if (stepAudio) {
+            playbackUrl = stepAudio;
+            matchSource = "studio";
+            addLog("audio", `🎯 Step Audio Match: ${stepName} -> ${stepAudio}`);
+          } else {
+            addLog("audio", `🎙️ TTS Fallback: No recording >= 50% confidence (best: ${Math.round(audioMatch.confidence * 100)}%) -> Synthesizing speech`);
+          }
+        }
+      } else if (!playbackUrl && stepName) {
+        const stepAudio = resolvePrompt(stepName.replace(/-/g, "_"), responseLanguage);
+        if (stepAudio) {
+          playbackUrl = stepAudio;
+          matchSource = "studio";
+          addLog("audio", `🎯 Step Audio Match: ${stepName} -> ${stepAudio}`);
         }
       }
 

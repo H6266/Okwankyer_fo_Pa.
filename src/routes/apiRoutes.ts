@@ -11,7 +11,7 @@ import fs from "fs";
 import { config } from "../config/env";
 import { runRealSmokeTests } from "../services/healthService";
 import { recipientResolver } from "../providers/recipient/RecipientResolver";
-import { AUDIO_ASSET_INVENTORY, AUDIO_CATALOG, audioFileExists } from "../audio/catalog";
+import { AUDIO_ASSET_INVENTORY, AUDIO_CATALOG, audioFileExists, getAudioFileSize } from "../audio/catalog";
 import { getPromptManifestEntries, getRecordingByPromptId } from "../audio/recordingRegistry";
 import { callSessionRepository } from "../services/callSessionRepository";
 import { auditLogger } from "../services/auditLogger";
@@ -196,19 +196,13 @@ apiRouter.post("/api/dev/smoke-test", adminRateLimiter, requireAdminAuth, async 
 apiRouter.get("/api/audio/manifest", (_req: Request, res: Response) => {
   const enrichAsset = (item: (typeof AUDIO_ASSET_INVENTORY)[number]) => {
     const exists = audioFileExists(item.filename, item.assetRoot);
-    const root = item.assetRoot === "supplied"
-      ? path.resolve(process.cwd(), "Audio_files", "audio")
-      : item.assetRoot === "public"
-        ? path.resolve(process.cwd(), "public", "audio")
-        : path.resolve(process.cwd(), "Audio_files_2");
-    const filePath = path.resolve(root, item.filename);
-    const sizeBytes = exists && fs.existsSync(filePath) ? fs.statSync(filePath).size : 0;
+    const sizeBytes = getAudioFileSize(item.filename, item.assetRoot);
 
     return {
       ...item,
       exists,
       sizeBytes,
-      sizeFormatted: exists ? `${(sizeBytes / 1024).toFixed(1)} KB` : "Unavailable",
+      sizeFormatted: exists && sizeBytes > 0 ? `${(sizeBytes / 1024).toFixed(1)} KB` : exists ? "Ready" : "Unavailable",
     };
   };
   const prompts = AUDIO_CATALOG.map(enrichAsset);

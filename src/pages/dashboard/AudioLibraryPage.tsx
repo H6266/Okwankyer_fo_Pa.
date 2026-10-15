@@ -1,24 +1,135 @@
-import React, { useEffect, useState } from "react";
-import { Play, Pause, CheckCircle2, AlertCircle, RefreshCw, Sparkles, AudioWaveform, ArrowRight, Radio } from "lucide-react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
+import {
+  Play,
+  Pause,
+  CheckCircle2,
+  AlertCircle,
+  RefreshCw,
+  Sparkles,
+  AudioWaveform,
+  ArrowRight,
+  Radio,
+  Layers,
+  Square,
+  Volume2,
+  Search,
+  Check,
+  ChevronRight,
+  ChevronDown
+} from "lucide-react";
 import { api, AudioManifestResponse } from "../../lib/api";
 import { useAudioPlayer } from "../../hooks/useAudioPlayer";
-import { TWI_SEQUENTIAL_FLOW_STEPS, FlowStepDefinition } from "../../audio/twiSequentialAudioFlow";
+import {
+  TWI_SEQUENTIAL_FLOW_STEPS,
+  CANONICAL_IVR_CATEGORIES,
+  FlowStepDefinition,
+  IvrCategoryDefinition
+} from "../../audio/twiSequentialAudioFlow";
 import { matchReplyToAudio, AudioMatchResult } from "../../audio/replyAudioMatcher";
 
 export const AudioLibraryPage: React.FC = () => {
   const [manifest, setManifest] = useState<AudioManifestResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"flow" | "matcher" | "manifest">("flow");
+  const [activeTab, setActiveTab] = useState<"flow" | "categories" | "matcher" | "manifest">("flow");
   const [selectedLang, setSelectedLang] = useState<"all" | "en" | "twi">("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [byteRangeCheckResults, setByteRangeCheckResults] = useState<Record<string, { status: number; rangeOk: boolean }>>({});
   const [checkingByteRange, setCheckingByteRange] = useState(false);
+
+  // Auto-play state for Sequential Flow
+  const [autoPlayFlowActive, setAutoPlayFlowActive] = useState<boolean>(false);
+  const [currentFlowStepIndex, setCurrentFlowStepIndex] = useState<number>(0);
+  const autoPlayFlowIndexRef = useRef<number>(0);
+  const autoPlayFlowActiveRef = useRef<boolean>(false);
+
+  // Auto-play state for Categories
+  const [autoPlayCategoryActive, setAutoPlayCategoryActive] = useState<number | null>(null);
+  const [autoPlayCategoryPromptIndex, setAutoPlayCategoryPromptIndex] = useState<number>(0);
+  const autoPlayCategoryRef = useRef<{ catNum: number | null; promptIdx: number }>({ catNum: null, promptIdx: 0 });
+  const [expandedCategories, setExpandedCategories] = useState<Record<number, boolean>>({
+    1: true,
+    2: true,
+    3: false,
+    4: false,
+    5: false,
+    6: false,
+    7: false,
+    8: false,
+    9: false,
+    10: false,
+    11: false,
+    12: false,
+    13: false,
+    14: false,
+  });
 
   // Confidence Matcher Test State
   const [testPhrase, setTestPhrase] = useState("Please enter the recipient phone number");
   const [testLanguage, setTestLanguage] = useState<"tw" | "en">("en");
   const [matchResult, setMatchResult] = useState<AudioMatchResult | null>(null);
 
-  const { isPlaying, currentUrl, playAudio, stopAudio } = useAudioPlayer();
+  autoPlayFlowIndexRef.current = currentFlowStepIndex;
+  autoPlayFlowActiveRef.current = autoPlayFlowActive;
+  autoPlayCategoryRef.current = { catNum: autoPlayCategoryActive, promptIdx: autoPlayCategoryPromptIndex };
+
+  const handleAudioEnded = useCallback(() => {
+    // 1. Advance sequential flow auto-play
+    if (autoPlayFlowActiveRef.current) {
+      const nextIdx = autoPlayFlowIndexRef.current + 1;
+      if (nextIdx < TWI_SEQUENTIAL_FLOW_STEPS.length) {
+        setCurrentFlowStepIndex(nextIdx);
+        autoPlayFlowIndexRef.current = nextIdx;
+        const nextStep = TWI_SEQUENTIAL_FLOW_STEPS[nextIdx];
+        if (nextStep.audioUrl) {
+          playAudio(nextStep.audioUrl, nextStep.name);
+        } else {
+          // Dynamic readback delay then continue
+          setTimeout(() => {
+            if (autoPlayFlowActiveRef.current) {
+              const afterDynamicIdx = nextIdx + 1;
+              if (afterDynamicIdx < TWI_SEQUENTIAL_FLOW_STEPS.length) {
+                setCurrentFlowStepIndex(afterDynamicIdx);
+                autoPlayFlowIndexRef.current = afterDynamicIdx;
+                const afterStep = TWI_SEQUENTIAL_FLOW_STEPS[afterDynamicIdx];
+                if (afterStep.audioUrl) {
+                  playAudio(afterStep.audioUrl, afterStep.name);
+                }
+              } else {
+                setAutoPlayFlowActive(false);
+                autoPlayFlowActiveRef.current = false;
+              }
+            }
+          }, 2000);
+        }
+      } else {
+        setAutoPlayFlowActive(false);
+        autoPlayFlowActiveRef.current = false;
+      }
+      return;
+    }
+
+    // 2. Advance Category auto-play
+    const currentCatInfo = autoPlayCategoryRef.current;
+    if (currentCatInfo.catNum !== null) {
+      const cat = CANONICAL_IVR_CATEGORIES.find((c) => c.categoryNumber === currentCatInfo.catNum);
+      if (cat) {
+        const nextPromptIdx = currentCatInfo.promptIdx + 1;
+        if (nextPromptIdx < cat.prompts.length) {
+          setAutoPlayCategoryPromptIndex(nextPromptIdx);
+          autoPlayCategoryRef.current = { catNum: currentCatInfo.catNum, promptIdx: nextPromptIdx };
+          const prompt = cat.prompts[nextPromptIdx];
+          if (prompt.audioUrl) {
+            playAudio(prompt.audioUrl, prompt.title);
+          }
+        } else {
+          setAutoPlayCategoryActive(null);
+          autoPlayCategoryRef.current = { catNum: null, promptIdx: 0 };
+        }
+      }
+    }
+  }, []);
+
+  const { isPlaying, currentUrl, playAudio, stopAudio } = useAudioPlayer(handleAudioEnded);
 
   useEffect(() => {
     fetchManifest();
@@ -37,14 +148,74 @@ export const AudioLibraryPage: React.FC = () => {
     }
   };
 
-  const handleTogglePlay = (url: string | null) => {
+  const handleTogglePlay = (url: string | null, title?: string) => {
     if (!url) return;
+    if (autoPlayFlowActive) {
+      setAutoPlayFlowActive(false);
+      autoPlayFlowActiveRef.current = false;
+    }
+    if (autoPlayCategoryActive !== null) {
+      setAutoPlayCategoryActive(null);
+      autoPlayCategoryRef.current = { catNum: null, promptIdx: 0 };
+    }
+
     if (isPlaying && currentUrl === url) {
       stopAudio();
     } else {
       stopAudio();
-      playAudio(url);
+      playAudio(url, title);
     }
+  };
+
+  const startAutoPlayFlow = (fromIndex: number = 0) => {
+    stopAudio();
+    setAutoPlayCategoryActive(null);
+    setCurrentFlowStepIndex(fromIndex);
+    autoPlayFlowIndexRef.current = fromIndex;
+    setAutoPlayFlowActive(true);
+    autoPlayFlowActiveRef.current = true;
+
+    const step = TWI_SEQUENTIAL_FLOW_STEPS[fromIndex];
+    if (step?.audioUrl) {
+      playAudio(step.audioUrl, step.name);
+    }
+  };
+
+  const stopAutoPlayFlow = () => {
+    setAutoPlayFlowActive(false);
+    autoPlayFlowActiveRef.current = false;
+    stopAudio();
+  };
+
+  const startAutoPlayCategory = (categoryNumber: number, fromPromptIndex: number = 0) => {
+    stopAudio();
+    setAutoPlayFlowActive(false);
+    autoPlayFlowActiveRef.current = false;
+
+    const cat = CANONICAL_IVR_CATEGORIES.find((c) => c.categoryNumber === categoryNumber);
+    if (!cat || !cat.prompts.length) return;
+
+    setAutoPlayCategoryActive(categoryNumber);
+    setAutoPlayCategoryPromptIndex(fromPromptIndex);
+    autoPlayCategoryRef.current = { catNum: categoryNumber, promptIdx: fromPromptIndex };
+
+    // Auto-expand this category in UI
+    setExpandedCategories((prev) => ({ ...prev, [categoryNumber]: true }));
+
+    const prompt = cat.prompts[fromPromptIndex];
+    if (prompt?.audioUrl) {
+      playAudio(prompt.audioUrl, prompt.title);
+    }
+  };
+
+  const stopAutoPlayCategory = () => {
+    setAutoPlayCategoryActive(null);
+    autoPlayCategoryRef.current = { catNum: null, promptIdx: 0 };
+    stopAudio();
+  };
+
+  const toggleCategoryExpand = (catNum: number) => {
+    setExpandedCategories((prev) => ({ ...prev, [catNum]: !prev[catNum] }));
   };
 
   const testByteRangeSupport = async (url: string) => {
@@ -79,7 +250,7 @@ export const AudioLibraryPage: React.FC = () => {
     setMatchResult(res);
   };
 
-  const displayedClips = manifest
+  const allManifestClips = manifest
     ? selectedLang === "all"
       ? [...(manifest.englishPrompts || []), ...(manifest.twiPrompts || [])]
       : selectedLang === "en"
@@ -87,8 +258,18 @@ export const AudioLibraryPage: React.FC = () => {
       : (manifest.twiPrompts || [])
     : [];
 
+  const displayedClips = allManifestClips.filter((c) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      c.title.toLowerCase().includes(q) ||
+      (c.spokenText && c.spokenText.toLowerCase().includes(q)) ||
+      c.filename.toLowerCase().includes(q)
+    );
+  });
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="space-y-6 max-w-7xl mx-auto pb-12">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
@@ -97,7 +278,7 @@ export const AudioLibraryPage: React.FC = () => {
             Audio Engine &amp; Flow Orchestrator
           </h1>
           <p className="text-xs text-[#5E7265] dark:text-[#95A99E] mt-0.5">
-            14-step sequential Twi IVR audio journey, AI confidence-based phrase matcher (50%–100%), and dynamic TTS fallback.
+            Synchronized with all 14 IVR categories (OP01–OP94), automated sequential flow playback, and &ge;50% phrase matcher.
           </p>
         </div>
 
@@ -120,7 +301,7 @@ export const AudioLibraryPage: React.FC = () => {
       </div>
 
       {/* Main Navigation Tabs */}
-      <div className="flex items-center gap-2 p-1 bg-white dark:bg-[#101B15] border border-[#0F382A]/10 w-fit rounded-xl">
+      <div className="flex items-center gap-2 p-1 bg-white dark:bg-[#101B15] border border-[#0F382A]/10 w-fit rounded-xl flex-wrap">
         <button
           onClick={() => setActiveTab("flow")}
           className={`px-4 py-2 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 ${
@@ -129,6 +310,15 @@ export const AudioLibraryPage: React.FC = () => {
         >
           <Radio className="w-3.5 h-3.5" />
           Sequential IVR Flow (14 Steps)
+        </button>
+        <button
+          onClick={() => setActiveTab("categories")}
+          className={`px-4 py-2 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 ${
+            activeTab === "categories" ? "bg-[#0F382A] text-white" : "text-[#5E7265] hover:text-[#0F382A]"
+          }`}
+        >
+          <Layers className="w-3.5 h-3.5" />
+          14 IVR Categories (OP01–OP94)
         </button>
         <button
           onClick={() => setActiveTab("matcher")}
@@ -149,26 +339,81 @@ export const AudioLibraryPage: React.FC = () => {
         </button>
       </div>
 
-      {/* TAB 1: SEQUENTIAL FLOW (14 STEPS) */}
+      {/* TAB 1: SEQUENTIAL FLOW (14 STEPS) WITH AUTOMATIC SEQUENTIAL PLAYBACK */}
       {activeTab === "flow" && (
         <div className="space-y-4">
-          <div className="p-4 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 flex items-center justify-between">
-            <div>
-              <span className="font-bold">Standard Guided Flow Track:</span> When the caller follows the predetermined journey, these studio audio files play sequentially in order without AI deviation.
+          {/* Automatic Flow Playback Banner */}
+          <div className="p-4 bg-gradient-to-r from-emerald-900 to-[#0F382A] text-white rounded-2xl shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-[10px] font-bold border border-emerald-400/30">
+                  AUTOMATED AUDIO JOURNEY
+                </span>
+                {autoPlayFlowActive && (
+                  <span className="flex items-center gap-1 text-xs text-[#D4AF37] font-bold animate-pulse">
+                    <Volume2 className="w-4 h-4" /> Playing Step {currentFlowStepIndex + 1} of 14:{" "}
+                    {TWI_SEQUENTIAL_FLOW_STEPS[currentFlowStepIndex]?.name}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-emerald-100 max-w-2xl">
+                Automatically plays through all 14 sequential Twi studio audio prompts in chronological transaction order without stopping.
+              </p>
             </div>
-            <div className="text-[11px] font-mono font-bold bg-emerald-100 dark:bg-emerald-900/50 px-2 py-0.5 rounded">
-              14 Steps Total
+
+            <div className="flex items-center gap-2 shrink-0">
+              {autoPlayFlowActive ? (
+                <button
+                  onClick={stopAutoPlayFlow}
+                  className="px-4 py-2 text-xs font-bold bg-[#A32828] hover:bg-red-700 text-white rounded-xl flex items-center gap-1.5 transition-colors shadow-sm"
+                >
+                  <Square className="w-3.5 h-3.5 fill-current" />
+                  Stop Auto-Play
+                </button>
+              ) : (
+                <button
+                  onClick={() => startAutoPlayFlow(0)}
+                  className="px-4 py-2 text-xs font-bold bg-[#D4AF37] hover:bg-amber-400 text-[#111A15] rounded-xl flex items-center gap-1.5 transition-colors shadow-sm"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  Auto-Play Entire Flow (1 to 14)
+                </button>
+              )}
             </div>
           </div>
 
+          {/* Flow Progress Bar */}
+          {autoPlayFlowActive && (
+            <div className="space-y-1.5 p-3.5 bg-white dark:bg-[#101B15] border border-[#0F382A]/10 rounded-xl">
+              <div className="flex items-center justify-between text-xs font-mono">
+                <span className="font-bold text-[#0F382A] dark:text-[#D4AF37]">
+                  Step {currentFlowStepIndex + 1} / 14: {TWI_SEQUENTIAL_FLOW_STEPS[currentFlowStepIndex]?.name}
+                </span>
+                <span className="text-[#5E7265]">
+                  {Math.round(((currentFlowStepIndex + 1) / 14) * 100)}% complete
+                </span>
+              </div>
+              <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                <div
+                  className="bg-[#0F382A] dark:bg-[#D4AF37] h-full transition-all duration-300"
+                  style={{ width: `${((currentFlowStepIndex + 1) / 14) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-            {TWI_SEQUENTIAL_FLOW_STEPS.map((step) => {
+            {TWI_SEQUENTIAL_FLOW_STEPS.map((step, idx) => {
               const isThisPlaying = isPlaying && currentUrl === step.audioUrl;
+              const isCurrentAutoStep = autoPlayFlowActive && currentFlowStepIndex === idx;
+
               return (
                 <div
                   key={step.id}
                   className={`p-4 rounded-xl border transition-all ${
-                    isThisPlaying
+                    isCurrentAutoStep
+                      ? "bg-[#D4AF37]/15 border-[#D4AF37] ring-2 ring-[#D4AF37]/40 shadow-md"
+                      : isThisPlaying
                       ? "bg-[#D4AF37]/10 border-[#D4AF37] shadow-sm"
                       : "bg-white dark:bg-[#101B15] border-[#0F382A]/10 dark:border-[#D4AF37]/20"
                   }`}
@@ -176,12 +421,23 @@ export const AudioLibraryPage: React.FC = () => {
                   <div className="flex items-start justify-between gap-3">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <span className="w-5 h-5 rounded-full bg-[#0F382A] text-white text-[10px] font-bold flex items-center justify-center">
+                        <span
+                          className={`w-5 h-5 rounded-full text-white text-[10px] font-bold flex items-center justify-center ${
+                            isCurrentAutoStep
+                              ? "bg-[#D4AF37] text-slate-950 font-black animate-pulse"
+                              : "bg-[#0F382A]"
+                          }`}
+                        >
                           {step.stepIndex}
                         </span>
                         <span className="text-xs font-mono font-bold text-[#0F382A] dark:text-[#D4AF37]">
                           {step.name}
                         </span>
+                        {isCurrentAutoStep && (
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/40 px-1.5 py-0.5 rounded">
+                            Auto-Playing
+                          </span>
+                        )}
                       </div>
                       <p className="text-xs font-semibold text-[#111A15] dark:text-[#F8FAF8] mt-1">
                         "{step.spokenTextTwi}"
@@ -191,23 +447,39 @@ export const AudioLibraryPage: React.FC = () => {
                       </p>
                     </div>
 
-                    {step.audioUrl ? (
-                      <button
-                        onClick={() => handleTogglePlay(step.audioUrl)}
-                        className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-colors ${
-                          isThisPlaying
-                            ? "bg-[#A32828] text-white"
-                            : "bg-[#0F382A] text-white hover:bg-[#1A543F]"
-                        }`}
-                        aria-label={isThisPlaying ? "Pause audio" : "Play step audio"}
-                      >
-                        {isThisPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
-                      </button>
-                    ) : (
-                      <span className="px-2 py-1 bg-amber-100 text-amber-800 text-[10px] font-bold rounded">
-                        Dynamic Readback
-                      </span>
-                    )}
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      {step.audioUrl ? (
+                        <button
+                          onClick={() => handleTogglePlay(step.audioUrl, step.name)}
+                          className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-colors ${
+                            isThisPlaying
+                              ? "bg-[#A32828] text-white"
+                              : "bg-[#0F382A] text-white hover:bg-[#1A543F]"
+                          }`}
+                          aria-label={isThisPlaying ? "Pause audio" : "Play step audio"}
+                        >
+                          {isThisPlaying ? (
+                            <Pause className="w-4 h-4" />
+                          ) : (
+                            <Play className="w-4 h-4 fill-current ml-0.5" />
+                          )}
+                        </button>
+                      ) : (
+                        <span className="px-2 py-1 bg-amber-100 text-amber-800 text-[10px] font-bold rounded">
+                          Dynamic Readback
+                        </span>
+                      )}
+
+                      {!autoPlayFlowActive && (
+                        <button
+                          onClick={() => startAutoPlayFlow(idx)}
+                          className="text-[10px] text-[#0F382A] dark:text-[#D4AF37] hover:underline font-bold"
+                          title="Start automatic playback from this step onward"
+                        >
+                          Auto-Play from here
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {step.audioUrl && (
@@ -227,7 +499,145 @@ export const AudioLibraryPage: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 2: CONFIDENCE MATCHER TESTER */}
+      {/* TAB 2: 14 IVR CATEGORIES (OP01-OP94) */}
+      {activeTab === "categories" && (
+        <div className="space-y-4">
+          <div className="p-4 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div>
+              <span className="font-bold">14 Canonical IVR Audio Categories:</span> Complete architecture linking all 94 prompt states (OP01–OP94) to authentic audio recordings. Click any category to play prompts individually or auto-play through the entire category.
+            </div>
+            <div className="text-[11px] font-mono font-bold bg-emerald-100 dark:bg-emerald-900/50 px-2.5 py-1 rounded shrink-0">
+              14 Categories • 94 States
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {CANONICAL_IVR_CATEGORIES.map((cat) => {
+              const isExpanded = expandedCategories[cat.categoryNumber];
+              const isCatAutoPlaying = autoPlayCategoryActive === cat.categoryNumber;
+
+              return (
+                <div
+                  key={cat.id}
+                  className="bg-white dark:bg-[#101B15] border border-[#0F382A]/10 dark:border-[#D4AF37]/20 rounded-2xl overflow-hidden shadow-xs transition-all"
+                >
+                  {/* Category Header */}
+                  <div className="p-4 flex items-center justify-between gap-4 bg-slate-50/60 dark:bg-slate-900/40 border-b border-[#0F382A]/5">
+                    <button
+                      onClick={() => toggleCategoryExpand(cat.categoryNumber)}
+                      className="flex items-center gap-2.5 text-left flex-1"
+                    >
+                      {isExpanded ? (
+                        <ChevronDown className="w-4 h-4 text-[#0F382A] dark:text-[#D4AF37]" />
+                      ) : (
+                        <ChevronRight className="w-4 h-4 text-[#5E7265]" />
+                      )}
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-extrabold text-[#111A15] dark:text-[#F8FAF8]">
+                            {cat.title}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300">
+                            {cat.prompts.length} prompts
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-[#5E7265] mt-0.5">{cat.description}</p>
+                      </div>
+                    </button>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {isCatAutoPlaying ? (
+                        <button
+                          onClick={stopAutoPlayCategory}
+                          className="px-3 py-1.5 text-xs font-bold bg-[#A32828] text-white rounded-lg flex items-center gap-1.5"
+                        >
+                          <Square className="w-3 h-3 fill-current" />
+                          Stop
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => startAutoPlayCategory(cat.categoryNumber, 0)}
+                          className="px-3 py-1.5 text-xs font-bold bg-[#0F382A] hover:bg-[#1A543F] text-white rounded-lg flex items-center gap-1.5"
+                        >
+                          <Play className="w-3 h-3 fill-current" />
+                          Auto-Play Category
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Prompts list */}
+                  {isExpanded && (
+                    <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3 bg-white dark:bg-[#101B15]">
+                      {cat.prompts.map((p, pIdx) => {
+                        const isThisPlaying = isPlaying && currentUrl === p.audioUrl;
+                        const isThisAutoStep = isCatAutoPlaying && autoPlayCategoryPromptIndex === pIdx;
+
+                        return (
+                          <div
+                            key={p.promptId}
+                            className={`p-3.5 rounded-xl border transition-all ${
+                              isThisAutoStep
+                                ? "bg-[#D4AF37]/15 border-[#D4AF37] ring-1 ring-[#D4AF37]"
+                                : isThisPlaying
+                                ? "bg-[#D4AF37]/10 border-[#D4AF37]"
+                                : "bg-[#FAF9F5] dark:bg-[#16241D] border-[#0F382A]/10 dark:border-white/5"
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="px-1.5 py-0.5 rounded bg-[#0F382A] text-white font-mono text-[10px] font-bold">
+                                    {p.promptId}
+                                  </span>
+                                  <span className="text-xs font-bold text-[#111A15] dark:text-[#F8FAF8]">
+                                    {p.title}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-[#111A15] dark:text-[#F8FAF8] italic">
+                                  "{p.spokenTextTwi}"
+                                </p>
+                                <p className="text-[11px] text-[#5E7265]">
+                                  "{p.spokenTextEn}"
+                                </p>
+                              </div>
+
+                              <button
+                                onClick={() => handleTogglePlay(p.audioUrl, p.title)}
+                                className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors ${
+                                  isThisPlaying
+                                    ? "bg-[#A32828] text-white"
+                                    : "bg-[#0F382A] text-white hover:bg-[#1A543F]"
+                                }`}
+                                aria-label={isThisPlaying ? "Pause audio" : "Play prompt"}
+                              >
+                                {isThisPlaying ? (
+                                  <Pause className="w-3.5 h-3.5" />
+                                ) : (
+                                  <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                                )}
+                              </button>
+                            </div>
+
+                            <div className="mt-2.5 pt-2 border-t border-[#0F382A]/5 flex items-center justify-between text-[10px] font-mono text-[#5E7265]">
+                              <span className="truncate max-w-[260px]">{p.audioUrl}</span>
+                              <span className="uppercase text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                                Verified
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: CONFIDENCE MATCHER TESTER */}
       {activeTab === "matcher" && (
         <div className="space-y-6">
           <div className="p-6 bg-white dark:bg-[#101B15] border border-[#0F382A]/10 dark:border-[#D4AF37]/20 rounded-2xl space-y-4">
@@ -334,7 +744,7 @@ export const AudioLibraryPage: React.FC = () => {
 
                   {matchResult.match && matchResult.audioUrl && (
                     <button
-                      onClick={() => handleTogglePlay(matchResult.audioUrl!)}
+                      onClick={() => handleTogglePlay(matchResult.audioUrl!, matchResult.title)}
                       className="px-4 py-2 bg-[#0F382A] text-white hover:bg-[#1A543F] text-xs font-bold rounded-xl flex items-center gap-1.5 shrink-0"
                     >
                       <Play className="w-3.5 h-3.5 fill-current" />
@@ -348,35 +758,50 @@ export const AudioLibraryPage: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 3: FULL AUDIO CATALOG */}
+      {/* TAB 4: FULL AUDIO CATALOG */}
       {activeTab === "manifest" && (
         <div className="space-y-4">
-          {/* Filter Tabs */}
-          <div className="flex items-center gap-1.5 p-1 bg-white dark:bg-[#101B15] border border-[#0F382A]/10 w-fit rounded-xl">
-            <button
-              onClick={() => setSelectedLang("all")}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
-                selectedLang === "all" ? "bg-[#0F382A] text-white" : "text-[#5E7265] hover:text-[#0F382A]"
-              }`}
-            >
-              All Prompts ({displayedClips.length})
-            </button>
-            <button
-              onClick={() => setSelectedLang("en")}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
-                selectedLang === "en" ? "bg-[#0F382A] text-white" : "text-[#5E7265] hover:text-[#0F382A]"
-              }`}
-            >
-              English ({manifest?.englishClips ?? manifest?.englishPrompts.length ?? 0} clips)
-            </button>
-            <button
-              onClick={() => setSelectedLang("twi")}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
-                selectedLang === "twi" ? "bg-[#0F382A] text-white" : "text-[#5E7265] hover:text-[#0F382A]"
-              }`}
-            >
-              Akan Twi ({manifest?.twiClips ?? manifest?.twiPrompts.length ?? 0} clips)
-            </button>
+          {/* Controls bar */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white dark:bg-[#101B15] p-3 rounded-2xl border border-[#0F382A]/10">
+            {/* Filter Tabs */}
+            <div className="flex items-center gap-1.5 p-1 bg-[#FAF9F5] dark:bg-[#16241D] border border-[#0F382A]/10 w-fit rounded-xl">
+              <button
+                onClick={() => setSelectedLang("all")}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
+                  selectedLang === "all" ? "bg-[#0F382A] text-white" : "text-[#5E7265] hover:text-[#0F382A]"
+                }`}
+              >
+                All Prompts ({allManifestClips.length})
+              </button>
+              <button
+                onClick={() => setSelectedLang("en")}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
+                  selectedLang === "en" ? "bg-[#0F382A] text-white" : "text-[#5E7265] hover:text-[#0F382A]"
+                }`}
+              >
+                English ({manifest?.englishClips ?? manifest?.englishPrompts.length ?? 0} clips)
+              </button>
+              <button
+                onClick={() => setSelectedLang("twi")}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
+                  selectedLang === "twi" ? "bg-[#0F382A] text-white" : "text-[#5E7265] hover:text-[#0F382A]"
+                }`}
+              >
+                Akan Twi ({manifest?.twiClips ?? manifest?.twiPrompts.length ?? 0} clips)
+              </button>
+            </div>
+
+            {/* Search input */}
+            <div className="relative w-full sm:w-64">
+              <Search className="w-3.5 h-3.5 text-[#5E7265] absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search clips..."
+                className="w-full pl-9 pr-3 py-1.5 text-xs bg-[#FAF9F5] dark:bg-[#16241D] border border-[#0F382A]/20 rounded-xl focus:outline-hidden"
+              />
+            </div>
           </div>
 
           {/* Audio Prompts Grid */}
@@ -405,7 +830,7 @@ export const AudioLibraryPage: React.FC = () => {
                     </div>
 
                     <button
-                      onClick={() => handleTogglePlay(clip.url)}
+                      onClick={() => handleTogglePlay(clip.url, clip.title)}
                       disabled={!clip.url || !clip.exists}
                       className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-colors ${
                         isThisPlaying

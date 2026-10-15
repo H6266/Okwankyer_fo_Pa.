@@ -526,7 +526,19 @@ export function getRecordingByPath(relativePath: string): AudioRecording | null 
 }
 
 export function getRecordingByUrl(url: string): AudioRecording | null {
-  return AUDIO_RECORDINGS.find((recording) => recording.url === url) || null;
+  if (!url) return null;
+  const decodedTarget = decodeURIComponent(url).replace(/^\/+/, "").replace(/^audio\//i, "").toLowerCase();
+  return (
+    AUDIO_RECORDINGS.find((recording) => {
+      if (!recording.url) return false;
+      if (recording.url === url) return true;
+      const decodedRec = decodeURIComponent(recording.url).replace(/^\/+/, "").replace(/^audio\//i, "").toLowerCase();
+      if (decodedRec === decodedTarget) return true;
+      const baseRec = decodedRec.split("/").pop() || "";
+      const baseTarget = decodedTarget.split("/").pop() || "";
+      return baseRec.length > 0 && baseRec === baseTarget;
+    }) || null
+  );
 }
 
 export function getRecordingFilePath(relativePath: string): string | null {
@@ -538,10 +550,10 @@ export function getRecordingFilePath(relativePath: string): string | null {
     return null;
   }
   if (recording.assetRoot === "supplied") {
-    return `Audio_files/audio/${recording.relativePath}`;
+    return `Audio_files/${recording.relativePath}`;
   }
   if (recording.assetRoot === "additional") {
-    return `Audio_files_2/${recording.relativePath}`;
+    return `Audio_files/${recording.relativePath}`;
   }
   if (recording.assetRoot === "public") {
     return `public/audio/${recording.relativePath}`;

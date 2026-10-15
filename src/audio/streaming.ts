@@ -23,19 +23,56 @@ export class PathTraversalError extends Error {
  */
 const FOLDER_MAP: Record<string, string> = {
   "01_welcome_session_start": "1.Welcome & Session Start",
+  "1_welcome_session_start": "1.Welcome & Session Start",
+  "1.welcome_session_start": "1.Welcome & Session Start",
+  "welcome_session_start": "1.Welcome & Session Start",
   "02_main_service_navigation": "2.Main Service Navigation",
+  "2_main_service_navigation": "2.Main Service Navigation",
+  "2.main_service_navigation": "2.Main Service Navigation",
+  "main_service_navigation": "2.Main Service Navigation",
   "03_recipient_entry_verification": "3.Recipient Entry & Verification",
+  "3_recipient_entry_verification": "3.Recipient Entry & Verification",
+  "3.recipient_entry_verification": "3.Recipient Entry & Verification",
+  "recipient_entry_verification": "3.Recipient Entry & Verification",
   "04_amount_entry_verification": "4.Amount Entry & Verification",
+  "4_amount_entry_verification": "4.Amount Entry & Verification",
+  "4.amount_entry_verification": "4.Amount Entry & Verification",
+  "amount_entry_verification": "4.Amount Entry & Verification",
   "05_transaction_confirmation": "5.Transaction Confirmation",
+  "5_transaction_confirmation": "5.Transaction Confirmation",
+  "5.transaction_confirmation": "5.Transaction Confirmation",
+  "transaction_confirmation": "5.Transaction Confirmation",
   "06_pin_security": "6.PIN & Security",
+  "6_pin_security": "6.PIN & Security",
+  "6.pin_security": "6.PIN & Security",
+  "pin_security": "6.PIN & Security",
   "07_transaction_processing": "7.Transaction Processing",
+  "7_transaction_processing": "7.Transaction Processing",
+  "7.transaction_processing": "7.Transaction Processing",
+  "transaction_processing": "7.Transaction Processing",
   "08_success_completion": "8.Success & Completion",
+  "8_success_completion": "8.Success & Completion",
+  "8.success_completion": "8.Success & Completion",
+  "success_completion": "8.Success & Completion",
   "09_failure_decline_timeout": "9.Failure, Decline & Timeout",
+  "9_failure_decline_timeout": "9.Failure, Decline & Timeout",
+  "9.failure_decline_timeout": "9.Failure, Decline & Timeout",
+  "failure_decline_timeout": "9.Failure, Decline & Timeout",
   "10_voice_understanding_verification": "10.Voice Understanding & Verification",
+  "10.voice_understanding_verification": "10.Voice Understanding & Verification",
+  "voice_understanding_verification": "10.Voice Understanding & Verification",
   "11_navigation_recovery": "11.Navigation & Recovery",
+  "11.navigation_recovery": "11.Navigation & Recovery",
+  "navigation_recovery": "11.Navigation & Recovery",
   "12_accessibility_help": "12.Accessibility & Help",
+  "12.accessibility_help": "12.Accessibility & Help",
+  "accessibility_help": "12.Accessibility & Help",
   "13_balance_unsupported_services": "13.Balance  Unsupported Services",
-  "14_post_transaction_conversation": "14.Post-Transaction Conversation"
+  "13.balance_unsupported_services": "13.Balance  Unsupported Services",
+  "balance_unsupported_services": "13.Balance  Unsupported Services",
+  "14_post_transaction_conversation": "14.Post-Transaction Conversation",
+  "14.post_transaction_conversation": "14.Post-Transaction Conversation",
+  "post_transaction_conversation": "14.Post-Transaction Conversation"
 };
 
 const ALLOWED_ROOTS = [
@@ -44,7 +81,61 @@ const ALLOWED_ROOTS = [
   path.resolve(process.cwd(), "audio")
 ];
 
-export function resolveSafeAudioPath(requestedSubpath: string): string | null {
+// In-Memory Index of All Existing Audio Assets on Disk
+let diskAudioFilesCache: string[] | null = null;
+
+function getDiskAudioFiles(): string[] {
+  if (diskAudioFilesCache) return diskAudioFilesCache;
+  const list: string[] = [];
+  function scan(dir: string) {
+    if (!fs.existsSync(dir)) return;
+    try {
+      const entries = fs.readdirSync(dir);
+      for (const entry of entries) {
+        const full = path.join(dir, entry);
+        try {
+          const stat = fs.statSync(full);
+          if (stat.isDirectory()) {
+            scan(full);
+          } else if (/\.(m4a|aac|mp3|wav|ogg)$/i.test(entry)) {
+            list.push(full);
+          }
+        } catch {}
+      }
+    } catch {}
+  }
+  for (const root of ALLOWED_ROOTS) {
+    scan(root);
+  }
+  diskAudioFilesCache = list;
+  return list;
+}
+
+function normalizeKey(str: string): string {
+  return str.toLowerCase().replace(/\.[a-z0-9]+$/i, "").replace(/[\s\-_(),]+/g, "");
+}
+
+// Special alias mappings for canonical prompts whose recorded filename has semantic variations
+const PROMPT_FILE_ALIASES: Record<string, string[]> = {
+  "what do you want to do": ["Choose instead.m4a", "Service selection.m4a", "Send money selected.m4a"],
+  "recipient last 4": ["Recipient verify.m4a", "Recipient confirm speech.m4a"],
+  "recipient name": ["Recipient verify.m4a", "Recipient found.m4a"],
+  "recipient verification": ["Recipient verify.m4a", "Recipient found.m4a"],
+  "recipient confirm": ["Recipient confirm speech.m4a", "Use recipient 1.m4a"],
+  "use recipient": ["Use recipient 1.m4a", "Recipient confirm speech.m4a"],
+  "invalid recipient": ["Invalid recipient 1.m4a"],
+  "amount read back": ["Amount readback 2.m4a", "Amount prompt.m4a"],
+  "amount readback": ["Amount readback 2.m4a", "Amount prompt.m4a"],
+  "amount too high": ["Amount too high 3.m4a"],
+  "enter amount": ["Enter amount 4.m4a", "Amount prompt.m4a"],
+  "welcome 1": ["Welcome 1 (2).m4a", "Welcome_prompt_01.mp3"],
+  "network selection": ["Network selection.m4a", "Network selection 2.m4a", "Network selection.mp3"],
+  "service selection": ["Service selection.m4a", "Service selection 2.m4a"],
+  "ready submit": ["Ready submit.m4a", "Ready submit 2.m4a"],
+  "confirm continue": ["Confirm continue.m4a", "Confirm continue 1.m4a"]
+};
+
+export function resolveSafeAudioPath(requestedSubpath: string, depth = 0): string | null {
   const decoded = decodeURIComponent(requestedSubpath || "").replace(/\\/g, "/").replace(/^\/+/, "").replace(/^audio\//i, "");
   if (!decoded || decoded.includes("..")) {
     throw new PathTraversalError(`Path traversal attempt blocked: ${requestedSubpath}`);
@@ -52,6 +143,7 @@ export function resolveSafeAudioPath(requestedSubpath: string): string | null {
 
   const stripped = decoded.replace(/^(supplied|additional)\//i, "");
 
+  // 1. Check direct candidate paths
   const candidates: string[] = [
     path.resolve(process.cwd(), "Audio_files", stripped),
     path.resolve(process.cwd(), "Audio_files", decoded),
@@ -80,23 +172,72 @@ export function resolveSafeAudioPath(requestedSubpath: string): string | null {
   const extensions = [".m4a", ".aac", ".mp3", ".wav"];
 
   for (const c of candidates) {
-    // Check direct path
     if (fs.existsSync(c) && !fs.statSync(c).isDirectory()) {
       return verifyPathSafety(c, requestedSubpath);
     }
-    // Check extension & suffix variants
     for (const ext of extensions) {
       const alt = c.replace(/\.[a-zA-Z0-9]+$/, ext);
       if (fs.existsSync(alt) && !fs.statSync(alt).isDirectory()) {
         return verifyPathSafety(alt, requestedSubpath);
       }
-      const withSuffix = c.replace(/\.[a-zA-Z0-9]+$/, ` 2${ext}`);
-      if (fs.existsSync(withSuffix) && !fs.statSync(withSuffix).isDirectory()) {
-        return verifyPathSafety(withSuffix, requestedSubpath);
+      for (const suffix of [" 1", " 2", " 3", " 4", " (2)", " 1 (2)", " 2 (2)"]) {
+        const withSuff = c.replace(/\.[a-zA-Z0-9]+$/, `${suffix}${ext}`);
+        if (fs.existsSync(withSuff) && !fs.statSync(withSuff).isDirectory()) {
+          return verifyPathSafety(withSuff, requestedSubpath);
+        }
       }
-      const withParen = c.replace(/\.[a-zA-Z0-9]+$/, ` (2)${ext}`);
-      if (fs.existsSync(withParen) && !fs.statSync(withParen).isDirectory()) {
-        return verifyPathSafety(withParen, requestedSubpath);
+    }
+  }
+
+  // 2. Check Aliases (bounded to single level)
+  if (depth === 0) {
+    const reqBaseName = path.basename(stripped).replace(/\.[a-z0-9]+$/i, "").toLowerCase();
+    for (const [aliasKey, targetFiles] of Object.entries(PROMPT_FILE_ALIASES)) {
+      if (reqBaseName === aliasKey || reqBaseName.includes(aliasKey) || aliasKey.includes(reqBaseName)) {
+        for (const targetFile of targetFiles) {
+          const resolved = resolveSafeAudioPath(targetFile, 1);
+          if (resolved) return resolved;
+        }
+      }
+    }
+  }
+
+  // 3. Fallback to Disk Audio Index
+  const diskFiles = getDiskAudioFiles();
+  const reqBase = path.basename(stripped);
+  const normReq = normalizeKey(reqBase);
+
+  // Exact basename match (case-insensitive)
+  for (const f of diskFiles) {
+    if (path.basename(f).toLowerCase() === reqBase.toLowerCase()) {
+      return verifyPathSafety(f, requestedSubpath);
+    }
+  }
+
+  // Normalized key match
+  for (const f of diskFiles) {
+    if (normalizeKey(path.basename(f)) === normReq) {
+      return verifyPathSafety(f, requestedSubpath);
+    }
+  }
+
+  // Normalized match without numbers
+  const reqNoNum = normReq.replace(/\d+/g, "");
+  if (reqNoNum.length >= 4) {
+    for (const f of diskFiles) {
+      const fnNoNum = normalizeKey(path.basename(f)).replace(/\d+/g, "");
+      if (fnNoNum === reqNoNum) {
+        return verifyPathSafety(f, requestedSubpath);
+      }
+    }
+  }
+
+  // Prefix match
+  if (normReq.length >= 5) {
+    for (const f of diskFiles) {
+      const fnNorm = normalizeKey(path.basename(f));
+      if (fnNorm.startsWith(normReq) || normReq.startsWith(fnNorm)) {
+        return verifyPathSafety(f, requestedSubpath);
       }
     }
   }
@@ -142,7 +283,9 @@ export function streamAudioFile(req: Request, res: Response, filePath: string): 
       ? "audio/wav"
       : ext === ".ogg" || reqPath.endsWith(".ogg")
       ? "audio/ogg"
-      : ext === ".m4a" || ext === ".aac" || reqPath.endsWith(".m4a") || reqPath.endsWith(".aac")
+      : ext === ".aac" || reqPath.endsWith(".aac")
+      ? "audio/aac"
+      : ext === ".m4a" || reqPath.endsWith(".m4a")
       ? "audio/mp4"
       : "audio/mpeg";
 

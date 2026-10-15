@@ -163,7 +163,14 @@ export function resolveSimulatorAudioUrl(
       return "/audio/Welcome_prompt_01.mp3";
     }
     const recording = getRecordingByUrl(pathname);
-    return recording?.language === language ? recording.url : null;
+    if (recording) {
+      return recording.language === language ? (recording.url || pathname) : null;
+    }
+    // If language is Twi, allow playing any valid audio asset URL
+    if (language === "twi" && pathname.startsWith("/audio/")) {
+      return pathname;
+    }
+    return null;
   } catch {
     return null;
   }
