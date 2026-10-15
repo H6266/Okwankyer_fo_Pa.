@@ -10,6 +10,7 @@ export type SupportedLanguage = "en" | "twi";
 
 import {
   getRecordingByPromptKey,
+  getRecordingByPromptId,
   getRecordingByUrl,
   getPromptManifestEntry,
   normalizeRecordingLanguage,
@@ -157,18 +158,12 @@ export function resolveSimulatorAudioUrl(
       return pathname;
     }
 
-    // Cross-language prevention: reject Twi assets during English sessions only if an English alternative exists
+    // Cross-language prevention: strict separation between English and Twi studio assets
     if (language === "en" && (pathname.includes("/Twi/") || /\b(twi)\b/i.test(pathname))) {
-      const rec = getRecordingByUrl(pathname, "en");
-      if (rec?.promptId && getRecordingByPromptId(rec.promptId, "en")) {
-        return null;
-      }
+      return null;
     }
     if (language === "twi" && (pathname.includes("/English/") || /\b(english)\b/i.test(pathname))) {
-      const rec = getRecordingByUrl(pathname, "twi");
-      if (rec?.promptId && getRecordingByPromptId(rec.promptId, "twi")) {
-        return null;
-      }
+      return null;
     }
 
     const recording = getRecordingByUrl(pathname, language);

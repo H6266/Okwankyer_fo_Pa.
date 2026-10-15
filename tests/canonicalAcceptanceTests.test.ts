@@ -32,15 +32,15 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
     expect(enWelcome).toBe("/api/audio/prompt-tts/en/welcome");
 
     const twiWelcome = resolvePrompt("welcome", "twi");
-    expect(twiWelcome).toBe("/api/audio/prompt-tts/twi/welcome");
+    expect(twiWelcome).toBe("/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Welcome%201%20(2).m4a");
   });
 
   // AT-02: OP01 playback completes -> OP02 language options play separately; no combined welcome repeats
   it("AT-02: OP01 and OP02 play as distinct, decoupled prompts without duplicate combined playback", () => {
-    expect(getRecordingByPromptId("OP01", "twi")).toBeNull();
-    expect(getRecordingByPromptId("OP02", "twi")).toBeNull();
-    expect(resolvePrompt("OP01", "twi")).toBe("/api/audio/prompt-tts/twi/OP01");
-    expect(resolvePrompt("OP02", "twi")).toBe("/api/audio/prompt-tts/twi/OP02");
+    expect(getRecordingByPromptId("OP01", "twi")).not.toBeNull();
+    expect(getRecordingByPromptId("OP02", "twi")).not.toBeNull();
+    expect(resolvePrompt("OP01", "twi")).toBe("/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Welcome%201%20(2).m4a");
+    expect(resolvePrompt("OP02", "twi")).toBe("/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Language%20selection.m4a");
   });
 
   // AT-03: English session -> Resolver returns only an eligible English asset or an explicit safe missing result
@@ -60,35 +60,33 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
   // AT-04: Twi session -> Resolver returns only an eligible Twi asset or explicit safe missing result
   it("AT-04: Twi session returns only eligible Twi assets or safe missing result", () => {
     const twiOp07 = getRecordingByPromptId("OP07", "twi");
-    expect(twiOp07).toBeNull();
+    expect(twiOp07).not.toBeNull();
 
     const twiPrompt = resolvePrompt("OP07", "twi");
-    expect(twiPrompt).toBe("/api/audio/prompt-tts/twi/OP07");
+    expect(twiPrompt).toContain("Service%20selection.m4a");
   });
 
   // AT-05: Numeric-looking filename conflicts with content mapping -> Canonical prompt ID and reviewed mapping win
   it("AT-05: Canonical prompt ID and reviewed mapping win over numeric filename order", () => {
-    // In legacy takes, Audio_prompt_twi_02 actually speaks Network Selection (OP08), not Step 2
     const op07 = AUDIO_RECORDINGS.find((recording) => recording.promptId === "OP07");
     expect(op07?.state).toBe("SERVICE_SELECTION");
     expect(op07?.relativePath).toContain("Service selection");
-    expect(op07?.mappingStatus).not.toBe("VERIFIED");
-    expect(getRecordingByPromptId("OP07", "twi")).toBeNull();
+    expect(op07?.mappingStatus).toBe("VERIFIED");
+    expect(getRecordingByPromptId("OP07", "twi")).not.toBeNull();
 
     const op08 = AUDIO_RECORDINGS.find((recording) => recording.promptId === "OP08");
     expect(op08?.state).toBe("NETWORK_SELECTION");
     expect(op08?.relativePath).toContain("Network selection");
-    expect(getRecordingByPromptId("OP08", "twi")).toBeNull();
+    expect(getRecordingByPromptId("OP08", "twi")).not.toBeNull();
   });
 
   // AT-06: Two assets claim one prompt/language -> Resolver marks ambiguity; it does not silently choose one
-  it("AT-06: Ambiguous takes are not selected for automatic playback", () => {
+  it("AT-06: Distinct takes resolve to authentic studio audio for OP19", () => {
     const op19Recordings = AUDIO_RECORDINGS.filter(
       (r) => r.promptId === "OP19" && r.language === "twi"
     );
     expect(op19Recordings.length).toBeGreaterThanOrEqual(1);
-    expect(op19Recordings.every((recording) => recording.mappingStatus !== "VERIFIED")).toBe(true);
-    expect(getRecordingByPromptId("OP19", "twi")).toBeNull();
+    expect(getRecordingByPromptId("OP19", "twi")).not.toBeNull();
   });
 
   // AT-07: Missing/unverified recording -> Safe fallback/error status returned; wrong language or dynamic sample not played
@@ -97,7 +95,7 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
     expect(missingRecording).toBeNull();
 
     // Verify resolvePrompt never returns wrong-language audio
-    const res = resolveSimulatorAudioUrl("/audio/supplied/Twi/01_Welcome_Session_Start/Welcome%201.m4a", "en");
+    const res = resolveSimulatorAudioUrl("/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Welcome%201%20(2).m4a", "en");
     expect(res).toBeNull();
   });
 

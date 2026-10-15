@@ -84,6 +84,7 @@ export class AudioPlaybackController {
   private audioContext: AudioContext | null = null;
   private masterGainNode: GainNode | null = null;
   private compressorNode: DynamicsCompressorNode | null = null;
+  private audioUnlocked: boolean = false;
 
   constructor() {
     if (typeof window !== "undefined") {
@@ -157,8 +158,9 @@ export class AudioPlaybackController {
       if (!this.audioElement) {
         this.initAudioElement();
       }
-      if (this.audioElement) {
-        // Unlock HTML5 media element within the synchronous click gesture
+      if (this.audioElement && !this.audioUnlocked && !this.state.isPlaying) {
+        this.audioUnlocked = true;
+        // Prime HTML5 media element once on initial user gesture
         this.audioElement.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
         const playPromise = this.audioElement.play();
         if (playPromise !== undefined) {
@@ -518,78 +520,6 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Plays a single audio url. Accepts either a url string or a PlaybackRequest object.
-   * Returns a Promise that resolves when audio ends (or resolves immediately if stopped).
-   */
-  public async play(
-    target: string | PlaybackRequest,
-    optionsOrText?: PlayOptions | string
-  ): Promise<boolean> {
-    let url = "";
-    let promptText: string | null = null;
-    let options: PlayOptions | undefined;
-
-    if (typeof target === "string") {
-      url = target;
-      if (typeof optionsOrText === "string") {
-        promptText = optionsOrText;
-      } else if (optionsOrText) {
-        options = optionsOrText;
-      }
-    } else if (target && typeof target === "object") {
-      url = target.url || "";
-      if (!url && target.audioBase64) {
-        url = `data:${target.audioMimeType || "audio/wav"};base64,${target.audioBase64}`;
-      }
-      promptText = target.text || null;
-      if (typeof optionsOrText === "object") {
-        options = optionsOrText;
-      }
-    }
-
-    if (url) {
-      url = resolveSafePlayableUrl(url.replace(/^https?:\/\/[^/]+(\/audio\/.*)$/i, "$1"));
-    }
-
-    // If identical clip is already actively playing, don't interrupt; just update text if given
-    if (url && this.state.isPlaying && this.state.activeClip === url) {
-      if (promptText && promptText !== this.state.activeText) {
-        this.setState({ activeText: promptText });
-      }
-      return Promise.resolve(true);
-    }
-
-    // 1. Stop any current playback and increment token
-    this.stop();
-    const token = ++this.currentToken;
-
-    if (!url) {
-      this.setState({
-        isPlaying: false,
-        activeClip: null,
-        activeText: promptText,
-        token,
-      });
-      // If prompt text is available, synthesize speech so audio is never lost
-      if (promptText && promptText.trim()) {
-        return this.speakText(promptText, options);
-      }
-      return Promise.resolve(false);
-    }
-
-    // Immediately update state synchronously so getActiveClip() returns the clip without delay
-    this.setState({
-      isPlaying: true,
-      activeClip: url,
-      activeText: promptText,
-      token,
-    });
-    options?.onStart?.();
-
-    // Ensure audio is unlocked
-    this.unlockAudio();
-
-  /**
    * Plays an audio asset directly via the Web Audio API (AudioBufferSourceNode).
    * Unrestricted by HTML5 media autoplay gates once AudioContext is initialized/resumed on user gesture.
    */
@@ -728,9 +658,10 @@ export class AudioPlaybackController {
     // Ensure audio is unlocked
     this.unlockAudio();
 
-    // 2. High-performance Web Audio Buffer playback if cached
-    if (this.audioContext && this.audioBufferCache.has(url)) {
-      return this.playViaWebAudio(url, token, options);
+    // 2. High-performance Web Audio Buffer playback (immune to HTML5 media element autoplay issues)
+    if (this.audioContext && (this.audioBufferCache.has(url) || this.audioContext.state === "running")) {
+      const ok = await this.playViaWebAudio(url, token, options);
+      if (ok) return true;
     }
 
     // 3. Play through HTML5 audio element with automatic WebAudio fallback
@@ -801,10 +732,7 @@ export class AudioPlaybackController {
         audio.currentTime = 0;
         const playPromise = audio.play();
         if (playPromise !== undefined) {
-          playPromise.catch((err: any) => {
-            if (err?.name === "AbortError" || err?.message?.includes("interrupted")) {
-              return;
-            }
+          playPromise.catch((_err: any) => {
             if (this.currentToken === token) {
               tryWebAudioFallback();
             }
@@ -835,8 +763,10 @@ export class AudioPlaybackController {
       }
 
       const ended = await (async () => {
-        if (this.audioContext && this.audioBufferCache.has(url)) {
-          return this.playViaWebAudio(url, sequenceToken);
+        // Prefer Web Audio API if AudioContext is active/running
+        if (this.audioContext && (this.audioBufferCache.has(url) || this.audioContext.state === "running")) {
+          const webAudioOk = await this.playViaWebAudio(url, sequenceToken);
+          if (webAudioOk) return true;
         }
 
         const audio = this.initAudioElement();
@@ -871,10 +801,7 @@ export class AudioPlaybackController {
           audio.currentTime = 0;
           const p = audio.play();
           if (p !== undefined) {
-            p.catch((err: any) => {
-              if (err?.name === "AbortError" || err?.message?.includes("interrupted")) {
-                return;
-              }
+            p.catch((_err: any) => {
               if (this.currentToken !== sequenceToken) return;
               this.playViaWebAudio(url, sequenceToken).then(resolve);
             });

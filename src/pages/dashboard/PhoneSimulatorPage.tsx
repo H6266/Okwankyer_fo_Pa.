@@ -182,6 +182,7 @@ export const PhoneSimulatorPage: React.FC = () => {
   const [callActive, setCallActive] = useState<boolean>(false);
   const [callStatus, setCallStatus] = useState<string>("Idle");
   const [sessionId, setSessionId] = useState<string>("");
+  const [callerNumber, setCallerNumber] = useState<string>("+233244123456");
   const [interactionMode, setInteractionMode] = useState<string>("UNSELECTED");
   const [conversationState, setConversationState] = useState<string>("INITIATED");
   const [language, setLanguage] = useState<"en" | "twi" | null>("twi");

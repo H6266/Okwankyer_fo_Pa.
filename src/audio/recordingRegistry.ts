@@ -701,6 +701,9 @@ export function getRecordingByPromptId(
     (recording.mappingStatus === "VERIFIED" || recording.assetRoot === "supplied" || recording.assetRoot === "additional")
   );
   if (matches.length > 0) return matches[0];
+  if (promptId === "OP22" && language === "twi") {
+    return getRecordingByPromptId("OP23", "twi");
+  }
   return null;
 }
 
