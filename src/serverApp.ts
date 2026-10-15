@@ -11,7 +11,7 @@ import helmet from "helmet";
 import { WebSocketServer } from "ws";
 import { config } from "./config/env";
 import { auditLogger } from "./services/auditLogger";
-import { resolveSafeAudioPath, streamAudioFile, PathTraversalError } from "./audio/streaming";
+import { resolveSafeAudioPath, streamAudioFile, warmupTelephonyMp3Cache, PathTraversalError } from "./audio/streaming";
 import { voiceRouter, simulatorRouter } from "./routes/voiceRoutes";
 import { apiRouter } from "./routes/apiRoutes";
 import { dashboardRouter } from "./routes/dashboardRoutes";
@@ -84,8 +84,8 @@ app.use((err: any, _req: Request, res: Response, next: any) => {
 // Static public directory (disable index to let Vite/SPA handle index.html)
 app.use(express.static(path.resolve(process.cwd(), "public"), { index: false }));
 
-// ── Safe Audio Streaming (HTTP 206 Partial Content + Path Traversal Guard) ─
-app.all("/audio/*", (req: Request, res: Response, next: any) => {
+// ── Safe Audio Streaming (HTTP 206 Partial Content + Path Traversal Guard + MP3 Transcoding) ─
+app.all("/audio/*", async (req: Request, res: Response, next: any) => {
   const rawSubpath = decodeURIComponent((req.params as any)[0] || "");
   if (rawSubpath.startsWith("prompt-tts/")) {
     return next();
@@ -95,7 +95,7 @@ app.all("/audio/*", (req: Request, res: Response, next: any) => {
     if (!safePath) {
       return res.status(404).send("Audio file not found.");
     }
-    streamAudioFile(req, res, safePath);
+    await streamAudioFile(req, res, safePath);
   } catch (err: any) {
     if (err instanceof PathTraversalError) {
       auditLogger.log("error", "SECURITY", `Path traversal attempt detected: ${rawSubpath}`, req.ip);
@@ -260,6 +260,8 @@ export async function startServer() {
       auditLogger.log("info", "SYSTEM", `Server online on port ${activePort} (Env: ${config.nodeEnv})`);
       // Start local Piper neural TTS worker for dynamic speech synthesis
       startPiperWorker().catch((err: any) => console.warn("[Server] Piper worker start notice:", err?.message || err));
+      // Pre-warm MP3 cache for Africa's Talking telephony audio
+      warmupTelephonyMp3Cache().catch((err: any) => console.warn("[Server] Telephony MP3 warmup notice:", err?.message || err));
       resolve();
     });
   });

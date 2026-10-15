@@ -165,6 +165,11 @@ function escapeXmlText(text: string): string {
   });
 }
 
+export function toTelephonyAudioUrl(audioUrl: string): string {
+  // Replace .m4a or .aac with .mp3 extension so telephony media servers receive MP3 audio
+  return audioUrl.replace(/\.(m4a|aac)$/i, ".mp3");
+}
+
 export function resolvePromptXml(
   key: string,
   lang: SupportedLanguage,
@@ -172,7 +177,10 @@ export function resolvePromptXml(
   fallbackText?: string
 ): string | null {
   const audioUrl = resolvePrompt(key, lang);
-  if (audioUrl) return `<Play url="${baseUrl}${audioUrl}"/>`;
+  if (audioUrl) {
+    const telephonyUrl = toTelephonyAudioUrl(audioUrl);
+    return `<Play url="${baseUrl}${telephonyUrl}"/>`;
+  }
   const text = fallbackText || resolvePromptText(key, lang);
   return text ? `<Say voice="female">${escapeXmlText(text)}</Say>` : null;
 }

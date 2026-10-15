@@ -524,17 +524,6 @@ export function getRecordingByPromptId(
     recording.url
   );
   if (matches.length > 0) return matches[0];
-
-  // Fallback: Since Twi audio recordings are ready and English audio is pending upload,
-  // return the ready Twi audio recording so the prompt plays aloud cleanly!
-  if (language !== "twi") {
-    const twiMatches = AUDIO_RECORDINGS.filter((recording) =>
-      recording.promptId === promptId &&
-      recording.language === "twi" &&
-      recording.url
-    );
-    if (twiMatches.length > 0) return twiMatches[0];
-  }
   return null;
 }
 

@@ -25,7 +25,7 @@ import { telephonyRateLimiter, adminRateLimiter } from "../middleware/rateLimite
 import { requireAdminAuth } from "../middleware/adminAuth";
 import { aiSystem } from "../ai_system";
 import { brain } from "../ai_system/brain/brain";
-import { resolvePrompt, resolvePromptText, resolvePromptXml } from "../modules/ttsService";
+import { resolvePrompt, resolvePromptText, resolvePromptXml, toTelephonyAudioUrl } from "../modules/ttsService";
 import { extractAmount, extractRecipient, extractNetwork } from "../modules/nluService";
 import { getStepDefinition, validateKeypadInput } from "../domain/stepRegistry";
 import { SERVICE_CAPABILITIES, SUPPORTED_TRANSFER_NETWORKS } from "../domain/serviceCapabilities";
@@ -167,7 +167,8 @@ function redactSpeechForDiagnostics(text: string): string {
 function brainPromptElement(promptId: string | undefined, replyText: string, baseUrl: string, language: "en" | "twi"): string {
   const promptPath = promptId ? resolvePrompt(promptId, language) : null;
   if (promptPath) {
-    return `<Play url="${escapeVoiceXml(`${baseUrl}${promptPath}`)}"/>`;
+    const telephonyPath = toTelephonyAudioUrl(promptPath);
+    return `<Play url="${escapeVoiceXml(`${baseUrl}${telephonyPath}`)}"/>`;
   }
   const scriptText = promptId ? resolvePromptText(promptId, language) : null;
   if (scriptText) {
@@ -294,23 +295,26 @@ function xmlResponse(res: Response, content: string, decision?: IvrDecision): vo
 }
 
 export function getBaseUrl(req: Request): string {
+  const envBase = (process.env.BASE_URL || process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || "").trim().replace(/\/+$/, "");
+  if (envBase && !envBase.includes("localhost") && !envBase.includes("127.0.0.1")) {
+    return envBase;
+  }
+
   const forwardedHost = ((req.headers["x-forwarded-host"] as string) || "").split(",")[0]?.trim();
   const reqHost = req.get("host") || "";
   const host = forwardedHost || reqHost;
 
-  const forwardedProto = ((req.headers["x-forwarded-proto"] as string) || "").split(",")[0]?.trim();
-  const proto = forwardedProto || req.protocol || "http";
+  let proto = ((req.headers["x-forwarded-proto"] as string) || "").split(",")[0]?.trim() || req.protocol || "http";
+  // Telco gateways like Africa's Talking require HTTPS on public internet domains
+  if (host && !host.includes("localhost") && !host.includes("127.0.0.1") && proto === "http") {
+    proto = "https";
+  }
 
   if (host) {
     return `${proto}://${host}`.replace(/\/+$/, "");
   }
 
-  const envBase = (process.env.BASE_URL || process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || "").trim().replace(/\/+$/, "");
-  if (envBase) {
-    return envBase;
-  }
-
-  return "";
+  return envBase || "";
 }
 
 // ── Step 1: Inbound Call Entry Point ──────────────────────────────────
@@ -330,9 +334,25 @@ export const handleInboundCall = (req: Request, res: Response) => {
   session.callerPhone = callerNumber;
 
   const initialLang = ((req.query?.lang || req.body?.lang || "twi") as string).toLowerCase() === "en" ? "en" : "twi";
-  const welcomePrompt = resolvePromptXml("welcome", initialLang, baseUrl)
-    || `<Say voice="female">Welcome to Ɔkwankyerɛfo Pa, your accessible voice guide for mobile services.</Say>`;
-  const xml = `${welcomePrompt}\n    <Redirect>${baseUrl}/language-selection?sessionId=${sessionId}&amp;lang=${initialLang}</Redirect>`;
+  const welcomePrompt = canonicalPromptElement(
+    "welcome",
+    initialLang,
+    baseUrl,
+    "Welcome to Ɔkwankyerɛfo Pa, your accessible voice guide for mobile services."
+  );
+  const langPrompt = canonicalPromptElement(
+    "language_selection",
+    "en",
+    baseUrl,
+    "For English, press 1. For Twi, press 2."
+  );
+
+  // Play Welcome and Language Selection together within GetDigits for immediate audio playback with DTMF barge-in
+  const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?sessionId=${sessionId}">
+        ${welcomePrompt}
+        ${langPrompt}
+    </GetDigits>
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=language-selection&amp;sessionId=${sessionId}&amp;retry=0"/>`;
 
   xmlResponse(res, xml);
 };
