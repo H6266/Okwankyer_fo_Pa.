@@ -33,6 +33,7 @@ interface EvalItem {
 
 interface EvaluationResult {
   total: number;
+  liveStatus: 'COMPLETED' | 'NOT_RUN';
   offlineIntentCorrect: number;
   offlineSlotCorrect: number;
   liveIntentCorrect: number;
@@ -64,6 +65,7 @@ export async function runEvaluation(datasetPath?: string): Promise<EvaluationRes
 
   const result: EvaluationResult = {
     total: dataset.length,
+    liveStatus: liveAvailable ? 'COMPLETED' : 'NOT_RUN',
     offlineIntentCorrect: 0,
     offlineSlotCorrect: 0,
     liveIntentCorrect: 0,
@@ -80,7 +82,16 @@ export async function runEvaluation(datasetPath?: string): Promise<EvaluationRes
   };
 
   for (const item of dataset) {
-    const scenarioStats = result.byScenario[item.scenario];
+    const scenarioStats = result.byScenario[item.scenario] || {
+      total: 0,
+      offlineIntentCorrect: 0,
+      offlineSlotCorrect: 0,
+      liveIntentCorrect: 0,
+      liveSlotCorrect: 0,
+    };
+    if (!result.byScenario[item.scenario]) {
+      result.byScenario[item.scenario] = scenarioStats;
+    }
     scenarioStats.total++;
 
     const sessionLang: LanguageId =
@@ -128,19 +139,29 @@ export async function runEvaluation(datasetPath?: string): Promise<EvaluationRes
       });
     }
 
-    // 2. Evaluate Live Model (or mirror offline when API unconfigured)
-    let liveIntentMatch = false;
-    let liveSlotsMatch = false;
-
+    // 2. Evaluate Live Model (runs ONLY when live API credentials and client are available)
     if (liveAvailable) {
       try {
         result.liveModelCalls++;
         const liveOut = await liveBrain.process(input);
-        liveIntentMatch =
-          ('intent' in liveOut.decision && liveOut.decision.intent === item.expectedIntent) ||
-          liveOut.updatedDraft.intent === item.expectedIntent;
 
-        liveSlotsMatch = true;
+        // Invariant: Verify that the live model actually produced output rather than falling back to offline logic
+        if (!liveOut.modelOutput) {
+          result.liveFallbacks++;
+          result.liveFailedTranscripts.push({
+            id: item.id,
+            transcript: item.transcript,
+            reason: `Live model did not return output; offline fallback intervened`,
+          });
+          continue;
+        }
+
+        const liveIntentMatch =
+          ('intent' in liveOut.decision && liveOut.decision.intent === item.expectedIntent) ||
+          liveOut.updatedDraft.intent === item.expectedIntent ||
+          liveOut.modelOutput.intent?.id === item.expectedIntent;
+
+        let liveSlotsMatch = true;
         if (item.expectedSlots.amount !== undefined) {
           if (liveOut.updatedDraft.slots.amount !== item.expectedSlots.amount) {
             liveSlotsMatch = false;
@@ -151,31 +172,30 @@ export async function runEvaluation(datasetPath?: string): Promise<EvaluationRes
             liveSlotsMatch = false;
           }
         }
-      } catch {
-        result.liveFallbacks++;
-        liveIntentMatch = offlineIntentMatch;
-        liveSlotsMatch = offlineSlotsMatch;
-      }
-    } else {
-      result.liveFallbacks++;
-      liveIntentMatch = offlineIntentMatch;
-      liveSlotsMatch = offlineSlotsMatch;
-    }
 
-    if (liveIntentMatch) {
-      result.liveIntentCorrect++;
-      scenarioStats.liveIntentCorrect++;
-    }
-    if (liveSlotsMatch) {
-      result.liveSlotCorrect++;
-      scenarioStats.liveSlotCorrect++;
-    }
-    if (!liveIntentMatch || !liveSlotsMatch) {
-      result.liveFailedTranscripts.push({
-        id: item.id,
-        transcript: item.transcript,
-        reason: !liveIntentMatch ? `Intent mismatch: expected ${item.expectedIntent}` : `Slot mismatch`,
-      });
+        if (liveIntentMatch) {
+          result.liveIntentCorrect++;
+          scenarioStats.liveIntentCorrect++;
+        }
+        if (liveSlotsMatch) {
+          result.liveSlotCorrect++;
+          scenarioStats.liveSlotCorrect++;
+        }
+        if (!liveIntentMatch || !liveSlotsMatch) {
+          result.liveFailedTranscripts.push({
+            id: item.id,
+            transcript: item.transcript,
+            reason: !liveIntentMatch ? `Intent mismatch: expected ${item.expectedIntent}` : `Slot mismatch`,
+          });
+        }
+      } catch (err: any) {
+        result.liveFallbacks++;
+        result.liveFailedTranscripts.push({
+          id: item.id,
+          transcript: item.transcript,
+          reason: `Live fallback exception: ${err?.message || 'timeout/error'}`,
+        });
+      }
     }
   }
 
@@ -192,10 +212,22 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       console.log(`Total Evaluated Transcripts: ${res.total}`);
       console.log(`Offline Overall Intent Accuracy : ${((res.offlineIntentCorrect / res.total) * 100).toFixed(1)}%`);
       console.log(`Offline Overall Slot Accuracy   : ${((res.offlineSlotCorrect / res.total) * 100).toFixed(1)}%`);
-      console.log(`Live Model Intent Accuracy      : ${((res.liveIntentCorrect / res.total) * 100).toFixed(1)}%`);
-      console.log(`Live Model Slot Accuracy        : ${((res.liveSlotCorrect / res.total) * 100).toFixed(1)}%`);
-      console.log(`Live Model Calls Executed       : ${res.liveModelCalls}`);
-      console.log(`Live Model Fallback Count       : ${res.liveFallbacks}\n`);
+      if (res.liveStatus === 'COMPLETED') {
+        const executedLive = res.liveModelCalls - res.liveFallbacks;
+        if (executedLive > 0) {
+          console.log(`Live Model Executed Calls       : ${executedLive} / ${res.total}`);
+          console.log(`Live Model Intent Accuracy      : ${((res.liveIntentCorrect / executedLive) * 100).toFixed(1)}%`);
+          console.log(`Live Model Slot Accuracy        : ${((res.liveSlotCorrect / executedLive) * 100).toFixed(1)}%`);
+        } else {
+          console.log(`Live Model Executed Calls       : 0 / ${res.total} (All calls fell back to offline engine)`);
+          console.log(`Live Model Intent Accuracy      : N/A`);
+          console.log(`Live Model Slot Accuracy        : N/A`);
+        }
+        console.log(`Live Model Fallback Count       : ${res.liveFallbacks}\n`);
+      } else {
+        console.log(`Live Model Benchmark Status     : NOT_RUN (GEMINI_API_KEY unconfigured or offline in runner)\n`);
+      }
+
 
       console.log('--- Breakdown by Scenario ---');
       for (const [scenario, stats] of Object.entries(res.byScenario)) {
@@ -209,10 +241,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         console.log(`  • [${f.id}] "${f.transcript}" -> ${f.reason}`);
       });
 
-      console.log('\n--- Failed Transcripts (Live Model) ---');
-      res.liveFailedTranscripts.forEach((f) => {
-        console.log(`  • [${f.id}] "${f.transcript}" -> ${f.reason}`);
-      });
+      if (res.liveStatus === 'COMPLETED') {
+        console.log('\n--- Failed Transcripts (Live Model) ---');
+        res.liveFailedTranscripts.forEach((f) => {
+          console.log(`  • [${f.id}] "${f.transcript}" -> ${f.reason}`);
+        });
+      }
       console.log('========================================================================');
     })
     .catch((err) => {

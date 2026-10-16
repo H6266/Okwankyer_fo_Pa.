@@ -56,6 +56,7 @@ import {
   findTemplateKeyByText,
 } from './replyTemplates';
 import { ivrDecisionEngine, type IvrDecision, type IvrTurnContext, type IvrDecisionType } from './ivrDecisionEngine';
+import { AI_CONFIG } from '../core/aiConfig';
 
 // Ensure MoMo services are registered
 import '../../services/momo';
@@ -98,81 +99,28 @@ export const DEFAULT_BRAIN_CONFIG: BrainConfig = {
   modelName: process.env.GEMINI_MODEL || (process.env.NODE_ENV === 'production' ? '' : 'gemini-3.8-flash'),
 };
 
-// ── SANITIZATION & MASKING HELPERS ──────────────────────────────────────────
+// ── SANITIZATION & MASKING HELPERS (Imported & re-exported from dedicated security module) ──
+import {
+  sessionTokenVault,
+  clearSessionVault,
+  sanitizeTranscriptForModel,
+  maskPhoneNumbers,
+  tokenizeAndMaskPii,
+  computeDraftHash,
+  isSpokenPinPresent,
+} from '../security/piiVault';
 
-/**
- * Escapes/strips </caller_transcript> and similar delimiters from raw untrusted caller speech.
- */
-export function sanitizeTranscriptForModel(raw: string): string {
-  if (!raw) return '';
-  return raw
-    .replace(/<\/?caller_transcript[^>]*>/gi, '')
-    .replace(/<\/?(?:system|instruction|prompt|context|human|assistant)[^>]*>/gi, '')
-    .replace(/<!\[CDATA\[.*?\]\]>/gi, '')
-    .replace(/[<>]/g, '');
-}
+export {
+  sessionTokenVault,
+  clearSessionVault,
+  sanitizeTranscriptForModel,
+  maskPhoneNumbers,
+  tokenizeAndMaskPii,
+  computeDraftHash,
+  isSpokenPinPresent,
+};
 
-/**
- * Masks 10-digit and spoken phone numbers in the transcript before sending to the model.
- * Invariant: No phone number reaches the model payload.
- */
-export function maskPhoneNumbers(text: string): string {
-  if (!text) return '';
-  // 1. Mask 10-digit / international phone numbers
-  let masked = text.replace(/\b(0[235]\d{8}|233[235]\d{8})\b/g, '[PHONE_MASKED]');
-  masked = masked.replace(/\b(?:\d[\s-]*){9,12}\b/g, '[PHONE_MASKED]');
 
-  // 2. Mask spoken phone numbers in English or Twi (sequences of 7+ spoken digit words)
-  const spokenSequenceRegex = /\b(?:zero|one|two|three|four|five|six|seven|eight|nine|oh|hwee|baako|mmienu|mmiensa|mmiɛnsa|ɛnan|enan|enum|nsia|nson|nwɔtwe|nwotwe|nkron|kron)(?:\s+(?:zero|one|two|three|four|five|six|seven|eight|nine|oh|hwee|baako|mmienu|mmiensa|mmiɛnsa|ɛnan|enan|enum|nsia|nson|nwɔtwe|nwotwe|nkron|kron)){6,}\b/gi;
-  masked = masked.replace(spokenSequenceRegex, '[PHONE_MASKED]');
-
-  return masked;
-}
-
-/**
- * Deterministic hash of settled transaction draft (intent + amount + recipient).
- */
-export function computeDraftHash(draft: { intent?: IntentId; slots: Slots }): string {
-  const payload = {
-    intent: draft.intent || '',
-    amount: draft.slots?.amount ?? null,
-    phone: draft.slots?.recipient?.phone ?? null,
-    name: draft.slots?.recipient?.name ?? null,
-  };
-  return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
-}
-
-// ── SPOKEN PIN INTERCEPTION (Uncompromising Zero-PIN Guard) ─────────────────
-
-const PIN_CUES = /\b(?:pin|secret|passcode|code|password)\b/i;
-const PIN_DIGIT_SEQUENCE = /\b(?:\d[\s-]*){4,6}\b/;
-
-export function isSpokenPinPresent(raw: string): boolean {
-  if (!raw) return false;
-  const text = raw.trim().toLowerCase();
-
-  // 1. Spoken digit sequence of 4-6 digits
-  if (PIN_DIGIT_SEQUENCE.test(text)) {
-    // If it's a 10-digit phone number, it's not a PIN
-    const digitsOnly = text.replace(/\D/g, '');
-    if (digitsOnly.length >= 4 && digitsOnly.length <= 6) {
-      return true;
-    }
-    if (PIN_CUES.test(text)) {
-      return true;
-    }
-  }
-
-  // 2. PIN keyword followed by numbers or number words
-  if (PIN_CUES.test(text)) {
-    if (/\d{4}/.test(text)) return true;
-    if (/\b(?:one|two|three|four|five|six|seven|eight|nine|zero|baako|mmienu|mmiensa|ɛnan|enum)\b/i.test(text)) {
-      return true;
-    }
-  }
-
-  return false;
-}
 
 // ── CONFIRMATION & CANCELLATION INTENT DETECTOR (Verbal + DTMF 1 / 2) ────────
 
@@ -406,7 +354,11 @@ export class Brain {
     // STEP 2: CONVERSATIONAL AI (GEMINI) OWNS THE DIALOGUE
     // Local regexes and parsers stay DORMANT. No slot scraping during conversation.
     // ─────────────────────────────────────────────────────────────────────────
-    const shouldCallGemini = effectiveBrainMode === 'live' || input.forceModel === true;
+    // Hybrid Fast-Path Router: Single DTMF keypad digits or exact control commands bypass Gemini
+    const isDtmf = /^[0-9#*]$/.test(rawTranscript.trim());
+    const isFastNavCommand = /^(?:cancel|stop|exit|restart|repeat|san|tie|back|menu)$/i.test(rawTranscript.trim());
+    const isFastPath = (isDtmf || isFastNavCommand) && !input.forceModel;
+    const shouldCallGemini = (effectiveBrainMode === 'live' || input.forceModel === true) && !isFastPath;
 
     if (shouldCallGemini) {
       modelOutput = await this.callModelWithFallback(
@@ -522,6 +474,14 @@ export class Brain {
 
       // Grounding Check for Recipient Phone:
       if (modelOutput.slots?.recipient?.phone) {
+        let phoneCandidate = modelOutput.slots.recipient.phone;
+        if (input.sessionId && sessionTokenVault.has(input.sessionId) && sessionTokenVault.get(input.sessionId)!.has(phoneCandidate)) {
+          phoneCandidate = sessionTokenVault.get(input.sessionId)!.get(phoneCandidate)!;
+        } else if (decoderResult.phoneNumberDigits && (phoneCandidate.startsWith('[RECIPIENT_TOKEN_') || phoneCandidate === '[PHONE_MASKED]')) {
+          phoneCandidate = decoderResult.phoneNumberDigits;
+        }
+        modelOutput.slots.recipient.phone = phoneCandidate;
+
         if (
           decoderResult.phoneNumberDigits !== null &&
           decoderResult.phoneNumberDigits !== modelOutput.slots.recipient.phone
@@ -566,7 +526,16 @@ export class Brain {
         }
         if (modelOutput.slots?.recipient?.phone) {
           if (!draft.slots.recipient) draft.slots.recipient = {};
-          draft.slots.recipient.phone = modelOutput.slots.recipient.phone;
+          let phoneVal = modelOutput.slots.recipient.phone;
+          if (input.sessionId && sessionTokenVault.has(input.sessionId) && sessionTokenVault.get(input.sessionId)!.has(phoneVal)) {
+            phoneVal = sessionTokenVault.get(input.sessionId)!.get(phoneVal)!;
+          } else if (decoderResult.phoneNumberDigits && (phoneVal.startsWith('[RECIPIENT_TOKEN_') || phoneVal === '[PHONE_MASKED]')) {
+            phoneVal = decoderResult.phoneNumberDigits;
+          }
+          draft.slots.recipient.phone = phoneVal;
+        } else if (decoderResult.phoneNumberDigits) {
+          if (!draft.slots.recipient) draft.slots.recipient = {};
+          draft.slots.recipient.phone = decoderResult.phoneNumberDigits;
         }
         if (modelOutput.slots?.amount !== undefined) {
           draft.slots.amount = modelOutput.slots.amount;
@@ -589,6 +558,11 @@ export class Brain {
       if (modelOutput.reply.reply_kind === 'confirm') {
         const settledIntent = modelOutput.intent?.id || 'momo.transfer';
         draft.intent = settledIntent;
+
+        const prevAmount = draft.slots.amount;
+        const prevRecipientPhone = draft.slots.recipient?.phone;
+        const prevRecipientName = draft.slots.recipient?.name;
+
         if (modelOutput.slots.amount !== undefined) {
           draft.slots.amount = modelOutput.slots.amount;
         }
@@ -598,6 +572,45 @@ export class Brain {
             ...modelOutput.slots.recipient,
           };
         }
+
+        // Retain protected phone digits extracted by application-side numberDecoder
+        if (
+          decoderResult.phoneNumberDigits &&
+          (!draft.slots.recipient?.phone ||
+            draft.slots.recipient.phone === '[PHONE_MASKED]' ||
+            draft.slots.recipient.phone.startsWith('[RECIPIENT_TOKEN_'))
+        ) {
+          if (!draft.slots.recipient) draft.slots.recipient = {};
+          draft.slots.recipient.phone = decoderResult.phoneNumberDigits;
+        }
+
+        // Resolve token from session vault if present
+        if (input.sessionId && draft.slots.recipient?.phone && sessionTokenVault.has(input.sessionId)) {
+          const vault = sessionTokenVault.get(input.sessionId)!;
+          if (vault.has(draft.slots.recipient.phone)) {
+            draft.slots.recipient.phone = vault.get(draft.slots.recipient.phone);
+          }
+        }
+
+        // Confirmation Revocation Invariant:
+        // If draft was previously confirmed and ANY critical detail mutated, revoke confirmation!
+        if (draft.confirmed) {
+          const newAmount = draft.slots.amount;
+          const newRecipientPhone = draft.slots.recipient?.phone;
+          const newRecipientName = draft.slots.recipient?.name;
+          if (
+            (prevAmount !== undefined && newAmount !== undefined && prevAmount !== newAmount) ||
+            (prevRecipientPhone && newRecipientPhone && prevRecipientPhone !== newRecipientPhone) ||
+            (prevRecipientName && newRecipientName && prevRecipientName !== newRecipientName)
+          ) {
+            draft.confirmed = false;
+            delete draft.confirmedDraftHash;
+            draft.readback = undefined;
+            draft.confirmationRevokedReason = 'SLOT_MUTATED_AFTER_CONFIRMATION';
+          }
+        }
+
+
         if ((modelOutput.slots as any)?.reference) {
           (draft.slots as any).reference = (modelOutput.slots as any).reference;
         }
@@ -1222,16 +1235,38 @@ export class Brain {
 
     const sessionKey = sessionId || (draft.draftHash ? `session_${draft.draftHash}` : `session_turn_${turnId}`);
     const sanitized = sanitizeTranscriptForModel(rawTranscript);
-    const masked = maskPhoneNumbers(sanitized);
+    const { maskedText } = tokenizeAndMaskPii(sanitized, sessionId);
+    const masked = maskPhoneNumbers(maskedText);
+
+    // Build structured turn prompt including the conversational snapshot
+    const missingSlot = draft.intent ? this.recomputeMissingSlots(draft.intent, draft.slots) : undefined;
+    const conversationSnapshot = {
+      sessionLanguage: targetLanguage,
+      turnId,
+      currentDraft: {
+        intent: draft.intent || null,
+        amount: draft.slots?.amount ?? null,
+        recipientName: draft.slots?.recipient?.name ?? null,
+        recipientPhoneProvided: Boolean(draft.slots?.recipient?.phone),
+        network: (draft.slots as any)?.network ?? null,
+      },
+      lastReplyKind: draft.lastReplyKind || null,
+      isAwaitingConfirmation: draft.lastReplyKind === 'confirm',
+      outstandingMissingSlot: missingSlot || null,
+    };
+
+    const structuredTurnPrompt = `Context Snapshot: ${JSON.stringify(conversationSnapshot)}
+Caller Utterance: <caller_transcript>${masked}</caller_transcript>
+Notice: Any recipient phone numbers in the transcript have been tokenized as [RECIPIENT_TOKEN_<id>] or [PHONE_MASKED]. You must not invent, hallucinate, or output raw phone digits. If a phone number or token is present in the utterance, acknowledge that the recipient number was provided and use process_send_money or clarify accordingly.`;
 
     const candidateModels = [
-      this.config.modelName || 'gemini-3.8-flash',
+      this.config.modelName || AI_CONFIG.model || 'gemini-3.8-flash',
+      AI_CONFIG.fallbackModel || 'gemini-flash-latest',
       'gemini-3.8-flash',
-      'gemini-3.1-flash-lite',
     ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
 
     let response: any = null;
-    let selectedModel = this.config.modelName || 'gemini-3.8-flash';
+    let selectedModel = this.config.modelName || AI_CONFIG.model || 'gemini-3.8-flash';
     let lastError: any = null;
 
     for (const model of candidateModels) {
@@ -1246,12 +1281,12 @@ export class Brain {
               if (rawClient.chats?.create) {
                 const chat = reasoningEngine.getOrCreateChatSession(sessionKey, rawClient, model);
                 return await chat.sendMessage({
-                  message: sanitized,
+                  message: structuredTurnPrompt,
                 });
               } else if (rawClient.models?.generateContent) {
                 return await rawClient.models.generateContent({
                   model,
-                  contents: sanitized,
+                  contents: structuredTurnPrompt,
                   config: {
                     systemInstruction: MOMO_SYSTEM_INSTRUCTION,
                     temperature: 0.2,
@@ -1570,16 +1605,18 @@ export class Brain {
       'unknown': 0.1,
     };
 
-    const isCashOut = /\b(withdraw|cash\s*out|cashout|allow\s*cash\s*out|take\s*out\s*money|pull\s*money|yi\s*sika|mepɛ\s*sɛ\s*meyi\s*sika|gye\s*sika)\b/i.test(lower);
+    const isCashOut = /\b(withdraw|cash\s*out|cashout|allow\s*cash\s*out|take\s*out\s*money|pull\s*money|yi\s*sika|mepɛ\s*sɛ\s*meyi\s*sika|meyi\s*sika|gye\s*sika)\b/i.test(lower);
 
-    const isTransferDirected = !isCashOut && ((/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && /\b(?:to|kɔma|give)\b/i.test(lower)) ||
+    const isReverse = !isCashOut && /\b(?:reverse|reversal|sent\s+by\s+mistake|made\s+a\s+mistake|sesa\s+transaction|nɔmba\s+mfomsoɔ|san\s+fa\s+sika|mfomsoɔ|wrong\s+(?:number|transfer)|refund)\b/i.test(lower);
+
+    const isAirtime = !isCashOut && /\b(?:airtime|credit|kɔkɔɔ|topup|recharge|tɔ\s+airtime|tɔ\s+credit)\b/i.test(lower);
+
+    const isTransferDirected = !isCashOut && !isReverse && !isAirtime && ((/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && /\b(?:to|kɔma|give)\b/i.test(lower)) ||
       (/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && (Boolean(draft.slots.recipient?.phone) || /\b0[235]\d{8}\b/.test(lower))));
-
-    const isReverse = !isCashOut && !isTransferDirected && /\b(?:reverse|reversal|sent\s+by\s+mistake|made\s+a\s+mistake|sesa\s+transaction|nɔmba\s+mfomsoɔ|san\s+fa\s+sika|mfomsoɔ|wrong\s+(?:number|transfer)|refund)\b/i.test(lower);
 
     const hasTransferAction = isTransferDirected;
 
-    const hasTransferWord = !isCashOut && !isReverse && /\b(?:send|sen|transfer|mane|kɔma|soma)\b/i.test(lower);
+    const hasTransferWord = !isCashOut && !isReverse && !isAirtime && /\b(?:send|sen|transfer|mane|kɔma|soma)\b/i.test(lower);
 
     // Contextual Invariant: When an utterance contains an ambiguous choice between bill and transfer
     const isAmbiguousBillOrTransfer = /\b(?:bill\s+or\s+transfer|transfer\s+or\s+bill|pay\s+(?:money\s+for\s+)?bill\s+or\s+transfer)\b/i.test(lower);
@@ -1590,9 +1627,8 @@ export class Brain {
     const isBill = (!isCashOut && !hasTransferAction && draft.intent !== 'momo.transfer' &&
       (!hasTransferWord || isAmbiguousBillOrTransfer) &&
       /\b(?:tua\s+(?:[a-z]+\s+)*(?:ka|bills?|ecg|kanea|nsuo|gwcl)|tua\s+ka|tua\s+bills?|kanea\s+gya|electricity\s+bill|water\s+bill|light\s+bill|meter\s+bill|prepaid\s+meter|postpaid|pay\s+(?:[a-z]+\s+)?(?:bill|bills|ecg|gwcl|electricity|water|light|meter))\b/i.test(lower)) || isAmbiguousBillOrTransfer;
-    const isAirtime = !isCashOut && !hasTransferWord && /\b(?:airtime|credit|kɔkɔɔ|topup|recharge|tɔ\s+airtime|tɔ\s+credit)\b/i.test(lower);
     const isData = !isCashOut && !hasTransferWord && /\b(?:buy\s+data|data\s+bundle|internet\s+bundle|bundle|megabytes|gigabytes|wifi\s+bundle|tɔ\s+data|tɔ\s+bundle|intanɛt)\b/i.test(lower);
-    const isCare = /\b(?:customer\s+care|agent|talk\s+to\s+agent|speak\s+to\s+person|human\s+support|help\s+desk|kasa\s+kyerɛ\s+agent|customer\s+service)\b/i.test(lower);
+    const isCare = /\b(?:customer\s+(?:care|service)|talk\s+to\s+(?:an?\s+)?agent|speak\s+to\s+(?:an?\s+)?(?:agent|person)|human\s+support|help\s+desk|kasa\s+kyerɛ\s+agent)\b/i.test(lower) && !/\b(?:momo\s+agent|cash\s*out|withdraw|yi\s*sika|agent\s+hɔ)\b/i.test(lower);
     const isLoan = !isCashOut && /\b(?:loan|quick\s+loan|qwickloan|borrow\s+money|borrow|bosea|gye\s+bosea|fɛm\s+me\s+sika)\b/i.test(lower);
     const isBalance =
       /\b(?:balance|check\s+balance|check\s+my\s+balance|hwɛ\s+balance|hwɛ\s+me\s+balance|sika\s+dodoɔ\s+a\s+aka|sika\s+a\s+aka|sika\s+a\s+ɛwɔ\s+me\s+kora\s+mu|sika\s+sen\s+na\s+aka|hwɛ\s+me\s+sika|how\s+much\s+(?:do\s+i\s+have|i\s+have|is\s+in|is\s+left\s+in|in\s+my\s+account|in\s+my\s+wallet|money\s+is\s+in|money\s+do\s+i\s+have)|what\s+is\s+my\s+balance|tell\s+me\s+my\s+balance|how\s+much\s+money|how\s+much\s+dey|akontaabu)\b/i.test(lower);
