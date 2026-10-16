@@ -62,8 +62,8 @@ export const ALL_INTENTS: Record<IntentId, IntentMetadata> = {
     requiredSlots: [],
     optionalSlots: [],
     keywords: {
-      en: ['balance', 'check balance', 'wallet balance', 'how much do i have', 'remaining'],
-      twi: ['akontaabu', 'sika dodoɔ', 'hwɛ balance', 'sika a aka', 'check balance'],
+      en: ['balance', 'check balance', 'wallet balance', 'how much do i have', 'remaining', 'account balance', 'balance please'],
+      twi: ['akontaabu', 'sika dodoɔ', 'hwɛ balance', 'sika a aka', 'check balance', 'akawnti', 'account', 'sika dodoɔ a ɛwɔ me akawnti', 'sika sɛn'],
     },
   },
 
@@ -112,8 +112,8 @@ export const ALL_INTENTS: Record<IntentId, IntentMetadata> = {
     ],
     optionalSlots: [],
     keywords: {
-      en: ['buy data', 'data bundle', 'internet bundle', 'internet', 'bundle', 'megabytes', 'gigabytes', 'wifi bundle'],
-      twi: ['tɔ data', 'data bundle', 'intanɛt', 'bundle', 'tɔ bundle'],
+      en: ['buy data', 'data bundle', 'internet bundle', 'internet', 'bundle', 'megabytes', 'gigabytes', 'wifi bundle', 'data'],
+      twi: ['tɔ data', 'data bundle', 'intanɛt', 'bundle', 'tɔ bundle', 'data'],
     },
   },
 

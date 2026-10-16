@@ -107,29 +107,35 @@ export function computeDraftHash(draft: { intent?: string; slots: Record<string,
 
 // ── SPOKEN PIN INTERCEPTION (Uncompromising Zero-PIN Guard) ─────────────────
 
-const PIN_CUES = /\b(?:pin|secret|passcode|code|password)\b/i;
+const PIN_CUES = /\b(?:pin|momo\s*pin|secret|passcode|code|password|kokoam|ahintasɛm|akoma\s*mu)\b/i;
 const PIN_DIGIT_SEQUENCE = /\b(?:\d[\s-]*){4,6}\b/;
 
 export function isSpokenPinPresent(raw: string): boolean {
   if (!raw) return false;
   const text = raw.trim().toLowerCase();
 
-  // 1. Spoken digit sequence of 4-6 digits
-  if (PIN_DIGIT_SEQUENCE.test(text)) {
-    // If it's a 10-digit phone number, it's not a PIN
-    const digitsOnly = text.replace(/\D/g, '');
-    if (digitsOnly.length >= 4 && digitsOnly.length <= 6) {
+  const hasAmountLanguage = /(cedis?|ghs|pesewas?|ghana|amount|send\s*\d+|transfer|sika|mane|money|dɔla|dollars?)/i.test(text);
+  const hasPhoneLanguage = /(phone|number|recipient|contact|mobile|nɔmba|fon)/i.test(text);
+
+  // 1. Explicit PIN cues with digits or number words
+  if (PIN_CUES.test(text)) {
+    if (/\d{4,6}/.test(text)) return true;
+    if (PIN_DIGIT_SEQUENCE.test(text)) return true;
+    if (/\b(?:one|two|three|four|five|six|seven|eight|nine|zero|baako|mmienu|mmiensa|ɛnan|enum|nsia|nson|nwɔtwe|nkron|kron)\b/i.test(text)) {
       return true;
     }
-    if (PIN_CUES.test(text)) {
+    if (/\b(?:pin|momo\s*pin|kokoam\s*nɔmba|ahintasɛm)\b/i.test(text)) {
       return true;
     }
   }
 
-  // 2. PIN keyword followed by numbers or number words
-  if (PIN_CUES.test(text)) {
-    if (/\d{4}/.test(text)) return true;
-    if (/\b(?:one|two|three|four|five|six|seven|eight|nine|zero|baako|mmienu|mmiensa|ɛnan|enum)\b/i.test(text)) {
+  // 2. Spoken digit sequence of 4-6 digits without amount or phone language
+  if (PIN_DIGIT_SEQUENCE.test(text)) {
+    const digitsOnly = text.replace(/\D/g, '');
+    if (digitsOnly.length >= 4 && digitsOnly.length <= 6) {
+      if (hasAmountLanguage || hasPhoneLanguage) {
+        return false;
+      }
       return true;
     }
   }

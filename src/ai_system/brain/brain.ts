@@ -1627,11 +1627,11 @@ Notice: Any recipient phone numbers in the transcript have been tokenized as [RE
     const isBill = (!isCashOut && !hasTransferAction && draft.intent !== 'momo.transfer' &&
       (!hasTransferWord || isAmbiguousBillOrTransfer) &&
       /\b(?:tua\s+(?:[a-z]+\s+)*(?:ka|bills?|ecg|kanea|nsuo|gwcl)|tua\s+ka|tua\s+bills?|kanea\s+gya|electricity\s+bill|water\s+bill|light\s+bill|meter\s+bill|prepaid\s+meter|postpaid|pay\s+(?:[a-z]+\s+)?(?:bill|bills|ecg|gwcl|electricity|water|light|meter))\b/i.test(lower)) || isAmbiguousBillOrTransfer;
-    const isData = !isCashOut && !hasTransferWord && /\b(?:buy\s+data|data\s+bundle|internet\s+bundle|bundle|megabytes|gigabytes|wifi\s+bundle|tɔ\s+data|tɔ\s+bundle|intanɛt)\b/i.test(lower);
+    const isData = !isCashOut && !hasTransferWord && /\b(?:buy\s+(?:\w+\s+)*data|data\s+bundle|internet\s+bundle|bundle|megabytes|gigabytes|wifi\s+bundle|tɔ\s+(?:\w+\s+)*data|tɔ\s+bundle|intanɛt|data)\b/i.test(lower);
     const isCare = /\b(?:customer\s+(?:care|service)|talk\s+to\s+(?:an?\s+)?agent|speak\s+to\s+(?:an?\s+)?(?:agent|person)|human\s+support|help\s+desk|kasa\s+kyerɛ\s+agent)\b/i.test(lower) && !/\b(?:momo\s+agent|cash\s*out|withdraw|yi\s*sika|agent\s+hɔ)\b/i.test(lower);
     const isLoan = !isCashOut && /\b(?:loan|quick\s+loan|qwickloan|borrow\s+money|borrow|bosea|gye\s+bosea|fɛm\s+me\s+sika)\b/i.test(lower);
     const isBalance =
-      /\b(?:balance|check\s+balance|check\s+my\s+balance|hwɛ\s+balance|hwɛ\s+me\s+balance|sika\s+dodoɔ\s+a\s+aka|sika\s+a\s+aka|sika\s+a\s+ɛwɔ\s+me\s+kora\s+mu|sika\s+sen\s+na\s+aka|hwɛ\s+me\s+sika|how\s+much\s+(?:do\s+i\s+have|i\s+have|is\s+in|is\s+left\s+in|in\s+my\s+account|in\s+my\s+wallet|money\s+is\s+in|money\s+do\s+i\s+have)|what\s+is\s+my\s+balance|tell\s+me\s+my\s+balance|how\s+much\s+money|how\s+much\s+dey|akontaabu)\b/i.test(lower);
+      /\b(?:balance|check\s+balance|check\s+my\s+balance|hwɛ\s+balance|hwɛ\s+me\s+balance|sika\s+dodoɔ\s+a\s+(?:aka|ɛwɔ)|akawnti\s+no\s+mu|me\s+akawnti|sika\s+a\s+aka|sika\s+a\s+ɛwɔ\s+me\s+kora\s+mu|sika\s+sen\s+na\s+aka|hwɛ\s+me\s+sika|how\s+much\s+(?:do\s+i\s+have|i\s+have|is\s+in|is\s+left\s+in|in\s+my\s+account|in\s+my\s+wallet|money\s+is\s+in|money\s+do\s+i\s+have)|what\s+is\s+my\s+balance|tell\s+me\s+my\s+balance|how\s+much\s+money|how\s+much\s+dey|akontaabu)\b/i.test(lower);
 
     if (isCashOut) scores['momo.cash_out'] += 0.99;
     if (isBill) scores['momo.pay_bill'] += (isAmbiguousBillOrTransfer ? 0.75 : 0.95);
