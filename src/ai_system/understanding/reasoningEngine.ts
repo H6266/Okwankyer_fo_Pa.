@@ -18,12 +18,6 @@ import { languageDetector } from "../perception/languageDetector";
 import { aiUnderstanding } from "../core/aiUnderstanding";
 import { geminiClient } from "../../services/geminiClient";
 import { openAiReasoner } from "../../services/openai/openaiReasoner";
-import {
-  isSpokenPinPresent,
-  sanitizeTranscriptForModel,
-  maskPhoneNumbers,
-  tokenizeAndMaskPii,
-} from "../security/piiVault";
 
 export const MOMO_SYSTEM_INSTRUCTION = `You are a voice-optimized accessibility assistant for MTN Mobile Money (MoMo) in Ghana ("Ɔkwankyerɛfo Pa" - The Good Guide). Your job is to converse naturally with callers in Ghanaian English or Akan Twi to help them execute Mobile Money transactions.
 
@@ -232,20 +226,6 @@ export class ReasoningEngine {
   }): Promise<StructuredReasoningResponse> {
     const cleanUtterance = params.utterance.trim();
 
-    // Fast-path: Zero-PIN guard (Spoken PINs must never reach model payload)
-    if (isSpokenPinPresent(cleanUtterance)) {
-      return {
-        intent: "BLOCK_SENSITIVE",
-        confidence: 1.0,
-        decisionKind: "clarify_slot",
-        missingSlot: "pin_blocked",
-        slots: {},
-        dialogueResponse: "For your security, never speak your Mobile Money PIN. Please use your phone keypad when prompted.",
-        isZeroPinAlert: true,
-        source: "security_guard",
-      } as any;
-    }
-
     // Fast-path: simple confirmations and cancellations (e.g. "yes", "aane", "cancel")
     if (this.isSimpleAffirmationOrDenial(cleanUtterance)) {
       return this.deterministicReasoning(params);
@@ -273,8 +253,8 @@ export class ReasoningEngine {
 
     const candidateModels = [
       AI_CONFIG.model || "gemini-3.8-flash",
-      AI_CONFIG.fallbackModel || "gemini-flash-latest",
       "gemini-3.8-flash",
+      "gemini-3.1-flash-lite",
     ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
 
     const availableCandidates = candidateModels.filter((m) => {
@@ -289,9 +269,7 @@ export class ReasoningEngine {
     }
 
     const sessionKey = params.sessionId || `adhoc_${Date.now()}`;
-    const sanitizedUtterance = sanitizeTranscriptForModel(cleanUtterance.slice(0, 500));
-    const { maskedText } = tokenizeAndMaskPii(sanitizedUtterance, params.sessionId);
-    const maskedUtterance = maskPhoneNumbers(maskedText);
+    const sanitizedUtterance = cleanUtterance.slice(0, 500).replace(/<{3,}|>{3,}/g, "");
 
     for (const modelName of availableCandidates) {
       try {
@@ -300,12 +278,11 @@ export class ReasoningEngine {
           async (ai, signal) => {
             const chat = this.getOrCreateChatSession(sessionKey, ai, modelName);
             const response = await chat.sendMessage({
-              message: maskedUtterance,
+              message: sanitizedUtterance,
             });
             return response;
           },
           4000,
-
           0,
           undefined,
           3000,

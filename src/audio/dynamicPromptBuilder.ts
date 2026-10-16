@@ -159,17 +159,17 @@ export function buildRecipientVerificationPrompt(options: {
     spokenText = `We found the recipient. Please listen carefully to the name and the full phone number. ${namePrompt} ${phonePrompt} To confirm this recipient, press 1. To change the recipient, press 2. To exit, press 0.`;
   }
 
-  const recipientFoundUrl = language === "twi"
-    ? `/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Recipient%20found.mp3`
-    : `/audio/Confirm%20understanding.m4a`;
-  const recipientConfirmUrl = language === "twi"
+  const recipientConfirmSpeechUrl = language === "twi"
     ? `/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Recipient%20confirm%20speech.mp3`
+    : `/audio/Confirm%20understanding.m4a`;
+  const useRecipient1Url = language === "twi"
+    ? `/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Use%20recipient%201.mp3`
     : `/audio/Continue.m4a`;
 
-  const voiceXml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
-        <Play url="${recipientFoundUrl}"/>
+  const voiceXml = `    <GetDigits timeout="15" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
+        <Play url="${recipientConfirmSpeechUrl}"/>
+        <Play url="${useRecipient1Url}"/>
         <Say voice="female">${escapeXml(spokenText)}</Say>
-        <Play url="${recipientConfirmUrl}"/>
     </GetDigits>`;
 
   return { spokenText, namePrompt, phonePrompt, voiceXml };
@@ -206,18 +206,18 @@ export function buildSafeConfirmationPrompt(options: SafeConfirmationOptions): {
     }
   }
 
-  const introAudioUrl = language === "twi"
-    ? `/audio/supplied/Twi/5.Transaction%20Confirmation/Confirmation%20intro.mp3`
+  const amountReadback2Url = language === "twi"
+    ? `/audio/supplied/Twi/4.Amount%20Entry%20%26%20Verification/Amount%20readback%202.mp3`
     : `/audio/Confirm%20understanding.m4a`;
-  const confirmContinueAudioUrl = language === "twi"
-    ? `/audio/supplied/Twi/5.Transaction%20Confirmation/Confirm%20continue.mp3`
+  const confirmSpeechUrl = language === "twi"
+    ? `/audio/supplied/Twi/5.Transaction%20Confirmation/Confirm%20speech.mp3`
     : `/audio/Continue.m4a`;
 
   // Africa's Talking compliant VoiceXML with studio audio & dynamic readback
-  const voiceXml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
-        <Play url="${introAudioUrl}"/>
+  const voiceXml = `    <GetDigits timeout="15" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
         <Say voice="female">${escapeXml(spokenText)}</Say>
-        <Play url="${confirmContinueAudioUrl}"/>
+        <Play url="${amountReadback2Url}"/>
+        <Play url="${confirmSpeechUrl}"/>
     </GetDigits>`;
 
   return { spokenText, voiceXml };
@@ -236,7 +236,7 @@ export function buildReceiptPrompt(options: DynamicReceiptOptions): {
   const displayName = recipientName || `subscriber ending in ${last4Spaced}`;
   const amountValidation = parseAndValidateAmount(String(amount));
   const amountFormatted = amountValidation.formatted || `${amount} Cedis`;
-  const spacedRef = formatRefForSpeech(referenceId);
+  const spacedRef = referenceId ? formatRefForSpeech(referenceId) : "";
 
   const dateStr = timestamp.toLocaleDateString("en-GB", {
     day: "numeric",
@@ -257,24 +257,54 @@ export function buildReceiptPrompt(options: DynamicReceiptOptions): {
     } else {
       spokenText = `Your transfer of ${amountFormatted} to ${displayName} has failed. Reference number is ${spacedRef}. Please try again later.`;
     }
+    const voiceXml = `    <Say voice="female">${escapeXml(spokenText)}</Say>\n    <Reject/>`;
+    return { spokenText, voiceXml };
   } else if (status === "PENDING") {
     if (language === "twi") {
       spokenText = `Wo transfer a ɛyɛ ${amountFormatted} akɔma ${displayName} no da so retwɛn authorization. Wo reference nɔmba ne ${spacedRef}.`;
     } else {
       spokenText = `Your transfer of ${amountFormatted} to ${displayName} is pending authorization. Please authorize the prompt on your handset. Reference number is ${spacedRef}.`;
     }
+    const voiceXml = `    <Say voice="female">${escapeXml(spokenText)}</Say>\n    <Reject/>`;
+    return { spokenText, voiceXml };
   } else {
-    if (language === "twi") {
-      spokenText = `Mo! Woatumi amane ${amountFormatted} akɔma ${displayName} wɔ da ${dateStr} berɛ ${timeStr}. Wo reference nɔmba ne ${spacedRef}. Yɛdaase sɛ woayɛ use wɔ Ɔkwankyerɛfo Pa. Nante yiye.`;
-    } else {
-      spokenText = `Congratulations! You have successfully sent ${amountFormatted} to ${displayName} on ${dateStr} at ${timeStr}. Your reference number is ${spacedRef}. Your transaction details have been dispatched. Thank you for using Ɔkwankyerɛfo Pa. Goodbye.`;
-    }
-  }
+    // 16. Success Audio -> 17. Dynamic TTS Reference -> 18. Keep Reference -> Anything Else -> Exit
+    const successAudioUrl = language === "twi"
+      ? `/audio/supplied/Twi/8.Success%20%26%20Completion/SUCCESS.mp3`
+      : `/audio/Success.m4a`;
+    const keepRefAudioUrl = language === "twi"
+      ? `/audio/supplied/Twi/8.Success%20%26%20Completion/Keep%20reference.mp3`
+      : `/audio/Keep%20reference.m4a`;
+    const anythingElseAudioUrl = language === "twi"
+      ? `/audio/supplied/Twi/8.Success%20%26%20Completion/ANYTHING%20ELSE.mp3`
+      : `/audio/Anything%20else.m4a`;
+    const exitAudioUrl = language === "twi"
+      ? `/audio/supplied/Twi/11.Navigation%20%26%20Recovery/Exit.mp3`
+      : `/audio/Exit.m4a`;
 
-  const voiceXml = `    <Say voice="female">${escapeXml(spokenText)}</Say>
+    const refText = referenceId && referenceId.trim()
+      ? (language === "twi"
+          ? `Wo transaction reference nɔmba ne ${spacedRef}. Fa sie yie.`
+          : `Your transaction reference number is ${spacedRef}. Please keep it for your records.`)
+      : (language === "twi"
+          ? `Wo transaction reference nɔmba no nni hɔ seesei.`
+          : `Your transaction reference number is currently unavailable.`);
+
+    if (language === "twi") {
+      spokenText = `Mo! Woatumi amane ${amountFormatted} akɔma ${displayName} wɔ da ${dateStr} berɛ ${timeStr}. ${refText} Yɛdaase sɛ woayɛ use wɔ Ɔkwankyerɛfo Pa. Nante yiye.`;
+    } else {
+      spokenText = `Congratulations! You have successfully sent ${amountFormatted} to ${displayName} on ${dateStr} at ${timeStr}. ${refText} Thank you for using Ɔkwankyerɛfo Pa. Goodbye.`;
+    }
+
+    const voiceXml = `    <Play url="${successAudioUrl}"/>
+    <Say voice="female">${escapeXml(refText)}</Say>
+    <Play url="${keepRefAudioUrl}"/>
+    <Play url="${anythingElseAudioUrl}"/>
+    <Play url="${exitAudioUrl}"/>
     <Reject/>`;
 
-  return { spokenText, voiceXml };
+    return { spokenText, voiceXml };
+  }
 }
 
 export function buildPendingAuthorizationPrompt(options: DynamicReceiptOptions): {

@@ -1,6 +1,0 @@
-{
-  "summary": "Comprehensive architectural implementation plan to construct a resilient, bilingual (English & Akan Twi), safety-guarded conversational AI brain for Ɔkwankyerɛfo Pa. Establishes single-turn Gemini reasoning with local deterministic fallback, cryptographic PII redaction tokenization, unified model configuration with active Gemini catalog verification, strict stateful multi-turn memory with revocation invariants, a zero-PIN voice boundary, and a rigorous Ghanaian speech/text evaluation benchmark.",
-  "updatedAt": "2026-10-15T23:50:16.654601751Z",
-  "requestFeedback": true,
-  "userFacing": true
-}

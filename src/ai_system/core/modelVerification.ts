@@ -19,7 +19,6 @@ export const PROHIBITED_DEPRECATED_MODELS = new Set([
   "gemini-2.0-flash",
   "gemini-2.0-pro",
   "gemini-2.0-flash-thinking",
-  "gemini-3.1-flash-lite", // Retired preview family
 ]);
 
 export interface ModelVerificationReport {

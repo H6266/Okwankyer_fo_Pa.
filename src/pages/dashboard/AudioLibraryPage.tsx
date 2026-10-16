@@ -387,16 +387,16 @@ export const AudioLibraryPage: React.FC = () => {
             <div className="space-y-1.5 p-3.5 bg-white dark:bg-[#101B15] border border-[#0F382A]/10 rounded-xl">
               <div className="flex items-center justify-between text-xs font-mono">
                 <span className="font-bold text-[#0F382A] dark:text-[#D4AF37]">
-                  Step {currentFlowStepIndex + 1} / 14: {TWI_SEQUENTIAL_FLOW_STEPS[currentFlowStepIndex]?.name}
+                  Step {currentFlowStepIndex + 1} / {TWI_SEQUENTIAL_FLOW_STEPS.length}: {TWI_SEQUENTIAL_FLOW_STEPS[currentFlowStepIndex]?.name}
                 </span>
                 <span className="text-[#5E7265]">
-                  {Math.round(((currentFlowStepIndex + 1) / 14) * 100)}% complete
+                  {Math.round(((currentFlowStepIndex + 1) / TWI_SEQUENTIAL_FLOW_STEPS.length) * 100)}% complete
                 </span>
               </div>
               <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
                 <div
                   className="bg-[#0F382A] dark:bg-[#D4AF37] h-full transition-all duration-300"
-                  style={{ width: `${((currentFlowStepIndex + 1) / 14) * 100}%` }}
+                  style={{ width: `${((currentFlowStepIndex + 1) / TWI_SEQUENTIAL_FLOW_STEPS.length) * 100}%` }}
                 />
               </div>
             </div>

@@ -46,6 +46,7 @@ import {
 } from "../../ai_system/speech/asr/ghanaianPhoneticMatcher";
 import { normalizeGhanaPhoneNumber } from "../../domain/validation";
 import { shouldDiscardSensitiveSpeech, isVoiceCaptureBlockedForStep } from "../../domain/pinSafety";
+import { generateTransactionReference, formatRefForSpeech } from "../../audio/dynamicPromptBuilder";
 
 // ── Types ─────────────────────────────────────────────────────────────
 interface TerminalLog {
@@ -213,6 +214,26 @@ export const PhoneSimulatorPage: React.FC = () => {
   const [activeFinishOnKey, setActiveFinishOnKey] = useState<string>("#");
   const [activeStepName, setActiveStepName] = useState<string>("idle");
   const [rawVoiceXml, setRawVoiceXml] = useState<string>("");
+
+  // ── 18-Step Canonical Voice Orchestration State ──────────────────────
+  const [current18StepIndex, setCurrent18StepIndex] = useState<number>(1);
+  const [show18StepTracker, setShow18StepTracker] = useState<boolean>(true);
+  const [capturedRecipientPhone, setCapturedRecipientPhone] = useState<string>("0553838464");
+  const [capturedRecipientName, setCapturedRecipientName] = useState<string>("Kwame Boateng");
+  const [capturedAmount, setCapturedAmount] = useState<number>(50.0);
+  const [confirmedReference, setConfirmedReference] = useState<string>("OKP-782914");
+  const [handsetPinDigits, setHandsetPinDigits] = useState<string>("1234");
+  const [isProcessingHandsetAuthorization, setIsProcessingHandsetAuthorization] = useState<boolean>(false);
+  const [postCompletionChoice, setPostCompletionChoice] = useState<boolean>(false);
+
+  const handlePreviewStepAudio = useCallback(async (audioUrl: string, label: string) => {
+    try {
+      audioPlaybackController.unlockAudio();
+      await audioPlaybackController.play(audioUrl, label);
+    } catch (err) {
+      console.warn("Step preview audio error:", err);
+    }
+  }, []);
 
   // ── Terminal & Chat Timeline State ───────────────────────────────────
   const [activeTab, setActiveTab] = useState<"chat" | "terminal" | "asr_diag">("chat");
@@ -536,6 +557,22 @@ export const PhoneSimulatorPage: React.FC = () => {
       );
       activeStepNameRef.current = stepName;
       setActiveStepName(stepName);
+
+      let stepIndex18 = 1;
+      if (stepName === "voice-menu" || stepName === "welcome") stepIndex18 = 1;
+      else if (stepName === "language-selection") stepIndex18 = 3;
+      else if (stepName === "service-select" || stepName === "service-choice") stepIndex18 = 4;
+      else if (stepName === "provider-select" || stepName === "provider-choice" || stepName === "action-select" || stepName === "action-choice") stepIndex18 = 5;
+      else if (stepName === "enter-recipient") stepIndex18 = 6;
+      else if (stepName === "verify-recipient") stepIndex18 = 7;
+      else if (stepName === "recipient-verify-choice") stepIndex18 = 8;
+      else if (stepName === "enter-amount") stepIndex18 = 9;
+      else if (stepName === "verify-amount") stepIndex18 = 10;
+      else if (stepName === "safe-confirmation") stepIndex18 = 11;
+      else if (stepName === "safe-outcome" || stepName === "pin-authorization") stepIndex18 = 13;
+      else if (stepName === "post-completion") stepIndex18 = 18;
+      setCurrent18StepIndex(stepIndex18);
+
       continuousAudioEngine.setContext(stepName, responseLanguage);
 
       // Follow <Redirect> after auto-playing any associated audio prompt
@@ -881,6 +918,7 @@ export const PhoneSimulatorPage: React.FC = () => {
   const startPinAuthorizationFlow = useCallback(async () => {
     activeStepNameRef.current = "pin-authorization";
     setActiveStepName("pin-authorization");
+    setCurrent18StepIndex(13);
     setDigitsBuffer("");
     zeroPinOverlayRef.current = true;
     setZeroPinOverlay(true);
@@ -892,19 +930,165 @@ export const PhoneSimulatorPage: React.FC = () => {
     const curLang = languageRef.current || language;
     const isTwi = curLang === "twi";
     const promptText = isTwi
-      ? "Hwɛ wo fon so na di akwankyerɛ a ɛwɔ MoMo ahobammɔ krataafa no so akyi. Mfa wo PIN nka anaa nhyɛ wɔ ha."
-      : "Check your phone and follow the official Mobile Money authorization prompt. Do not say or enter your PIN here.";
+      ? "Pene so wɔ wo fon so na sika no nkɔ. Yɛremmisa wo PIN wɔ fon frɛ yi so da."
+      : "Authorize the transfer prompt directly on your handset screen. We will never ask for your PIN over voice.";
 
-    addLog("state", "Secure handset handoff started. App microphone and keypad capture are disabled.");
-    addChatTurn({ sender: "ai", text: promptText, audioSource: "synthesis", stepName: "pin-authorization" });
+    addLog("state", "Step 13: Payment Audio. Handset authorization prompt displayed. App microphone and keypad capture are disabled.");
+    addChatTurn({ sender: "ai", text: promptText, audioSource: "studio", stepName: "payment-audio" });
     setCurrentPrompt(promptText);
     currentPromptRef.current = promptText;
 
+    const paymentAudioUrl = isTwi
+      ? "/audio/supplied/Twi/7.Transaction%20Processing/Authorize%20phone.aac"
+      : "/audio/additional/Authorize%20phone.m4a";
+
     try {
+      await audioPlaybackController.play(paymentAudioUrl, promptText);
+    } catch {
       await audioPlaybackController.speakText(promptText);
+    }
+  }, [language, addLog, addChatTurn]);
+
+  const handleAuthorizeOnHandset = useCallback(async () => {
+    if (isProcessingHandsetAuthorization) return;
+    setIsProcessingHandsetAuthorization(true);
+    const curLang = languageRef.current || language;
+    const isTwi = curLang === "twi";
+
+    // Step 14: Submitted
+    setCurrent18StepIndex(14);
+    const submittedText = isTwi
+      ? "Yɛade transaction no akɔ network no so pɛpɛɛpɛ. Ɛda so retwɛn authorization."
+      : "Transaction submitted to the mobile network provider. Awaiting authorization.";
+    addLog("state", "Step 14: Submitted. Payment request dispatched to network provider.");
+    addChatTurn({ sender: "ai", text: submittedText, audioSource: "studio", stepName: "submitted" });
+    setCurrentPrompt(submittedText);
+    currentPromptRef.current = submittedText;
+    setCallStatus("Submitted: Awaiting Authorization");
+
+    try {
+      await audioPlaybackController.play(
+        isTwi ? "/audio/supplied/Twi/7.Transaction%20Processing/Submitted.aac" : "/audio/additional/Submitted.m4a",
+        submittedText
+      );
     } catch {}
 
-  }, [language, addLog, addChatTurn]);
+    // Step 15: Transaction Status
+    setCurrent18StepIndex(15);
+    const statusText = isTwi
+      ? "Yɛrehwehwɛ awieeɛ gyinabea wɔ MoMo so. Yɛsrɛ wo twɛn kakra."
+      : "Verifying final transaction status on the carrier ledger. Please hold on.";
+    addLog("state", "Step 15: Transaction Status. Polling mobile money carrier ledger.");
+    addChatTurn({ sender: "ai", text: statusText, audioSource: "studio", stepName: "transaction-status" });
+    setCurrentPrompt(statusText);
+    currentPromptRef.current = statusText;
+    setCallStatus("Checking Final Status");
+
+    try {
+      await audioPlaybackController.play(
+        isTwi ? "/audio/supplied/Twi/7.Transaction%20Processing/Check%20final%20status.aac" : "/audio/additional/Check%20final%20status.m4a",
+        statusText
+      );
+    } catch {}
+
+    // Provider confirms final status
+    const verifiedRef = generateTransactionReference();
+    setConfirmedReference(verifiedRef);
+    addLog("state", `Carrier confirmed SUCCESS. Transaction Reference: ${verifiedRef}`);
+
+    // Step 16: Success Audio
+    // "After the payment provider confirms success, play the specific existing Success recording you identified. Allow the complete recording to finish before starting TTS."
+    setCurrent18StepIndex(16);
+    const successText = isTwi
+      ? "Sika no akɔ pɛpɛɛpɛ! MoMo transaction no agye atom."
+      : "Transfer completed successfully! The mobile money payment was completed.";
+    addLog("state", "Step 16: Success Audio. Playing celebratory success audio. Waiting until playback finishes.");
+    addChatTurn({ sender: "ai", text: successText, audioSource: "studio", stepName: "success" });
+    setCurrentPrompt(successText);
+    currentPromptRef.current = successText;
+    setCallStatus("Transfer Successful");
+
+    try {
+      await audioPlaybackController.play(
+        isTwi ? "/audio/supplied/Twi/8.Success%20%26%20Completion/SUCCESS.aac" : "/audio/additional/Success.m4a",
+        successText
+      );
+    } catch {}
+
+    // Step 17: Dynamic TTS — Transaction Reference
+    // "Immediately after Success audio finishes, TTS reads the actual transaction reference returned by the payment service, including its prefix and every digit, in a clear sequence."
+    setCurrent18StepIndex(17);
+    const spacedRef = formatRefForSpeech(verifiedRef);
+    const refReadbackText = isTwi
+      ? `Wo transaction reference nɔmba ne ${spacedRef}. Fa sie yie.`
+      : `Your transaction reference number is ${spacedRef}. Please keep it for your records.`;
+    addLog("state", `Step 17: Dynamic TTS. Reading verified transaction reference: ${spacedRef}`);
+    addChatTurn({ sender: "ai", text: refReadbackText, audioSource: "synthesis", stepName: "dynamic-tts-reference" });
+    setCurrentPrompt(refReadbackText);
+    currentPromptRef.current = refReadbackText;
+
+    try {
+      await audioPlaybackController.speakText(refReadbackText);
+    } catch {}
+
+    // Step 18: Keep Reference -> Anything Else -> Exit
+    setCurrent18StepIndex(18);
+    const keepRefText = isTwi ? "Fa wo reference no sie yie." : "Keep your reference number.";
+    const anythingElseText = isTwi
+      ? "Biribi foforɔ bi wɔ hɔ a metumi ayɛ ama wo? Sɛ wopɛ sɛ woyɛ transaction foforɔ a mia 1, anaa mia 0 na woapue."
+      : "Is there anything else? Press 1 for another transaction, or press 0 to exit.";
+    addLog("state", "Step 18: Keep Reference -> Anything Else -> Completion options.");
+    addChatTurn({ sender: "ai", text: `${keepRefText} ${anythingElseText}`, audioSource: "studio", stepName: "completion-exit" });
+    setCurrentPrompt(anythingElseText);
+    currentPromptRef.current = anythingElseText;
+
+    try {
+      await audioPlaybackController.play(
+        isTwi ? "/audio/supplied/Twi/8.Success%20%26%20Completion/Keep%20reference.aac" : "/audio/Keep%20reference.m4a",
+        keepRefText
+      );
+      await audioPlaybackController.play(
+        isTwi ? "/audio/supplied/Twi/8.Success%20%26%20Completion/ANYTHING%20ELSE.aac" : "/audio/Anything%20else.m4a",
+        anythingElseText
+      );
+    } catch {}
+
+    setIsProcessingHandsetAuthorization(false);
+    setZeroPinOverlay(false);
+    setPostCompletionChoice(true);
+    setActiveNumDigits(1);
+    setActiveStepName("post-completion");
+    activeStepNameRef.current = "post-completion";
+    setIsMicMuted(false);
+    isMicMutedRef.current = false;
+    continuousAudioEngine.setZeroPinMuted(false);
+  }, [isProcessingHandsetAuthorization, language, addLog, addChatTurn]);
+
+  const handlePostCompletionChoice = useCallback(
+    async (choice: string) => {
+      const curLang = languageRef.current || language;
+      const isTwi = curLang === "twi";
+      setPostCompletionChoice(false);
+
+      if (choice === "1") {
+        addLog("caller", "Selected another transaction (1). Restarting flow from Service Selection.");
+        setDigitsBuffer("");
+        setCurrent18StepIndex(4);
+        await dispatchVoiceWebhook("/api/simulator/service-select", { lang: curLang || "twi" });
+      } else {
+        addLog("caller", "Selected exit (0). Ending call gracefully.");
+        const exitUrl = isTwi
+          ? "/audio/supplied/Twi/11.Navigation%20%26%20Recovery/Exit.aac"
+          : "/audio/Exit.m4a";
+        const exitText = isTwi ? "Yɛda wo ase. Nante yie." : "Thank you for using Ɔkwankyerɛfo Pa. Goodbye.";
+        try {
+          await audioPlaybackController.play(exitUrl, exitText);
+        } catch {}
+        await endCall("Caller selected exit at completion");
+      }
+    },
+    [language, addLog, dispatchVoiceWebhook, endCall]
+  );
 
   useEffect(() => {
     startPinAuthorizationFlowRef.current = startPinAuthorizationFlow;
@@ -1725,6 +1909,13 @@ export const PhoneSimulatorPage: React.FC = () => {
         return;
       }
 
+      if (postCompletionChoice) {
+        if (digit === "1" || digit === "0") {
+          handlePostCompletionChoice(digit);
+          return;
+        }
+      }
+
       // Special Handling 3: Keypad '1' during safe-confirmation
       if (digit === "1" && (activeStepNameRef.current === "safe-confirmation" || activeStepNameRef.current.includes("confirm"))) {
         setDigitsBuffer("");
@@ -1737,6 +1928,13 @@ export const PhoneSimulatorPage: React.FC = () => {
       if (digit === activeFinishOnKey) {
         if (digitsBuffer.trim()) {
           const submitted = digitsBuffer.trim();
+          if (activeStepNameRef.current.includes("recipient")) {
+            setCapturedRecipientPhone(submitted);
+          }
+          if (activeStepNameRef.current.includes("amount")) {
+            const parsedAmt = parseFloat(submitted.replace("*", "."));
+            if (!isNaN(parsedAmt)) setCapturedAmount(parsedAmt);
+          }
           setDigitsBuffer("");
           addLog("caller", `Keypad '${submitted}#'`);
           dispatchVoiceWebhook(targetCallback, { dtmfDigits: submitted });
@@ -1935,6 +2133,131 @@ export const PhoneSimulatorPage: React.FC = () => {
             </span>
           )}
         </div>
+      </div>
+
+      {/* ── 18-Step Canonical Voice Orchestration Pipeline ── */}
+      <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-md backdrop-blur-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-teal-500/10 border border-teal-500/30 flex items-center justify-center text-teal-400">
+              <Layers className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-white">
+                  18-Step Audio Flow Orchestration
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-teal-500/10 text-teal-300 border border-teal-500/20">
+                  {callActive ? `Active: Step ${String(current18StepIndex).padStart(2, "0")} / 18` : "18 Studio Assets Ready"}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400">
+                Unified Ghanaian Akan Twi &amp; English audio progression across Telephony Gateway &amp; Phone Simulator
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="hidden md:flex items-center gap-1.5 text-xs text-slate-400 mr-2">
+              <div className="w-24 bg-slate-850 h-2 rounded-full overflow-hidden border border-slate-700">
+                <div
+                  className="bg-gradient-to-r from-teal-500 to-emerald-400 h-full transition-all duration-300"
+                  style={{ width: `${Math.round((current18StepIndex / 18) * 100)}%` }}
+                />
+              </div>
+              <span className="font-mono text-[11px] text-teal-400">
+                {Math.round((current18StepIndex / 18) * 100)}%
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShow18StepTracker((prev) => !prev)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-medium border border-slate-700 transition cursor-pointer"
+            >
+              {show18StepTracker ? (
+                <>
+                  <ChevronUp className="w-3.5 h-3.5" />
+                  <span>Hide Steps</span>
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="w-3.5 h-3.5" />
+                  <span>View All 18 Steps</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {show18StepTracker && (
+          <div className="mt-3 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2 text-xs">
+              {TWI_SEQUENTIAL_FLOW_STEPS.map((step) => {
+                const isActive = callActive && current18StepIndex === step.stepIndex;
+                const isPassed = callActive && current18StepIndex > step.stepIndex;
+
+                let cardBg = "bg-slate-950/70 border-slate-800/80 text-slate-300";
+                if (isActive) {
+                  cardBg = "bg-emerald-950/60 border-emerald-500/70 text-emerald-200 ring-1 ring-emerald-500/40 shadow-sm";
+                } else if (isPassed) {
+                  cardBg = "bg-slate-900/40 border-teal-800/30 text-teal-300/80";
+                }
+
+                const filename = step.audioUrl.split("/").pop() || step.audioUrl;
+                const cleanName = decodeURIComponent(filename);
+
+                return (
+                  <div
+                    key={step.id}
+                    className={`p-2.5 rounded-xl border flex flex-col justify-between transition-all ${cardBg}`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-1 mb-1">
+                        <span className="font-mono text-[11px] font-bold text-teal-400">
+                          {String(step.stepIndex).padStart(2, "0")}
+                        </span>
+                        {isActive ? (
+                          <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-emerald-500/20 text-emerald-300 animate-pulse border border-emerald-500/30">
+                            Active
+                          </span>
+                        ) : isPassed ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-teal-400" />
+                        ) : (
+                          <span className="text-[10px] text-slate-500 font-mono">
+                            {step.keypadPrompt ? `Key ${step.keypadPrompt}` : "Voice"}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="font-medium text-slate-200 text-xs line-clamp-1 mb-1">
+                        {step.name.replace(/^\d+\.\s*/, "")}
+                      </div>
+
+                      <div className="text-[10px] text-slate-400 font-mono truncate bg-slate-900/80 px-1.5 py-0.5 rounded border border-slate-800/60 mb-2">
+                        {step.isDynamicReadback ? "Dynamic Neural TTS" : cleanName}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1 border-t border-slate-800/50">
+                      <span className="text-[9px] text-slate-400">
+                        {step.isDynamicReadback ? "Dynamic Slot" : "Studio Audio"}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handlePreviewStepAudio(step.audioUrl, step.name)}
+                        className="p-1 rounded hover:bg-slate-800 text-teal-400 hover:text-teal-300 transition cursor-pointer"
+                        title={`Preview Step ${step.stepIndex} recording`}
+                      >
+                        <Play className="w-3 h-3 fill-current" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Main Two-Column Layout (Handset + Chat Terminal) ── */}

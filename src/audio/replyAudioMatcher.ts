@@ -138,39 +138,44 @@ export function calculateMatchConfidence(
  * Pre-compiled alias catalog for key Ghanaian MoMo IVR steps
  */
 const STEP_ALIASES: Record<string, string[]> = {
-  welcome: [
+  default_welcome: [
+    "welcome to okwankyerɛfo pa",
+    "welcome prompt",
+    "easy financial transaction service",
+    "for english press 1 for twi press 2",
+    "akwaaba kɔ okwankyerɛfo pa",
+  ],
+  welcome_1: [
     "welcome to mtn mobile money",
     "welcome to mobile money",
+    "akwaaba wɔ ɔkwankyerɛfo pa mu",
+    "wo nne akwankyerɛ",
     "akwaaba kɔ mtn",
     "akwaaba kɔ mobile money",
-    "how can i help you today",
-    "yɛbɛtumi aboa wo dɛn",
   ],
-  description: [
-    "service description",
-    "ɔkwankyerɛfo pa",
-    "nne dwumadie",
-    "voice accessibility service",
+  language_selection: [
+    "language selection",
+    "sɛ wopɛ borɔfo",
+    "sɛ wopɛ twi",
+    "english or twi",
+    "choose english or twi",
   ],
-  network_selection: [
-    "network selection",
-    "paw network",
-    "destination network",
-    "sɛ ɛyɛ mtn a mia 1",
-  ],
-  services_selection: [
+  service_selection_2: [
+    "service selection 2",
     "service selection",
     "services selection",
     "paw dwumadie",
     "sɛ wopɛ sɛ womane sika a mia 1",
   ],
-  send_money_selected: [
-    "send money selected",
-    "woremane sika",
-    "wopɛ sɛ womane sika",
-    "proceeding to transfer",
+  mtn_menu_1: [
+    "mtn menu 1",
+    "mtn menu",
+    "mtn mobile money",
+    "to transfer money press 1",
+    "sɛ wopɛ sɛ womane sika a mia 1",
   ],
-  enter_recipient: [
+  enter_recipient_2: [
+    "enter recipient 2",
     "enter recipient",
     "recipient phone number",
     "ten digit phone number",
@@ -178,49 +183,101 @@ const STEP_ALIASES: Record<string, string[]> = {
     "obi a woremane no",
     "what is the phone number",
   ],
-  enter_amount: [
+  recipient_confirm_speech: [
+    "recipient confirm speech",
+    "recipient 5",
+    "recipient identified",
+    "yɛahu obi a woremane no",
+    "tie ne din ne ne nɔmba",
+  ],
+  use_recipient_1: [
+    "use recipient 1",
+    "recipient 1",
+    "recipient name",
+    "recipient full number",
+    "wopene so a mia 1",
+    "wosesa a mia 2",
+  ],
+  amount_prompt_3: [
+    "enter amount 3",
+    "amount prompt",
+    "sika ahe na wopɛ",
+    "how much money would you like to send",
+  ],
+  enter_amount_4: [
+    "enter amount 4",
     "enter amount",
     "how many ghana cedis",
-    "how much do you want to send",
     "sika dodow a wopɛ",
     "bɔ sika dodow no",
   ],
-  confirmation_intro: [
-    "confirmation intro",
-    "transaction confirmation",
-    "yɛrekɔ confirmation",
+  amount_readback_2: [
+    "amount readback 2",
+    "amount readback",
+    "sika dodow a wobɔe no",
+    "you entered this amount",
   ],
-  review_transaction: [
-    "review transaction",
-    "hwɛ wo transaction",
-    "review your transaction details",
-  ],
-  ready_submit_confirm: [
-    "ready submit",
+  confirm_speech: [
     "confirm speech",
     "sɛ wopene so a mia 1",
     "to confirm and submit press 1",
     "say yes or press 1",
+    "ready submit",
   ],
-  reject_error: [
-    "reject speech",
-    "transaction cancelled",
-    "wotwaa transaction no mu",
-    "transfer was not executed",
+  payment_audio: [
+    "authorize phone",
+    "payment audio",
+    "pene so wɔ wo fon so",
+    "authorize the transfer prompt",
+    "zero-pin",
   ],
-  success_sent: [
+  submitted: [
+    "submitted",
+    "transaction submitted",
+    "yɛade transaction no akɔ network no so",
+    "awaiting confirmation",
+  ],
+  transaction_status: [
+    "transaction status",
+    "check final status",
+    "yɛrehwehwɛ awieeɛ gyinabea",
+    "verifying final transaction status",
+  ],
+  success_audio: [
+    "success",
+    "success audio",
     "success sent",
     "transfer sent successfully",
     "sika no akɔ pɛpɛɛpɛ",
-    "momo transaction no agye atom",
   ],
-  success_close: [
+  dynamic_tts_reference: [
+    "transaction reference",
+    "reference number",
+    "wo transaction reference",
+  ],
+  completion_exit: [
+    "keep reference",
+    "anything else",
     "success close",
     "thank you for using",
     "meda wo ase",
     "nante yie",
     "goodbye",
   ],
+  // Legacy alias fallbacks
+  welcome: ["welcome to mobile money", "akwaaba kɔ mtn"],
+  description: ["service description", "ɔkwankyerɛfo pa"],
+  network_selection: ["network selection", "paw network"],
+  services_selection: ["services selection", "paw dwumadie"],
+  send_money_selected: ["send money selected", "woremane sika"],
+  enter_recipient: ["enter recipient", "recipient phone number"],
+  enter_amount: ["enter amount", "how many ghana cedis"],
+  confirmation_intro: ["confirmation intro", "transaction confirmation"],
+  review_transaction: ["review transaction", "hwɛ wo transaction"],
+  ready_submit_confirm: ["ready submit", "confirm speech"],
+  reject_error: ["reject speech", "transaction cancelled"],
+  success_sent: ["success sent", "sika no akɔ pɛpɛɛpɛ"],
+  success_close: ["success close", "meda wo ase", "nante yie"],
 };
 
 /**
