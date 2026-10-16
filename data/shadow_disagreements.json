@@ -7198,5 +7198,485 @@
       "hasRecipientPhone": false
     },
     "disagreementType": "INTENT_MISMATCH"
+  },
+  {
+    "id": "shadow-1792125589247-z8xkt",
+    "timestamp": "2026-10-16T04:39:49.247Z",
+    "language": "en",
+    "turnId": 1,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.check_balance",
+      "confidence": 0.8,
+      "kind": "not_ready",
+      "hasAmount": false,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "INTENT_MISMATCH"
+  },
+  {
+    "id": "shadow-1792125589287-lwthm",
+    "timestamp": "2026-10-16T04:39:49.287Z",
+    "language": "en",
+    "turnId": 2,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.pay_bill",
+      "confidence": 0.85,
+      "kind": "not_ready",
+      "hasAmount": false,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "INTENT_MISMATCH"
+  },
+  {
+    "id": "shadow-1792125654017-jn7sz",
+    "timestamp": "2026-10-16T04:40:54.017Z",
+    "language": "en",
+    "turnId": 1,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "clarify_slot",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.transfer",
+      "confidence": 0.95,
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "DECISION_KIND_MISMATCH"
+  },
+  {
+    "id": "shadow-1792125654023-0emka",
+    "timestamp": "2026-10-16T04:40:54.023Z",
+    "language": "en",
+    "turnId": 2,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.pay_bill",
+      "confidence": 0.9,
+      "kind": "confirm",
+      "hasAmount": false,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "INTENT_MISMATCH"
+  },
+  {
+    "id": "shadow-1792125897650-8lxdr",
+    "timestamp": "2026-10-16T04:44:57.650Z",
+    "language": "en",
+    "turnId": 1,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.check_balance",
+      "confidence": 0.8,
+      "kind": "not_ready",
+      "hasAmount": false,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "INTENT_MISMATCH"
+  },
+  {
+    "id": "shadow-1792125897757-yu77y",
+    "timestamp": "2026-10-16T04:44:57.757Z",
+    "language": "en",
+    "turnId": 2,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.pay_bill",
+      "confidence": 0.85,
+      "kind": "not_ready",
+      "hasAmount": false,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "INTENT_MISMATCH"
+  },
+  {
+    "id": "shadow-1792125916309-tuhr3",
+    "timestamp": "2026-10-16T04:45:16.309Z",
+    "language": "en",
+    "turnId": 1,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.check_balance",
+      "confidence": 0.8,
+      "kind": "not_ready",
+      "hasAmount": false,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "INTENT_MISMATCH"
+  },
+  {
+    "id": "shadow-1792125916377-i6p1u",
+    "timestamp": "2026-10-16T04:45:16.377Z",
+    "language": "en",
+    "turnId": 2,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.pay_bill",
+      "confidence": 0.85,
+      "kind": "not_ready",
+      "hasAmount": false,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "INTENT_MISMATCH"
+  },
+  {
+    "id": "shadow-1792125923223-x7mok",
+    "timestamp": "2026-10-16T04:45:23.223Z",
+    "language": "en",
+    "turnId": 1,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "clarify_slot",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.transfer",
+      "confidence": 0.95,
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "DECISION_KIND_MISMATCH"
+  },
+  {
+    "id": "shadow-1792125923237-rrexi",
+    "timestamp": "2026-10-16T04:45:23.237Z",
+    "language": "en",
+    "turnId": 2,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.pay_bill",
+      "confidence": 0.9,
+      "kind": "confirm",
+      "hasAmount": false,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "INTENT_MISMATCH"
+  },
+  {
+    "id": "shadow-1792125937877-f878l",
+    "timestamp": "2026-10-16T04:45:37.877Z",
+    "language": "en",
+    "turnId": 1,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "clarify_slot",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.transfer",
+      "confidence": 0.95,
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "DECISION_KIND_MISMATCH"
+  },
+  {
+    "id": "shadow-1792125937885-4emuw",
+    "timestamp": "2026-10-16T04:45:37.885Z",
+    "language": "en",
+    "turnId": 2,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.pay_bill",
+      "confidence": 0.9,
+      "kind": "confirm",
+      "hasAmount": false,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "INTENT_MISMATCH"
+  },
+  {
+    "id": "shadow-1792126251262-lpp9i",
+    "timestamp": "2026-10-16T04:50:51.262Z",
+    "language": "en",
+    "turnId": 1,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.check_balance",
+      "confidence": 0.8,
+      "kind": "not_ready",
+      "hasAmount": false,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "INTENT_MISMATCH"
+  },
+  {
+    "id": "shadow-1792126251681-rlvka",
+    "timestamp": "2026-10-16T04:50:51.681Z",
+    "language": "en",
+    "turnId": 2,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.pay_bill",
+      "confidence": 0.85,
+      "kind": "not_ready",
+      "hasAmount": false,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "INTENT_MISMATCH"
+  },
+  {
+    "id": "shadow-1792126272241-9y281",
+    "timestamp": "2026-10-16T04:51:12.241Z",
+    "language": "en",
+    "turnId": 1,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.check_balance",
+      "confidence": 0.8,
+      "kind": "not_ready",
+      "hasAmount": false,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "INTENT_MISMATCH"
+  },
+  {
+    "id": "shadow-1792126272607-nc8dt",
+    "timestamp": "2026-10-16T04:51:12.607Z",
+    "language": "en",
+    "turnId": 2,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.pay_bill",
+      "confidence": 0.85,
+      "kind": "not_ready",
+      "hasAmount": false,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "INTENT_MISMATCH"
+  },
+  {
+    "id": "shadow-1792126279469-ubaj6",
+    "timestamp": "2026-10-16T04:51:19.469Z",
+    "language": "en",
+    "turnId": 1,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "clarify_slot",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.transfer",
+      "confidence": 0.95,
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "DECISION_KIND_MISMATCH"
+  },
+  {
+    "id": "shadow-1792126279476-anklg",
+    "timestamp": "2026-10-16T04:51:19.476Z",
+    "language": "en",
+    "turnId": 2,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.pay_bill",
+      "confidence": 0.9,
+      "kind": "confirm",
+      "hasAmount": false,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "INTENT_MISMATCH"
+  },
+  {
+    "id": "shadow-1792126299380-zqsff",
+    "timestamp": "2026-10-16T04:51:39.380Z",
+    "language": "en",
+    "turnId": 1,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "clarify_slot",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.transfer",
+      "confidence": 0.95,
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "DECISION_KIND_MISMATCH"
+  },
+  {
+    "id": "shadow-1792126299386-rs9lw",
+    "timestamp": "2026-10-16T04:51:39.386Z",
+    "language": "en",
+    "turnId": 2,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.pay_bill",
+      "confidence": 0.9,
+      "kind": "confirm",
+      "hasAmount": false,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "INTENT_MISMATCH"
+  },
+  {
+    "id": "shadow-1792126432285-p3fso",
+    "timestamp": "2026-10-16T04:53:52.285Z",
+    "language": "en",
+    "turnId": 1,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.check_balance",
+      "confidence": 0.8,
+      "kind": "not_ready",
+      "hasAmount": false,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "INTENT_MISMATCH"
+  },
+  {
+    "id": "shadow-1792126432654-rcl9e",
+    "timestamp": "2026-10-16T04:53:52.654Z",
+    "language": "en",
+    "turnId": 2,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.pay_bill",
+      "confidence": 0.85,
+      "kind": "not_ready",
+      "hasAmount": false,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "INTENT_MISMATCH"
+  },
+  {
+    "id": "shadow-1792126454383-f1chb",
+    "timestamp": "2026-10-16T04:54:14.383Z",
+    "language": "en",
+    "turnId": 1,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "clarify_slot",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.transfer",
+      "confidence": 0.95,
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "DECISION_KIND_MISMATCH"
+  },
+  {
+    "id": "shadow-1792126454390-pg4tl",
+    "timestamp": "2026-10-16T04:54:14.390Z",
+    "language": "en",
+    "turnId": 2,
+    "offlineDecision": {
+      "intent": "momo.transfer",
+      "kind": "confirm",
+      "hasAmount": true,
+      "hasRecipientPhone": true
+    },
+    "modelDecision": {
+      "intent": "momo.pay_bill",
+      "confidence": 0.9,
+      "kind": "confirm",
+      "hasAmount": false,
+      "hasRecipientPhone": false
+    },
+    "disagreementType": "INTENT_MISMATCH"
   }
 ]

@@ -309,7 +309,7 @@ describe("TTS Fallback Scripts & Recording Registry", () => {
       expect(PROMPT_SCRIPTS[key].en.length).toBeGreaterThan(10);
       expect(PROMPT_SCRIPTS[key].twi.length).toBeGreaterThan(10);
     }
-    expect(getRecordingByPromptKey("enter_amount")).toBeNull();
+    expect(getRecordingByPromptKey("enter_amount", "en")).toBeNull();
     expect(getRecordingByPromptKey("safe_confirmation")).toBeNull();
   });
 });

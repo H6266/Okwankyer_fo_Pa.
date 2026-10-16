@@ -480,7 +480,9 @@ describe('Central Reasoning Brain - Architectural Invariants', () => {
       expect(amountTurn.telemetry?.tier).toBe('TIER_1_DETERMINISTIC');
       expect(amountTurn.telemetry?.tokensUsed).toBe(0);
       expect(amountTurn.decision.kind).toBe('confirm');
-      expect(amountTurn.decision.slots.amount).toBe(25);
+      if (amountTurn.decision.kind === 'confirm') {
+        expect(amountTurn.decision.slots.amount).toBe(25);
+      }
     });
   });
 });

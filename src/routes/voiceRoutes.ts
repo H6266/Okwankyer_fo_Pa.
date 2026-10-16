@@ -14,7 +14,7 @@ import { config } from "../config/env";
 import { recipientResolver } from "../providers/recipient/RecipientResolver";
 import { parseAndValidateAmount, validateGhanaPhoneNumber, normalizeGhanaPhoneNumber, redactPii } from "../domain/validation";
 import { transactionStateMachine } from "../domain/stateMachine";
-import { buildSafeConfirmationPrompt, buildReceiptPrompt } from "../audio/dynamicPromptBuilder";
+import { buildSafeConfirmationPrompt, buildReceiptPrompt, formatFullPhoneNumberForSpeech } from "../audio/dynamicPromptBuilder";
 import { isSpokenPinPattern, speechToText } from "../modules/sttService";
 import { mtnMomoService } from "../modules/mtnMomoService";
 import { auditLogger } from "../services/auditLogger";
@@ -600,7 +600,7 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
   }
   return xmlResponse(
     res,
-    `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("supported_service_select", lang, baseUrl, decision.replyText)}\n    </GetDigits>`,
+    `    <Say voice="female">${escapeVoiceXml(decision.replyText)}</Say>\n    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("supported_service_select", lang, baseUrl, decision.replyText)}\n    </GetDigits>`,
     decision
   );
 });
@@ -708,7 +708,7 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
   }
   return xmlResponse(
     res,
-    `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("mtn_network_select", lang, baseUrl, decision.replyText)}\n    </GetDigits>`,
+    `    <Say voice="female">${escapeVoiceXml(decision.replyText)}</Say>\n    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("mtn_network_select", lang, baseUrl, decision.replyText)}\n    </GetDigits>`,
     decision
   );
 });
@@ -953,7 +953,7 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
     ...(amountValidation?.valid && amountValidation.amount !== undefined ? { amount: amountValidation.amount } : {}),
   });
 
-  const fullPhoneSpoken = speechNormalizer.formatPhoneSlowlyForSpeech(phoneValidation.normalized, lang);
+  const fullPhoneSpoken = formatFullPhoneNumberForSpeech(phoneValidation.normalized, lang);
   const nameSpoken = resolution.name || (lang === "twi" ? `fon nɔmba ${fullPhoneSpoken}` : `subscriber ${fullPhoneSpoken}`);
 
   const useRecipient1Url = lang === "twi"
@@ -971,7 +971,7 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
   }
 
   // Audio 8 (Use Recipient 1) plays BEFORE Audio 7 (Recipient Confirm Speech)
-  const xml = `    <GetDigits timeout="15" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/recipient-verify-choice?sessionId=${sessionId}&amp;lang=${lang}">
+  const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/recipient-verify-choice?sessionId=${sessionId}&amp;lang=${lang}">
         ${useRecipient1Url ? `<Play url="${escapeVoiceXml(useRecipient1Url)}"/>` : ""}
         ${recipientConfirmSpeechUrl ? `<Play url="${escapeVoiceXml(recipientConfirmSpeechUrl)}"/>` : ""}
         <Say voice="female">${escapeVoiceXml(verifyPrompt)}</Say>
@@ -1136,7 +1136,7 @@ ivrRouter.all("/safe-confirmation", (req: Request, res: Response) => {
   const recipientName = session.recipientName;
   const isVerified = session.isRecipientVerified;
 
-  const callbackUrl = `${baseUrl}/pin-handoff?sessionId=${sessionId}&amp;lang=${lang}`;
+  const callbackUrl = `${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}`;
 
   const { spokenText, voiceXml } = buildSafeConfirmationPrompt({
     language: lang,
@@ -1173,7 +1173,7 @@ ivrRouter.all("/pin-handoff", (req: Request, res: Response) => {
 
   // If PIN digits were already passed (e.g. from ASR or fast keypad)
   if (dtmf && dtmf.length === 4) {
-    session.pin = dtmf;
+    transactionStateMachine.transition(session.sessionId, "PIN_PENDING");
     return xmlResponse(res, `    <Redirect>${baseUrl}/confirm-speech?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${dtmf}</Redirect>`);
   }
 
@@ -1193,7 +1193,7 @@ ivrRouter.all("/pin-handoff", (req: Request, res: Response) => {
     reason: "PIN handoff prompt (between 11 and 12)",
     replyText: pinPrompt,
     replyKey: "OP40",
-    action: "continue",
+    action: "advance",
   });
 });
 
@@ -1206,7 +1206,7 @@ ivrRouter.all("/confirm-speech", (req: Request, res: Response) => {
   const session = transactionStateMachine.getOrCreateSession(sessionId);
 
   if (dtmf && dtmf.length === 4) {
-    session.pin = dtmf;
+    transactionStateMachine.transition(session.sessionId, "PIN_PENDING");
   }
 
   const confirmAudioUrl = lang === "twi"
@@ -1228,7 +1228,7 @@ ivrRouter.all("/confirm-speech", (req: Request, res: Response) => {
     reason: "Confirm speech prompt (Step 12)",
     replyText: confirmPrompt,
     replyKey: "OP41",
-    action: "continue",
+    action: "advance",
   });
 });
 

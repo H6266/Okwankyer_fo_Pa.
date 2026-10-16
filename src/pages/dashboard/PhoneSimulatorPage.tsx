@@ -47,6 +47,7 @@ import {
 import { normalizeGhanaPhoneNumber } from "../../domain/validation";
 import { shouldDiscardSensitiveSpeech, isVoiceCaptureBlockedForStep } from "../../domain/pinSafety";
 import { generateTransactionReference, formatRefForSpeech } from "../../audio/dynamicPromptBuilder";
+import { speechNormalizer } from "../../ai_system/speech/speechNormalizer";
 
 // ── Types ─────────────────────────────────────────────────────────────
 interface TerminalLog {

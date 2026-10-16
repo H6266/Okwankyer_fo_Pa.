@@ -10,8 +10,7 @@
 import { formatSpokenNumbersAsDigits } from "./numberFormatter";
 
 export function isVoiceCaptureBlockedForStep(step?: string): boolean {
-  // Voice capture is enabled for PIN handoff step so user can speak 4-digit password
-  return false;
+  return step === "pin-authorization";
 }
 
 export function shouldDiscardSensitiveSpeech(text: string, step?: string): boolean {

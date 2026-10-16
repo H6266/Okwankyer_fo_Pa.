@@ -123,7 +123,16 @@ export function renderDynamicPromptTemplate(
  * (e.g., "0 2 4 1 2 3 4 5 6 7" in English; "hwee mmienu nnan baako mmienu mmiɛnsa nnan nnum nsia nson" in Twi)
  */
 export function formatFullPhoneNumberForSpeech(phone: string, language: "en" | "twi"): string {
-  return speechNormalizer.formatPhoneSlowlyForSpeech(phone, language);
+  const clean = phone.replace(/\D/g, "");
+  const normalized = clean.length === 9 ? "0" + clean : clean.length === 12 && clean.startsWith("233") ? "0" + clean.slice(3) : clean.slice(-10);
+  if (language === "twi") {
+    const TWI_DIGIT_WORDS: Record<string, string> = {
+      "0": "hwee", "1": "baako", "2": "mmienu", "3": "mmiɛnsa", "4": "nnan",
+      "5": "nnum", "6": "nsia", "7": "nson", "8": "nwɔtwe", "9": "nkron",
+    };
+    return normalized.split("").map((d) => TWI_DIGIT_WORDS[d] || d).join(" ");
+  }
+  return normalized.split("").join(" ");
 }
 
 /**

@@ -26,16 +26,16 @@ export class SpeechNormalizer {
 
     const isTwi = language === "tw" || language === "twi" || language.startsWith("twi");
     if (isTwi) {
-      const g1 = p1.split("").map((d) => TWI_DIGIT_WORDS[d] || d).join(", ");
-      const g2 = p2.split("").map((d) => TWI_DIGIT_WORDS[d] || d).join(", ");
-      const g3 = p3.split("").map((d) => TWI_DIGIT_WORDS[d] || d).join(", ");
-      return `${g1} , , ... ${g2} , , ... ${g3}`;
+      const g1 = p1.split("").map((d) => TWI_DIGIT_WORDS[d] || d).join(" ");
+      const g2 = p2.split("").map((d) => TWI_DIGIT_WORDS[d] || d).join(" ");
+      const g3 = p3.split("").map((d) => TWI_DIGIT_WORDS[d] || d).join(" ");
+      return `${g1}, ${g2}, ${g3}`;
     }
 
-    const g1 = p1.split("").join(" , ");
-    const g2 = p2.split("").join(" , ");
-    const g3 = p3.split("").join(" , ");
-    return `${g1} , , ... ${g2} , , ... ${g3}`;
+    const g1 = p1.split("").join(" ");
+    const g2 = p2.split("").join(" ");
+    const g3 = p3.split("").join(" ");
+    return `${g1}, ${g2}, ${g3}`;
   }
 
   /**

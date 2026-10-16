@@ -347,8 +347,8 @@ export class Brain {
       if (rawTranscript) {
         output.updatedDraft.recentTurns = [
           ...(output.updatedDraft.recentTurns || []),
-          { role: 'user', text: rawTranscript },
-          { role: 'assistant', text: output.reply.text },
+          { role: 'user' as const, text: rawTranscript },
+          { role: 'assistant' as const, text: output.reply.text },
         ].slice(-4);
       }
 
@@ -1327,7 +1327,6 @@ export class Brain {
     turnStartTime: number = Date.now(),
     sessionId?: string
   ): Promise<ModelOutputContract | null> {
-    if (process.env.VITEST && !process.env.TEST_LIVE_GEMINI) return null;
     if (!geminiClient.isAvailable()) return null;
 
     const sessionKey = sessionId || (draft.draftHash ? `session_${draft.draftHash}` : `session_turn_${turnId}`);

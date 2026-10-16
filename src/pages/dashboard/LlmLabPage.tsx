@@ -68,6 +68,12 @@ interface BrainOutput {
   updatedDraft: BrainDraft;
   sessionLanguage: string;
   modelOutput?: any;
+  telemetry?: {
+    tier: string;
+    tokensUsed: number;
+    latencyMs: number;
+    decisionSource: string;
+  };
 }
 
 interface PromptPreset {
