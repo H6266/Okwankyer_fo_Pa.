@@ -22,6 +22,7 @@ import { transactionStateMachine } from "../src/domain/stateMachine";
 import { ivrDecisionEngine } from "../src/ai_system/brain/ivrDecisionEngine";
 import { getStepDefinition, validateKeypadInput } from "../src/domain/stepRegistry";
 import { audioFileExists } from "../src/audio/catalog";
+import { TWI_SEQUENTIAL_FLOW_STEPS } from "../src/audio/twiSequentialAudioFlow";
 import fs from "fs";
 import path from "path";
 
@@ -384,5 +385,62 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
     const twiStep = validateKeypadInput(langStep, "2", "twi");
     expect(twiStep.valid).toBe(true);
     expect(twiStep.targetStep).toBe("service-select");
+  });
+
+  // AT-36: Canonical 18-step progression: Audio 8 before 7, Audio 13 removed, Keep Reference before Dynamic TTS
+  it("AT-36: Unified 18-step sequence has audio 8 before 7, audio 13 removed, and keep reference before dynamic TTS", () => {
+    const steps = TWI_SEQUENTIAL_FLOW_STEPS;
+    expect(steps).toHaveLength(18);
+
+    // Audio 8 (Use Recipient 1) is Step 7; Audio 7 (Recipient Confirm Speech) is Step 8
+    const step7 = steps.find((s) => s.stepIndex === 7)!;
+    const step8 = steps.find((s) => s.stepIndex === 8)!;
+    expect(step7.id).toBe("use_recipient_1");
+    expect(step7.audioUrl).toContain("Use%20recipient%201.m4a");
+    expect(step8.id).toBe("recipient_confirm_speech");
+    expect(step8.audioUrl).toContain("Recipient%20confirm%20speech.m4a");
+
+    // Audio 13 (Authorize phone) is removed; Step 12 (confirm_speech) leads directly to submitted (Step 13)
+    const step12 = steps.find((s) => s.stepIndex === 12)!;
+    expect(step12.nextStepId).toBe("submitted");
+    const step13 = steps.find((s) => s.stepIndex === 13)!;
+    expect(step13.id).toBe("submitted");
+    expect(step13.audioUrl).toContain("Submitted.aac");
+
+    // Updated Audio 16: SUCCESS SENT
+    const step15 = steps.find((s) => s.stepIndex === 15)!;
+    expect(step15.id).toBe("success_audio");
+    expect(step15.audioUrl).toContain("SUCCESS%20SENT.aac");
+
+    // Audio 18 (Keep reference) is Step 16, and Dynamic TTS Reference is Step 17 (plays AFTER Audio 18)
+    const step16 = steps.find((s) => s.stepIndex === 16)!;
+    const step17 = steps.find((s) => s.stepIndex === 17)!;
+    expect(step16.id).toBe("keep_reference");
+    expect(step16.audioUrl).toContain("Keep%20reference.aac");
+    expect(step17.id).toBe("dynamic_tts_reference");
+    expect(step17.isDynamicReadback).toBe(true);
+    expect(step16.nextStepId).toBe("dynamic_tts_reference");
+
+    // Step 18 is completion / Anything Else
+    const step18 = steps.find((s) => s.stepIndex === 18)!;
+    expect(step18.id).toBe("anything_else");
+  });
+
+  // AT-37: Phone number entry auto-advances or advances with # without stalling
+  it("AT-37: Valid 10-digit phone number entry never stalls and transitions to recipient verification", () => {
+    const rawNumber = "0553838464";
+    const validation = validateGhanaPhoneNumber(rawNumber);
+    expect(validation.valid).toBe(true);
+    expect(validation.normalized).toBe("0553838464");
+
+    const session = transactionStateMachine.getOrCreateSession("sess_flow_test", "twi", "KEYPAD");
+    transactionStateMachine.transition("sess_flow_test", "RECIPIENT_VERIFIED", {
+      recipientPhone: validation.normalized,
+      recipientName: "Kwame Boateng",
+      isRecipientVerified: true,
+      network: "MTN",
+    });
+    expect(session.state).toBe("RECIPIENT_VERIFIED");
+    expect(session.recipientPhone).toBe("0553838464");
   });
 });

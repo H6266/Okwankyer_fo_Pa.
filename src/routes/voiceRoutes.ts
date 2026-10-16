@@ -957,11 +957,11 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
     : (phoneValidation.fullPhoneSpaced || phoneValidation.normalized.split("").join(" "));
   const nameSpoken = resolution.name || (lang === "twi" ? `fon nɔmba ${fullPhoneSpoken}` : `subscriber ${fullPhoneSpoken}`);
 
-  const recipientConfirmSpeechUrl = lang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Recipient%20confirm%20speech.mp3`
-    : "";
   const useRecipient1Url = lang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Use%20recipient%201.mp3`
+    ? `${baseUrl}/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Use%20recipient%201.m4a`
+    : "";
+  const recipientConfirmSpeechUrl = lang === "twi"
+    ? `${baseUrl}/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Recipient%20confirm%20speech.m4a`
     : "";
 
   let verifyPrompt = "";
@@ -971,9 +971,10 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
     verifyPrompt = `The recipient's name is ${nameSpoken}. The full recipient phone number is ${fullPhoneSpoken}. Press 1 to confirm, 2 to re-enter, or 0 to exit.`;
   }
 
+  // Audio 8 (Use Recipient 1) plays BEFORE Audio 7 (Recipient Confirm Speech)
   const xml = `    <GetDigits timeout="15" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/recipient-verify-choice?sessionId=${sessionId}&amp;lang=${lang}">
-        ${recipientConfirmSpeechUrl ? `<Play url="${escapeVoiceXml(recipientConfirmSpeechUrl)}"/>` : ""}
         ${useRecipient1Url ? `<Play url="${escapeVoiceXml(useRecipient1Url)}"/>` : ""}
+        ${recipientConfirmSpeechUrl ? `<Play url="${escapeVoiceXml(recipientConfirmSpeechUrl)}"/>` : ""}
         <Say voice="female">${escapeVoiceXml(verifyPrompt)}</Say>
     </GetDigits>
     <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="8" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=recipient-verify-choice&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
@@ -1245,15 +1246,16 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
       transactionStateMachine.transition(sessionId, "PIN_PENDING", {
         momoReferenceId: session.referenceId,
       });
-      const pinHandoffAudio = lang === "twi"
-        ? `${baseUrl}/audio/supplied/Twi/7.Transaction%20Processing/Authorize%20phone.mp3`
-        : `${baseUrl}/audio/Authorize%20phone.m4a`;
-      const handoffXml = `    <Play url="${escapeVoiceXml(pinHandoffAudio)}"/>\n    <Say voice="female">${lang === "twi" ? "Yɛsrɛ wo, hwɛ wo fon screen so na fa wo MoMo PIN bɔ mu ahobammbɔ mu." : "Please check your phone screen and enter your Mobile Money PIN securely to authorize this transfer."}</Say>\n    <Reject/>`;
+      // Audio 13 (Authorize phone) removed: Dispatches directly to Submitted and status checking
+      const submittedAudio = lang === "twi"
+        ? `${baseUrl}/audio/supplied/Twi/7.Transaction%20Processing/Submitted.aac`
+        : `${baseUrl}/audio/additional/Submitted.m4a`;
+      const handoffXml = `    <Play url="${escapeVoiceXml(submittedAudio)}"/>\n    <Say voice="female">${lang === "twi" ? "Yɛade transaction no akɔ network no so pɛpɛɛpɛ." : "Transaction submitted to the mobile network provider."}</Say>\n    <Reject/>`;
       return xmlResponse(res, handoffXml, {
         type: "understood_intent",
-        reason: "Zero-PIN handoff initiated in phone simulator",
-        replyText: lang === "twi" ? "Yɛsrɛ wo, hwɛ wo fon screen so na fa wo MoMo PIN bɔ mu." : "Check your phone screen to enter your MoMo PIN.",
-        replyKey: "OP43",
+        reason: "Payment submitted directly without Audio 13 handoff",
+        replyText: lang === "twi" ? "Yɛade transaction no akɔ network no so pɛpɛɛpɛ." : "Transaction submitted to network.",
+        replyKey: "OP45",
         action: "hangup",
       });
     }
