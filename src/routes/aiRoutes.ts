@@ -47,6 +47,7 @@ import { getFullAiHealthReport } from "../services/healthService";
 import { transactionStateMachine } from "../domain/stateMachine";
 import { buildReceiptPrompt } from "../audio/dynamicPromptBuilder";
 import { matchReplyToAudio } from "../audio/replyAudioMatcher";
+import { hciLabService } from "../services/hciLabService";
 
 export const aiRouter = Router();
 
@@ -57,10 +58,28 @@ aiRouter.get("/api/ai/status", (_req: Request, res: Response) => {
     geminiConfigured: config.gemini.configured,
     openAiConfigured: Boolean(process.env.OPENAI_API_KEY),
     qwenConfigured: Boolean(process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY),
+    hciLabConfigured: hciLabService.isConfigured(),
     fallbackHandshakeChain: ["gemini", "openai", "qwen", "local_brain"],
     offlineCapable: true,
     languages: ["en", "tw", "ak"],
     zeroPinEnforced: true,
+  });
+});
+
+// HCI Lab Quota & Usage Report (0 external API tokens consumed)
+aiRouter.get("/api/ai/hcilab/usage", (_req: Request, res: Response) => {
+  res.json(hciLabService.getUsageReport());
+});
+
+// Real-time Speech Flow & Diagnostic Audit Logs (ASR and TTS)
+aiRouter.get(["/api/ai/speech/logs", "/api/ai/hcilab/logs"], (req: Request, res: Response) => {
+  const limit = Math.min(100, Math.max(1, parseInt((req.query?.limit as string) || "50", 10)));
+  const logs = hciLabService.getSpeechLogs(limit);
+  res.json({
+    success: true,
+    count: logs.length,
+    usage: hciLabService.getUsageReport(),
+    logs,
   });
 });
 

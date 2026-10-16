@@ -21,6 +21,7 @@ import { piperProvider } from "./localTtsProvider";
 import { geminiTtsAdapter } from "./ttsAdapter";
 import { localGhanaianTtsProvider } from "./localGhanaianTts";
 import { twiAmountSynthesizer } from "./twiAmountSynthesizer";
+import { hciLabService } from "../../../services/hciLabService";
 
 export type TtsTier =
   | "TIER_1_STUDIO_CATALOG"
@@ -121,6 +122,25 @@ export class TtsRouter implements TTSProvider {
             };
           }
         }
+      }
+    }
+
+    // ── TIER 1.5: HCI Lab Akan Twi Neural TTS (with disk caching & quota guard) ──
+    if (isTwi && hciLabService.isConfigured()) {
+      try {
+        const hciRes = await hciLabService.synthesize(rawText);
+        if (this.validateAudioHeader(hciRes.audioBuffer)) {
+          return {
+            audioBuffer: hciRes.audioBuffer,
+            audioBase64: hciRes.audioBuffer.toString("base64"),
+            audioMimeType: "audio/wav",
+            mimeType: "audio/wav",
+            durationEstimateSec: hciRes.durationSec,
+            providerUsed: hciRes.fromCache ? "tier1-hci-lab-disk-cache" : "tier1-hci-lab-neural-tts",
+          };
+        }
+      } catch (err: any) {
+        console.warn("[TtsRouter] HCI Lab TTS notice:", err?.message || err);
       }
     }
 

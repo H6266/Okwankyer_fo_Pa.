@@ -90,6 +90,21 @@ export const AsrLabPage: React.FC = () => {
     audioQualityScore?: number;
   } | null>(null);
 
+  const [hciQuota, setHciQuota] = useState<{
+    dailyAsrCount: number;
+    dailyAsrLimit: number;
+    weeklyAsrCount: number;
+    weeklyAsrLimit: number;
+    configured: boolean;
+  } | null>(null);
+
+  React.useEffect(() => {
+    fetch("/api/ai/hcilab/usage")
+      .then((res) => res.json())
+      .then((data) => setHciQuota(data))
+      .catch(() => {});
+  }, []);
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const timerIntervalRef = useRef<any>(null);
@@ -383,6 +398,24 @@ export const AsrLabPage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* HCI Lab Quota Defense Status */}
+      {hciQuota && (
+        <div className="bg-slate-900 border border-emerald-500/30 rounded-2xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="font-semibold text-emerald-300">University of Ghana HCI Lab ASR Status:</span>
+            <span className="text-slate-300">{hciQuota.configured ? "Configured & Active" : "Unconfigured / Mock Mode"}</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-slate-400">Daily ASR: <b className="text-emerald-400 font-mono">{hciQuota.dailyAsrCount}/{hciQuota.dailyAsrLimit}</b></span>
+            <span className="text-slate-400">Weekly ASR: <b className="text-slate-300 font-mono">{hciQuota.weeklyAsrCount}/{hciQuota.weeklyAsrLimit}</b></span>
+            <span className="bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded text-[11px] font-medium">
+              Zero-Waste Active (Oct 24 Target)
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Aggregate Metrics Bar */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

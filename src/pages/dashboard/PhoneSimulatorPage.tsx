@@ -263,6 +263,26 @@ export const PhoneSimulatorPage: React.FC = () => {
   // ── Diagnostics & Dev View ───────────────────────────────────────────
   const [showDevView, setShowDevView] = useState<boolean>(false);
   const [testAudioStatus, setTestAudioStatus] = useState<string>("");
+  const [hciQuota, setHciQuota] = useState<{
+    dailyAsrCount: number;
+    dailyAsrLimit: number;
+    dailyTtsCount: number;
+    dailyTtsLimit: number;
+    weeklyAsrCount: number;
+    weeklyAsrLimit: number;
+    configured: boolean;
+  } | null>(null);
+
+  const refreshHciQuota = useCallback(() => {
+    fetch("/api/ai/hcilab/usage")
+      .then((res) => res.json())
+      .then((data) => setHciQuota(data))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refreshHciQuota();
+  }, [refreshHciQuota]);
 
   // Refs
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
@@ -2098,6 +2118,36 @@ export const PhoneSimulatorPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* ── Quota Defense & Speech Gateway Banner ── */}
+      {hciQuota && (
+        <div className="bg-slate-900/90 border border-emerald-500/30 rounded-xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="font-semibold text-emerald-300">University of Ghana HCI Lab Speech API:</span>
+            <span className="text-slate-300">
+              {hciQuota.configured ? "Configured & Active" : "Offline / Mock Active"}
+            </span>
+          </div>
+          <div className="flex items-center flex-wrap gap-4">
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-400">ASR Today:</span>
+              <span className="font-mono font-bold text-emerald-400">{hciQuota.dailyAsrCount}/{hciQuota.dailyAsrLimit}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-400">TTS Today:</span>
+              <span className="font-mono font-bold text-amber-400">{hciQuota.dailyTtsCount}/{hciQuota.dailyTtsLimit}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-400">Week ASR:</span>
+              <span className="font-mono font-bold text-slate-300">{hciQuota.weeklyAsrCount}/{hciQuota.weeklyAsrLimit}</span>
+            </div>
+            <span className="bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded text-[11px] font-medium">
+              Zero-Waste Defense Active (Oct 24 Target)
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* ── Main Two-Column Layout (Handset + Chat Terminal) ── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">

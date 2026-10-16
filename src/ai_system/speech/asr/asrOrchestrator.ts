@@ -15,6 +15,7 @@
 import { audioNormalizer } from "./audioNormalizer";
 import { audioQualityAnalyzer, AudioQualityReport } from "./audioQuality";
 import { ghanaNlpAsrService } from "../../../services/ghanaNlpAsrService";
+import { hciLabService } from "../../../services/hciLabService";
 import { geminiClient } from "../../../services/geminiClient";
 import { offlineSpeechRecognizer } from "./offlineAsrEngine";
 import { ghanaAsrProvider } from "./ghanaAsrProvider";
@@ -115,8 +116,30 @@ export class AsrOrchestrator {
     let confidence: number | null = null;
     let confidenceSource: AsrOrchestrationResult["confidenceSource"] = "unavailable";
 
-    // ── STEP 4: Primary Provider: GhanaNLP ASR v3 ──
-    if (ghanaNlpAsrService.isConfigured()) {
+    // ── STEP 4A: Dedicated Ghanaian ASR: University of Ghana HCI Lab (with Quota Guard) ──
+    if (hciLabService.isConfigured() && (resolvedLanguage === "twi" || resolvedLanguage === "atw")) {
+      providerAttempted = "HCI_LAB_ASR";
+      try {
+        const timeoutMs = options.timeoutMs || 2500;
+        const hciResult = await hciLabService.transcribe(
+          normalized.wavBuffer,
+          "audio/wav",
+          { timeoutMs }
+        );
+        if (hciResult.transcript && hciResult.transcript.trim().length > 0) {
+          rawText = hciResult.transcript;
+          providerUsed = "HCI_LAB_ASR";
+          confidence = hciResult.confidence;
+          confidenceSource = "provider";
+        }
+      } catch (err: any) {
+        fallbackReason = err.message || "HCI Lab ASR transcription failure";
+        auditLogger.log("warn", "ASR_ORCHESTRATOR", `HCI Lab primary ASR attempt notice: ${fallbackReason}. Proceeding to fallback.`);
+      }
+    }
+
+    // ── STEP 4B: Primary Provider: GhanaNLP ASR v3 ──
+    if (!rawText && ghanaNlpAsrService.isConfigured()) {
       providerAttempted = "GhanaNLP_ASR_v3";
       try {
         const timeoutMs = options.timeoutMs || ghanaNlpAsrService.defaultTimeoutMs;

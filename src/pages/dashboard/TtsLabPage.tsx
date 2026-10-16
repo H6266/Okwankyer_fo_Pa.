@@ -45,6 +45,16 @@ export const TtsLabPage: React.FC = () => {
   const synthAudioRef = useRef<HTMLAudioElement | null>(null);
   const catalogAudioRef = useRef<HTMLAudioElement | null>(null);
 
+  const [hciQuota, setHciQuota] = useState<{
+    dailyTtsCount: number;
+    dailyTtsLimit: number;
+    weeklyTtsCount: number;
+    weeklyTtsLimit: number;
+    weeklyCharsCount: number;
+    weeklyCharsLimit: number;
+    configured: boolean;
+  } | null>(null);
+
   useEffect(() => {
     setLoading(true);
     api
@@ -52,6 +62,11 @@ export const TtsLabPage: React.FC = () => {
       .then(setManifest)
       .catch(console.warn)
       .finally(() => setLoading(false));
+
+    fetch("/api/ai/hcilab/usage")
+      .then((res) => res.json())
+      .then((data) => setHciQuota(data))
+      .catch(() => {});
   }, []);
 
   const handlePlayCatalogAudio = (item: AudioItem) => {
@@ -228,6 +243,25 @@ export const TtsLabPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* ── HCI Lab TTS Quota Defense Status ── */}
+      {hciQuota && (
+        <div className="bg-slate-900 border border-amber-500/30 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 text-xs text-white">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            <span className="font-semibold text-amber-300">University of Ghana HCI Lab Akan TTS Engine:</span>
+            <span className="text-slate-300">{hciQuota.configured ? "Configured & Active" : "Unconfigured / Studio Catalog Active"}</span>
+          </div>
+          <div className="flex items-center flex-wrap gap-4">
+            <span className="text-slate-400">Daily TTS: <b className="text-amber-400 font-mono">{hciQuota.dailyTtsCount}/{hciQuota.dailyTtsLimit}</b></span>
+            <span className="text-slate-400">Weekly TTS: <b className="text-slate-300 font-mono">{hciQuota.weeklyTtsCount}/{hciQuota.weeklyTtsLimit}</b></span>
+            <span className="text-slate-400">Chars Used: <b className="text-slate-300 font-mono">{hciQuota.weeklyCharsCount}/{hciQuota.weeklyCharsLimit}</b></span>
+            <span className="bg-amber-950/80 text-amber-300 border border-amber-500/40 px-2.5 py-0.5 rounded text-[11px] font-medium">
+              Zero-Waste Disk Cache Active (Oct 24 Target)
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* ── SECTION 1: Live Interactive Speech Synthesizer ────────────────── */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-5">

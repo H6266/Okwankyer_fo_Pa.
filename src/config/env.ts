@@ -52,6 +52,11 @@ export interface AppConfig {
     apiKey: string;
     configured: boolean;
   };
+  hciLab: {
+    apiKey: string;
+    baseUrl: string;
+    configured: boolean;
+  };
   momo: {
     baseUrl: string;
     targetEnv: string;
@@ -184,6 +189,11 @@ export function loadConfig(): AppConfig {
     gemini: {
       apiKey: process.env.GEMINI_API_KEY || "",
       configured: Boolean(process.env.GEMINI_API_KEY),
+    },
+    hciLab: {
+      apiKey: (process.env.UG_HCI_LAB_API_KEY || "").trim(),
+      baseUrl: (process.env.UG_HCI_LAB_URL || "https://lab-subscription-platform.vercel.app").trim().replace(/\/+$/, ""),
+      configured: Boolean((process.env.UG_HCI_LAB_API_KEY || "").trim()),
     },
     momo: {
       baseUrl: process.env.MOMO_BASE_URL || "https://sandbox.momodeveloper.mtn.com",

@@ -223,6 +223,33 @@ export async function runRealSmokeTests(): Promise<SmokeTestReport> {
     }
   }
 
+  // Check 6: University of Ghana HCI Lab Speech API (ASR & TTS)
+  const startHci = Date.now();
+  try {
+    const { hciLabService } = await import("./hciLabService");
+    const isHciConfigured = hciLabService.isConfigured();
+    const usage = hciLabService.getUsageReport();
+    checks.push({
+      id: "check_hcilab",
+      name: "HCI Lab Akan Speech API (ASR / TTS)",
+      description: "University of Ghana Native Akan Speech & Quota Defense",
+      status: isHciConfigured ? "pass" : "warn",
+      latencyMs: Date.now() - startHci,
+      details: isHciConfigured
+        ? `HCI Lab active. Quota: ASR ${usage.dailyAsrCount}/${usage.dailyAsrLimit} today, TTS ${usage.dailyTtsCount}/${usage.dailyTtsLimit} today. Zero-waste disk cache active.`
+        : "UG_HCI_LAB_API_KEY unconfigured; operating in offline studio & deterministic fallback mode.",
+    });
+  } catch (err: any) {
+    checks.push({
+      id: "check_hcilab",
+      name: "HCI Lab Akan Speech API (ASR / TTS)",
+      description: "University of Ghana Native Akan Speech & Quota Defense",
+      status: "warn",
+      latencyMs: Date.now() - startHci,
+      details: `HCI Lab status check notice: ${err.message}`,
+    });
+  }
+
   const passCount = checks.filter((c) => c.status === "pass").length;
   const failCount = checks.filter((c) => c.status === "fail").length;
   const warnCount = checks.filter((c) => c.status === "warn").length;

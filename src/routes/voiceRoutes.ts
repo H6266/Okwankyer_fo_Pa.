@@ -211,15 +211,15 @@ function speechCollectionXml(params: {
   const query = new URLSearchParams({ sessionId, lang: language }).toString().replace(/&/g, "&amp;");
   const prompt = brainPromptElement(promptId, replyText, baseUrl, language);
   if (slot === "recipient") {
-    return `    <GetDigits timeout="40" finishOnKey="#" callbackUrl="${baseUrl}/verify-recipient?${query}">\n        ${prompt}\n    </GetDigits>\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="12" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=enter-recipient&amp;${query}"/>`;
+    return `    <GetDigits timeout="40" finishOnKey="#" callbackUrl="${baseUrl}/verify-recipient?${query}">\n        ${prompt}\n    </GetDigits>\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="15" timeout="8" callbackUrl="${baseUrl}/speech-fallback?step=enter-recipient&amp;${query}"/>`;
   }
   if (slot === "safe-confirmation") {
-    return `    <GetDigits timeout="25" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/safe-outcome?${query}">\n        ${prompt}\n    </GetDigits>\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=safe-confirmation&amp;${query}"/>`;
+    return `    <GetDigits timeout="25" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/safe-outcome?${query}">\n        ${prompt}\n    </GetDigits>\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="10" timeout="8" callbackUrl="${baseUrl}/speech-fallback?step=safe-confirmation&amp;${query}"/>`;
   }
   if (slot === "conversational") {
-    return `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="10" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=conversational&amp;${query}">\n        ${prompt}\n    </Record>`;
+    return `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="15" timeout="8" callbackUrl="${baseUrl}/speech-fallback?step=conversational&amp;${query}">\n        ${prompt}\n    </Record>`;
   }
-  return `    <GetDigits timeout="25" finishOnKey="#" callbackUrl="${baseUrl}/verify-amount?${query}">\n        ${prompt}\n    </GetDigits>\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="8" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=enter-amount&amp;${query}"/>`;
+  return `    <GetDigits timeout="25" finishOnKey="#" callbackUrl="${baseUrl}/verify-amount?${query}">\n        ${prompt}\n    </GetDigits>\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="15" timeout="8" callbackUrl="${baseUrl}/speech-fallback?step=enter-amount&amp;${query}"/>`;
 }
 
 function xmlResponse(res: Response, content: string, decision?: (Partial<IvrDecision> & Record<string, any>) | any): void {
@@ -1991,20 +1991,65 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
           action: "repeat",
         });
       } else {
-        // Empty or silent audio on first attempt: repeat prompt gently
-        const retryPrompt = lang === "twi"
-          ? "Mante wo nne yiye. Yɛsrɛ wo kasa biom."
-          : "I did not hear you clearly. Please speak again.";
+        // Empty or silent audio: Tiered Human-Paced 3-Stage Reassurance Loop
         const voice = lang === "twi" ? "woman" : "alice";
+        if (lang === "twi") {
+          if (retry === 0) {
+            // Stage 1: Warm Reassurance (Take Your Time)
+            const takeYourTimeUrl = `${baseUrl}/audio/supplied/Twi/12.Accessibility%20%26%20Help/TAKE%20YOUR%20TIME.aac`;
+            const spokenText = "Gye wo berɛ. Mere twɛn wo ara. Sɛ woasiesie wo ho a, ka kyerɛ me.";
+            return xmlResponse(
+              res,
+              `    <Play url="${escapeVoiceXml(takeYourTimeUrl)}"/>\n    <Say voice="${voice}">${escapeVoiceXml(spokenText)}</Say>\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="15" timeout="8" callbackUrl="${baseUrl}/speech-fallback?step=${encodeURIComponent(step)}&amp;sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}&amp;retry=${retry + 1}"/>`,
+              {
+                type: "clarify",
+                reason: "Elderly accessibility patience: stage 1 warm reassurance (TAKE YOUR TIME)",
+                replyText: spokenText,
+                replyKey: "OP80",
+                action: "repeat",
+              }
+            );
+          } else {
+            // Stage 2: Slower re-prompt & encouragement (Please respond)
+            const pleaseRespondUrl = `${baseUrl}/audio/supplied/Twi/10.Voice%20Understanding%20%26%20Verification/Please%20respond.aac`;
+            const spokenText = "Mesrɛ wo, yɛsrɛ wo kasa na yɛntie.";
+            return xmlResponse(
+              res,
+              `    <Play url="${escapeVoiceXml(pleaseRespondUrl)}"/>\n    <Say voice="${voice}">${escapeVoiceXml(spokenText)}</Say>\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="15" timeout="8" callbackUrl="${baseUrl}/speech-fallback?step=${encodeURIComponent(step)}&amp;sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}&amp;retry=${retry + 1}"/>`,
+              {
+                type: "clarify",
+                reason: "Elderly accessibility patience: stage 2 slower encouragement (PLEASE RESPOND)",
+                replyText: spokenText,
+                replyKey: "OP73",
+                action: "repeat",
+              }
+            );
+          }
+        }
+
+        // English silence fallback
+        const retryPrompt = retry === 0
+          ? "Take your time. I am right here waiting. Please speak when you are ready."
+          : "I did not hear you clearly. Please say your response or enter it on your phone keypad.";
         return xmlResponse(
           res,
-          `    <Say voice="${voice}">${escapeVoiceXml(retryPrompt)}</Say>\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="8" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=${encodeURIComponent(step)}&amp;sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}&amp;retry=${retry + 1}"/>`
+          `    <Say voice="${voice}">${escapeVoiceXml(retryPrompt)}</Say>\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="15" timeout="8" callbackUrl="${baseUrl}/speech-fallback?step=${encodeURIComponent(step)}&amp;sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}&amp;retry=${retry + 1}"/>`
         );
       }
     }
 
-    // Repeated acoustic failure (retry >= 2): Fall back deterministically to keypad prompt (OP82)
+    // Repeated acoustic failure (retry >= 2): Offer keypad options (Stage 3) before falling back closed to DTMF
     auditLogger.log("info", "NLU", `Repeated acoustic ambiguity (retry=${retry}), falling back closed to DTMF keypad`, sessionId);
+    if (lang === "twi") {
+      const voiceOrKeypadUrl = `${baseUrl}/audio/supplied/Twi/12.Accessibility%20%26%20Help/VOICE%20OR%20KEYPAD.aac`;
+      const keypadIntro = "Sɛ ɛbɛyɛ mmerɛ ama wo a, wotumi fa wo fon keypad no so bɔ nɔmba no mu.";
+      if (step === "enter-recipient") {
+        return xmlResponse(res, `    <Play url="${escapeVoiceXml(voiceOrKeypadUrl)}"/>\n    <Say voice="woman">${escapeVoiceXml(keypadIntro)}</Say>\n    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+      }
+      if (step === "enter-amount") {
+        return xmlResponse(res, `    <Play url="${escapeVoiceXml(voiceOrKeypadUrl)}"/>\n    <Say voice="woman">${escapeVoiceXml(keypadIntro)}</Say>\n    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+      }
+    }
     if (step === "language-selection") {
       return xmlResponse(res, `    <Redirect>${baseUrl}/language-selection?sessionId=${sessionId}</Redirect>`);
     }
