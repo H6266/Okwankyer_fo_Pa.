@@ -52,6 +52,7 @@ export interface HciSpeechLogEntry {
   charCount?: number;
   modelUsed?: string;
   speaker?: string;
+  durationSec?: number;
   statusCode?: number;
   errorCode?: string;
   errorMessage?: string;

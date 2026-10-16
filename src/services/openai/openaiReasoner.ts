@@ -33,7 +33,7 @@ export interface OpenAiReasoningParams {
 }
 
 export class OpenAIReasoner {
-  private getModel(): string {
+  public getModel(): string {
     return process.env.OPENAI_REASONING_MODEL || "gpt-4o-mini";
   }
 

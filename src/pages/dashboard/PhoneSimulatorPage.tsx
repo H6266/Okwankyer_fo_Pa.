@@ -104,8 +104,8 @@ const STEP_OPTIONS_MAP: Record<string, string> = {
   "action-select": "1=Send Money, 8=Back, 9=Repeat, 0=Exit",
   "action-choice": "1=Send Money, 8=Back, 9=Repeat, 0=Exit",
   "enter-recipient": "10-digit number followed by #",
-  "verify-recipient": "10-digit number followed by #",
-  "recipient-verify-choice": "1=Confirm, 2=Re-enter, 8=Back, 9=Repeat",
+  "verify-recipient": "1=Confirm Recipient (OP24), 2=Re-enter, 8=Back, 9=Repeat, 0=Exit",
+  "recipient-verify-choice": "1=Confirm Recipient (OP24), 2=Re-enter, 8=Back, 9=Repeat, 0=Exit",
   "enter-amount": "Amount in Cedis followed by # (* for pesewas)",
   "verify-amount": "Amount followed by #",
   "safe-confirmation": "1=Confirm Transfer, 2=Edit, 9=Repeat, 0=Cancel",
@@ -263,6 +263,10 @@ export const PhoneSimulatorPage: React.FC = () => {
   // ── Diagnostics & Dev View ───────────────────────────────────────────
   const [showDevView, setShowDevView] = useState<boolean>(false);
   const [testAudioStatus, setTestAudioStatus] = useState<string>("");
+  const [volumeMultiplier, setVolumeMultiplierState] = useState<number>(() => {
+    return audioPlaybackController.getVolumeMultiplier() || 2.0;
+  });
+  const verifyRecipientTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [hciQuota, setHciQuota] = useState<{
     dailyAsrCount: number;
     dailyAsrLimit: number;
@@ -557,6 +561,9 @@ export const PhoneSimulatorPage: React.FC = () => {
         const match = effectiveUrl.match(/\/([a-zA-Z0-9_-]+)(?:\?|$)/);
         if (match) stepName = match[1];
       }
+      if (parsed.getDigits?.callbackUrl && (parsed.getDigits.callbackUrl.includes("recipient-verify-choice") || stepName === "verify-recipient")) {
+        stepName = "recipient-verify-choice";
+      }
       let playbackUrl = resolvePlayableSimulatorAudioUrl(requestedPlayUrl, responseLanguage);
       setRawVoiceXml(
         xmlText.replace(
@@ -748,21 +755,48 @@ export const PhoneSimulatorPage: React.FC = () => {
         ? (parsed.playUrls.map(u => resolvePlayableSimulatorAudioUrl(u, responseLanguage)).filter(Boolean) as string[])
         : [];
 
+      if (verifyRecipientTimerRef.current) {
+        clearTimeout(verifyRecipientTimerRef.current);
+        verifyRecipientTimerRef.current = null;
+      }
+
+      const scheduleRecipientAutoAdvance = () => {
+        if (stepName === "recipient-verify-choice" || stepName === "verify-recipient") {
+          verifyRecipientTimerRef.current = setTimeout(() => {
+            if (
+              callActiveRef.current &&
+              (activeStepNameRef.current === "recipient-verify-choice" || activeStepNameRef.current === "verify-recipient")
+            ) {
+              addLog("state", "Auto-advancing past recipient confirmation (OP24) to transfer amount entry...");
+              const cb = activeCallbackUrlRef.current || `/api/simulator/recipient-verify-choice?sessionId=${sessionIdRef.current}&lang=${languageRef.current || "twi"}`;
+              dispatchVoiceWebhook(cb, { dtmfDigits: "1" });
+            }
+          }, 7500);
+        }
+      };
+
       if (resolvedSequence.length > 1) {
         addLog("audio", `🔊 Auto-playing sequence: ${resolvedSequence.join(" -> ")}`);
-        audioPlaybackController.playSequence(resolvedSequence).catch((err) => {
+        audioPlaybackController.playSequence(resolvedSequence).then(() => {
+          scheduleRecipientAutoAdvance();
+        }).catch((err) => {
           console.warn("[PhoneSimulator] Sequence auto-play notice:", err);
           audioPlaybackController.playToneIndicator().catch(() => {});
+          scheduleRecipientAutoAdvance();
         });
       } else if (playbackUrl) {
         addLog("audio", `🔊 Auto-playing prompt: ${playbackUrl}`);
-        audioPlaybackController.play(playbackUrl, promptText).catch((err) => {
+        audioPlaybackController.play(playbackUrl, promptText).then(() => {
+          scheduleRecipientAutoAdvance();
+        }).catch((err) => {
           console.warn("[PhoneSimulator] Auto-play prompt notice:", err);
           audioPlaybackController.playToneIndicator().catch(() => {});
+          scheduleRecipientAutoAdvance();
         });
       } else {
         addLog("audio", `🔔 Prompt guidance indicator.`);
         audioPlaybackController.playToneIndicator().catch(() => {});
+        scheduleRecipientAutoAdvance();
       }
     },
     [addLog, addChatTurn, language]
@@ -934,6 +968,11 @@ export const PhoneSimulatorPage: React.FC = () => {
       setActiveCallbackUrl(null);
       setInterimTranscript("");
       setFinalizedTranscript("");
+
+      if (verifyRecipientTimerRef.current) {
+        clearTimeout(verifyRecipientTimerRef.current);
+        verifyRecipientTimerRef.current = null;
+      }
 
       audioPlaybackController.stop();
       continuousAudioEngine.stop();
@@ -1388,7 +1427,9 @@ export const PhoneSimulatorPage: React.FC = () => {
         },
         confirmation: {
           "1": "1", one: "1", yes: "1", confirm: "1", okay: "1", aane: "1", "pene so": "1",
-          "2": "2", two: "2", no: "2", cancel: "2", dabi: "2", sesa: "2",
+          proceed: "1", "go ahead": "1", yoo: "1", continue: "1", baako: "1",
+          "2": "2", two: "2", no: "2", cancel: "2", dabi: "2", sesa: "2", change: "2", "re-enter": "2",
+          "0": "0", zero: "0", stop: "0", exit: "0", gyae: "0", hwee: "0",
         },
       };
       const stepGroup = curStep.includes("language") || curStep === "voice-menu"
@@ -1399,7 +1440,7 @@ export const PhoneSimulatorPage: React.FC = () => {
         ? "provider"
         : curStep.includes("action")
         ? "action"
-        : curStep.includes("confirm") || curStep.includes("verify-choice")
+        : curStep.includes("confirm") || curStep.includes("verify-choice") || curStep === "verify-recipient" || curStep === "recipient-verify-choice"
         ? "confirmation"
         : "";
       const navigationOptions: Record<string, string> = {
@@ -1419,6 +1460,28 @@ export const PhoneSimulatorPage: React.FC = () => {
       const matchedDtmf = isSingleChoice
         ? (navigationOptions[normalizedOption] || (stepGroup ? optionMap[stepGroup][normalizedOption] : undefined))
         : undefined;
+
+      // Fast-path spoken recipient verification handler (OP24)
+      if (curStep === "verify-recipient" || curStep === "recipient-verify-choice" || curStep.includes("recipient-verify")) {
+        const isAffirmative =
+          /\b(yes|confirm|aane|ampa|yie|ɛyɛ|proceed|kɔ so|okay|one|baako|1|yoo|continue|gye to mu)\b/i.test(effectiveClean) ||
+          matchedDtmf === "1";
+        const isNegative =
+          /\b(no|dabi|sesa|change|repeat|san|back|two|mmienu|2|different)\b/i.test(effectiveClean) ||
+          matchedDtmf === "2";
+        const cb = targetCallback.includes("recipient-verify-choice")
+          ? targetCallback
+          : `/api/simulator/recipient-verify-choice?sessionId=${curSession}&lang=${curLang}`;
+
+        if (isAffirmative) {
+          addLog("caller", `Spoken confirmation for recipient (OP24): "${effectiveClean}". Advancing to amount entry.`);
+          return dispatchVoiceWebhook(cb, { dtmfDigits: "1" });
+        }
+        if (isNegative) {
+          addLog("caller", `Spoken change recipient request: "${effectiveClean}". Returning to recipient entry.`);
+          return dispatchVoiceWebhook(cb, { dtmfDigits: "2" });
+        }
+      }
 
       if (curStep.includes("confirm") || curStep === "safe-confirmation") {
         if (brainDraftRef.current?.slots?.hasNetworkDiscrepancy) {
@@ -1883,7 +1946,48 @@ export const PhoneSimulatorPage: React.FC = () => {
         return;
       }
 
-      // Special Handling 3: Keypad '1' during safe-confirmation
+      // Special Handling 3: Keypad during recipient confirmation (OP24 / verify-recipient / recipient-verify-choice)
+      if (
+        activeStepNameRef.current === "verify-recipient" ||
+        activeStepNameRef.current === "recipient-verify-choice" ||
+        activeStepNameRef.current.includes("recipient-verify")
+      ) {
+        if (verifyRecipientTimerRef.current) {
+          clearTimeout(verifyRecipientTimerRef.current);
+          verifyRecipientTimerRef.current = null;
+        }
+
+        const recipientChoiceCallback =
+          targetCallback.includes("recipient-verify-choice")
+            ? targetCallback
+            : `/api/simulator/recipient-verify-choice?sessionId=${sessionIdRef.current}&lang=${languageRef.current || "twi"}`;
+
+        if (digit === "1" || digit === "#") {
+          setDigitsBuffer("");
+          addLog("caller", "Keypad '1' confirmed recipient (OP24). Advancing to amount entry.");
+          dispatchVoiceWebhook(recipientChoiceCallback, { dtmfDigits: "1" });
+          return;
+        }
+        if (digit === "2") {
+          setDigitsBuffer("");
+          addLog("caller", "Keypad '2' requested change of recipient.");
+          dispatchVoiceWebhook(recipientChoiceCallback, { dtmfDigits: "2" });
+          return;
+        }
+        if (digit === "0") {
+          setDigitsBuffer("");
+          addLog("caller", "Keypad '0' cancelled transaction.");
+          dispatchVoiceWebhook(recipientChoiceCallback, { dtmfDigits: "0" });
+          return;
+        }
+        if (digit === "8" || digit === "9") {
+          setDigitsBuffer("");
+          dispatchVoiceWebhook(recipientChoiceCallback, { dtmfDigits: digit });
+          return;
+        }
+      }
+
+      // Special Handling 4: Keypad '1' during safe-confirmation
       if (digit === "1" && (activeStepNameRef.current === "safe-confirmation" || activeStepNameRef.current.includes("confirm"))) {
         setDigitsBuffer("");
         addLog("caller", "Keypad '1' confirmed transaction. Moving to PIN entry.");
@@ -1932,13 +2036,14 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       // Rule 3: Do not auto-advance after the 10th digit alone; wait strictly for '#' finishOnKey!
 
-      // Single-digit expectation (only when NOT accumulating a 10-digit phone number)
+      // Single-digit expectation (only when accumulating a 10-digit phone number or amount)
       const isAccumulatingInput =
+        activeStepNameRef.current === "enter-recipient" ||
+        activeStepNameRef.current === "enter-phone" ||
+        activeStepNameRef.current === "enter-amount" ||
+        activeStepNameRef.current === "verify-amount" ||
         nextBuf.startsWith("0") ||
-        nextBuf.startsWith("233") ||
-        activeStepNameRef.current.includes("recipient") ||
-        activeStepNameRef.current.includes("phone") ||
-        activeStepNameRef.current.includes("amount");
+        nextBuf.startsWith("233");
 
       if (activeNumDigits === 1 && !isAccumulatingInput) {
         setDigitsBuffer("");
@@ -2012,6 +2117,13 @@ export const PhoneSimulatorPage: React.FC = () => {
       continuousAudioEngine.startAlwaysOnMic(language || "en", activeStepName);
       addLog("caller", "Microphone unmuted (live).");
     }
+  };
+
+  // Volume booster handler
+  const handleVolumeChange = (mult: number) => {
+    setVolumeMultiplierState(mult);
+    audioPlaybackController.setVolumeMultiplier(mult);
+    addLog("audio", `🔊 Master audio boost set to ${Math.round(mult * 100)}% (+${((mult - 1) * 6).toFixed(1)} dB)`);
   };
 
   // Replay a prompt's audio
@@ -2092,6 +2204,28 @@ export const PhoneSimulatorPage: React.FC = () => {
               }`}
             />
             <span>{isAudioSpeaking ? "Audio Speaking" : "Audio Ready"}</span>
+          </div>
+
+          {/* Volume Booster Selector */}
+          <div className="flex items-center gap-1 bg-slate-950 px-2.5 py-1.5 rounded-xl border border-slate-800 text-slate-300">
+            <span className="text-[11px] font-semibold text-amber-300 flex items-center gap-1">
+              🔊 Volume:
+            </span>
+            {[1.0, 1.5, 2.0, 2.5].map((lvl) => (
+              <button
+                key={lvl}
+                type="button"
+                onClick={() => handleVolumeChange(lvl)}
+                className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-colors cursor-pointer ${
+                  volumeMultiplier === lvl
+                    ? "bg-amber-500 text-slate-950 shadow-xs"
+                    : "text-slate-400 hover:text-white hover:bg-slate-800"
+                }`}
+                title={`Boost audio volume to ${Math.round(lvl * 100)}%`}
+              >
+                {Math.round(lvl * 100)}%
+              </button>
+            ))}
           </div>
 
           <div className="bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 text-slate-300">
@@ -2542,6 +2676,8 @@ export const PhoneSimulatorPage: React.FC = () => {
             <div className="flex flex-wrap gap-1.5">
               {[
                 { label: "1 (One)", desc: "Say 'One' -> Mapped to DTMF 1" },
+                { label: "1 (Confirm Recipient)", desc: "Confirm Recipient & Advance to Amount (OP24)" },
+                { label: "Yoo, kɔ so (Proceed)", desc: "Twi: Advance past recipient verification" },
                 { label: "2 (Two)", desc: "Say 'Two' -> Mapped to DTMF 2" },
                 { label: "3 (Three)", desc: "Say 'Three' -> Mapped to DTMF 3" },
                 { label: "English", desc: "Select English (DTMF 1)" },

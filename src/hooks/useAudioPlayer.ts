@@ -36,7 +36,7 @@ function playGuidanceTone(onComplete?: () => void): void {
     osc2.frequency.setValueAtTime(659.25, ctx.currentTime); // E5
 
     gain.gain.setValueAtTime(0.001, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.35, ctx.currentTime + 0.05);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
 
     osc1.connect(gain);

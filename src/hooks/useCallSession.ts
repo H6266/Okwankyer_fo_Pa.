@@ -741,6 +741,21 @@ export function useCallSession() {
           }
         }
 
+        // If on KYC recipient verification step (OP19 - OP24) and spoken confirmation is detected
+        if (prev.step === "kyc") {
+          const lower = spokenText.toLowerCase().trim();
+          if (/\b(1|one|yes|confirm|aane|pene\s*so|proceed|okay|yoo|baako|kɔ\s*so)\b/.test(lower)) {
+            addLog(`[OP24] Recipient confirmed via voice. Advancing to amount entry (OP26).`);
+            setTimeout(() => goToStep("amount", { activePromptId: "OP26" }), 80);
+            return { ...prev, digitsBuffer: "", validationError: null };
+          }
+          if (/\b(2|two|no|change|sesa|re-enter|different|dabi|mmienu)\b/.test(lower)) {
+            addLog(`[OP25] Change recipient requested via voice. Returning to recipient entry (OP16).`);
+            setTimeout(() => goToStep("recipient", { recipientPhone: "", recipientName: "", activePromptId: "OP16" }), 80);
+            return { ...prev, digitsBuffer: "", validationError: null };
+          }
+        }
+
         // If on amount step and spoken amount is detected
         if (prev.step === "amount") {
           const parsed = parseAndValidateAmount(spokenText);

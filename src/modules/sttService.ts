@@ -137,7 +137,7 @@ Instructions:
 
   try {
     const activeModel = geminiClient.isModelAvailable(primaryModel) ? primaryModel : secondaryModel;
-    const rawJsonText = await geminiClient.executeWithTimeout(
+    const rawJsonText = await geminiClient.executeWithTimeout<string>(
       "STT_TRANSCRIBE",
       async (ai, signal) => {
         const isTranscribeModel = activeModel.includes("transcribe");
@@ -171,6 +171,7 @@ Instructions:
       },
       deadlineMs,
       1,
+      undefined,
       undefined,
       activeModel
     );

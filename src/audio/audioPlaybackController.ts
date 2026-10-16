@@ -66,8 +66,9 @@ export function resolveSafePlayableUrl(url: string): string {
 
 export class AudioPlaybackController {
   private playbackVolume: number = 1.0;
-  private volumeMultiplier: number = 1.0; // Crystal-clear, unclipped master volume (100% natural studio fidelity)
+  private volumeMultiplier: number = 2.0; // Boosted volume: 200% (+6dB) with dynamics compression
   private audioElement: HTMLAudioElement | null = null;
+  private mediaElementSource: MediaElementAudioSourceNode | null = null;
   private currentToken: number = 0;
   private state: PlaybackState = {
     isPlaying: false,
@@ -92,10 +93,10 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Sets custom audio amplification multiplier (1.0 = clear studio default)
+   * Sets custom audio amplification multiplier (2.0 = boosted default, up to 3.0)
    */
   public setVolumeMultiplier(multiplier: number): void {
-    this.volumeMultiplier = Math.max(0.5, Math.min(2.0, multiplier));
+    this.volumeMultiplier = Math.max(0.5, Math.min(3.0, multiplier));
     if (this.masterGainNode && this.audioContext) {
       try {
         this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
@@ -108,7 +109,7 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Configures Web Audio signal chain for synthesized tones and DTMF beeps
+   * Configures Web Audio signal chain with Gain amplification and Dynamics Compression
    */
   private setupAudioGraph(): void {
     if (typeof window === "undefined") return;
@@ -120,11 +121,36 @@ export class AudioPlaybackController {
       if (this.audioContext && !this.masterGainNode) {
         this.masterGainNode = this.audioContext.createGain();
         this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
-        this.masterGainNode.connect(this.audioContext.destination);
+
+        // Dynamics compressor guarantees boosted volume is crystal clear, loud, and unclipped
+        this.compressorNode = this.audioContext.createDynamicsCompressor();
+        this.compressorNode.threshold.setValueAtTime(-18, this.audioContext.currentTime);
+        this.compressorNode.knee.setValueAtTime(30, this.audioContext.currentTime);
+        this.compressorNode.ratio.setValueAtTime(8, this.audioContext.currentTime);
+        this.compressorNode.attack.setValueAtTime(0.003, this.audioContext.currentTime);
+        this.compressorNode.release.setValueAtTime(0.25, this.audioContext.currentTime);
+
+        this.masterGainNode.connect(this.compressorNode);
+        this.compressorNode.connect(this.audioContext.destination);
       }
     } catch (err) {
       console.warn("[AudioController] Audio graph setup notice:", err);
     }
+  }
+
+  /**
+   * Connects the HTMLAudioElement to the Web Audio amplification graph
+   */
+  private connectAudioElementToGraph(audio: HTMLAudioElement): void {
+    if (typeof window === "undefined" || !this.audioContext || this.mediaElementSource) return;
+    try {
+      this.mediaElementSource = this.audioContext.createMediaElementSource(audio);
+      if (this.masterGainNode) {
+        this.mediaElementSource.connect(this.masterGainNode);
+      } else {
+        this.mediaElementSource.connect(this.audioContext.destination);
+      }
+    } catch {}
   }
 
   /**
@@ -158,6 +184,7 @@ export class AudioPlaybackController {
         this.initAudioElement();
       }
       if (this.audioElement) {
+        this.connectAudioElementToGraph(this.audioElement);
         // Unlock HTML5 media element within the synchronous click gesture
         this.audioElement.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
         const playPromise = this.audioElement.play();
