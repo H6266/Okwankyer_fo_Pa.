@@ -155,6 +155,17 @@ export const TWI_SEQUENTIAL_FLOW_STEPS: FlowStepDefinition[] = [
     isDynamicReadback: true,
     spokenTextTwi: "Sika dodow a wobɔe no ne {amount} Ghana Cedis. Yɛsrɛ wo tie yie na si so dua.",
     spokenTextEn: "You entered {amount} Ghana Cedis. Please verify the amount.",
+    nextStepId: "pin_handoff",
+  },
+  {
+    id: "pin_handoff",
+    stepIndex: 11.5,
+    name: "11b. Pin Handoff (4-Digit Password)",
+    audioUrl: "/audio/additional/Pin%20Handoff.m4a",
+    fallbackAudioUrl: "/audio/Pin%20Handoff.m4a",
+    spokenTextTwi: "Fa wo PIN nɔmba anan bɔ wo fon so na fa hash ka ho, anaa ka wo password anan kyerɛ me na yɛnkɔ so.",
+    spokenTextEn: "Please enter your 4-digit PIN followed by hash, or say your 4-digit password to proceed.",
+    keypadPrompt: "4 digits + # (or 4 digits voice)",
     nextStepId: "confirm_speech",
   },
   {

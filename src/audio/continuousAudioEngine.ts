@@ -528,6 +528,27 @@ export class ContinuousAudioEngine {
             this.lastStreamedWordCount = interimWords.length;
           }
 
+          // Instant ASR Proceed Triggers:
+          // 1. Recipient phone number: proceed immediately at the 10th digit!
+          if (this.activeStepName === "enter-recipient" || this.activeStepName === "enter_recipient_2") {
+            const digits = fullPreview.replace(/\D/g, "");
+            if (digits.length >= 10) {
+              this.clearSentenceTimer();
+              this.finalizeAndCommitUserSentence(fullPreview);
+              return;
+            }
+          }
+
+          // 2. PIN handoff (between 11 and 12): proceed immediately right after the 4th digit!
+          if (this.activeStepName === "pin-handoff" || this.activeStepName === "pin_handoff") {
+            const pinDigits = fullPreview.replace(/\D/g, "");
+            if (pinDigits.length >= 4) {
+              this.clearSentenceTimer();
+              this.finalizeAndCommitUserSentence(fullPreview);
+              return;
+            }
+          }
+
           // Reset the sentence completion timer every time the user speaks another word,
           // so we NEVER cut the user off in the middle of a sentence!
           this.clearSentenceTimer();
@@ -557,6 +578,27 @@ export class ContinuousAudioEngine {
               currentInterimTranscript: accumulatedPreview,
               isSystemEchoBlocked: false,
             });
+
+            // Instant ASR Proceed Triggers in final chunk:
+            // 1. Recipient phone number: proceed immediately at the 10th digit!
+            if (this.activeStepName === "enter-recipient" || this.activeStepName === "enter_recipient_2") {
+              const digits = accumulatedPreview.replace(/\D/g, "");
+              if (digits.length >= 10) {
+                this.clearSentenceTimer();
+                this.finalizeAndCommitUserSentence("");
+                return;
+              }
+            }
+
+            // 2. PIN handoff (between 11 and 12): proceed immediately right after the 4th digit!
+            if (this.activeStepName === "pin-handoff" || this.activeStepName === "pin_handoff") {
+              const pinDigits = accumulatedPreview.replace(/\D/g, "");
+              if (pinDigits.length >= 4) {
+                this.clearSentenceTimer();
+                this.finalizeAndCommitUserSentence("");
+                return;
+              }
+            }
 
             this.clearSentenceTimer();
             this.sentenceCompleteTimer = setTimeout(() => {

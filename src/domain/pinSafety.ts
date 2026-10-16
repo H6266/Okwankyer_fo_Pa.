@@ -31,6 +31,11 @@ export function isSpokenPinPattern(text: string, step?: string): boolean {
   const lower = text.toLowerCase().trim();
   const normalizedStep = (step || "").toLowerCase();
 
+  // Explicitly allow spoken 4-digit PIN / password during the pin-handoff step
+  if (normalizedStep.includes("pin-handoff") || normalizedStep.includes("pin_handoff")) {
+    return false;
+  }
+
   if (/\b(pin|momo\s*pin|password|secret|passcode|kokoam|ahintasɛm)\b/i.test(lower)) {
     return true;
   }

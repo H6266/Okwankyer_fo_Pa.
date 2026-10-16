@@ -37,6 +37,8 @@ export interface PlayOptions {
   onStart?: () => void;
   onEnd?: () => void;
   onError?: (err: any) => void;
+  playbackRate?: number;
+  isSlowTts?: boolean;
 }
 
 type StateListener = (state: PlaybackState) => void;
@@ -61,7 +63,8 @@ export function resolveSafePlayableUrl(url: string): string {
   if (!url) return url;
   // Always use universally compatible .mp3 for both .m4a and .aac files
   // so every browser, iframe, and telephony server plays audio with 0 errors
-  return url.replace(/\.(m4a|aac)$/i, ".mp3");
+  const mp3Url = url.replace(/\.(m4a|aac)$/i, ".mp3");
+  return encodeURI(decodeURI(mp3Url));
 }
 
 export class AudioPlaybackController {
@@ -286,18 +289,37 @@ export class AudioPlaybackController {
     const token = ++this.currentToken;
     const cleanText = text.trim();
 
+    const lower = cleanText.toLowerCase();
+    let fallbackStudioUrl = "";
+
+    const isNumberReadback =
+      /\b0[235]\d{8}\b/.test(cleanText) ||
+      lower.includes("phone nɔmba") ||
+      lower.includes("phone number") ||
+      lower.includes("nɔmba a ɛdi mũ") ||
+      lower.includes("hwee,") ||
+      lower.includes("zero,") ||
+      lower.includes("din ne") ||
+      lower.includes("recipient");
+
+    const effectiveOptions: PlayOptions = {
+      ...options,
+      isSlowTts: options?.isSlowTts ?? isNumberReadback,
+      playbackRate: options?.playbackRate ?? (isNumberReadback ? 0.82 : 1.0),
+    };
+
     // 1. High-priority match to native studio audio recording (Akan Twi ready files)
     try {
       const match = matchReplyToAudio(cleanText, "twi", { minConfidence: 0.30 });
       if (match.match && match.audioUrl) {
         return this.play(match.audioUrl, {
-          ...options,
+          ...effectiveOptions,
           onStart: () => {
             this.setState({ activeText: cleanText });
-            options?.onStart?.();
+            effectiveOptions?.onStart?.();
           },
-          onEnd: options?.onEnd,
-          onError: options?.onError,
+          onEnd: effectiveOptions?.onEnd,
+          onError: effectiveOptions?.onError,
         });
       }
     } catch (matchErr) {
@@ -305,37 +327,47 @@ export class AudioPlaybackController {
     }
 
     // 2. Intelligent keyword match to authentic Akan Twi studio recordings
-    const lower = cleanText.toLowerCase();
-    let fallbackStudioUrl: string | null = null;
-    if (lower.includes("sika") && (lower.includes("dodow") || lower.includes("amount") || lower.includes("cedis") || lower.includes("bɔ"))) {
-      fallbackStudioUrl = "/audio/supplied/Twi/4.Amount Entry & Verification/Enter amount 4.m4a";
-    } else if (lower.includes("nɔmba") || lower.includes("fon") || lower.includes("recipient") || lower.includes("phone")) {
-      fallbackStudioUrl = "/audio/supplied/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a";
-    } else if (lower.includes("pene") || lower.includes("confirm") || lower.includes("approval") || lower.includes("review") || lower.includes("aane")) {
-      fallbackStudioUrl = "/audio/supplied/Twi/5.Transaction Confirmation/Review transaction.m4a";
-    } else if (lower.includes("pin") || lower.includes("handoff") || lower.includes("ahobammɔ")) {
-      fallbackStudioUrl = "/audio/supplied/Twi/7.Handset PIN Delivery & Handoff/Pin handoff.m4a";
-    } else if (lower.includes("balance") || lower.includes("star") || lower.includes("170")) {
-      fallbackStudioUrl = "/audio/supplied/Twi/13.Balance  Unsupported Services/Balance unavailable.aac";
-    } else if (lower.includes("mane") || lower.includes("send")) {
-      fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/Send money selected.m4a";
-    } else if (lower.includes("paw") || lower.includes("menyu") || lower.includes("menu")) {
-      fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/MTN menu 1.m4a";
-    } else if (lower.includes("twa") || lower.includes("cancel") || lower.includes("dabi")) {
-      fallbackStudioUrl = "/audio/supplied/Twi/11.Navigation & Recovery/Cancel.aac";
-    } else if (lower.includes("wie") || lower.includes("success") || lower.includes("medaase") || lower.includes("nante yie")) {
-      fallbackStudioUrl = "/audio/supplied/Twi/14.Post-Transaction Conversation/Finish.aac";
+    // Do not hijack dynamic recipient KYC readback or amount readback into static input prompts
+    const isDynamicReadbackText =
+      lower.includes("din ne") ||
+      lower.includes("yɛahu") ||
+      lower.includes("recipient's name") ||
+      lower.includes("we found") ||
+      lower.includes("mate sɛ ɛyɛ") ||
+      lower.includes("sika dodow a wobɔe") ||
+      lower.includes("reference nɔmba");
+
+    if (!isDynamicReadbackText) {
+      if (lower.includes("sika") && (lower.includes("dodow") || lower.includes("amount") || lower.includes("cedis") || lower.includes("bɔ"))) {
+        fallbackStudioUrl = "/audio/supplied/Twi/4.Amount Entry & Verification/Enter amount 4.m4a";
+      } else if (lower.includes("nɔmba") || lower.includes("fon") || lower.includes("recipient") || lower.includes("phone")) {
+        fallbackStudioUrl = "/audio/supplied/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a";
+      } else if (lower.includes("pene") || lower.includes("confirm") || lower.includes("approval") || lower.includes("review") || lower.includes("aane")) {
+        fallbackStudioUrl = "/audio/supplied/Twi/5.Transaction Confirmation/Review transaction.m4a";
+      } else if (lower.includes("pin") || lower.includes("handoff") || lower.includes("ahobammɔ")) {
+        fallbackStudioUrl = "/audio/additional/Pin Handoff.m4a";
+      } else if (lower.includes("balance") || lower.includes("star") || lower.includes("170")) {
+        fallbackStudioUrl = "/audio/supplied/Twi/13.Balance  Unsupported Services/Balance unavailable.aac";
+      } else if (lower.includes("mane") || lower.includes("send")) {
+        fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/Send money selected.m4a";
+      } else if (lower.includes("paw") || lower.includes("menyu") || lower.includes("menu")) {
+        fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/MTN menu 1.m4a";
+      } else if (lower.includes("twa") || lower.includes("cancel") || lower.includes("dabi")) {
+        fallbackStudioUrl = "/audio/supplied/Twi/11.Navigation & Recovery/Cancel.aac";
+      } else if (lower.includes("wie") || lower.includes("success") || lower.includes("medaase") || lower.includes("nante yie")) {
+        fallbackStudioUrl = "/audio/supplied/Twi/14.Post-Transaction Conversation/Finish.aac";
+      }
     }
 
     if (fallbackStudioUrl) {
       return this.play(fallbackStudioUrl, {
-        ...options,
+        ...effectiveOptions,
         onStart: () => {
           this.setState({ activeText: cleanText });
-          options?.onStart?.();
+          effectiveOptions?.onStart?.();
         },
-        onEnd: options?.onEnd,
-        onError: options?.onError,
+        onEnd: effectiveOptions?.onEnd,
+        onError: effectiveOptions?.onError,
       });
     }
 
@@ -356,13 +388,13 @@ export class AudioPlaybackController {
         if (base64) {
           const dataUrl = `data:${mimeType};base64,${base64}`;
           return this.play(dataUrl, {
-            ...options,
+            ...effectiveOptions,
             onStart: () => {
               this.setState({ activeText: cleanText });
-              options?.onStart?.();
+              effectiveOptions?.onStart?.();
             },
-            onEnd: options?.onEnd,
-            onError: options?.onError,
+            onEnd: effectiveOptions?.onEnd,
+            onError: effectiveOptions?.onError,
           });
         }
       }
@@ -560,6 +592,12 @@ export class AudioPlaybackController {
 
       const source = this.audioContext.createBufferSource();
       source.buffer = buffer;
+      const rate = options?.playbackRate || (options?.isSlowTts ? 0.82 : 1.0);
+      try {
+        source.playbackRate.setValueAtTime(rate, this.audioContext.currentTime);
+      } catch {
+        source.playbackRate.value = rate;
+      }
       source.connect(this.masterGainNode || this.audioContext.destination);
       this.activeBufferSource = source;
 
@@ -676,6 +714,10 @@ export class AudioPlaybackController {
     }
 
     audio.volume = this.playbackVolume;
+    const rate = options?.playbackRate || (options?.isSlowTts ? 0.82 : 1.0);
+    try {
+      audio.playbackRate = rate;
+    } catch {}
 
     return new Promise<boolean>((resolve) => {
       this.activeResolver = () => {

@@ -3,6 +3,8 @@
  * Formats currencies, phone digit pauses, and dates into voice-first spoken phrasing.
  */
 
+import { formatPhoneForSlowTts } from "../../audio/dynamicPromptBuilder";
+
 export class SpeechNormalizer {
   /**
    * Converts numbers, currency, and phone numbers into voice-friendly spoken text.
@@ -12,17 +14,15 @@ export class SpeechNormalizer {
 
     // 1. Currency format: "50 GHS" or "50 cedis" -> "50 Ghana Cedis"
     result = result.replace(/\b(\d+(?:\.\d{1,2})?)\s*(?:GHS|cedis?)\b/gi, (_m, amt) => {
-      return language === "tw"
+      return language === "tw" || language === "twi"
         ? `cedi ${amt}`
         : `${amt} Ghana cedis`;
     });
 
-    // 2. Phone numbers: "0553838464" -> "0 5 5, 3 8 3, 8 4 6 4" for natural spoken cadence
-    result = result.replace(/\b(0[25]\d)(\d{3})(\d{4})\b/g, (_m, p1, p2, p3) => {
-      const spaced1 = p1.split("").join(" ");
-      const spaced2 = p2.split("").join(" ");
-      const spaced3 = p3.split("").join(" ");
-      return `${spaced1}, ${spaced2}, ${spaced3}`;
+    // 2. Phone numbers: 10-digit Ghana numbers spoken in a slow, clear cadence with deliberate pauses
+    result = result.replace(/\b(0[235]\d{8})\b/g, (_m, phone) => {
+      const isTwi = language === "tw" || language === "twi" || language === "ak";
+      return formatPhoneForSlowTts(phone, isTwi ? "twi" : "en");
     });
 
     return result;

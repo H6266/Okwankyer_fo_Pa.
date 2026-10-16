@@ -14,7 +14,7 @@ import { config } from "../config/env";
 import { recipientResolver } from "../providers/recipient/RecipientResolver";
 import { parseAndValidateAmount, validateGhanaPhoneNumber, normalizeGhanaPhoneNumber, redactPii } from "../domain/validation";
 import { transactionStateMachine } from "../domain/stateMachine";
-import { buildSafeConfirmationPrompt, buildReceiptPrompt } from "../audio/dynamicPromptBuilder";
+import { buildSafeConfirmationPrompt, buildReceiptPrompt, formatPhoneForSlowTts } from "../audio/dynamicPromptBuilder";
 import { isSpokenPinPattern, speechToText } from "../modules/sttService";
 import { mtnMomoService } from "../modules/mtnMomoService";
 import { auditLogger } from "../services/auditLogger";
@@ -952,10 +952,8 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
     ...(amountValidation?.valid && amountValidation.amount !== undefined ? { amount: amountValidation.amount } : {}),
   });
 
-  const fullPhoneSpoken = lang === "twi"
-    ? (phoneValidation.fullPhoneTwi || phoneValidation.fullPhoneSpaced || phoneValidation.normalized.split("").join(" "))
-    : (phoneValidation.fullPhoneSpaced || phoneValidation.normalized.split("").join(" "));
-  const nameSpoken = resolution.name || (lang === "twi" ? `fon nɔmba ${fullPhoneSpoken}` : `subscriber ${fullPhoneSpoken}`);
+  const fullPhoneSpoken = formatPhoneForSlowTts(phoneValidation.normalized, lang);
+  const nameSpoken = resolution.name || (lang === "twi" ? "onipa a ne din nkae" : "unregistered subscriber");
 
   const useRecipient1Url = lang === "twi"
     ? `${baseUrl}/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Use%20recipient%201.m4a`
@@ -966,9 +964,9 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
 
   let verifyPrompt = "";
   if (lang === "twi") {
-    verifyPrompt = `Obi a woremane no no din ne ${nameSpoken}. Ne phone nɔmba a ɛdi mũ ne ${fullPhoneSpoken}. Sɛ wopene so a mia baako (1). Sɛ wosesa a mia mmienu (2). Sɛ wogyae a mia hwee (0).`;
+    verifyPrompt = `Obi a woremane no no din ne ${nameSpoken}. Ne phone nɔmba a ɛdi mũ ne: ${fullPhoneSpoken}. Sɛ wopene so a mia baako (1). Sɛ wosesa a mia mmienu (2). Sɛ wogyae a mia hwee (0).`;
   } else {
-    verifyPrompt = `The recipient's name is ${nameSpoken}. The full recipient phone number is ${fullPhoneSpoken}. Press 1 to confirm, 2 to re-enter, or 0 to exit.`;
+    verifyPrompt = `The recipient's name is ${nameSpoken}. The full recipient phone number is: ${fullPhoneSpoken}. Press 1 to confirm, 2 to re-enter, or 0 to exit.`;
   }
 
   // Audio 8 (Use Recipient 1) plays BEFORE Audio 7 (Recipient Confirm Speech)

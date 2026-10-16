@@ -117,13 +117,59 @@ export function renderDynamicPromptTemplate(
 /**
  * Builds dynamic safe confirmation spoken text and VoiceXML
  */
-/**
- * Formats a 10-digit phone number as individually spoken digits
- * (e.g., "0 2 4 1 2 3 4 5 6 7" in English; "hwee mmienu nnan baako mmienu mmiɛnsa nnan nnum nsia nson" in Twi)
- */
 export function formatFullPhoneNumberForSpeech(phone: string, language: "en" | "twi"): string {
-  const validation = validateGhanaPhoneNumber(phone);
-  return validation.fullPhoneSpaced || phone.replace(/\D/g, "").split("").join(" ");
+  return formatPhoneForSlowTts(phone, language);
+}
+
+/**
+ * Formats a 10-digit phone number in a slower, cadenced manner with pauses and deliberate pacing
+ * so that the caller can follow along effortlessly.
+ */
+export function formatPhoneForSlowTts(phone: string, language: "en" | "twi"): string {
+  const digits = phone.replace(/\D/g, "");
+  if (language === "twi") {
+    const twiWords: Record<string, string> = {
+      "0": "Hwee",
+      "1": "Baako",
+      "2": "Mmienu",
+      "3": "Mmiɛnsa",
+      "4": "Ɛnan",
+      "5": "Nnum",
+      "6": "Nsia",
+      "7": "Nson",
+      "8": "Nwɔtwe",
+      "9": "Nkron",
+    };
+    return digits
+      .split("")
+      .map((d, i) => {
+        const word = twiWords[d] || d;
+        return (i === 2 || i === 5) ? `${word}, ... ` : `${word}, `;
+      })
+      .join("")
+      .trim();
+  } else {
+    const enWords: Record<string, string> = {
+      "0": "Zero",
+      "1": "One",
+      "2": "Two",
+      "3": "Three",
+      "4": "Four",
+      "5": "Five",
+      "6": "Six",
+      "7": "Seven",
+      "8": "Eight",
+      "9": "Nine",
+    };
+    return digits
+      .split("")
+      .map((d, i) => {
+        const word = enWords[d] || d;
+        return (i === 2 || i === 5) ? `${word}, ... ` : `${word}, `;
+      })
+      .join("")
+      .trim();
+  }
 }
 
 /**
@@ -142,7 +188,7 @@ export function buildRecipientVerificationPrompt(options: {
   voiceXml: string;
 } {
   const { language, recipientPhone, recipientName, isVerified, callbackUrl = "/recipient-verify-choice" } = options;
-  const fullPhoneSpoken = formatFullPhoneNumberForSpeech(recipientPhone, language);
+  const slowPhoneSpoken = formatPhoneForSlowTts(recipientPhone, language);
   const name = recipientName || (language === "twi" ? "onipa a ne din nkae" : "unregistered subscriber");
 
   let spokenText = "";
@@ -151,11 +197,11 @@ export function buildRecipientVerificationPrompt(options: {
 
   if (language === "twi") {
     namePrompt = `Obi a woremane no no din ne ${name}.`;
-    phonePrompt = `Ne phone nɔmba a ɛdi mũ ne ${fullPhoneSpoken}.`;
+    phonePrompt = `Ne phone nɔmba a ɛdi mũ ne: ${slowPhoneSpoken}.`;
     spokenText = `Yɛahu obi a woremane no sika no. Tie ne din ne ne nɔmba a ɛdi mũ no yiye. ${namePrompt} ${phonePrompt} Sɛ wopene so a, mia baako (1). Sɛ wopɛ sɛ wosesa nɔmba no a, mia mmienu (2). Sɛ wopɛ sɛ wogyae a, mia hwee (0).`;
   } else {
     namePrompt = `The recipient's name is ${name}.`;
-    phonePrompt = `The full recipient phone number is ${fullPhoneSpoken}.`;
+    phonePrompt = `The full recipient phone number is: ${slowPhoneSpoken}.`;
     spokenText = `We found the recipient. Please listen carefully to the name and the full phone number. ${namePrompt} ${phonePrompt} To confirm this recipient, press 1. To change the recipient, press 2. To exit, press 0.`;
   }
 
