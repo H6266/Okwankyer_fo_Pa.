@@ -12,6 +12,8 @@
 import { geminiClient } from "../../services/geminiClient";
 import { reasoningEngine } from "../understanding/reasoningEngine";
 import { localLanguageBrain } from "./LocalLanguageBrain";
+import { openAiReasoner } from "../../services/openai/openaiReasoner";
+import { qwenReasoner } from "../../services/qwen/qwenReasoner";
 
 export type CognitiveCapability =
   | "LOCAL_NLU"
@@ -108,13 +110,53 @@ export class ModelRouter {
       },
     });
 
-    // 2. Deterministic local reasoning is the first safety fallback when Gemini fails.
+    // 2. OpenAI Cloud Reasoning: Handshake 1 fallback after Gemini (priority 15)
+    this.register({
+      id: "openai_reasoning",
+      name: "OpenAI Cloud Reasoning (gpt-4o-mini)",
+      isLocal: false,
+      capabilities: new Set(["GEMINI_REASONING"]),
+      priority: 15,
+      timeoutMs: 3000,
+      isAvailable: () => openAiReasoner.isAvailable(),
+      execute: async (payload) => {
+        const res = await openAiReasoner.reasonForBrain(
+          payload?.utterance || payload?.prompt || "",
+          payload?.existingSlots || {},
+          3000
+        );
+        if (!res) throw new Error("OpenAI reasoning yielded no result");
+        return res;
+      },
+    });
+
+    // 3. Qwen AI Cloud Reasoning: Handshake 2 fallback after OpenAI (priority 20)
+    this.register({
+      id: "qwen_reasoning",
+      name: "Qwen AI Cloud Reasoning (qwen-plus)",
+      isLocal: false,
+      capabilities: new Set(["GEMINI_REASONING"]),
+      priority: 20,
+      timeoutMs: 3000,
+      isAvailable: () => qwenReasoner.isAvailable(),
+      execute: async (payload) => {
+        const res = await qwenReasoner.reasonForBrain(
+          payload?.utterance || payload?.prompt || "",
+          payload?.existingSlots || {},
+          3000
+        );
+        if (!res) throw new Error("Qwen AI reasoning yielded no result");
+        return res;
+      },
+    });
+
+    // 4. Deterministic local reasoning is the safety fallback when all cloud LLMs fail (priority 25)
     this.register({
       id: "deterministic_reasoning",
       name: "Deterministic Ghanaian Reasoning",
       isLocal: true,
       capabilities: new Set(["GEMINI_REASONING"]),
-      priority: 20,
+      priority: 25,
       timeoutMs: 800,
       isAvailable: () => true,
       execute: async (payload) => {
@@ -130,7 +172,7 @@ export class ModelRouter {
       },
     });
 
-    // 3. Built-in local brain remains the final in-house fallback behind deterministic rules.
+    // 5. Built-in local brain remains the final in-house fallback (priority 30)
     this.register({
       id: "local_language_brain",
       name: "Local Inbuilt Language Brain",

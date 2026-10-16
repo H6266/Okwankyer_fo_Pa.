@@ -39,6 +39,7 @@ import { SERVICE_CAPABILITIES, SUPPORTED_TRANSFER_NETWORKS } from "../domain/ser
 import { ivrDecisionEngine, IvrDecision } from "../ai_system/brain/ivrDecisionEngine";
 import { geminiClient } from "../services/geminiClient";
 import { speechNormalizer } from "../ai_system/speech/speechNormalizer";
+import { storeGeminiConversationReply } from "../audio/geminiAudioMatcher";
 
 export const voiceRouter = Router();
 export const ivrRouter = Router();
@@ -1697,6 +1698,12 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
         callerNumber: session.callerPhone,
         sessionId,
       });
+
+      if (brainOutput.modelOutput || (brainOutput.decision?.kind === "clarify_slot" && (brainOutput.decision as any)?.slot === "conversational")) {
+        if (brainOutput.reply?.text) {
+          storeGeminiConversationReply(brainOutput.reply.text, lang === "twi" ? "twi" : "en", sessionId);
+        }
+      }
 
       const updatedSlots = brainOutput.updatedDraft.slots as Record<string, any>;
       const amountValue = typeof updatedSlots.amount === "number" ? updatedSlots.amount : undefined;

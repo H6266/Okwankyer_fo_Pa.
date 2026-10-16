@@ -18,6 +18,8 @@ import {
   StructuredReasoningResponse,
 } from "../../ai_system/core/aiTypes";
 import { parseAndValidateAmount, validateGhanaPhoneNumber } from "../../domain/validation";
+import { ModelOutputContract } from "../../ai_system/brain/types";
+import { COMPACT_MOMO_SYSTEM_INSTRUCTION } from "../../ai_system/understanding/reasoningEngine";
 
 export interface OpenAiReasoningParams {
   utterance: string;
@@ -42,6 +44,100 @@ export class OpenAIReasoner {
 
   public isAvailable(): boolean {
     return openaiClient.isAvailable();
+  }
+
+  /**
+   * Evaluates caller utterance and current draft state for the Central Brain,
+   * returning the standardized ModelOutputContract during the Gemini -> OpenAI fallback handshake.
+   */
+  public async reasonForBrain(
+    maskedUtterance: string,
+    draftSlots: any = {},
+    timeoutMs: number = 3000
+  ): Promise<ModelOutputContract | null> {
+    if (!this.isAvailable()) {
+      return null;
+    }
+
+    const prompt = `Caller utterance: "${maskedUtterance}"
+Current Draft State: ${JSON.stringify(draftSlots || {})}
+
+Return ONLY a valid JSON object matching this schema:
+{
+  "intent": {
+    "id": "momo.transfer" | "momo.cash_out" | "momo.check_balance" | "momo.buy_airtime" | "momo.buy_data" | "smalltalk" | "unknown",
+    "confidence": number
+  },
+  "slots": {
+    "amount": number | null,
+    "recipient": {
+      "phone": string | null,
+      "name": string | null
+    } | null,
+    "network": string | null,
+    "reference": string | null
+  },
+  "signals": {
+    "correction": boolean,
+    "interruption": boolean,
+    "user_confirmed": boolean,
+    "user_rejected": boolean,
+    "dial_170_check_balance": boolean,
+    "language_switch_requested": "en" | "twi-asante" | "twi-akuapem" | null
+  },
+  "reply": {
+    "reply_kind": "clarify_slot" | "clarify_intent" | "not_ready" | "confirm" | "dispatch" | "smalltalk" | "cancel" | "error",
+    "prompt_id": string | null,
+    "text": string | null,
+    "reasoning": string | null
+  }
+}`;
+
+    try {
+      const rawJson = await openaiClient.executeWithTimeout(
+        "OPENAI_BRAIN_REASONING",
+        async (client, signal) => {
+          const response = await client.chat.completions.create(
+            {
+              model: this.getModel(),
+              messages: [
+                {
+                  role: "system",
+                  content: COMPACT_MOMO_SYSTEM_INSTRUCTION,
+                },
+                {
+                  role: "user",
+                  content: prompt,
+                },
+              ],
+              response_format: { type: "json_object" },
+              temperature: 0.1,
+            },
+            { signal }
+          );
+
+          return response.choices[0]?.message?.content || "{}";
+        },
+        timeoutMs
+      );
+
+      let cleanJson = (rawJson || "").trim();
+      if (cleanJson.startsWith("```")) {
+        cleanJson = cleanJson.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+      }
+
+      const match = cleanJson.match(/\{[\s\S]*\}/);
+      if (!match) return null;
+
+      const parsed = JSON.parse(match[0]);
+      if (parsed && parsed.intent && typeof parsed.intent.id === "string") {
+        return parsed as ModelOutputContract;
+      }
+      return null;
+    } catch (err: any) {
+      console.warn("[OpenAIReasoner] OpenAI reasoning error:", err?.message || err);
+      return null;
+    }
   }
 
   public async reason(params: OpenAiReasoningParams): Promise<StructuredReasoningResponse> {

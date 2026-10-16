@@ -136,14 +136,15 @@ Instructions:
 4. NUMBER FORMATTING MANDATE: Always write numbers and digits as numeric digits (e.g. write '2' NOT 'two', write '1' NOT 'one', write '20' NOT 'twenty', write '50 cedis' NOT 'fifty cedis', write '0553838464' NOT 'zero five five...'). Never spell out numbers as words.`;
 
   try {
-    const rawJsonText = await geminiClient.executeHedged(
+    const activeModel = geminiClient.isModelAvailable(primaryModel) ? primaryModel : secondaryModel;
+    const rawJsonText = await geminiClient.executeWithTimeout(
       "STT_TRANSCRIBE",
       async (ai, signal) => {
-        const isTranscribeModel = primaryModel.includes("transcribe");
+        const isTranscribeModel = activeModel.includes("transcribe");
         if (isTranscribeModel) {
           // Dedicated transcribe models (e.g. gemini-3.5-transcribe) output plain text and do NOT support JSON mode
           const resp = await ai.models.generateContent({
-            model: primaryModel,
+            model: activeModel,
             contents: [
               { inlineData: { data: base64Data, mimeType: mime } },
               { text: "Transcribe the caller's spoken words or numbers accurately in Ghanaian English or Akan Twi. Output only the spoken words. Write all numbers as digits (e.g. 2 not two, 20 not twenty)." },
@@ -159,36 +160,7 @@ Instructions:
         }
 
         const resp = await ai.models.generateContent({
-          model: primaryModel,
-          contents: [
-            { inlineData: { data: base64Data, mimeType: mime } },
-            { text: promptText },
-          ],
-          config: { responseMimeType: "application/json" },
-        });
-        return resp.text || "{}";
-      },
-      async (ai, signal) => {
-        const isTranscribeModel = secondaryModel.includes("transcribe");
-        if (isTranscribeModel) {
-          const resp = await ai.models.generateContent({
-            model: secondaryModel,
-            contents: [
-              { inlineData: { data: base64Data, mimeType: mime } },
-              { text: "Transcribe the caller's spoken words or numbers accurately in Ghanaian English or Akan Twi. Output only the spoken words. Write all numbers as digits (e.g. 2 not two, 20 not twenty)." },
-            ],
-          });
-          const text = formatSpokenNumbersAsDigits((resp.text || "").trim());
-          const isTwi = /[\u0190\u0254\u025b\u0186]|sika|mane|akwaaba|kasa|brofo|baako|mmienu|mmeensa|dabi|aane|mepa|kyɛ/i.test(text);
-          return JSON.stringify({
-            transcript: text,
-            confidence: text.length > 0 ? 0.92 : 0.0,
-            languageDetected: isTwi ? "twi" : "en",
-          });
-        }
-
-        const resp = await ai.models.generateContent({
-          model: secondaryModel,
+          model: activeModel,
           contents: [
             { inlineData: { data: base64Data, mimeType: mime } },
             { text: promptText },
@@ -198,7 +170,9 @@ Instructions:
         return resp.text || "{}";
       },
       deadlineMs,
-      Math.min(800, Math.floor(deadlineMs * 0.67)) // Hedge delay: start secondary after 800ms if primary hasn't responded
+      1,
+      undefined,
+      activeModel
     );
 
     let cleanJson = (rawJsonText || "").trim();

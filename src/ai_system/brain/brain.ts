@@ -69,6 +69,9 @@ import { pilotControls } from '../../services/pilotControls';
 import { pilotMetrics } from '../../services/pilotMetrics';
 import { normalizeGhanaPhoneNumber, validateGhanaPhoneNumber, getNetworkFromPhone } from '../../domain/validation';
 import { brainTelemetry } from './brainTelemetry';
+import { storeGeminiConversationReply } from '../../audio/geminiAudioMatcher';
+import { openAiReasoner } from '../../services/openai/openaiReasoner';
+import { qwenReasoner } from '../../services/qwen/qwenReasoner';
 
 export interface BrainConfig {
   mode: BrainMode;
@@ -350,6 +353,10 @@ export class Brain {
           { role: 'user' as const, text: rawTranscript },
           { role: 'assistant' as const, text: output.reply.text },
         ].slice(-4);
+      }
+
+      if (isTier2 && output.reply?.text) {
+        storeGeminiConversationReply(output.reply.text, output.reply.language || 'twi', input.sessionId);
       }
 
       if (effectiveBrainMode === 'shadow' && Math.random() <= this.config.shadowSamplingRate && geminiClient.isAvailable()) {
@@ -1415,6 +1422,66 @@ export class Brain {
 
   // ── GEMINI CHAT SESSION INVOCATION WITH NATIVE FUNCTION CALLING ───────────
 
+  private async executeProviderHandshake(
+    masked: string,
+    draft: DraftState,
+    turnId: number,
+    geminiFailureReason: string
+  ): Promise<ModelOutputContract | null> {
+    // ── HANDSHAKE 1: GEMINI ➔ OPENAI ──
+    if (openAiReasoner.isAvailable()) {
+      try {
+        console.log(`🤝 [Handshake 1/3] Gemini unavailable (${geminiFailureReason}). Handing over session state to OpenAI...`);
+        auditLogger.log(
+          "info",
+          "BRAIN_HANDSHAKE_OPENAI",
+          `Handshake 1/3: Transferring conversation state to OpenAI (${openAiReasoner.getModel()}). Reason: ${geminiFailureReason}`
+        );
+        const openAiContract = await openAiReasoner.reasonForBrain(masked, draft.slots, 3000);
+        if (openAiContract && this.validateModelContract(openAiContract)) {
+          if (turnId !== this.currentTurnId) return null;
+          auditLogger.log("info", "BRAIN_HANDSHAKE_SUCCESS", `OpenAI successfully fulfilled reasoning turn via handshake.`);
+          return openAiContract;
+        }
+      } catch (err: any) {
+        console.warn(`[Handshake 1/3] OpenAI handover failed: ${err?.message || err}`);
+      }
+    } else {
+      console.log(`🤝 [Handshake 1/3 Skipped] OpenAI not configured or on cooldown.`);
+    }
+
+    // ── HANDSHAKE 2: OPENAI ➔ QWEN AI ──
+    if (qwenReasoner.isAvailable()) {
+      try {
+        console.log(`🤝 [Handshake 2/3] OpenAI unavailable or failed. Handing over session state to Qwen AI...`);
+        auditLogger.log(
+          "info",
+          "BRAIN_HANDSHAKE_QWEN",
+          `Handshake 2/3: Transferring conversation state to Qwen AI (${qwenReasoner.getModel()}).`
+        );
+        const qwenContract = await qwenReasoner.reasonForBrain(masked, draft.slots, 3000);
+        if (qwenContract && this.validateModelContract(qwenContract)) {
+          if (turnId !== this.currentTurnId) return null;
+          auditLogger.log("info", "BRAIN_HANDSHAKE_SUCCESS", `Qwen AI successfully fulfilled reasoning turn via handshake.`);
+          return qwenContract;
+        }
+      } catch (err: any) {
+        console.warn(`[Handshake 2/3] Qwen AI handover failed: ${err?.message || err}`);
+      }
+    } else {
+      console.log(`🤝 [Handshake 2/3 Skipped] Qwen AI not configured or on cooldown.`);
+    }
+
+    // ── HANDSHAKE 3: QWEN AI ➔ LOCAL INBUILT BRAIN ──
+    console.log(`🤝 [Handshake 3/3] External AI models exhausted. Final Handover: Local Inbuilt Brain (Deterministic Ghanaian Engine).`);
+    auditLogger.log(
+      "warn",
+      "BRAIN_HANDSHAKE_LOCAL",
+      "Handshake 3/3: All cloud LLMs exhausted. Handing over to Local Inbuilt Brain."
+    );
+    return null;
+  }
+
   private async callModelWithFallback(
     rawTranscript: string,
     targetLanguage: TargetLanguageId,
@@ -1423,11 +1490,13 @@ export class Brain {
     turnStartTime: number = Date.now(),
     sessionId?: string
   ): Promise<ModelOutputContract | null> {
-    if (!geminiClient.isAvailable()) return null;
-
     const sessionKey = sessionId || (draft.draftHash ? `session_${draft.draftHash}` : `session_turn_${turnId}`);
     const sanitized = sanitizeTranscriptForModel(rawTranscript);
     const masked = maskPhoneNumbers(sanitized);
+
+    if (!geminiClient.isAvailable()) {
+      return this.executeProviderHandshake(masked, draft, turnId, "Gemini client unconfigured or on quota cooldown");
+    }
 
     const candidateModels = [
       this.config.modelName || AI_CONFIG.model || 'gemini-3.8-flash',
@@ -1564,9 +1633,9 @@ export class Brain {
         ? `Gemini API error: ${cleanErrorMsg.slice(0, 80)}`
         : "Gemini models currently unavailable on cooldown";
 
-      auditLogger.log("warn", "BRAIN_GEMINI_FALLBACK_DIAGNOSIS", `Gemini reasoning did not return a response. Root cause: ${failureReason}. Handing over to local deterministic fallback.`);
-      console.warn(`[Brain] Gemini fallback diagnosed: ${failureReason}`);
-      return null;
+      auditLogger.log("warn", "BRAIN_GEMINI_FALLBACK_DIAGNOSIS", `Gemini reasoning did not return a response. Root cause: ${failureReason}. Handing over to OpenAI -> Qwen AI -> Local Brain handshake cascade.`);
+      console.warn(`[Brain] Gemini fallback diagnosed: ${failureReason}. Initiating handshake...`);
+      return this.executeProviderHandshake(masked, draft, turnId, failureReason);
     }
 
     // Discard stale response if a newer turn has already executed

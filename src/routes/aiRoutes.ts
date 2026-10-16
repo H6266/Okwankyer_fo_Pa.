@@ -56,6 +56,8 @@ aiRouter.get("/api/ai/status", (_req: Request, res: Response) => {
     system: "Ɔkwankyerɛfo Pa AI Subsystem",
     geminiConfigured: config.gemini.configured,
     openAiConfigured: Boolean(process.env.OPENAI_API_KEY),
+    qwenConfigured: Boolean(process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY),
+    fallbackHandshakeChain: ["gemini", "openai", "qwen", "local_brain"],
     offlineCapable: true,
     languages: ["en", "tw", "ak"],
     zeroPinEnforced: true,
@@ -247,6 +249,13 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       sessionId: sessionKey,
       callerNumber: typeof req.body.callerPhone === "string" ? req.body.callerPhone : undefined,
     });
+
+    // Store Gemini conversational replies into memory for Audio Matcher verification
+    if (brainOutput.modelOutput || (brainOutput.decision?.kind === "clarify_slot" && (brainOutput.decision as any)?.slot === "conversational")) {
+      if (brainOutput.reply?.text) {
+        storeGeminiConversationReply(brainOutput.reply.text, brainLanguage.startsWith("twi") ? "twi" : "en", sessionKey);
+      }
+    }
 
     // Wire brain's reply (text, language, promptId) into telephonyAdapter
     simulatorTelephonyAdapter.speakBrainReply(brainOutput.reply, {

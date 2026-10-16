@@ -18,6 +18,7 @@ import { languageDetector } from "../perception/languageDetector";
 import { aiUnderstanding } from "../core/aiUnderstanding";
 import { geminiClient } from "../../services/geminiClient";
 import { openAiReasoner } from "../../services/openai/openaiReasoner";
+import { qwenReasoner } from "../../services/qwen/qwenReasoner";
 
 export const COMPACT_MOMO_SYSTEM_INSTRUCTION = `You are Ɔkwankyerɛfo Pa, a low-latency voice assistant for MTN Mobile Money (MoMo) in Ghana.
 Capabilities:
@@ -393,9 +394,10 @@ export class ReasoningEngine {
       }
     }
 
-    // If Gemini calls failed, try OpenAI Reasoner
+    // ── Handshake 1: Gemini ➔ OpenAI Reasoner ──
     if (openAiReasoner.isAvailable()) {
       try {
+        console.log("[ReasoningEngine] Gemini unavailable or failed. Handshake 1/3: Passing utterance to OpenAI...");
         return await openAiReasoner.reason({
           utterance: cleanUtterance,
           languageHint: params.languageHint,
@@ -411,6 +413,27 @@ export class ReasoningEngine {
       }
     }
 
+    // ── Handshake 2: OpenAI ➔ Qwen AI Reasoner ──
+    if (qwenReasoner.isAvailable()) {
+      try {
+        console.log("[ReasoningEngine] OpenAI unavailable or failed. Handshake 2/3: Passing utterance to Qwen AI...");
+        return await qwenReasoner.reason({
+          utterance: cleanUtterance,
+          languageHint: params.languageHint,
+          currentScreen: params.currentScreen,
+          currentStep: params.currentStep,
+          existingSlots: params.existingSlots,
+          recentTurns: params.recentTurns,
+          semanticMemoryContext: params.semanticMemoryContext,
+          frequentContacts: params.frequentContacts,
+        });
+      } catch (err: any) {
+        console.warn("[ReasoningEngine] Qwen AI reasoner candidate attempt notice:", err?.message || err);
+      }
+    }
+
+    // ── Handshake 3: Qwen AI ➔ Local Inbuilt Brain (Deterministic Ghanaian Reasoning) ──
+    console.log("[ReasoningEngine] All cloud LLMs exhausted. Handshake 3/3: Passing to Local Inbuilt Brain.");
     return this.deterministicReasoning(params);
   }
 
