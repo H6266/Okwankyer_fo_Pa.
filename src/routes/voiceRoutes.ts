@@ -221,10 +221,10 @@ function speechCollectionXml(params: {
   return `    <GetDigits timeout="25" finishOnKey="#" callbackUrl="${baseUrl}/verify-amount?${query}">\n        ${prompt}\n    </GetDigits>\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="8" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=enter-amount&amp;${query}"/>`;
 }
 
-function xmlResponse(res: Response, content: string, decision?: IvrDecision): void {
+function xmlResponse(res: Response, content: string, decision?: (Partial<IvrDecision> & Record<string, any>) | any): void {
   let xml = content;
   if (decision) {
-    res.set("X-AI-Decision-Type", toSafeHeaderValue(decision.type));
+    if (decision.type) res.set("X-AI-Decision-Type", toSafeHeaderValue(decision.type));
     res.set("X-AI-Decision-Reason", toSafeHeaderValue(decision.reason));
     res.set("X-AI-Reply-Text", toSafeHeaderValue(decision.replyText));
     res.set("X-AI-Reply-Key", toSafeHeaderValue(decision.replyKey));
@@ -1696,7 +1696,6 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
         },
         callerNumber: session.callerPhone,
         sessionId,
-        forceModel: true,
       });
 
       const updatedSlots = brainOutput.updatedDraft.slots as Record<string, any>;

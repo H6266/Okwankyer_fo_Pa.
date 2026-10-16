@@ -10,6 +10,20 @@ export interface BrainTelemetrySummary {
   fallbackCount: number;
   modelCounts: Record<string, number>;
   uptimeSeconds: number;
+  tier1Turns: number;
+  tier2Turns: number;
+  totalTokensUsed: number;
+  estimatedTokensSaved: number;
+}
+
+export interface BrainTurnRecord {
+  tier: 'TIER_1_DETERMINISTIC' | 'TIER_2_MODEL';
+  tokensUsed: number;
+  latencyMs: number;
+  utterance?: string;
+  decisionKind?: string;
+  intent?: string;
+  decisionSource?: string;
 }
 
 class BrainTelemetryService {
@@ -20,6 +34,26 @@ class BrainTelemetryService {
   private latencies: number[] = [];
   private fallbackCount: number = 0;
   private modelCounts: Record<string, number> = {};
+  private tier1Turns: number = 0;
+  private tier2Turns: number = 0;
+  private totalTokensUsed: number = 0;
+  private estimatedTokensSaved: number = 0;
+
+  recordTurn(record: BrainTurnRecord): void {
+    this.totalRequests++;
+    this.successfulRequests++;
+    this.latencies.push(record.latencyMs);
+    if (this.latencies.length > 200) {
+      this.latencies.shift();
+    }
+    if (record.tier === 'TIER_1_DETERMINISTIC') {
+      this.tier1Turns++;
+      this.estimatedTokensSaved += 320;
+    } else {
+      this.tier2Turns++;
+      this.totalTokensUsed += record.tokensUsed || 320;
+    }
+  }
 
   recordRequest(model: string, latencyMs: number, success: boolean, usedFallback: boolean = false): void {
     this.totalRequests++;
@@ -52,6 +86,10 @@ class BrainTelemetryService {
       fallbackCount: this.fallbackCount,
       modelCounts: { ...this.modelCounts },
       uptimeSeconds: Math.floor((Date.now() - this.startTime) / 1000),
+      tier1Turns: this.tier1Turns,
+      tier2Turns: this.tier2Turns,
+      totalTokensUsed: this.totalTokensUsed,
+      estimatedTokensSaved: this.estimatedTokensSaved,
     };
   }
 
@@ -63,6 +101,10 @@ class BrainTelemetryService {
     this.latencies = [];
     this.fallbackCount = 0;
     this.modelCounts = {};
+    this.tier1Turns = 0;
+    this.tier2Turns = 0;
+    this.totalTokensUsed = 0;
+    this.estimatedTokensSaved = 0;
   }
 }
 

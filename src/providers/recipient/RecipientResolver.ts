@@ -72,6 +72,7 @@ export class SandboxRecipientResolver implements RecipientResolver {
       network: val.network,
       verified: false,
       source: "UNRESOLVED",
+      warning: `Subscriber identity for ${redactPii(val.normalized)} could not be verified in the sandbox directory.`,
     };
   }
 }

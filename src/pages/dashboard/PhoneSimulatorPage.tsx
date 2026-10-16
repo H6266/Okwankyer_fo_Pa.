@@ -966,7 +966,12 @@ export const PhoneSimulatorPage: React.FC = () => {
   }, [language, sessionId, addLog, addChatTurn]);
 
   const playAiAgentReply = useCallback(
-    async (textToPlay: string, langToUse: string = "twi") => {
+    async (
+      textToPlay: string,
+      langToUse: string = "twi",
+      isGeminiOrigin: boolean = false,
+      sessionToUse?: string
+    ) => {
       try {
         const matchRes = await fetch("/api/ai/match-audio", {
           method: "POST",
@@ -975,6 +980,8 @@ export const PhoneSimulatorPage: React.FC = () => {
             text: textToPlay,
             language: langToUse,
             literacyLevel: "standard",
+            sessionId: sessionToUse || sessionId,
+            isGeminiConversation: isGeminiOrigin,
           }),
         }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 
@@ -994,7 +1001,7 @@ export const PhoneSimulatorPage: React.FC = () => {
         await audioPlaybackController.speakText(textToPlay);
       }
     },
-    [addLog]
+    [addLog, sessionId]
   );
 
   // ── Speech Recognition & Spoken Turn Handler ──────────────────────────
@@ -1438,7 +1445,7 @@ export const PhoneSimulatorPage: React.FC = () => {
         );
       }
 
-      addLog("AI", `POST /api/ai/brain/process step=${curStep} language=${curLang} forceModel=true`);
+      addLog("AI", `POST /api/ai/brain/process step=${curStep} language=${curLang} (Tier 1 Fast-Path enabled)`);
       setIsAiReasoning(true);
       setReasoningSec(0);
       const reasoningInterval = setInterval(() => {
@@ -1470,7 +1477,6 @@ export const PhoneSimulatorPage: React.FC = () => {
           draft: brainDraftRef.current,
           callerNumber,
           sessionId: curSession,
-          forceModel: true,
         });
 
         if (stallTimer) {
@@ -1488,7 +1494,9 @@ export const PhoneSimulatorPage: React.FC = () => {
         brainDraftRef.current = brainOutput.updatedDraft || { slots: {} };
         const slots = brainDraftRef.current.slots || {};
         const intent = brainDraftRef.current.intent || "unknown";
-        addLog("AI", `Brain decision=${brainOutput.decision.kind} intent=${intent} modelUsed=${Boolean(brainOutput.modelOutput)}`);
+        const isGeminiOrigin = Boolean(brainOutput.modelOutput) || (brainOutput.decision.kind === "clarify_slot" && brainOutput.decision.slot === "conversational");
+
+        addLog("AI", `Brain decision=${brainOutput.decision.kind} intent=${intent} modelUsed=${Boolean(brainOutput.modelOutput)} (Tier ${brainOutput.modelOutput ? "2 Gemini" : "1 Fast-Path"})`);
         addLog("AI", `Brain slots amount=${slots.amount ?? "missing"} recipient=${slots.recipient?.phone ? "provided" : "missing"}`);
 
         const replyText = String(brainOutput.reply?.text || "Please repeat your request.");
@@ -1503,7 +1511,7 @@ export const PhoneSimulatorPage: React.FC = () => {
           addLog("AI", `Gemini conversational turn: "${replyText}"`);
           setCurrentPrompt(replyText);
           currentPromptRef.current = replyText;
-          await playAiAgentReply(replyText, curLang);
+          await playAiAgentReply(replyText, curLang, isGeminiOrigin, curSession);
           return;
         }
 
@@ -1516,7 +1524,7 @@ export const PhoneSimulatorPage: React.FC = () => {
           setActiveCallbackUrl(`/api/simulator/safe-confirmation?sessionId=${curSession}&lang=${curLang}`);
           setCurrentPrompt(replyText);
           currentPromptRef.current = replyText;
-          await playAiAgentReply(replyText, curLang);
+          await playAiAgentReply(replyText, curLang, isGeminiOrigin, curSession);
           return;
         }
 
@@ -1559,14 +1567,14 @@ export const PhoneSimulatorPage: React.FC = () => {
           setCurrentPrompt(replyText);
           currentPromptRef.current = replyText;
           addLog("state", `Brain requested missing slot: ${missingSlot}`);
-          await playAiAgentReply(replyText, curLang);
+          await playAiAgentReply(replyText, curLang, isGeminiOrigin, curSession);
           return;
         }
 
         addLog("AI", `Brain reply: "${replyText}"`);
         setCurrentPrompt(replyText);
         currentPromptRef.current = replyText;
-        await playAiAgentReply(replyText, curLang);
+        await playAiAgentReply(replyText, curLang, isGeminiOrigin, curSession);
       } catch (err: any) {
         if (stallTimer) clearTimeout(stallTimer);
         if (timeout20sTimer) clearTimeout(timeout20sTimer);

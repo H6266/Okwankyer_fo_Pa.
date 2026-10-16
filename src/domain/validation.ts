@@ -146,16 +146,12 @@ export function validateGhanaPhoneNumber(raw: string): PhoneValidationResult {
   }
 
   const prefix = normalized.slice(0, 3);
-  let network = TELCO_PREFIXES[prefix];
+  const network = TELCO_PREFIXES[prefix];
   if (!network) {
-    if (normalized.startsWith("02") || normalized.startsWith("05")) {
-      network = "MTN";
-    } else {
-      return {
-        valid: false,
-        error: `Invalid Ghanaian network prefix '${prefix}'. Must be MTN (024, 054, 055, 059, 053, 025), Telecel (020, 050, 023), or AT (027, 057, 026, 056).`,
-      };
-    }
+    return {
+      valid: false,
+      error: `Invalid Ghanaian network prefix '${prefix}'. Must be MTN (024, 054, 055, 059, 053, 025), Telecel (020, 050, 028), or AT (027, 057, 026, 056).`,
+    };
   }
 
   const last4Spaced = normalized.slice(-4).split("").join(" ");

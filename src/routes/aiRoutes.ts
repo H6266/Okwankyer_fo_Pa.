@@ -20,7 +20,7 @@ import { simulatorTelephonyAdapter } from "../providers/telephony/telephonyAdapt
 import { eventBus } from "../services/eventBus";
 import { brain } from "../ai_system/brain/brain";
 import { brainTelemetry } from "../ai_system/brain/brainTelemetry";
-import { matchAiReplyWithGemini } from "../audio/geminiAudioMatcher";
+import { matchAiReplyWithGemini, storeGeminiConversationReply } from "../audio/geminiAudioMatcher";
 import { ttsRouter } from "../ai_system/speech/tts/ttsRouter";
 import { formatSpokenNumbersAsDigits } from "../domain/numberFormatter";
 import { paymentSaga } from "../integrations/momo/paymentSaga";
@@ -670,6 +670,13 @@ aiRouter.post("/api/ai/brain/process", publicApiRateLimiter, async (req: Request
       forceModel: forceModel === true,
     });
 
+    // Store Gemini conversational replies into memory for Audio Matcher verification
+    if (output.modelOutput || (output.decision?.kind === "clarify_slot" && (output.decision as any)?.slot === "conversational")) {
+      if (output.reply?.text) {
+        storeGeminiConversationReply(output.reply.text, lang.startsWith("tw") ? "twi" : "en", sessionId);
+      }
+    }
+
     // Immediate 4-field synchronization to backend session (amount, recipientPhone, recipientName, network)
     if (sessionId) {
       try {
@@ -704,9 +711,14 @@ aiRouter.post("/api/ai/brain/process", publicApiRateLimiter, async (req: Request
 });
 
 // Audio matching against authentic human studio recordings & Twi link manifest
-aiRouter.post("/api/ai/match-audio", publicApiRateLimiter, (req: Request, res: Response) => {
+// Flow:
+// 1. In-Memory Cache (0 tokens, < 1ms)
+// 2. Dynamic content rejection to TTS (0 tokens, < 1ms)
+// 3. Local-First Matcher (0 tokens, < 2ms)
+// 4. Gemini Audio Matcher ONLY called when reply originated from conversation flow and local match is uncertain.
+aiRouter.post("/api/ai/match-audio", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {
-    const { text, language } = req.body;
+    const { text, language, literacyLevel, sessionId, isGeminiConversation } = req.body;
     if (!text || typeof text !== "string") {
       return res.status(400).json({ error: "Missing 'text' field" });
     }
@@ -716,23 +728,34 @@ aiRouter.post("/api/ai/match-audio", publicApiRateLimiter, (req: Request, res: R
       ? "twi"
       : "en";
 
-    const matchResult = matchReplyToAudio(text, lang, { minConfidence: 0.50 });
+    const geminiResult = await matchAiReplyWithGemini(text, lang, {
+      literacyLevel: literacyLevel || "standard",
+      sessionId,
+      isGeminiConversation: isGeminiConversation === true,
+    });
+
+    const matcherSource: "gemini_llm" | "local_brain" =
+      geminiResult.reason.includes("Gemini") ? "gemini_llm" : "local_brain";
+
     res.json({
       success: true,
-      matchFound: matchResult.match,
-      audioUrl: matchResult.match ? matchResult.audioUrl : null,
-      title: matchResult.title || null,
-      promptId: matchResult.recording?.promptId || matchResult.flowStep?.stepId || null,
-      confidence: matchResult.confidence,
-      requiresTts: !matchResult.match,
-      matchReason: matchResult.matchReason || (matchResult.match ? "catalog_match" : "dynamic_tts_required"),
+      matcherSource,
+      matchFound: geminiResult.matchFound,
+      audioUrl: geminiResult.audioUrl || null,
+      title: geminiResult.title || null,
+      promptId: geminiResult.promptId || null,
+      confidence: geminiResult.confidence ?? (geminiResult.matchFound ? 0.95 : 0.0),
+      requiresTts: geminiResult.requiresTts,
+      matchReason: geminiResult.reason,
       result: {
-        matchFound: matchResult.match,
-        audioUrl: matchResult.match ? matchResult.audioUrl : null,
-        title: matchResult.title || null,
-        promptId: matchResult.recording?.promptId || matchResult.flowStep?.stepId || null,
-        confidence: matchResult.confidence,
-        reason: matchResult.matchReason || (matchResult.match ? "catalog_match" : "dynamic_tts_required"),
+        matcherSource,
+        matchFound: geminiResult.matchFound,
+        audioUrl: geminiResult.audioUrl || null,
+        title: geminiResult.title || null,
+        promptId: geminiResult.promptId || null,
+        confidence: geminiResult.confidence ?? (geminiResult.matchFound ? 0.95 : 0.0),
+        reason: geminiResult.reason,
+        literacyContext: geminiResult.literacyContext,
       },
     });
   } catch (err: any) {
@@ -1090,19 +1113,7 @@ aiRouter.post("/api/ai/synthesize", publicApiRateLimiter, async (req: Request, r
   }
 });
 
-// ── AI Reply Audio Matcher with Gemini & Manifest ───────────────────────
-aiRouter.post("/api/ai/match-audio", publicApiRateLimiter, async (req: Request, res: Response) => {
-  try {
-    const { text, language, literacyLevel } = req.body;
-    if (!text) {
-      return res.status(400).json({ error: "Missing 'text' to match." });
-    }
-    const result = await matchAiReplyWithGemini(text, language || "twi", { literacyLevel });
-    res.json({ success: true, result });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || "Failed to match audio with Gemini" });
-  }
-});
+
 
 // ── AI Natural Language Intent to Central MoMo Pipeline ───────────────
 aiRouter.post("/api/ai/intent-to-momo", publicApiRateLimiter, async (req: Request, res: Response) => {

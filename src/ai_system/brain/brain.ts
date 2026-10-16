@@ -941,10 +941,13 @@ export class Brain {
 
     // Check if new network discrepancy detected for low-literacy warning
     if (draft.slots.hasNetworkDiscrepancy && !draft.slots.crossNetworkApproved) {
+      if (!draft.intent) {
+        draft.intent = 'momo.transfer';
+      }
       draft.lastReplyKind = 'confirm';
       const decision: BrainDecision = {
         kind: 'confirm',
-        intent: draft.intent || 'momo.transfer',
+        intent: draft.intent,
         slots: { ...draft.slots },
       };
       const reply = await replyComposer.composeReply({
@@ -1757,9 +1760,14 @@ export class Brain {
           draft.slots.amount = computed;
         }
       }
+      this.extractSlotsFromUtterance(rawTranscript, draft.slots);
+      const hasAmount = draft.slots.amount !== undefined;
+      const hasPhone = Boolean(draft.slots.recipient?.phone);
+      const isReadyToConfirm = hasAmount && hasPhone;
+
       return {
         intent: { id: (draft.intent as any) || "momo.transfer", confidence: 0.90 },
-        slots: { ...(draft.slots.amount !== undefined ? { amount: draft.slots.amount } : {}) },
+        slots: { ...draft.slots },
         signals: {
           correction: false,
           interruption: false,
@@ -1768,7 +1776,7 @@ export class Brain {
         reply: {
           text_en: conversationalText,
           target_language: targetLanguage,
-          reply_kind: "clarify_slot",
+          reply_kind: isReadyToConfirm ? "confirm" : "clarify_slot",
         },
       };
     }
