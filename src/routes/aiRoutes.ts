@@ -722,9 +722,18 @@ aiRouter.post("/api/ai/match-audio", publicApiRateLimiter, (req: Request, res: R
       matchFound: matchResult.match,
       audioUrl: matchResult.match ? matchResult.audioUrl : null,
       title: matchResult.title || null,
+      promptId: matchResult.recording?.promptId || matchResult.flowStep?.stepId || null,
       confidence: matchResult.confidence,
       requiresTts: !matchResult.match,
       matchReason: matchResult.matchReason || (matchResult.match ? "catalog_match" : "dynamic_tts_required"),
+      result: {
+        matchFound: matchResult.match,
+        audioUrl: matchResult.match ? matchResult.audioUrl : null,
+        title: matchResult.title || null,
+        promptId: matchResult.recording?.promptId || matchResult.flowStep?.stepId || null,
+        confidence: matchResult.confidence,
+        reason: matchResult.matchReason || (matchResult.match ? "catalog_match" : "dynamic_tts_required"),
+      },
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Audio matching failed" });

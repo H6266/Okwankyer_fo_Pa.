@@ -315,6 +315,8 @@ export class ReplyComposer {
     } else if (decision.kind === 'clarify_slot') {
       templateKey = decision.slot === 'amount'
         ? 'clarify_slot_amount'
+        : (slots as any).crossNetworkRejected
+        ? 'cross_network_rejected'
         : 'clarify_slot_recipient';
       replyKind = 'clarify_slot';
     } else if (decision.kind === 'clarify_intent') {

@@ -978,16 +978,17 @@ export const PhoneSimulatorPage: React.FC = () => {
           }),
         }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 
-        if (matchRes?.result?.matchFound && matchRes.result.audioUrl) {
+        const matchData = matchRes?.result || matchRes;
+        if (matchData?.matchFound && matchData.audioUrl) {
           addLog(
             "AI",
-            `Authentic studio audio matched (${matchRes.result.promptId || "Catalog"}): "${matchRes.result.reason}"`
+            `Authentic studio audio matched (${matchData.promptId || matchData.title || "Catalog"}): "${matchData.matchReason || matchData.reason || "Catalog Match"}"`
           );
-          await audioPlaybackController.play(matchRes.result.audioUrl, textToPlay);
+          await audioPlaybackController.play(matchData.audioUrl, textToPlay);
           return;
         }
 
-        addLog("AI", `Dynamic response requires TTS: "${matchRes?.result?.reason || "Synthesizing"}"`);
+        addLog("AI", `Dynamic response requires TTS: "${matchData?.matchReason || matchData?.reason || "Synthesizing"}"`);
         await audioPlaybackController.speakText(textToPlay);
       } catch {
         await audioPlaybackController.speakText(textToPlay);
@@ -1393,25 +1394,30 @@ export const PhoneSimulatorPage: React.FC = () => {
         : undefined;
 
       if (curStep.includes("confirm") || curStep === "safe-confirmation") {
-        const isAffirmative = /\b(yes|confirm|proceed|okay|sure|aane|pene so|ampa|that's him|thats him|correct|send it|kɔ so|yie|1|baako)\b/i.test(effectiveClean) || matchedDtmf === "1";
-        const isNegative = /\b(no|cancel|wrong|dabi|stop|sesa|change|reject|2|mmienu)\b/i.test(effectiveClean) || matchedDtmf === "2";
-        if (isAffirmative) {
-          addLog("caller", `Spoken confirmation approval: "${effectiveClean}"`);
-          startPinAuthorizationFlow();
-          return;
-        } else if (isNegative) {
-          addLog("caller", `Spoken confirmation rejection: "${effectiveClean}"`);
-          brainDraftRef.current = { slots: {} };
-          const cancelMsg = curLang === "twi"
-            ? "Yɛatwa mu. Wo pɛ sɛ womane sika kɔ nɔmba foforɔ bɛn so?"
-            : "Transaction cancelled. What phone number would you like to send money to instead?";
-          addChatTurn({ sender: "ai", text: cancelMsg, audioSource: "synthesis" });
-          setCurrentPrompt(cancelMsg);
-          currentPromptRef.current = cancelMsg;
-          activeStepNameRef.current = "enter-recipient";
-          setActiveStepName("enter-recipient");
-          await audioPlaybackController.speakText(cancelMsg);
-          return;
+        if (brainDraftRef.current?.slots?.hasNetworkDiscrepancy) {
+          addLog("AI", `Processing caller response to cross-network discrepancy confirmation: "${effectiveClean}"`);
+          // Let fall through to api.processBrain below
+        } else {
+          const isAffirmative = /\b(yes|confirm|proceed|okay|sure|aane|pene so|ampa|that's him|thats him|correct|send it|kɔ so|yie|1|baako)\b/i.test(effectiveClean) || matchedDtmf === "1";
+          const isNegative = /\b(no|cancel|wrong|dabi|stop|sesa|change|reject|2|mmienu)\b/i.test(effectiveClean) || matchedDtmf === "2";
+          if (isAffirmative) {
+            addLog("caller", `Spoken confirmation approval: "${effectiveClean}"`);
+            startPinAuthorizationFlow();
+            return;
+          } else if (isNegative) {
+            addLog("caller", `Spoken confirmation rejection: "${effectiveClean}"`);
+            brainDraftRef.current = { slots: {} };
+            const cancelMsg = curLang === "twi"
+              ? "Yɛatwa mu. Wo pɛ sɛ womane sika kɔ nɔmba foforɔ bɛn so?"
+              : "Transaction cancelled. What phone number would you like to send money to instead?";
+            addChatTurn({ sender: "ai", text: cancelMsg, audioSource: "synthesis" });
+            setCurrentPrompt(cancelMsg);
+            currentPromptRef.current = cancelMsg;
+            activeStepNameRef.current = "enter-recipient";
+            setActiveStepName("enter-recipient");
+            await audioPlaybackController.speakText(cancelMsg);
+            return;
+          }
         }
       }
 

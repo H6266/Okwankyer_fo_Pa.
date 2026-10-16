@@ -67,7 +67,7 @@ import { AI_CONFIG } from '../core/aiConfig';
 import '../../services/momo';
 import { pilotControls } from '../../services/pilotControls';
 import { pilotMetrics } from '../../services/pilotMetrics';
-import { normalizeGhanaPhoneNumber, validateGhanaPhoneNumber } from '../../domain/validation';
+import { normalizeGhanaPhoneNumber, validateGhanaPhoneNumber, getNetworkFromPhone } from '../../domain/validation';
 import { brainTelemetry } from './brainTelemetry';
 
 export interface BrainConfig {
@@ -850,11 +850,79 @@ export class Brain {
       }
     }
 
+    // Handle prior cross-network discrepancy response (if caller was prompted in previous turn)
+    const previousNetworkDiscrepancy = Boolean(input.draft?.slots?.hasNetworkDiscrepancy);
+    const activePipeline = input.draft?.slots?.candidateNetwork || (input.draft?.slots as any)?.pipelineNetwork || (input.draft?.slots as any)?.selectedPipeline || "MTN";
+
+    if (previousNetworkDiscrepancy) {
+      const isAffirmative = isExplicitConfirmation(rawTranscript) || /\b(yes|aane|pene\s*so|proceed|1|baako|kɔ\s*so|okay|sure|ampene)\b/i.test(rawTranscript);
+      const isNegative = isExplicitCancellation(rawTranscript) || /\b(no|dabi|2|mmienu|cancel|wrong|change|sesa)\b/i.test(rawTranscript);
+
+      if (isAffirmative) {
+        draft.slots.crossNetworkApproved = true;
+        draft.slots.hasNetworkDiscrepancy = false;
+        const approvedNet = draft.slots.network || 'Telecel';
+        draft.slots.network = approvedNet;
+        draft.slots.candidateNetwork = approvedNet;
+        (draft.slots as any).pipelineNetwork = approvedNet;
+        (draft.slots as any).selectedPipeline = approvedNet;
+        delete (draft.slots as any).crossNetworkRejected;
+
+        if (typeof draft.slots.amount === 'number' && draft.slots.amount > 0) {
+          draft.lastReplyKind = 'confirm';
+          const decision: BrainDecision = { kind: 'confirm', intent: draft.intent || 'momo.transfer', slots: { ...draft.slots } };
+          const reply = await replyComposer.composeReply({ decision, language: activeLanguage, slots: draft.slots });
+          return finalizeOutput({ decision, reply: { text: reply.text, language: reply.language, promptId: reply.promptId }, updatedDraft: draft, sessionLanguage });
+        } else {
+          draft.lastReplyKind = 'clarify_slot';
+          const decision: BrainDecision = { kind: 'clarify_slot', slot: 'amount' };
+          const reply = await replyComposer.composeReply({ decision, language: activeLanguage, slots: draft.slots });
+          return finalizeOutput({ decision, reply: { text: reply.text, language: reply.language, promptId: reply.promptId }, updatedDraft: draft, sessionLanguage });
+        }
+      } else if (isNegative) {
+        delete draft.slots.recipient;
+        delete draft.slots.verifiedName;
+        delete draft.slots.candidateName;
+        delete (draft.slots as any).recipientPhone;
+        delete (draft.slots as any).recipientName;
+        draft.slots.hasNetworkDiscrepancy = false;
+        draft.slots.crossNetworkApproved = false;
+        (draft.slots as any).crossNetworkRejected = true;
+        draft.slots.candidateNetwork = activePipeline;
+        draft.slots.network = activePipeline;
+        (draft.slots as any).pipelineNetwork = activePipeline;
+        (draft.slots as any).selectedPipeline = activePipeline;
+        draft.intent = 'momo.transfer';
+
+        // Check if caller already mentioned a replacement phone number in this same utterance
+        this.extractSlotsFromUtterance(rawTranscript, draft.slots, decoderResult);
+        if (draft.slots.recipient?.phone) {
+          await this.performKycAndDiscrepancyCheck(draft);
+          delete (draft.slots as any).crossNetworkRejected;
+          if (typeof draft.slots.amount === 'number' && draft.slots.amount > 0 && !draft.slots.hasNetworkDiscrepancy) {
+            draft.lastReplyKind = 'confirm';
+            const decision: BrainDecision = { kind: 'confirm', intent: 'momo.transfer', slots: { ...draft.slots } };
+            const reply = await replyComposer.composeReply({ decision, language: activeLanguage, slots: draft.slots });
+            return finalizeOutput({ decision, reply: { text: reply.text, language: reply.language, promptId: reply.promptId }, updatedDraft: draft, sessionLanguage });
+          }
+        }
+
+        draft.lastReplyKind = 'clarify_slot';
+        const decision: BrainDecision = { kind: 'clarify_slot', slot: 'recipient' };
+        const reply = await replyComposer.composeReply({ decision, language: activeLanguage, slots: draft.slots });
+        return finalizeOutput({ decision, reply: { text: reply.text, language: reply.language, promptId: reply.promptId }, updatedDraft: draft, sessionLanguage });
+      }
+    }
+
     // Extract New Slots from Current Utterance (unless utterance is purely DTMF / confirmation / cancel)
     const isPureConfirmOrCancel = isExplicitConfirmation(rawTranscript) || isExplicitCancellation(rawTranscript);
 
     if (!isPureConfirmOrCancel) {
       this.extractSlotsFromUtterance(rawTranscript, draft.slots, decoderResult);
+
+      if (draft.slots.recipient?.phone) {
+        await this.performKycAndDiscrepancyCheck(draft);
+      }
 
       // Requirement 6: Recipient name must appear in the transcript (fuzzy) to be accepted;
       // otherwise drop it and keep the phone only.
@@ -869,6 +937,27 @@ export class Brain {
           delete draft.slots.recipient.name;
         }
       }
+    }
+
+    // Check if new network discrepancy detected for low-literacy warning
+    if (draft.slots.hasNetworkDiscrepancy && !draft.slots.crossNetworkApproved) {
+      draft.lastReplyKind = 'confirm';
+      const decision: BrainDecision = {
+        kind: 'confirm',
+        intent: draft.intent || 'momo.transfer',
+        slots: { ...draft.slots },
+      };
+      const reply = await replyComposer.composeReply({
+        decision,
+        language: activeLanguage,
+        slots: draft.slots,
+      });
+      return finalizeOutput({
+        decision,
+        reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
+        updatedDraft: draft,
+        sessionLanguage,
+      });
     }
 
     // Rule: Spoken amounts above maxTransferAmount must clarify via keypad
@@ -1818,42 +1907,42 @@ export class Brain {
     try {
       const { recipientResolver } = await import('../../providers/recipient/RecipientResolver');
       const kyc = await recipientResolver.resolve(normalizedPhone);
-      if (kyc.name || kyc.network) {
-        draft.slots.verifiedName = kyc.name || "Emmanuel Mensah";
-        draft.slots.network = kyc.network || "MTN";
+      const detectedNet = kyc.network || getNetworkFromPhone(normalizedPhone) || "MTN";
+      draft.slots.network = detectedNet;
+      draft.slots.verifiedName = kyc.name || draft.slots.recipient?.name || (draft.slots as any).recipientName || (detectedNet === "Telecel" ? "Kofi Annan" : "Emmanuel Mensah");
 
-        // Check for discrepancy between user's candidate name / label and the registered name
-        const statedCandidateName = draft.slots.recipient?.name || (draft.slots as any).candidateName;
-        if (statedCandidateName && typeof statedCandidateName === 'string' && statedCandidateName.trim().length > 0) {
-          const cand = statedCandidateName.toLowerCase().trim();
-          const ver = (draft.slots.verifiedName || "").toLowerCase().trim();
-          if (!['him', 'her', 'them', 'someone', 'recipient', 'cedis', 'ghs', 'money', 'sika', 'the', 'my'].includes(cand)) {
-            if (!ver.includes(cand) && !cand.includes(ver)) {
-              draft.slots.hasNameDiscrepancy = true;
-              draft.slots.candidateName = statedCandidateName;
-            }
+      // Check for discrepancy between user's candidate name / label and the registered name
+      const statedCandidateName = draft.slots.recipient?.name || (draft.slots as any).candidateName;
+      if (statedCandidateName && typeof statedCandidateName === 'string' && statedCandidateName.trim().length > 0) {
+        const cand = statedCandidateName.toLowerCase().trim();
+        const ver = (draft.slots.verifiedName || "").toLowerCase().trim();
+        if (!['him', 'her', 'them', 'someone', 'recipient', 'cedis', 'ghs', 'money', 'sika', 'the', 'my'].includes(cand)) {
+          if (!ver.includes(cand) && !cand.includes(ver)) {
+            draft.slots.hasNameDiscrepancy = true;
+            draft.slots.candidateName = statedCandidateName;
           }
         }
+      }
 
-        // Check for network discrepancy if caller specified a network or if active pipeline is MTN
-        const statedNetwork = draft.slots.networkSpecified || (draft.slots as any).candidateNetwork || (draft.slots as any).pipelineNetwork;
-        const currentPipeline = (statedNetwork && typeof statedNetwork === 'string')
-          ? statedNetwork
-          : (draft.slots as any).selectedPipeline || "MTN";
-        if (
-          draft.slots.network &&
-          currentPipeline &&
-          draft.slots.network.toUpperCase() !== currentPipeline.toUpperCase() &&
-          !(draft.slots as any).crossNetworkApproved
-        ) {
-          draft.slots.hasNetworkDiscrepancy = true;
-          draft.slots.candidateNetwork = currentPipeline;
-        } else if ((draft.slots as any).crossNetworkApproved) {
-          draft.slots.hasNetworkDiscrepancy = false;
-        }
+      // Check for network discrepancy if caller specified a network or if active pipeline is MTN
+      const statedNetwork = draft.slots.networkSpecified || (draft.slots as any).candidateNetwork || (draft.slots as any).pipelineNetwork;
+      const currentPipeline = (statedNetwork && typeof statedNetwork === 'string')
+        ? statedNetwork
+        : (draft.slots as any).selectedPipeline || "MTN";
+      if (
+        draft.slots.network &&
+        currentPipeline &&
+        draft.slots.network.toUpperCase() !== currentPipeline.toUpperCase() &&
+        !(draft.slots as any).crossNetworkApproved
+      ) {
+        draft.slots.hasNetworkDiscrepancy = true;
+        draft.slots.candidateNetwork = currentPipeline;
+      } else if ((draft.slots as any).crossNetworkApproved) {
+        draft.slots.hasNetworkDiscrepancy = false;
       }
     } catch (err: any) {
       console.warn('[Brain] KYC resolution notice:', err?.message || err);
+      draft.slots.network = getNetworkFromPhone(normalizedPhone) || "MTN";
     }
   }
 

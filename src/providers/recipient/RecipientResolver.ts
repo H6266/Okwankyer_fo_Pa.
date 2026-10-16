@@ -64,15 +64,14 @@ export class SandboxRecipientResolver implements RecipientResolver {
       };
     }
 
-    const lastDigits = val.normalized.slice(-4);
     return {
       valid: true,
       phoneNumber: rawPhoneNumber,
       normalizedPhone: val.normalized,
-      name: `Subscriber (${lastDigits})`,
+      name: null,
       network: val.network,
-      verified: true,
-      source: "SANDBOX_FIXTURE",
+      verified: false,
+      source: "UNRESOLVED",
     };
   }
 }

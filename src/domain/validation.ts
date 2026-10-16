@@ -32,7 +32,6 @@ const TELCO_PREFIXES: Record<string, GhanaianNetwork> = {
   "059": "MTN",
   "053": "MTN",
   "020": "Telecel",
-  "023": "Telecel",
   "050": "Telecel",
   "028": "Telecel",
   "027": "AT",
@@ -278,3 +277,13 @@ export function redactPii(text: string): string {
 
   return redacted;
 }
+
+/**
+ * Returns detected telco network (MTN, Telecel, AT) based on phone number prefix
+ */
+export function getNetworkFromPhone(phone: string): GhanaianNetwork {
+  const norm = normalizeGhanaPhoneNumber(phone);
+  const prefix = norm.slice(0, 3);
+  return TELCO_PREFIXES[prefix] || "MTN";
+}
+

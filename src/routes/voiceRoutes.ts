@@ -968,7 +968,15 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
     : "";
 
   let verifyPrompt = "";
-  if (lang === "twi") {
+  const isCrossNetwork = session.network && resolution.network && session.network.toUpperCase() !== resolution.network.toUpperCase();
+
+  if (isCrossNetwork) {
+    if (lang === "twi") {
+      verifyPrompt = `Nɔmba a wode mae no yɛ ${resolution.network} nɔmba a ne din ne ${nameSpoken}, nanso woreyɛ adwuma wɔ ${session.network} dwumadie mu. Wopɛ sɛ wokɔ so mane sika kɔ saa ${resolution.network} nɔmba yi so ara? Sɛ wopene so a, mia baako (1). Sɛ wosesa nɔmba no a, mia mmienu (2). Sɛ wogyae a, mia hwee (0).`;
+    } else {
+      verifyPrompt = `The number you provided is a ${resolution.network} number registered to ${nameSpoken}, but you started in the ${session.network} service. Do you want to continue sending money to this ${resolution.network} number? Press 1 to confirm, 2 to enter a different number, or 0 to exit.`;
+    }
+  } else if (lang === "twi") {
     verifyPrompt = `Obi a woremane no no din ne ${nameSpoken}. Ne phone nɔmba a ɛdi mũ ne ${fullPhoneSpoken}. Sɛ wopene so a mia baako (1). Sɛ wosesa a mia mmienu (2). Sɛ wogyae a mia hwee (0).`;
   } else {
     verifyPrompt = `The recipient's name is ${nameSpoken}. The full recipient phone number is ${fullPhoneSpoken}. Press 1 to confirm, 2 to re-enter, or 0 to exit.`;
@@ -1024,10 +1032,19 @@ ivrRouter.all("/recipient-verify-choice", (req: Request, res: Response) => {
   if (dtmf === "2") {
     // Re-enter recipient number
     recipientLookups.delete(session);
+    session.recipientPhone = null;
+    session.recipientName = null;
+    session.isRecipientVerified = false;
     session.retryCount = 0;
     return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
   }
   
+  // If confirmed with 1, update session network to resolved recipient network if cross-network
+  const activeLookup = recipientLookups.get(session);
+  if (activeLookup?.result?.network) {
+    session.network = activeLookup.result.network;
+  }
+
   // If the caller entered an amount (e.g. 5, 10, 20, 50, 100...) or confirmed with 1
   const possibleAmt = parseAndValidateAmount(dtmf);
   if (possibleAmt.valid && possibleAmt.amount && possibleAmt.amount > 0 && dtmf !== "1") {
