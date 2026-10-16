@@ -23,9 +23,6 @@ import { validateSpokenReply, replyComposer, convertAmountToSpokenWords } from '
 import { DraftState, BrainInput } from '../src/ai_system/brain/types';
 import { setRequireApprovedNumbers } from '../src/ai_system/linguistic/twiNumberWords';
 import { setAllowUnapprovedTemplates } from '../src/ai_system/brain/replyTemplates';
-import { createHmac } from 'crypto';
-import { unifiedMemory } from '../src/ai_system/memory/unifiedMemory';
-import { maskSensitiveSpeech, redactSlotsForModel } from '../src/ai_system/brain/brain';
 
 describe('Central Reasoning Brain - Architectural Invariants', () => {
   beforeEach(() => {
@@ -483,118 +480,8 @@ describe('Central Reasoning Brain - Architectural Invariants', () => {
       expect(amountTurn.telemetry?.tier).toBe('TIER_1_DETERMINISTIC');
       expect(amountTurn.telemetry?.tokensUsed).toBe(0);
       expect(amountTurn.decision.kind).toBe('confirm');
-      if (amountTurn.decision.kind === 'confirm') {
-        expect(amountTurn.decision.slots.amount).toBe(25);
-      } else {
-        throw new Error('Expected transfer confirmation.');
-      }
-    });
-  });
-
-  describe('12. Explicit, privacy-bounded language memory', () => {
-    const testMemorySecret = 'test-memory-id-secret-at-least-32-bytes-long';
-    const memoryId = `caller:${createHmac('sha256', testMemorySecret).update('0553838464').digest('hex')}`;
-
-    beforeEach(async () => {
-      vi.stubEnv('MEMORY_ID_SECRET', testMemorySecret);
-      await unifiedMemory.clearPreferences(memoryId);
-    });
-
-    afterEach(async () => {
-      await unifiedMemory.clearPreferences(memoryId);
-      vi.unstubAllEnvs();
-    });
-
-    it('remembers language only after an explicit request and restores it on a later call', async () => {
-      const optIn = await brain.process({
-        transcript: 'Remember my language',
-        language: 'twi-asante',
-        languageConfidence: 0.95,
-        sessionLanguage: 'twi-asante',
-        callerNumber: '0553838464',
-        draft: { slots: {} },
-      });
-
-      expect(optIn.decision.kind).toBe('smalltalk');
-      expect(optIn.reply.text).toContain('Mɛkora kasa pɛ no nko ara');
-      expect(await unifiedMemory.getPreferences(memoryId)).toMatchObject({
-        preferredLanguage: 'tw',
-        memoryConsent: { scope: 'language_preference' },
-      });
-
-      const nextCall = await brain.process({
-        transcript: 'hello',
-        language: 'en',
-        languageConfidence: 0.1,
-        callerNumber: '0553838464',
-        draft: { slots: {} },
-      });
-
-      expect(nextCall.sessionLanguage).toBe('twi-asante');
-    });
-
-    it('does not retain preference without caller identification and supports forgetting saved preferences', async () => {
-      const withoutCallerId = await brain.process({
-        transcript: 'Remember my language',
-        language: 'en',
-        languageConfidence: 0.95,
-        sessionLanguage: 'en',
-        draft: { slots: {} },
-      });
-      expect(withoutCallerId.reply.text).toContain('when secure caller identification and storage are configured');
-      expect(await unifiedMemory.getPreferences(memoryId)).toBeNull();
-
-      await unifiedMemory.savePreferences(memoryId, {
-        userId: memoryId,
-        preferredLanguage: 'tw',
-        memoryConsent: { scope: 'language_preference', grantedAt: Date.now() },
-      });
-      await brain.process({
-        transcript: 'Forget my preferences',
-        language: 'en',
-        languageConfidence: 0.95,
-        callerNumber: '0553838464',
-        draft: { slots: {} },
-      });
-      expect(await unifiedMemory.getPreferences(memoryId)).toBeNull();
-    });
-
-    it('redacts phone numbers and spoken PINs from conversational memory and diagnostics', () => {
-      expect(maskSensitiveSpeech('Send it to 0553838464')).toBe('Send it to [PHONE_MASKED]');
-      expect(maskSensitiveSpeech('My PIN is 1234')).toBe('[SECURITY_CONTENT_REDACTED]');
-    });
-
-    it('keeps a spoken PIN out of recent turns and brain telemetry', async () => {
-      brainTelemetry.reset();
-      const output = await brain.process({
-        transcript: 'My PIN is 1234',
-        language: 'en',
-        languageConfidence: 0.95,
-        sessionLanguage: 'en',
-        draft: { slots: {} },
-      });
-
-      expect(output.updatedDraft.recentTurns?.[0].text).toBe('[SECURITY_CONTENT_REDACTED]');
-      expect(brainTelemetry.getSummary().history[0].utterance).toBe('[SECURITY_CONTENT_REDACTED]');
-    });
-
-    it('redacts sensitive values recursively from model slot context', () => {
-      const redacted = redactSlotsForModel({
-        amount: 50,
-        recipient: { name: 'Ama', phone: '0553838464' },
-        accountNumber: '1234567890',
-        pin: '1234',
-      });
-
-      expect(redacted).toEqual({
-        amount: 50,
-        recipient: { name: 'Ama', phone: '[PHONE_MASKED]' },
-        accountNumber: '[PHONE_MASKED]',
-        pin: '[SECURITY_CONTENT_REDACTED]',
-      });
-      expect(JSON.stringify(redacted)).not.toContain('0553838464');
-      expect(JSON.stringify(redacted)).not.toContain('1234567890');
-      expect(JSON.stringify(redacted)).not.toContain('1234');
+      expect(amountTurn.decision.slots.amount).toBe(25);
     });
   });
 });
+

@@ -146,11 +146,6 @@ export class DurableFilePreferenceRepository implements IPreferenceRepository {
     const file = path.join(this.baseDir, `${storageKey(userId)}.json`);
     atomicWrite(file, JSON.stringify({ ...existing, ...profile }));
   }
-
-  public async clear(userId: string): Promise<void> {
-    const file = path.join(this.baseDir, `${storageKey(userId)}.json`);
-    if (fs.existsSync(file)) fs.unlinkSync(file);
-  }
 }
 
 export class DurableFileTransactionRepository implements ITransactionRepository {

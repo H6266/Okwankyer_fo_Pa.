@@ -20,14 +20,6 @@ The Central Reasoning Brain sits between Telephony ASR (Automatic Speech Recogni
 4. **DISPATCH**: If the service is `ready`, all required slots are validated, and the caller has explicitly confirmed, hands off to the service handler.
 5. **REPLY**: Generates and validates one spoken sentence in the caller's language with deterministic slot injection, zero digits, and studio prompt catalog matching.
 
-## Conversation Context & Opt-In Memory
-
-The model receives a bounded snapshot of the active intent, currently available slots, the next required question, and the last four sanitized turns. Recipient phone numbers are represented only as an availability flag; phone digits and any turn detected as a spoken PIN are removed from model context and brain telemetry.
-
-Cross-call memory is off unless the caller explicitly says “remember my language” (or the supported Twi equivalent) on a call with a valid caller ID and a configured 32-byte `MEMORY_ID_SECRET` (or `ENCRYPTION_KEY`). Production additionally requires a 32-byte `ENCRYPTION_KEY` for encrypted storage. The brain then stores only the language preference, keyed by an HMAC of the normalized caller number. Callers can say “forget my preferences” to remove the saved profile. PINs, transaction drafts, recipient details, and transaction history are not part of this opt-in memory.
-
-The model may help interpret corrections and identify the next missing detail, but only deterministic slot requirements and validation authorize a readback or dispatch. The assistant must not claim a balance, fee, or recipient verification unless a live provider has actually supplied it.
-
 ---
 
 ## How to Add a New Service (Airtime, Bill Pay, etc.)
@@ -171,3 +163,4 @@ Shadow mode evaluates model reasoning against offline deterministic ground truth
    - `INTENT_MISMATCH`: The model and offline engine chose different intents.
    - `DECISION_KIND_MISMATCH`: One wanted to clarify while the other wanted to confirm or dispatch.
    - `SLOT_PRESENCE_MISMATCH`: Discrepancy in whether required slots were extracted.
+

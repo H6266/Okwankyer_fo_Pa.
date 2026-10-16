@@ -140,22 +140,22 @@ describe("2. Step-Aware Amount vs PIN Separation", () => {
 });
 
 describe("3. Correct Prompt Fallback Order & TTS Audio Invariants", () => {
-  it("3.1. Only reviewed prompt assets are loaded into the Studio Recording Catalog", () => {
+  it("3.1. Unreviewed prompt candidates are not loaded into the Studio Recording Catalog", () => {
+    // Welcome prompt
     const welcome = studioPromptRegistry.getPrompt("welcome", "tw");
-    expect(welcome).toBeDefined();
-    expect(welcome?.relativeUrl).toContain("Welcome");
+    expect(welcome).toBeNull();
 
     const amountEn = studioPromptRegistry.getPrompt("enter_amount", "en");
     expect(amountEn).toBeNull();
 
     const amountTw = studioPromptRegistry.getPrompt("enter_amount", "tw");
-    expect(amountTw).toBeDefined();
+    expect(amountTw).toBeNull();
   });
 
   it("3.2. TTS Router synthesizes speech when no studio prompt is verified", async () => {
     const res = await ttsRouter.synthesize({
-      text: "enter_amount",
-      language: "en",
+      text: "welcome",
+      language: "tw",
     });
 
     expect(res.providerUsed).not.toContain("tier1-studio-prompt-registry");

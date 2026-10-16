@@ -309,8 +309,9 @@ export const PhoneSimulatorPage: React.FC = () => {
   useEffect(() => { isMicMutedRef.current = isMicMuted; }, [isMicMuted]);
   useEffect(() => { zeroPinOverlayRef.current = zeroPinOverlay; }, [zeroPinOverlay]);
 
-  // Prepare audio on any initial user touch or interaction so audio plays automatically
+  // Prepare audio on any initial user touch or interaction so audio plays automatically at boosted volume
   useEffect(() => {
+    audioPlaybackController.setVolumeMultiplier(2.0);
     const handleInitialUserGesture = () => {
       audioPlaybackController.enableAudio();
     };
@@ -1469,13 +1470,44 @@ export const PhoneSimulatorPage: React.FC = () => {
         ? (navigationOptions[normalizedOption] || (stepGroup ? optionMap[stepGroup][normalizedOption] : undefined))
         : undefined;
 
-      if (curStep.includes("confirm") || curStep === "safe-confirmation") {
+      // 1. Spoken Recipient Entry (proceed immediately at 10th digit)
+      if (curStep === "enter-recipient" || curStep === "enter_recipient_2") {
+        const spokenDigits = speechNormalizer.extractSpokenDigits(effectiveClean);
+        if (spokenDigits.length >= 10) {
+          const tenDigits = spokenDigits.slice(0, 10);
+          setCapturedRecipientPhone(tenDigits);
+          addLog("asr", `ASR 10-Digit Recipient '${tenDigits}' completed; proceeding immediately to verification.`);
+          return dispatchVoiceWebhook(
+            `/api/simulator/verify-recipient?sessionId=${curSession}&lang=${curLang}`,
+            { dtmfDigits: tenDigits }
+          );
+        }
+      }
+
+      // 2. Spoken PIN Authorization (proceed right after the 4th digit)
+      if (curStep === "pin-handoff" || curStep === "pin_handoff" || curStep === "pin-authorization") {
+        const pinDigits = speechNormalizer.extractSpokenDigits(effectiveClean);
+        if (pinDigits.length >= 4) {
+          const fourDigits = pinDigits.slice(0, 4);
+          setHandsetPinDigits(fourDigits);
+          addLog("asr", `ASR 4-Digit Password '${fourDigits}' received; proceeding immediately to confirm speech.`);
+          return dispatchVoiceWebhook(
+            `/api/simulator/confirm-speech?sessionId=${curSession}&lang=${curLang}`,
+            { dtmfDigits: fourDigits }
+          );
+        }
+      }
+
+      // 3. Spoken Safe Confirmation (Step 11 -> advances to PIN handoff)
+      if (curStep === "safe-confirmation") {
         const isAffirmative = /\b(yes|confirm|proceed|okay|sure|aane|pene so|ampa|that's him|thats him|correct|send it|kɔ so|yie|1|baako)\b/i.test(effectiveClean) || matchedDtmf === "1";
         const isNegative = /\b(no|cancel|wrong|dabi|stop|sesa|change|reject|2|mmienu)\b/i.test(effectiveClean) || matchedDtmf === "2";
         if (isAffirmative) {
-          addLog("caller", `Spoken confirmation approval: "${effectiveClean}"`);
-          startPinAuthorizationFlow();
-          return;
+          addLog("caller", `Spoken confirmation approval: "${effectiveClean}". Advancing to PIN authorization handoff.`);
+          return dispatchVoiceWebhook(
+            `/api/simulator/pin-handoff?sessionId=${curSession}&lang=${curLang}`,
+            { dtmfDigits: "1" }
+          );
         } else if (isNegative) {
           addLog("caller", `Spoken confirmation rejection: "${effectiveClean}"`);
           brainDraftRef.current = { slots: {} };
@@ -1488,6 +1520,21 @@ export const PhoneSimulatorPage: React.FC = () => {
           activeStepNameRef.current = "enter-recipient";
           setActiveStepName("enter-recipient");
           await audioPlaybackController.speakText(cancelMsg);
+          return;
+        }
+      }
+
+      // 4. Spoken Confirm Speech (Step 12 -> dispatches payment processing)
+      if (curStep === "confirm-speech" || curStep === "confirm_speech") {
+        const isAffirmative = /\b(yes|confirm|proceed|okay|sure|aane|pene so|ampa|correct|send it|kɔ so|yie|1|baako)\b/i.test(effectiveClean) || matchedDtmf === "1";
+        const isNegative = /\b(no|cancel|wrong|dabi|stop|sesa|change|reject|2|mmienu)\b/i.test(effectiveClean) || matchedDtmf === "2";
+        if (isAffirmative) {
+          addLog("caller", `Spoken final submission confirmation: "${effectiveClean}"`);
+          startPinAuthorizationFlow();
+          return;
+        } else if (isNegative) {
+          addLog("caller", `Spoken cancellation: "${effectiveClean}"`);
+          endCall("Caller cancelled at confirmation");
           return;
         }
       }
@@ -1948,13 +1995,20 @@ export const PhoneSimulatorPage: React.FC = () => {
         return;
       }
 
-      // Final Transaction Confirmation (Step 11/12): 1=Confirm & Dispatch
-      const isFinalConfirmationStep =
-        activeStepNameRef.current === "safe-confirmation" ||
+      // Safe Confirmation (Step 11): 1=Proceed to PIN Authorization Handoff
+      if (digit === "1" && activeStepNameRef.current === "safe-confirmation") {
+        setDigitsBuffer("");
+        addLog("caller", "Keypad '1' confirmed details. Proceeding to PIN handoff authorization.");
+        dispatchVoiceWebhook(`/api/simulator/pin-handoff?sessionId=${sessionIdRef.current}&lang=${languageRef.current || "twi"}`, { dtmfDigits: "1" });
+        return;
+      }
+
+      // Final Confirm Speech (Step 12): 1=Confirm & Dispatch
+      const isFinalConfirmStep =
         activeStepNameRef.current === "confirm-speech" ||
         activeStepNameRef.current === "confirm_speech";
 
-      if (digit === "1" && isFinalConfirmationStep) {
+      if (digit === "1" && isFinalConfirmStep) {
         setDigitsBuffer("");
         addLog("caller", "Keypad '1' confirmed transfer. Dispatched to payment processing pipeline.");
         startPinAuthorizationFlow();
@@ -1971,7 +2025,14 @@ export const PhoneSimulatorPage: React.FC = () => {
         activeStepNameRef.current === "enter-amount" ||
         activeStepNameRef.current === "enter_amount_4";
 
+      // Strictly entering PIN / password
+      const isEnteringPin =
+        activeStepNameRef.current === "pin-handoff" ||
+        activeStepNameRef.current === "pin_handoff" ||
+        activeStepNameRef.current === "pin-authorization";
+
       // Multi-digit input with finish on key (#)
+      // When entering recipient phone numbers or PIN: ALWAYS wait for # before proceeding!
       if (digit === activeFinishOnKey || digit === "#") {
         if (digitsBuffer.trim()) {
           const submitted = digitsBuffer.trim();
@@ -1982,12 +2043,17 @@ export const PhoneSimulatorPage: React.FC = () => {
             const parsedAmt = parseFloat(submitted.replace("*", "."));
             if (!isNaN(parsedAmt)) setCapturedAmount(parsedAmt);
           }
+          if (isEnteringPin) {
+            setHandsetPinDigits(submitted);
+          }
           setDigitsBuffer("");
           addLog("caller", `Keypad '${submitted}#'`);
           const cb = isEnteringRecipientPhone
             ? `/api/simulator/verify-recipient?sessionId=${sessionIdRef.current}&lang=${languageRef.current || "twi"}`
             : isEnteringAmount
             ? `/api/simulator/verify-amount?sessionId=${sessionIdRef.current}&lang=${languageRef.current || "twi"}`
+            : isEnteringPin
+            ? `/api/simulator/confirm-speech?sessionId=${sessionIdRef.current}&lang=${languageRef.current || "twi"}`
             : targetCallback;
           dispatchVoiceWebhook(cb, { dtmfDigits: submitted });
         }
@@ -1998,32 +2064,15 @@ export const PhoneSimulatorPage: React.FC = () => {
       const nextBuf = digitsBuffer + digit;
       setDigitsBuffer(nextBuf);
 
-      // Auto-advance for 10-digit phone number in recipient entry: NEVER STALL OR GET STUCK!
-      if (isEnteringRecipientPhone) {
-        const isTenDigits =
-          (nextBuf.startsWith("0") && nextBuf.length === 10) ||
-          (nextBuf.startsWith("233") && nextBuf.length === 12) ||
-          (!nextBuf.startsWith("0") && !nextBuf.startsWith("233") && nextBuf.length === 9) ||
-          nextBuf.length === 10;
-        if (isTenDigits) {
-          setCapturedRecipientPhone(nextBuf);
-          setDigitsBuffer("");
-          addLog("caller", `Keypad 10-Digit Recipient '${nextBuf}' (Auto-advancing to verification)`);
-          const verifyUrl = `/api/simulator/verify-recipient?sessionId=${sessionIdRef.current}&lang=${languageRef.current || "twi"}`;
-          dispatchVoiceWebhook(verifyUrl, { dtmfDigits: nextBuf });
-          return;
-        }
-      }
-
-      // Single-digit expectation when not typing a phone or amount
-      if (activeNumDigits === 1 && !isEnteringRecipientPhone && !isEnteringAmount) {
+      // Single-digit expectation when not typing a phone, amount, or PIN
+      if (activeNumDigits === 1 && !isEnteringRecipientPhone && !isEnteringAmount && !isEnteringPin) {
         setDigitsBuffer("");
         addLog("caller", `Keypad '${digit}'`);
         dispatchVoiceWebhook(targetCallback, { dtmfDigits: digit });
         return;
       }
 
-      if (!activeFinishOnKey && nextBuf.length >= activeNumDigits) {
+      if (!activeFinishOnKey && !isEnteringRecipientPhone && !isEnteringPin && nextBuf.length >= activeNumDigits) {
         setDigitsBuffer("");
         addLog("caller", `Keypad '${nextBuf}'`);
         dispatchVoiceWebhook(targetCallback, { dtmfDigits: nextBuf });
@@ -2354,8 +2403,24 @@ export const PhoneSimulatorPage: React.FC = () => {
                       {digitsBuffer ? digitsBuffer : <span className="text-slate-500 tracking-normal text-xs">Enter 10 digits</span>}
                     </div>
                     <div className="flex items-center justify-between w-full text-[10px] text-slate-400">
-                      <span className="text-emerald-400 font-medium animate-pulse">10 digits auto-advances or press #</span>
+                      <span className="text-amber-400 font-medium animate-pulse">Wait for # or speak 10 digits</span>
                       <span className="font-mono text-emerald-400">OP16</span>
+                    </div>
+                  </div>
+                ) : activeStepName === "pin-handoff" || activeStepName === "pin_handoff" || activeStepName === "pin-authorization" ? (
+                  <div className="flex flex-col items-center justify-center gap-1 w-full px-1">
+                    <div className="flex items-center justify-between w-full text-[10px] text-amber-400 font-semibold uppercase tracking-wider">
+                      <span>4-Digit Authorization PIN</span>
+                      <span className="bg-amber-950/80 px-1.5 py-0.5 rounded text-amber-300 border border-amber-600/40 text-[9px]">
+                        {digitsBuffer.length} / 4 digits
+                      </span>
+                    </div>
+                    <div className="text-xl font-bold tracking-widest text-amber-300 font-mono w-full bg-slate-950/80 py-1.5 px-2 rounded-lg border border-amber-500/30">
+                      {digitsBuffer ? "•".repeat(digitsBuffer.length) : <span className="text-slate-500 tracking-normal text-xs">Punch or say 4-digit PIN</span>}
+                    </div>
+                    <div className="flex items-center justify-between w-full text-[10px] text-slate-400">
+                      <span className="text-amber-400 font-medium animate-pulse">Wait for # or speak 4 digits</span>
+                      <span className="font-mono text-amber-400">OP40</span>
                     </div>
                   </div>
                 ) : activeStepName === "verify-recipient" || activeStepName === "recipient-verify-choice" || activeStepName === "use_recipient_1" || activeStepName === "recipient_confirm_speech" ? (

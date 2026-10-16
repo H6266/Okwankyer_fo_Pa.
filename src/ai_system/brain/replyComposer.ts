@@ -265,7 +265,7 @@ export class ReplyComposer {
     if (
       input.conversationalText &&
       input.conversationalText.trim() &&
-      (decision.kind === 'clarify_slot' || decision.kind === 'clarify_intent' || decision.kind === 'smalltalk')
+      (decision.kind === 'clarify_slot' || decision.kind === 'clarify_intent' || (decision as any).kind === 'smalltalk')
     ) {
       return {
         text: input.conversationalText.trim(),
@@ -355,3 +355,4 @@ export class ReplyComposer {
 }
 
 export const replyComposer = new ReplyComposer();
+

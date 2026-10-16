@@ -13,7 +13,6 @@
     "test:e2e": "vitest run tests/ivrFullFlowIntegration.test.ts --testTimeout=15000",
     "shadow:summary": "tsx scripts/summarize_shadow_disagreements.ts",
     "eval:transcripts": "tsx scripts/run_eval_transcripts.ts",
-    "ai:voice-eval": "tsx scripts/run_voice_brain_eval.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint DATA_LICENSE_GATE.ts scripts/validate_datasets.ts scripts/run_ai_benchmark.ts scripts/grade_ai.ts",
     "check:copy": "node scripts/check-copy.mjs",

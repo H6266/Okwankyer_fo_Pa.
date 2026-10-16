@@ -27,8 +27,7 @@ export type NormalizedMomoFeedStatus =
   | "SUCCESSFUL"
   | "DECLINED"
   | "TIMEOUT"
-  | "FAILED"
-  | "UNKNOWN";
+  | "FAILED";
 
 export interface MomoFeedAudioMatch {
   normalizedStatus: NormalizedMomoFeedStatus;
@@ -85,11 +84,8 @@ export function normalizeMomoStatus(rawStatus: string, reason?: string): Normali
     return "FAILED";
   }
 
-  if (s === "PENDING" || s === "WAITING" || s === "PROCESSING") {
-    return "PENDING";
-  }
-
-  return "UNKNOWN";
+  // Default for waiting on user PIN on handset
+  return "PENDING";
 }
 
 export function resolveMomoAudioFeed(
@@ -141,18 +137,11 @@ export function resolveMomoAudioFeed(
       break;
 
     case "FAILED":
+    default:
       promptIds = ["OP58", "OP60"];
       statusDescription = lang === "twi"
         ? "Sika dwumadie no antumi ankɔ"
         : "Mobile Money transaction failed";
-      break;
-
-    case "UNKNOWN":
-    default:
-      promptIds = ["OP90"];
-      statusDescription = lang === "twi"
-        ? "Yɛrentumi nkyerɛ wo dwumadie no tebea seesei. Yɛsrɛ wo san hwɛ bio."
-        : "We could not verify the transaction status. Please check again before retrying.";
       break;
   }
 

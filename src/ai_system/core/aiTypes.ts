@@ -190,10 +190,6 @@ export interface UserProfileData {
   userId?: string;
   phoneNumber?: string;
   preferredLanguage?: AiLanguage;
-  memoryConsent?: {
-    scope: "language_preference";
-    grantedAt: number;
-  };
   displayName?: string;
   preferredSpokenName?: string;
   pronunciationPreference?: string;

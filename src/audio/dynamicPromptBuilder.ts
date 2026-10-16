@@ -214,11 +214,10 @@ export function buildSafeConfirmationPrompt(options: SafeConfirmationOptions): {
     ? `/audio/supplied/Twi/5.Transaction%20Confirmation/Confirm%20speech.m4a`
     : `/audio/Continue.m4a`;
 
-  // Africa's Talking compliant VoiceXML with studio audio & dynamic readback
+  // Africa's Talking compliant VoiceXML with studio audio & dynamic readback for Step 11
   const voiceXml = `    <GetDigits timeout="15" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
-        <Say voice="female">${escapeXml(spokenText)}</Say>
         <Play url="${amountReadback2Url}"/>
-        <Play url="${confirmSpeechUrl}"/>
+        <Say voice="female">${escapeXml(spokenText)}</Say>
     </GetDigits>`;
 
   return { spokenText, voiceXml };

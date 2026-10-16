@@ -162,13 +162,6 @@ function escapeVoiceXml(text: string): string {
     .replace(/'/g, "&apos;");
 }
 
-function pinSecurityHaltXml(language: "en" | "twi"): string {
-  const message = language === "twi"
-    ? "Ahobammɔ nti, nka wo PIN no wɔ frɛ yi mu. Fa wo PIN no hyɛ Mobile Money nkrasɛm a ɛbɛba wo fon no so nkutoo. Yɛde frɛ yi aba awiei seesei."
-    : "For your security, never speak your PIN. Enter it only in the Mobile Money prompt on your phone. This call will now end.";
-  return `<Say voice="female">${escapeVoiceXml(message)}</Say>\n<Reject/>`;
-}
-
 function redactSpeechForDiagnostics(text: string): string {
   return text
     .replace(/\b(0[235]\d{8}|233[235]\d{8})\b/g, "[PHONE]")
@@ -1143,7 +1136,7 @@ ivrRouter.all("/safe-confirmation", (req: Request, res: Response) => {
   const recipientName = session.recipientName;
   const isVerified = session.isRecipientVerified;
 
-  const callbackUrl = `${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}`;
+  const callbackUrl = `${baseUrl}/pin-handoff?sessionId=${sessionId}&amp;lang=${lang}`;
 
   const { spokenText, voiceXml } = buildSafeConfirmationPrompt({
     language: lang,
@@ -1158,16 +1151,85 @@ ivrRouter.all("/safe-confirmation", (req: Request, res: Response) => {
   xmlResponse(res, voiceXml);
 });
 
-// Legacy PIN endpoints terminate without processing or forwarding caller input.
+// ── Step 11b: PIN Handoff (Located between Step 11 and Step 12) ────────
+// Supports keypad entry (waits for #) and ASR (proceeds right after 4th digit)
 ivrRouter.all("/pin-handoff", (req: Request, res: Response) => {
+  const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
-  xmlResponse(res, pinSecurityHaltXml(lang));
+  const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
+  const baseUrl = getBaseUrl(req);
+  const session = transactionStateMachine.getOrCreateSession(sessionId);
+
+  if (dtmf === "2") {
+    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  }
+  if (dtmf === "0") {
+    transactionStateMachine.transition(sessionId, "CANCELLED");
+    const exitMsg = lang === "twi"
+      ? "Yɛatwa adesrɛ no mu. Nante yie."
+      : "Your request was cancelled. Goodbye.";
+    return xmlResponse(res, `    <Say voice="female">${exitMsg}</Say>\n    <Reject/>`);
+  }
+
+  // If PIN digits were already passed (e.g. from ASR or fast keypad)
+  if (dtmf && dtmf.length === 4) {
+    session.pin = dtmf;
+    return xmlResponse(res, `    <Redirect>${baseUrl}/confirm-speech?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${dtmf}</Redirect>`);
+  }
+
+  const pinAudioUrl = `${baseUrl}/audio/additional/Pin%20Handoff.m4a`;
+  const pinPrompt = lang === "twi"
+    ? "Wo transaction no ayɛ krado sɛ wode bɛma ho kwan. Yɛsrɛ wo, bɔ wo 4 digit password na fa hash ka ho, anaa ka wo PIN no."
+    : "Your transaction is ready for authorization. Please enter your 4-digit password followed by hash, or say your 4-digit PIN.";
+
+  const xml = `    <GetDigits timeout="25" finishOnKey="#" callbackUrl="${baseUrl}/confirm-speech?sessionId=${sessionId}&amp;lang=${lang}">
+        <Play url="${escapeVoiceXml(pinAudioUrl)}"/>
+        <Say voice="female">${escapeVoiceXml(pinPrompt)}</Say>
+    </GetDigits>
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="8" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=pin-handoff&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
+
+  xmlResponse(res, xml, {
+    type: "understood_intent",
+    reason: "PIN handoff prompt (between 11 and 12)",
+    replyText: pinPrompt,
+    replyKey: "OP40",
+    action: "continue",
+  });
 });
 
-// Legacy confirmation callback retained only to fail closed; use /safe-outcome instead.
+// ── Step 12: Confirm Speech (After PIN Entered) ────────────────────────
 ivrRouter.all("/confirm-speech", (req: Request, res: Response) => {
+  const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
-  xmlResponse(res, pinSecurityHaltXml(lang));
+  const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
+  const baseUrl = getBaseUrl(req);
+  const session = transactionStateMachine.getOrCreateSession(sessionId);
+
+  if (dtmf && dtmf.length === 4) {
+    session.pin = dtmf;
+  }
+
+  const confirmAudioUrl = lang === "twi"
+    ? `${baseUrl}/audio/supplied/Twi/5.Transaction%20Confirmation/Confirm%20speech.m4a`
+    : `${baseUrl}/audio/Confirm%20understanding.m4a`;
+
+  const confirmPrompt = lang === "twi"
+    ? "Sɛ wopene so a, mia baako (1) anaasɛ ka aane. Sɛ wopɛ sɛ wotwa mu a, mia mmienu (2) anaasɛ ka dabi."
+    : "To confirm and submit, press 1 or say yes. To cancel, press 2 or say no.";
+
+  const xml = `    <GetDigits timeout="15" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}">
+        <Play url="${escapeVoiceXml(confirmAudioUrl)}"/>
+        <Say voice="female">${escapeVoiceXml(confirmPrompt)}</Say>
+    </GetDigits>
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="6" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=confirm-speech&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
+
+  xmlResponse(res, xml, {
+    type: "understood_intent",
+    reason: "Confirm speech prompt (Step 12)",
+    replyText: confirmPrompt,
+    replyKey: "OP41",
+    action: "continue",
+  });
 });
 
 // ── Step 13: Safe Outcome & Payment Submission ────────────────────────
@@ -1423,10 +1485,10 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
       return xmlResponse(res, `    <Redirect>${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${directDtmf}</Redirect>`);
     }
     if (step === "pin-handoff") {
-      return xmlResponse(res, pinSecurityHaltXml(lang));
+      return xmlResponse(res, `    <Redirect>${baseUrl}/confirm-speech?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${directDtmf}</Redirect>`);
     }
     if (step === "confirm-speech") {
-      return xmlResponse(res, pinSecurityHaltXml(lang));
+      return xmlResponse(res, `    <Redirect>${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${directDtmf}</Redirect>`);
     }
     return xmlResponse(res, `    <Redirect>${baseUrl}/${step}?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${directDtmf}</Redirect>`);
   }
@@ -1470,7 +1532,13 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   // If PIN was spoken, discard instantly and return directly to DTMF re-prompt
   if (pinDiscarded) {
     auditLogger.log("warn", "SECURITY", "Spoken PIN pattern intercepted in speech callback. Discarded immediately.", sessionId);
-    return xmlResponse(res, pinSecurityHaltXml(lang));
+    if (step === "enter-recipient") {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+    }
+    if (step === "enter-amount") {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+    }
+    return xmlResponse(res, `    <Redirect>${baseUrl}/voice-menu?sessionId=${sessionId}</Redirect>`);
   }
 
   const clean = transcript.toLowerCase().trim();
@@ -1492,8 +1560,27 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
     }
   }
 
+  if (step === "pin-handoff") {
+    const digits = speechNormalizer.extractSpokenDigits(clean);
+    if (digits.length >= 4) {
+      const fourDigits = digits.slice(0, 4);
+      return xmlResponse(res, `    <Redirect>${baseUrl}/confirm-speech?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${fourDigits}</Redirect>`);
+    }
+  }
+
+  if (step === "confirm-speech") {
+    const isAffirmative = /\b(yes|confirm|proceed|okay|sure|aane|pene so|ampa|correct|send it|kɔ so|yie|1|baako)\b/i.test(clean);
+    if (isAffirmative) {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=1</Redirect>`);
+    }
+    const isNegative = /\b(no|cancel|dabi|wrong|sesa|stop|2|mmienu)\b/i.test(clean);
+    if (isNegative) {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+    }
+  }
+
   const isSpeechControl = /\b(cancel|stop|abort|quit|exit|gyae|hwee|go back|previous|back|san akyi|repeat|say again|tie bio)\b/i.test(clean);
-  const isConfirmationStep = step === "safe-confirmation" || step === "recipient-verify-choice";
+  const isConfirmationStep = step === "safe-confirmation" || step === "recipient-verify-choice" || step === "confirm-speech";
   const isSpokenKey = /^(?:[0-9]|zero|one|two|three|four|five|six|seven|eight|nine|baako|bako|mmienu|mienu|mmiensa|mmiɛnsa|ɛnan|enan|enum|nsia|nson|nwɔtwe|nwotwe|nkron|kron)$/i.test(clean);
   const isLanguageChoice = step === "language-selection" && /\b(english|twi|akan|brofo)\b/i.test(clean);
   const isProviderChoice = /provider/.test(step) && /\b(mtn|telecel|vodafone|airteltigo|tigo)\b/i.test(clean);

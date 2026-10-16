@@ -4,7 +4,7 @@
 
 ## Current evidence
 
-There is no checked-in, reproducible speaker-disjoint field evaluation report supporting project-wide accuracy, F1, calibration, latency, ASR WER/CER, or security interception percentages. Existing JSON transcript files are internal regression examples and do not prove generalization to callers. A run on `data/heldoutTranscripts.json` after inspecting its failure cases is a tuning/regression result, not an unbiased held-out score. Targets in older documentation were not measurements and are removed from this status page. `eval/reports/` must contain generated, versioned artifacts before model or product performance is claimed.
+There is no checked-in, reproducible held-out evaluation report supporting project-wide accuracy, F1, calibration, latency, ASR WER/CER, or security interception percentages. Targets in older documentation were not measurements and are removed from this status page. `eval/reports/` must contain generated, versioned artifacts before model or product performance is claimed.
 
 The application has deterministic unit and security tests, but the new tests in this branch could not be run because dependencies are absent (`vitest`, `tsc`, `eslint`, and `tsx` are unavailable in the checkout). No result is reported as passing from this environment.
 
@@ -26,5 +26,3 @@ The application has deterministic unit and security tests, but the new tests in 
 ## Current artifacts and commands
 
 `scripts/run_ai_eval.ts`, `scripts/run_ai_benchmark.ts`, and `scripts/run_asr_eval.ts` are candidate harnesses and must be audited against the protocol above before their results are treated as release evidence. Do not overwrite historical evidence. No current benchmark scores are published.
-
-`npm run ai:voice-eval` measures deterministic intent and annotated-slot exact match on the selected internal dialogue corpus, plus canonical audio route addressability, verified studio-asset coverage, and sandbox-status prompt routing. It does not make live Gemini calls or execute sandbox transactions. An addressable TTS route is not proof that a speech provider produced audible audio, and prompt routing coverage is not the same as selecting semantically correct audio for every user utterance. Recorded audio is output content and should be mapped and reviewed; it is not, by itself, training data for intent understanding.

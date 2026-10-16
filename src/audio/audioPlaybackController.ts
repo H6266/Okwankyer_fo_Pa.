@@ -67,8 +67,9 @@ export function resolveSafePlayableUrl(url: string): string {
 
 export class AudioPlaybackController {
   private playbackVolume: number = 1.0;
-  private volumeMultiplier: number = 1.0; // Crystal-clear, unclipped master volume (100% natural studio fidelity)
+  private volumeMultiplier: number = 2.0; // Boosted master volume (200% amplified with dynamics compressor limiter)
   private audioElement: HTMLAudioElement | null = null;
+  private mediaElementSource: MediaElementAudioSourceNode | null = null;
   private currentToken: number = 0;
   private state: PlaybackState = {
     isPlaying: false,
@@ -94,10 +95,10 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Sets custom audio amplification multiplier (1.0 = clear studio default)
+   * Sets custom audio amplification multiplier (2.0 = boosted clear default)
    */
   public setVolumeMultiplier(multiplier: number): void {
-    this.volumeMultiplier = Math.max(0.5, Math.min(2.0, multiplier));
+    this.volumeMultiplier = Math.max(0.5, Math.min(3.0, multiplier));
     if (this.masterGainNode && this.audioContext) {
       try {
         this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
@@ -110,7 +111,7 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Configures Web Audio signal chain for synthesized tones and DTMF beeps
+   * Configures Web Audio signal chain with high gain & compressor for boosted, punchy audio
    */
   private setupAudioGraph(): void {
     if (typeof window === "undefined") return;
@@ -122,7 +123,26 @@ export class AudioPlaybackController {
       if (this.audioContext && !this.masterGainNode) {
         this.masterGainNode = this.audioContext.createGain();
         this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
-        this.masterGainNode.connect(this.audioContext.destination);
+
+        // Dynamics compressor prevents distortion/clipping when boosting volume 2.0x
+        this.compressorNode = this.audioContext.createDynamicsCompressor();
+        this.compressorNode.threshold.setValueAtTime(-14, this.audioContext.currentTime);
+        this.compressorNode.knee.setValueAtTime(10, this.audioContext.currentTime);
+        this.compressorNode.ratio.setValueAtTime(4, this.audioContext.currentTime);
+        this.compressorNode.attack.setValueAtTime(0.003, this.audioContext.currentTime);
+        this.compressorNode.release.setValueAtTime(0.25, this.audioContext.currentTime);
+
+        this.masterGainNode.connect(this.compressorNode);
+        this.compressorNode.connect(this.audioContext.destination);
+      }
+
+      if (this.audioElement && this.audioContext && !this.mediaElementSource) {
+        try {
+          this.mediaElementSource = this.audioContext.createMediaElementSource(this.audioElement);
+          this.mediaElementSource.connect(this.masterGainNode || this.audioContext.destination);
+        } catch {
+          // Fallback gracefully if browser restricts media element source
+        }
       }
     } catch (err) {
       console.warn("[AudioController] Audio graph setup notice:", err);
@@ -213,12 +233,12 @@ export class AudioPlaybackController {
       osc2.type = "sine";
       osc2.frequency.setValueAtTime(freqs[1], now);
 
-      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.setValueAtTime(0.35, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + durationMs / 1000);
 
       osc1.connect(gain);
       osc2.connect(gain);
-      gain.connect(this.audioContext.destination);
+      gain.connect(this.masterGainNode || this.audioContext.destination);
 
       osc1.start(now);
       osc2.start(now);
@@ -259,7 +279,7 @@ export class AudioPlaybackController {
         osc2.frequency.setValueAtTime(659.25, now);
 
         gain.gain.setValueAtTime(0.001, now);
-        gain.gain.exponentialRampToValueAtTime(0.24, now + 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.40, now + 0.04);
         gain.gain.exponentialRampToValueAtTime(0.001, now + durationMs / 1000);
 
         osc1.connect(gain);
@@ -340,7 +360,7 @@ export class AudioPlaybackController {
       /\b0[235]\d{8}\b/.test(cleanText) ||
       (cleanText.includes(",") && /\d/.test(cleanText)) ||
       /\b(?:hwee|baako|mmienu|mmiɛnsa|nnan|nnum|nsia|nson|nwɔtwe|nkron)\b/i.test(cleanText);
-    const effectiveRate = options?.rate || (isPhoneNumberOrDigits ? 0.75 : 1.0);
+    const effectiveRate = options?.rate || (isPhoneNumberOrDigits ? 0.70 : 1.0);
 
     if (fallbackStudioUrl) {
       return this.play(fallbackStudioUrl, {

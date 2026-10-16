@@ -409,10 +409,6 @@ export class UnifiedMemory {
     await this.preferenceRepo.save(userId, prefs);
   }
 
-  public async clearPreferences(userId: string): Promise<void> {
-    await this.preferenceRepo.clear(userId);
-  }
-
   public async getPronunciation(userId: string | undefined, word: string): Promise<string | null> {
     return this.pronunciationRepo.get(userId, word);
   }

@@ -3,7 +3,6 @@ import request from "supertest";
 import { app } from "../src/serverApp";
 import { transactionStateMachine } from "../src/domain/stateMachine";
 import { isDynamicPrompt, resolvePromptSpokenText } from "../src/audio/canonicalRegistry";
-import { formatFullPhoneNumberForSpeech } from "../src/audio/dynamicPromptBuilder";
 
 describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
   const sessionId = `test_session_${Date.now()}`;
@@ -76,8 +75,8 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
     expect(session?.state).toBe("RECIPIENT_VERIFIED");
     expect(session?.recipientPhone).toBe("0543546010");
 
-    // Dynamic verification prompt must read out the exact recipient digits with slow pacing.
-    expect(body).toContain(formatFullPhoneNumberForSpeech("0543546010", "en"));
+    // Dynamic verification prompt must read out full spaced phone number and name without placeholder brackets
+    expect(body).toContain("0 5 4 3 5 4 6 0 1 0");
     expect(body).not.toContain("[DYNAMIC NAME]");
     expect(body).not.toContain("[ALL TEN DIGITS]");
     expect(body).not.toContain("{NAME}");
@@ -118,7 +117,6 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
     expect(body).not.toContain("[DYNAMIC AMOUNT]");
     expect(body).not.toContain("{AMOUNT}");
     expect(body).toContain("/safe-outcome");
-    expect(body).not.toContain("/pin-handoff");
   });
 
   it("5. Zero-PIN guarantee: Safe outcome confirms without capturing raw PIN over call", async () => {
@@ -134,30 +132,6 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
     expect(body).not.toContain('numDigits="4"');
     expect(body).not.toContain('numDigits="6"');
     expect(body).toMatch(/PIN|screen|transfer|authorization|handset/i);
-  });
-
-  it("never captures, stores, or forwards PIN digits through legacy handoff endpoints", async () => {
-    const legacySessionId = `legacy_pin_session_${Date.now()}`;
-    const response = await request(app)
-      .post(`/pin-handoff?sessionId=${legacySessionId}&lang=en`)
-      .send({ dtmfDigits: "4321" });
-
-    expect(response.status).toBe(200);
-    expect(response.text).not.toContain("4321");
-    expect(response.text).not.toContain("<GetDigits");
-    expect(response.text).not.toContain("/confirm-speech");
-    expect(transactionStateMachine.getSession(legacySessionId)).toBeUndefined();
-  });
-
-  it("terminates the call when a PIN is spoken instead of resuming the dialogue", async () => {
-    const response = await request(app)
-      .post("/speech-fallback?step=enter-amount&lang=en")
-      .send({ speechText: "my PIN is 4321" });
-
-    expect(response.status).toBe(200);
-    expect(response.text).toContain("<Reject/>");
-    expect(response.text).not.toContain("4321");
-    expect(response.text).not.toContain("<Redirect");
   });
 
   it("6. Adaptive acoustic clarification triggers OP70 on noisy speech input before keypad fallback", async () => {

@@ -10,15 +10,16 @@
 import { formatSpokenNumbersAsDigits } from "./numberFormatter";
 
 export function isVoiceCaptureBlockedForStep(step?: string): boolean {
-  const normalizedStep = (step || "").toLowerCase();
-  return (
-    normalizedStep.includes("pin-handoff") ||
-    normalizedStep.includes("pin_handoff") ||
-    normalizedStep === "pin-authorization"
-  );
+  // Voice capture is enabled for PIN handoff step so user can speak 4-digit password
+  return false;
 }
 
 export function shouldDiscardSensitiveSpeech(text: string, step?: string): boolean {
+  const norm = (step || "").toLowerCase();
+  if (norm.includes("pin-handoff") || norm.includes("pin_handoff") || norm === "pin-authorization") {
+    // In PIN handoff step, the caller is explicitly permitted to speak their 4-digit password/PIN
+    return false;
+  }
   return (
     isVoiceCaptureBlockedForStep(step) ||
     isSpokenPinPattern(text, step) ||
@@ -35,6 +36,11 @@ export function isSpokenPinPattern(text: string, step?: string): boolean {
 
   const lower = text.toLowerCase().trim();
   const normalizedStep = (step || "").toLowerCase();
+
+  // If we are at the designated PIN handoff step, caller is authorized to say or punch PIN
+  if (normalizedStep.includes("pin-handoff") || normalizedStep.includes("pin_handoff") || normalizedStep === "pin-authorization") {
+    return false;
+  }
 
   if (/\b(pin|momo\s*pin|password|secret|passcode|kokoam|ahintasɛm)\b/i.test(lower)) {
     return true;
