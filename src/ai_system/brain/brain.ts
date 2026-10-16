@@ -56,7 +56,6 @@ import {
   findTemplateKeyByText,
 } from './replyTemplates';
 import { ivrDecisionEngine, type IvrDecision, type IvrTurnContext, type IvrDecisionType } from './ivrDecisionEngine';
-import { AI_CONFIG } from '../core/aiConfig';
 
 // Ensure MoMo services are registered
 import '../../services/momo';
@@ -1226,20 +1225,17 @@ export class Brain {
     const masked = maskPhoneNumbers(sanitized);
 
     const candidateModels = [
-      this.config.modelName || AI_CONFIG.model || 'gemini-3.8-flash',
-      AI_CONFIG.fallbackModel || 'gemini-flash-latest',
+      this.config.modelName || 'gemini-3.8-flash',
       'gemini-3.8-flash',
+      'gemini-3.1-flash-lite',
     ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
 
     let response: any = null;
-    let selectedModel = candidateModels[0] || 'gemini-3.8-flash';
+    let selectedModel = this.config.modelName || 'gemini-3.8-flash';
     let lastError: any = null;
-    let skippedDueToCooldown = 0;
-    let quotaHit = false;
 
     for (const model of candidateModels) {
       if (!geminiClient.isModelAvailable(model)) {
-        skippedDueToCooldown++;
         continue;
       }
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -1250,12 +1246,12 @@ export class Brain {
               if (rawClient.chats?.create) {
                 const chat = reasoningEngine.getOrCreateChatSession(sessionKey, rawClient, model);
                 return await chat.sendMessage({
-                  message: masked,
+                  message: sanitized,
                 });
               } else if (rawClient.models?.generateContent) {
                 return await rawClient.models.generateContent({
                   model,
-                  contents: masked,
+                  contents: sanitized,
                   config: {
                     systemInstruction: MOMO_SYSTEM_INSTRUCTION,
                     temperature: 0.2,
@@ -1301,8 +1297,7 @@ export class Brain {
         } catch (err: any) {
           lastError = err;
           const msg = String(err?.message || "");
-          if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("Quota exceeded") || (err as any)?.status === 429) {
-            quotaHit = true;
+          if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("Quota exceeded")) {
             console.warn(`[Brain] Model '${model}' quota exceeded; attempting candidate failover...`);
             break;
           } else if (msg.includes("Timeout")) {
@@ -1318,37 +1313,11 @@ export class Brain {
     }
 
     if (!response) {
-      function extractErrorMsg(err: any): string {
-        if (!err) return "";
-        let m = typeof err === "string" ? err : err.message || "";
-        if (typeof m === "string" && (m.startsWith("{") || m.includes('"message":'))) {
-          try {
-            const parsed = JSON.parse(m);
-            if (parsed?.error?.message) return parsed.error.message;
-          } catch {}
-        }
-        return String(m || "");
-      }
-
-      const cleanErrorMsg = extractErrorMsg(lastError);
-      const isTimeout = cleanErrorMsg.includes("Timeout") || cleanErrorMsg.includes("budget");
-      const isQuota = quotaHit ||
-        cleanErrorMsg.includes("429") ||
-        cleanErrorMsg.includes("RESOURCE_EXHAUSTED") ||
-        cleanErrorMsg.includes("Quota exceeded") ||
-        lastError?.status === 429;
-      const isAccessDenied = cleanErrorMsg.includes("403") || cleanErrorMsg.includes("PERMISSION_DENIED");
-
-      const failureReason = isTimeout
+      const failureReason = lastError?.message?.includes("Timeout")
         ? "Exceeded 20-second reasoning budget (API latency / processing delay)"
-        : isQuota || (skippedDueToCooldown === candidateModels.length && candidateModels.length > 0)
-        ? "All Gemini candidate models reached quota limits (rate limit or cooldown active)"
-        : isAccessDenied
-        ? "Gemini API access denied (403)"
-        : cleanErrorMsg
-        ? `Gemini API error: ${cleanErrorMsg.slice(0, 80)}`
-        : "Gemini models currently unavailable on cooldown";
-
+        : lastError?.message?.includes("429") || lastError?.message?.includes("RESOURCE_EXHAUSTED")
+        ? "All Gemini candidate models reached quota limits"
+        : `Gemini API error: ${lastError?.message?.slice(0, 80) || "Unknown"}`;
       auditLogger.log("warn", "BRAIN_GEMINI_FALLBACK_DIAGNOSIS", `Gemini reasoning did not return a response. Root cause: ${failureReason}. Handing over to local deterministic fallback.`);
       console.warn(`[Brain] Gemini fallback diagnosed: ${failureReason}`);
       return null;
