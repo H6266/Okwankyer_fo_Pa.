@@ -172,4 +172,10 @@ export interface BrainOutput {
   };
   updatedDraft: DraftState;
   sessionLanguage: LanguageId;
+  telemetry?: {
+    tier: 'TIER_1_DETERMINISTIC' | 'TIER_2_MODEL';
+    tokensUsed: number;
+    latencyMs: number;
+    decisionSource: string;
+  };
 }

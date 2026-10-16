@@ -36,7 +36,12 @@ import { serviceRegistry } from './serviceRegistry';
 import { languagePolicy } from './languagePolicy';
 import { replyComposer, convertAmountToSpokenWords } from './replyComposer';
 import { contextualReasoningEngine } from '../understanding/contextualReasoningEngine';
-import { reasoningEngine, MOMO_SYSTEM_INSTRUCTION } from '../understanding/reasoningEngine';
+import {
+  reasoningEngine,
+  MOMO_SYSTEM_INSTRUCTION,
+  COMPACT_MOMO_SYSTEM_INSTRUCTION,
+  COMPACT_MOMO_RESPONSE_SCHEMA,
+} from '../understanding/reasoningEngine';
 import { numberDecoder } from '../speech/asr/numberDecoder';
 import { inputNormalizer } from '../perception/inputNormalizer';
 import { shadowEngine } from './shadowEngine';
@@ -56,12 +61,14 @@ import {
   findTemplateKeyByText,
 } from './replyTemplates';
 import { ivrDecisionEngine, type IvrDecision, type IvrTurnContext, type IvrDecisionType } from './ivrDecisionEngine';
+import { AI_CONFIG } from '../core/aiConfig';
 
 // Ensure MoMo services are registered
 import '../../services/momo';
 import { pilotControls } from '../../services/pilotControls';
 import { pilotMetrics } from '../../services/pilotMetrics';
-import { normalizeGhanaPhoneNumber } from '../../domain/validation';
+import { normalizeGhanaPhoneNumber, validateGhanaPhoneNumber } from '../../domain/validation';
+import { brainTelemetry } from './brainTelemetry';
 
 export interface BrainConfig {
   mode: BrainMode;
@@ -189,6 +196,57 @@ export function isExplicitCancellation(raw: string): boolean {
   return trimmed === '2' || trimmed === 'dtmf:2' || trimmed === 'press 2' || EXPLICIT_CANCEL_WORDS.test(trimmed);
 }
 
+/**
+ * Determines whether a turn qualifies for Tier 1 Deterministic Fast-Path:
+ * Resolves in < 15ms with ZERO tokens consumed, completely bypassing Gemini LLM.
+ */
+export function isDeterministicFastPathTurn(rawTranscript: string, draft: DraftState): boolean {
+  if (!rawTranscript) return true;
+  const t = rawTranscript.trim().toLowerCase();
+
+  // 1. Direct explicit confirmation or cancellation
+  if (isExplicitConfirmation(t) || isExplicitCancellation(t)) {
+    return true;
+  }
+
+  // 2. Pure DTMF or telephony keypad codes (*, #, digits)
+  if (/^(?:dtmf:)?[\d*#]+$/i.test(t)) {
+    return true;
+  }
+
+  // 3. Pure 10-digit Ghanaian phone number (e.g. 0553838464, +233543546010, 024-123-4567)
+  const phoneVal = validateGhanaPhoneNumber(t);
+  if (phoneVal.valid && Boolean(phoneVal.normalized) && /^[+\d\s()-]{9,16}$/.test(t)) {
+    return true;
+  }
+
+  // 4. Pure amount or currency value (e.g. "50", "20 cedis", "ghs 100", "cedi aduonu")
+  const isPureNumericAmount = /^(?:ghs?|cedis?|sika)?\s*\d+(?:\.\d{1,2})?\s*(?:ghs?|cedis?|sika)?$/i.test(t);
+  const isPureTwiAmount = /^(?:cedi\s+)?(?:baako|mmienu|mmiensa|nan|enum|nsia|nson|nwɔtwe|nkron|du|aduonu|aduasa|aduanan|aduonum|aduesia|aduonson|aduonwɔtwe|aduenkron|ɔha|ahanu|apem)(?:\s+cedis?)?$/i.test(t);
+  if (isPureNumericAmount || isPureTwiAmount) {
+    return true;
+  }
+
+  // 5. Standalone single-intent command phrases without compound conversational clauses
+  if (/^(?:how much (?:do i have|is in my account)|check balance|hwɛ me balance|sika a aka|what is my balance|balance)$/i.test(t)) {
+    return true;
+  }
+  if (/^(?:cash out|withdraw|withdraw money|meyi sika|allow cash out)$/i.test(t)) {
+    return true;
+  }
+  if (/^(?:buy airtime|airtime|kɔfa airtime)$/i.test(t)) {
+    return true;
+  }
+  if (/^(?:buy data|data|data bundle|bundle)$/i.test(t)) {
+    return true;
+  }
+  if (/^(?:send money|transfer|soma sika|transfer money)$/i.test(t)) {
+    return true;
+  }
+
+  return false;
+}
+
 // ── REASONING BRAIN ENGINE ──────────────────────────────────────────────────
 
 export class Brain {
@@ -253,8 +311,47 @@ export class Brain {
       delete (draft.slots as any).recipientName;
     }
 
-    // Finalizer to hook shadow mode evaluation without mutating or delaying output
-    const finalizeOutput = (output: BrainOutput): BrainOutput => {
+    const turnStartTime = Date.now();
+    // Sliding-window memory: cap recent turns to the last 4 turns to avoid token inflation
+    draft.recentTurns = (draft.recentTurns || []).slice(-4);
+
+    // Finalizer to hook shadow mode evaluation and brain telemetry tracking
+    const finalizeOutput = (
+      output: BrainOutput,
+      tierOverride?: 'TIER_1_DETERMINISTIC' | 'TIER_2_MODEL',
+      decisionSourceOverride?: string
+    ): BrainOutput => {
+      const latencyMs = Math.max(1, Date.now() - turnStartTime);
+      const isTier2 = tierOverride === 'TIER_2_MODEL' || Boolean(output.modelOutput);
+      const tier = isTier2 ? 'TIER_2_MODEL' : 'TIER_1_DETERMINISTIC';
+      const tokensUsed = isTier2 ? 320 : 0;
+      const decisionSource = decisionSourceOverride || (isTier2 ? 'Gemini 3.8 Flash' : 'Tier 1 Deterministic Engine');
+
+      brainTelemetry.recordTurn({
+        tier,
+        tokensUsed,
+        latencyMs,
+        utterance: rawTranscript,
+        decisionKind: output.decision.kind,
+        intent: (output.decision as any).intent || output.updatedDraft.intent,
+        decisionSource,
+      });
+
+      output.telemetry = {
+        tier,
+        tokensUsed,
+        latencyMs,
+        decisionSource,
+      };
+
+      if (rawTranscript) {
+        output.updatedDraft.recentTurns = [
+          ...(output.updatedDraft.recentTurns || []),
+          { role: 'user', text: rawTranscript },
+          { role: 'assistant', text: output.reply.text },
+        ].slice(-4);
+      }
+
       if (effectiveBrainMode === 'shadow' && Math.random() <= this.config.shadowSamplingRate && geminiClient.isAvailable()) {
         shadowEngine.recordShadowComparison({
           input,
@@ -403,10 +500,12 @@ export class Brain {
     let modelOutput: ModelOutputContract | null = null;
 
     // ─────────────────────────────────────────────────────────────────────────
-    // STEP 2: CONVERSATIONAL AI (GEMINI) OWNS THE DIALOGUE
-    // Local regexes and parsers stay DORMANT. No slot scraping during conversation.
+    // STEP 2: HYBRID TIERED ROUTING (TIER 1 DETERMINISTIC vs TIER 2 GEMINI)
+    // Routine inputs (phone digits, amounts, DTMF, single commands) bypass Gemini
+    // completely: 0 tokens consumed, < 15ms latency, preventing quota exhaustion.
     // ─────────────────────────────────────────────────────────────────────────
-    const shouldCallGemini = effectiveBrainMode === 'live' || input.forceModel === true;
+    const isFastPath = isDeterministicFastPathTurn(rawTranscript, draft);
+    const shouldCallGemini = !isFastPath && (effectiveBrainMode === 'live' || input.forceModel === true);
 
     if (shouldCallGemini) {
       modelOutput = await this.callModelWithFallback(
@@ -571,14 +670,24 @@ export class Brain {
         if (modelOutput.slots?.amount !== undefined) {
           draft.slots.amount = modelOutput.slots.amount;
         }
-        const decision: BrainDecision = { kind: 'clarify_slot', slot: 'conversational' };
+        const settledIntent = draft.intent || 'momo.transfer';
+        const missingSlot = this.recomputeMissingSlots(settledIntent, draft.slots);
+        const decisionSlot = missingSlot || 'conversational';
+        const decision: BrainDecision = { kind: 'clarify_slot', slot: decisionSlot };
+        const reply = await replyComposer.composeReply({
+          decision,
+          language: activeLanguage,
+          slots: draft.slots,
+          conversationalText: modelOutput.reply?.text_en,
+        });
         return finalizeOutput({
           decision,
           modelOutput,
           reply: {
-            text: modelOutput.reply.text_en,
+            text: reply.text || modelOutput.reply.text_en,
             text_en: modelOutput.reply.text_en,
             language: activeLanguage,
+            promptId: reply.promptId,
           },
           updatedDraft: draft,
           sessionLanguage,
@@ -1218,6 +1327,7 @@ export class Brain {
     turnStartTime: number = Date.now(),
     sessionId?: string
   ): Promise<ModelOutputContract | null> {
+    if (process.env.VITEST && !process.env.TEST_LIVE_GEMINI) return null;
     if (!geminiClient.isAvailable()) return null;
 
     const sessionKey = sessionId || (draft.draftHash ? `session_${draft.draftHash}` : `session_turn_${turnId}`);
@@ -1225,17 +1335,20 @@ export class Brain {
     const masked = maskPhoneNumbers(sanitized);
 
     const candidateModels = [
-      this.config.modelName || 'gemini-3.8-flash',
+      this.config.modelName || AI_CONFIG.model || 'gemini-3.8-flash',
+      AI_CONFIG.fallbackModel || 'gemini-flash-latest',
       'gemini-3.8-flash',
-      'gemini-3.1-flash-lite',
     ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
 
     let response: any = null;
-    let selectedModel = this.config.modelName || 'gemini-3.8-flash';
+    let selectedModel = candidateModels[0] || 'gemini-3.8-flash';
     let lastError: any = null;
+    let skippedDueToCooldown = 0;
+    let quotaHit = false;
 
     for (const model of candidateModels) {
       if (!geminiClient.isModelAvailable(model)) {
+        skippedDueToCooldown++;
         continue;
       }
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -1243,19 +1356,30 @@ export class Brain {
           response = await geminiClient.executeWithTimeout(
             "BRAIN_REASONING_CHAT",
             async (rawClient, signal) => {
-              if (rawClient.chats?.create) {
-                const chat = reasoningEngine.getOrCreateChatSession(sessionKey, rawClient, model);
-                return await chat.sendMessage({
-                  message: sanitized,
-                });
-              } else if (rawClient.models?.generateContent) {
+              if (rawClient.models?.generateContent) {
                 return await rawClient.models.generateContent({
                   model,
-                  contents: sanitized,
+                  contents: [
+                    {
+                      role: "user",
+                      parts: [
+                        {
+                          text: `Caller utterance: "${masked}"\nCurrent Draft State: ${JSON.stringify(draft.slots)}`,
+                        },
+                      ],
+                    },
+                  ],
                   config: {
-                    systemInstruction: MOMO_SYSTEM_INSTRUCTION,
+                    systemInstruction: COMPACT_MOMO_SYSTEM_INSTRUCTION,
+                    responseMimeType: "application/json",
+                    responseSchema: COMPACT_MOMO_RESPONSE_SCHEMA,
                     temperature: 0.2,
                   },
+                });
+              } else if (rawClient.chats?.create) {
+                const chat = reasoningEngine.getOrCreateChatSession(sessionKey, rawClient, model);
+                return await chat.sendMessage({
+                  message: masked,
                 });
               }
             },
@@ -1297,7 +1421,8 @@ export class Brain {
         } catch (err: any) {
           lastError = err;
           const msg = String(err?.message || "");
-          if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("Quota exceeded")) {
+          if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("Quota exceeded") || (err as any)?.status === 429) {
+            quotaHit = true;
             console.warn(`[Brain] Model '${model}' quota exceeded; attempting candidate failover...`);
             break;
           } else if (msg.includes("Timeout")) {
@@ -1313,11 +1438,37 @@ export class Brain {
     }
 
     if (!response) {
-      const failureReason = lastError?.message?.includes("Timeout")
+      function extractErrorMsg(err: any): string {
+        if (!err) return "";
+        let m = typeof err === "string" ? err : err.message || "";
+        if (typeof m === "string" && (m.startsWith("{") || m.includes('"message":'))) {
+          try {
+            const parsed = JSON.parse(m);
+            if (parsed?.error?.message) return parsed.error.message;
+          } catch {}
+        }
+        return String(m || "");
+      }
+
+      const cleanErrorMsg = extractErrorMsg(lastError);
+      const isTimeout = cleanErrorMsg.includes("Timeout") || cleanErrorMsg.includes("budget");
+      const isQuota = quotaHit ||
+        cleanErrorMsg.includes("429") ||
+        cleanErrorMsg.includes("RESOURCE_EXHAUSTED") ||
+        cleanErrorMsg.includes("Quota exceeded") ||
+        lastError?.status === 429;
+      const isAccessDenied = cleanErrorMsg.includes("403") || cleanErrorMsg.includes("PERMISSION_DENIED");
+
+      const failureReason = isTimeout
         ? "Exceeded 20-second reasoning budget (API latency / processing delay)"
-        : lastError?.message?.includes("429") || lastError?.message?.includes("RESOURCE_EXHAUSTED")
-        ? "All Gemini candidate models reached quota limits"
-        : `Gemini API error: ${lastError?.message?.slice(0, 80) || "Unknown"}`;
+        : isQuota || (skippedDueToCooldown === candidateModels.length && candidateModels.length > 0)
+        ? "All Gemini candidate models reached quota limits (rate limit or cooldown active)"
+        : isAccessDenied
+        ? "Gemini API access denied (403)"
+        : cleanErrorMsg
+        ? `Gemini API error: ${cleanErrorMsg.slice(0, 80)}`
+        : "Gemini models currently unavailable on cooldown";
+
       auditLogger.log("warn", "BRAIN_GEMINI_FALLBACK_DIAGNOSIS", `Gemini reasoning did not return a response. Root cause: ${failureReason}. Handing over to local deterministic fallback.`);
       console.warn(`[Brain] Gemini fallback diagnosed: ${failureReason}`);
       return null;

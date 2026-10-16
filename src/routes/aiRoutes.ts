@@ -19,6 +19,7 @@ import { momoEngine } from "../integrations/momo";
 import { simulatorTelephonyAdapter } from "../providers/telephony/telephonyAdapter";
 import { eventBus } from "../services/eventBus";
 import { brain } from "../ai_system/brain/brain";
+import { brainTelemetry } from "../ai_system/brain/brainTelemetry";
 import { ttsRouter } from "../ai_system/speech/tts/ttsRouter";
 import { formatSpokenNumbersAsDigits } from "../domain/numberFormatter";
 import { paymentSaga } from "../integrations/momo/paymentSaga";
@@ -1559,5 +1560,46 @@ aiRouter.post("/api/ai/cashout/set-balance", publicApiRateLimiter, async (req: R
     res.status(500).json({ success: false, error: err.message || "Failed to set wallet balance" });
   }
 });
+
+// ── Central Brain Token & Latency Telemetry ───────────────────────────
+aiRouter.get("/api/ai/brain/telemetry", (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    telemetry: brainTelemetry.getSummary(),
+  });
+});
+
+aiRouter.post("/api/ai/brain/telemetry/reset", (_req: Request, res: Response) => {
+  brainTelemetry.reset();
+  res.json({
+    success: true,
+    message: "Brain telemetry counters reset.",
+    telemetry: brainTelemetry.getSummary(),
+  });
+});
+
+aiRouter.post("/api/ai/brain/process", async (req: Request, res: Response) => {
+  try {
+    const { transcript, language, sessionLanguage, draft, callerNumber, sessionId, forceModel } = req.body || {};
+    const result = await brain.process({
+      transcript: transcript || "",
+      language: language || "en",
+      sessionLanguage: sessionLanguage || language || "en",
+      draft: draft || { slots: {} },
+      callerNumber,
+      sessionId,
+      forceModel,
+    });
+    res.json({
+      success: true,
+      result,
+      brainOutput: result,
+      telemetry: result.telemetry,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to process brain turn" });
+  }
+});
+
 
 

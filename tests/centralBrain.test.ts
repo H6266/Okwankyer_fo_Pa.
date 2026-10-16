@@ -14,7 +14,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { brain, Brain } from '../src/ai_system/brain/brain';
+import { brain, Brain, isDeterministicFastPathTurn } from '../src/ai_system/brain/brain';
+import { brainTelemetry } from '../src/ai_system/brain/brainTelemetry';
 import { serviceRegistry } from '../src/ai_system/brain/serviceRegistry';
 import { mtnMomoService } from '../src/modules/mtnMomoService';
 import { languagePolicy } from '../src/ai_system/brain/languagePolicy';
@@ -425,4 +426,62 @@ describe('Central Reasoning Brain - Architectural Invariants', () => {
       expect(turn3.reply.text).toContain('authorization prompt');
     });
   });
+
+  // ── 11. TIER 1 DETERMINISTIC FAST-PATH & QUOTA BARRIER DEFENSE ──────────────
+  describe('11. Tier 1 Deterministic Fast-Path & Quota Barrier Defense', () => {
+    it('correctly classifies routine inputs as Tier 1 Fast-Path', () => {
+      const emptyDraft: DraftState = { slots: {} };
+      expect(isDeterministicFastPathTurn('1', emptyDraft)).toBe(true);
+      expect(isDeterministicFastPathTurn('confirm', emptyDraft)).toBe(true);
+      expect(isDeterministicFastPathTurn('0553838464', emptyDraft)).toBe(true);
+      expect(isDeterministicFastPathTurn('+233543546010', emptyDraft)).toBe(true);
+      expect(isDeterministicFastPathTurn('50 cedis', emptyDraft)).toBe(true);
+      expect(isDeterministicFastPathTurn('cedi aduonu', emptyDraft)).toBe(true);
+      expect(isDeterministicFastPathTurn('check balance', emptyDraft)).toBe(true);
+      expect(isDeterministicFastPathTurn('cash out', emptyDraft)).toBe(true);
+
+      // Complex multi-slot / compound sentences route to Tier 2 model path
+      expect(isDeterministicFastPathTurn('Send 50 cedis to 0553838464', emptyDraft)).toBe(false);
+      expect(isDeterministicFastPathTurn('I want to send money to my sister Ama on Telecel', emptyDraft)).toBe(false);
+    });
+
+    it('processes phone digit inputs via Tier 1 with 0 tokens and records telemetry', async () => {
+      brainTelemetry.reset();
+
+      const phoneTurn = await brain.process({
+        transcript: '0553838464',
+        language: 'en',
+        languageConfidence: 0.95,
+        sessionLanguage: 'en',
+        draft: { slots: { amount: 50 } },
+      });
+
+      expect(phoneTurn.telemetry).toBeDefined();
+      expect(phoneTurn.telemetry?.tier).toBe('TIER_1_DETERMINISTIC');
+      expect(phoneTurn.telemetry?.tokensUsed).toBe(0);
+      expect(phoneTurn.decision.kind).toBe('confirm');
+
+      const summary = brainTelemetry.getSummary();
+      expect(summary.tier1Turns).toBeGreaterThanOrEqual(1);
+      expect(summary.totalTokensUsed).toBe(0);
+      expect(summary.estimatedTokensSaved).toBeGreaterThan(0);
+    });
+
+    it('processes standalone amount via Tier 1 with 0 tokens and sub-100ms latency', async () => {
+      const amountTurn = await brain.process({
+        transcript: '25 cedis',
+        language: 'en',
+        languageConfidence: 0.95,
+        sessionLanguage: 'en',
+        draft: { slots: { recipient: { phone: '0244123456' } } },
+      });
+
+      expect(amountTurn.telemetry).toBeDefined();
+      expect(amountTurn.telemetry?.tier).toBe('TIER_1_DETERMINISTIC');
+      expect(amountTurn.telemetry?.tokensUsed).toBe(0);
+      expect(amountTurn.decision.kind).toBe('confirm');
+      expect(amountTurn.decision.slots.amount).toBe(25);
+    });
+  });
 });
+

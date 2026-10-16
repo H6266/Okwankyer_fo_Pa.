@@ -351,21 +351,21 @@ export const handleInboundCall = (req: Request, res: Response) => {
   session.callerPhone = callerNumber;
   session.language = initialLang;
 
-  const secretParam = req.query?.secret ? `&amp;secret=${encodeURIComponent(req.query.secret as string)}` : "";
-  const callbackUrl = `${baseUrl}/language-selection?sessionId=${sessionId}${secretParam}`;
-  const promptElement = canonicalPromptElement(
-    "welcome",
-    initialLang,
-    baseUrl,
-    initialLang === "twi"
-      ? "Akwaaba wɔ Ɔkwankyerɛfo Pa mu, wo nne akwankyerɛ a ɛma mobile services yɛ mmerɛw ma obiara."
-      : "Welcome to Ɔkwankyerɛfo Pa, your accessible voice guide for mobile services."
-  );
+  const defaultWelcomeUrl = `${baseUrl}/audio/Welcome_prompt_01.mp3`;
+  const welcomeUrl = initialLang === "twi"
+    ? `${baseUrl}/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Welcome%201%20(2).mp3`
+    : `${baseUrl}/audio/Welcome_prompt_01.mp3`;
 
-  const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
-        ${promptElement}
+  const langSelectUrl = initialLang === "twi"
+    ? `${baseUrl}/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Language%20selection.mp3`
+    : `${baseUrl}/audio/Welcome_prompt_01.mp3`;
+
+  const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?sessionId=${sessionId}&amp;lang=${initialLang}">
+        <Play url="${escapeVoiceXml(defaultWelcomeUrl)}"/>
+        <Play url="${escapeVoiceXml(welcomeUrl)}"/>
+        <Play url="${escapeVoiceXml(langSelectUrl)}"/>
     </GetDigits>
-    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=language-selection&amp;sessionId=${sessionId}&amp;retry=0${secretParam}"/>`;
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=language-selection&amp;sessionId=${sessionId}&amp;lang=${initialLang}&amp;retry=0"/>`;
 
   xmlResponse(res, xml, {
     type: "understood_intent",
@@ -563,7 +563,7 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
       };
       return xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, validDecision);
     }
-    if (dtmf === "2" || dtmf === "3") {
+    if (!session.serviceSelected && (dtmf === "2" || dtmf === "3")) {
       const decision: IvrDecision = {
         type: "unsupported",
         reason: "Banking and international services are currently unavailable in this pilot.",
@@ -577,7 +577,7 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
       };
       return xmlResponse(
         res,
-        `    <Say voice="female">${escapeVoiceXml(decision.replyText)}</Say>\n    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("supported_service_select", lang, baseUrl, resolvePromptText("supported_service_select", lang) || "")}\n    </GetDigits>`,
+        `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("supported_service_select", lang, baseUrl, decision.replyText)}\n    </GetDigits>`,
         decision
       );
     }
@@ -599,7 +599,7 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
   }
   return xmlResponse(
     res,
-    `    <Say voice="female">${escapeVoiceXml(decision.replyText)}</Say>\n    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("supported_service_select", lang, baseUrl, resolvePromptText("supported_service_select", lang) || "")}\n    </GetDigits>`,
+    `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("supported_service_select", lang, baseUrl, decision.replyText)}\n    </GetDigits>`,
     decision
   );
 });
@@ -707,7 +707,7 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
   }
   return xmlResponse(
     res,
-    `    <Say voice="female">${escapeVoiceXml(decision.replyText)}</Say>\n    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("mtn_network_select", lang, baseUrl, resolvePromptText("mtn_network_select", lang) || "")}\n    </GetDigits>`,
+    `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("mtn_network_select", lang, baseUrl, decision.replyText)}\n    </GetDigits>`,
     decision
   );
 });
@@ -834,7 +834,7 @@ ivrRouter.all("/action-choice", async (req: Request, res: Response) => {
   }
   return xmlResponse(
     res,
-    `    <Say voice="female">${escapeVoiceXml(decision.replyText)}</Say>\n    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("send_money_menu", lang, baseUrl, resolvePromptText("send_money_menu", lang) || "")}\n    </GetDigits>`,
+    `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("send_money_menu", lang, baseUrl, decision.replyText)}\n    </GetDigits>`,
     decision
   );
 });
@@ -972,7 +972,7 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
   }
 
   // Audio 8 (Use Recipient 1) plays BEFORE Audio 7 (Recipient Confirm Speech)
-  const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/recipient-verify-choice?sessionId=${sessionId}&amp;lang=${lang}">
+  const xml = `    <GetDigits timeout="15" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/recipient-verify-choice?sessionId=${sessionId}&amp;lang=${lang}">
         ${useRecipient1Url ? `<Play url="${escapeVoiceXml(useRecipient1Url)}"/>` : ""}
         ${recipientConfirmSpeechUrl ? `<Play url="${escapeVoiceXml(recipientConfirmSpeechUrl)}"/>` : ""}
         <Say voice="female">${escapeVoiceXml(verifyPrompt)}</Say>

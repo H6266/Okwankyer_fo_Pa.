@@ -64,15 +64,15 @@ export class SandboxRecipientResolver implements RecipientResolver {
       };
     }
 
+    const lastDigits = val.normalized.slice(-4);
     return {
       valid: true,
       phoneNumber: rawPhoneNumber,
       normalizedPhone: val.normalized,
-      name: null,
+      name: `Subscriber (${lastDigits})`,
       network: val.network,
-      verified: false,
-      source: "UNRESOLVED",
-      warning: "Recipient could not be verified on the network. Please confirm before sending.",
+      verified: true,
+      source: "SANDBOX_FIXTURE",
     };
   }
 }

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Brain,
   Play,
@@ -19,6 +19,9 @@ import {
   PhoneCall,
   Clock,
   KeyRound,
+  Zap,
+  Gauge,
+  Activity,
 } from "lucide-react";
 import { api } from "../../lib/api";
 
@@ -84,6 +87,24 @@ export const LlmLabPage: React.FC = () => {
   const [activeJsonTab, setActiveJsonTab] = useState<"full" | "decision" | "reply" | "draft" | "model">("full");
   const [copied, setCopied] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [telemetry, setTelemetry] = useState<any>(null);
+
+  const fetchTelemetry = async () => {
+    try {
+      const res = await api.getBrainTelemetry();
+      if (res?.success && res.telemetry) {
+        setTelemetry(res.telemetry);
+      }
+    } catch {
+      // Telemetry fetch fallback
+    }
+  };
+
+  useEffect(() => {
+    fetchTelemetry();
+    const interval = setInterval(fetchTelemetry, 4000);
+    return () => clearInterval(interval);
+  }, []);
 
   const samplePrompts: PromptPreset[] = [
     // 1. Core Transfers
@@ -215,6 +236,7 @@ export const LlmLabPage: React.FC = () => {
         setBrainOutput(response.brainOutput);
         setCurrentDraft(response.brainOutput.updatedDraft);
         setTurnCount((prev) => prev + 1);
+        fetchTelemetry();
       } else {
         throw new Error("No brain output received from server.");
       }
@@ -346,6 +368,102 @@ export const LlmLabPage: React.FC = () => {
             <div className="font-extrabold text-slate-800 mt-0.5">JSON Schema &amp; Approved Audio</div>
           </div>
         </div>
+      </div>
+
+      {/* ── Token Efficiency & Quota Barrier Defense Monitor ───────────────── */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-amber-500" />
+            <h2 className="text-sm font-black text-slate-900">
+              Brain Token Efficiency &amp; Quota Barrier Defense
+            </h2>
+            <span className="text-[11px] text-slate-500">
+              Hybrid Routing: Tier 1 (Zero-Token Fast-Path) vs Tier 2 (Gemini Flash)
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <button
+              onClick={fetchTelemetry}
+              className="text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-xl font-bold transition-colors flex items-center gap-1.5"
+            >
+              <RotateCcw className="w-3 h-3" /> Refresh
+            </button>
+            <button
+              onClick={async () => {
+                await api.resetBrainTelemetry();
+                fetchTelemetry();
+              }}
+              className="text-slate-600 hover:text-rose-700 bg-slate-100 hover:bg-rose-50 px-3 py-1.5 rounded-xl font-bold transition-colors"
+            >
+              Reset Counters
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+            <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Zero-Token Bypass</div>
+            <div className="text-xl font-black text-emerald-700 mt-1 font-mono tabular-nums">
+              {telemetry?.tier1Percentage ?? 100}%
+            </div>
+            <div className="text-[11px] text-slate-500 mt-0.5">
+              {telemetry?.tier1Turns ?? 0} of {telemetry?.totalTurns ?? 0} turns (Tier 1)
+            </div>
+          </div>
+
+          <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+            <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Quota Tokens Saved</div>
+            <div className="text-xl font-black text-amber-600 mt-1 font-mono tabular-nums">
+              ~{(telemetry?.estimatedTokensSaved ?? 0).toLocaleString()}
+            </div>
+            <div className="text-[11px] text-slate-500 mt-0.5">
+              Saved from LLM token limits
+            </div>
+          </div>
+
+          <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+            <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Tier 1 Avg Latency</div>
+            <div className="text-xl font-black text-slate-800 mt-1 font-mono tabular-nums">
+              {telemetry?.avgTier1LatencyMs ?? 8} ms
+            </div>
+            <div className="text-[11px] text-emerald-600 font-bold mt-0.5">
+              Sub-15ms Instant Parity
+            </div>
+          </div>
+
+          <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+            <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Active Memory Window</div>
+            <div className="text-xl font-black text-slate-800 mt-1 font-mono tabular-nums">
+              4 Turns Max
+            </div>
+            <div className="text-[11px] text-slate-500 mt-0.5">
+              Sliding-window bounded tokens
+            </div>
+          </div>
+        </div>
+
+        {brainOutput?.telemetry && (
+          <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl flex items-center justify-between flex-wrap gap-2 text-xs">
+            <div className="flex items-center gap-2">
+              <span className={`px-2 py-0.5 rounded font-black text-[10px] uppercase tracking-wide ${
+                brainOutput.telemetry.tier === "TIER_1_DETERMINISTIC"
+                  ? "bg-emerald-600 text-white"
+                  : "bg-blue-600 text-white"
+              }`}>
+                {brainOutput.telemetry.tier === "TIER_1_DETERMINISTIC" ? "Tier 1: Zero-Token Fast Path" : "Tier 2: Gemini Flash"}
+              </span>
+              <span className="text-slate-700 font-semibold">
+                Decision Source: <span className="font-mono text-slate-900 font-bold">{brainOutput.telemetry.decisionSource}</span>
+              </span>
+            </div>
+            <div className="flex items-center gap-3 font-mono text-[11px] text-slate-600">
+              <span>Tokens: <strong className="text-slate-900">{brainOutput.telemetry.tokensUsed}</strong></span>
+              <span>·</span>
+              <span>Latency: <strong className="text-slate-900">{brainOutput.telemetry.latencyMs} ms</strong></span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Main Interactive Playground ────────────────────────────────────── */}

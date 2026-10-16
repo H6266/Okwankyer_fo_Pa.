@@ -1,0 +1,6 @@
+{
+  "summary": "Architectural implementation plan for connecting live MTN MoMo sandbox webhook feeds to the Central Brain, searching and matching feed states directly to canonical authentic studio audio recordings (OP01-OP94), and delivering automated real-time voice playback over Africa's Talking live telephony calls.",
+  "updatedAt": "2026-10-16T01:27:48.403014658Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

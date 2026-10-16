@@ -19,6 +19,70 @@ import { aiUnderstanding } from "../core/aiUnderstanding";
 import { geminiClient } from "../../services/geminiClient";
 import { openAiReasoner } from "../../services/openai/openaiReasoner";
 
+export const COMPACT_MOMO_SYSTEM_INSTRUCTION = `You are Ɔkwankyerɛfo Pa, a low-latency voice assistant for MTN Mobile Money (MoMo) in Ghana.
+Capabilities:
+- momo.transfer: Send Money to any phone (MTN, Telecel, AT). Requires 10-digit phone number and amount in GHS.
+- momo.cash_out: Withdraw money or allow cash out at an agent. Does NOT require recipient phone.
+- momo.check_balance: Inform user balance check is unavailable on voice; dial *170#.
+- momo.buy_airtime / momo.buy_data: Not yet ready.
+
+Instructions:
+1. Extract intent, amount, recipient phone/name, network, and reference from user speech.
+2. Calculate simple mental math (e.g. "half of 90" = 45).
+3. Output strictly valid JSON conforming to the response schema. Never output markdown code blocks or text outside JSON.`;
+
+export const COMPACT_MOMO_RESPONSE_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    intent: {
+      type: Type.OBJECT,
+      properties: {
+        id: {
+          type: Type.STRING,
+          description: "Intent ID (momo.transfer, momo.cash_out, momo.check_balance, momo.buy_airtime, momo.buy_data, smalltalk, unknown)",
+        },
+        confidence: { type: Type.NUMBER, description: "Confidence score between 0.0 and 1.0" },
+      },
+      required: ["id", "confidence"],
+    },
+    slots: {
+      type: Type.OBJECT,
+      properties: {
+        amount: { type: Type.NUMBER, description: "Transaction amount in GHS if present" },
+        recipient: {
+          type: Type.OBJECT,
+          properties: {
+            phone: { type: Type.STRING, description: "10-digit phone number if detected" },
+            name: { type: Type.STRING, description: "Recipient name if mentioned" },
+          },
+        },
+        network: { type: Type.STRING, description: "Telecom network: MTN, Telecel, or AT" },
+        reference: { type: Type.STRING, description: "Brief transfer reference" },
+      },
+    },
+    signals: {
+      type: Type.OBJECT,
+      properties: {
+        correction: { type: Type.BOOLEAN },
+        interruption: { type: Type.BOOLEAN },
+        user_confirmed: { type: Type.BOOLEAN },
+      },
+      required: ["correction", "interruption", "user_confirmed"],
+    },
+    reply: {
+      type: Type.OBJECT,
+      properties: {
+        text_en: { type: Type.STRING, description: "Concise spoken reply for caller" },
+        target_language: { type: Type.STRING, description: "twi-asante, twi-akuapem, or en" },
+        reply_kind: { type: Type.STRING, description: "confirm, clarify_slot, not_ready, dispatch, smalltalk, cancel" },
+        template_key: { type: Type.STRING },
+      },
+      required: ["text_en", "target_language", "reply_kind"],
+    },
+  },
+  required: ["intent", "slots", "signals", "reply"],
+};
+
 export const MOMO_SYSTEM_INSTRUCTION = `You are a voice-optimized accessibility assistant for MTN Mobile Money (MoMo) in Ghana ("Ɔkwankyerɛfo Pa" - The Good Guide). Your job is to converse naturally with callers in Ghanaian English or Akan Twi to help them execute Mobile Money transactions.
 
 Available MoMo Services & Capabilities:

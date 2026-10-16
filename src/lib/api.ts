@@ -615,6 +615,40 @@ export const api = {
     return res.json();
   },
 
+  async getMomoFeeds(): Promise<{ success: boolean; total: number; feeds: any[] }> {
+    const res = await fetch("/api/momo/feeds", {
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders(),
+    });
+    return res.json();
+  },
+
+  async clearMomoFeeds(): Promise<any> {
+    const res = await fetch("/api/momo/feeds/clear", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders(),
+    });
+    return res.json();
+  },
+
+  async simulateMomoSandboxCallback(params: {
+    referenceId: string;
+    status: string;
+    reason?: string;
+    financialTransactionId?: string;
+    amount?: number;
+    payerPhone?: string;
+  }): Promise<any> {
+    const res = await fetch("/api/momo/sandbox/simulate-callback", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
   // ── Telecel Cash Sandbox & Live API Methods ─────────────────────────
   async getTelecelDiagnostics(): Promise<any> {
     const res = await fetch("/api/telecel/status", {
@@ -1295,6 +1329,38 @@ export const api = {
 
   async getGhanaNlpSpeakers(): Promise<any> {
     const res = await fetch("/api/ai/ghananlp/speakers");
+    return res.json();
+  },
+
+  async getBrainTelemetry(): Promise<any> {
+    try {
+      const res = await fetch("/api/ai/brain/telemetry");
+      if (!res.ok) return null;
+      return res.json();
+    } catch {
+      return null;
+    }
+  },
+
+  async resetBrainTelemetry(): Promise<any> {
+    const res = await fetch("/api/ai/brain/telemetry/reset", { method: "POST" });
+    return res.json();
+  },
+
+  async processBrainTurn(payload: {
+    transcript: string;
+    language?: string;
+    sessionLanguage?: string;
+    draft?: any;
+    forceModel?: boolean;
+    callerNumber?: string;
+    sessionId?: string;
+  }): Promise<any> {
+    const res = await fetch("/api/ai/brain/process", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
     return res.json();
   },
 };
