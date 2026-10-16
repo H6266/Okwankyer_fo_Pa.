@@ -17,6 +17,7 @@ import { isAcousticSystemEcho, stripSystemEchoFromTranscript } from "../domain/e
 import { parseLongDiscussion, ParsedDiscussionState } from "../ai_system/brain/longDiscussionParser";
 import { audioPlaybackController } from "./audioPlaybackController";
 import { repairGhanaianPronunciation } from "../ai_system/speech/asr/ghanaianPhoneticMatcher";
+import { speechNormalizer } from "../ai_system/speech/speechNormalizer";
 
 export interface ContinuousAudioState {
   isMicActive: boolean;
@@ -528,23 +529,36 @@ export class ContinuousAudioEngine {
             this.lastStreamedWordCount = interimWords.length;
           }
 
-          // Instant ASR Proceed Triggers:
-          // 1. Recipient phone number: proceed immediately at the 10th digit!
-          if (this.activeStepName === "enter-recipient" || this.activeStepName === "enter_recipient_2") {
-            const digits = fullPreview.replace(/\D/g, "");
-            if (digits.length >= 10) {
+          // Real-time ASR step-aware trigger:
+          // 1. Recipient phone: proceed immediately at the 10th digit
+          const isRecipientStep =
+            this.activeStepName === "enter-recipient" ||
+            this.activeStepName === "enter_recipient_2";
+          if (isRecipientStep) {
+            const extracted = speechNormalizer.extractSpokenDigits(fullPreview);
+            if (extracted.length >= 10) {
+              const tenDigits = extracted.slice(0, 10);
               this.clearSentenceTimer();
-              this.finalizeAndCommitUserSentence(fullPreview);
+              this.sentenceBuffer = [];
+              this.lastStreamedWordCount = 0;
+              this.finalizeAndCommitUserSentence(tenDigits);
               return;
             }
           }
 
-          // 2. PIN handoff (between 11 and 12): proceed immediately right after the 4th digit!
-          if (this.activeStepName === "pin-handoff" || this.activeStepName === "pin_handoff") {
-            const pinDigits = fullPreview.replace(/\D/g, "");
-            if (pinDigits.length >= 4) {
+          // 2. PIN handoff: proceed right after the last 4 digit
+          const isPinStep =
+            this.activeStepName === "pin-handoff" ||
+            this.activeStepName === "pin_handoff" ||
+            this.activeStepName === "pin-authorization";
+          if (isPinStep) {
+            const extracted = speechNormalizer.extractSpokenDigits(fullPreview);
+            if (extracted.length >= 4) {
+              const fourDigits = extracted.slice(0, 4);
               this.clearSentenceTimer();
-              this.finalizeAndCommitUserSentence(fullPreview);
+              this.sentenceBuffer = [];
+              this.lastStreamedWordCount = 0;
+              this.finalizeAndCommitUserSentence(fourDigits);
               return;
             }
           }
@@ -558,8 +572,6 @@ export class ContinuousAudioEngine {
         }
 
         // 2. Finalized chunk from browser SpeechRecognition:
-        // Append to sentenceBuffer and wait for the sentence silence window before turning off the mic,
-        // so if the user pauses briefly mid-sentence, they can keep speaking without being cut off.
         if (finalStr) {
           if (isAcousticSystemEcho(finalStr, this.activePromptText, isSpeaking)) {
             this.updateState({
@@ -579,23 +591,34 @@ export class ContinuousAudioEngine {
               isSystemEchoBlocked: false,
             });
 
-            // Instant ASR Proceed Triggers in final chunk:
-            // 1. Recipient phone number: proceed immediately at the 10th digit!
-            if (this.activeStepName === "enter-recipient" || this.activeStepName === "enter_recipient_2") {
-              const digits = accumulatedPreview.replace(/\D/g, "");
-              if (digits.length >= 10) {
+            // Check immediate digit completion for finalized chunk as well
+            const isRecipientStep =
+              this.activeStepName === "enter-recipient" ||
+              this.activeStepName === "enter_recipient_2";
+            if (isRecipientStep) {
+              const extracted = speechNormalizer.extractSpokenDigits(accumulatedPreview);
+              if (extracted.length >= 10) {
+                const tenDigits = extracted.slice(0, 10);
                 this.clearSentenceTimer();
-                this.finalizeAndCommitUserSentence("");
+                this.sentenceBuffer = [];
+                this.lastStreamedWordCount = 0;
+                this.finalizeAndCommitUserSentence(tenDigits);
                 return;
               }
             }
 
-            // 2. PIN handoff (between 11 and 12): proceed immediately right after the 4th digit!
-            if (this.activeStepName === "pin-handoff" || this.activeStepName === "pin_handoff") {
-              const pinDigits = accumulatedPreview.replace(/\D/g, "");
-              if (pinDigits.length >= 4) {
+            const isPinStep =
+              this.activeStepName === "pin-handoff" ||
+              this.activeStepName === "pin_handoff" ||
+              this.activeStepName === "pin-authorization";
+            if (isPinStep) {
+              const extracted = speechNormalizer.extractSpokenDigits(accumulatedPreview);
+              if (extracted.length >= 4) {
+                const fourDigits = extracted.slice(0, 4);
                 this.clearSentenceTimer();
-                this.finalizeAndCommitUserSentence("");
+                this.sentenceBuffer = [];
+                this.lastStreamedWordCount = 0;
+                this.finalizeAndCommitUserSentence(fourDigits);
                 return;
               }
             }

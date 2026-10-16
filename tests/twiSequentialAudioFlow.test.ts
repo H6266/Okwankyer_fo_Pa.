@@ -9,8 +9,8 @@ import { resolveSafeAudioPath } from "../src/audio/streaming";
 import { audioFileExists } from "../src/audio/catalog";
 
 describe("Ɔkwankyerɛfo Pa — Unified 18-Step Audio Flow & State Orchestration", () => {
-  it("defines the exact 18 canonical steps in sequential order", () => {
-    expect(TWI_SEQUENTIAL_FLOW_STEPS).toHaveLength(18);
+  it("defines the exact canonical steps in sequential order with PIN handoff", () => {
+    expect(TWI_SEQUENTIAL_FLOW_STEPS).toHaveLength(19);
 
     const step1 = getFlowStepByIndex(1);
     expect(step1?.id).toBe("default_welcome");
@@ -55,6 +55,13 @@ describe("Ɔkwankyerɛfo Pa — Unified 18-Step Audio Flow & State Orchestration
     const step11 = getFlowStepByIndex(11);
     expect(step11?.id).toBe("amount_readback_2");
     expect(step11?.isDynamicReadback).toBe(true);
+    expect(step11?.nextStepId).toBe("pin_handoff");
+
+    // Step between 11 and 12: PIN Handoff
+    const pinHandoffStep = getFlowStepById("pin_handoff");
+    expect(pinHandoffStep?.id).toBe("pin_handoff");
+    expect(pinHandoffStep?.audioUrl).toContain("Pin%20Handoff.m4a");
+    expect(pinHandoffStep?.nextStepId).toBe("confirm_speech");
 
     // Step 12: Confirm speech
     const step12 = getFlowStepByIndex(12);

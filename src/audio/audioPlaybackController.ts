@@ -37,8 +37,7 @@ export interface PlayOptions {
   onStart?: () => void;
   onEnd?: () => void;
   onError?: (err: any) => void;
-  playbackRate?: number;
-  isSlowTts?: boolean;
+  rate?: number;
 }
 
 type StateListener = (state: PlaybackState) => void;
@@ -63,8 +62,7 @@ export function resolveSafePlayableUrl(url: string): string {
   if (!url) return url;
   // Always use universally compatible .mp3 for both .m4a and .aac files
   // so every browser, iframe, and telephony server plays audio with 0 errors
-  const mp3Url = url.replace(/\.(m4a|aac)$/i, ".mp3");
-  return encodeURI(decodeURI(mp3Url));
+  return url.replace(/\.(m4a|aac)$/i, ".mp3");
 }
 
 export class AudioPlaybackController {
@@ -289,37 +287,18 @@ export class AudioPlaybackController {
     const token = ++this.currentToken;
     const cleanText = text.trim();
 
-    const lower = cleanText.toLowerCase();
-    let fallbackStudioUrl = "";
-
-    const isNumberReadback =
-      /\b0[235]\d{8}\b/.test(cleanText) ||
-      lower.includes("phone nɔmba") ||
-      lower.includes("phone number") ||
-      lower.includes("nɔmba a ɛdi mũ") ||
-      lower.includes("hwee,") ||
-      lower.includes("zero,") ||
-      lower.includes("din ne") ||
-      lower.includes("recipient");
-
-    const effectiveOptions: PlayOptions = {
-      ...options,
-      isSlowTts: options?.isSlowTts ?? isNumberReadback,
-      playbackRate: options?.playbackRate ?? (isNumberReadback ? 0.82 : 1.0),
-    };
-
     // 1. High-priority match to native studio audio recording (Akan Twi ready files)
     try {
       const match = matchReplyToAudio(cleanText, "twi", { minConfidence: 0.30 });
       if (match.match && match.audioUrl) {
         return this.play(match.audioUrl, {
-          ...effectiveOptions,
+          ...options,
           onStart: () => {
             this.setState({ activeText: cleanText });
-            effectiveOptions?.onStart?.();
+            options?.onStart?.();
           },
-          onEnd: effectiveOptions?.onEnd,
-          onError: effectiveOptions?.onError,
+          onEnd: options?.onEnd,
+          onError: options?.onError,
         });
       }
     } catch (matchErr) {
@@ -327,17 +306,15 @@ export class AudioPlaybackController {
     }
 
     // 2. Intelligent keyword match to authentic Akan Twi studio recordings
-    // Do not hijack dynamic recipient KYC readback or amount readback into static input prompts
-    const isDynamicReadbackText =
-      lower.includes("din ne") ||
-      lower.includes("yɛahu") ||
-      lower.includes("recipient's name") ||
-      lower.includes("we found") ||
-      lower.includes("mate sɛ ɛyɛ") ||
-      lower.includes("sika dodow a wobɔe") ||
-      lower.includes("reference nɔmba");
-
-    if (!isDynamicReadbackText) {
+    // Exclude dynamic text with phone digits or amount values
+    const hasDynamicData =
+      /\b\d{2,}\b/.test(cleanText) ||
+      /\b\d[\s,]+\d\b/.test(cleanText) ||
+      /\b(?:hwee|baako|mmienu|mmiɛnsa|nnan|nnum|nsia|nson|nwɔtwe|nkron)\b/i.test(cleanText) ||
+      /ghs|cedis?|okp-|reference|submitting|verify|recipient's name|recipient no din/i.test(cleanText);
+    const lower = cleanText.toLowerCase();
+    let fallbackStudioUrl: string | null = null;
+    if (!hasDynamicData) {
       if (lower.includes("sika") && (lower.includes("dodow") || lower.includes("amount") || lower.includes("cedis") || lower.includes("bɔ"))) {
         fallbackStudioUrl = "/audio/supplied/Twi/4.Amount Entry & Verification/Enter amount 4.m4a";
       } else if (lower.includes("nɔmba") || lower.includes("fon") || lower.includes("recipient") || lower.includes("phone")) {
@@ -345,7 +322,7 @@ export class AudioPlaybackController {
       } else if (lower.includes("pene") || lower.includes("confirm") || lower.includes("approval") || lower.includes("review") || lower.includes("aane")) {
         fallbackStudioUrl = "/audio/supplied/Twi/5.Transaction Confirmation/Review transaction.m4a";
       } else if (lower.includes("pin") || lower.includes("handoff") || lower.includes("ahobammɔ")) {
-        fallbackStudioUrl = "/audio/additional/Pin Handoff.m4a";
+        fallbackStudioUrl = "/audio/additional/Pin%20Handoff.m4a";
       } else if (lower.includes("balance") || lower.includes("star") || lower.includes("170")) {
         fallbackStudioUrl = "/audio/supplied/Twi/13.Balance  Unsupported Services/Balance unavailable.aac";
       } else if (lower.includes("mane") || lower.includes("send")) {
@@ -359,27 +336,37 @@ export class AudioPlaybackController {
       }
     }
 
+    const isPhoneNumberOrDigits =
+      /\b0[235]\d{8}\b/.test(cleanText) ||
+      (cleanText.includes(",") && /\d/.test(cleanText)) ||
+      /\b(?:hwee|baako|mmienu|mmiɛnsa|nnan|nnum|nsia|nson|nwɔtwe|nkron)\b/i.test(cleanText);
+    const effectiveRate = options?.rate || (isPhoneNumberOrDigits ? 0.75 : 1.0);
+
     if (fallbackStudioUrl) {
       return this.play(fallbackStudioUrl, {
-        ...effectiveOptions,
+        ...options,
+        rate: effectiveRate,
         onStart: () => {
           this.setState({ activeText: cleanText });
-          effectiveOptions?.onStart?.();
+          options?.onStart?.();
         },
-        onEnd: effectiveOptions?.onEnd,
-        onError: effectiveOptions?.onError,
+        onEnd: options?.onEnd,
+        onError: options?.onError,
       });
     }
 
     // 3. Dynamic Neural Speech Synthesis via backend pipeline for authentic voice
     try {
       const isTwi = /[ɛɔ]|sika|mane|akwaaba|dabi|aane|paw|sidi|nɔmba|yɛsrɛ|nte|frɛ/i.test(cleanText);
-      const res = await fetch("/api/ai/synthesize", {
+      const synthUrl = typeof window !== "undefined" && window.location?.origin
+        ? `${window.location.origin}/api/ai/synthesize`
+        : "http://127.0.0.1:3000/api/ai/synthesize";
+      const res = await fetch(synthUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: cleanText, language: isTwi ? "twi" : "en" }),
-      });
-      if (res.ok) {
+        body: JSON.stringify({ text: cleanText, language: isTwi ? "twi" : "en", rate: effectiveRate }),
+      }).catch(() => null);
+      if (res?.ok) {
         const data = await res.json();
         const base64 = data?.result?.audioBase64 || (data?.result?.audioBuffer?.data
           ? btoa(String.fromCharCode(...new Uint8Array(data.result.audioBuffer.data)))
@@ -388,13 +375,14 @@ export class AudioPlaybackController {
         if (base64) {
           const dataUrl = `data:${mimeType};base64,${base64}`;
           return this.play(dataUrl, {
-            ...effectiveOptions,
+            ...options,
+            rate: effectiveRate,
             onStart: () => {
               this.setState({ activeText: cleanText });
-              effectiveOptions?.onStart?.();
+              options?.onStart?.();
             },
-            onEnd: effectiveOptions?.onEnd,
-            onError: effectiveOptions?.onError,
+            onEnd: options?.onEnd,
+            onError: options?.onError,
           });
         }
       }
@@ -402,11 +390,30 @@ export class AudioPlaybackController {
       console.warn("[AudioController] Speech synthesis fallback notice:", synthErr);
     }
 
-    // 4. Acoustic guidance tone indicator as clear fail-safe (Zero robotic SpeechSynthesis interference)
+    // 4. Client-side SpeechSynthesis fallback for distinct, slow spoken digits
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       try {
         window.speechSynthesis.cancel();
-      } catch {}
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        utterance.rate = effectiveRate;
+        utterance.pitch = 1.0;
+        utterance.onend = () => {
+          if (this.currentToken === token) {
+            this.setState({ isPlaying: false, activeClip: null, activeText: null, token });
+            options?.onEnd?.();
+          }
+        };
+        utterance.onerror = () => {
+          if (this.currentToken === token) {
+            this.setState({ isPlaying: false, activeClip: null, activeText: null, token });
+            options?.onError?.(new Error("Browser TTS error"));
+          }
+        };
+        window.speechSynthesis.speak(utterance);
+        return true;
+      } catch (speechErr) {
+        console.warn("[AudioController] Browser SpeechSynthesis notice:", speechErr);
+      }
     }
 
     try {
@@ -592,11 +599,8 @@ export class AudioPlaybackController {
 
       const source = this.audioContext.createBufferSource();
       source.buffer = buffer;
-      const rate = options?.playbackRate || (options?.isSlowTts ? 0.82 : 1.0);
-      try {
-        source.playbackRate.setValueAtTime(rate, this.audioContext.currentTime);
-      } catch {
-        source.playbackRate.value = rate;
+      if (options?.rate && Number.isFinite(options.rate)) {
+        source.playbackRate.setValueAtTime(options.rate, this.audioContext.currentTime);
       }
       source.connect(this.masterGainNode || this.audioContext.destination);
       this.activeBufferSource = source;
@@ -714,10 +718,7 @@ export class AudioPlaybackController {
     }
 
     audio.volume = this.playbackVolume;
-    const rate = options?.playbackRate || (options?.isSlowTts ? 0.82 : 1.0);
-    try {
-      audio.playbackRate = rate;
-    } catch {}
+    audio.playbackRate = (options?.rate && Number.isFinite(options.rate)) ? options.rate : 1.0;
 
     return new Promise<boolean>((resolve) => {
       this.activeResolver = () => {

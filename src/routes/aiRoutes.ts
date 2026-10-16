@@ -1601,5 +1601,31 @@ aiRouter.post("/api/ai/brain/process", async (req: Request, res: Response) => {
   }
 });
 
+// ── Dynamic TTS Synthesis Endpoint ────────────────────────────────────
+aiRouter.post("/api/ai/synthesize", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { text, language } = req.body || {};
+    const rawText = String(text || "").trim();
+    if (!rawText) {
+      return res.status(400).json({ success: false, error: "Text is required for speech synthesis." });
+    }
+    const isTwi = language === "twi" || language === "tw" || language === "ak" || language === "twi-asante";
+    const synthResult = await ttsRouter.synthesize({
+      text: rawText,
+      language: isTwi ? "tw" : "en",
+    });
 
-
+    const base64 = synthResult.audioBuffer ? synthResult.audioBuffer.toString("base64") : null;
+    res.json({
+      success: true,
+      result: {
+        audioBase64: base64,
+        audioMimeType: synthResult.audioMimeType || "audio/wav",
+        providerUsed: synthResult.providerUsed,
+        durationEstimateSec: synthResult.durationEstimateSec,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to synthesize speech." });
+  }
+});

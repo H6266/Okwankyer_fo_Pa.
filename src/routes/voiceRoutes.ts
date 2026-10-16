@@ -14,7 +14,7 @@ import { config } from "../config/env";
 import { recipientResolver } from "../providers/recipient/RecipientResolver";
 import { parseAndValidateAmount, validateGhanaPhoneNumber, normalizeGhanaPhoneNumber, redactPii } from "../domain/validation";
 import { transactionStateMachine } from "../domain/stateMachine";
-import { buildSafeConfirmationPrompt, buildReceiptPrompt, formatPhoneForSlowTts } from "../audio/dynamicPromptBuilder";
+import { buildSafeConfirmationPrompt, buildReceiptPrompt } from "../audio/dynamicPromptBuilder";
 import { isSpokenPinPattern, speechToText } from "../modules/sttService";
 import { mtnMomoService } from "../modules/mtnMomoService";
 import { auditLogger } from "../services/auditLogger";
@@ -38,6 +38,7 @@ import { getStepDefinition, validateKeypadInput } from "../domain/stepRegistry";
 import { SERVICE_CAPABILITIES, SUPPORTED_TRANSFER_NETWORKS } from "../domain/serviceCapabilities";
 import { ivrDecisionEngine, IvrDecision } from "../ai_system/brain/ivrDecisionEngine";
 import { geminiClient } from "../services/geminiClient";
+import { speechNormalizer } from "../ai_system/speech/speechNormalizer";
 
 export const voiceRouter = Router();
 export const ivrRouter = Router();
@@ -952,8 +953,8 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
     ...(amountValidation?.valid && amountValidation.amount !== undefined ? { amount: amountValidation.amount } : {}),
   });
 
-  const fullPhoneSpoken = formatPhoneForSlowTts(phoneValidation.normalized, lang);
-  const nameSpoken = resolution.name || (lang === "twi" ? "onipa a ne din nkae" : "unregistered subscriber");
+  const fullPhoneSpoken = speechNormalizer.formatPhoneSlowlyForSpeech(phoneValidation.normalized, lang);
+  const nameSpoken = resolution.name || (lang === "twi" ? `fon nɔmba ${fullPhoneSpoken}` : `subscriber ${fullPhoneSpoken}`);
 
   const useRecipient1Url = lang === "twi"
     ? `${baseUrl}/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Use%20recipient%201.m4a`
@@ -964,9 +965,9 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
 
   let verifyPrompt = "";
   if (lang === "twi") {
-    verifyPrompt = `Obi a woremane no no din ne ${nameSpoken}. Ne phone nɔmba a ɛdi mũ ne: ${fullPhoneSpoken}. Sɛ wopene so a mia baako (1). Sɛ wosesa a mia mmienu (2). Sɛ wogyae a mia hwee (0).`;
+    verifyPrompt = `Obi a woremane no no din ne ${nameSpoken}. Ne phone nɔmba a ɛdi mũ ne ${fullPhoneSpoken}. Sɛ wopene so a mia baako (1). Sɛ wosesa a mia mmienu (2). Sɛ wogyae a mia hwee (0).`;
   } else {
-    verifyPrompt = `The recipient's name is ${nameSpoken}. The full recipient phone number is: ${fullPhoneSpoken}. Press 1 to confirm, 2 to re-enter, or 0 to exit.`;
+    verifyPrompt = `The recipient's name is ${nameSpoken}. The full recipient phone number is ${fullPhoneSpoken}. Press 1 to confirm, 2 to re-enter, or 0 to exit.`;
   }
 
   // Audio 8 (Use Recipient 1) plays BEFORE Audio 7 (Recipient Confirm Speech)
@@ -1135,7 +1136,7 @@ ivrRouter.all("/safe-confirmation", (req: Request, res: Response) => {
   const recipientName = session.recipientName;
   const isVerified = session.isRecipientVerified;
 
-  const callbackUrl = `${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}`;
+  const callbackUrl = `${baseUrl}/pin-handoff?sessionId=${sessionId}&amp;lang=${lang}`;
 
   const { spokenText, voiceXml } = buildSafeConfirmationPrompt({
     language: lang,
@@ -1150,8 +1151,88 @@ ivrRouter.all("/safe-confirmation", (req: Request, res: Response) => {
   xmlResponse(res, voiceXml);
 });
 
-// ── Step 11: Safe Outcome & Zero-PIN Handset Handoff ───────────────────
-// CRITICAL: Never records or transmits PINs. Dispatches RequestToPay to handset and speaks dynamic receipt.
+// ── Step 11b: PIN Handoff (Located between Step 11 and Step 12) ────────
+// Supports keypad entry (waits for #) and ASR (proceeds right after 4th digit)
+ivrRouter.all("/pin-handoff", (req: Request, res: Response) => {
+  const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
+  const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
+  const baseUrl = getBaseUrl(req);
+  const session = transactionStateMachine.getOrCreateSession(sessionId);
+
+  if (dtmf === "2") {
+    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  }
+  if (dtmf === "0") {
+    transactionStateMachine.transition(sessionId, "CANCELLED");
+    const exitMsg = lang === "twi"
+      ? "Yɛatwa adesrɛ no mu. Nante yie."
+      : "Your request was cancelled. Goodbye.";
+    return xmlResponse(res, `    <Say voice="female">${exitMsg}</Say>\n    <Reject/>`);
+  }
+
+  // If PIN digits were already passed (e.g. from ASR or fast keypad)
+  if (dtmf && dtmf.length === 4) {
+    session.pin = dtmf;
+    return xmlResponse(res, `    <Redirect>${baseUrl}/confirm-speech?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${dtmf}</Redirect>`);
+  }
+
+  const pinAudioUrl = `${baseUrl}/audio/additional/Pin%20Handoff.m4a`;
+  const pinPrompt = lang === "twi"
+    ? "Wo transaction no ayɛ krado sɛ wode bɛma ho kwan. Yɛsrɛ wo, bɔ wo 4 digit password na fa hash ka ho, anaa ka wo PIN no."
+    : "Your transaction is ready for authorization. Please enter your 4-digit password followed by hash, or say your 4-digit PIN.";
+
+  const xml = `    <GetDigits timeout="25" finishOnKey="#" numDigits="4" callbackUrl="${baseUrl}/confirm-speech?sessionId=${sessionId}&amp;lang=${lang}">
+        <Play url="${escapeVoiceXml(pinAudioUrl)}"/>
+        <Say voice="female">${escapeVoiceXml(pinPrompt)}</Say>
+    </GetDigits>
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="8" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=pin-handoff&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
+
+  xmlResponse(res, xml, {
+    type: "understood_intent",
+    reason: "PIN handoff prompt (between 11 and 12)",
+    replyText: pinPrompt,
+    replyKey: "OP40",
+    action: "continue",
+  });
+});
+
+// ── Step 12: Confirm Speech (After PIN Entered) ────────────────────────
+ivrRouter.all("/confirm-speech", (req: Request, res: Response) => {
+  const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
+  const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
+  const baseUrl = getBaseUrl(req);
+  const session = transactionStateMachine.getOrCreateSession(sessionId);
+
+  if (dtmf && dtmf.length === 4) {
+    session.pin = dtmf;
+  }
+
+  const confirmAudioUrl = lang === "twi"
+    ? `${baseUrl}/audio/supplied/Twi/5.Transaction%20Confirmation/Confirm%20speech.m4a`
+    : `${baseUrl}/audio/Confirm%20understanding.m4a`;
+
+  const confirmPrompt = lang === "twi"
+    ? "Sɛ wopene so a, mia baako (1) anaasɛ ka aane. Sɛ wopɛ sɛ wotwa mu a, mia mmienu (2) anaasɛ ka dabi."
+    : "To confirm and submit, press 1 or say yes. To cancel, press 2 or say no.";
+
+  const xml = `    <GetDigits timeout="15" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}">
+        <Play url="${escapeVoiceXml(confirmAudioUrl)}"/>
+        <Say voice="female">${escapeVoiceXml(confirmPrompt)}</Say>
+    </GetDigits>
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="6" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=confirm-speech&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
+
+  xmlResponse(res, xml, {
+    type: "understood_intent",
+    reason: "Confirm speech prompt (Step 12)",
+    replyText: confirmPrompt,
+    replyKey: "OP41",
+    action: "continue",
+  });
+});
+
+// ── Step 13: Safe Outcome & Payment Submission ────────────────────────
 ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
@@ -1403,6 +1484,12 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
     if (step === "enter-amount") {
       return xmlResponse(res, `    <Redirect>${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${directDtmf}</Redirect>`);
     }
+    if (step === "pin-handoff") {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/confirm-speech?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${directDtmf}</Redirect>`);
+    }
+    if (step === "confirm-speech") {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${directDtmf}</Redirect>`);
+    }
     return xmlResponse(res, `    <Redirect>${baseUrl}/${step}?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${directDtmf}</Redirect>`);
   }
 
@@ -1465,8 +1552,35 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
     );
   }
 
+  if (step === "enter-recipient") {
+    const digits = speechNormalizer.extractSpokenDigits(clean);
+    if (digits.length >= 10) {
+      const tenDigits = digits.slice(0, 10);
+      return xmlResponse(res, `    <Redirect>${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${tenDigits}</Redirect>`);
+    }
+  }
+
+  if (step === "pin-handoff") {
+    const digits = speechNormalizer.extractSpokenDigits(clean);
+    if (digits.length >= 4) {
+      const fourDigits = digits.slice(0, 4);
+      return xmlResponse(res, `    <Redirect>${baseUrl}/confirm-speech?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${fourDigits}</Redirect>`);
+    }
+  }
+
+  if (step === "confirm-speech") {
+    const isAffirmative = /\b(yes|confirm|proceed|okay|sure|aane|pene so|ampa|correct|send it|kɔ so|yie|1|baako)\b/i.test(clean);
+    if (isAffirmative) {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=1</Redirect>`);
+    }
+    const isNegative = /\b(no|cancel|dabi|wrong|sesa|stop|2|mmienu)\b/i.test(clean);
+    if (isNegative) {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+    }
+  }
+
   const isSpeechControl = /\b(cancel|stop|abort|quit|exit|gyae|hwee|go back|previous|back|san akyi|repeat|say again|tie bio)\b/i.test(clean);
-  const isConfirmationStep = step === "safe-confirmation" || step === "recipient-verify-choice";
+  const isConfirmationStep = step === "safe-confirmation" || step === "recipient-verify-choice" || step === "confirm-speech";
   const isSpokenKey = /^(?:[0-9]|zero|one|two|three|four|five|six|seven|eight|nine|baako|bako|mmienu|mienu|mmiensa|mmiɛnsa|ɛnan|enan|enum|nsia|nson|nwɔtwe|nwotwe|nkron|kron)$/i.test(clean);
   const isLanguageChoice = step === "language-selection" && /\b(english|twi|akan|brofo)\b/i.test(clean);
   const isProviderChoice = /provider/.test(step) && /\b(mtn|telecel|vodafone|airteltigo|tigo)\b/i.test(clean);
