@@ -621,9 +621,13 @@ export class Brain {
 
       // Grounding Check for Recipient Phone:
       if (modelOutput.slots?.recipient?.phone) {
+        const normModelPhone = normalizeGhanaPhoneNumber(modelOutput.slots.recipient.phone);
+        const normDecoderPhone = decoderResult.phoneNumberDigits
+          ? normalizeGhanaPhoneNumber(decoderResult.phoneNumberDigits)
+          : null;
         if (
-          decoderResult.phoneNumberDigits !== null &&
-          decoderResult.phoneNumberDigits !== modelOutput.slots.recipient.phone
+          Boolean(normDecoderPhone) &&
+          normDecoderPhone !== normModelPhone
         ) {
           if (draft.slots.recipient) delete draft.slots.recipient.phone;
           draft.lastReplyKind = 'clarify_slot';
@@ -1831,13 +1835,21 @@ export class Brain {
           }
         }
 
-        // Check for network discrepancy if caller explicitly specified a network
-        const statedNetwork = draft.slots.networkSpecified || (draft.slots as any).candidateNetwork;
-        if (statedNetwork && typeof statedNetwork === 'string') {
-          if (statedNetwork.toUpperCase() !== (draft.slots.network || "").toUpperCase()) {
-            draft.slots.hasNetworkDiscrepancy = true;
-            draft.slots.candidateNetwork = statedNetwork;
-          }
+        // Check for network discrepancy if caller specified a network or if active pipeline is MTN
+        const statedNetwork = draft.slots.networkSpecified || (draft.slots as any).candidateNetwork || (draft.slots as any).pipelineNetwork;
+        const currentPipeline = (statedNetwork && typeof statedNetwork === 'string')
+          ? statedNetwork
+          : (draft.slots as any).selectedPipeline || "MTN";
+        if (
+          draft.slots.network &&
+          currentPipeline &&
+          draft.slots.network.toUpperCase() !== currentPipeline.toUpperCase() &&
+          !(draft.slots as any).crossNetworkApproved
+        ) {
+          draft.slots.hasNetworkDiscrepancy = true;
+          draft.slots.candidateNetwork = currentPipeline;
+        } else if ((draft.slots as any).crossNetworkApproved) {
+          draft.slots.hasNetworkDiscrepancy = false;
         }
       }
     } catch (err: any) {

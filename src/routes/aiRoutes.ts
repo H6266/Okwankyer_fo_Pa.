@@ -44,6 +44,9 @@ import {
 import { parseLongDiscussion } from "../ai_system/brain/longDiscussionParser";
 import { acousticNoiseFilterModel } from "../ai_system/speech/acousticModels/noiseFilterModel";
 import { getFullAiHealthReport } from "../services/healthService";
+import { transactionStateMachine } from "../domain/stateMachine";
+import { buildReceiptPrompt } from "../audio/dynamicPromptBuilder";
+import { matchReplyToAudio } from "../audio/replyAudioMatcher";
 
 export const aiRouter = Router();
 
@@ -667,9 +670,163 @@ aiRouter.post("/api/ai/brain/process", publicApiRateLimiter, async (req: Request
       forceModel: forceModel === true,
     });
 
+    // Immediate 4-field synchronization to backend session (amount, recipientPhone, recipientName, network)
+    if (sessionId) {
+      try {
+        const session = transactionStateMachine.getOrCreateSession(sessionId, lang.startsWith("tw") ? "twi" : "en");
+        const slots = output.updatedDraft?.slots || {};
+        const updates: Record<string, any> = {};
+        if (typeof slots.amount === "number" && slots.amount > 0) {
+          updates.amount = slots.amount;
+        }
+        if (slots.recipient?.phone) {
+          updates.recipientPhone = normalizeGhanaPhoneNumber(String(slots.recipient.phone));
+        }
+        if (slots.verifiedName || slots.recipient?.name) {
+          updates.recipientName = slots.verifiedName || slots.recipient?.name;
+          updates.isRecipientVerified = true;
+        }
+        if (slots.network) {
+          updates.network = slots.network;
+        }
+        if (Object.keys(updates).length > 0) {
+          transactionStateMachine.transition(sessionId, session.state, updates);
+        }
+      } catch (err: any) {
+        console.warn("[Brain Process] Automatic session synchronization notice:", err?.message || err);
+      }
+    }
+
     res.json({ success: true, brainOutput: output, result: output });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message || "Brain processing failed" });
+  }
+});
+
+// Audio matching against authentic human studio recordings & Twi link manifest
+aiRouter.post("/api/ai/match-audio", publicApiRateLimiter, (req: Request, res: Response) => {
+  try {
+    const { text, language } = req.body;
+    if (!text || typeof text !== "string") {
+      return res.status(400).json({ error: "Missing 'text' field" });
+    }
+    const lang = (language === "tw" || language === "ak" || language === "twi" || language === "twi-asante")
+      ? "twi"
+      : language === "twi-akuapem"
+      ? "twi"
+      : "en";
+
+    const matchResult = matchReplyToAudio(text, lang, { minConfidence: 0.50 });
+    res.json({
+      success: true,
+      matchFound: matchResult.match,
+      audioUrl: matchResult.match ? matchResult.audioUrl : null,
+      title: matchResult.title || null,
+      confidence: matchResult.confidence,
+      requiresTts: !matchResult.match,
+      matchReason: matchResult.matchReason || (matchResult.match ? "catalog_match" : "dynamic_tts_required"),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Audio matching failed" });
+  }
+});
+
+// Explicit 4-Field Synchronization endpoint
+aiRouter.post("/api/ai/simulator/sync-session", publicApiRateLimiter, (req: Request, res: Response) => {
+  try {
+    const { sessionId, amount, recipientPhone, recipientName, network, language } = req.body;
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing 'sessionId' field" });
+    }
+    const session = transactionStateMachine.getOrCreateSession(sessionId, language === "twi" ? "twi" : "en");
+    const updates: Record<string, any> = {};
+    if (typeof amount === "number" && amount > 0) updates.amount = amount;
+    if (recipientPhone) updates.recipientPhone = normalizeGhanaPhoneNumber(String(recipientPhone));
+    if (recipientName) {
+      updates.recipientName = recipientName;
+      updates.isRecipientVerified = true;
+    }
+    if (network) updates.network = network;
+
+    if (Object.keys(updates).length > 0) {
+      transactionStateMachine.transition(sessionId, session.state, updates);
+    }
+
+    res.json({ success: true, session: transactionStateMachine.getOrCreateSession(sessionId) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Session sync failed" });
+  }
+});
+
+// Direct PIN transfer completion with accurate receipt generation
+aiRouter.post("/api/ai/simulator/complete-transfer", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { sessionId, pin, language, amount: reqAmount, recipientPhone: reqPhone, recipientName: reqName, network: reqNet } = req.body;
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing 'sessionId' field" });
+    }
+    const lang = (language === "tw" || language === "twi" || language === "twi-asante" || language === "ak") ? "twi" : "en";
+    const session = transactionStateMachine.getOrCreateSession(sessionId, lang);
+
+    const effectiveAmount = typeof reqAmount === "number" && reqAmount > 0 ? reqAmount : session.amount || 90;
+    const effectivePhone = reqPhone ? normalizeGhanaPhoneNumber(String(reqPhone)) : session.recipientPhone || "0554848756";
+    const effectiveName = reqName || session.recipientName || "Emmanuel Mensah";
+    const effectiveNetwork = reqNet || session.network || "MTN";
+
+    // Transition to CONFIRMED and PIN_PENDING
+    transactionStateMachine.transition(sessionId, "CONFIRMED");
+    transactionStateMachine.transition(sessionId, "PIN_PENDING", {
+      amount: effectiveAmount,
+      recipientPhone: effectivePhone,
+      recipientName: effectiveName,
+      network: effectiveNetwork,
+    });
+
+    // Execute Payment Saga
+    const sagaResult = await paymentSaga.executeConfirmedTransferSaga({
+      sessionId,
+      senderPhone: session.callerPhone || "+233244123456",
+      recipientPhone: effectivePhone,
+      recipientName: effectiveName,
+      amount: effectiveAmount,
+      network: effectiveNetwork as any,
+      confirmedDraftHash: session.idempotencyKey,
+    });
+
+    transactionStateMachine.transition(sessionId, "COMPLETED");
+
+    // Generate accurate dynamic receipt
+    const refId = sagaResult.saga.collectionReference || session.referenceId;
+    const receipt = buildReceiptPrompt({
+      language: lang,
+      amount: effectiveAmount,
+      recipientPhone: effectivePhone,
+      recipientName: effectiveName,
+      referenceId: refId,
+      timestamp: new Date(),
+      status: "SUCCESSFUL",
+    });
+
+    // Determine audio match or dynamic TTS
+    const studioSuccessAudio = lang === "twi"
+      ? "/audio/Twi/8.Success%20%26%20Completion/SUCCESS.aac"
+      : "/audio/Success.m4a";
+
+    res.json({
+      success: true,
+      status: "SUCCESSFUL",
+      amount: effectiveAmount,
+      recipientPhone: effectivePhone,
+      recipientName: effectiveName,
+      network: effectiveNetwork,
+      referenceId: refId,
+      receiptText: receipt.spokenText,
+      audioUrl: studioSuccessAudio,
+      requiresTts: true,
+      saga: sagaResult.saga,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Transfer completion failed" });
   }
 });
 
