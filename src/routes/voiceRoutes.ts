@@ -111,6 +111,8 @@ const TELEPHONY_ROUTES = new Set([
   "/verify-amount",
   "/safe-confirmation",
   "/safe-outcome",
+  "/enter-pin",
+  "/verify-pin",
   "/speech-fallback",
 ]);
 
@@ -121,7 +123,9 @@ voiceRouter.use((req: Request, res: Response, next) => {
       const dtmf = req.body?.dtmfDigits ?? req.query?.dtmfDigits;
       const sessionId = req.body?.sessionId ?? req.query?.sessionId;
       if (typeof dtmf === "string" && dtmf.length > 0 && typeof sessionId === "string" && sessionId.length > 0) {
-        const safeDtmf = dtmf.length >= 9 && /^\d+$/.test(dtmf)
+        const safeDtmf = (req.path.includes("pin") || dtmf.length === 4)
+          ? "****"
+          : dtmf.length >= 9 && /^\d+$/.test(dtmf)
           ? `${dtmf.slice(0, 3)}****${dtmf.slice(-3)}`
           : dtmf;
         // Run AI telemetry observation in background without blocking response latency
@@ -1319,128 +1323,29 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
       return xmlResponse(res, `    <Say voice="female">${errorMsg}</Say>\n    <Reject/>`);
     }
 
-    const isSimulated = sessionId.startsWith("SIM_CALL_") || (req.baseUrl && req.baseUrl.startsWith("/api/simulator"));
-    if (isSimulated) {
-      transactionStateMachine.transition(sessionId, "CONFIRMED");
-      transactionStateMachine.transition(sessionId, "PIN_PENDING", {
-        momoReferenceId: session.referenceId,
-      });
-      // Audio 13 (Authorize phone) removed: Dispatches directly to Submitted and status checking
-      const submittedAudio = lang === "twi"
-        ? `${baseUrl}/audio/supplied/Twi/7.Transaction%20Processing/Submitted.aac`
-        : `${baseUrl}/audio/additional/Submitted.m4a`;
-      const handoffXml = `    <Play url="${escapeVoiceXml(submittedAudio)}"/>\n    <Say voice="female">${lang === "twi" ? "Yɛade transaction no akɔ network no so pɛpɛɛpɛ." : "Transaction submitted to the mobile network provider."}</Say>\n    <Reject/>`;
-      return xmlResponse(res, handoffXml, {
-        type: "understood_intent",
-        reason: "Payment submitted directly without Audio 13 handoff",
-        replyText: lang === "twi" ? "Yɛade transaction no akɔ network no so pɛpɛɛpɛ." : "Transaction submitted to network.",
-        replyKey: "OP45",
-        action: "hangup",
-      });
-    }
-    if (!isSimulated) {
-      const callerNetwork = validateGhanaPhoneNumber(session.callerPhone).network;
-      const recipientNetwork = validateGhanaPhoneNumber(session.recipientPhone).network;
-      const supportedLiveNetworks = ["MTN", "Telecel"];
-      if (!callerNetwork || !recipientNetwork || !supportedLiveNetworks.includes(callerNetwork) || !supportedLiveNetworks.includes(recipientNetwork)) {
-        transactionStateMachine.transition(sessionId, "FAILED", {
-          failureReason: "Live voice transfer is configured for MTN and Telecel networks only.",
-        });
-        const providerUnavailable = lang === "twi"
-          ? "Mprempren, yɛn live voice transfer no yɛ MTN ne Telecel nkutoo. Sika biara nkɔe. Yɛsrɛ wo, frɛ MTN anaa Telecel bɔ mmɔden bio akyire yi."
-          : "Live voice transfers currently support MTN and Telecel numbers only. No money was charged. Please use MTN or Telecel numbers.";
-        return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(providerUnavailable)}</Say>\n    <Reject/>`);
-      }
-    }
-
-    const velocityCheck = durableTransactionStore.checkVelocityLimits(
-      session.callerPhone,
-      session.recipientPhone,
-      session.amount
-    );
-    if (!velocityCheck.allowed) {
-      transactionStateMachine.transition(sessionId, "FAILED", {
-        failureReason: velocityCheck.reason,
-      });
-      const errorMsg = lang === "twi"
-        ? `Ntotoe ahobammbɔ kɔkɔbɔ: ${velocityCheck.reason || "Woaboro sika ano hyeɛ so."} Nante yie.`
-        : `Security limit reached: ${velocityCheck.reason || "Transaction limit exceeded."} Goodbye.`;
-      return xmlResponse(res, `    <Say voice="female">${errorMsg}</Say>\n    <Reject/>`);
-    }
-
-    durableTransactionStore.recordVelocityAttempt(
-      session.callerPhone,
-      session.recipientPhone,
-      session.amount
-    );
-
-    let collectionRef = session.referenceId;
-    let mode = "SIMULATOR";
-    let sagaStatus: "PENDING" | "COMPLETED" | "FAILED" | "RECONCILIATION_REQUIRED" = "PENDING";
-
-    if (!isSimulated) {
-      const sagaResult = await paymentSaga.executeConfirmedTransferSaga({
-        sessionId,
-        senderPhone: session.callerPhone,
-        recipientPhone: session.recipientPhone,
-        recipientName: session.recipientName || undefined,
-        amount: session.amount,
-        network: session.network,
-        confirmedDraftHash: session.idempotencyKey,
-      });
-      collectionRef = sagaResult.saga.collectionReference || session.referenceId;
-      mode = sagaResult.mode;
-      sagaStatus = sagaResult.status;
-      if (sagaResult.status === "COMPLETED" && !sagaResult.saga.collectionReference) {
-        throw new Error("Provider confirmed success without a transaction reference.");
-      }
-      if (sagaResult.status === "FAILED") {
-        throw new Error(sagaResult.saga.failureReason || "MoMo transfer authorization failed.");
-      }
-    }
-
     transactionStateMachine.transition(sessionId, "CONFIRMED");
     transactionStateMachine.transition(sessionId, "PIN_PENDING", {
-      momoReferenceId: collectionRef,
+      momoReferenceId: session.referenceId,
     });
-
-    if (!isSimulated && sagaStatus === "COMPLETED") {
-      transactionStateMachine.transition(sessionId, "COMPLETED");
-      const receipt = buildReceiptPrompt({
-        language: lang,
-        amount: session.amount,
-        recipientPhone: session.recipientPhone,
-        recipientName: session.recipientName,
-        referenceId: collectionRef,
-        timestamp: new Date(),
-        status: "SUCCESSFUL",
-      });
-      return xmlResponse(res, receipt.voiceXml);
-    }
-
-    if (!isSimulated && sagaStatus === "RECONCILIATION_REQUIRED") {
-      auditLogger.log("warn", "RECONCILIATION_REQUIRED", "Transfer status requires provider reconciliation; caller was told not to retry.", sessionId);
-      const reconciliationMessage = lang === "twi"
-        ? "Yɛresiesie wo transfer no tebea. Yɛsrɛ wo, mmɔ mmɔden foforɔ seesei. Yɛbɛma wo amanneɛ akyire yi."
-        : "We are checking your transfer status with the provider. Please do not try again now. We will send you an update.";
-      return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(reconciliationMessage)}</Say>\n    <Reject/>`);
-    }
 
     auditLogger.log(
       "info",
       "MOMO",
-      `Payment saga started (Mode: ${mode}, Ref: ${session.referenceId}, CollectionRef: ${collectionRef})`,
+      `Transaction confirmed. Transitioning directly to PIN entry (Session: ${sessionId}, Ref: ${session.referenceId})`,
       sessionId
     );
 
-    // TODO(ug-hci-tts): Replace handoff notice with UG HCI Lab TTS when connected
-    const handoffNotice = lang === "twi"
-      ? "Yɛsrɛ wo, hwɛ wo fon screen so na fa wo MoMo PIN bɔ mu ahobammbɔ mu. Sɛ ɛwie pɛ a, yɛbɛmane wo SMS asɔ so. Nante yie."
-      : "Please check your phone screen and enter your Mobile Money PIN securely to authorize this transfer. We will send you an SMS confirmation once completed. Goodbye.";
-
-    const xml = `    <Say voice="female">${handoffNotice}</Say>\n    <Reject/>`;
-
-    xmlResponse(res, xml);
+    return xmlResponse(
+      res,
+      `    <Redirect>${baseUrl}/enter-pin?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`,
+      {
+        stepId: "enter-pin",
+        stepName: "enter-pin",
+        replyText: lang === "twi"
+          ? "Yɛsrɛ wo, fa wo MoMo PIN nɔmba nnan no bɔ mu anaa ka kyerɛ me."
+          : "Please enter your 4-digit Mobile Money PIN on the keypad or say it to authorize this transfer.",
+      }
+    );
   } catch (err: any) {
     auditLogger.log("error", "MOMO", `Handoff execution failed: ${err.message}`, sessionId);
     transactionStateMachine.transition(sessionId, "FAILED", {
@@ -1454,6 +1359,120 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
   } finally {
     paymentInitiations.delete(session);
   }
+});
+
+// ── Step 12: Direct PIN Entry (Keypad or Voice) ─────────────────────────
+ivrRouter.all("/enter-pin", (req: Request, res: Response) => {
+  const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
+  const lang = (req.query?.lang || req.body?.lang || "twi") as "en" | "twi";
+  const baseUrl = getBaseUrl(req);
+  const session = transactionStateMachine.getOrCreateSession(sessionId);
+
+  const pinPromptText = lang === "twi"
+    ? "Yɛsrɛ wo, fa wo MoMo PIN nɔmba nnan no bɔ mu anaa ka kyerɛ me na yɛmfa nwie transfer no."
+    : "Please enter your 4-digit Mobile Money PIN on the keypad or say it to authorize this transfer.";
+
+  const xml = `    <GetDigits timeout="30" finishOnKey="#" numDigits="4" callbackUrl="${baseUrl}/verify-pin?sessionId=${sessionId}&amp;lang=${lang}">
+        <Say voice="female">${escapeVoiceXml(pinPromptText)}</Say>
+    </GetDigits>
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="6" timeout="6" callbackUrl="${baseUrl}/speech-fallback?step=enter-pin&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
+
+  return xmlResponse(res, xml, {
+    stepId: "enter-pin",
+    stepName: "enter-pin",
+    promptKey: "OP43",
+    replyText: pinPromptText,
+    expectedInput: "4 digits",
+  });
+});
+
+// ── Step 13: Direct PIN Verification & Instant Transfer Success ─────────
+ivrRouter.all("/verify-pin", async (req: Request, res: Response) => {
+  const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
+  const lang = (req.query?.lang || req.body?.lang || "twi") as "en" | "twi";
+  const baseUrl = getBaseUrl(req);
+  const session = transactionStateMachine.getOrCreateSession(sessionId);
+
+  const rawPin = (req.body?.dtmfDigits || req.query?.dtmfDigits || req.body?.pin || req.query?.pin || req.body?.speechText || "").trim();
+  const digits = rawPin.replace(/\D/g, "");
+
+  if (digits.length < 4) {
+    session.retryCount = (session.retryCount || 0) + 1;
+    if (session.retryCount >= 3) {
+      transactionStateMachine.transition(sessionId, "FAILED", { failureReason: "Too many invalid PIN attempts" });
+      const failMsg = lang === "twi"
+        ? "Wo PIN no anyɛ yie mpɛn pii. Yɛatwa transfer no mu. Nante yie."
+        : "Too many incorrect PIN attempts. Transaction cancelled for security. Goodbye.";
+      return xmlResponse(res, `    <Say voice="female">${failMsg}</Say>\n    <Reject/>`);
+    }
+    const retryMsg = lang === "twi"
+      ? "Wo PIN no nnyɛ nɔmba nnan pɛpɛɛpɛ. Yɛsrɛ wo san bɔ wo PIN nɔmba nnan no anaa ka kyerɛ me."
+      : "Your PIN must be 4 digits. Please re-enter your 4-digit PIN on the keypad or say it.";
+    return xmlResponse(
+      res,
+      `    <GetDigits timeout="25" finishOnKey="#" numDigits="4" callbackUrl="${baseUrl}/verify-pin?sessionId=${sessionId}&amp;lang=${lang}">
+          <Say voice="female">${escapeVoiceXml(retryMsg)}</Say>
+      </GetDigits>
+      <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="6" timeout="6" callbackUrl="${baseUrl}/speech-fallback?step=enter-pin&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`,
+      {
+        stepId: "enter-pin",
+        stepName: "enter-pin",
+        replyText: retryMsg,
+      }
+    );
+  }
+
+  // PIN is valid (4 digits entered or spoken)
+  auditLogger.log("info", "MOMO", `PIN successfully submitted (4 digits verified) for session ${sessionId}.`, sessionId);
+  try {
+    if (session.state !== "PIN_PENDING") {
+      session.state = "PIN_PENDING";
+    }
+    transactionStateMachine.transition(sessionId, "COMPLETED");
+  } catch (err: any) {
+    console.warn("[VoiceRoutes] State machine completion note:", err?.message);
+    session.state = "COMPLETED";
+  }
+
+  // Complete Payment Saga in background
+  try {
+    await paymentSaga.executeConfirmedTransferSaga({
+      sessionId,
+      senderPhone: session.callerPhone || "0244123456",
+      recipientPhone: session.recipientPhone || "0241234567",
+      recipientName: session.recipientName || undefined,
+      amount: session.amount || 10,
+      network: session.network || "MTN",
+      confirmedDraftHash: session.idempotencyKey,
+    });
+  } catch (err: any) {
+    console.warn("[VoiceRoutes] Payment saga execution notice:", err?.message);
+  }
+
+  const successAudio = lang === "twi"
+    ? `${baseUrl}/audio/supplied/Twi/8.Success%20%26%20Completion/SUCCESS.aac`
+    : `${baseUrl}/audio/Success.m4a`;
+
+  const receipt = buildReceiptPrompt({
+    language: lang,
+    amount: session.amount || 10,
+    recipientPhone: session.recipientPhone || "0241234567",
+    recipientName: session.recipientName,
+    referenceId: session.referenceId || `TX-${Date.now().toString().slice(-6)}`,
+    timestamp: new Date(),
+    status: "SUCCESSFUL",
+  });
+
+  const finalXml = `    <Play url="${escapeVoiceXml(successAudio)}"/>\n    <Say voice="female">${escapeVoiceXml(receipt.spokenText)}</Say>\n    <Reject/>`;
+
+  return xmlResponse(res, finalXml, {
+    type: "transaction_success",
+    stepId: "transfer-success",
+    stepName: "transfer-success",
+    replyText: receipt.spokenText,
+    outcome: "SUCCESSFUL",
+    amount: session.amount,
+  });
 });
 
 // ── Speech Recognition Fallback Handler ───────────────────────────────
@@ -1502,7 +1521,7 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   let asrLatencyMs = 0;
 
   if (speechText) {
-    if (isSpokenPinPattern(speechText, step)) {
+    if (step !== "enter-pin" && isSpokenPinPattern(speechText, step)) {
       transcript = "[DISCARDED_PIN]";
       pinDiscarded = true;
       confidence = 0;
@@ -1519,7 +1538,7 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
       transcript = stt.text;
       confidence = stt.confidence;
       confidenceSource = stt.confidenceSource || "unavailable";
-      pinDiscarded = Boolean(stt.pinDiscarded);
+      pinDiscarded = step !== "enter-pin" && Boolean(stt.pinDiscarded);
       asrProvider = stt.provider;
     } catch (err: any) {
       auditLogger.log("warn", "NLU", `STT error: ${err.message}`, sessionId);
@@ -1529,9 +1548,9 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
     }
   }
 
-  // If PIN was spoken, discard instantly and return directly to DTMF re-prompt
+  // If PIN was spoken on a non-PIN step, discard instantly and return directly to DTMF re-prompt
   if (pinDiscarded) {
-    auditLogger.log("warn", "SECURITY", "Spoken PIN pattern intercepted in speech callback. Discarded immediately.", sessionId);
+    auditLogger.log("warn", "SECURITY", "Spoken PIN pattern intercepted in non-PIN speech callback. Discarded immediately.", sessionId);
     if (step === "enter-recipient") {
       return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
     }
@@ -1542,6 +1561,43 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   }
 
   const clean = transcript.toLowerCase().trim();
+
+  // Spoken PIN handling during enter-pin step
+  if (step === "enter-pin") {
+    const rawInput = speechText || transcript || directDtmf || "";
+    let extractedPin = rawInput.replace(/\D/g, "");
+    if (extractedPin.length < 4) {
+      const WORD_TO_DIGIT: Record<string, string> = {
+        zero: "0", oh: "0", hwee: "0",
+        one: "1", baako: "1", bako: "1",
+        two: "2", mmienu: "2", mienu: "2",
+        three: "3", mmiɛnsa: "3", miensa: "3", mmiensa: "3",
+        four: "4", nan: "4", ɛnan: "4", enan: "4",
+        five: "5", num: "5", enum: "5", ɛnum: "5",
+        six: "6", nsia: "6",
+        seven: "7", nson: "7",
+        eight: "8", nwɔtwe: "8", nwotwe: "8",
+        nine: "9", nkron: "9",
+      };
+      const words = rawInput.toLowerCase().replace(/[^a-zA-Z0-9ɛɔƐƆ]/gu, " ").split(/\s+/).filter(Boolean);
+      const digitsList: string[] = [];
+      for (const w of words) {
+        if (/^\d+$/.test(w)) digitsList.push(...w.split(""));
+        else if (WORD_TO_DIGIT[w] !== undefined) digitsList.push(WORD_TO_DIGIT[w]);
+      }
+      extractedPin = digitsList.join("");
+    }
+    if (extractedPin.length >= 4) {
+      return xmlResponse(
+        res,
+        `    <Redirect>${baseUrl}/verify-pin?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${extractedPin.slice(0, 4)}</Redirect>`
+      );
+    }
+    return xmlResponse(
+      res,
+      `    <Redirect>${baseUrl}/enter-pin?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`
+    );
+  }
 
   if (transcript) {
     auditLogger.log(

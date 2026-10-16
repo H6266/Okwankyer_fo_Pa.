@@ -23,6 +23,7 @@ import {
   Clock,
   Check,
   Brain,
+  Lock,
 } from "lucide-react";
 import { audioPlaybackController } from "../../audio/audioPlaybackController";
 import { isAcousticSystemEcho } from "../../domain/echoFilter";
@@ -46,8 +47,6 @@ import {
 } from "../../ai_system/speech/asr/ghanaianPhoneticMatcher";
 import { normalizeGhanaPhoneNumber } from "../../domain/validation";
 import { shouldDiscardSensitiveSpeech, isVoiceCaptureBlockedForStep } from "../../domain/pinSafety";
-import { generateTransactionReference, formatRefForSpeech } from "../../audio/dynamicPromptBuilder";
-import { speechNormalizer } from "../../ai_system/speech/speechNormalizer";
 
 // ── Types ─────────────────────────────────────────────────────────────
 interface TerminalLog {
@@ -111,7 +110,10 @@ const STEP_OPTIONS_MAP: Record<string, string> = {
   "verify-amount": "Amount followed by #",
   "safe-confirmation": "1=Confirm Transfer, 2=Edit, 9=Repeat, 0=Cancel",
   "safe-outcome": "1=Confirm Transfer, 0=Cancel",
-  "pin-authorization": "Secure authorization happens on your phone",
+  "enter-pin": "Enter 4-digit PIN on keypad or say it aloud",
+  "verify-pin": "Verifying MoMo PIN...",
+  "transfer-success": "Transaction Completed",
+  "pin-authorization": "4-Digit PIN Authorization",
   "cashout-offer-balance": "Balance check unavailable; 1=Continue to Agent, 0=Cancel",
   "cashout-balance-pin": "Balance check unavailable",
   "cashout-awaiting-agent": "1=Agent is Done / Approve, 0=End Call",
@@ -125,7 +127,10 @@ const STEP_FRIENDLY_NAMES: Record<string, string> = {
   "service-choice": "Service Selection",
   "provider-select": "Network Selection (MTN)",
   "provider-choice": "Network Provider",
-  "pin-authorization": "Secure Handset Handoff",
+  "enter-pin": "MoMo PIN Entry",
+  "verify-pin": "Verifying PIN",
+  "transfer-success": "Transfer Successful",
+  "pin-authorization": "MoMo PIN Authorization",
   "action-select": "Supported Action (Send Money)",
   "action-choice": "Action Choice",
   "enter-recipient": "Recipient Phone Entry",
@@ -134,8 +139,6 @@ const STEP_FRIENDLY_NAMES: Record<string, string> = {
   "enter-amount": "Amount Entry",
   "verify-amount": "Verify Amount",
   "safe-confirmation": "Safe Transfer Confirmation",
-  "pin-handoff": "4-Digit Password Entry (# to finish)",
-  "confirm-speech": "Final Confirmation (1=Yes, 2=No)",
   "safe-outcome": "Zero-PIN Handoff & Authorization",
   "cashout-offer-balance": "Cash-Out Enabled; Balance Check Unavailable",
   "cashout-balance-pin": "Balance Check Unavailable",
@@ -186,7 +189,7 @@ export const PhoneSimulatorPage: React.FC = () => {
   const [callActive, setCallActive] = useState<boolean>(false);
   const [callStatus, setCallStatus] = useState<string>("Idle");
   const [sessionId, setSessionId] = useState<string>("");
-  const [callerNumber, setCallerNumber] = useState<string>("+233244123456");
+  const [callerNumber, setCallerNumber] = useState<string>("0244123456");
   const [interactionMode, setInteractionMode] = useState<string>("UNSELECTED");
   const [conversationState, setConversationState] = useState<string>("INITIATED");
   const [language, setLanguage] = useState<"en" | "twi" | null>("twi");
@@ -217,26 +220,6 @@ export const PhoneSimulatorPage: React.FC = () => {
   const [activeFinishOnKey, setActiveFinishOnKey] = useState<string>("#");
   const [activeStepName, setActiveStepName] = useState<string>("idle");
   const [rawVoiceXml, setRawVoiceXml] = useState<string>("");
-
-  // ── 18-Step Canonical Voice Orchestration State ──────────────────────
-  const [current18StepIndex, setCurrent18StepIndex] = useState<number>(1);
-  const [show18StepTracker, setShow18StepTracker] = useState<boolean>(true);
-  const [capturedRecipientPhone, setCapturedRecipientPhone] = useState<string>("0553838464");
-  const [capturedRecipientName, setCapturedRecipientName] = useState<string>("Kwame Boateng");
-  const [capturedAmount, setCapturedAmount] = useState<number>(50.0);
-  const [confirmedReference, setConfirmedReference] = useState<string>("OKP-782914");
-  const [handsetPinDigits, setHandsetPinDigits] = useState<string>("1234");
-  const [isProcessingHandsetAuthorization, setIsProcessingHandsetAuthorization] = useState<boolean>(false);
-  const [postCompletionChoice, setPostCompletionChoice] = useState<boolean>(false);
-
-  const handlePreviewStepAudio = useCallback(async (audioUrl: string, label: string) => {
-    try {
-      audioPlaybackController.unlockAudio();
-      await audioPlaybackController.play(audioUrl, label);
-    } catch (err) {
-      console.warn("Step preview audio error:", err);
-    }
-  }, []);
 
   // ── Terminal & Chat Timeline State ───────────────────────────────────
   const [activeTab, setActiveTab] = useState<"chat" | "terminal" | "asr_diag">("chat");
@@ -310,9 +293,8 @@ export const PhoneSimulatorPage: React.FC = () => {
   useEffect(() => { isMicMutedRef.current = isMicMuted; }, [isMicMuted]);
   useEffect(() => { zeroPinOverlayRef.current = zeroPinOverlay; }, [zeroPinOverlay]);
 
-  // Prepare audio on any initial user touch or interaction so audio plays automatically at boosted volume
+  // Prepare audio on any initial user touch or interaction so audio plays automatically
   useEffect(() => {
-    audioPlaybackController.setVolumeMultiplier(2.0);
     const handleInitialUserGesture = () => {
       audioPlaybackController.enableAudio();
     };
@@ -348,6 +330,9 @@ export const PhoneSimulatorPage: React.FC = () => {
     }
     if (stepName.includes("confirm")) {
       return `/api/simulator/safe-confirmation?sessionId=${sessId}`;
+    }
+    if (stepName.includes("pin")) {
+      return `/api/simulator/verify-pin?sessionId=${sessId}`;
     }
     return `/api/simulator/voice-menu?sessionId=${sessId}`;
   }, []);
@@ -561,29 +546,6 @@ export const PhoneSimulatorPage: React.FC = () => {
       );
       activeStepNameRef.current = stepName;
       setActiveStepName(stepName);
-
-      let stepIndex18 = 1;
-      if (stepName === "voice-menu" || stepName === "welcome") stepIndex18 = 1;
-      else if (stepName === "welcome_1") stepIndex18 = 2;
-      else if (stepName === "language-selection") stepIndex18 = 3;
-      else if (stepName === "service-select" || stepName === "service-choice") stepIndex18 = 4;
-      else if (stepName === "provider-select" || stepName === "provider-choice" || stepName === "action-select" || stepName === "action-choice" || stepName === "mtn_menu_1") stepIndex18 = 5;
-      else if (stepName === "enter-recipient" || stepName === "enter_recipient_2") stepIndex18 = 6;
-      else if (stepName === "verify-recipient" || stepName === "use_recipient_1") stepIndex18 = 7;
-      else if (stepName === "recipient-verify-choice" || stepName === "recipient_confirm_speech") stepIndex18 = 8;
-      else if (stepName === "enter-amount" || stepName === "amount_prompt_3") stepIndex18 = 9;
-      else if (stepName === "verify-amount" || stepName === "enter_amount_4") stepIndex18 = 10;
-      else if (stepName === "safe-confirmation" || stepName === "amount_readback_2") stepIndex18 = 11;
-      else if (stepName === "pin-handoff" || stepName === "pin_handoff") stepIndex18 = 11.5;
-      else if (stepName === "confirm-speech" || stepName === "confirm_speech" || stepName === "safe-outcome") stepIndex18 = 12;
-      else if (stepName === "submitted") stepIndex18 = 13;
-      else if (stepName === "transaction-status") stepIndex18 = 14;
-      else if (stepName === "success" || stepName === "success_audio") stepIndex18 = 15;
-      else if (stepName === "keep-reference" || stepName === "keep_reference") stepIndex18 = 16;
-      else if (stepName === "dynamic-tts-reference") stepIndex18 = 17;
-      else if (stepName === "anything-else" || stepName === "post-completion") stepIndex18 = 18;
-      setCurrent18StepIndex(stepIndex18);
-
       continuousAudioEngine.setContext(stepName, responseLanguage);
 
       // Follow <Redirect> after auto-playing any associated audio prompt
@@ -602,7 +564,6 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       // Handle <Reject/>
       if (parsed.isReject) {
-        audioPlaybackController.stop();
         continuousAudioEngine.stop();
         if (recognitionRef.current) {
           try {
@@ -612,7 +573,7 @@ export const PhoneSimulatorPage: React.FC = () => {
 
         const isPinHandoff =
           effectiveUrl.includes("safe-outcome") ||
-          (parsed.sayText && parsed.sayText.toLowerCase().includes("momo pin")) ||
+          (parsed.sayText && parsed.sayText.toLowerCase().includes("momo pin") && !effectiveUrl.includes("verify-pin")) ||
           (parsed.sayText && parsed.sayText.toLowerCase().includes("phone screen"));
 
         if (isPinHandoff) {
@@ -620,18 +581,65 @@ export const PhoneSimulatorPage: React.FC = () => {
             startPinAuthorizationFlowRef.current();
             return;
           }
-        } else {
-          setCallStatus("Ended");
-          const endText = "Call ended. Lift handset or press Call to begin.";
-          setCurrentPrompt(endText);
-          currentPromptRef.current = endText;
-          addLog("state", "Call terminated (<Reject/>).");
-          addChatTurn({
-            sender: "system",
-            text: parsed.sayText || "Call ended. Thank you for using Ɔkwankyerɛfo Pa.",
-            stepName: "call-end",
-          });
         }
+
+        // Check if this is a completed transaction / success receipt
+        const isSuccessOutcome =
+          stepName === "transfer-success" ||
+          stepName === "verify-pin" ||
+          effectiveUrl.includes("verify-pin") ||
+          (parsed.sayText && (
+            parsed.sayText.toLowerCase().includes("successful") ||
+            parsed.sayText.toLowerCase().includes("sent") ||
+            parsed.sayText.toLowerCase().includes("akɔ pɛpɛɛpɛ") ||
+            parsed.sayText.toLowerCase().includes("transaction id") ||
+            parsed.sayText.toLowerCase().includes("wo sika no akɔ")
+          ));
+
+        if (isSuccessOutcome) {
+          const successMsg = parsed.sayText || (responseLanguage === "twi" ? "Wo MoMo transfer no akɔ pɛpɛɛpɛ!" : "Transfer completed successfully!");
+          setCallStatus("Completed");
+          setCurrentPrompt(successMsg);
+          currentPromptRef.current = successMsg;
+          setDigitsBuffer("");
+          activeStepNameRef.current = "transfer-success";
+          setActiveStepName("transfer-success");
+
+          addLog("reply", `✅ ${successMsg}`);
+          addChatTurn({
+            sender: "ai",
+            text: successMsg,
+            audioSource: playbackUrl ? "studio" : "synthesis",
+            stepName: "transfer-success",
+          });
+
+          setActiveCallbackUrl(null);
+          activeCallbackUrlRef.current = null;
+
+          // Play authentic studio success audio chime, then speak receipt
+          if (playbackUrl) {
+            try {
+              await audioPlaybackController.play(playbackUrl, successMsg);
+            } catch {
+              await audioPlaybackController.speakText(successMsg);
+            }
+          } else if (parsed.sayText) {
+            await audioPlaybackController.speakText(parsed.sayText);
+          }
+          return;
+        }
+
+        audioPlaybackController.stop();
+        setCallStatus("Ended");
+        const endText = "Call ended. Lift handset or press Call to begin.";
+        setCurrentPrompt(endText);
+        currentPromptRef.current = endText;
+        addLog("state", "Call terminated (<Reject/>).");
+        addChatTurn({
+          sender: "system",
+          text: parsed.sayText || "Call ended. Thank you for using Ɔkwankyerɛfo Pa.",
+          stepName: "call-end",
+        });
 
         setCallActive(false);
         callActiveRef.current = false;
@@ -720,50 +728,21 @@ export const PhoneSimulatorPage: React.FC = () => {
         ? (parsed.playUrls.map(u => resolvePlayableSimulatorAudioUrl(u, responseLanguage)).filter(Boolean) as string[])
         : [];
 
-      const hasDynamicNumbers =
-        stepName === "verify-recipient" ||
-        stepName === "recipient-verify-choice" ||
-        stepName === "safe-confirmation" ||
-        Boolean(parsed.sayText && (/\b\d{4,}\b/.test(parsed.sayText) || /hwee|baako|mmienu|mmiɛnsa|nnan|nnum|nsia|nson|nwɔtwe|nkron/i.test(parsed.sayText)));
-
       if (resolvedSequence.length > 1) {
         addLog("audio", `🔊 Auto-playing sequence: ${resolvedSequence.join(" -> ")}`);
-        audioPlaybackController.playSequence(resolvedSequence).then(() => {
-          if (parsed.sayText && hasDynamicNumbers) {
-            audioPlaybackController.speakText(parsed.sayText, { rate: 0.75 }).catch(() => {});
-          }
-        }).catch((err) => {
+        audioPlaybackController.playSequence(resolvedSequence).catch((err) => {
           console.warn("[PhoneSimulator] Sequence auto-play notice:", err);
-          if (parsed.sayText) {
-            audioPlaybackController.speakText(parsed.sayText, { rate: 0.75 }).catch(() => {});
-          } else {
-            audioPlaybackController.playToneIndicator().catch(() => {});
-          }
+          audioPlaybackController.playToneIndicator().catch(() => {});
         });
       } else if (playbackUrl) {
         addLog("audio", `🔊 Auto-playing prompt: ${playbackUrl}`);
-        audioPlaybackController.play(playbackUrl, promptText).then(() => {
-          if (parsed.sayText && hasDynamicNumbers && !playbackUrl.includes("prompt-tts")) {
-            audioPlaybackController.speakText(parsed.sayText, { rate: 0.75 }).catch(() => {});
-          }
-        }).catch((err) => {
+        audioPlaybackController.play(playbackUrl, promptText).catch((err) => {
           console.warn("[PhoneSimulator] Auto-play prompt notice:", err);
-          if (parsed.sayText && hasDynamicNumbers) {
-            audioPlaybackController.speakText(parsed.sayText, { rate: 0.75 }).catch(() => {});
-          } else {
-            audioPlaybackController.playToneIndicator().catch(() => {});
-          }
+          audioPlaybackController.playToneIndicator().catch(() => {});
         });
       } else {
-        if (parsed.sayText) {
-          addLog("audio", `🔊 Speaking prompt with TTS: "${parsed.sayText}"`);
-          audioPlaybackController.speakText(parsed.sayText, { rate: hasDynamicNumbers ? 0.75 : 0.9 }).catch(() => {
-            audioPlaybackController.playToneIndicator().catch(() => {});
-          });
-        } else {
-          addLog("audio", `🔔 Prompt guidance indicator.`);
-          audioPlaybackController.playToneIndicator().catch(() => {});
-        }
+        addLog("audio", `🔔 Prompt guidance indicator.`);
+        audioPlaybackController.playToneIndicator().catch(() => {});
       }
     },
     [addLog, addChatTurn, language]
@@ -955,163 +934,67 @@ export const PhoneSimulatorPage: React.FC = () => {
     [addLog, addChatTurn]
   );
 
-  const handleAuthorizeOnHandset = useCallback(async () => {
-    if (isProcessingHandsetAuthorization) return;
-    setIsProcessingHandsetAuthorization(true);
-    const curLang = languageRef.current || language;
-    const isTwi = curLang === "twi";
-
-    // Step 13: Submitted (Audio 13 Authorize phone was removed)
-    setCurrent18StepIndex(13);
-    const submittedText = isTwi
-      ? "Yɛade transaction no akɔ network no so pɛpɛɛpɛ. Ɛda so retwɛn authorization."
-      : "Transaction submitted to the mobile network provider. Awaiting authorization.";
-    addLog("state", "Step 13: Submitted. Payment request dispatched to network provider.");
-    addChatTurn({ sender: "ai", text: submittedText, audioSource: "studio", stepName: "submitted" });
-    setCurrentPrompt(submittedText);
-    currentPromptRef.current = submittedText;
-    setCallStatus("Submitted: Awaiting Authorization");
-
-    try {
-      await audioPlaybackController.play(
-        isTwi ? "/audio/supplied/Twi/7.Transaction%20Processing/Submitted.aac" : "/audio/additional/Submitted.m4a",
-        submittedText
-      );
-    } catch {}
-
-    // Step 14: Transaction Status
-    setCurrent18StepIndex(14);
-    const statusText = isTwi
-      ? "Yɛrehwehwɛ awieeɛ gyinabea wɔ MoMo so. Yɛsrɛ wo twɛn kakra."
-      : "Verifying final transaction status on the carrier ledger. Please hold on.";
-    addLog("state", "Step 14: Transaction Status. Polling mobile money carrier ledger.");
-    addChatTurn({ sender: "ai", text: statusText, audioSource: "studio", stepName: "transaction-status" });
-    setCurrentPrompt(statusText);
-    currentPromptRef.current = statusText;
-    setCallStatus("Checking Final Status");
-
-    try {
-      await audioPlaybackController.play(
-        isTwi ? "/audio/supplied/Twi/7.Transaction%20Processing/Check%20final%20status.aac" : "/audio/additional/Check%20final%20status.m4a",
-        statusText
-      );
-    } catch {}
-
-    // Provider confirms final status
-    const verifiedRef = generateTransactionReference();
-    setConfirmedReference(verifiedRef);
-    addLog("state", `Carrier confirmed SUCCESS. Transaction Reference: ${verifiedRef}`);
-
-    // Step 15: Success Audio (Updated Audio 16: SUCCESS SENT)
-    setCurrent18StepIndex(15);
-    const successText = isTwi
-      ? "Wɔde sika no akɔma no yie! Sika no akɔ pɛpɛɛpɛ, MoMo transaction no agye atom."
-      : "The money has been successfully sent! Mobile money transfer completed successfully.";
-    addLog("state", "Step 15: Success Audio (Updated Audio 16: SUCCESS SENT). Playing celebratory audio.");
-    addChatTurn({ sender: "ai", text: successText, audioSource: "studio", stepName: "success" });
-    setCurrentPrompt(successText);
-    currentPromptRef.current = successText;
-    setCallStatus("Transfer Successful");
-
-    try {
-      await audioPlaybackController.play(
-        isTwi ? "/audio/supplied/Twi/8.Success%20%26%20Completion/SUCCESS%20SENT.aac" : "/audio/additional/Success%20sent.m4a",
-        successText
-      );
-    } catch {}
-
-    // Step 16: Keep Reference (Audio 18 plays BEFORE dynamic TTS as requested)
-    setCurrent18StepIndex(16);
-    const keepRefText = isTwi ? "Fa wo reference no sie yie." : "Please keep your reference number for your records.";
-    addLog("state", "Step 16: Keep Reference.");
-    addChatTurn({ sender: "ai", text: keepRefText, audioSource: "studio", stepName: "keep-reference" });
-    setCurrentPrompt(keepRefText);
-    currentPromptRef.current = keepRefText;
-
-    try {
-      await audioPlaybackController.play(
-        isTwi ? "/audio/supplied/Twi/8.Success%20%26%20Completion/Keep%20reference.aac" : "/audio/Keep%20reference.m4a",
-        keepRefText
-      );
-    } catch {}
-
-    // Step 17: Dynamic TTS — Transaction Reference (Plays AFTER Audio 18 Keep Reference as requested)
-    setCurrent18StepIndex(17);
-    const spacedRef = formatRefForSpeech(verifiedRef);
-    const refReadbackText = isTwi
-      ? `Wo transaction reference nɔmba ne ${spacedRef}. Fa sie yie.`
-      : `Your transaction reference number is ${spacedRef}. Please keep it for your records.`;
-    addLog("state", `Step 17: Dynamic TTS Reference. Reading verified transaction reference: ${spacedRef}`);
-    addChatTurn({ sender: "ai", text: refReadbackText, audioSource: "synthesis", stepName: "dynamic-tts-reference" });
-    setCurrentPrompt(refReadbackText);
-    currentPromptRef.current = refReadbackText;
-
-    try {
-      await audioPlaybackController.speakText(refReadbackText);
-    } catch {}
-
-    // Step 18: Anything Else / Session Completion
-    setCurrent18StepIndex(18);
-    const anythingElseText = isTwi
-      ? "Biribi foforɔ bi wɔ hɔ a metumi ayɛ ama wo? Sɛ wopɛ sɛ woyɛ transaction foforɔ a mia 1, anaa mia 0 na woapue."
-      : "Is there anything else? Press 1 for another transaction, or press 0 to exit.";
-    addLog("state", "Step 18: Anything Else.");
-    addChatTurn({ sender: "ai", text: anythingElseText, audioSource: "studio", stepName: "anything-else" });
-    setCurrentPrompt(anythingElseText);
-    currentPromptRef.current = anythingElseText;
-
-    try {
-      await audioPlaybackController.play(
-        isTwi ? "/audio/supplied/Twi/8.Success%20%26%20Completion/ANYTHING%20ELSE.aac" : "/audio/Anything%20else.m4a",
-        anythingElseText
-      );
-    } catch {}
-
-    setIsProcessingHandsetAuthorization(false);
+  const startPinAuthorizationFlow = useCallback(async () => {
+    activeStepNameRef.current = "enter-pin";
+    setActiveStepName("enter-pin");
+    setDigitsBuffer("");
+    zeroPinOverlayRef.current = false;
     setZeroPinOverlay(false);
-    setPostCompletionChoice(true);
-    setActiveNumDigits(1);
-    setActiveStepName("post-completion");
-    activeStepNameRef.current = "post-completion";
     setIsMicMuted(false);
     isMicMutedRef.current = false;
     continuousAudioEngine.setZeroPinMuted(false);
-  }, [isProcessingHandsetAuthorization, language, addLog, addChatTurn]);
 
-  const startPinAuthorizationFlow = useCallback(async () => {
-    // Audio 13 removed: proceed directly to payment dispatch and completion
-    await handleAuthorizeOnHandset();
-  }, [handleAuthorizeOnHandset]);
+    const curLang = languageRef.current || language;
+    const isTwi = curLang === "twi";
+    const promptText = isTwi
+      ? "Yɛsrɛ wo, fa wo MoMo PIN nɔmba nnan no bɔ mu anaa ka kyerɛ me na yɛmfa nwie transfer no."
+      : "Please enter your 4-digit Mobile Money PIN on the keypad or say it to authorize this transfer.";
 
-  const handlePostCompletionChoice = useCallback(
-    async (choice: string) => {
-      const curLang = languageRef.current || language;
-      const isTwi = curLang === "twi";
-      setPostCompletionChoice(false);
+    const curSession = sessionIdRef.current || sessionId || `call_${Date.now()}`;
+    const targetCallback = `/api/simulator/verify-pin?sessionId=${encodeURIComponent(curSession)}&lang=${curLang}`;
+    activeCallbackUrlRef.current = targetCallback;
+    setActiveCallbackUrl(targetCallback);
+    setActiveNumDigits(4);
+    setActiveFinishOnKey("#");
 
-      if (choice === "1") {
-        addLog("caller", "Selected another transaction (1). Restarting flow from Service Selection.");
-        setDigitsBuffer("");
-        setCurrent18StepIndex(4);
-        await dispatchVoiceWebhook("/api/simulator/service-select", { lang: curLang || "twi" });
-      } else {
-        addLog("caller", "Selected exit (0). Ending call gracefully.");
-        const exitUrl = isTwi
-          ? "/audio/supplied/Twi/11.Navigation%20%26%20Recovery/Exit.aac"
-          : "/audio/Exit.m4a";
-        const exitText = isTwi ? "Yɛda wo ase. Nante yie." : "Thank you for using Ɔkwankyerɛfo Pa. Goodbye.";
-        try {
-          await audioPlaybackController.play(exitUrl, exitText);
-        } catch {}
-        await endCall("Caller selected exit at completion");
+    addLog("state", "Direct PIN entry active. Caller can enter 4-digit PIN on keypad or speak aloud.");
+    addChatTurn({ sender: "ai", text: promptText, audioSource: "synthesis", stepName: "enter-pin" });
+    setCurrentPrompt(promptText);
+    currentPromptRef.current = promptText;
+
+    await audioPlaybackController.speakText(promptText);
+  }, [language, sessionId, addLog, addChatTurn]);
+
+  const playAiAgentReply = useCallback(
+    async (textToPlay: string, langToUse: string = "twi") => {
+      try {
+        const matchRes = await fetch("/api/ai/match-audio", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: textToPlay,
+            language: langToUse,
+            literacyLevel: "standard",
+          }),
+        }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+
+        if (matchRes?.result?.matchFound && matchRes.result.audioUrl) {
+          addLog(
+            "AI",
+            `Authentic studio audio matched (${matchRes.result.promptId || "Catalog"}): "${matchRes.result.reason}"`
+          );
+          await audioPlaybackController.play(matchRes.result.audioUrl, textToPlay);
+          return;
+        }
+
+        addLog("AI", `Dynamic response requires TTS: "${matchRes?.result?.reason || "Synthesizing"}"`);
+        await audioPlaybackController.speakText(textToPlay);
+      } catch {
+        await audioPlaybackController.speakText(textToPlay);
       }
     },
-    [language, addLog, dispatchVoiceWebhook, endCall]
+    [addLog]
   );
-
-  useEffect(() => {
-    startPinAuthorizationFlowRef.current = startPinAuthorizationFlow;
-  }, [startPinAuthorizationFlow]);
 
   // ── Speech Recognition & Spoken Turn Handler ──────────────────────────
   const processSpokenUtterance = useCallback(
@@ -1186,6 +1069,44 @@ export const PhoneSimulatorPage: React.FC = () => {
       const curSession = sessionIdRef.current;
       const curLang = languageRef.current || "en";
       const isTwi = curLang === "twi";
+
+      // Direct Spoken PIN Entry
+      if (curStep === "enter-pin" || curStep === "verify-pin") {
+        const WORD_TO_DIGIT: Record<string, string> = {
+          zero: "0", oh: "0", hwee: "0",
+          one: "1", baako: "1", bako: "1",
+          two: "2", mmienu: "2", mienu: "2",
+          three: "3", mmiɛnsa: "3", miensa: "3", mmiensa: "3",
+          four: "4", nan: "4", ɛnan: "4", enan: "4",
+          five: "5", num: "5", enum: "5", ɛnum: "5",
+          six: "6", nsia: "6",
+          seven: "7", nson: "7",
+          eight: "8", nwɔtwe: "8", nwotwe: "8",
+          nine: "9", nkron: "9",
+        };
+        const rawDigits = effectiveClean.replace(/\D/g, "");
+        let spokenPin = rawDigits;
+        if (spokenPin.length < 4) {
+          const words = effectiveClean.toLowerCase().replace(/[^a-zA-Z0-9ɛɔƐƆ]/gu, " ").split(/\s+/).filter(Boolean);
+          const digitsList: string[] = [];
+          for (const w of words) {
+            if (/^\d+$/.test(w)) digitsList.push(...w.split(""));
+            else if (WORD_TO_DIGIT[w] !== undefined) digitsList.push(WORD_TO_DIGIT[w]);
+          }
+          spokenPin = digitsList.join("");
+        }
+
+        if (spokenPin.length >= 4) {
+          const pinDigits = spokenPin.slice(0, 4);
+          setDigitsBuffer(pinDigits);
+          setCallStatus("Verifying PIN");
+          addLog("caller", "Spoken PIN verified: ● ● ● ● — Verifying MoMo PIN...");
+          return dispatchVoiceWebhook(
+            `/api/simulator/verify-pin?sessionId=${encodeURIComponent(curSession)}&lang=${curLang}`,
+            { dtmfDigits: pinDigits }
+          );
+        }
+      }
 
       if (curStep === "cashout-confirm-approval") {
         const normalizedApproval = effectiveClean.toLowerCase();
@@ -1471,44 +1392,13 @@ export const PhoneSimulatorPage: React.FC = () => {
         ? (navigationOptions[normalizedOption] || (stepGroup ? optionMap[stepGroup][normalizedOption] : undefined))
         : undefined;
 
-      // 1. Spoken Recipient Entry (proceed immediately at 10th digit)
-      if (curStep === "enter-recipient" || curStep === "enter_recipient_2") {
-        const spokenDigits = speechNormalizer.extractSpokenDigits(effectiveClean);
-        if (spokenDigits.length >= 10) {
-          const tenDigits = spokenDigits.slice(0, 10);
-          setCapturedRecipientPhone(tenDigits);
-          addLog("asr", `ASR 10-Digit Recipient '${tenDigits}' completed; proceeding immediately to verification.`);
-          return dispatchVoiceWebhook(
-            `/api/simulator/verify-recipient?sessionId=${curSession}&lang=${curLang}`,
-            { dtmfDigits: tenDigits }
-          );
-        }
-      }
-
-      // 2. Spoken PIN Authorization (proceed right after the 4th digit)
-      if (curStep === "pin-handoff" || curStep === "pin_handoff" || curStep === "pin-authorization") {
-        const pinDigits = speechNormalizer.extractSpokenDigits(effectiveClean);
-        if (pinDigits.length >= 4) {
-          const fourDigits = pinDigits.slice(0, 4);
-          setHandsetPinDigits(fourDigits);
-          addLog("asr", `ASR 4-Digit Password '${fourDigits}' received; proceeding immediately to confirm speech.`);
-          return dispatchVoiceWebhook(
-            `/api/simulator/confirm-speech?sessionId=${curSession}&lang=${curLang}`,
-            { dtmfDigits: fourDigits }
-          );
-        }
-      }
-
-      // 3. Spoken Safe Confirmation (Step 11 -> advances to PIN handoff)
-      if (curStep === "safe-confirmation") {
+      if (curStep.includes("confirm") || curStep === "safe-confirmation") {
         const isAffirmative = /\b(yes|confirm|proceed|okay|sure|aane|pene so|ampa|that's him|thats him|correct|send it|kɔ so|yie|1|baako)\b/i.test(effectiveClean) || matchedDtmf === "1";
         const isNegative = /\b(no|cancel|wrong|dabi|stop|sesa|change|reject|2|mmienu)\b/i.test(effectiveClean) || matchedDtmf === "2";
         if (isAffirmative) {
-          addLog("caller", `Spoken confirmation approval: "${effectiveClean}". Advancing to PIN authorization handoff.`);
-          return dispatchVoiceWebhook(
-            `/api/simulator/pin-handoff?sessionId=${curSession}&lang=${curLang}`,
-            { dtmfDigits: "1" }
-          );
+          addLog("caller", `Spoken confirmation approval: "${effectiveClean}"`);
+          startPinAuthorizationFlow();
+          return;
         } else if (isNegative) {
           addLog("caller", `Spoken confirmation rejection: "${effectiveClean}"`);
           brainDraftRef.current = { slots: {} };
@@ -1521,21 +1411,6 @@ export const PhoneSimulatorPage: React.FC = () => {
           activeStepNameRef.current = "enter-recipient";
           setActiveStepName("enter-recipient");
           await audioPlaybackController.speakText(cancelMsg);
-          return;
-        }
-      }
-
-      // 4. Spoken Confirm Speech (Step 12 -> dispatches payment processing)
-      if (curStep === "confirm-speech" || curStep === "confirm_speech") {
-        const isAffirmative = /\b(yes|confirm|proceed|okay|sure|aane|pene so|ampa|correct|send it|kɔ so|yie|1|baako)\b/i.test(effectiveClean) || matchedDtmf === "1";
-        const isNegative = /\b(no|cancel|wrong|dabi|stop|sesa|change|reject|2|mmienu)\b/i.test(effectiveClean) || matchedDtmf === "2";
-        if (isAffirmative) {
-          addLog("caller", `Spoken final submission confirmation: "${effectiveClean}"`);
-          startPinAuthorizationFlow();
-          return;
-        } else if (isNegative) {
-          addLog("caller", `Spoken cancellation: "${effectiveClean}"`);
-          endCall("Caller cancelled at confirmation");
           return;
         }
       }
@@ -1622,7 +1497,7 @@ export const PhoneSimulatorPage: React.FC = () => {
           addLog("AI", `Gemini conversational turn: "${replyText}"`);
           setCurrentPrompt(replyText);
           currentPromptRef.current = replyText;
-          await audioPlaybackController.speakText(replyText);
+          await playAiAgentReply(replyText, curLang);
           return;
         }
 
@@ -1635,7 +1510,7 @@ export const PhoneSimulatorPage: React.FC = () => {
           setActiveCallbackUrl(`/api/simulator/safe-confirmation?sessionId=${curSession}&lang=${curLang}`);
           setCurrentPrompt(replyText);
           currentPromptRef.current = replyText;
-          await audioPlaybackController.speakText(replyText);
+          await playAiAgentReply(replyText, curLang);
           return;
         }
 
@@ -1678,14 +1553,14 @@ export const PhoneSimulatorPage: React.FC = () => {
           setCurrentPrompt(replyText);
           currentPromptRef.current = replyText;
           addLog("state", `Brain requested missing slot: ${missingSlot}`);
-          await audioPlaybackController.speakText(replyText);
+          await playAiAgentReply(replyText, curLang);
           return;
         }
 
         addLog("AI", `Brain reply: "${replyText}"`);
         setCurrentPrompt(replyText);
         currentPromptRef.current = replyText;
-        await audioPlaybackController.speakText(replyText);
+        await playAiAgentReply(replyText, curLang);
       } catch (err: any) {
         if (stallTimer) clearTimeout(stallTimer);
         if (timeout20sTimer) clearTimeout(timeout20sTimer);
@@ -1974,89 +1849,45 @@ export const PhoneSimulatorPage: React.FC = () => {
         return;
       }
 
-      if (postCompletionChoice) {
-        if (digit === "1" || digit === "0") {
-          handlePostCompletionChoice(digit);
-          return;
-        }
-      }
-
-      // Recipient Verification Choice (Step 07/08): 1=Confirm recipient, 2=Re-enter, 0=Cancel
-      const isRecipientVerificationChoice =
-        activeStepNameRef.current === "verify-recipient" ||
-        activeStepNameRef.current === "recipient-verify-choice" ||
-        activeStepNameRef.current === "use_recipient_1" ||
-        activeStepNameRef.current === "recipient_confirm_speech";
-
-      if (isRecipientVerificationChoice && (digit === "1" || digit === "2" || digit === "0")) {
+      // Special Handling 3: Keypad '1' during safe-confirmation
+      if (digit === "1" && (activeStepNameRef.current === "safe-confirmation" || activeStepNameRef.current.includes("confirm"))) {
         setDigitsBuffer("");
-        addLog("caller", `Keypad '${digit}' for Recipient Choice (${digit === "1" ? "Confirm Recipient" : digit === "2" ? "Re-enter Recipient" : "Exit"})`);
-        const choiceCb = `/api/simulator/recipient-verify-choice?sessionId=${sessionIdRef.current}&lang=${languageRef.current || "twi"}`;
-        dispatchVoiceWebhook(choiceCb, { dtmfDigits: digit });
-        return;
-      }
-
-      // Safe Confirmation (Step 11): 1=Proceed to PIN Authorization Handoff
-      if (digit === "1" && activeStepNameRef.current === "safe-confirmation") {
-        setDigitsBuffer("");
-        addLog("caller", "Keypad '1' confirmed details. Proceeding to PIN handoff authorization.");
-        dispatchVoiceWebhook(`/api/simulator/pin-handoff?sessionId=${sessionIdRef.current}&lang=${languageRef.current || "twi"}`, { dtmfDigits: "1" });
-        return;
-      }
-
-      // Final Confirm Speech (Step 12): 1=Confirm & Dispatch
-      const isFinalConfirmStep =
-        activeStepNameRef.current === "confirm-speech" ||
-        activeStepNameRef.current === "confirm_speech";
-
-      if (digit === "1" && isFinalConfirmStep) {
-        setDigitsBuffer("");
-        addLog("caller", "Keypad '1' confirmed transfer. Dispatched to payment processing pipeline.");
+        addLog("caller", "Keypad '1' confirmed transaction. Moving to PIN entry.");
         startPinAuthorizationFlow();
         return;
       }
 
-      // Strictly entering recipient phone number
-      const isEnteringRecipientPhone =
-        activeStepNameRef.current === "enter-recipient" ||
-        activeStepNameRef.current === "enter_recipient_2";
-
-      // Strictly entering amount
-      const isEnteringAmount =
-        activeStepNameRef.current === "enter-amount" ||
-        activeStepNameRef.current === "enter_amount_4";
-
-      // Strictly entering PIN / password
-      const isEnteringPin =
-        activeStepNameRef.current === "pin-handoff" ||
-        activeStepNameRef.current === "pin_handoff" ||
-        activeStepNameRef.current === "pin-authorization";
+      // Special Handling: Direct 4-Digit PIN Entry on Keypad
+      if (activeStepNameRef.current === "enter-pin" || activeStepNameRef.current === "verify-pin") {
+        if (digit === "#") {
+          if (digitsBuffer.length >= 4) {
+            const pinVal = digitsBuffer.slice(0, 4);
+            setCallStatus("Verifying PIN");
+            addLog("caller", "Keypad PIN submitted: ● ● ● ● — Verifying MoMo PIN...");
+            dispatchVoiceWebhook(targetCallback, { dtmfDigits: pinVal });
+          }
+          return;
+        }
+        if (digitsBuffer.length >= 4) return;
+        const nextPin = digitsBuffer + digit;
+        setDigitsBuffer(nextPin);
+        if (nextPin.length === 4) {
+          setCallStatus("Verifying PIN");
+          addLog("caller", "Keypad PIN entered: ● ● ● ● — Verifying MoMo PIN...");
+          setTimeout(() => {
+            dispatchVoiceWebhook(targetCallback, { dtmfDigits: nextPin });
+          }, 350);
+        }
+        return;
+      }
 
       // Multi-digit input with finish on key (#)
-      // When entering recipient phone numbers or PIN: ALWAYS wait for # before proceeding!
-      if (digit === activeFinishOnKey || digit === "#") {
+      if (digit === activeFinishOnKey) {
         if (digitsBuffer.trim()) {
           const submitted = digitsBuffer.trim();
-          if (isEnteringRecipientPhone) {
-            setCapturedRecipientPhone(submitted);
-          }
-          if (isEnteringAmount) {
-            const parsedAmt = parseFloat(submitted.replace("*", "."));
-            if (!isNaN(parsedAmt)) setCapturedAmount(parsedAmt);
-          }
-          if (isEnteringPin) {
-            setHandsetPinDigits(submitted);
-          }
           setDigitsBuffer("");
           addLog("caller", `Keypad '${submitted}#'`);
-          const cb = isEnteringRecipientPhone
-            ? `/api/simulator/verify-recipient?sessionId=${sessionIdRef.current}&lang=${languageRef.current || "twi"}`
-            : isEnteringAmount
-            ? `/api/simulator/verify-amount?sessionId=${sessionIdRef.current}&lang=${languageRef.current || "twi"}`
-            : isEnteringPin
-            ? `/api/simulator/confirm-speech?sessionId=${sessionIdRef.current}&lang=${languageRef.current || "twi"}`
-            : targetCallback;
-          dispatchVoiceWebhook(cb, { dtmfDigits: submitted });
+          dispatchVoiceWebhook(targetCallback, { dtmfDigits: submitted });
         }
         return;
       }
@@ -2065,15 +1896,24 @@ export const PhoneSimulatorPage: React.FC = () => {
       const nextBuf = digitsBuffer + digit;
       setDigitsBuffer(nextBuf);
 
-      // Single-digit expectation when not typing a phone, amount, or PIN
-      if (activeNumDigits === 1 && !isEnteringRecipientPhone && !isEnteringAmount && !isEnteringPin) {
+      // Rule 3: Do not auto-advance after the 10th digit alone; wait strictly for '#' finishOnKey!
+
+      // Single-digit expectation (only when NOT accumulating a 10-digit phone number)
+      const isAccumulatingInput =
+        nextBuf.startsWith("0") ||
+        nextBuf.startsWith("233") ||
+        activeStepNameRef.current.includes("recipient") ||
+        activeStepNameRef.current.includes("phone") ||
+        activeStepNameRef.current.includes("amount");
+
+      if (activeNumDigits === 1 && !isAccumulatingInput) {
         setDigitsBuffer("");
         addLog("caller", `Keypad '${digit}'`);
         dispatchVoiceWebhook(targetCallback, { dtmfDigits: digit });
         return;
       }
 
-      if (!activeFinishOnKey && !isEnteringRecipientPhone && !isEnteringPin && nextBuf.length >= activeNumDigits) {
+      if (!activeFinishOnKey && nextBuf.length >= activeNumDigits) {
         setDigitsBuffer("");
         addLog("caller", `Keypad '${nextBuf}'`);
         dispatchVoiceWebhook(targetCallback, { dtmfDigits: nextBuf });
@@ -2245,131 +2085,6 @@ export const PhoneSimulatorPage: React.FC = () => {
         </div>
       </div>
 
-      {/* ── 18-Step Canonical Voice Orchestration Pipeline ── */}
-      <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-md backdrop-blur-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-teal-500/10 border border-teal-500/30 flex items-center justify-center text-teal-400">
-              <Layers className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-white">
-                  18-Step Audio Flow Orchestration
-                </span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-teal-500/10 text-teal-300 border border-teal-500/20">
-                  {callActive ? `Active: Step ${String(current18StepIndex).padStart(2, "0")} / 18` : "18 Studio Assets Ready"}
-                </span>
-              </div>
-              <p className="text-xs text-slate-400">
-                Unified Ghanaian Akan Twi &amp; English audio progression across Telephony Gateway &amp; Phone Simulator
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div className="hidden md:flex items-center gap-1.5 text-xs text-slate-400 mr-2">
-              <div className="w-24 bg-slate-850 h-2 rounded-full overflow-hidden border border-slate-700">
-                <div
-                  className="bg-gradient-to-r from-teal-500 to-emerald-400 h-full transition-all duration-300"
-                  style={{ width: `${Math.round((current18StepIndex / 18) * 100)}%` }}
-                />
-              </div>
-              <span className="font-mono text-[11px] text-teal-400">
-                {Math.round((current18StepIndex / 18) * 100)}%
-              </span>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setShow18StepTracker((prev) => !prev)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-medium border border-slate-700 transition cursor-pointer"
-            >
-              {show18StepTracker ? (
-                <>
-                  <ChevronUp className="w-3.5 h-3.5" />
-                  <span>Hide Steps</span>
-                </>
-              ) : (
-                <>
-                  <ChevronDown className="w-3.5 h-3.5" />
-                  <span>View All 18 Steps</span>
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-
-        {show18StepTracker && (
-          <div className="mt-3 pt-1">
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2 text-xs">
-              {TWI_SEQUENTIAL_FLOW_STEPS.map((step) => {
-                const isActive = callActive && current18StepIndex === step.stepIndex;
-                const isPassed = callActive && current18StepIndex > step.stepIndex;
-
-                let cardBg = "bg-slate-950/70 border-slate-800/80 text-slate-300";
-                if (isActive) {
-                  cardBg = "bg-emerald-950/60 border-emerald-500/70 text-emerald-200 ring-1 ring-emerald-500/40 shadow-sm";
-                } else if (isPassed) {
-                  cardBg = "bg-slate-900/40 border-teal-800/30 text-teal-300/80";
-                }
-
-                const filename = step.audioUrl.split("/").pop() || step.audioUrl;
-                const cleanName = decodeURIComponent(filename);
-
-                return (
-                  <div
-                    key={step.id}
-                    className={`p-2.5 rounded-xl border flex flex-col justify-between transition-all ${cardBg}`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between gap-1 mb-1">
-                        <span className="font-mono text-[11px] font-bold text-teal-400">
-                          {String(step.stepIndex).padStart(2, "0")}
-                        </span>
-                        {isActive ? (
-                          <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-emerald-500/20 text-emerald-300 animate-pulse border border-emerald-500/30">
-                            Active
-                          </span>
-                        ) : isPassed ? (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-teal-400" />
-                        ) : (
-                          <span className="text-[10px] text-slate-500 font-mono">
-                            {step.keypadPrompt ? `Key ${step.keypadPrompt}` : "Voice"}
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="font-medium text-slate-200 text-xs line-clamp-1 mb-1">
-                        {step.name.replace(/^\d+\.\s*/, "")}
-                      </div>
-
-                      <div className="text-[10px] text-slate-400 font-mono truncate bg-slate-900/80 px-1.5 py-0.5 rounded border border-slate-800/60 mb-2">
-                        {step.isDynamicReadback ? "Dynamic Neural TTS" : cleanName}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-1 border-t border-slate-800/50">
-                      <span className="text-[9px] text-slate-400">
-                        {step.isDynamicReadback ? "Dynamic Slot" : "Studio Audio"}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handlePreviewStepAudio(step.audioUrl, step.name)}
-                        className="p-1 rounded hover:bg-slate-800 text-teal-400 hover:text-teal-300 transition cursor-pointer"
-                        title={`Preview Step ${step.stepIndex} recording`}
-                      >
-                        <Play className="w-3 h-3 fill-current" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* ── Main Two-Column Layout (Handset + Chat Terminal) ── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* ════ LEFT COLUMN: Traditional Phone Handset (Col 5) ════ */}
@@ -2392,7 +2107,50 @@ export const PhoneSimulatorPage: React.FC = () => {
 
               {/* Center Display: Digits or State */}
               <div className="my-auto py-1 text-center w-full">
-                {activeStepName === "enter-recipient" || activeStepName === "enter_recipient_2" ? (
+                {activeStepName.includes("pin") ? (
+                  <div className="flex flex-col items-center justify-center gap-1.5 w-full px-2 py-1">
+                    <div className="flex items-center justify-between w-full text-[10px] text-emerald-400 font-semibold uppercase tracking-wider">
+                      <span className="flex items-center gap-1">
+                        <Lock className="w-3 h-3 text-emerald-400" />
+                        <span>{callStatus === "Verifying PIN" ? "Verifying MoMo PIN..." : "Enter MoMo PIN"}</span>
+                      </span>
+                      <span className="bg-emerald-950/80 px-1.5 py-0.5 rounded text-emerald-300 border border-emerald-600/40 font-mono">
+                        {Math.min(digitsBuffer.length, 4)} / 4 digits
+                      </span>
+                    </div>
+                    {/* Visual PIN dots */}
+                    <div className="flex items-center justify-center gap-3 py-2 w-full bg-slate-950/80 rounded-lg border border-emerald-500/30">
+                      {[0, 1, 2, 3].map((idx) => (
+                        <div
+                          key={idx}
+                          className={`w-3.5 h-3.5 rounded-full border-2 transition-all ${
+                            idx < digitsBuffer.length
+                              ? "bg-emerald-400 border-emerald-300 scale-110 shadow-sm shadow-emerald-400/50"
+                              : "border-slate-600 bg-slate-900/60"
+                          }`}
+                        />
+                      ))}
+                    </div>
+                    <div className="flex items-center justify-between w-full text-[10px] text-slate-400">
+                      <span className="text-amber-400/90 font-medium">
+                        {callStatus === "Verifying PIN" ? "Sending for verification..." : "Type PIN on keypad or say aloud"}
+                      </span>
+                      <span className="font-mono text-emerald-400">Direct PIN</span>
+                    </div>
+                  </div>
+                ) : activeStepName === "transfer-success" || callStatus === "Completed" ? (
+                  <div className="flex flex-col items-center justify-center gap-1.5 w-full px-2 py-1">
+                    <div className="w-9 h-9 rounded-full bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-center text-emerald-400 shadow-lg shadow-emerald-500/20">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                    </div>
+                    <span className="text-xs font-bold uppercase tracking-wider text-emerald-300">
+                      Transfer Completed
+                    </span>
+                    <span className="text-[10px] text-slate-300 font-mono text-center px-1 leading-tight line-clamp-2">
+                      {currentPrompt || "Payment authorized & completed successfully."}
+                    </span>
+                  </div>
+                ) : activeStepName.includes("recipient") ? (
                   <div className="flex flex-col items-center justify-center gap-1 w-full px-1">
                     <div className="flex items-center justify-between w-full text-[10px] text-emerald-400 font-semibold uppercase tracking-wider">
                       <span>Recipient phone number</span>
@@ -2404,43 +2162,8 @@ export const PhoneSimulatorPage: React.FC = () => {
                       {digitsBuffer ? digitsBuffer : <span className="text-slate-500 tracking-normal text-xs">Enter 10 digits</span>}
                     </div>
                     <div className="flex items-center justify-between w-full text-[10px] text-slate-400">
-                      <span className="text-amber-400 font-medium animate-pulse">Wait for # or speak 10 digits</span>
+                      <span className="text-amber-400/90 font-medium animate-pulse">Waiting for # to submit</span>
                       <span className="font-mono text-emerald-400">OP16</span>
-                    </div>
-                  </div>
-                ) : activeStepName === "pin-handoff" || activeStepName === "pin_handoff" || activeStepName === "pin-authorization" ? (
-                  <div className="flex flex-col items-center justify-center gap-1 w-full px-1">
-                    <div className="flex items-center justify-between w-full text-[10px] text-amber-400 font-semibold uppercase tracking-wider">
-                      <span>4-Digit Authorization PIN</span>
-                      <span className="bg-amber-950/80 px-1.5 py-0.5 rounded text-amber-300 border border-amber-600/40 text-[9px]">
-                        {digitsBuffer.length} / 4 digits
-                      </span>
-                    </div>
-                    <div className="text-xl font-bold tracking-widest text-amber-300 font-mono w-full bg-slate-950/80 py-1.5 px-2 rounded-lg border border-amber-500/30">
-                      {digitsBuffer ? "•".repeat(digitsBuffer.length) : <span className="text-slate-500 tracking-normal text-xs">Punch or say 4-digit PIN</span>}
-                    </div>
-                    <div className="flex items-center justify-between w-full text-[10px] text-slate-400">
-                      <span className="text-amber-400 font-medium animate-pulse">Wait for # or speak 4 digits</span>
-                      <span className="font-mono text-amber-400">OP40</span>
-                    </div>
-                  </div>
-                ) : activeStepName === "verify-recipient" || activeStepName === "recipient-verify-choice" || activeStepName === "use_recipient_1" || activeStepName === "recipient_confirm_speech" ? (
-                  <div className="flex flex-col items-center justify-center gap-1 w-full px-1">
-                    <div className="flex items-center justify-between w-full text-[10px] text-teal-400 font-semibold uppercase tracking-wider">
-                      <span>Recipient Verified (KYC)</span>
-                      <span className="bg-teal-950/80 px-1.5 py-0.5 rounded text-teal-300 border border-teal-600/40 text-[9px]">
-                        NETWORK MATCH
-                      </span>
-                    </div>
-                    <div className="text-base font-bold tracking-wide text-emerald-300 font-mono w-full bg-slate-950/80 py-1 px-2 rounded-lg border border-emerald-500/30 truncate">
-                      {capturedRecipientName || "Verified Recipient"}
-                    </div>
-                    <div className="text-xs font-mono text-slate-300 tracking-wider">
-                      {capturedRecipientPhone}
-                    </div>
-                    <div className="flex items-center justify-between w-full text-[10px] text-slate-400 mt-0.5">
-                      <span className="text-emerald-400 font-bold">1 = Confirm · 2 = Edit</span>
-                      <span className="font-mono text-teal-400">OP24</span>
                     </div>
                   </div>
                 ) : activeStepName.includes("amount") ? (
@@ -2523,27 +2246,6 @@ export const PhoneSimulatorPage: React.FC = () => {
                   </button>
                 )}
               </div>
-
-              {/* Zero-PIN Push Screen Overlay */}
-              {zeroPinOverlay && (
-                <div className="absolute inset-0 bg-slate-950/95 rounded-2xl p-4 flex flex-col justify-between text-center border-2 border-emerald-400 z-20">
-                  <div className="flex items-center justify-center gap-1.5 text-emerald-400 font-bold text-xs">
-                    <ShieldCheck className="w-4 h-4" />
-                    <span>Secure Mobile Money Handoff</span>
-                  </div>
-                  <p className="text-[11px] text-slate-300 leading-relaxed">
-                    Check your phone and follow its official Mobile Money authorization prompt. Do not say
-                    or enter your PIN in this simulator.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => endCall("Caller ended after secure handset handoff")}
-                    className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow transition-colors cursor-pointer"
-                  >
-                    End call
-                  </button>
-                </div>
-              )}
             </div>
 
             {/* Soft Keys Under Screen */}
@@ -2555,7 +2257,7 @@ export const PhoneSimulatorPage: React.FC = () => {
                 onTouchStart={startPushToTalk}
                 onTouchEnd={stopPushToTalk}
                 onClick={toggleMic}
-                disabled={!callActive || zeroPinOverlay}
+                disabled={!callActive}
                 title="Hold down for Push-to-Talk (Whisper ASR) or click to toggle mic"
                 aria-label={isPushToTalkHeld ? "Release to stop speaking" : isMicMuted ? "Unmute microphone" : "Mute microphone"}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all border select-none ${

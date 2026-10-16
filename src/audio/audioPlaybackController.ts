@@ -37,7 +37,6 @@ export interface PlayOptions {
   onStart?: () => void;
   onEnd?: () => void;
   onError?: (err: any) => void;
-  rate?: number;
 }
 
 type StateListener = (state: PlaybackState) => void;
@@ -67,9 +66,8 @@ export function resolveSafePlayableUrl(url: string): string {
 
 export class AudioPlaybackController {
   private playbackVolume: number = 1.0;
-  private volumeMultiplier: number = 2.0; // Boosted master volume (200% amplified with dynamics compressor limiter)
+  private volumeMultiplier: number = 1.0; // Crystal-clear, unclipped master volume (100% natural studio fidelity)
   private audioElement: HTMLAudioElement | null = null;
-  private mediaElementSource: MediaElementAudioSourceNode | null = null;
   private currentToken: number = 0;
   private state: PlaybackState = {
     isPlaying: false,
@@ -86,7 +84,6 @@ export class AudioPlaybackController {
   private audioContext: AudioContext | null = null;
   private masterGainNode: GainNode | null = null;
   private compressorNode: DynamicsCompressorNode | null = null;
-  private audioUnlocked: boolean = false;
 
   constructor() {
     if (typeof window !== "undefined") {
@@ -95,10 +92,10 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Sets custom audio amplification multiplier (2.0 = boosted clear default)
+   * Sets custom audio amplification multiplier (1.0 = clear studio default)
    */
   public setVolumeMultiplier(multiplier: number): void {
-    this.volumeMultiplier = Math.max(0.5, Math.min(3.0, multiplier));
+    this.volumeMultiplier = Math.max(0.5, Math.min(2.0, multiplier));
     if (this.masterGainNode && this.audioContext) {
       try {
         this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
@@ -111,7 +108,7 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Configures Web Audio signal chain with high gain & compressor for boosted, punchy audio
+   * Configures Web Audio signal chain for synthesized tones and DTMF beeps
    */
   private setupAudioGraph(): void {
     if (typeof window === "undefined") return;
@@ -123,26 +120,7 @@ export class AudioPlaybackController {
       if (this.audioContext && !this.masterGainNode) {
         this.masterGainNode = this.audioContext.createGain();
         this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
-
-        // Dynamics compressor prevents distortion/clipping when boosting volume 2.0x
-        this.compressorNode = this.audioContext.createDynamicsCompressor();
-        this.compressorNode.threshold.setValueAtTime(-14, this.audioContext.currentTime);
-        this.compressorNode.knee.setValueAtTime(10, this.audioContext.currentTime);
-        this.compressorNode.ratio.setValueAtTime(4, this.audioContext.currentTime);
-        this.compressorNode.attack.setValueAtTime(0.003, this.audioContext.currentTime);
-        this.compressorNode.release.setValueAtTime(0.25, this.audioContext.currentTime);
-
-        this.masterGainNode.connect(this.compressorNode);
-        this.compressorNode.connect(this.audioContext.destination);
-      }
-
-      if (this.audioElement && this.audioContext && !this.mediaElementSource) {
-        try {
-          this.mediaElementSource = this.audioContext.createMediaElementSource(this.audioElement);
-          this.mediaElementSource.connect(this.masterGainNode || this.audioContext.destination);
-        } catch {
-          // Fallback gracefully if browser restricts media element source
-        }
+        this.masterGainNode.connect(this.audioContext.destination);
       }
     } catch (err) {
       console.warn("[AudioController] Audio graph setup notice:", err);
@@ -179,9 +157,8 @@ export class AudioPlaybackController {
       if (!this.audioElement) {
         this.initAudioElement();
       }
-      if (this.audioElement && !this.audioUnlocked && !this.state.isPlaying) {
-        this.audioUnlocked = true;
-        // Prime HTML5 media element once on initial user gesture
+      if (this.audioElement) {
+        // Unlock HTML5 media element within the synchronous click gesture
         this.audioElement.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
         const playPromise = this.audioElement.play();
         if (playPromise !== undefined) {
@@ -233,12 +210,12 @@ export class AudioPlaybackController {
       osc2.type = "sine";
       osc2.frequency.setValueAtTime(freqs[1], now);
 
-      gain.gain.setValueAtTime(0.35, now);
+      gain.gain.setValueAtTime(0.12, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + durationMs / 1000);
 
       osc1.connect(gain);
       osc2.connect(gain);
-      gain.connect(this.masterGainNode || this.audioContext.destination);
+      gain.connect(this.audioContext.destination);
 
       osc1.start(now);
       osc2.start(now);
@@ -279,7 +256,7 @@ export class AudioPlaybackController {
         osc2.frequency.setValueAtTime(659.25, now);
 
         gain.gain.setValueAtTime(0.001, now);
-        gain.gain.exponentialRampToValueAtTime(0.40, now + 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.24, now + 0.04);
         gain.gain.exponentialRampToValueAtTime(0.001, now + durationMs / 1000);
 
         osc1.connect(gain);
@@ -326,46 +303,31 @@ export class AudioPlaybackController {
     }
 
     // 2. Intelligent keyword match to authentic Akan Twi studio recordings
-    // Exclude dynamic text with phone digits or amount values
-    const hasDynamicData =
-      /\b\d{2,}\b/.test(cleanText) ||
-      /\b\d[\s,]+\d\b/.test(cleanText) ||
-      /\b(?:hwee|baako|mmienu|mmiɛnsa|nnan|nnum|nsia|nson|nwɔtwe|nkron)\b/i.test(cleanText) ||
-      /ghs|cedis?|okp-|reference|submitting|verify|recipient's name|recipient no din/i.test(cleanText);
     const lower = cleanText.toLowerCase();
     let fallbackStudioUrl: string | null = null;
-    if (!hasDynamicData) {
-      if (lower.includes("sika") && (lower.includes("dodow") || lower.includes("amount") || lower.includes("cedis") || lower.includes("bɔ"))) {
-        fallbackStudioUrl = "/audio/supplied/Twi/4.Amount Entry & Verification/Enter amount 4.m4a";
-      } else if (lower.includes("nɔmba") || lower.includes("fon") || lower.includes("recipient") || lower.includes("phone")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a";
-      } else if (lower.includes("pene") || lower.includes("confirm") || lower.includes("approval") || lower.includes("review") || lower.includes("aane")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/5.Transaction Confirmation/Review transaction.m4a";
-      } else if (lower.includes("pin") || lower.includes("handoff") || lower.includes("ahobammɔ")) {
-        fallbackStudioUrl = "/audio/additional/Pin%20Handoff.m4a";
-      } else if (lower.includes("balance") || lower.includes("star") || lower.includes("170")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/13.Balance  Unsupported Services/Balance unavailable.aac";
-      } else if (lower.includes("mane") || lower.includes("send")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/Send money selected.m4a";
-      } else if (lower.includes("paw") || lower.includes("menyu") || lower.includes("menu")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/MTN menu 1.m4a";
-      } else if (lower.includes("twa") || lower.includes("cancel") || lower.includes("dabi")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/11.Navigation & Recovery/Cancel.aac";
-      } else if (lower.includes("wie") || lower.includes("success") || lower.includes("medaase") || lower.includes("nante yie")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/14.Post-Transaction Conversation/Finish.aac";
-      }
+    if (lower.includes("sika") && (lower.includes("dodow") || lower.includes("amount") || lower.includes("cedis") || lower.includes("bɔ"))) {
+      fallbackStudioUrl = "/audio/supplied/Twi/4.Amount Entry & Verification/Enter amount 4.m4a";
+    } else if (lower.includes("nɔmba") || lower.includes("fon") || lower.includes("recipient") || lower.includes("phone")) {
+      fallbackStudioUrl = "/audio/supplied/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a";
+    } else if (lower.includes("pene") || lower.includes("confirm") || lower.includes("approval") || lower.includes("review") || lower.includes("aane")) {
+      fallbackStudioUrl = "/audio/supplied/Twi/5.Transaction Confirmation/Review transaction.m4a";
+    } else if (lower.includes("pin") || lower.includes("handoff") || lower.includes("ahobammɔ")) {
+      fallbackStudioUrl = "/audio/supplied/Twi/7.Handset PIN Delivery & Handoff/Pin handoff.m4a";
+    } else if (lower.includes("balance") || lower.includes("star") || lower.includes("170")) {
+      fallbackStudioUrl = "/audio/supplied/Twi/13.Balance  Unsupported Services/Balance unavailable.aac";
+    } else if (lower.includes("mane") || lower.includes("send")) {
+      fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/Send money selected.m4a";
+    } else if (lower.includes("paw") || lower.includes("menyu") || lower.includes("menu")) {
+      fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/MTN menu 1.m4a";
+    } else if (lower.includes("twa") || lower.includes("cancel") || lower.includes("dabi")) {
+      fallbackStudioUrl = "/audio/supplied/Twi/11.Navigation & Recovery/Cancel.aac";
+    } else if (lower.includes("wie") || lower.includes("success") || lower.includes("medaase") || lower.includes("nante yie")) {
+      fallbackStudioUrl = "/audio/supplied/Twi/14.Post-Transaction Conversation/Finish.aac";
     }
-
-    const isPhoneNumberOrDigits =
-      /\b0[235]\d{8}\b/.test(cleanText) ||
-      (cleanText.includes(",") && /\d/.test(cleanText)) ||
-      /\b(?:hwee|baako|mmienu|mmiɛnsa|nnan|nnum|nsia|nson|nwɔtwe|nkron)\b/i.test(cleanText);
-    const effectiveRate = options?.rate || (isPhoneNumberOrDigits ? 0.70 : 1.0);
 
     if (fallbackStudioUrl) {
       return this.play(fallbackStudioUrl, {
         ...options,
-        rate: effectiveRate,
         onStart: () => {
           this.setState({ activeText: cleanText });
           options?.onStart?.();
@@ -378,15 +340,12 @@ export class AudioPlaybackController {
     // 3. Dynamic Neural Speech Synthesis via backend pipeline for authentic voice
     try {
       const isTwi = /[ɛɔ]|sika|mane|akwaaba|dabi|aane|paw|sidi|nɔmba|yɛsrɛ|nte|frɛ/i.test(cleanText);
-      const synthUrl = typeof window !== "undefined" && window.location?.origin
-        ? `${window.location.origin}/api/ai/synthesize`
-        : "http://127.0.0.1:3000/api/ai/synthesize";
-      const res = await fetch(synthUrl, {
+      const res = await fetch("/api/ai/synthesize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: cleanText, language: isTwi ? "twi" : "en", rate: effectiveRate }),
-      }).catch(() => null);
-      if (res?.ok) {
+        body: JSON.stringify({ text: cleanText, language: isTwi ? "twi" : "en" }),
+      });
+      if (res.ok) {
         const data = await res.json();
         const base64 = data?.result?.audioBase64 || (data?.result?.audioBuffer?.data
           ? btoa(String.fromCharCode(...new Uint8Array(data.result.audioBuffer.data)))
@@ -396,7 +355,6 @@ export class AudioPlaybackController {
           const dataUrl = `data:${mimeType};base64,${base64}`;
           return this.play(dataUrl, {
             ...options,
-            rate: effectiveRate,
             onStart: () => {
               this.setState({ activeText: cleanText });
               options?.onStart?.();
@@ -410,30 +368,11 @@ export class AudioPlaybackController {
       console.warn("[AudioController] Speech synthesis fallback notice:", synthErr);
     }
 
-    // 4. Client-side SpeechSynthesis fallback for distinct, slow spoken digits
+    // 4. Acoustic guidance tone indicator as clear fail-safe (Zero robotic SpeechSynthesis interference)
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       try {
         window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(cleanText);
-        utterance.rate = effectiveRate;
-        utterance.pitch = 1.0;
-        utterance.onend = () => {
-          if (this.currentToken === token) {
-            this.setState({ isPlaying: false, activeClip: null, activeText: null, token });
-            options?.onEnd?.();
-          }
-        };
-        utterance.onerror = () => {
-          if (this.currentToken === token) {
-            this.setState({ isPlaying: false, activeClip: null, activeText: null, token });
-            options?.onError?.(new Error("Browser TTS error"));
-          }
-        };
-        window.speechSynthesis.speak(utterance);
-        return true;
-      } catch (speechErr) {
-        console.warn("[AudioController] Browser SpeechSynthesis notice:", speechErr);
-      }
+      } catch {}
     }
 
     try {
@@ -619,9 +558,6 @@ export class AudioPlaybackController {
 
       const source = this.audioContext.createBufferSource();
       source.buffer = buffer;
-      if (options?.rate && Number.isFinite(options.rate)) {
-        source.playbackRate.setValueAtTime(options.rate, this.audioContext.currentTime);
-      }
       source.connect(this.masterGainNode || this.audioContext.destination);
       this.activeBufferSource = source;
 
@@ -720,10 +656,9 @@ export class AudioPlaybackController {
     // Ensure audio is unlocked
     this.unlockAudio();
 
-    // 2. High-performance Web Audio Buffer playback (immune to HTML5 media element autoplay issues)
-    if (this.audioContext && (this.audioBufferCache.has(url) || this.audioContext.state === "running")) {
-      const ok = await this.playViaWebAudio(url, token, options);
-      if (ok) return true;
+    // 2. High-performance Web Audio Buffer playback if cached
+    if (this.audioContext && this.audioBufferCache.has(url)) {
+      return this.playViaWebAudio(url, token, options);
     }
 
     // 3. Play through HTML5 audio element with automatic WebAudio fallback
@@ -738,7 +673,6 @@ export class AudioPlaybackController {
     }
 
     audio.volume = this.playbackVolume;
-    audio.playbackRate = (options?.rate && Number.isFinite(options.rate)) ? options.rate : 1.0;
 
     return new Promise<boolean>((resolve) => {
       this.activeResolver = () => {
@@ -795,7 +729,10 @@ export class AudioPlaybackController {
         audio.currentTime = 0;
         const playPromise = audio.play();
         if (playPromise !== undefined) {
-          playPromise.catch((_err: any) => {
+          playPromise.catch((err: any) => {
+            if (err?.name === "AbortError" || err?.message?.includes("interrupted")) {
+              return;
+            }
             if (this.currentToken === token) {
               tryWebAudioFallback();
             }
@@ -826,10 +763,8 @@ export class AudioPlaybackController {
       }
 
       const ended = await (async () => {
-        // Prefer Web Audio API if AudioContext is active/running
-        if (this.audioContext && (this.audioBufferCache.has(url) || this.audioContext.state === "running")) {
-          const webAudioOk = await this.playViaWebAudio(url, sequenceToken);
-          if (webAudioOk) return true;
+        if (this.audioContext && this.audioBufferCache.has(url)) {
+          return this.playViaWebAudio(url, sequenceToken);
         }
 
         const audio = this.initAudioElement();
@@ -864,7 +799,10 @@ export class AudioPlaybackController {
           audio.currentTime = 0;
           const p = audio.play();
           if (p !== undefined) {
-            p.catch((_err: any) => {
+            p.catch((err: any) => {
+              if (err?.name === "AbortError" || err?.message?.includes("interrupted")) {
+                return;
+              }
               if (this.currentToken !== sequenceToken) return;
               this.playViaWebAudio(url, sequenceToken).then(resolve);
             });

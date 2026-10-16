@@ -20,6 +20,7 @@ import { simulatorTelephonyAdapter } from "../providers/telephony/telephonyAdapt
 import { eventBus } from "../services/eventBus";
 import { brain } from "../ai_system/brain/brain";
 import { brainTelemetry } from "../ai_system/brain/brainTelemetry";
+import { matchAiReplyWithGemini } from "../audio/geminiAudioMatcher";
 import { ttsRouter } from "../ai_system/speech/tts/ttsRouter";
 import { formatSpokenNumbersAsDigits } from "../domain/numberFormatter";
 import { paymentSaga } from "../integrations/momo/paymentSaga";
@@ -920,6 +921,20 @@ aiRouter.post("/api/ai/synthesize", publicApiRateLimiter, async (req: Request, r
     res.json({ success: true, result });
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Failed to synthesize speech" });
+  }
+});
+
+// ── AI Reply Audio Matcher with Gemini & Manifest ───────────────────────
+aiRouter.post("/api/ai/match-audio", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { text, language, literacyLevel } = req.body;
+    if (!text) {
+      return res.status(400).json({ error: "Missing 'text' to match." });
+    }
+    const result = await matchAiReplyWithGemini(text, language || "twi", { literacyLevel });
+    res.json({ success: true, result });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to match audio with Gemini" });
   }
 });
 
