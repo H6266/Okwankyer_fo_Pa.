@@ -615,6 +615,40 @@ export const api = {
     return res.json();
   },
 
+  async getMomoFeeds(): Promise<{ success: boolean; total: number; feeds: any[] }> {
+    const res = await fetch("/api/momo/feeds", {
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders(),
+    });
+    return res.json();
+  },
+
+  async clearMomoFeeds(): Promise<any> {
+    const res = await fetch("/api/momo/feeds/clear", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders(),
+    });
+    return res.json();
+  },
+
+  async simulateMomoSandboxCallback(params: {
+    referenceId: string;
+    status: string;
+    reason?: string;
+    financialTransactionId?: string;
+    amount?: number;
+    payerPhone?: string;
+  }): Promise<any> {
+    const res = await fetch("/api/momo/sandbox/simulate-callback", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
   // ── Telecel Cash Sandbox & Live API Methods ─────────────────────────
   async getTelecelDiagnostics(): Promise<any> {
     const res = await fetch("/api/telecel/status", {

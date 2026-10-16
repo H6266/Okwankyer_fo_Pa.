@@ -247,13 +247,14 @@ export class UnifiedGeminiClient {
           throw err;
         }
 
-        // If daily quota is exhausted on a specific model, isolate the cooldown to that model
-        // so candidate fallback models remain available!
+        // If daily quota or per-minute rate limit is hit, isolate cooldown to that model
+        // so candidate fallback models remain available
         if (isQuotaExhausted) {
-          let cooldownMs = 60 * 60 * 1000;
-          const retrySecMatch = msg.match(/retryDelay['":\s]+([0-9]+)/i);
-          if (retrySecMatch && retrySecMatch[1]) {
-            cooldownMs = Math.max(60 * 1000, parseInt(retrySecMatch[1], 10) * 1000);
+          let cooldownMs = 60 * 1000; // 60s default for standard per-minute burst rate limits
+          const retryInMatch = msg.match(/retry\s+in\s+([0-9]+(?:\.[0-9]+)?)\s*s/i) ||
+                               msg.match(/retryDelay['":\s]+([0-9]+)/i);
+          if (retryInMatch && retryInMatch[1]) {
+            cooldownMs = Math.max(5000, Math.ceil(parseFloat(retryInMatch[1])) * 1000 + 2000);
           }
           const modelInMsg = msg.match(/model:\s*([a-zA-Z0-9\.\-]+)/i)?.[1];
           const targetModel = modelName || modelInMsg;
