@@ -41,6 +41,7 @@ export interface IConversationRepository {
 export interface IPreferenceRepository {
   get(userId: string): Promise<UserProfileData | null>;
   save(userId: string, profile: UserProfileData): Promise<void>;
+  clear(userId: string): Promise<void>;
 }
 
 export interface ITransactionRepository {

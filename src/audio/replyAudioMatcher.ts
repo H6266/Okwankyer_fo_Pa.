@@ -1,4 +1,9 @@
-import { AUDIO_RECORDINGS, AudioRecording, normalizeRecordingLanguage, getPromptManifestEntry } from "./recordingRegistry";
+import {
+  AUDIO_RECORDINGS,
+  AudioRecording,
+  normalizeRecordingLanguage,
+  getRecordingByUrl,
+} from "./recordingRegistry";
 import { TWI_SEQUENTIAL_FLOW_STEPS, FlowStepDefinition } from "./twiSequentialAudioFlow";
 
 function getNodeModules() {
@@ -303,16 +308,19 @@ export function matchReplyToAudio(
   // 1. Check Sequential Flow Steps
   for (const step of TWI_SEQUENTIAL_FLOW_STEPS) {
     if (!step.audioUrl) continue;
+    const recording = wantedLanguage ? getRecordingByUrl(step.audioUrl, wantedLanguage) : null;
+    if (!recording || recording.language !== wantedLanguage ||
+      recording.mappingStatus !== "VERIFIED" || recording.recordingRole !== "fixed") continue;
     const targetScript = isTwi ? step.spokenTextTwi : step.spokenTextEn;
     const aliases = STEP_ALIASES[step.id] || [];
 
     const { confidence, reason } = calculateMatchConfidence(text, targetScript, aliases);
     if (confidence > bestResult.confidence) {
-      const diskPath = resolveDiskPath(step.audioUrl);
+      const diskPath = resolveDiskPath(recording.url || step.audioUrl);
       bestResult = {
         match: confidence >= minConfidence,
         confidence,
-        audioUrl: step.audioUrl,
+        audioUrl: recording.url || step.audioUrl,
         title: step.name,
         spokenText: targetScript,
         filePath: diskPath || undefined,
@@ -323,39 +331,20 @@ export function matchReplyToAudio(
     }
   }
 
-  // 2. Check full AUDIO_RECORDINGS library (with fallback to Twi recordings for English requests)
-  let catalogCandidates = AUDIO_RECORDINGS.filter((r) => {
+  // 2. Check only reviewed fixed recordings in the requested language.
+  const catalogCandidates = AUDIO_RECORDINGS.filter((r) => {
     if (wantedLanguage && r.language !== wantedLanguage) return false;
     return Boolean(
       r.spokenText &&
       r.url &&
-      (r.mappingStatus === "VERIFIED" || r.assetRoot === "supplied" || r.assetRoot === "additional") &&
+      r.mappingStatus === "VERIFIED" &&
       r.recordingRole === "fixed"
     );
   });
 
-  if (catalogCandidates.length === 0 && wantedLanguage === "en") {
-    catalogCandidates = AUDIO_RECORDINGS.filter((r) =>
-      r.language === "twi" &&
-      Boolean(r.spokenText && r.url && r.recordingRole === "fixed")
-    );
-  }
-
   for (const recording of catalogCandidates) {
     if (!recording.spokenText || !recording.url) continue;
-    let { confidence, reason } = calculateMatchConfidence(text, recording.spokenText, []);
-
-    // Also check if prompt manifest has an English script matching the text
-    if (confidence < minConfidence && recording.promptId) {
-      const manifestEntry = getPromptManifestEntry(recording.promptId);
-      if (manifestEntry?.english) {
-        const engMatch = calculateMatchConfidence(text, manifestEntry.english, []);
-        if (engMatch.confidence > confidence) {
-          confidence = engMatch.confidence;
-          reason = `manifest_english_crossmatch:${manifestEntry.id}`;
-        }
-      }
-    }
+    const { confidence, reason } = calculateMatchConfidence(text, recording.spokenText, []);
 
     if (confidence > bestResult.confidence) {
       const diskPath = resolveDiskPath(recording.url);

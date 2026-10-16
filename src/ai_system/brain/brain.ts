@@ -69,6 +69,7 @@ import { pilotControls } from '../../services/pilotControls';
 import { pilotMetrics } from '../../services/pilotMetrics';
 import { normalizeGhanaPhoneNumber, validateGhanaPhoneNumber } from '../../domain/validation';
 import { brainTelemetry } from './brainTelemetry';
+import { unifiedMemory } from '../memory/unifiedMemory';
 
 export interface BrainConfig {
   mode: BrainMode;
@@ -135,6 +136,70 @@ export function maskPhoneNumbers(text: string): string {
 
   return masked;
 }
+
+export function maskSensitiveSpeech(text: string): string {
+  if (isSpokenPinPresent(text)) return '[SECURITY_CONTENT_REDACTED]';
+  return maskPhoneNumbers(sanitizeTranscriptForModel(text));
+}
+
+function redactModelValue(value: unknown, key: string): unknown {
+  if (/(?:phone|account.?number)/i.test(key)) {
+    return value === undefined || value === null || value === '' ? value : '[PHONE_MASKED]';
+  }
+  if (/(?:pin|password|otp|secret|auth.?token)/i.test(key)) {
+    return value === undefined || value === null || value === '' ? value : '[SECURITY_CONTENT_REDACTED]';
+  }
+  if (typeof value === 'string') return maskSensitiveSpeech(value);
+  if (Array.isArray(value)) return value.map((item) => redactModelValue(item, key));
+  if (value && typeof value === 'object') {
+    const redacted: Record<string, unknown> = {};
+    for (const [childKey, childValue] of Object.entries(value)) {
+      redacted[childKey] = redactModelValue(childValue, childKey);
+    }
+    return redacted;
+  }
+  return value;
+}
+
+export function redactSlotsForModel(slots: Slots): Slots {
+  const redacted: Slots = {};
+  for (const [key, value] of Object.entries(slots)) {
+    redacted[key] = redactModelValue(value, key);
+  }
+  return redacted;
+}
+
+function callerMemoryId(callerNumber?: string): string | undefined {
+  if (!callerNumber) return undefined;
+  const encryptionKey = process.env.ENCRYPTION_KEY;
+  if (
+    process.env.NODE_ENV === 'production' &&
+    (!encryptionKey || Buffer.byteLength(encryptionKey, 'utf8') < 32)
+  ) return undefined;
+  const secret = process.env.MEMORY_ID_SECRET || encryptionKey;
+  if (!secret || Buffer.byteLength(secret, 'utf8') < 32) return undefined;
+  const normalized = normalizeGhanaPhoneNumber(callerNumber);
+  if (!validateGhanaPhoneNumber(normalized).valid) return undefined;
+  return `caller:${crypto.createHmac('sha256', secret).update(normalized).digest('hex')}`;
+}
+
+function toAiLanguage(language: LanguageId): 'en' | 'tw' | 'en-ak' {
+  if (language === 'en') return 'en';
+  if (language === 'mixed-twi-en') return 'en-ak';
+  return 'tw';
+}
+
+function toBrainLanguage(language: string | undefined): LanguageId | undefined {
+  if (language === 'en') return 'en';
+  if (language === 'tw' || language === 'ak') return 'twi-asante';
+  if (language === 'en-ak') return 'mixed-twi-en';
+  return undefined;
+}
+
+const REMEMBER_LANGUAGE_REQUEST =
+  /^(?:(?:please\s+)?(?:remember|save|keep)\s+(?:my\s+)?(?:preferred\s+)?language|remember\s+that\s+i\s+speak\s+(?:english|twi)|kae\s+sɛ\s+me\s*ka\s+(?:twi|brɔfo|borofo))[.!?]*$/i;
+const FORGET_LANGUAGE_REQUEST =
+  /^(?:(?:please\s+)?(?:forget|delete|clear|remove)\s+(?:my\s+)?(?:saved\s+)?(?:language|preferences)|ma\s+wo\s+werɛ\s+fi\s+me\s+kasa)[.!?]*$/i;
 
 /**
  * Deterministic hash of settled transaction draft (intent + amount + recipient).
@@ -331,7 +396,7 @@ export class Brain {
         tier,
         tokensUsed,
         latencyMs,
-        utterance: rawTranscript,
+        utterance: maskSensitiveSpeech(rawTranscript).slice(0, 1000),
         decisionKind: output.decision.kind,
         intent: (output.decision as any).intent || output.updatedDraft.intent,
         decisionSource,
@@ -345,11 +410,12 @@ export class Brain {
       };
 
       if (rawTranscript) {
-        output.updatedDraft.recentTurns = [
+        const recentTurns: NonNullable<DraftState['recentTurns']> = [
           ...(output.updatedDraft.recentTurns || []),
-          { role: 'user', text: rawTranscript },
-          { role: 'assistant', text: output.reply.text },
+          { role: 'user' as const, text: maskSensitiveSpeech(rawTranscript).slice(-500) },
+          { role: 'assistant' as const, text: maskSensitiveSpeech(output.reply.text).slice(-500) },
         ].slice(-4);
+        output.updatedDraft.recentTurns = recentTurns;
       }
 
       if (effectiveBrainMode === 'shadow' && Math.random() <= this.config.shadowSamplingRate && geminiClient.isAvailable()) {
@@ -395,6 +461,12 @@ export class Brain {
       });
     }
 
+    const memoryUserId = callerMemoryId(input.callerNumber);
+    const savedPreferences = memoryUserId
+      ? await unifiedMemory.getPreferences(memoryUserId)
+      : null;
+    const hasMemoryConsent = Boolean(savedPreferences?.memoryConsent?.grantedAt);
+
     // ─────────────────────────────────────────────────────────────────────────
     // STEP 1: RESOLVE LANGUAGE & POLICY
     // ─────────────────────────────────────────────────────────────────────────
@@ -402,11 +474,76 @@ export class Brain {
       transcript: rawTranscript,
       detectedLanguage: input.language,
       detectedConfidence: input.languageConfidence ?? 1.0,
-      currentSessionLanguage: input.sessionLanguage ?? input.language ?? 'en',
+      currentSessionLanguage:
+        input.sessionLanguage ??
+        (hasMemoryConsent ? toBrainLanguage(savedPreferences?.preferredLanguage) : undefined) ??
+        input.language ??
+        'en',
     });
     const activeLanguage = langRes.replyLanguage;
     const sessionLanguage = langRes.sessionLanguage;
     const targetDialect = langRes.targetLanguage;
+
+    if (FORGET_LANGUAGE_REQUEST.test(rawTranscript)) {
+      if (memoryUserId && hasMemoryConsent) {
+        await unifiedMemory.clearPreferences(memoryUserId);
+      }
+      const message = activeLanguage === 'en'
+        ? 'Your saved preferences have been deleted.'
+        : 'Wo kasa a yɛakora no, yɛapopa no.';
+      const decision: BrainDecision = { kind: 'smalltalk' };
+      const reply = await replyComposer.composeReply({
+        decision,
+        language: activeLanguage,
+        slots: draft.slots,
+        conversationalText: message,
+      });
+      return finalizeOutput({
+        decision,
+        reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
+        updatedDraft: draft,
+        sessionLanguage: langRes.sessionLanguage,
+      });
+    }
+
+    if (REMEMBER_LANGUAGE_REQUEST.test(rawTranscript)) {
+      if (memoryUserId) {
+        await unifiedMemory.savePreferences(memoryUserId, {
+          userId: memoryUserId,
+          memoryConsent: { scope: 'language_preference', grantedAt: Date.now() },
+          preferredLanguage: toAiLanguage(langRes.sessionLanguage),
+        });
+      }
+      const message = memoryUserId
+        ? activeLanguage === 'en'
+          ? 'I will remember your language preference for future calls. I only save this preference, not your PIN or transaction details.'
+          : 'Mɛkae kasa a wopɛ no wɔ frɛ a ɛbɛba daakye mu. Mɛkora kasa pɛ no nko ara; merenkora wo PIN anaa wo sika nsɛm.'
+        : activeLanguage === 'en'
+          ? 'I can remember your language preference when secure caller identification and storage are configured. I will not save it for this call.'
+          : 'Sɛ wo fon nɔma da adi a, metumi akae kasa a wopɛ. Merenkora no wɔ frɛ yi mu.';
+      const decision: BrainDecision = { kind: 'smalltalk' };
+      const reply = await replyComposer.composeReply({
+        decision,
+        language: activeLanguage,
+        slots: draft.slots,
+        conversationalText: message,
+      });
+      return finalizeOutput({
+        decision,
+        reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
+        updatedDraft: draft,
+        sessionLanguage: langRes.sessionLanguage,
+      });
+    }
+
+    if (hasMemoryConsent && memoryUserId) {
+      const explicitlyRequestedLanguage = languagePolicy.checkExplicitRequest(rawTranscript);
+      if (explicitlyRequestedLanguage) {
+        await unifiedMemory.savePreferences(memoryUserId, {
+          preferredLanguage: toAiLanguage(explicitlyRequestedLanguage),
+        });
+      }
+    }
 
     const isAwaitingConfirmation = draft.lastReplyKind === 'confirm' && Boolean(draft.lastConfirmReadbackText);
     const isExplicitConfirm = isExplicitConfirmation(rawTranscript);
@@ -1331,8 +1468,44 @@ export class Brain {
     if (!geminiClient.isAvailable()) return null;
 
     const sessionKey = sessionId || (draft.draftHash ? `session_${draft.draftHash}` : `session_turn_${turnId}`);
-    const sanitized = sanitizeTranscriptForModel(rawTranscript);
-    const masked = maskPhoneNumbers(sanitized);
+    const masked = maskSensitiveSpeech(rawTranscript);
+    const redactedSlots = redactSlotsForModel(draft.slots);
+    const safeSlots = {
+      amount: typeof redactedSlots.amount === 'number' && Number.isFinite(redactedSlots.amount)
+        ? redactedSlots.amount
+        : undefined,
+      recipient: draft.slots.recipient
+        ? {
+            name: typeof redactedSlots.recipient?.name === 'string'
+              ? redactedSlots.recipient.name.slice(0, 80)
+              : undefined,
+            phone: draft.slots.recipient.phone ? '[PHONE_MASKED]' : undefined,
+          }
+        : undefined,
+      network: typeof redactedSlots.network === 'string'
+        ? redactedSlots.network.slice(0, 32)
+        : undefined,
+      reference: typeof redactedSlots.reference === 'string'
+        ? redactedSlots.reference.slice(0, 80)
+        : undefined,
+      recipientPhoneProvided: Boolean(draft.slots.recipient?.phone),
+    };
+    const conversationSnapshot = {
+      intent: draft.intent || null,
+      currentSlots: safeSlots,
+      outstandingQuestion: draft.intent
+        ? this.recomputeMissingSlots(draft.intent, draft.slots) || 'confirmation'
+        : 'intent',
+      confirmationState: draft.confirmed ? 'confirmed' : 'not_confirmed',
+      recentTurns: (draft.recentTurns || []).slice(-4).map((turn) => ({
+        role: turn.role,
+        text: maskSensitiveSpeech(turn.text).slice(-500),
+      })),
+    };
+    const modelContext = JSON.stringify({
+      callerUtterance: masked,
+      conversationSnapshot,
+    });
 
     const candidateModels = [
       this.config.modelName || AI_CONFIG.model || 'gemini-3.8-flash',
@@ -1364,7 +1537,7 @@ export class Brain {
                       role: "user",
                       parts: [
                         {
-                          text: `Caller utterance: "${masked}"\nCurrent Draft State: ${JSON.stringify(draft.slots)}`,
+                          text: modelContext,
                         },
                       ],
                     },
@@ -1379,7 +1552,7 @@ export class Brain {
               } else if (rawClient.chats?.create) {
                 const chat = reasoningEngine.getOrCreateChatSession(sessionKey, rawClient, model);
                 return await chat.sendMessage({
-                  message: masked,
+                  message: modelContext,
                 });
               }
             },
@@ -1722,11 +1895,14 @@ export class Brain {
     };
 
     const isCashOut = /\b(withdraw|cash\s*out|cashout|allow\s*cash\s*out|take\s*out\s*money|pull\s*money|yi\s*sika|mepɛ\s*sɛ\s*meyi\s*sika|gye\s*sika)\b/i.test(lower);
+    const isReverse = !isCashOut && (
+      /\b(?:reverse|reversal|sent\s+by\s+mistake|made\s+a\s+mistake|sesa\s+transaction|nɔmba\s+mfomsoɔ|san\s+fa\s+sika|mfomsoɔ|wrong\s+(?:number|transfer)|refund|reverse\s+am)\b/i.test(lower) ||
+      lower.includes('sesa sika') ||
+      lower.includes('mfomsoɔ')
+    );
 
-    const isTransferDirected = !isCashOut && ((/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && /\b(?:to|kɔma|give)\b/i.test(lower)) ||
+    const isTransferDirected = !isCashOut && !isReverse && ((/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && /\b(?:to|kɔma|give)\b/i.test(lower)) ||
       (/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && (Boolean(draft.slots.recipient?.phone) || /\b0[235]\d{8}\b/.test(lower))));
-
-    const isReverse = !isCashOut && !isTransferDirected && /\b(?:reverse|reversal|sent\s+by\s+mistake|made\s+a\s+mistake|sesa\s+transaction|nɔmba\s+mfomsoɔ|san\s+fa\s+sika|mfomsoɔ|wrong\s+(?:number|transfer)|refund)\b/i.test(lower);
 
     const hasTransferAction = isTransferDirected;
 
@@ -1738,15 +1914,21 @@ export class Brain {
     // Contextual Invariant: When an utterance contains a transfer action or transfer verb ("send", "transfer", "mane"),
     // or when the ongoing session intent is already transfer, mentions of "bill", "bills", or "ECG"
     // represent the payment reference or recipient, NOT a utility inquiry.
-    const isBill = (!isCashOut && !hasTransferAction && draft.intent !== 'momo.transfer' &&
+    const isBill = (!isCashOut && !isReverse && !hasTransferAction && draft.intent !== 'momo.transfer' &&
       (!hasTransferWord || isAmbiguousBillOrTransfer) &&
-      /\b(?:tua\s+(?:[a-z]+\s+)*(?:ka|bills?|ecg|kanea|nsuo|gwcl)|tua\s+ka|tua\s+bills?|kanea\s+gya|electricity\s+bill|water\s+bill|light\s+bill|meter\s+bill|prepaid\s+meter|postpaid|pay\s+(?:[a-z]+\s+)?(?:bill|bills|ecg|gwcl|electricity|water|light|meter))\b/i.test(lower)) || isAmbiguousBillOrTransfer;
-    const isAirtime = !isCashOut && !hasTransferWord && /\b(?:airtime|credit|kɔkɔɔ|topup|recharge|tɔ\s+airtime|tɔ\s+credit)\b/i.test(lower);
+      /\b(?:tua\s+(?:[a-z]+\s+)*(?:ka|bills?|ecg|kanea|nsuo|gwcl)|tua\s+ka|tua\s+bills?|kanea\s+gya|electricity\s+bill|water\s+bill|light\s+bill|meter\s+bill|meter\s+recharge|bill\s+payment|prepaid\s+meter|postpaid|pay\s+(?:[a-z]+\s+)?(?:bill|bills|ecg|gwcl|electricity|water|light|meter))\b/i.test(lower)) || isAmbiguousBillOrTransfer;
+    const isAirtime = !isCashOut && !isReverse && !hasTransferWord &&
+      (/\b(?:airtime|credit|topup|top\s*up|recharge|tɔ\s+airtime|tɔ\s+credit)\b/i.test(lower) || lower.includes('kɔkɔɔ'));
     const isData = !isCashOut && !hasTransferWord && /\b(?:buy\s+data|data\s+bundle|internet\s+bundle|bundle|megabytes|gigabytes|wifi\s+bundle|tɔ\s+data|tɔ\s+bundle|intanɛt)\b/i.test(lower);
     const isCare = /\b(?:customer\s+care|agent|talk\s+to\s+agent|speak\s+to\s+person|human\s+support|help\s+desk|kasa\s+kyerɛ\s+agent|customer\s+service)\b/i.test(lower);
-    const isLoan = !isCashOut && /\b(?:loan|quick\s+loan|qwickloan|borrow\s+money|borrow|bosea|gye\s+bosea|fɛm\s+me\s+sika)\b/i.test(lower);
+    const isLoan = !isCashOut &&
+      (/\b(?:loan|quick\s*loan|qwickloan|borrow\s+money|borrow|bosea|gye\s+bosea)\b/i.test(lower) ||
+        lower.includes('fɛm me sika'));
     const isBalance =
-      /\b(?:balance|check\s+balance|check\s+my\s+balance|hwɛ\s+balance|hwɛ\s+me\s+balance|sika\s+dodoɔ\s+a\s+aka|sika\s+a\s+aka|sika\s+a\s+ɛwɔ\s+me\s+kora\s+mu|sika\s+sen\s+na\s+aka|hwɛ\s+me\s+sika|how\s+much\s+(?:do\s+i\s+have|i\s+have|is\s+in|is\s+left\s+in|in\s+my\s+account|in\s+my\s+wallet|money\s+is\s+in|money\s+do\s+i\s+have)|what\s+is\s+my\s+balance|tell\s+me\s+my\s+balance|how\s+much\s+money|how\s+much\s+dey|akontaabu)\b/i.test(lower);
+      /\b(?:balance|check\s+balance|check\s+my\s+balance|hwɛ\s+balance|hwɛ\s+me\s+balance|sika\s+dodoɔ\s+a\s+aka|sika\s+a\s+aka|sika\s+a\s+ɛwɔ\s+me\s+kora\s+mu|sika\s+sen\s+na\s+aka|hwɛ\s+me\s+sika|how\s+much\s+(?:do\s+i\s+have|i\s+have|is\s+in|is\s+left\s+in|in\s+my\s+account|in\s+my\s+wallet|money\s+is\s+in|money\s+do\s+i\s+have)|what\s+is\s+my\s+balance|tell\s+me\s+my\s+balance|how\s+much\s+money|how\s+much\s+dey|akontaabu)\b/i.test(lower) ||
+      /\b(?:what(?:'s|\s+is)\s+remaining|remaining\s+in\s+my\s+(?:mobile\s+)?wallet|how\s+much\s+sika\s+dey|check\s+am)\b/i.test(lower) ||
+      lower.includes('sika a aka') ||
+      lower.includes('sika dodoɔ');
 
     if (isCashOut) scores['momo.cash_out'] += 0.99;
     if (isBill) scores['momo.pay_bill'] += (isAmbiguousBillOrTransfer ? 0.75 : 0.95);
@@ -1787,8 +1969,12 @@ export class Brain {
       scores[draft.intent] += 0.15;
     }
 
-    if (/^(hello|hi|akwaaba|good\s+morning|good\s+afternoon|how\s+are\s+you|thank\s+you|help)\b/i.test(lower) && !isCare && !hasTransferSlots) {
+    if (/^(hello|hi|akwaaba|good\s+morning|good\s+afternoon|how\s+are\s+you|thank\s+you|help)\b/i.test(lower) ||
+      lower.includes('yɛda wo ase') ||
+      lower.includes('meda wo ase')) {
+      if (!isCare && !hasTransferSlots) {
       scores['smalltalk'] += 0.75;
+      }
     }
 
     // Ambiguous utterances between money transfer and account balance

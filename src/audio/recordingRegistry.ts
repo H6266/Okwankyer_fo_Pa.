@@ -698,7 +698,8 @@ export function getRecordingByPromptId(
     recording.promptId === promptId &&
     recording.language === language &&
     recording.url &&
-    (recording.mappingStatus === "VERIFIED" || recording.assetRoot === "supplied" || recording.assetRoot === "additional")
+    recording.mappingStatus === "VERIFIED" &&
+    recording.recordingRole === "fixed"
   );
   if (matches.length > 0) return matches[0];
   if (promptId === "OP22" && language === "twi") {

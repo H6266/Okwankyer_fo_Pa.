@@ -26,7 +26,7 @@ import {
 import { api } from "../../lib/api";
 
 interface BrainDecision {
-  kind: "clarify_slot" | "clarify_intent" | "not_ready" | "confirm" | "dispatch";
+  kind: "clarify_slot" | "clarify_intent" | "not_ready" | "confirm" | "dispatch" | "smalltalk";
   intent?: string;
   slot?: string;
   candidates?: string[];
@@ -68,6 +68,12 @@ interface BrainOutput {
   updatedDraft: BrainDraft;
   sessionLanguage: string;
   modelOutput?: any;
+  telemetry?: {
+    tier: string;
+    tokensUsed: number;
+    latencyMs: number;
+    decisionSource: string;
+  };
 }
 
 interface PromptPreset {

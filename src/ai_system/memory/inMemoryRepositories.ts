@@ -69,6 +69,10 @@ export class InMemoryPreferenceRepository implements IPreferenceRepository {
     const existing = this.store.get(userId) || {};
     this.store.set(userId, { ...existing, ...profile });
   }
+
+  public async clear(userId: string): Promise<void> {
+    this.store.delete(userId);
+  }
 }
 
 export class InMemoryTransactionRepository implements ITransactionRepository {

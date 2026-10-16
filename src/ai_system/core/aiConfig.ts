@@ -7,6 +7,7 @@ import { AiLanguage } from "./aiTypes";
 
 export interface AiSystemConfiguration {
   model: string;
+  fallbackModel: string;
   liveModel: string;
   transcriptionModel: string;
   ttsModel: string;
@@ -27,6 +28,10 @@ export interface AiSystemConfiguration {
 
 export const AI_CONFIG: AiSystemConfiguration = {
   model: process.env.GEMINI_REASONING_MODEL || "gemini-3.8-flash",
+  fallbackModel:
+    (process.env.GEMINI_FALLBACK_MODELS || process.env.GEMINI_FALLBACK_MODEL || "gemini-flash-latest")
+      .split(",")[0]
+      .trim() || "gemini-flash-latest",
   liveModel: process.env.GEMINI_LIVE_MODEL || "gemini-3.8-live",
   transcriptionModel: process.env.GEMINI_TRANSCRIBE_MODEL || "gemini-3.8-flash",
   ttsModel: process.env.GEMINI_TTS_MODEL || "gemini-3.8-flash-lite-tts",

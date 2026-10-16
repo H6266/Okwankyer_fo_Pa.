@@ -115,6 +115,7 @@ export type BrainDecision =
   | { kind: 'confirm'; intent: IntentId; slots: Slots }
   | { kind: 'not_ready'; intent: IntentId }
   | { kind: 'cancel'; intent?: IntentId }
+  | { kind: 'smalltalk' }
   | { kind: 'dispatch'; intent: IntentId; slots: Slots };
 
 export interface TurnHistoryItem {
