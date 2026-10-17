@@ -262,7 +262,8 @@ export async function streamAudioFile(req: Request, res: Response, filePath: str
     userAgent.includes("telephony");
 
   let activePath = filePath;
-  if (isTelephonyClient && !filePath.endsWith(".mp3")) {
+  const isAacSource = filePath.endsWith(".aac");
+  if ((isTelephonyClient || isAacSource || reqPath.endsWith(".mp3") || formatQuery === "mp3") && !filePath.endsWith(".mp3")) {
     activePath = await getOrTranscodeMp3(filePath);
   }
 

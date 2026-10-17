@@ -444,18 +444,23 @@ function levenshteinDistance(a: string, b: string): number {
  */
 export function normalizeSpokenDigits(text: string): string {
   if (!text) return "";
-  return text
-    .replace(/\b(?:one|won|wan)\b/gi, "1")
-    .replace(/\b(?:two|too|tu)\b/gi, "2")
-    .replace(/\b(?:three|tree|tri)\b/gi, "3")
-    .replace(/\b(?:four|fo)\b/gi, "4")
-    .replace(/\b(?:five|faiv)\b/gi, "5")
-    .replace(/\b(?:six|siks)\b/gi, "6")
-    .replace(/\b(?:seven|sevn)\b/gi, "7")
-    .replace(/\b(?:eight|eit|ate)\b/gi, "8")
-    .replace(/\b(?:nine|nain)\b/gi, "9")
-    .replace(/\b(?:zero|ziro)\b/gi, "0")
-    .replace(/\b(?:baako|bako)\b/gi, "1")
+  let clean = text.replace(/^[.,!?]+|[.,!?]+$/g, "");
+  return clean
+    .replace(/\b(?:option\s*1|number\s*1|option\s*one|number\s*one|menu\s*1|item\s*1)\b/gi, "1")
+    .replace(/\b(?:option\s*2|number\s*2|option\s*two|number\s*two|menu\s*2|item\s*2)\b/gi, "2")
+    .replace(/\b(?:option\s*3|number\s*3|option\s*three|number\s*three|menu\s*3|item\s*3)\b/gi, "3")
+    .replace(/\b(?:baako\s*pɛ|baa\s*ko)\b/gi, "1")
+    .replace(/\b(?:one|won|wan|first|1st)\b/gi, "1")
+    .replace(/\b(?:two|too|tu|to|second|2nd)\b/gi, "2")
+    .replace(/\b(?:three|tree|tri|third|3rd)\b/gi, "3")
+    .replace(/\b(?:four|fo|fore|fourth|4th)\b/gi, "4")
+    .replace(/\b(?:five|faiv|fifth|5th)\b/gi, "5")
+    .replace(/\b(?:six|siks|sixth|6th)\b/gi, "6")
+    .replace(/\b(?:seven|sevn|seventh|7th)\b/gi, "7")
+    .replace(/\b(?:eight|eit|ate|eighth|8th)\b/gi, "8")
+    .replace(/\b(?:nine|nain|ninth|9th)\b/gi, "9")
+    .replace(/\b(?:zero|ziro|zerro|oh)\b/gi, "0")
+    .replace(/\b(?:baako|bako|koro)\b/gi, "1")
     .replace(/\b(?:mmienu|mienu)\b/gi, "2")
     .replace(/\b(?:mmiɛnsa|mmiensa|miensa)\b/gi, "3")
     .replace(/\b(?:ɛnan|enan)\b/gi, "4")

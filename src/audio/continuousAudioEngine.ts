@@ -96,6 +96,7 @@ export class ContinuousAudioEngine {
   private isPlaybackGated: boolean = false;
   private sentenceBuffer: string[] = [];
   private sentenceCompleteTimer: any = null;
+  private micResumeTimer: any = null;
   private readonly SENTENCE_END_SILENCE_MS: number = 2200;
 
   constructor() {
@@ -104,6 +105,10 @@ export class ContinuousAudioEngine {
     if (typeof window !== "undefined") {
       audioPlaybackController.subscribe((pState) => {
         if (pState.isPlaying) {
+          if (this.micResumeTimer) {
+            clearTimeout(this.micResumeTimer);
+            this.micResumeTimer = null;
+          }
           if (pState.activeText) {
             this.activePromptText = pState.activeText;
           }
@@ -113,23 +118,22 @@ export class ContinuousAudioEngine {
           this.clearSentenceTimer();
           this.sentenceBuffer = [];
           this.lastStreamedWordCount = 0;
-          setTimeout(() => {
-            if (!audioPlaybackController.isSpeaking()) {
-              this.activePromptText = "";
-            }
-          }, 800);
-          if (wasGated && !this.isExplicitlyStopped && !this.isZeroPinMuted) {
-            // Acoustic drain buffer (500ms): ensures room speaker reverb has completely decayed before mic turns on
-            setTimeout(() => {
+          if (this.micResumeTimer) {
+            clearTimeout(this.micResumeTimer);
+            this.micResumeTimer = null;
+          }
+          if (!this.isExplicitlyStopped && !this.isZeroPinMuted) {
+            // Clean 200ms acoustic breath window: room speaker sound decays, then mic turns ON automatically
+            this.micResumeTimer = setTimeout(() => {
+              this.micResumeTimer = null;
               if (
                 !audioPlaybackController.isSpeaking() &&
-                !audioPlaybackController.isWithinEchoDrainWindow(500) &&
                 !this.isExplicitlyStopped &&
                 !this.isZeroPinMuted
               ) {
                 this.resumeAfterPlayback();
               }
-            }, 500);
+            }, 200);
           }
         }
       });
@@ -145,13 +149,28 @@ export class ContinuousAudioEngine {
 
   /**
    * Turns OFF microphone recording while system audio prompt is playing or after user finishes their sentence
-   * Uses atomic software gating so the hardware microphone stream does not flicker on/off in the browser.
    */
   public pauseForPlayback(): void {
     this.isPlaybackGated = true;
+    if (this.micResumeTimer) {
+      clearTimeout(this.micResumeTimer);
+      this.micResumeTimer = null;
+    }
     this.clearSentenceTimer();
     this.sentenceBuffer = [];
     this.lastStreamedWordCount = 0;
+    if (this.mediaStream) {
+      try {
+        this.mediaStream.getAudioTracks().forEach((track) => {
+          track.enabled = false;
+        });
+      } catch {}
+    }
+    if (this.recognition) {
+      try {
+        this.recognition.abort();
+      } catch {}
+    }
     this.updateState({
       isMicActive: false,
       isListening: false,
@@ -164,27 +183,34 @@ export class ContinuousAudioEngine {
    * Automatically turns ON microphone recording right after prompt audio finishes playing
    */
   public resumeAfterPlayback(): void {
+    if (this.micResumeTimer) {
+      clearTimeout(this.micResumeTimer);
+      this.micResumeTimer = null;
+    }
     this.clearSentenceTimer();
     this.sentenceBuffer = [];
     this.lastStreamedWordCount = 0;
     if (
       this.isExplicitlyStopped ||
       this.isZeroPinMuted ||
-      audioPlaybackController.isSpeaking() ||
-      audioPlaybackController.isWithinEchoDrainWindow(500)
+      audioPlaybackController.isSpeaking()
     ) {
       return;
     }
     this.isPlaybackGated = false;
+    if (this.mediaStream) {
+      try {
+        this.mediaStream.getAudioTracks().forEach((track) => {
+          track.enabled = true;
+        });
+      } catch {}
+    }
     this.updateState({
       isMicActive: true,
       isListening: true,
       currentInterimTranscript: "",
     });
-    // Ensure speech recognition is running without tearing down existing instance
-    if (!this.recognition) {
-      this.startContinuousSpeechRecognition();
-    }
+    this.startContinuousSpeechRecognition();
   }
 
   public subscribeState(listener: AudioStateListener): () => void {
@@ -383,12 +409,7 @@ export class ContinuousAudioEngine {
   private finalizeAndCommitUserSentence(pendingInterim: string = ""): void {
     this.clearSentenceTimer();
     // Drop completely if audio prompt is currently playing or recently finished within drain window
-    if (
-      this.isPlaybackGated ||
-      this.isZeroPinMuted ||
-      audioPlaybackController.isSpeaking() ||
-      audioPlaybackController.isWithinEchoDrainWindow(500)
-    ) {
+    if (this.isZeroPinMuted || audioPlaybackController.isSpeaking()) {
       this.sentenceBuffer = [];
       this.lastStreamedWordCount = 0;
       this.updateState({ currentInterimTranscript: "" });
@@ -484,7 +505,9 @@ export class ContinuousAudioEngine {
 
     try {
       if (this.recognition) {
-        return; // Recognition is already active and listening
+        try {
+          this.recognition.abort();
+        } catch {}
       }
 
       const recognition = new SpeechRecognition();
@@ -495,24 +518,14 @@ export class ContinuousAudioEngine {
       recognition.lang = "en-US";
 
       recognition.onstart = () => {
-        if (
-          !this.isPlaybackGated &&
-          !this.isZeroPinMuted &&
-          !audioPlaybackController.isSpeaking() &&
-          !audioPlaybackController.isWithinEchoDrainWindow(500)
-        ) {
+        if (!this.isZeroPinMuted && !audioPlaybackController.isSpeaking()) {
           this.updateState({ isMicActive: true, isListening: true });
         }
       };
 
       recognition.onresult = (event: any) => {
-        // Strictly ignore any recognition while system audio is playing, draining, or mic is gated
-        if (
-          this.isZeroPinMuted ||
-          this.isPlaybackGated ||
-          audioPlaybackController.isSpeaking() ||
-          audioPlaybackController.isWithinEchoDrainWindow(500)
-        ) {
+        // Strictly ignore any recognition while system audio is actively playing or PIN muted
+        if (this.isZeroPinMuted || audioPlaybackController.isSpeaking()) {
           return;
         }
 
@@ -545,15 +558,17 @@ export class ContinuousAudioEngine {
           this.updateState({ currentInterimTranscript: fullPreview, isSystemEchoBlocked: false });
 
           // Stream individual word tokens to subscribers for real-time word-by-word transcription
+          const rawWords = interimStr.split(/\s+/).filter(Boolean);
           const interimWords = fullPreview.split(/\s+/).filter(Boolean);
           if (interimWords.length > this.lastStreamedWordCount) {
             for (let wIdx = this.lastStreamedWordCount; wIdx < interimWords.length; wIdx++) {
-              const rawWord = interimWords[wIdx];
+              const normWord = interimWords[wIdx];
+              const rawWord = rawWords[wIdx] || normWord;
               const phonetic = repairGhanaianPronunciation(rawWord);
-              const isMatch = phonetic.repairedWords.length > 0;
+              const isMatch = phonetic.repairedWords.length > 0 || (rawWord.toLowerCase() !== normWord.toLowerCase());
               const token: SpokenWordToken = {
                 word: rawWord,
-                repaired: isMatch ? phonetic.normalizedTranscript : undefined,
+                repaired: isMatch ? (normWord || phonetic.normalizedTranscript) : undefined,
                 isPhoneticMatch: isMatch,
                 isFinal: false,
                 timestamp: Date.now(),
@@ -574,7 +589,6 @@ export class ContinuousAudioEngine {
             const extracted = speechNormalizer.extractSpokenDigits(fullPreview);
             if (extracted.length >= 10) {
               const tenDigits = extracted.slice(0, 10);
-              this.isPlaybackGated = true;
               this.clearSentenceTimer();
               this.sentenceBuffer = [];
               this.lastStreamedWordCount = 0;
@@ -592,13 +606,24 @@ export class ContinuousAudioEngine {
             const extracted = speechNormalizer.extractSpokenDigits(fullPreview);
             if (extracted.length >= 4) {
               const fourDigits = extracted.slice(0, 4);
-              this.isPlaybackGated = true;
               this.clearSentenceTimer();
               this.sentenceBuffer = [];
               this.lastStreamedWordCount = 0;
               this.finalizeAndCommitUserSentence(fourDigits);
               return;
             }
+          }
+
+          // 3. Fast-path single-token menu choice (e.g. "one", "1", "baako", "two", "2", "yes", "confirm", "cancel", "0")
+          const isSingleChoice = /^(?:1|one|won|wan|baako|bako|first|2|two|mmienu|mienu|second|3|three|mmiɛnsa|third|0|zero|cancel|stop|yes|no|aane|dabi)$/i.test(
+            normalizedInterim.trim().replace(/[.,!?]/g, "")
+          );
+          if (isSingleChoice) {
+            this.clearSentenceTimer();
+            this.sentenceCompleteTimer = setTimeout(() => {
+              this.finalizeAndCommitUserSentence(normalizedInterim);
+            }, 350);
+            return;
           }
 
           // Reset the sentence completion timer every time the user speaks another word,
@@ -680,13 +705,27 @@ export class ContinuousAudioEngine {
       };
 
       recognition.onend = () => {
-        this.recognition = null;
-        if (!this.isExplicitlyStopped && !this.isZeroPinMuted) {
+        // Keep-Alive Loop: Only restart if speech recognition is active, not gated, not playing, and not draining
+        if (
+          !this.isExplicitlyStopped &&
+          !this.isZeroPinMuted &&
+          !this.isPlaybackGated &&
+          !audioPlaybackController.isSpeaking() &&
+          !audioPlaybackController.isWithinEchoDrainWindow(600)
+        ) {
           setTimeout(() => {
-            if (!this.isExplicitlyStopped && !this.isZeroPinMuted && !this.recognition) {
-              this.startContinuousSpeechRecognition();
+            if (
+              !this.isExplicitlyStopped &&
+              !this.isZeroPinMuted &&
+              !this.isPlaybackGated &&
+              !audioPlaybackController.isSpeaking() &&
+              !audioPlaybackController.isWithinEchoDrainWindow(600)
+            ) {
+              try {
+                recognition.start();
+              } catch {}
             }
-          }, 300);
+          }, 60);
         }
       };
 
@@ -721,8 +760,7 @@ export class ContinuousAudioEngine {
       try {
         this.recognition.abort();
       } catch {}
-      this.recognition = null;
-    } else if (!muted && !this.isExplicitlyStopped && !this.isPlaybackGated) {
+    } else if (!muted && !this.isExplicitlyStopped) {
       this.startContinuousSpeechRecognition();
     }
   }
