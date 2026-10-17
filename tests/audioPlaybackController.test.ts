@@ -4,6 +4,24 @@ import { isAcousticSystemEcho, stripSystemEchoFromTranscript } from "../src/doma
 
 describe("AudioPlaybackController & Phone Simulator Audio Gating", () => {
   beforeEach(() => {
+    if (typeof (globalThis as any).Audio === "undefined") {
+      (globalThis as any).Audio = class MockAudio {
+        src = "";
+        currentTime = 0;
+        volume = 1;
+        preload = "auto";
+        onended: any = null;
+        onerror: any = null;
+        play() {
+          if (this.src.includes("unavailable")) {
+            setTimeout(() => this.onerror?.(new Event("error")), 10);
+            return Promise.reject(new Error("File not found"));
+          }
+          return new Promise(() => {}); // stays playing until stopped
+        }
+        pause() {}
+      };
+    }
     audioPlaybackController.stop();
   });
 
@@ -85,4 +103,35 @@ describe("AudioPlaybackController & Phone Simulator Audio Gating", () => {
     // Call tone indicator while speaking - should resolve immediately without playing over active audio
     await expect(audioPlaybackController.playToneIndicator(300)).resolves.toBeUndefined();
   });
+
+  it("identifies identical clips across encoded and extension differences with isSameClip", () => {
+    expect(
+      audioPlaybackController.isSameClip(
+        "/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Welcome%201%20(2).mp3",
+        "/audio/supplied/Twi/1.Welcome & Session Start/Welcome 1 (2).m4a"
+      )
+    ).toBe(true);
+
+    expect(
+      audioPlaybackController.isSameClip(
+        "/audio/prompt_a.mp3",
+        "/audio/prompt_b.mp3"
+      )
+    ).toBe(false);
+  });
+
+  it("deduplicates identical audio requests while active to eliminate double audio playing at once", async () => {
+    // Start first audio playback (synchronously sets isPlaying: true and activeClip)
+    audioPlaybackController.play("/audio/Welcome_prompt_01.mp3", "Welcome");
+    const token = audioPlaybackController.getCurrentToken();
+    expect(audioPlaybackController.isSpeaking()).toBe(true);
+
+    // Request the same audio while active
+    const sameResult = await audioPlaybackController.play("/audio/Welcome_prompt_01.mp3", "Welcome updated text");
+    expect(sameResult).toBe(true);
+    // Token does NOT increment because it did not trigger a duplicate parallel audio playback
+    expect(audioPlaybackController.getCurrentToken()).toBe(token);
+    expect(audioPlaybackController.getActivePromptText()).toBe("Welcome updated text");
+  });
 });
+

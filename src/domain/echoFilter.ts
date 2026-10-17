@@ -194,11 +194,25 @@ export function isAcousticSystemEcho(
     return false;
   }
 
-  // 1. Check against the currently / recently playing assistant prompt
+  // CRITICAL: Acoustic echo from system speakers can ONLY physically happen while
+  // the assistant is actively speaking audio through the loudspeakers!
+  // Once the prompt has finished playing, any sound entering the mic is the USER's voice.
+  if (!isAssistantSpeaking) {
+    // If assistant is not speaking, only flag as echo if the transcript is an exact verbatim copy of the entire prompt
+    if (activeAssistantPrompt && activeAssistantPrompt.trim().length > 0) {
+      const normalizedPrompt = normalizeTextForComparison(activeAssistantPrompt);
+      if (normalizedTranscript.length >= 15 && normalizedPrompt === normalizedTranscript) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // 1. Check against the currently playing assistant prompt
   if (activeAssistantPrompt && activeAssistantPrompt.trim().length > 0) {
     const normalizedPrompt = normalizeTextForComparison(activeAssistantPrompt);
     
-    // Substring match: transcript is a direct phrase from the prompt
+    // Substring match: transcript is a direct phrase from the actively playing prompt
     if (normalizedTranscript.length >= 6 && normalizedPrompt.includes(normalizedTranscript)) {
       return true;
     }
@@ -213,35 +227,13 @@ export function isAcousticSystemEcho(
     }
   }
 
-  // 2. Check against known system prompt catalog
+  // 2. Extra sensitivity if the assistant is actively playing audio through the speakers
   for (const prompt of CANONICAL_SYSTEM_PROMPTS) {
-    // If transcript is found inside a known system prompt
-    if (prompt.includes(normalizedTranscript) && normalizedTranscript.length >= 8) {
-      return true;
-    }
-    // If transcript contains a major chunk of a system prompt
-    if (normalizedTranscript.includes(prompt) && prompt.length >= 10) {
-      return true;
-    }
-    // High word overlap against known prompt
     const words = normalizedTranscript.split(" ").filter((w) => w.length > 2);
-    if (words.length >= 3) {
+    if (words.length >= 2) {
       const matchCount = words.filter((w) => prompt.includes(w)).length;
-      if (matchCount / words.length >= 0.7) {
+      if (matchCount / words.length >= 0.6) {
         return true;
-      }
-    }
-  }
-
-  // 3. Extra sensitivity if the assistant is actively playing audio through the speakers
-  if (isAssistantSpeaking) {
-    for (const prompt of CANONICAL_SYSTEM_PROMPTS) {
-      const words = normalizedTranscript.split(" ").filter((w) => w.length > 2);
-      if (words.length >= 2) {
-        const matchCount = words.filter((w) => prompt.includes(w)).length;
-        if (matchCount / words.length >= 0.5) {
-          return true;
-        }
       }
     }
   }

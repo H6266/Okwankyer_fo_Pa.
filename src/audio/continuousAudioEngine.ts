@@ -96,6 +96,7 @@ export class ContinuousAudioEngine {
   private isPlaybackGated: boolean = false;
   private sentenceBuffer: string[] = [];
   private sentenceCompleteTimer: any = null;
+  private micResumeTimer: any = null;
   private readonly SENTENCE_END_SILENCE_MS: number = 2200;
 
   constructor() {
@@ -104,6 +105,10 @@ export class ContinuousAudioEngine {
     if (typeof window !== "undefined") {
       audioPlaybackController.subscribe((pState) => {
         if (pState.isPlaying) {
+          if (this.micResumeTimer) {
+            clearTimeout(this.micResumeTimer);
+            this.micResumeTimer = null;
+          }
           if (pState.activeText) {
             this.activePromptText = pState.activeText;
           }
@@ -113,23 +118,28 @@ export class ContinuousAudioEngine {
           this.clearSentenceTimer();
           this.sentenceBuffer = [];
           this.lastStreamedWordCount = 0;
+          if (this.micResumeTimer) {
+            clearTimeout(this.micResumeTimer);
+            this.micResumeTimer = null;
+          }
           setTimeout(() => {
             if (!audioPlaybackController.isSpeaking()) {
               this.activePromptText = "";
             }
           }, 800);
           if (wasGated && !this.isExplicitlyStopped && !this.isZeroPinMuted) {
-            // Acoustic drain buffer (500ms): ensures room speaker reverb has completely decayed before mic turns on
-            setTimeout(() => {
+            // Acoustic drain buffer (600ms): ensures room speaker reverb has completely decayed before mic turns on
+            this.micResumeTimer = setTimeout(() => {
+              this.micResumeTimer = null;
               if (
                 !audioPlaybackController.isSpeaking() &&
-                !audioPlaybackController.isWithinEchoDrainWindow(500) &&
+                !audioPlaybackController.isWithinEchoDrainWindow(600) &&
                 !this.isExplicitlyStopped &&
                 !this.isZeroPinMuted
               ) {
                 this.resumeAfterPlayback();
               }
-            }, 500);
+            }, 600);
           }
         }
       });
@@ -148,9 +158,20 @@ export class ContinuousAudioEngine {
    */
   public pauseForPlayback(): void {
     this.isPlaybackGated = true;
+    if (this.micResumeTimer) {
+      clearTimeout(this.micResumeTimer);
+      this.micResumeTimer = null;
+    }
     this.clearSentenceTimer();
     this.sentenceBuffer = [];
     this.lastStreamedWordCount = 0;
+    if (this.mediaStream) {
+      try {
+        this.mediaStream.getAudioTracks().forEach((track) => {
+          track.enabled = false;
+        });
+      } catch {}
+    }
     if (this.recognition) {
       try {
         this.recognition.abort();
@@ -168,6 +189,10 @@ export class ContinuousAudioEngine {
    * Automatically turns ON microphone recording right after prompt audio finishes playing
    */
   public resumeAfterPlayback(): void {
+    if (this.micResumeTimer) {
+      clearTimeout(this.micResumeTimer);
+      this.micResumeTimer = null;
+    }
     this.clearSentenceTimer();
     this.sentenceBuffer = [];
     this.lastStreamedWordCount = 0;
@@ -175,11 +200,18 @@ export class ContinuousAudioEngine {
       this.isExplicitlyStopped ||
       this.isZeroPinMuted ||
       audioPlaybackController.isSpeaking() ||
-      audioPlaybackController.isWithinEchoDrainWindow(500)
+      audioPlaybackController.isWithinEchoDrainWindow(600)
     ) {
       return;
     }
     this.isPlaybackGated = false;
+    if (this.mediaStream) {
+      try {
+        this.mediaStream.getAudioTracks().forEach((track) => {
+          track.enabled = true;
+        });
+      } catch {}
+    }
     this.updateState({
       isMicActive: true,
       isListening: true,
@@ -388,7 +420,7 @@ export class ContinuousAudioEngine {
       this.isPlaybackGated ||
       this.isZeroPinMuted ||
       audioPlaybackController.isSpeaking() ||
-      audioPlaybackController.isWithinEchoDrainWindow(500)
+      audioPlaybackController.isWithinEchoDrainWindow(600)
     ) {
       this.sentenceBuffer = [];
       this.lastStreamedWordCount = 0;
@@ -502,7 +534,7 @@ export class ContinuousAudioEngine {
           !this.isPlaybackGated &&
           !this.isZeroPinMuted &&
           !audioPlaybackController.isSpeaking() &&
-          !audioPlaybackController.isWithinEchoDrainWindow(500)
+          !audioPlaybackController.isWithinEchoDrainWindow(600)
         ) {
           this.updateState({ isMicActive: true, isListening: true });
         }
@@ -514,7 +546,7 @@ export class ContinuousAudioEngine {
           this.isZeroPinMuted ||
           this.isPlaybackGated ||
           audioPlaybackController.isSpeaking() ||
-          audioPlaybackController.isWithinEchoDrainWindow(500)
+          audioPlaybackController.isWithinEchoDrainWindow(600)
         ) {
           return;
         }
@@ -687,7 +719,7 @@ export class ContinuousAudioEngine {
           !this.isZeroPinMuted &&
           !this.isPlaybackGated &&
           !audioPlaybackController.isSpeaking() &&
-          !audioPlaybackController.isWithinEchoDrainWindow(500)
+          !audioPlaybackController.isWithinEchoDrainWindow(600)
         ) {
           setTimeout(() => {
             if (
@@ -695,7 +727,7 @@ export class ContinuousAudioEngine {
               !this.isZeroPinMuted &&
               !this.isPlaybackGated &&
               !audioPlaybackController.isSpeaking() &&
-              !audioPlaybackController.isWithinEchoDrainWindow(500)
+              !audioPlaybackController.isWithinEchoDrainWindow(600)
             ) {
               try {
                 recognition.start();

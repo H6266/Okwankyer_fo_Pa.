@@ -355,6 +355,7 @@ export const PhoneSimulatorPage: React.FC = () => {
   const isMicMutedRef = useRef<boolean>(false);
   const zeroPinOverlayRef = useRef<boolean>(false);
   const brainDraftRef = useRef<any>({ slots: {} });
+  const micUnmuteTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => { callActiveRef.current = callActive; }, [callActive]);
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
@@ -500,6 +501,10 @@ export const PhoneSimulatorPage: React.FC = () => {
       if (!callActiveRef.current) return;
       if (state.isPlaying) {
         wasPlaying = true;
+        if (micUnmuteTimerRef.current) {
+          clearTimeout(micUnmuteTimerRef.current);
+          micUnmuteTimerRef.current = null;
+        }
         // Turn mic OFF while prompt is playing so internal audio is never recorded
         setIsMicMuted(true);
         isMicMutedRef.current = true;
@@ -508,11 +513,16 @@ export const PhoneSimulatorPage: React.FC = () => {
       } else {
         if (wasPlaying && !zeroPinOverlayRef.current && !isVoiceCaptureBlockedForStep(activeStepNameRef.current)) {
           wasPlaying = false;
-          // Acoustic drain buffer (500ms): guarantees speaker sound in the room has completely decayed before mic turns on
-          setTimeout(() => {
+          if (micUnmuteTimerRef.current) {
+            clearTimeout(micUnmuteTimerRef.current);
+            micUnmuteTimerRef.current = null;
+          }
+          // Acoustic drain buffer (600ms): guarantees speaker sound in the room has completely decayed before mic turns on
+          micUnmuteTimerRef.current = setTimeout(() => {
+            micUnmuteTimerRef.current = null;
             if (
               !audioPlaybackController.isSpeaking() &&
-              !audioPlaybackController.isWithinEchoDrainWindow(500) &&
+              !audioPlaybackController.isWithinEchoDrainWindow(600) &&
               callActiveRef.current &&
               !zeroPinOverlayRef.current
             ) {
@@ -523,11 +533,17 @@ export const PhoneSimulatorPage: React.FC = () => {
               setCallStatus("Listening");
               addLog("asr", "🎙️ Audio prompt finished — Microphone automatically turned ON to record your need.");
             }
-          }, 500);
+          }, 600);
         }
       }
     });
-    return () => unsubscribe();
+    return () => {
+      if (micUnmuteTimerRef.current) {
+        clearTimeout(micUnmuteTimerRef.current);
+        micUnmuteTimerRef.current = null;
+      }
+      unsubscribe();
+    };
   }, [addLog]);
 
   // Format MM:SS timer
@@ -837,8 +853,8 @@ export const PhoneSimulatorPage: React.FC = () => {
         options: choices,
       });
 
-      // Stop any prior audio so new prompts never collide
-      audioPlaybackController.stop();
+      // Stop any prior audio atomically without broadcast flap so new prompts never collide
+      audioPlaybackController.stop(false);
       audioPlaybackController.unlockAudio();
       const resolvedSequence = (parsed.playUrls && parsed.playUrls.length > 1)
         ? (parsed.playUrls.map(u => resolvePlayableSimulatorAudioUrl(u, responseLanguage)).filter(Boolean) as string[])
@@ -1158,7 +1174,7 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       // STRICT GUARD: If audio prompt is actively playing or draining, DROP this utterance completely
       // so audios never hear themselves, play themselves, or overlap!
-      if (!isDirectSimulated && (audioPlaybackController.isSpeaking() || isAudioSpeaking || audioPlaybackController.isWithinEchoDrainWindow(500))) {
+      if (!isDirectSimulated && (audioPlaybackController.isSpeaking() || isAudioSpeaking || audioPlaybackController.isWithinEchoDrainWindow(600))) {
         console.warn("[PhoneSimulator] Dropping speech while audio is playing/draining:", clean);
         return;
       }
@@ -1878,7 +1894,7 @@ export const PhoneSimulatorPage: React.FC = () => {
         zeroPinOverlayRef.current ||
         isAudioSpeaking ||
         audioPlaybackController.isSpeaking() ||
-        audioPlaybackController.isWithinEchoDrainWindow(500)
+        audioPlaybackController.isWithinEchoDrainWindow(600)
       ) {
         return;
       }
