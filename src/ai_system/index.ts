@@ -125,8 +125,8 @@ export * from "./security/fieldEncryption";
 export * from "./voice/liveVoiceGateway";
 
 import { aiEngine } from "./core/aiEngine";
-import { reasoningEngine } from "./understanding/reasoningEngine";
 import { ttsService } from "./speech/tts/ttsService";
+import { randomUUID } from "crypto";
 import { audioIngestor } from "./perception/audioIngestor";
 import { offlineAIEngine } from "./core/offlineAIEngine";
 import { asrOrchestrator } from "./speech/asr/asrOrchestrator";
@@ -136,22 +136,40 @@ export const aiSystem = {
     return aiEngine.process(input);
   },
 
-  analyzeUtterance: async (utterance: string, languageHint: any = "bilingual") => {
-    const res = await reasoningEngine.reason({
-      utterance,
-      languageHint,
+  analyzeUtterance: async (utterance: string, languageHint: any = "bilingual", draft?: any) => {
+    const language =
+      languageHint === "tw" || languageHint === "ak" || languageHint === "twi" || languageHint === "twi-asante"
+        ? "tw"
+        : languageHint === "en-ak" || languageHint === "mixed-twi-en" || languageHint === "code-switched"
+        ? "en-ak"
+        : languageHint === "en"
+        ? "en"
+        : undefined;
+    const result = await aiEngine.process({
+      sessionId: `analysis_${randomUUID()}`,
+      channel: "TEXT",
+      input: utterance,
+      language,
+      executionPolicy: "UNDERSTAND_ONLY",
+      transactionState: {
+        intent: draft?.intent === "momo.transfer" ? "SEND_MONEY" : undefined,
+        amount: draft?.slots?.amount ?? null,
+        recipientPhone: draft?.slots?.recipient?.phone ?? draft?.slots?.recipientPhone ?? null,
+        recipientName: draft?.slots?.recipient?.name ?? draft?.slots?.recipientName ?? null,
+        network: draft?.slots?.network ?? null,
+      },
     });
     return {
-      intent: res.intent,
-      confidence: res.confidence,
-      amount: res.entities.amount,
-      recipientPhone: res.entities.recipientPhone,
-      recipientName: res.entities.recipientName,
-      network: res.entities.network,
-      detectedLanguage: res.language,
-      isAffirmation: res.conversationAct === "CONFIRM",
-      isDenial: res.conversationAct === "DENY",
-      requiresConfirmation: res.requiresConfirmation,
+      intent: result.intent,
+      confidence: result.confidence,
+      amount: result.entities.amount,
+      recipientPhone: result.entities.recipientPhone,
+      recipientName: result.entities.recipientName,
+      network: result.entities.network,
+      detectedLanguage: result.language,
+      isAffirmation: result.intent === "CONFIRM",
+      isDenial: result.intent === "DENY",
+      requiresConfirmation: result.safety.requiresConfirmation,
     };
   },
 

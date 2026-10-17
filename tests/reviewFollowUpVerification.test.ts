@@ -92,7 +92,7 @@ describe('Review Follow-Up Verification Tests', () => {
       expect(turn3.decision.kind).not.toBe('dispatch');
     });
 
-    it('allows dispatch when previous reply was a genuine read-back containing amount and recipient', async () => {
+    it('does not dispatch transfers through the retired legacy service after a genuine read-back', async () => {
       // Step 1: Turn presenting full readback
       const offlineBrain = new Brain({ mode: 'offline_only' });
       const testSessionId = `test-readback-${Date.now()}`;
@@ -120,8 +120,10 @@ describe('Review Follow-Up Verification Tests', () => {
         draft: turn1.updatedDraft,
       });
 
-      expect(turn2.decision.kind).toBe('dispatch');
-      expect(turn2.updatedDraft.confirmed).toBe(true);
+      expect(turn2.decision.kind).toBe('not_ready');
+      expect(turn2.updatedDraft.confirmed).toBe(false);
+      expect(serviceRegistry.get('momo.transfer')?.status).toBe('ready');
+      expect(serviceRegistry.get('momo.transfer')?.handler).toBeUndefined();
     });
   });
 

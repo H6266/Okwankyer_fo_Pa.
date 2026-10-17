@@ -1,11 +1,25 @@
 # Ɔkwankyerɛfo Pa architecture
 
-**Status date:** 2026-10-05
+**Status date:** 2026-10-17
 This document describes the current implemented seams and their limits. It is not a claim that the full target architecture has shipped.
 
 ## Current execution path
 
-The main text/audio entry point is `src/ai_system/core/aiEngine.ts`. It normalizes input, loads session/task state, calls `reasoningEngine`, plans navigation and actions, applies the safety engine, dispatches only through `unifiedToolRegistry`, generates a response, and stores the turn. Audio ingestion delegates through the ASR router. This architecture still has parallel/legacy NLU, payment, and speech paths; complete deduplication is work in progress.
+Dashboard simulator turns, Africa's Talking free-form speech, `/api/ai/brain/process`, and utterance analysis now enter through `aiSystem.process()` and the canonical `src/ai_system/core/aiEngine.ts`. The engine normalizes input, loads session/task state, routes understanding through `CognitiveRouter`, plans navigation and actions, applies the safety engine, generates a response, and stores the turn. Simulator and telephony conversation turns use understand-only execution; keypad navigation remains deterministic. Confirmed transfers are dispatched by the payment saga, not by a second conversational brain. Audio ingestion delegates through the ASR router.
+
+This consolidates the natural-language decisions for these channels, but does not mean every NLU, payment, or speech path in the repository has been unified. Other engine callers may use the tool registry directly, and non-transfer services and speech workers still require separate release verification.
+
+Simulator turns are admin-authenticated and rate-limited. They can prepare a transfer and collect a confirmation for diagnostics, but they never submit a payment. Public `/api/ai/process` requests and the browser live-voice gateway are forced to understand-only execution, regardless of client-supplied execution policies. The retired legacy brain registry cannot execute transfers, and the central transaction submission endpoint is retired. When `AT_WEBHOOK_SECRET` is configured, telephony callbacks must provide it; generated callback and redirect URLs carry the configured secret.
+
+```text
+simulator/public AI input -> aiEngine understanding -> persisted draft and explanation
+  -> no payment dispatch
+
+verified telephony input -> deterministic confirmation policy
+  -> payment saga -> provider evidence -> truthful response
+```
+
+The simulator route cannot dispatch a saga. Confirmation at the wrong stage, an unverified draft, or a changed transaction amount must not execute on the telephony path.
 
 For high-risk financial actions, the intended authority order is:
 
@@ -38,7 +52,7 @@ Production startup requires `ADMIN_TOKEN`, `SESSION_SECRET`, `ENCRYPTION_KEY` (e
 
 ## Understanding and confidence
 
-`LocalLanguageBrain` is a lexical/slot evidence provider. It uses phrase cues and number parsing, proposes no direct execution, and does not provide a calibrated probability. The score is explicitly an uncalibrated lexical evidence score. Gemini output in `CognitiveRouter` is strictly schema-checked, constrained against literal utterance evidence for extracted values, and rejected when its intent conflicts with local interpretation. The main `AiEngine` is not yet fully integrated with one centralized model gateway or one NLU implementation.
+`LocalLanguageBrain` is a lexical/slot evidence provider. It uses phrase cues and number parsing, proposes no direct execution, and does not provide a calibrated probability. The score is explicitly an uncalibrated lexical evidence score. Model output in `CognitiveRouter` is schema-checked and constrained against utterance evidence. The old route-level `brain.process()` decision path has been removed from the simulator and telephony handlers; the canonical engine still coordinates multiple understanding providers, and the NLU training artifact has not been verified against production runtime loading.
 
 ## Provider and transaction boundaries
 
@@ -46,7 +60,7 @@ Production startup requires `ADMIN_TOKEN`, `SESSION_SECRET`, `ENCRYPTION_KEY` (e
 
 ## Evaluation and delivery
 
-Historical unsupported metrics and file-existence grading were removed from the evaluation scripts. The current test additions cover provider truth, unbound confirmation, missing networks, safe local understanding, and durable encrypted memory. They were not runnable in this environment because the checkout has no installed `vitest`, `tsc`, `eslint`, or `tsx`; Python is also unavailable. No benchmark, accuracy, latency, or release score is claimed.
+Historical unsupported metrics and file-existence grading were removed from the evaluation scripts. Phase 1 verification in this checkout includes type-checking, a production build, and focused brain, simulator, telephony, and payment regression tests. Full CI/release gates and empirical accuracy, latency, or Ghanaian-language quality benchmarks are not claimed.
 
 ## Production status
 

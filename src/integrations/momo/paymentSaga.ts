@@ -994,6 +994,15 @@ export class PaymentSagaOrchestrator {
     );
   }
 
+  public getSagaByProviderReference(referenceId: string): SagaTransaction | undefined {
+    if (!referenceId) return undefined;
+    return durableTransactionStore.getAllSagas().find(
+      (saga) =>
+        saga.collectionReference === referenceId ||
+        saga.disbursementReference === referenceId
+    );
+  }
+
   public getSagaByIdempotencyKey(idempotencyKey: string): SagaTransaction | undefined {
     const record = durableIdempotencyLedger.get(`payment-saga:${idempotencyKey}`);
     if (record?.resourceId) {

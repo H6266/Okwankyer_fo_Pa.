@@ -6,6 +6,7 @@
  */
 
 import { Router, Request, Response } from "express";
+import { randomUUID } from "crypto";
 import { mtnMomoService } from "../modules/mtnMomoService";
 import { requireAdminAuth } from "../middleware/adminAuth";
 import { adminRateLimiter } from "../middleware/rateLimiter";
@@ -118,32 +119,41 @@ momoRouter.post("/api/momo/transaction/confirm", (req: Request, res: Response) =
 });
 
 // Step 4: Submit Transaction to MTN
-momoRouter.post("/api/momo/transaction/submit", async (req: Request, res: Response) => {
-  try {
-    const { transactionId, mode, payerPhone } = req.body;
-    if (!transactionId) {
-      return res.status(400).json({ success: false, error: "transactionId is required." });
-    }
-
-    const tx = await momoProvider.submitTransaction(transactionId, { mode, payerPhone });
-    res.status(tx.status === "PENDING" ? 202 : 200).json({
-      success: tx.status !== "FAILED" && tx.status !== "SUBMISSION_FAILED",
-      transaction: tx,
+momoRouter.post(
+  "/api/momo/transaction/submit",
+  adminRateLimiter,
+  requireAdminAuth,
+  (_req: Request, res: Response) => {
+    const traceId = randomUUID();
+    auditLogger.log(
+      "warn",
+      "SECURITY",
+      "Retired central transaction submission endpoint was requested; no provider request was made.",
+      traceId
+    );
+    return res.status(410).json({
+      success: false,
+      error: "CENTRAL_TRANSACTION_SUBMISSION_DISABLED",
+      message: "Transfers must use the verified confirmation workflow.",
+      traceId,
     });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
   }
-});
+);
 
 // Step 5: Get Transaction by ID or Reference
-momoRouter.get("/api/momo/transaction/:id", (req: Request, res: Response) => {
-  const { id } = req.params;
-  const tx = momoProvider.getTransaction(id);
-  if (!tx) {
-    return res.status(404).json({ success: false, error: `Transaction ${id} not found.` });
+momoRouter.get(
+  "/api/momo/transaction/:id",
+  adminRateLimiter,
+  requireAdminAuth,
+  (req: Request, res: Response) => {
+    const { id } = req.params;
+    const tx = momoProvider.getTransaction(id);
+    if (!tx) {
+      return res.status(404).json({ success: false, error: `Transaction ${id} not found.` });
+    }
+    res.json({ success: true, transaction: tx });
   }
-  res.json({ success: true, transaction: tx });
-});
+);
 
 // ── Diagnostics & Capability Matrix ──────────────────────────────────
 momoRouter.get("/api/momo/status", adminRateLimiter, requireAdminAuth, (_req: Request, res: Response) => {
@@ -821,128 +831,175 @@ momoRouter.post("/api/momo/switch-env", adminRateLimiter, requireAdminAuth, (req
 });
 
 // ── Payment Saga Endpoints (MTN Sandbox & Mock Provider) ───────────────
-momoRouter.get("/api/momo/saga/latest", (req: Request, res: Response) => {
-  const sessionId = req.query.sessionId as string;
-  if (!sessionId) {
-    return res.status(400).json({ error: "sessionId query parameter is required." });
-  }
-  const saga = paymentSaga.getLatestSagaForSession(sessionId);
-  if (!saga) {
-    return res.status(404).json({ error: "No saga found for session." });
-  }
-  res.json({ success: true, saga });
-});
-
-momoRouter.get("/api/momo/saga/:sagaId", (req: Request, res: Response) => {
-  const saga = paymentSaga.getSaga(req.params.sagaId);
-  if (!saga) {
-    return res.status(404).json({ error: "Saga not found." });
-  }
-  res.json({ success: true, saga });
-});
-
-momoRouter.post("/api/momo/saga/execute", async (req: Request, res: Response) => {
-  try {
-    const { sessionId, senderPhone, recipientPhone, recipientName, amount, network, confirmedDraftHash, timeoutMs, simulateOutcome } = req.body;
-    if (!sessionId || !recipientPhone || !amount) {
-      return res.status(400).json({ error: "sessionId, recipientPhone, and amount are required." });
+momoRouter.get(
+  "/api/momo/saga/latest",
+  adminRateLimiter,
+  requireAdminAuth,
+  (req: Request, res: Response) => {
+    const sessionId = req.query.sessionId as string;
+    if (!sessionId) {
+      return res.status(400).json({ error: "sessionId query parameter is required." });
     }
-    const result = await paymentSaga.executeConfirmedTransferSaga({
-      sessionId,
-      senderPhone: senderPhone || "0244123456",
-      recipientPhone,
-      recipientName,
-      amount: Number(amount),
-      network,
-      confirmedDraftHash,
-      timeoutMs,
-      simulateOutcome,
-    });
-    res.json({ success: true, ...result });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-momoRouter.post("/api/momo/saga/resolve-mock", (req: Request, res: Response) => {
-  try {
-    const { sagaId, outcome } = req.body;
-    if (!sagaId) {
-      return res.status(400).json({ error: "sagaId is required." });
+    const saga = paymentSaga.getLatestSagaForSession(sessionId);
+    if (!saga) {
+      return res.status(404).json({ error: "No saga found for session." });
     }
-    const saga = paymentSaga.getSaga(sagaId);
+    res.json({ success: true, saga });
+  }
+);
+
+momoRouter.get(
+  "/api/momo/saga/:sagaId",
+  adminRateLimiter,
+  requireAdminAuth,
+  (req: Request, res: Response) => {
+    const saga = paymentSaga.getSaga(req.params.sagaId);
     if (!saga) {
       return res.status(404).json({ error: "Saga not found." });
     }
-    if (outcome === "SUCCESS") {
-      paymentSaga.recordCollectionResult(sagaId, {
-        status: "SUCCESSFUL",
-        provider: "MOCK_PROVIDER",
-        financialTransactionId: `MOCK_FIN_COLL_${Date.now()}`,
-        httpStatus: 200,
-      });
-      paymentSaga.initiateDisbursement(sagaId, `mock-disb-${Date.now()}`, {
-        provider: "MOCK_PROVIDER",
-        providerStatus: "SUCCESSFUL",
-        httpStatus: 200,
-      });
-      paymentSaga.finalizeDisbursement(sagaId, true, undefined, `MOCK_FIN_DISB_${Date.now()}`);
-    } else {
-      paymentSaga.recordCollectionResult(sagaId, {
-        status: "FAILED",
-        provider: "MOCK_PROVIDER",
-        reason: "Customer declined payment authorization on handset.",
-        httpStatus: 400,
-      });
-    }
-    const updated = paymentSaga.getSaga(sagaId);
-    res.json({ success: true, saga: updated });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.json({ success: true, saga });
   }
-});
+);
+
+momoRouter.post(
+  "/api/momo/saga/execute",
+  adminRateLimiter,
+  requireAdminAuth,
+  (_req: Request, res: Response) => {
+    const traceId = randomUUID();
+    auditLogger.log(
+      "warn",
+      "SECURITY",
+      "Disabled direct saga execution endpoint was requested; no transaction was dispatched.",
+      traceId
+    );
+    return res.status(410).json({
+      success: false,
+      error: "DIRECT_SAGA_EXECUTION_DISABLED",
+      message: "Transfers must be confirmed through the verified voice or simulator workflow.",
+      traceId,
+    });
+  }
+);
+
+momoRouter.post(
+  "/api/momo/saga/resolve-mock",
+  adminRateLimiter,
+  requireAdminAuth,
+  (_req: Request, res: Response) => {
+    const traceId = randomUUID();
+    auditLogger.log(
+      "warn",
+      "SECURITY",
+      "Disabled mock saga resolution endpoint was requested; provider status was not changed.",
+      traceId
+    );
+    return res.status(410).json({
+      success: false,
+      error: "MOCK_SAGA_RESOLUTION_DISABLED",
+      message: "Transaction outcomes must be reconciled from trusted provider status.",
+      traceId,
+    });
+  }
+);
 
 // ── MoMo Sandbox Async Callback Webhook (RequestToPay & Transfer) ───────
 // Receives live callbacks from MTN MoMo Sandbox or production gateway.
 // Automatically resolves the event to canonical studio recordings (OP01-OP94).
 momoRouter.all(["/api/momo/callback", "/momo/callback"], async (req: Request, res: Response) => {
   try {
-    const referenceHeader = (req.headers["x-reference-id"] as string) || (req.query.referenceId as string) || undefined;
-    const result = await momoCallbackService.handleWebhook(req.body, referenceHeader);
+    const headerReference = req.headers["x-reference-id"];
+    const referenceId = (
+      typeof headerReference === "string" ? headerReference :
+      typeof req.body?.referenceId === "string" ? req.body.referenceId :
+      typeof req.query?.referenceId === "string" ? req.query.referenceId :
+      ""
+    ).trim();
+
+    if (!referenceId) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing provider reference ID.",
+      });
+    }
+
+    const saga = paymentSaga.getSagaByProviderReference(referenceId);
+    const transaction = momoProvider.getTransaction(referenceId);
+    const sagaReferenceType = saga?.disbursementReference === referenceId
+      ? "disbursement"
+      : saga?.collectionReference === referenceId
+        ? "collection"
+        : undefined;
+
+    if (!saga && !transaction) {
+      auditLogger.log("warn", "SECURITY", `Rejected MoMo callback for unknown provider reference ${referenceId}`);
+      return res.status(404).json({
+        success: false,
+        error: "Unknown provider reference.",
+      });
+    }
+
+    let providerStatus;
+    try {
+      providerStatus = saga
+        ? saga.network !== "MTN"
+          ? undefined
+          : sagaReferenceType === "disbursement"
+            ? await momoProvider.status.getTransferStatus(referenceId)
+            : await momoProvider.status.getRequestToPayStatus(referenceId)
+        : transaction?.metadata?.paymentMode === "COLLECTION_REQUEST_TO_PAY"
+          ? await momoProvider.status.getRequestToPayStatus(referenceId)
+          : await momoProvider.status.getTransferStatus(referenceId);
+    } catch (err: any) {
+      auditLogger.log("warn", "MOMO", `Provider status could not verify callback ${referenceId}: ${err.message}`);
+      return res.status(503).json({
+        success: false,
+        error: "Provider status verification is temporarily unavailable.",
+      });
+    }
+
+    if (!providerStatus) {
+      return res.status(422).json({
+        success: false,
+        error: "The provider reference is not supported by the MTN callback verifier.",
+      });
+    }
+
+    const verifiedPayload = {
+      referenceId,
+      status: providerStatus.status,
+      financialTransactionId: providerStatus.financialTransactionId || undefined,
+      amount: providerStatus.amount,
+      currency: providerStatus.currency,
+      reason: providerStatus.rawResponse?.reason || providerStatus.rawResponse?.reasonCode,
+    };
+    const result = await momoCallbackService.handleWebhook(verifiedPayload, referenceId);
 
     if (!result.success || !result.referenceId || !result.feedItem) {
       return res.status(400).json({
         success: false,
-        error: "Missing reference ID in webhook payload or X-Reference-Id header.",
+        error: "Provider callback could not be reconciled.",
       });
     }
 
-    const { referenceId, feedItem } = result;
+    const feedItem = result.feedItem;
 
-    // 1. Sync internal Transaction State Machine
-    const allSessions = transactionStateMachine.getAllSessions();
-    const matchingSession = allSessions.find(
-      (s) =>
-        s.momoReferenceId === referenceId ||
-        s.referenceId === referenceId ||
-        s.sessionId === referenceId ||
-        s.idempotencyKey?.includes(referenceId) ||
-        paymentSaga.getLatestSagaForSession(s.sessionId)?.disbursementReference === referenceId
-    );
+    const matchingSession = saga?.sessionId
+      ? transactionStateMachine.getAllSessions().find((session) => session.sessionId === saga.sessionId)
+      : transaction?.metadata?.sessionId
+        ? transactionStateMachine.getAllSessions().find((session) => session.sessionId === transaction.metadata?.sessionId)
+        : undefined;
+    let sagaReconciled = false;
 
-    if (matchingSession && matchingSession.state === "PIN_PENDING") {
-      const saga = paymentSaga.getLatestSagaForSession(matchingSession.sessionId);
-      const isFinalDisbursementCallback = Boolean(
-        saga?.disbursementReference &&
-        saga.disbursementReference === referenceId &&
-        saga.state === "DISBURSEMENT_INITIATED"
-      );
+    if (
+      saga &&
+      saga.disbursementReference === referenceId &&
+      saga.state === "DISBURSEMENT_INITIATED"
+    ) {
       try {
         if (
-          isFinalDisbursementCallback &&
           feedItem.normalizedStatus === "SUCCESSFUL" &&
-          feedItem.financialTransactionId &&
-          saga
+          feedItem.financialTransactionId
         ) {
           const completedSaga = paymentSaga.finalizeDisbursement(
             saga.sagaId,
@@ -950,18 +1007,21 @@ momoRouter.all(["/api/momo/callback", "/momo/callback"], async (req: Request, re
             undefined,
             feedItem.financialTransactionId
           );
+          sagaReconciled = true;
           if (completedSaga.state === "COMPLETED") {
-            transactionStateMachine.transition(matchingSession.sessionId, "COMPLETED");
+            if (matchingSession) {
+              transactionStateMachine.transition(matchingSession.sessionId, "COMPLETED");
+            }
           }
         } else if (
-          isFinalDisbursementCallback &&
           ["FAILED", "DECLINED", "TIMEOUT"].includes(feedItem.normalizedStatus)
         ) {
           paymentSaga.finalizeDisbursement(
-            saga!.sagaId,
+            saga.sagaId,
             false,
             feedItem.reason || "The provider could not confirm the recipient disbursement."
           );
+          sagaReconciled = true;
         }
       } catch (err: any) {
         console.warn(`[MoMo Webhook] Final disbursement update notice: ${err.message}`);
@@ -970,7 +1030,13 @@ momoRouter.all(["/api/momo/callback", "/momo/callback"], async (req: Request, re
 
     // 2. Outbound Telephony Recovery:
     // If user dropped call during PIN authorization, trigger automated outbound dial to announce result
-    if (matchingSession && matchingSession.callerPhone && config.at?.configured) {
+    if (
+      matchingSession &&
+      matchingSession.callerPhone &&
+      config.at?.configured &&
+      sagaReconciled &&
+      feedItem.normalizedStatus !== "PENDING"
+    ) {
       try {
         const at = initAtClient(config.at.username, config.at.apiKey);
         await at.Voice.call({
@@ -1033,7 +1099,11 @@ momoRouter.post("/api/momo/feeds/clear", (_req: Request, res: Response) => {
 
 // ── Simulate Sandbox Callback Feed (Developer Lab & Testing) ───────────
 // Allows developers and QA to fire mock MTN sandbox callback events to test audio playback
-momoRouter.post("/api/momo/sandbox/simulate-callback", async (req: Request, res: Response) => {
+momoRouter.post(
+  "/api/momo/sandbox/simulate-callback",
+  adminRateLimiter,
+  requireAdminAuth,
+  async (req: Request, res: Response) => {
   try {
     const { referenceId, status, reason, financialTransactionId, amount, payerPhone } = req.body;
 
@@ -1041,7 +1111,8 @@ momoRouter.post("/api/momo/sandbox/simulate-callback", async (req: Request, res:
       return res.status(400).json({
         success: false,
         error: "Missing required 'referenceId' to simulate callback.",
-      });
+        }
+      );
     }
 
     const payload = {

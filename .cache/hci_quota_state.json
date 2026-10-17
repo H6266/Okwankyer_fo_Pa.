@@ -1,0 +1,14 @@
+{
+  "accountFingerprint": "",
+  "dailyAsrCount": 0,
+  "dailyTtsCount": 0,
+  "weeklyAsrCount": 0,
+  "weeklyTtsCount": 0,
+  "weeklyCharsCount": 0,
+  "lastDailyResetDay": 17,
+  "lastWeeklyResetWeek": 42,
+  "asrCircuitBreakerOpen": false,
+  "ttsCircuitBreakerOpen": false,
+  "speechLogs": [],
+  "savedAt": "2026-10-17T00:00:07.603Z"
+}

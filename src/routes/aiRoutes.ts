@@ -7,18 +7,18 @@
 
 import { Router, Request, Response } from "express";
 import { aiSystem } from "../ai_system";
+import { unifiedMemory } from "../ai_system/memory/unifiedMemory";
 import { config } from "../config/env";
 import { runEvaluationHarness, runAudioEvaluationHarness } from "../ai_eval/evalHarness";
 import { aiBootstrap } from "../ai_system/core/aiBootstrap";
 import { modelRouter } from "../ai_system/providers/modelRouter";
 import { aiTrace } from "../ai_system/observability/aiTrace";
-import { requireAdminAuth, isAdminAuthenticated } from "../middleware/adminAuth";
+import { requireAdminAuth } from "../middleware/adminAuth";
 import { adminRateLimiter, publicApiRateLimiter } from "../middleware/rateLimiter";
 import { callSessionRepository } from "../services/callSessionRepository";
 import { momoEngine } from "../integrations/momo";
 import { simulatorTelephonyAdapter } from "../providers/telephony/telephonyAdapter";
 import { eventBus } from "../services/eventBus";
-import { brain } from "../ai_system/brain/brain";
 import { brainTelemetry } from "../ai_system/brain/brainTelemetry";
 import { matchAiReplyWithGemini, storeGeminiConversationReply } from "../audio/geminiAudioMatcher";
 import { ttsRouter } from "../ai_system/speech/tts/ttsRouter";
@@ -50,6 +50,74 @@ import { matchReplyToAudio } from "../audio/replyAudioMatcher";
 import { hciLabService } from "../services/hciLabService";
 
 export const aiRouter = Router();
+
+function adaptCanonicalResult(result: Awaited<ReturnType<typeof aiSystem.process>>, language = result.language) {
+  const slots: Record<string, any> = {
+    ...result.entities,
+    recipient: {
+      ...(result.entities.recipientPhone ? { phone: result.entities.recipientPhone } : {}),
+      ...(result.entities.recipientName ? { name: result.entities.recipientName } : {}),
+    },
+  };
+  const missingSlot = result.dialogue.targetedSlot;
+  let kind: string;
+  let slot = missingSlot;
+
+  if (result.safety.pinDetectedInVoice || result.safety.blockedReason) {
+    kind = "not_ready";
+  } else if (result.action.executedResult) {
+    kind = result.action.executedResult.success ? "dispatch" : "not_ready";
+  } else if (result.intent === "CONFIRM" && result.action.tool === "momo_execute_transfer") {
+    kind = "dispatch";
+  } else if (result.intent === "SEND_MONEY") {
+    if (!slots.recipient.phone) {
+      kind = "clarify_slot";
+      slot = "recipient";
+    } else if (!slots.amount) {
+      kind = "clarify_slot";
+      slot = "amount";
+    } else {
+      kind = "confirm";
+    }
+  } else if (missingSlot) {
+    kind = "clarify_slot";
+  } else if (result.intent === "UNKNOWN" || result.dialogue.needsClarification) {
+    kind = "clarify_intent";
+  } else {
+    kind = "clarify_slot";
+    slot = "conversational";
+  }
+
+  const brainLanguage =
+    language === "tw" || language === "ak"
+      ? "twi-asante"
+      : language === "en-ak"
+      ? "mixed-twi-en"
+      : "en";
+
+  return {
+    decision: {
+      kind,
+      ...(slot ? { slot } : {}),
+      intent:
+        result.intent === "SEND_MONEY" ||
+        (result.intent === "CONFIRM" && result.action.tool === "momo_execute_transfer")
+          ? "momo.transfer"
+          : result.intent.toLowerCase(),
+    },
+    updatedDraft: {
+      intent: result.intent === "SEND_MONEY" || result.intent === "CONFIRM" ? "momo.transfer" : null,
+      slots,
+    },
+    reply: {
+      text: result.dialogue.response,
+      language: brainLanguage,
+      promptId: undefined,
+    },
+    sessionLanguage: brainLanguage,
+    modelOutput: undefined,
+  };
+}
 
 aiRouter.get("/api/ai/status", (_req: Request, res: Response) => {
   res.json({
@@ -184,6 +252,7 @@ aiRouter.post("/api/ai/process", publicApiRateLimiter, async (req: Request, res:
       transactionState,
       availableActions,
       userProfile,
+      executionPolicy: "UNDERSTAND_ONLY",
     });
 
     res.json({ success: true, result });
@@ -193,7 +262,11 @@ aiRouter.post("/api/ai/process", publicApiRateLimiter, async (req: Request, res:
 });
 
 // ── Dedicated Authoritative Phone Simulator Turn Endpoint ──────────────
-aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
+aiRouter.post(
+  "/api/ai/simulator/turn",
+  adminRateLimiter,
+  requireAdminAuth,
+  async (req: Request, res: Response) => {
   try {
     const {
       sessionId,
@@ -211,13 +284,6 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       injectNoise,
     } = req.body;
 
-    // Mode B (MTN SANDBOX) guard: require authenticated admin session
-    if (executionMode === "MTN_SANDBOX" && !isAdminAuthenticated(req)) {
-      return res.status(403).json({
-        error: "Admin credentials required to engage real MTN Sandbox disbursement.",
-      });
-    }
-
     if (typeof sessionId !== "string" || sessionId.trim().length === 0 || sessionId.length > 128) {
       return res.status(400).json({ error: "A valid sessionId is required." });
     }
@@ -233,47 +299,85 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
         .replace(/\bmane\b/gi, "mame");
     }
 
+    const requestedLanguage = languageOverride || language || "en";
+    const canonicalLanguage =
+      requestedLanguage === "tw" ||
+      requestedLanguage === "ak" ||
+      requestedLanguage === "twi" ||
+      requestedLanguage === "twi-asante"
+        ? "tw"
+        : requestedLanguage === "twi-akuapem"
+        ? "ak"
+        : requestedLanguage === "mixed-twi-en" || requestedLanguage === "code-switched"
+        ? "en-ak"
+        : "en";
+
     const result = await aiSystem.process({
       sessionId: sessionKey,
       channel: channel || "SIMULATOR",
       input: effectiveInput,
-      language: languageOverride || language || "en",
+      language: canonicalLanguage,
       currentScreen: currentScreen || "HOME",
       currentStep: currentStep || "welcome",
       executionMode: executionMode || "SIMULATION",
+      executionPolicy: "UNDERSTAND_ONLY",
       userProfile,
+      transactionState: {
+        intent: req.body.draft?.intent === "momo.transfer" ? "SEND_MONEY" : undefined,
+        amount: req.body.draft?.slots?.amount ?? null,
+        recipientPhone: req.body.draft?.slots?.recipient?.phone ?? req.body.draft?.slots?.recipientPhone ?? null,
+        recipientName: req.body.draft?.slots?.recipient?.name ?? req.body.draft?.slots?.recipientName ?? null,
+        network: req.body.draft?.slots?.network ?? null,
+      },
     });
 
     // ── Live Synchronization 1: Call Session Repository ──────────────────
     const targetStep = result.navigation?.targetStep || currentStep || "welcome";
     const outcome = result.intent === "CANCEL" ? "CANCELLED" : "IN_PROGRESS";
 
-    // ── Canonical Brain Reasoning & Reply Composition ───────────────────
-    const selectedLang = languageOverride || language;
-    const brainLanguage =
-      selectedLang === "tw" || selectedLang === "ak" || selectedLang === "twi-asante"
-        ? "twi-asante"
-        : selectedLang === "twi-akuapem"
-        ? "twi-akuapem"
-        : selectedLang === "mixed-twi-en" || selectedLang === "code-switched"
-        ? "mixed-twi-en"
-        : "en";
+    const brainOutput = adaptCanonicalResult(result, result.language);
+    const brainLanguage = brainOutput.sessionLanguage;
+    let activeSaga = paymentSaga.getLatestSagaForSession(sessionKey);
 
-    const brainOutput = await brain.process({
-      transcript: effectiveInput,
-      language: brainLanguage,
-      languageConfidence: 0.95,
-      sessionLanguage: brainLanguage,
-      draft: req.body.draft || {},
-      sessionId: sessionKey,
-      callerNumber: typeof req.body.callerPhone === "string" ? req.body.callerPhone : undefined,
-    });
+    const pendingDraft = unifiedMemory.getActiveTask(sessionKey)?.draft;
+    const hasConfirmedTransfer =
+      result.intent === "CONFIRM" &&
+      result.action.tool === "momo_execute_transfer" &&
+      !result.safety.pinDetectedInVoice &&
+      !result.safety.blockedReason &&
+      pendingDraft?.confirmationState === "CONFIRMATION_REQUESTED";
+    if (result.intent === "CONFIRM") {
+      if (!hasConfirmedTransfer) {
+        brainOutput.decision.kind = "not_ready";
+        brainOutput.reply.text = "There is no verified transfer awaiting confirmation.";
+      } else if (activeSaga && activeSaga.state !== "DRAFT") {
+        const sagaFailed = [
+          "CUSTOMER_DECLINED",
+          "COLLECTION_FAILED",
+          "COLLECTION_TIMEOUT",
+          "DISBURSEMENT_FAILED",
+          "DISBURSEMENT_TIMEOUT",
+        ].includes(activeSaga.state);
+        brainOutput.decision.kind =
+          sagaFailed || activeSaga.state === "RECONCILIATION_REQUIRED" ? "not_ready" : "dispatch";
+        brainOutput.reply.text =
+          activeSaga.state === "COMPLETED"
+            ? "Your transfer is complete."
+            : sagaFailed
+            ? "Your transfer could not be completed. Please check with your provider before trying again."
+            : activeSaga.state === "RECONCILIATION_REQUIRED"
+            ? "Your transfer is being checked. Please do not retry until its status is confirmed."
+            : "Your transfer is being processed. I cannot confirm completion yet.";
+      } else {
+        brainOutput.decision.kind = "not_ready";
+        brainOutput.reply.text =
+          "This simulator cannot submit transfers. Continue through the verified transfer channel to authorize payment.";
+      }
+    }
 
     // Store Gemini conversational replies into memory for Audio Matcher verification
-    if (brainOutput.modelOutput || (brainOutput.decision?.kind === "clarify_slot" && (brainOutput.decision as any)?.slot === "conversational")) {
-      if (brainOutput.reply?.text) {
-        storeGeminiConversationReply(brainOutput.reply.text, brainLanguage.startsWith("twi") ? "twi" : "en", sessionKey);
-      }
+    if (brainOutput.decision.kind === "clarify_slot" && brainOutput.decision.slot === "conversational") {
+      storeGeminiConversationReply(brainOutput.reply.text, brainLanguage.startsWith("twi") ? "twi" : "en", sessionKey);
     }
 
     // Wire brain's reply (text, language, promptId) into telephonyAdapter
@@ -291,8 +395,8 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
         audioBase64: ttsResult.audioBase64,
         durationEstimateSec: ttsResult.durationEstimateSec,
       };
-    } catch {
-      // safe fallback if TTS engine is unavailable
+    } catch (error) {
+      console.warn("[Simulator Turn] TTS synthesis failed:", error);
     }
 
     // Use Simulator Telephony Adapter to build clean, escaped VoiceXML
@@ -331,29 +435,7 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
     const draftSlots = (brainOutput.updatedDraft?.slots || {}) as any;
     const rawRecipientPhone = draftSlots.recipient?.phone || draftSlots.recipientPhone || "";
 
-    // Fetch authoritative saga state or execute on dispatch
-    let activeSaga = paymentSaga.getLatestSagaForSession(sessionKey);
-    if ((!activeSaga || activeSaga.state === "DRAFT") && brainOutput.decision.kind === "dispatch") {
-      const amount = Number(draftSlots.amount || 0);
-      const recipientName = draftSlots.recipient?.name || draftSlots.recipientName || "Recipient";
-      if (rawRecipientPhone && amount > 0) {
-        try {
-          const sagaResult = await paymentSaga.executeConfirmedTransferSaga({
-            sessionId: sessionKey,
-            senderPhone: typeof req.body.callerPhone === "string" ? req.body.callerPhone : "0244123456",
-            recipientPhone: rawRecipientPhone,
-            recipientName,
-            amount,
-            network: (draftSlots.network || "MTN") as any,
-            confirmedDraftHash: brainOutput.updatedDraft.confirmedDraftHash,
-          });
-          activeSaga = sagaResult.saga;
-        } catch (e: any) {
-          console.warn("Saga dispatch error:", e);
-        }
-      }
-    }
-
+    // Fetch authoritative saga state without dispatching from the conversational route.
     const sagaInfo = activeSaga
       ? {
           sagaId: activeSaga.sagaId,
@@ -415,8 +497,8 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       language: brainLanguage,
       confidence: 0.95,
       translationEn,
-      intent: (brainOutput.decision as any).intent,
-      intentConfidence: brainOutput.modelOutput?.intent?.confidence ?? 0.95,
+      intent: brainOutput.decision.intent,
+      intentConfidence: result.confidence,
       decisionKind: brainOutput.decision.kind,
       missingSlots,
       draftMasked: maskedDraft,
@@ -428,10 +510,10 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
         ttsMs: Math.round(((result.performance as any)?.durationMs || 50) * 0.3),
         totalMs: (result.performance as any)?.durationMs || 65,
       },
-      brainMode: offlineMode ? "offline" : brain.config.mode,
+      brainMode: "canonical_ai_engine",
       modelStatus: {
         isAvailable: geminiClient.isAvailable() && !offlineMode && modelEnabled !== false,
-        fallbackUsed: Boolean((brainOutput.modelOutput as any)?.fallbackReason) || Boolean(offlineMode),
+        fallbackUsed: Boolean(offlineMode),
         circuitBreakerState: geminiClient.getCircuitBreakerState(),
       },
       sagaState: sagaInfo,
@@ -467,7 +549,8 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
     console.error("[POST /api/ai/simulator/turn] Error:", err);
     res.status(500).json({ error: err.message || "Failed to process simulator turn" });
   }
-});
+  }
+);
 
 // ── Call Termination Synchronization ──────────────────────────────────
 aiRouter.post("/api/ai/simulator/call-end", async (req: Request, res: Response) => {
@@ -681,34 +764,42 @@ aiRouter.post("/api/ai/brain/process", publicApiRateLimiter, async (req: Request
   try {
     const { transcript, language, draft, callerNumber, sessionId, forceModel } = req.body;
     const text = transcript || req.body.input || req.body.utterance || "";
-    const lang = (language === "tw" || language === "ak" || language === "twi" || language === "twi-asante")
-      ? "twi-asante"
-      : language === "twi-akuapem"
-      ? "twi-akuapem"
-      : "en";
-
-    const output = await brain.process({
-      transcript: String(text),
-      language: lang,
-      languageConfidence: req.body.languageConfidence ?? 0.95,
-      sessionLanguage: lang,
-      draft: draft || { slots: {} },
-      callerNumber,
-      sessionId,
-      forceModel: forceModel === true,
+    const slots = draft?.slots || {};
+    const canonicalLanguage =
+      language === "tw" || language === "ak" || language === "twi" || language === "twi-asante"
+        ? "tw"
+        : language === "twi-akuapem"
+        ? "ak"
+        : language === "mixed-twi-en" || language === "code-switched"
+        ? "en-ak"
+        : "en";
+    const canonicalSessionId =
+      typeof sessionId === "string" && sessionId.trim()
+        ? sessionId.trim()
+        : `brain_${Date.now()}`;
+    const canonicalResult = await aiSystem.process({
+      sessionId: canonicalSessionId,
+      channel: "SIMULATOR",
+      input: String(text),
+      language: canonicalLanguage,
+      currentScreen: "HOME",
+      currentStep: req.body.currentStep || "welcome",
+      executionPolicy: "UNDERSTAND_ONLY",
+      transactionState: {
+        intent: draft?.intent === "momo.transfer" ? "SEND_MONEY" : undefined,
+        amount: slots.amount ?? null,
+        recipientPhone: slots.recipient?.phone ?? slots.recipientPhone ?? null,
+        recipientName: slots.recipient?.name ?? slots.recipientName ?? null,
+        network: slots.network ?? null,
+      },
+      userProfile: typeof callerNumber === "string" ? { phoneNumber: callerNumber } : undefined,
     });
-
-    // Store Gemini conversational replies into memory for Audio Matcher verification
-    if (output.modelOutput || (output.decision?.kind === "clarify_slot" && (output.decision as any)?.slot === "conversational")) {
-      if (output.reply?.text) {
-        storeGeminiConversationReply(output.reply.text, lang.startsWith("tw") ? "twi" : "en", sessionId);
-      }
-    }
+    const output = adaptCanonicalResult(canonicalResult);
 
     // Immediate 4-field synchronization to backend session (amount, recipientPhone, recipientName, network)
     if (sessionId) {
       try {
-        const session = transactionStateMachine.getOrCreateSession(sessionId, lang.startsWith("tw") ? "twi" : "en");
+        const session = transactionStateMachine.getOrCreateSession(sessionId, canonicalLanguage === "tw" || canonicalLanguage === "ak" ? "twi" : "en");
         const slots = output.updatedDraft?.slots || {};
         const updates: Record<string, any> = {};
         if (typeof slots.amount === "number" && slots.amount > 0) {
@@ -833,16 +924,8 @@ aiRouter.post("/api/ai/analyze", publicApiRateLimiter, async (req: Request, res:
     if (!utterance || typeof utterance !== "string") {
       return res.status(400).json({ error: "Missing or invalid 'utterance' field." });
     }
-    const brainLanguage = (languageHint?.startsWith("tw") || languageHint === "ak") ? "twi-asante" : "en";
-    const brainOutput = await brain.process({
-      transcript: utterance,
-      language: brainLanguage,
-      languageConfidence: 0.95,
-      sessionLanguage: brainLanguage,
-      draft: draft || { slots: {} },
-    });
-    const result = await aiSystem.analyzeUtterance(utterance, languageHint || "bilingual");
-    res.json({ success: true, result, brainOutput });
+    const result = await aiSystem.analyzeUtterance(utterance, languageHint || "bilingual", draft);
+    res.json({ success: true, result, brainOutput: result });
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Failed to analyze utterance" });
   }
@@ -1551,29 +1634,6 @@ aiRouter.post("/api/ai/brain/telemetry/reset", (_req: Request, res: Response) =>
     message: "Brain telemetry counters reset.",
     telemetry: brainTelemetry.getSummary(),
   });
-});
-
-aiRouter.post("/api/ai/brain/process", async (req: Request, res: Response) => {
-  try {
-    const { transcript, language, sessionLanguage, draft, callerNumber, sessionId, forceModel } = req.body || {};
-    const result = await brain.process({
-      transcript: transcript || "",
-      language: language || "en",
-      sessionLanguage: sessionLanguage || language || "en",
-      draft: draft || { slots: {} },
-      callerNumber,
-      sessionId,
-      forceModel,
-    });
-    res.json({
-      success: true,
-      result,
-      brainOutput: result,
-      telemetry: result.telemetry,
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message || "Failed to process brain turn" });
-  }
 });
 
 // ── Dynamic TTS Synthesis Endpoint ────────────────────────────────────

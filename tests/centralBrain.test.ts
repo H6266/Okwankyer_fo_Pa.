@@ -422,8 +422,9 @@ describe('Central Reasoning Brain - Architectural Invariants', () => {
         sessionLanguage: 'en',
         draft: turn2.updatedDraft,
       });
-      expect(turn3.decision.kind).toBe('dispatch');
-      expect(turn3.reply.text).toContain('authorization prompt');
+      expect(turn3.decision.kind).toBe('not_ready');
+      expect(turn3.updatedDraft.confirmed).toBe(false);
+      expect(turn3.reply.text.toLowerCase()).not.toContain('authorization prompt');
     });
   });
 
@@ -486,4 +487,3 @@ describe('Central Reasoning Brain - Architectural Invariants', () => {
     });
   });
 });
-

@@ -180,6 +180,8 @@ describe("Ɔkwankyerɛfo Pa - 10-System Cognitive Engine Master Test Suite", () 
 
     it("recognizes Twi confirmations and denials", () => {
       expect(aiUnderstanding.checkConfirmation("aane")).toBe(true);
+      expect(aiUnderstanding.checkConfirmation("Aane, pene so")).toBe(true);
+      expect(aiUnderstanding.checkConfirmation("pene so")).toBe(true);
       expect(aiUnderstanding.checkConfirmation("ɛyɛ")).toBe(true);
       expect(aiUnderstanding.checkConfirmation("yes")).toBe(true);
       expect(aiUnderstanding.checkDenial("dabi")).toBe(true);
