@@ -70,4 +70,19 @@ describe("AudioPlaybackController & Phone Simulator Audio Gating", () => {
     audioPlaybackController.setVolumeMultiplier(1.5);
     expect(audioPlaybackController.getVolumeMultiplier()).toBe(1.5);
   });
+
+  it("activates an echo drain buffer window after audio stops to prevent audio hearing itself", () => {
+    audioPlaybackController.stop();
+    expect(audioPlaybackController.isWithinEchoDrainWindow(500)).toBe(true);
+    expect(audioPlaybackController.isWithinEchoDrainWindow(0)).toBe(false);
+  });
+
+  it("prevents tone indicator from playing concurrently over an active prompt audio", async () => {
+    // Start audio
+    audioPlaybackController.play("/audio/Welcome_prompt_01.mp3", "Welcome");
+    expect(audioPlaybackController.isSpeaking()).toBe(true);
+
+    // Call tone indicator while speaking - should resolve immediately without playing over active audio
+    await expect(audioPlaybackController.playToneIndicator(300)).resolves.toBeUndefined();
+  });
 });

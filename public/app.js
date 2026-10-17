@@ -585,7 +585,15 @@
     },
 
     playCatalogAudio(url) {
+      if (this.catalogAudioInstance) {
+        try {
+          this.catalogAudioInstance.pause();
+          this.catalogAudioInstance.currentTime = 0;
+        } catch {}
+      }
+      this.stopPhoneAudio();
       const audio = new Audio(url);
+      this.catalogAudioInstance = audio;
       audio.play().catch(e => console.log('Playback error:', e));
     },
 
@@ -1965,6 +1973,12 @@
             const alt = res[0];
             const rawTranscript = (alt && alt.transcript) ? alt.transcript.trim() : '';
             if (!rawTranscript) continue;
+
+            // STRICT RULE: If prompt audio is currently playing, ignore all mic input so audio never hears or plays itself!
+            if (this.isPromptPlaying) {
+              console.log(`[SpeechRecognition] Dropping speech while prompt audio is actively playing: "${rawTranscript}"`);
+              continue;
+            }
 
             const textEl = document.getElementById('transcriptText');
 
@@ -3799,14 +3813,13 @@
         fileTag.innerText = audioUrl ? audioUrl : 'None';
       }
 
-      // When audio prompt begins, speech recognition is ACTIVE for Barge-In (cut-through),
-      // allowing the caller to speak their choice (e.g. "baako", "1", "one") or press keypad to interrupt!
+      // When audio prompt begins, speech recognition is strictly MUTED so the prompt never
+      // hears itself or triggers actions while an audio is already playing!
       this.isPromptPlaying = true;
       this.optionSelectedForCurrentPrompt = false;
 
-      if (this.callState.active && !this.isPinPromptOpen && this.listeningServiceEnabled) {
-        this.setSpeechRecognitionActive(true, 'Audio prompt playback started - Barge-In listening active');
-      }
+      // Keep speech recognition strictly OFF while prompt is playing
+      this.setSpeechRecognitionActive(false, 'Audio prompt playback active - microphone strictly muted');
 
       if (audioEl) {
         audioEl.volume = 1.0;

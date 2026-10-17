@@ -15,12 +15,18 @@ describe("Acoustic Echo & Noise Filter", () => {
 
   it("never classifies legitimate caller digits or single commands as echo", () => {
     const prompt = "For English, press 1. For Twi, press 2.";
-    expect(isAcousticSystemEcho("1", prompt)).toBe(false);
-    expect(isAcousticSystemEcho("2", prompt)).toBe(false);
-    expect(isAcousticSystemEcho("yes", prompt)).toBe(false);
-    expect(isAcousticSystemEcho("aane", prompt)).toBe(false);
-    expect(isAcousticSystemEcho("dabi", prompt)).toBe(false);
-    expect(isAcousticSystemEcho("confirm", prompt)).toBe(false);
+    expect(isAcousticSystemEcho("1", prompt, false)).toBe(false);
+    expect(isAcousticSystemEcho("2", prompt, false)).toBe(false);
+    expect(isAcousticSystemEcho("yes", prompt, false)).toBe(false);
+    expect(isAcousticSystemEcho("aane", prompt, false)).toBe(false);
+    expect(isAcousticSystemEcho("dabi", prompt, false)).toBe(false);
+    expect(isAcousticSystemEcho("confirm", prompt, false)).toBe(false);
+  });
+
+  it("strictly classifies multi-word system prompt speech as echo while assistant is speaking", () => {
+    const prompt = "For English, press 1. For Twi, press 2.";
+    expect(isAcousticSystemEcho("For English press 1 for Twi press 2", prompt, true)).toBe(true);
+    expect(isAcousticSystemEcho("Afei selecte wo network sɛ MTN a mia 1", null, true)).toBe(true);
   });
 
   it("identifies user speech distinct from system prompt", () => {

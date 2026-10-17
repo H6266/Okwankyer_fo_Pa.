@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { audioPlaybackController } from "../audio/audioPlaybackController";
 
 export interface AudioPlayerState {
   isPlaying: boolean;
@@ -153,14 +154,30 @@ export function useAudioPlayer(onEnded?: () => void) {
     audio.addEventListener("ended", handleEnded);
     audio.addEventListener("error", handleError);
 
+    const handleGlobalAudioPlaying = () => {
+      if (audioRef.current && !audioRef.current.paused) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+        setState((s) => ({ ...s, isPlaying: false, playbackStatus: "idle" }));
+      }
+    };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("audiocontroller:playing", handleGlobalAudioPlaying);
+    }
+
     return () => {
       audio.pause();
+      audio.src = "";
       audio.removeEventListener("play", handlePlay);
       audio.removeEventListener("pause", handlePause);
       audio.removeEventListener("waiting", handleWaiting);
       audio.removeEventListener("timeupdate", handleTimeUpdate);
       audio.removeEventListener("ended", handleEnded);
       audio.removeEventListener("error", handleError);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("audiocontroller:playing", handleGlobalAudioPlaying);
+      }
       audioRef.current = null;
     };
   }, []);
@@ -168,6 +185,9 @@ export function useAudioPlayer(onEnded?: () => void) {
   const playAudio = useCallback((url: string, promptId?: string, filename?: string) => {
     playbackIdRef.current += 1;
     const currentPlaybackId = playbackIdRef.current;
+
+    // Stop any audio playing in audioPlaybackController so sounds never overlap
+    audioPlaybackController.stop();
 
     if (!audioRef.current || !url) {
       // Missing audio URL -> Play gentle tone fallback and complete safely

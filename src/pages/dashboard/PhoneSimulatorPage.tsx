@@ -508,9 +508,14 @@ export const PhoneSimulatorPage: React.FC = () => {
       } else {
         if (wasPlaying && !zeroPinOverlayRef.current && !isVoiceCaptureBlockedForStep(activeStepNameRef.current)) {
           wasPlaying = false;
-          // Brief 150ms acoustic tail buffer so speaker room echo isn't recorded, then auto-turn ON mic
+          // Acoustic drain buffer (500ms): guarantees speaker sound in the room has completely decayed before mic turns on
           setTimeout(() => {
-            if (!audioPlaybackController.isSpeaking() && callActiveRef.current && !zeroPinOverlayRef.current) {
+            if (
+              !audioPlaybackController.isSpeaking() &&
+              !audioPlaybackController.isWithinEchoDrainWindow(500) &&
+              callActiveRef.current &&
+              !zeroPinOverlayRef.current
+            ) {
               setIsMicMuted(false);
               isMicMutedRef.current = false;
               continuousAudioEngine.setZeroPinMuted(false);
@@ -518,7 +523,7 @@ export const PhoneSimulatorPage: React.FC = () => {
               setCallStatus("Listening");
               addLog("asr", "🎙️ Audio prompt finished — Microphone automatically turned ON to record your need.");
             }
-          }, 150);
+          }, 500);
         }
       }
     });
@@ -1150,6 +1155,13 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       const clean = normalizeSpokenDigits(utterance.trim());
       if (!clean) return;
+
+      // STRICT GUARD: If audio prompt is actively playing or draining, DROP this utterance completely
+      // so audios never hear themselves, play themselves, or overlap!
+      if (!isDirectSimulated && (audioPlaybackController.isSpeaking() || isAudioSpeaking || audioPlaybackController.isWithinEchoDrainWindow(500))) {
+        console.warn("[PhoneSimulator] Dropping speech while audio is playing/draining:", clean);
+        return;
+      }
 
       // Echo filter check: ignore system audio echoing back into mic (only for live mic, not for direct simulated)
       if (
@@ -1861,7 +1873,15 @@ export const PhoneSimulatorPage: React.FC = () => {
   // Subscribe to Always-On continuous audio engine utterances & state
   useEffect(() => {
     const unsubUtterance = continuousAudioEngine.subscribeUtterance((utterance) => {
-      if (isMicMutedRef.current || zeroPinOverlayRef.current) return;
+      if (
+        isMicMutedRef.current ||
+        zeroPinOverlayRef.current ||
+        isAudioSpeaking ||
+        audioPlaybackController.isSpeaking() ||
+        audioPlaybackController.isWithinEchoDrainWindow(500)
+      ) {
+        return;
+      }
       if (utterance && utterance.trim()) {
         processSpokenUtterance(utterance);
       }

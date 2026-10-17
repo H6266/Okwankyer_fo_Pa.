@@ -187,9 +187,9 @@ export function isAcousticSystemEcho(
   if (!transcript || transcript.trim().length === 0) return false;
 
   const normalizedTranscript = normalizeTextForComparison(transcript);
-  if (normalizedTranscript.length < 3) return false;
+  if (normalizedTranscript.length < 1) return false;
 
-  // Explicit user inputs are NOT echoes!
+  // Explicit user inputs (digits, affirmative words, caller commands) are NOT echoes!
   if (isStandaloneCallerIntent(normalizedTranscript)) {
     return false;
   }

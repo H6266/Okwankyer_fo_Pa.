@@ -79,6 +79,7 @@ export class AudioPlaybackController {
   private preloadElements: Map<string, HTMLAudioElement> = new Map();
   private audioBufferCache: Map<string, AudioBuffer> = new Map();
   private activeBufferSource: AudioBufferSourceNode | null = null;
+  private lastPlaybackEndTime: number = 0;
 
   private audioContext: AudioContext | null = null;
   private masterGainNode: GainNode | null = null;
@@ -88,6 +89,14 @@ export class AudioPlaybackController {
     if (typeof window !== "undefined") {
       this.initAudioElement();
     }
+  }
+
+  public getLastPlaybackEndTime(): number {
+    return this.lastPlaybackEndTime;
+  }
+
+  public isWithinEchoDrainWindow(bufferMs: number = 600): boolean {
+    return (Date.now() - this.lastPlaybackEndTime) < bufferMs;
   }
 
   /**
@@ -260,6 +269,8 @@ export class AudioPlaybackController {
    */
   public playToneIndicator(durationMs: number = 350): Promise<void> {
     if (typeof window === "undefined") return Promise.resolve();
+    // STRICT RULE: Never play tone indicator while an audio prompt is actively playing!
+    if (this.state.isPlaying) return Promise.resolve();
     return new Promise((resolve) => {
       try {
         const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -517,9 +528,12 @@ export class AudioPlaybackController {
 
   /**
    * Stop active audio immediately, resolve pending promise, increment token.
+   * @param broadcast If true, notifies all subscribers with isPlaying: false.
+   * Set to false when immediately transitioning to a new clip to prevent unpause flap.
    */
-  public stop(): void {
+  public stop(broadcast: boolean = true): void {
     const token = ++this.currentToken;
+    this.lastPlaybackEndTime = Date.now();
 
     if (this.activeBufferSource) {
       try {
@@ -551,12 +565,20 @@ export class AudioPlaybackController {
       resolve();
     }
 
-    this.setState({
-      isPlaying: false,
-      activeClip: null,
-      activeText: null,
-      token,
-    });
+    if (broadcast) {
+      this.setState({
+        isPlaying: false,
+        activeClip: null,
+        activeText: null,
+        token,
+      });
+    } else {
+      this.state = {
+        ...this.state,
+        isPlaying: false,
+        token,
+      };
+    }
   }
 
   /**
@@ -611,6 +633,7 @@ export class AudioPlaybackController {
           if (this.currentToken !== token) return;
           this.activeBufferSource = null;
           this.activeResolver = null;
+          this.lastPlaybackEndTime = Date.now();
           this.setState({
             isPlaying: false,
             activeClip: null,
@@ -670,9 +693,15 @@ export class AudioPlaybackController {
       return Promise.resolve(true);
     }
 
-    // 1. Stop any current playback and increment token
-    this.stop();
+    // 1. Stop any current playback cleanly without emitting an intermediate idle flap
+    this.stop(false);
     const token = ++this.currentToken;
+
+    if (typeof window !== "undefined") {
+      try {
+        window.dispatchEvent(new CustomEvent("audiocontroller:playing", { detail: { url } }));
+      } catch {}
+    }
 
     if (!url) {
       this.setState({
@@ -725,6 +754,7 @@ export class AudioPlaybackController {
       const handleEnded = () => {
         if (this.currentToken !== token) return;
         this.activeResolver = null;
+        this.lastPlaybackEndTime = Date.now();
         this.setState({
           isPlaying: false,
           activeClip: null,
@@ -737,10 +767,15 @@ export class AudioPlaybackController {
 
       const fallbackToText = () => {
         this.activeResolver = null;
+        if (this.currentToken !== token) {
+          resolve(false);
+          return;
+        }
         if (promptText && promptText.trim()) {
           this.speakText(promptText, options).then(resolve);
           return;
         }
+        this.lastPlaybackEndTime = Date.now();
         this.setState({
           isPlaying: false,
           activeClip: null,
@@ -794,7 +829,7 @@ export class AudioPlaybackController {
    * If any item is superseded by another play()/stop(), the sequence aborts cleanly.
    */
   public async playSequence(urls: string[]): Promise<boolean> {
-    this.stop();
+    this.stop(false);
     const sequenceToken = ++this.currentToken;
     const safeUrls = urls
       .filter(Boolean)
@@ -830,6 +865,7 @@ export class AudioPlaybackController {
           audio.onended = () => {
             if (this.currentToken !== sequenceToken) return;
             this.activeResolver = null;
+            this.lastPlaybackEndTime = Date.now();
             resolve(true);
           };
 
@@ -860,6 +896,7 @@ export class AudioPlaybackController {
     }
 
     if (this.currentToken === sequenceToken) {
+      this.lastPlaybackEndTime = Date.now();
       this.setState({
         isPlaying: false,
         activeClip: null,
