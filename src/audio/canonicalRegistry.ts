@@ -20,8 +20,7 @@ import {
   formatRefForSpeech,
   DynamicPromptParams,
 } from "./dynamicPromptBuilder";
-import { AUDIO_RECORDINGS } from "./recordingRegistry";
-import { CANONICAL_IVR_CATEGORIES } from "./twiSequentialAudioFlow";
+import { AUDIO_RECORDINGS, AudioRecording, PROMPT_KEY_TO_RECORDING_ID } from "./recordingRegistry";
 
 export type PromptType = "FIXED" | "DYNAMIC";
 export type CanonicalPromptLanguage = "en" | "twi";
@@ -165,69 +164,35 @@ export const STATE_TO_CANONICAL_PROMPT_ID: Readonly<Record<string, string>> = {
   GOODBYE: "OP94",
 };
 
-// Build canonical prompt list directly from CANONICAL_IVR_CATEGORIES and AUDIO_RECORDINGS
-const canonicalPromptMap = new Map<string, CanonicalPrompt>();
-
-// 1. Populate all OP01-OP94 from canonical IVR categories
-for (const cat of CANONICAL_IVR_CATEGORIES) {
-  for (const item of cat.prompts) {
-    const id = item.promptId.toUpperCase().trim();
-    canonicalPromptMap.set(id, {
-      id,
-      category: item.categoryName,
-      state: item.state,
-      type: item.isDynamic || DYNAMIC_PROMPT_IDS.has(id) ? "DYNAMIC" : "FIXED",
-      english: item.spokenTextEn || "",
-      twi: item.spokenTextTwi || "",
-      placeholders: [],
-      audio: {
-        english: null,
-        twi: item.audioUrl || null,
-        twi_other_takes: item.fallbackAudioUrl ? [item.fallbackAudioUrl] : [],
-      },
-    });
-  }
+// Build Canonical Prompts from AUDIO_RECORDINGS
+const promptIds = new Set<string>();
+for (let i = 1; i <= 94; i++) {
+  promptIds.add(`OP${i < 10 ? "0" + i : i}`);
 }
 
-// 2. Ensure all state machine mapped states exist
-for (const [state, promptId] of Object.entries(STATE_TO_CANONICAL_PROMPT_ID)) {
-  const id = promptId.toUpperCase().trim();
-  const existing = canonicalPromptMap.get(id);
-  if (!existing) {
-    canonicalPromptMap.set(id, {
-      id,
-      category: state,
-      state,
-      type: DYNAMIC_PROMPT_IDS.has(id) ? "DYNAMIC" : "FIXED",
-      english: "",
-      twi: "",
-      placeholders: [],
-      audio: {
-        english: null,
-        twi: null,
-        twi_other_takes: [],
-      },
-    });
-  }
-}
+const loadedPrompts: CanonicalPrompt[] = Array.from(promptIds).map((id) => {
+  const isDynamic = DYNAMIC_PROMPT_IDS.has(id);
+  const twiRec = AUDIO_RECORDINGS.find((r) => r.promptId === id && r.language === "twi");
+  const enRec = AUDIO_RECORDINGS.find((r) => r.promptId === id && r.language === "en");
 
-// 3. Link discovered audio recordings
-for (const rec of AUDIO_RECORDINGS) {
-  if (!rec.promptId) continue;
-  const id = rec.promptId.toUpperCase().trim();
-  const entry = canonicalPromptMap.get(id);
-  if (entry) {
-    if (rec.language === "en") {
-      if (!entry.english && rec.spokenText) entry.english = rec.spokenText;
-      if (!entry.audio.english && rec.url) entry.audio.english = rec.url;
-    } else if (rec.language === "twi") {
-      if (!entry.twi && rec.spokenText) entry.twi = rec.spokenText;
-      if (!entry.audio.twi && rec.url) entry.audio.twi = rec.url;
-    }
-  }
-}
+  // Determine state
+  const stateEntry = Object.entries(STATE_TO_CANONICAL_PROMPT_ID).find(([, pId]) => pId === id);
+  const state = stateEntry ? stateEntry[0] : (twiRec?.state || "GENERAL");
 
-const loadedPrompts: CanonicalPrompt[] = Array.from(canonicalPromptMap.values());
+  return {
+    id,
+    category: twiRec?.category || enRec?.category || "general",
+    state,
+    type: isDynamic ? "DYNAMIC" : "FIXED",
+    english: enRec?.spokenText || enRec?.context || "Financial service option",
+    twi: twiRec?.spokenText || twiRec?.context || "Sika ho dwumadie",
+    audio: {
+      english: enRec?.url || null,
+      twi: twiRec?.url || null,
+      twi_other_takes: [],
+    },
+  };
+});
 
 export const CANONICAL_PROMPT_LIST: readonly CanonicalPrompt[] = Object.freeze(loadedPrompts);
 
@@ -266,8 +231,6 @@ export function getCanonicalPromptByState(state: string): CanonicalPrompt | unde
 
 /**
  * Resolves spoken text for any canonical prompt.
- * Dynamic prompts (OP20, OP21, OP29, OP52, OP70) resolve through dynamic template synthesis,
- * completely replacing placeholder brackets.
  */
 export function resolvePromptSpokenText(
   promptId: string,
@@ -294,7 +257,6 @@ export function resolvePromptSpokenText(
 
   const text = isTwi ? prompt.twi : prompt.english;
 
-  // Extra safety guard: strip any remaining [PLACEHOLDER] or {PLACEHOLDER} tokens
   if (text.includes("[") || text.includes("{")) {
     return text
       .replace(/\[DYNAMIC NAME\]/gi, params.name || params.recipientName || (isTwi ? "obi a woremane no sika" : "the recipient"))
@@ -314,8 +276,6 @@ export function resolvePromptSpokenText(
 
 /**
  * Authoritative audio URL resolution.
- * - Dynamic prompts ALWAYS route to `/api/audio/prompt-tts/${lang}/${promptId}?params`
- * - Fixed prompts route to studio recording if available, or TTS fallback
  */
 export function resolveCanonicalAudioUrl(
   promptId: string,
@@ -341,13 +301,12 @@ export function resolveCanonicalAudioUrl(
     if (params.name || params.recipientName) q.set("name", params.name || params.recipientName || "");
     if (params.phone || params.recipientPhone) q.set("phone", params.phone || params.recipientPhone || "");
     if (params.amount !== undefined) q.set("amount", String(params.amount));
-    if (params.referenceId || params.ref) q.set("ref", params.referenceId || params.ref || "");
+    if (params.referenceId || params.ref) q.set("referenceId", params.referenceId || params.ref || "");
     if (params.response || params.utterance) q.set("response", params.response || params.utterance || "");
 
-    const queryStr = q.toString() ? `?${q.toString()}` : "";
-    const ttsPath = `/api/audio/prompt-tts/${lang}/${normId}${queryStr}`;
+    const queryString = q.toString() ? `?${q.toString()}` : "";
     return {
-      url: cleanBase ? `${cleanBase}${ttsPath}` : ttsPath,
+      url: `${cleanBase}/api/audio/prompt-tts/${lang}/${normId}${queryString}`,
       mode: "DYNAMIC_TTS",
       promptId: normId,
       state,
@@ -355,18 +314,12 @@ export function resolveCanonicalAudioUrl(
     };
   }
 
-  // Fixed prompts: check studio recording
-  const recorded = AUDIO_RECORDINGS.find(
-    (r) =>
-      r.promptId === normId &&
-      (r.language === lang || (lang === "en" && r.language === "en")) &&
-      r.url &&
-      (r.recordingRole === "fixed" || r.assetRoot === "supplied" || r.assetRoot === "additional")
-  );
+  const recordingUrl = lang === "twi" ? prompt?.audio?.twi : prompt?.audio?.english;
 
-  if (recorded && recorded.url) {
+  if (recordingUrl) {
+    const fullUrl = recordingUrl.startsWith("http") ? recordingUrl : `${cleanBase}${recordingUrl.startsWith("/") ? "" : "/"}${recordingUrl}`;
     return {
-      url: cleanBase ? `${cleanBase}${recorded.url}` : recorded.url,
+      url: fullUrl,
       mode: "RECORDED",
       promptId: normId,
       state,
@@ -374,98 +327,12 @@ export function resolveCanonicalAudioUrl(
     };
   }
 
-  // Canonical welcome alias
-  if (normId === "OP01") {
-    const welcomeUrl = lang === "twi"
-      ? "/audio/welcome_twi.mp3"
-      : "/audio/welcome_en.mp3";
-    return {
-      url: cleanBase ? `${cleanBase}${welcomeUrl}` : welcomeUrl,
-      mode: "RECORDED",
-      promptId: normId,
-      state,
-      spokenText: lang === "twi"
-        ? "Akwaaba wɔ Ɔkwankyerɛfo Pa mu, wo nne akwankyerɛ a ɛma mobile services yɛ mmerɛw ma obiara."
-        : "Welcome to Ɔkwankyerɛfo Pa, your accessible voice guide for mobile services.",
-    };
-  }
-
-  // Fallback to TTS endpoint
-  const ttsPath = `/api/audio/prompt-tts/${lang}/${normId}`;
+  const encodedText = encodeURIComponent(spokenText);
   return {
-    url: cleanBase ? `${cleanBase}${ttsPath}` : ttsPath,
+    url: `${cleanBase}/api/audio/prompt-tts/${lang}/${normId}?text=${encodedText}`,
     mode: "DYNAMIC_TTS",
     promptId: normId,
     state,
     spokenText,
   };
-}
-
-/**
- * Builds Africa's Talking compliant VoiceXML for any canonical prompt
- */
-export function buildVoiceXmlForCanonicalPrompt(options: {
-  promptId: string;
-  language: CanonicalPromptLanguage;
-  baseUrl: string;
-  params?: DynamicPromptParams;
-  getDigits?: {
-    callbackUrl: string;
-    timeout?: number;
-    numDigits?: number;
-    finishOnKey?: string;
-  };
-  record?: {
-    callbackUrl: string;
-    maxLength?: number;
-    timeout?: number;
-    playBeep?: boolean;
-    finishOnKey?: string;
-  };
-}): string {
-  const { promptId, language, baseUrl, params = {}, getDigits, record } = options;
-  const audio = resolveCanonicalAudioUrl(promptId, language, baseUrl, params);
-  const voice = language === "twi" ? "woman" : "alice";
-
-  const promptTag = audio.mode === "RECORDED"
-    ? `        <Play url="${escapeXml(audio.url)}"/>`
-    : `        <Say voice="${voice}">${escapeXml(audio.spokenText)}</Say>`;
-
-  if (getDigits) {
-    const timeout = getDigits.timeout || 10;
-    const numDigits = getDigits.numDigits ? ` numDigits="${getDigits.numDigits}"` : "";
-    const finishOnKey = getDigits.finishOnKey ? ` finishOnKey="${getDigits.finishOnKey}"` : ' finishOnKey="#"';
-    const callback = escapeXml(getDigits.callbackUrl);
-
-    let xml = `    <GetDigits timeout="${timeout}"${finishOnKey}${numDigits} callbackUrl="${callback}">\n${promptTag}\n    </GetDigits>`;
-    if (record) {
-      const recMax = record.maxLength || 8;
-      const recTimeout = record.timeout || 5;
-      const recBeep = record.playBeep !== false ? ' playBeep="true"' : "";
-      const recKey = record.finishOnKey ? ` finishOnKey="${record.finishOnKey}"` : ' finishOnKey="#"';
-      const recCallback = escapeXml(record.callbackUrl);
-      xml += `\n    <Record trimSilence="true"${recKey}${recBeep} maxLength="${recMax}" timeout="${recTimeout}" callbackUrl="${recCallback}"/>`;
-    }
-    return xml;
-  }
-
-  if (record) {
-    const recMax = record.maxLength || 8;
-    const recTimeout = record.timeout || 5;
-    const recBeep = record.playBeep !== false ? ' playBeep="true"' : "";
-    const recKey = record.finishOnKey ? ` finishOnKey="${record.finishOnKey}"` : ' finishOnKey="#"';
-    const recCallback = escapeXml(record.callbackUrl);
-    return `${promptTag}\n    <Record trimSilence="true"${recKey}${recBeep} maxLength="${recMax}" timeout="${recTimeout}" callbackUrl="${recCallback}"/>`;
-  }
-
-  return promptTag.trim();
-}
-
-function escapeXml(unsafe: string): string {
-  return unsafe
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
 }

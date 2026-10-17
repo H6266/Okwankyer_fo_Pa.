@@ -379,7 +379,14 @@ export const handleInboundCall = (req: Request, res: Response) => {
   session.callerPhone = callerNumber;
   session.language = initialLang;
 
-  const welcomeUrl = `${baseUrl}/audio/Opening_voice_welcome_to_okwankyerefopa.mp3`;
+  const defaultWelcomeUrl = `${baseUrl}/audio/Welcome_prompt_01.mp3`;
+  const welcomeUrl = initialLang === "twi"
+    ? `${baseUrl}/audio/Twi_library/Opening_voice_welcome_to_okwankyerefopa.mp3`
+    : `${baseUrl}/audio/Welcome_prompt_01.mp3`;
+
+  const langSelectUrl = initialLang === "twi"
+    ? `${baseUrl}/audio/Twi_library/Language_selection.m4a`
+    : `${baseUrl}/audio/Welcome_prompt_01.mp3`;
 
   const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?sessionId=${sessionId}">
         <Play url="${escapeVoiceXml(welcomeUrl)}"/>
@@ -512,7 +519,7 @@ ivrRouter.all("/service-select", (req: Request, res: Response) => {
   const baseUrl = getBaseUrl(req);
 
   const serviceSelection2Url = lang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/2.Main%20Service%20Navigation/Service%20selection%202.mp3`
+    ? `${baseUrl}/audio/Twi_library/Service_selection.mp3`
     : "";
 
   const promptElement = serviceSelection2Url
@@ -746,7 +753,9 @@ ivrRouter.all("/action-select", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const baseUrl = getBaseUrl(req);
 
-  const mtnMenuUrl = `${baseUrl}/audio/MTN%20menu.mp3`;
+  const mtnMenu1Url = lang === "twi"
+    ? `${baseUrl}/audio/Twi_library/MTN%20menu.mp3`
+    : "";
 
   const xml = `    <GetDigits timeout="15" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?sessionId=${sessionId}&amp;lang=${lang}">
         <Play url="${escapeVoiceXml(mtnMenuUrl)}"/>
@@ -869,8 +878,13 @@ ivrRouter.all("/enter-recipient", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const baseUrl = getBaseUrl(req);
 
-  const sendMoneySelectedUrl = `${baseUrl}/audio/Send_money_selected.mp3`;
-  const enterRecipientUrl = `${baseUrl}/audio/Enter_recipient.mp3`;
+  const enterRecipient2Url = lang === "twi"
+    ? `${baseUrl}/audio/Twi_library/Enter_recipient.m4a`
+    : "";
+
+  const promptElement = enterRecipient2Url
+    ? `<Play url="${escapeVoiceXml(enterRecipient2Url)}"/>`
+    : canonicalPromptElement("enter_recipient", lang, baseUrl, "Please enter the recipient's ten-digit phone number, followed by hash.");
 
   const xml = `    <GetDigits timeout="35" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}">
         <Play url="${escapeVoiceXml(sendMoneySelectedUrl)}"/>
@@ -983,10 +997,10 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
   const nameSpoken = resolution.name || (lang === "twi" ? `fon nɔmba ${fullPhoneSpoken}` : `subscriber ${fullPhoneSpoken}`);
 
   const useRecipient1Url = lang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Use%20recipient%201.mp3`
+    ? `${baseUrl}/audio/Twi_library/Use_recipient%201.m4a`
     : "";
   const recipientConfirmSpeechUrl = lang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Recipient%20confirm%20speech.mp3`
+    ? `${baseUrl}/audio/Twi_library/Recipient_confirm_speech.m4a`
     : "";
 
   let verifyPrompt = "";
@@ -1097,7 +1111,12 @@ ivrRouter.all("/enter-amount", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const baseUrl = getBaseUrl(req);
 
-  const enterAmountUrl = `${baseUrl}/audio/Enter%20amount.mp3`;
+  const amountPromptUrl = lang === "twi"
+    ? `${baseUrl}/audio/Twi_library/Amount%20prompt.m4a`
+    : "";
+  const enterAmount4Url = lang === "twi"
+    ? `${baseUrl}/audio/Twi_library/Enter%20amount.m4a`
+    : "";
 
   // 30 second window with star for pesewas, wait strictly for finishOnKey #
   const xml = `    <GetDigits timeout="30" finishOnKey="#" numDigits="6" callbackUrl="${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}">
@@ -1236,7 +1255,7 @@ ivrRouter.all("/pin-handoff", (req: Request, res: Response) => {
     return xmlResponse(res, `    <Redirect>${baseUrl}/confirm-speech?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${dtmf}</Redirect>`);
   }
 
-  const pinAudioUrl = `${baseUrl}/audio/additional/Pin%20Handoff.mp3`;
+  const pinAudioUrl = `${baseUrl}/audio/Twi_library/Authorize_phone.m4a`;
   const pinPrompt = lang === "twi"
     ? "Wo transaction no ayɛ krado sɛ wode bɛma ho kwan. Yɛsrɛ wo, bɔ wo 4 digit password na fa hash ka ho, anaa ka wo PIN no."
     : "Your transaction is ready for authorization. Please enter your 4-digit password followed by hash, or say your 4-digit PIN.";
@@ -1269,8 +1288,8 @@ ivrRouter.all("/confirm-speech", (req: Request, res: Response) => {
   }
 
   const confirmAudioUrl = lang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/5.Transaction%20Confirmation/Confirm%20speech.mp3`
-    : `${baseUrl}/audio/Confirm%20understanding.mp3`;
+    ? `${baseUrl}/audio/Twi_library/Confirm%20speech.m4a`
+    : `${baseUrl}/audio/Confirm%20understanding.m4a`;
 
   const confirmPrompt = lang === "twi"
     ? "Sɛ wopene so a, mia baako (1) anaasɛ ka aane. Sɛ wopɛ sɛ wotwa mu a, mia mmienu (2) anaasɛ ka dabi."
@@ -1562,8 +1581,9 @@ ivrRouter.all("/verify-pin", async (req: Request, res: Response) => {
     console.warn("[VoiceRoutes] Payment saga async execution notice:", err?.message);
   });
 
-  const successSentAudio = `${baseUrl}/audio/Success_sent.mp3`;
-  const successCloseAudio = `${baseUrl}/audio/Success_close.mp3`;
+  const successAudio = lang === "twi"
+    ? `${baseUrl}/audio/Twi_library/Success_sent.m4a`
+    : `${baseUrl}/audio/Success.m4a`;
 
   const receipt = buildReceiptPrompt({
     language: lang,

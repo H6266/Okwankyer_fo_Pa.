@@ -158,6 +158,10 @@ export function resolveSafeAudioPath(requestedSubpath: string): string | null {
     assetRoot = "supplied";
     relativePath = normalized.slice("supplied/".length);
     rootDir = path.resolve(process.cwd(), "Audio_files");
+  } else if (/^twi_library\//i.test(normalized)) {
+    assetRoot = "supplied";
+    relativePath = normalized;
+    rootDir = path.resolve(process.cwd(), "Audio_files");
   } else if (normalized.startsWith("additional/")) {
     assetRoot = "additional";
     relativePath = normalized.slice("additional/".length);
@@ -198,82 +202,44 @@ export function resolveSafeAudioPath(requestedSubpath: string): string | null {
     }
   }
 
-  // 3. Fallback: check flat Audio_files directory for matching filename with any audio extension
+  // 3. Check Audio_files/Twi_library directly
+  const twiLibraryDir = path.resolve(process.cwd(), "Audio_files", "Twi_library");
+  if (fs.existsSync(twiLibraryDir)) {
+    // Check direct file
+    const directInTwiLib = path.join(twiLibraryDir, path.basename(resolved));
+    if (fs.existsSync(directInTwiLib) && !fs.statSync(directInTwiLib).isDirectory()) {
+      return fs.realpathSync(directInTwiLib);
+    }
+    // Check with extension swap
+    for (const ext of audioExtensions) {
+      const extCandidate = path.join(twiLibraryDir, `${baseNameWithoutExt}${ext}`);
+      if (fs.existsSync(extCandidate) && !fs.statSync(extCandidate).isDirectory()) {
+        return fs.realpathSync(extCandidate);
+      }
+    }
+    // Check case-insensitive match
+    try {
+      const targetLower = baseNameWithoutExt.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const twiFiles = fs.readdirSync(twiLibraryDir);
+      for (const f of twiFiles) {
+        const fBase = path.basename(f, path.extname(f)).toLowerCase().replace(/[^a-z0-9]/g, "");
+        if (fBase === targetLower) {
+          const matchPath = path.join(twiLibraryDir, f);
+          if (fs.existsSync(matchPath) && !fs.statSync(matchPath).isDirectory()) {
+            return fs.realpathSync(matchPath);
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // 4. Fallback: check flat Audio_files directory for matching filename with any audio extension
   const audioFilesDir = path.resolve(process.cwd(), "Audio_files");
   for (const ext of audioExtensions) {
     const flatCandidate = path.resolve(audioFilesDir, `${baseNameWithoutExt}${ext}`);
     if (fs.existsSync(flatCandidate) && !fs.statSync(flatCandidate).isDirectory()) {
       return fs.realpathSync(flatCandidate);
     }
-  }
-
-  // 4. Fallback: search Audio_files/Twi/ subdirectories recursively for the file
-  const twiDir = path.resolve(process.cwd(), "Audio_files", "Twi");
-  if (fs.existsSync(twiDir)) {
-    const targetBaseLower = baseNameWithoutExt.toLowerCase();
-    try {
-      const subdirs = fs.readdirSync(twiDir, { withFileTypes: true });
-      for (const entry of subdirs) {
-        if (entry.isDirectory()) {
-          const subDirPath = path.join(twiDir, entry.name);
-          const files = fs.readdirSync(subDirPath);
-          for (const f of files) {
-            const fNameWithoutExt = path.basename(f, path.extname(f)).toLowerCase();
-            if (fNameWithoutExt === targetBaseLower) {
-              const fullPath = path.join(subDirPath, f);
-              if (fs.existsSync(fullPath) && !fs.statSync(fullPath).isDirectory()) {
-                return fs.realpathSync(fullPath);
-              }
-            }
-          }
-        }
-      }
-    } catch {}
-  }
-
-  // 4b. Fallback: search Audio_files/Twi_library flat directory for matching audio files
-  const twiLibraryDir = path.resolve(process.cwd(), "Audio_files", "Twi_library");
-  if (fs.existsSync(twiLibraryDir)) {
-    const targetBaseNormalized = baseNameWithoutExt.toLowerCase().replace(/[\s_\-]/g, "");
-    const targetBaseStripped = baseNameWithoutExt
-      .toLowerCase()
-      .replace(/\s*\(\d+\)\s*$/g, "")
-      .replace(/\s+\d+\s*$/g, "")
-      .replace(/[\s_\-]/g, "");
-
-    try {
-      const files = fs.readdirSync(twiLibraryDir);
-      for (const f of files) {
-        const fBase = path.basename(f, path.extname(f)).toLowerCase();
-        const fBaseNormalized = fBase.replace(/[\s_\-]/g, "");
-        const fBaseStripped = fBase
-          .replace(/\s*\(\d+\)\s*$/g, "")
-          .replace(/\s+\d+\s*$/g, "")
-          .replace(/[\s_\-]/g, "");
-
-        if (
-          fBaseNormalized === targetBaseNormalized ||
-          fBaseStripped === targetBaseStripped ||
-          fBaseNormalized === targetBaseStripped ||
-          fBaseStripped === targetBaseNormalized ||
-          f.toLowerCase().startsWith(baseNameWithoutExt.toLowerCase()) ||
-          (targetBaseNormalized.includes("checkfinal") && fBaseNormalized.includes("checkfinal"))
-        ) {
-          const fullPath = path.join(twiLibraryDir, f);
-          if (fs.existsSync(fullPath) && !fs.statSync(fullPath).isDirectory()) {
-            return fs.realpathSync(fullPath);
-          }
-        }
-      }
-
-      // Special welcome alias if specific take not found
-      if (targetBaseStripped === "welcome" || targetBaseNormalized.startsWith("welcome1")) {
-        const welcomeCandidate = path.join(twiLibraryDir, "Opening_voice_welcome_to_okwankyerefopa.mp3");
-        if (fs.existsSync(welcomeCandidate)) {
-          return fs.realpathSync(welcomeCandidate);
-        }
-      }
-    } catch {}
   }
 
   // 5. Fallback: check public/audio

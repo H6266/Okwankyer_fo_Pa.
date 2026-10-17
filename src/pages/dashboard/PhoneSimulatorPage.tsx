@@ -36,6 +36,7 @@ import { api } from "../../lib/api";
 import { getRecordingByUrl } from "../../audio/recordingRegistry";
 import { resolvePromptText } from "../../modules/ttsService";
 import { isDynamicPrompt, STATE_TO_CANONICAL_PROMPT_ID } from "../../audio/canonicalRegistry";
+import { MOMO_9_STEP_SEQUENCE } from "../../domain/momoFlowSequence";
 import { TWI_SEQUENTIAL_FLOW_STEPS, getFlowStepById } from "../../audio/twiSequentialAudioFlow";
 import { continuousAudioEngine, ContinuousAudioState } from "../../audio/continuousAudioEngine";
 import { AcousticVisualizer } from "../../components/audio/AcousticVisualizer";
@@ -1026,6 +1027,10 @@ export const PhoneSimulatorPage: React.FC = () => {
     await audioPlaybackController.speakText(promptText);
   }, [language, sessionId, addLog, addChatTurn]);
 
+  useEffect(() => {
+    startPinAuthorizationFlowRef.current = startPinAuthorizationFlow;
+  }, [startPinAuthorizationFlow]);
+
   const playAiAgentReply = useCallback(
     async (
       textToPlay: string,
@@ -1034,6 +1039,45 @@ export const PhoneSimulatorPage: React.FC = () => {
       sessionToUse?: string
     ) => {
       try {
+        const crossRes = await fetch("/api/ai/cross-reference-audio", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            replyText: textToPlay,
+            language: langToUse,
+            sessionId: sessionToUse || sessionId,
+            isGeminiConversation: isGeminiOrigin,
+          }),
+        }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+
+        const plan = crossRes?.plan;
+        if (plan && Array.isArray(plan.segments) && plan.segments.length > 0) {
+          const brainSource = (plan.source || "AI").toUpperCase();
+          addLog(
+            "AI",
+            `[${brainSource} BRAIN] Audio Assembly Plan: ${plan.reasoning || "Assembled response sequence"}`
+          );
+
+          for (let i = 0; i < plan.segments.length; i++) {
+            const seg = plan.segments[i];
+            if (seg.type === "clip" && seg.audioUrl) {
+              addLog(
+                "audio",
+                `Playing clip [${i + 1}/${plan.segments.length}]: ${seg.filename || "Studio recording"}`
+              );
+              await audioPlaybackController.play(seg.audioUrl, seg.transcript || textToPlay);
+            } else if (seg.type === "tts" && seg.text) {
+              addLog(
+                "audio",
+                `Synthesizing dynamic TTS [${i + 1}/${plan.segments.length}]: "${seg.text}"`
+              );
+              await audioPlaybackController.speakText(seg.text, langToUse);
+            }
+          }
+          return;
+        }
+
+        // Fallback to match-audio or direct TTS
         const matchRes = await fetch("/api/ai/match-audio", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1050,16 +1094,17 @@ export const PhoneSimulatorPage: React.FC = () => {
         if (matchData?.matchFound && matchData.audioUrl) {
           addLog(
             "AI",
-            `Authentic studio audio matched (${matchData.promptId || matchData.title || "Catalog"}): "${matchData.matchReason || matchData.reason || "Catalog Match"}"`
+            `Studio audio matched (${matchData.promptId || matchData.title || "Catalog"}): "${matchData.matchReason || matchData.reason || "Catalog Match"}"`
           );
           await audioPlaybackController.play(matchData.audioUrl, textToPlay);
           return;
         }
 
         addLog("AI", `Dynamic response requires TTS: "${matchData?.matchReason || matchData?.reason || "Synthesizing"}"`);
-        await audioPlaybackController.speakText(textToPlay);
-      } catch {
-        await audioPlaybackController.speakText(textToPlay);
+        await audioPlaybackController.speakText(textToPlay, langToUse);
+      } catch (err: any) {
+        addLog("AI", `Audio assembly notice: playing TTS fallback (${err?.message || "Standard"})`);
+        await audioPlaybackController.speakText(textToPlay, langToUse);
       }
     },
     [addLog, sessionId]
@@ -1145,7 +1190,7 @@ export const PhoneSimulatorPage: React.FC = () => {
       const isTwi = curLang === "twi";
 
       // Direct Spoken PIN Entry
-      if (curStep === "enter-pin" || curStep === "verify-pin") {
+      if (curStep === "enter-pin" || curStep === "verify-pin" || curStep.includes("pin") || curStep.includes("auth")) {
         const WORD_TO_DIGIT: Record<string, string> = {
           zero: "0", oh: "0", hwee: "0",
           one: "1", baako: "1", bako: "1",
@@ -1470,7 +1515,9 @@ export const PhoneSimulatorPage: React.FC = () => {
         curStep === "safe-confirmation" ||
         curStep === "safe-outcome" ||
         curStep === "transaction-confirm" ||
-        curStep === "confirm";
+        curStep === "confirm" ||
+        curStep === "confirm-speech" ||
+        curStep.includes("confirm");
 
       if (isTransferConfirmStep) {
         if (brainDraftRef.current?.slots?.hasNetworkDiscrepancy) {
@@ -1985,7 +2032,9 @@ export const PhoneSimulatorPage: React.FC = () => {
         activeStepNameRef.current === "safe-confirmation" ||
         activeStepNameRef.current === "safe-outcome" ||
         activeStepNameRef.current === "transaction-confirm" ||
-        activeStepNameRef.current === "confirm";
+        activeStepNameRef.current === "confirm" ||
+        activeStepNameRef.current === "confirm-speech" ||
+        activeStepNameRef.current.includes("confirm");
       if (digit === "1" && isTransferConfirmStep) {
         setDigitsBuffer("");
         addLog("caller", "Keypad '1' confirmed transaction. Moving to PIN entry.");
@@ -1994,13 +2043,26 @@ export const PhoneSimulatorPage: React.FC = () => {
       }
 
       // Special Handling: Direct 4-Digit PIN Entry on Keypad
-      if (activeStepNameRef.current === "enter-pin" || activeStepNameRef.current === "verify-pin") {
+      const isPinStep =
+        activeStepNameRef.current === "enter-pin" ||
+        activeStepNameRef.current === "verify-pin" ||
+        activeStepNameRef.current === "pin-authorization" ||
+        activeStepNameRef.current.includes("pin") ||
+        activeStepNameRef.current.includes("auth");
+
+      if (isPinStep) {
+        const curSession = sessionIdRef.current || sessionId || `call_${Date.now()}`;
+        const curLang = languageRef.current || language || "twi";
+        const pinCallback = activeCallbackUrlRef.current?.includes("verify-pin")
+          ? activeCallbackUrlRef.current
+          : `/api/simulator/verify-pin?sessionId=${encodeURIComponent(curSession)}&lang=${curLang}`;
+
         if (digit === "#") {
           if (digitsBuffer.length >= 4) {
             const pinVal = digitsBuffer.slice(0, 4);
             setCallStatus("Verifying PIN");
             addLog("caller", "Keypad PIN submitted: ● ● ● ● — Verifying MoMo PIN...");
-            dispatchVoiceWebhook(targetCallback, { dtmfDigits: pinVal });
+            dispatchVoiceWebhook(pinCallback, { dtmfDigits: pinVal });
           }
           return;
         }
@@ -2009,9 +2071,9 @@ export const PhoneSimulatorPage: React.FC = () => {
         setDigitsBuffer(nextPin);
         if (nextPin.length === 4) {
           setCallStatus("Verifying PIN");
-          addLog("caller", "Keypad PIN entered: ● ● ● ● — Verifying MoMo PIN...");
+          addLog("caller", "Keypad PIN entered: ● ● ● ● — Verifying MoMo PIN with carrier gateway...");
           setTimeout(() => {
-            dispatchVoiceWebhook(targetCallback, { dtmfDigits: nextPin });
+            dispatchVoiceWebhook(pinCallback, { dtmfDigits: nextPin });
           }, 350);
         }
         return;
@@ -2243,7 +2305,7 @@ export const PhoneSimulatorPage: React.FC = () => {
 
               {/* Center Display: Digits or State */}
               <div className="my-auto py-1 text-center w-full">
-                {activeStepName.includes("pin") ? (
+                {(activeStepName.includes("pin") || activeStepName.includes("auth") || callStatus === "Verifying PIN") ? (
                   <div className="flex flex-col items-center justify-center gap-1.5 w-full px-2 py-1">
                     <div className="flex items-center justify-between w-full text-[10px] text-emerald-400 font-semibold uppercase tracking-wider">
                       <span className="flex items-center gap-1">
@@ -2269,9 +2331,16 @@ export const PhoneSimulatorPage: React.FC = () => {
                     </div>
                     <div className="flex items-center justify-between w-full text-[10px] text-slate-400">
                       <span className="text-amber-400/90 font-medium">
-                        {callStatus === "Verifying PIN" ? "Sending for verification..." : "Type PIN on keypad or say aloud"}
+                        {callStatus === "Verifying PIN" ? (
+                          <span className="flex items-center gap-1 text-emerald-300 animate-pulse font-semibold">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block mr-1" />
+                            Validating PIN with MoMo Switch...
+                          </span>
+                        ) : (
+                          "Type 4-digit PIN on keypad or say aloud"
+                        )}
                       </span>
-                      <span className="font-mono text-emerald-400">Direct PIN</span>
+                      <span className="font-mono text-emerald-400 bg-emerald-950/70 px-1.5 py-0.5 rounded border border-emerald-700/40">Secure PIN</span>
                     </div>
                   </div>
                 ) : activeStepName === "transfer-success" || callStatus === "Completed" ? (
@@ -2299,7 +2368,7 @@ export const PhoneSimulatorPage: React.FC = () => {
                     </div>
                     <div className="flex items-center justify-between w-full text-[10px] text-slate-400">
                       <span className="text-amber-400/90 font-medium">1=Confirm, 2=Re-enter</span>
-                      <span className="font-mono text-emerald-400">OP24</span>
+                      <span className="font-mono text-emerald-400">Recipient Verification</span>
                     </div>
                   </div>
                 ) : activeStepName.includes("recipient") ? (
@@ -2315,7 +2384,7 @@ export const PhoneSimulatorPage: React.FC = () => {
                     </div>
                     <div className="flex items-center justify-between w-full text-[10px] text-slate-400">
                       <span className="text-amber-400/90 font-medium animate-pulse">Waiting for # to submit</span>
-                      <span className="font-mono text-emerald-400">OP16</span>
+                      <span className="font-mono text-emerald-400">Phone Entry</span>
                     </div>
                   </div>
                 ) : activeStepName.includes("amount") ? (
@@ -2329,7 +2398,7 @@ export const PhoneSimulatorPage: React.FC = () => {
                     </div>
                     <div className="flex items-center justify-between w-full text-[10px] text-slate-400">
                       <span className="text-amber-400/90 font-medium animate-pulse">Waiting for # to submit</span>
-                      <span className="font-mono text-emerald-400">OP26</span>
+                      <span className="font-mono text-emerald-400">Amount Entry</span>
                     </div>
                   </div>
                 ) : digitsBuffer ? (
@@ -2543,6 +2612,50 @@ export const PhoneSimulatorPage: React.FC = () => {
                 >
                   GH₵ {walletBalance.toFixed(2)} {walletBalance === 30.0 ? "(Tight/Shortage)" : "(Sufficient)"}
                 </button>
+              </div>
+            </div>
+
+            {/* Authoritative 9-Step USSD/MoMo Money Transfer Sequence */}
+            <div className="bg-slate-900/90 border border-emerald-900/40 rounded-2xl p-3 shadow-md mb-3">
+              <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-800">
+                <span className="text-xs font-semibold text-emerald-300 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Authoritative 9-Step MoMo Transfer Flow</span>
+                </span>
+                <span className="text-[10px] font-mono text-slate-400 bg-slate-800 px-2 py-0.5 rounded">
+                  Active: {activeStepName || "idle"}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-3 sm:grid-cols-9 gap-1.5 text-center">
+                {MOMO_9_STEP_SEQUENCE.map((s) => {
+                  const stepNum = s.stepNumber;
+                  const isActive =
+                    (stepNum === 1 && (activeStepName === "idle" || activeStepName.includes("welcome") || activeStepName.includes("language"))) ||
+                    (stepNum === 2 && (activeStepName.includes("service") || activeStepName.includes("main_menu"))) ||
+                    (stepNum === 3 && activeStepName.includes("network")) ||
+                    (stepNum === 4 && activeStepName.includes("recipient")) ||
+                    (stepNum === 5 && activeStepName.includes("amount")) ||
+                    (stepNum === 6 && activeStepName.includes("reference")) ||
+                    (stepNum === 7 && (activeStepName.includes("review") || activeStepName.includes("confirm"))) ||
+                    (stepNum === 8 && (activeStepName.includes("pin") || activeStepName.includes("auth"))) ||
+                    (stepNum === 9 && (activeStepName.includes("success") || activeStepName.includes("completed")));
+
+                  return (
+                    <div
+                      key={s.id}
+                      className={`p-1.5 rounded-lg border text-[10px] flex flex-col items-center justify-center transition-all ${
+                        isActive
+                          ? "bg-emerald-950/80 border-emerald-500/80 text-emerald-200 ring-1 ring-emerald-400"
+                          : "bg-slate-950/40 border-slate-800/80 text-slate-400"
+                      }`}
+                      title={`${s.name}: ${s.description}\nAudio: ${s.defaultAudioFilename}`}
+                    >
+                      <span className="font-bold text-[11px]">{stepNum}</span>
+                      <span className="truncate w-full text-[9px] font-medium mt-0.5">{s.name.split(". ")[1]}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -2775,14 +2888,6 @@ export const PhoneSimulatorPage: React.FC = () => {
                           {isSystem && (
                             <>
                               <span className="font-bold text-teal-400">Ɔkwankyerɛfo Pa IVR</span>
-                              {turn.promptId && (
-                                <>
-                                  <span className="text-slate-500">·</span>
-                                  <span className="font-mono text-emerald-300 font-semibold">
-                                    {turn.promptId}
-                                  </span>
-                                </>
-                              )}
                               {turn.stepName && (
                                 <>
                                   <span className="text-slate-500">·</span>
@@ -2857,7 +2962,6 @@ export const PhoneSimulatorPage: React.FC = () => {
                               <span className="flex items-center gap-1 text-teal-400">
                                 <Volume2 className="w-3.5 h-3.5" />
                                 <span>
-                                  {turn.promptId ? `${turn.promptId} · ` : ""}
                                   {turn.audioSource === "synthesis" ? "Dynamic TTS" : (turn.audioUrl ? "Studio Audio" : "Dynamic TTS")}
                                 </span>
                               </span>

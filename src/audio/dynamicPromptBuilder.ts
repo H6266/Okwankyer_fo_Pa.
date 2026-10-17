@@ -162,11 +162,11 @@ export function buildRecipientVerificationPrompt(options: {
   }
 
   const recipientConfirmSpeechUrl = language === "twi"
-    ? `/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Recipient%20confirm%20speech.mp3`
-    : `/audio/Confirm%20understanding.mp3`;
+    ? `/audio/Twi_library/Recipient_confirm_speech.m4a`
+    : `/audio/Confirm%20understanding.m4a`;
   const useRecipient1Url = language === "twi"
-    ? `/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Use%20recipient%201.mp3`
-    : `/audio/Continue.mp3`;
+    ? `/audio/Twi_library/Use_recipient%201.m4a`
+    : `/audio/Continue.m4a`;
 
   // Audio 8 (Use Recipient 1) plays BEFORE Audio 7 (Recipient Confirm Speech)
   const voiceXml = `    <GetDigits timeout="15" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
@@ -210,11 +210,11 @@ export function buildSafeConfirmationPrompt(options: SafeConfirmationOptions): {
   }
 
   const amountReadback2Url = language === "twi"
-    ? `/audio/supplied/Twi/4.Amount%20Entry%20%26%20Verification/Amount%20readback%202.mp3`
-    : `/audio/Confirm%20understanding.mp3`;
+    ? `/audio/Twi_library/Amount%20readback.m4a`
+    : `/audio/Confirm%20understanding.m4a`;
   const confirmSpeechUrl = language === "twi"
-    ? `/audio/supplied/Twi/5.Transaction%20Confirmation/Confirm%20speech.mp3`
-    : `/audio/Continue.mp3`;
+    ? `/audio/Twi_library/Confirm%20speech.m4a`
+    : `/audio/Continue.m4a`;
 
   // Africa's Talking compliant VoiceXML with studio audio & dynamic readback for Step 11
   const voiceXml = `    <GetDigits timeout="15" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
@@ -272,17 +272,17 @@ export function buildReceiptPrompt(options: DynamicReceiptOptions): {
   } else {
     // 15. Success Audio (SUCCESS SENT) -> 16. Keep Reference -> 17. Dynamic TTS Reference -> Anything Else -> Exit
     const successAudioUrl = language === "twi"
-      ? `/audio/supplied/Twi/8.Success%20%26%20Completion/SUCCESS%20SENT.aac`
-      : `/audio/Success%20sent.mp3`;
+      ? `/audio/Twi_library/Success_sent.m4a`
+      : `/audio/Success%20sent.m4a`;
     const keepRefAudioUrl = language === "twi"
-      ? `/audio/supplied/Twi/8.Success%20%26%20Completion/Keep%20reference.aac`
-      : `/audio/Keep%20reference.mp3`;
+      ? `/audio/Twi_library/Keep_reference.m4a`
+      : `/audio/Keep%20reference.m4a`;
     const anythingElseAudioUrl = language === "twi"
-      ? `/audio/supplied/Twi/8.Success%20%26%20Completion/ANYTHING%20ELSE.aac`
-      : `/audio/Anything%20else.mp3`;
+      ? `/audio/Twi_library/Anything_else.m4a`
+      : `/audio/Anything%20else.m4a`;
     const exitAudioUrl = language === "twi"
-      ? `/audio/supplied/Twi/11.Navigation%20%26%20Recovery/Exit.aac`
-      : `/audio/Exit.mp3`;
+      ? `/audio/Twi_library/Exit.m4a`
+      : `/audio/Exit.m4a`;
 
     const refText = referenceId && referenceId.trim()
       ? (language === "twi"
