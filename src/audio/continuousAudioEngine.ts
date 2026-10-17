@@ -113,19 +113,20 @@ export class ContinuousAudioEngine {
           this.pauseForPlayback();
         } else {
           const wasGated = this.isPlaybackGated;
-          this.isPlaybackGated = false;
           setTimeout(() => {
             if (!audioPlaybackController.isSpeaking()) {
               this.activePromptText = "";
             }
-          }, 500);
+          }, 600);
           if (wasGated && !this.isExplicitlyStopped && !this.isZeroPinMuted) {
-            // Brief 150ms acoustic tail buffer so room reverb from the speaker isn't recorded
+            // Strict 200ms acoustic tail buffer so room reverb from the speaker isn't recorded
             setTimeout(() => {
               if (!audioPlaybackController.isSpeaking() && !this.isExplicitlyStopped && !this.isZeroPinMuted) {
                 this.resumeAfterPlayback();
               }
-            }, 150);
+            }, 200);
+          } else if (!audioPlaybackController.isSpeaking() && !this.isExplicitlyStopped && !this.isZeroPinMuted) {
+            this.resumeAfterPlayback();
           }
         }
       });

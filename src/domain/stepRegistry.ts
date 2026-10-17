@@ -313,7 +313,7 @@ export function getStepDefinition(stepId: string): StepDefinition | null {
   if (normalized === "service-choice") return STEP_REGISTRY["service-select"];
   if (normalized === "provider-choice") return STEP_REGISTRY["provider-select"];
   if (normalized === "action-choice") return STEP_REGISTRY["action-select"];
-  if (normalized === "verify-recipient") return STEP_REGISTRY["enter-recipient"];
+  if (normalized === "verify-recipient") return STEP_REGISTRY["recipient-verify-choice"];
   if (normalized === "verify-amount") return STEP_REGISTRY["enter-amount"];
   if (normalized === "safe-outcome") return STEP_REGISTRY["safe-confirmation"];
 

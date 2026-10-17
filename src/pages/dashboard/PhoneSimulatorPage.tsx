@@ -105,8 +105,8 @@ const STEP_OPTIONS_MAP: Record<string, string> = {
   "action-select": "1=Send Money, 8=Back, 9=Repeat, 0=Exit",
   "action-choice": "1=Send Money, 8=Back, 9=Repeat, 0=Exit",
   "enter-recipient": "10-digit number followed by #",
-  "verify-recipient": "10-digit number followed by #",
-  "recipient-verify-choice": "1=Confirm, 2=Re-enter, 8=Back, 9=Repeat",
+  "verify-recipient": "1=Confirm Recipient, 2=Re-enter Number, 0=Exit",
+  "recipient-verify-choice": "1=Confirm Recipient, 2=Re-enter Number, 8=Back, 0=Exit",
   "enter-amount": "Amount in Cedis followed by # (* for pesewas)",
   "verify-amount": "Amount followed by #",
   "safe-confirmation": "1=Confirm Transfer, 2=Edit, 9=Repeat, 0=Cancel",
@@ -640,6 +640,9 @@ export const PhoneSimulatorPage: React.FC = () => {
         if (parsed.getDigits.callbackUrl) {
           activeCallbackUrlRef.current = parsed.getDigits.callbackUrl;
           setActiveCallbackUrl(parsed.getDigits.callbackUrl);
+          if (parsed.getDigits.callbackUrl.includes("verify-pin") || stepName === "enter-pin") {
+            setDigitsBuffer("");
+          }
         }
         setActiveNumDigits(parsed.getDigits.numDigits || 1);
         setActiveFinishOnKey(parsed.getDigits.finishOnKey || "#");
@@ -647,17 +650,6 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       // Determine display prompt text
       let promptText = "";
-      if (parsed.sayText) {
-        promptText = parsed.sayText;
-      } else if (parsed.playUrls && parsed.playUrls.length > 1) {
-        const texts = parsed.playUrls.map((u) => {
-          const pathname = new URL(u, window.location.origin).pathname;
-          return getRecordingByUrl(pathname)?.spokenText;
-        }).filter(Boolean);
-        promptText = texts.length > 0
-          ? texts.join(" ")
-          : (responseLanguage === "twi" ? "Akwaaba. Yɛsrɛ wo paw dwumadie a wopɛ." : "Welcome. Please select a service.");
-      }
       let resolvedPromptId: string | null = null;
       if (requestedPlayUrl) {
         const pathname = new URL(requestedPlayUrl, window.location.origin).pathname;
@@ -667,11 +659,37 @@ export const PhoneSimulatorPage: React.FC = () => {
         resolvedPromptId = (promptKey && /^OP\d{2}$/i.test(promptKey))
           ? promptKey.toUpperCase()
           : recording?.promptId || STATE_TO_CANONICAL_PROMPT_ID[stepName.toUpperCase()] || null;
+      } else {
+        resolvedPromptId = STATE_TO_CANONICAL_PROMPT_ID[stepName.toUpperCase()] || null;
+      }
+
+      if (parsed.sayText) {
+        if (requestedPlayUrl) {
+          const pathname = new URL(requestedPlayUrl, window.location.origin).pathname;
+          const recording = getRecordingByUrl(pathname);
+          promptText = recording?.spokenText
+            ? `${recording.spokenText} ${parsed.sayText}`
+            : parsed.sayText;
+        } else {
+          promptText = parsed.sayText;
+        }
+      } else if (parsed.playUrls && parsed.playUrls.length > 1) {
+        const texts = parsed.playUrls.map((u) => {
+          const pathname = new URL(u, window.location.origin).pathname;
+          return getRecordingByUrl(pathname)?.spokenText;
+        }).filter(Boolean);
+        promptText = texts.length > 0
+          ? texts.join(" ")
+          : (responseLanguage === "twi" ? "Akwaaba. Yɛsrɛ wo paw dwumadie a wopɛ." : "Welcome. Please select a service.");
+      } else if (requestedPlayUrl) {
+        const pathname = new URL(requestedPlayUrl, window.location.origin).pathname;
+        const recording = getRecordingByUrl(pathname);
+        const ttsPromptKey = pathname.match(/^\/(?:api\/)?audio\/prompt-tts\/(?:en|twi)\/([^/?]+)/)?.[1];
+        const promptKey = ttsPromptKey ? decodeURIComponent(ttsPromptKey) : null;
         promptText = recording?.spokenText ||
           (promptKey ? resolvePromptText(promptKey, responseLanguage) : null) ||
           (responseLanguage === "twi" ? "Yɛsrɛ wo tie." : "Please listen to the prompt.");
       } else {
-        resolvedPromptId = STATE_TO_CANONICAL_PROMPT_ID[stepName.toUpperCase()] || null;
         // Fallback friendly script
         promptText = responseLanguage === "twi" ? "Yɛsrɛ wo paw deɛ wopɛ wɔ menyu no so." : "Please select an option from the menu.";
       }
@@ -747,14 +765,33 @@ export const PhoneSimulatorPage: React.FC = () => {
         });
       } else if (resolvedSequence.length > 1) {
         addLog("audio", `🔊 Auto-playing sequence: ${resolvedSequence.join(" -> ")}`);
-        audioPlaybackController.playSequence(resolvedSequence).catch((err) => {
+        audioPlaybackController.playSequence(resolvedSequence, promptText).then(async () => {
+          if (parsed.sayText && !parsed.redirectUrl) {
+            await audioPlaybackController.speakText(parsed.sayText);
+          }
+        }).catch((err) => {
           console.warn("[PhoneSimulator] Sequence auto-play notice:", err);
           audioPlaybackController.playToneIndicator().catch(() => {});
         });
       } else if (playbackUrl) {
         addLog("audio", `🔊 Auto-playing prompt: ${playbackUrl}`);
-        audioPlaybackController.play(playbackUrl, promptText).catch((err) => {
+        audioPlaybackController.play(playbackUrl, promptText).then(async () => {
+          if (parsed.sayText && !parsed.redirectUrl) {
+            // Intro audio finished; synthesize dynamic KYC readback text
+            await audioPlaybackController.speakText(parsed.sayText);
+          }
+        }).catch((err) => {
           console.warn("[PhoneSimulator] Auto-play prompt notice:", err);
+          if (parsed.sayText) {
+            audioPlaybackController.speakText(parsed.sayText).catch(() => {});
+          } else {
+            audioPlaybackController.playToneIndicator().catch(() => {});
+          }
+        });
+      } else if (parsed.sayText) {
+        addLog("audio", `🔊 Speaking dynamic prompt: "${parsed.sayText}"`);
+        audioPlaybackController.speakText(parsed.sayText).catch((err) => {
+          console.warn("[PhoneSimulator] Dynamic speakText notice:", err);
           audioPlaybackController.playToneIndicator().catch(() => {});
         });
       } else if (hasDynamicSay) {
@@ -835,6 +872,18 @@ export const PhoneSimulatorPage: React.FC = () => {
         const aiDecisionReason = decodeHeader(res.headers.get("x-ai-decision-reason"));
         const aiReplyText = decodeHeader(res.headers.get("x-ai-reply-text"));
         const aiReplyKey = decodeHeader(res.headers.get("x-ai-reply-key"));
+
+        const recipientName = decodeHeader(res.headers.get("x-recipient-name"));
+        const recipientPhone = decodeHeader(res.headers.get("x-recipient-phone"));
+        if (recipientPhone) {
+          if (!brainDraftRef.current) brainDraftRef.current = { slots: {} };
+          if (!brainDraftRef.current.slots) brainDraftRef.current.slots = {};
+          brainDraftRef.current.slots.recipient = {
+            phone: recipientPhone,
+            name: recipientName || undefined,
+          };
+          addLog("AI", `Brain draft synchronized: Recipient resolved as ${recipientName || recipientPhone} (${recipientPhone})`);
+        }
 
         if (aiDecisionType) {
           addLog("AI", `[AI Decision] type=${aiDecisionType} reason="${aiDecisionReason || ""}"`);
@@ -1406,7 +1455,7 @@ export const PhoneSimulatorPage: React.FC = () => {
         ? "provider"
         : curStep.includes("action")
         ? "action"
-        : curStep.includes("confirm") || curStep.includes("verify-choice")
+        : curStep.includes("confirm") || curStep.includes("verify-choice") || curStep === "verify-recipient" || curStep === "recipient-verify-choice"
         ? "confirmation"
         : "";
       const navigationOptions: Record<string, string> = {
@@ -1427,7 +1476,13 @@ export const PhoneSimulatorPage: React.FC = () => {
         ? (navigationOptions[normalizedOption] || (stepGroup ? optionMap[stepGroup][normalizedOption] : undefined))
         : undefined;
 
-      if (curStep.includes("confirm") || curStep === "safe-confirmation") {
+      const isTransferConfirmStep =
+        curStep === "safe-confirmation" ||
+        curStep === "safe-outcome" ||
+        curStep === "transaction-confirm" ||
+        curStep === "confirm";
+
+      if (isTransferConfirmStep) {
         if (brainDraftRef.current?.slots?.hasNetworkDiscrepancy) {
           addLog("AI", `Processing caller response to cross-network discrepancy confirmation: "${effectiveClean}"`);
           // Let fall through to api.processBrain below
@@ -1936,7 +1991,12 @@ export const PhoneSimulatorPage: React.FC = () => {
       }
 
       // Special Handling 3: Keypad '1' during safe-confirmation
-      if (digit === "1" && (activeStepNameRef.current === "safe-confirmation" || activeStepNameRef.current.includes("confirm"))) {
+      const isTransferConfirmStep =
+        activeStepNameRef.current === "safe-confirmation" ||
+        activeStepNameRef.current === "safe-outcome" ||
+        activeStepNameRef.current === "transaction-confirm" ||
+        activeStepNameRef.current === "confirm";
+      if (digit === "1" && isTransferConfirmStep) {
         setDigitsBuffer("");
         addLog("caller", "Keypad '1' confirmed transaction. Moving to PIN entry.");
         startPinAuthorizationFlow();
@@ -2235,6 +2295,22 @@ export const PhoneSimulatorPage: React.FC = () => {
                     <span className="text-[10px] text-slate-300 font-mono text-center px-1 leading-tight line-clamp-2">
                       {currentPrompt || "Payment authorized & completed successfully."}
                     </span>
+                  </div>
+                ) : activeStepName === "verify-recipient" || activeStepName === "recipient-verify-choice" ? (
+                  <div className="flex flex-col items-center justify-center gap-1 w-full px-1">
+                    <div className="flex items-center justify-between w-full text-[10px] text-emerald-400 font-semibold uppercase tracking-wider">
+                      <span>Confirm Recipient</span>
+                      <span className="bg-emerald-950/80 px-1.5 py-0.5 rounded text-emerald-300 border border-emerald-600/40 font-mono">
+                        1-Key Choice
+                      </span>
+                    </div>
+                    <div className="text-sm font-bold text-emerald-300 font-sans truncate px-2 py-1.5 bg-slate-950/80 rounded-lg border border-emerald-500/30 w-full text-center">
+                      {brainDraftRef.current?.slots?.recipient?.name || "Recipient Verified"}
+                    </div>
+                    <div className="flex items-center justify-between w-full text-[10px] text-slate-400">
+                      <span className="text-amber-400/90 font-medium">1=Confirm, 2=Re-enter</span>
+                      <span className="font-mono text-emerald-400">OP24</span>
+                    </div>
                   </div>
                 ) : activeStepName.includes("recipient") ? (
                   <div className="flex flex-col items-center justify-center gap-1 w-full px-1">

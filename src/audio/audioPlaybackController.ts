@@ -37,19 +37,6 @@ export interface PlayOptions {
   onStart?: () => void;
   onEnd?: () => void;
   onError?: (err: any) => void;
-  skipStudioMatch?: boolean;
-  language?: "en" | "twi";
-}
-
-function uint8ArrayToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  const len = bytes.byteLength;
-  const chunkSize = 8192;
-  for (let i = 0; i < len; i += chunkSize) {
-    const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
-    binary += String.fromCharCode.apply(null, chunk as any);
-  }
-  return btoa(binary);
 }
 
 type StateListener = (state: PlaybackState) => void;
@@ -289,63 +276,19 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Speaks text using studio recordings when an exact/appropriate match exists,
-   * or routes to dynamic neural speech synthesis for user-specific dynamic entities (names, numbers, amounts).
+   * Prioritizes ready Akan Twi studio audio recordings via matchReplyToAudio & keyword matcher.
+   * Absolutely zero synthetic TTS after user input: never invokes browser SpeechSynthesis or robotic TTS.
    */
   public async speakText(text: string, options?: PlayOptions): Promise<boolean> {
     if (!text || !text.trim()) return false;
     const token = ++this.currentToken;
     const cleanText = text.trim();
 
-    // Check if the text contains dynamic KYC details (names, phone numbers, amounts)
-    const isDynamicVerification =
-      options?.skipStudioMatch ||
-      /\b(din ne|kwame|kofi|boateng|mensah|ama|yaw|akua|0\d{9}|\d+\s*cedis|\d+\s*pesewas|ghs\s*\d+)\b/i.test(cleanText);
-
     // 1. High-priority match to native studio audio recording (Akan Twi ready files)
-    if (!isDynamicVerification) {
-      try {
-        const match = matchReplyToAudio(cleanText, "twi", { minConfidence: 0.30 });
-        if (match.match && match.audioUrl) {
-          return this.play(match.audioUrl, {
-            ...options,
-            onStart: () => {
-              this.setState({ activeText: cleanText });
-              options?.onStart?.();
-            },
-            onEnd: options?.onEnd,
-            onError: options?.onError,
-          });
-        }
-      } catch (matchErr) {
-        console.warn("[AudioController] Studio audio matching notice:", matchErr);
-      }
-
-      // 2. Intelligent keyword match to authentic Akan Twi studio recordings
-      const lower = cleanText.toLowerCase();
-      let fallbackStudioUrl: string | null = null;
-      if (lower.includes("sika") && (lower.includes("dodow") || lower.includes("amount") || lower.includes("bɔ"))) {
-        fallbackStudioUrl = "/audio/supplied/Twi/4.Amount Entry & Verification/Enter amount 4.m4a";
-      } else if (lower.includes("nɔmba") || lower.includes("fon") || lower.includes("recipient") || lower.includes("phone")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a";
-      } else if (lower.includes("pene") || lower.includes("confirm") || lower.includes("approval") || lower.includes("review") || lower.includes("aane")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/5.Transaction Confirmation/Review transaction.m4a";
-      } else if (lower.includes("pin") || lower.includes("handoff") || lower.includes("ahobammɔ")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/7.Handset PIN Delivery & Handoff/Pin handoff.m4a";
-      } else if (lower.includes("balance") || lower.includes("star") || lower.includes("170")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/13.Balance  Unsupported Services/Balance unavailable.aac";
-      } else if (lower.includes("mane") || lower.includes("send")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/Send money selected.m4a";
-      } else if (lower.includes("paw") || lower.includes("menyu") || lower.includes("menu")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/MTN menu 1.m4a";
-      } else if (lower.includes("twa") || lower.includes("cancel") || lower.includes("dabi")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/11.Navigation & Recovery/Cancel.aac";
-      } else if (lower.includes("wie") || lower.includes("success") || lower.includes("medaase") || lower.includes("nante yie")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/14.Post-Transaction Conversation/Finish.aac";
-      }
-
-      if (fallbackStudioUrl) {
-        return this.play(fallbackStudioUrl, {
+    try {
+      const match = matchReplyToAudio(cleanText, "twi", { minConfidence: 0.30 });
+      if (match.match && match.audioUrl) {
+        return this.play(match.audioUrl, {
           ...options,
           onStart: () => {
             this.setState({ activeText: cleanText });
@@ -355,11 +298,48 @@ export class AudioPlaybackController {
           onError: options?.onError,
         });
       }
+    } catch (matchErr) {
+      console.warn("[AudioController] Studio audio matching notice:", matchErr);
+    }
+
+    // 2. Intelligent keyword match to authentic Akan Twi studio recordings
+    const lower = cleanText.toLowerCase();
+    let fallbackStudioUrl: string | null = null;
+    if (lower.includes("sika") && (lower.includes("dodow") || lower.includes("amount") || lower.includes("cedis") || lower.includes("bɔ"))) {
+      fallbackStudioUrl = "/audio/supplied/Twi/4.Amount Entry & Verification/Enter amount 4.m4a";
+    } else if (lower.includes("nɔmba") || lower.includes("fon") || lower.includes("recipient") || lower.includes("phone")) {
+      fallbackStudioUrl = "/audio/supplied/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a";
+    } else if (lower.includes("pene") || lower.includes("confirm") || lower.includes("approval") || lower.includes("review") || lower.includes("aane")) {
+      fallbackStudioUrl = "/audio/supplied/Twi/5.Transaction Confirmation/Review transaction.m4a";
+    } else if (lower.includes("pin") || lower.includes("handoff") || lower.includes("ahobammɔ")) {
+      fallbackStudioUrl = "/audio/Pin Handoff.m4a";
+    } else if (lower.includes("balance") || lower.includes("star") || lower.includes("170")) {
+      fallbackStudioUrl = "/audio/supplied/Twi/13.Balance  Unsupported Services/Balance unavailable.aac";
+    } else if (lower.includes("mane") || lower.includes("send")) {
+      fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/Send money selected.m4a";
+    } else if (lower.includes("paw") || lower.includes("menyu") || lower.includes("menu")) {
+      fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/MTN menu 1.m4a";
+    } else if (lower.includes("twa") || lower.includes("cancel") || lower.includes("dabi")) {
+      fallbackStudioUrl = "/audio/supplied/Twi/11.Navigation & Recovery/Cancel.aac";
+    } else if (lower.includes("wie") || lower.includes("success") || lower.includes("medaase") || lower.includes("nante yie")) {
+      fallbackStudioUrl = "/audio/supplied/Twi/14.Post-Transaction Conversation/Finish.aac";
+    }
+
+    if (fallbackStudioUrl) {
+      return this.play(fallbackStudioUrl, {
+        ...options,
+        onStart: () => {
+          this.setState({ activeText: cleanText });
+          options?.onStart?.();
+        },
+        onEnd: options?.onEnd,
+        onError: options?.onError,
+      });
     }
 
     // 3. Dynamic Neural Speech Synthesis via backend pipeline for authentic voice
     try {
-      const isTwi = options?.language === "twi" || (options?.language !== "en" && /[ɛɔ]|sika|mane|akwaaba|dabi|aane|paw|sidi|nɔmba|yɛsrɛ|nte|frɛ/i.test(cleanText));
+      const isTwi = /[ɛɔ]|sika|mane|akwaaba|dabi|aane|paw|sidi|nɔmba|yɛsrɛ|nte|frɛ/i.test(cleanText);
       const res = await fetch("/api/ai/synthesize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -367,10 +347,9 @@ export class AudioPlaybackController {
       });
       if (res.ok) {
         const data = await res.json();
-        let base64 = data?.result?.audioBase64 || null;
-        if (!base64 && data?.result?.audioBuffer?.data) {
-          base64 = uint8ArrayToBase64(new Uint8Array(data.result.audioBuffer.data));
-        }
+        const base64 = data?.result?.audioBase64 || (data?.result?.audioBuffer?.data
+          ? btoa(String.fromCharCode(...new Uint8Array(data.result.audioBuffer.data)))
+          : null);
         const mimeType = data?.result?.audioMimeType || "audio/wav";
         if (base64) {
           const dataUrl = `data:${mimeType};base64,${base64}`;
@@ -389,7 +368,7 @@ export class AudioPlaybackController {
       console.warn("[AudioController] Speech synthesis fallback notice:", synthErr);
     }
 
-    // 4. Acoustic guidance tone indicator as clear fail-safe
+    // 4. Acoustic guidance tone indicator as clear fail-safe (Zero robotic SpeechSynthesis interference)
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       try {
         window.speechSynthesis.cancel();
@@ -542,7 +521,11 @@ export class AudioPlaybackController {
    * Plays an audio asset directly via the Web Audio API (AudioBufferSourceNode).
    * Unrestricted by HTML5 media autoplay gates once AudioContext is initialized/resumed on user gesture.
    */
-  public async playViaWebAudio(url: string, token: number, options?: PlayOptions): Promise<boolean> {
+  public async playViaWebAudio(
+    url: string,
+    token: number,
+    options?: PlayOptions & { keepPlayingOnEnd?: boolean }
+  ): Promise<boolean> {
     try {
       if (!this.audioContext) {
         const AudioCtx = typeof window !== "undefined" && ((window as any).AudioContext || (window as any).webkitAudioContext);
@@ -590,12 +573,14 @@ export class AudioPlaybackController {
           if (this.currentToken !== token) return;
           this.activeBufferSource = null;
           this.activeResolver = null;
-          this.setState({
-            isPlaying: false,
-            activeClip: null,
-            activeText: null,
-            token,
-          });
+          if (!options?.keepPlayingOnEnd) {
+            this.setState({
+              isPlaying: false,
+              activeClip: null,
+              activeText: null,
+              token,
+            });
+          }
           options?.onEnd?.();
           resolve(true);
         };
@@ -771,39 +756,48 @@ export class AudioPlaybackController {
    * Plays an array of URLs sequentially.
    * If any item is superseded by another play()/stop(), the sequence aborts cleanly.
    */
-  public async playSequence(urls: string[]): Promise<boolean> {
+  public async playSequence(urls: string[], promptText?: string): Promise<boolean> {
     this.stop();
     const sequenceToken = ++this.currentToken;
     const safeUrls = urls
       .filter(Boolean)
       .map((u) => resolveSafePlayableUrl(u.replace(/^https?:\/\/[^/]+(\/audio\/.*)$/i, "$1")));
 
-    for (let url of safeUrls) {
+    this.setState({
+      isPlaying: true,
+      activeClip: safeUrls[0] || null,
+      activeText: promptText || null,
+      token: sequenceToken,
+    });
+
+    for (let i = 0; i < safeUrls.length; i++) {
+      const url = safeUrls[i];
       if (this.currentToken !== sequenceToken) {
         return false;
       }
 
+      this.setState({
+        isPlaying: true,
+        activeClip: url,
+        activeText: promptText || this.state.activeText,
+        token: sequenceToken,
+      });
+
+      const isLast = i === safeUrls.length - 1;
       const ended = await (async () => {
         if (this.audioContext && this.audioBufferCache.has(url)) {
-          return this.playViaWebAudio(url, sequenceToken);
+          return this.playViaWebAudio(url, sequenceToken, { keepPlayingOnEnd: !isLast });
         }
 
         const audio = this.initAudioElement();
         if (!audio) {
-          return this.playViaWebAudio(url, sequenceToken);
+          return this.playViaWebAudio(url, sequenceToken, { keepPlayingOnEnd: !isLast });
         }
 
         audio.volume = this.playbackVolume;
 
         return new Promise<boolean>((resolve) => {
           this.activeResolver = () => resolve(false);
-
-          this.setState({
-            isPlaying: true,
-            activeClip: url,
-            activeText: null,
-            token: sequenceToken,
-          });
 
           audio.onended = () => {
             if (this.currentToken !== sequenceToken) return;
@@ -813,7 +807,7 @@ export class AudioPlaybackController {
 
           audio.onerror = () => {
             if (this.currentToken !== sequenceToken) return;
-            this.playViaWebAudio(url, sequenceToken).then(resolve);
+            this.playViaWebAudio(url, sequenceToken, { keepPlayingOnEnd: !isLast }).then(resolve);
           };
 
           audio.src = url;
@@ -825,7 +819,7 @@ export class AudioPlaybackController {
                 return;
               }
               if (this.currentToken !== sequenceToken) return;
-              this.playViaWebAudio(url, sequenceToken).then(resolve);
+              this.playViaWebAudio(url, sequenceToken, { keepPlayingOnEnd: !isLast }).then(resolve);
             });
           }
         });

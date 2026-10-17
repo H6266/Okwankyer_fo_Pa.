@@ -234,6 +234,12 @@ function xmlResponse(res: Response, content: string, decision?: (Partial<IvrDeci
     if (promptId) {
       res.set("X-Canonical-Prompt-Id", toSafeHeaderValue(promptId));
     }
+    if ((decision as any)?.recipientName) {
+      res.set("X-Recipient-Name", toSafeHeaderValue((decision as any).recipientName));
+    }
+    if ((decision as any)?.recipientPhone) {
+      res.set("X-Recipient-Phone", toSafeHeaderValue((decision as any).recipientPhone));
+    }
   }
   const req = (res.req || (res as any).socket?._httpMessage?.req) as Request | undefined;
   const responseSessionId = req?.body?.sessionId || req?.query?.sessionId;
@@ -241,13 +247,19 @@ function xmlResponse(res: Response, content: string, decision?: (Partial<IvrDeci
     const session = transactionStateMachine.getSession(responseSessionId);
     res.set("X-Interaction-Mode", session?.interactionMode || "UNSELECTED");
     res.set("X-Conversation-State", session?.state || "INITIATED");
+    if (session?.recipientName && !res.getHeader("X-Recipient-Name")) {
+      res.set("X-Recipient-Name", toSafeHeaderValue(session.recipientName));
+    }
+    if (session?.recipientPhone && !res.getHeader("X-Recipient-Phone")) {
+      res.set("X-Recipient-Phone", toSafeHeaderValue(session.recipientPhone));
+    }
     if (!res.getHeader("X-Canonical-Prompt-Id") && session?.state && STATE_TO_CANONICAL_PROMPT_ID[session.state]) {
       res.set("X-Canonical-Prompt-Id", STATE_TO_CANONICAL_PROMPT_ID[session.state]);
     }
   }
   res.set(
     "Access-Control-Expose-Headers",
-    "X-AI-Decision-Type, X-AI-Decision-Reason, X-AI-Reply-Text, X-AI-Reply-Key, X-Canonical-Prompt-Id, X-Conversation-State, X-Interaction-Mode, x-telephony-guard-reason"
+    "X-AI-Decision-Type, X-AI-Decision-Reason, X-AI-Reply-Text, X-AI-Reply-Key, X-Canonical-Prompt-Id, X-Conversation-State, X-Interaction-Mode, x-telephony-guard-reason, X-Recipient-Name, X-Recipient-Phone"
   );
   const isSimulator = Boolean(
     res.locals?.isSimulator ||
@@ -990,7 +1002,14 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
     </GetDigits>
     <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="8" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=recipient-verify-choice&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
 
-  xmlResponse(res, xml);
+  xmlResponse(res, xml, {
+    stepId: "recipient-verify-choice",
+    stepName: "recipient-verify-choice",
+    promptKey: "OP24",
+    replyText: verifyPrompt,
+    recipientName: resolution.name || undefined,
+    recipientPhone: phoneValidation.normalized,
+  } as any);
 });
 
 // ── Step 7.5: Exit Grace Choice (7s wait -> start over transfer) ─────
@@ -1451,9 +1470,9 @@ ivrRouter.all("/verify-pin", async (req: Request, res: Response) => {
     session.state = "COMPLETED";
   }
 
-  // Complete Payment Saga in background
-  try {
-    await paymentSaga.executeConfirmedTransferSaga({
+  // Complete Payment Saga asynchronously in background without blocking HTTP response
+  Promise.race([
+    paymentSaga.executeConfirmedTransferSaga({
       sessionId,
       senderPhone: session.callerPhone || "0244123456",
       recipientPhone: session.recipientPhone || "0241234567",
@@ -1461,10 +1480,11 @@ ivrRouter.all("/verify-pin", async (req: Request, res: Response) => {
       amount: session.amount || 10,
       network: session.network || "MTN",
       confirmedDraftHash: session.idempotencyKey,
-    });
-  } catch (err: any) {
-    console.warn("[VoiceRoutes] Payment saga execution notice:", err?.message);
-  }
+    }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("Payment saga 4s timeout")), 4000)),
+  ]).catch((err: any) => {
+    console.warn("[VoiceRoutes] Payment saga async execution notice:", err?.message);
+  });
 
   const successAudio = lang === "twi"
     ? `${baseUrl}/audio/supplied/Twi/8.Success%20%26%20Completion/SUCCESS.aac`

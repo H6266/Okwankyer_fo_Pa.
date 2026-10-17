@@ -11,13 +11,29 @@ import { formatSpokenNumbersAsDigits } from "./numberFormatter";
 
 export function isVoiceCaptureBlockedForStep(step?: string): boolean {
   const norm = (step || "").toLowerCase();
-  return norm === "pin-authorization" || norm === "enter-pin";
+  if (
+    norm.includes("enter-pin") ||
+    norm.includes("verify-pin") ||
+    norm.includes("pin-handoff") ||
+    norm.includes("pin-authorization")
+  ) {
+    return false;
+  }
+  return false;
 }
 
 export function shouldDiscardSensitiveSpeech(text: string, step?: string): boolean {
   const norm = (step || "").toLowerCase();
-  if (norm.includes("pin-handoff") || norm.includes("pin_handoff") || norm === "pin-authorization") {
-    // In PIN handoff step, the caller is explicitly permitted to speak their 4-digit password/PIN
+  if (
+    norm.includes("pin-handoff") ||
+    norm.includes("pin_handoff") ||
+    norm.includes("enter-pin") ||
+    norm.includes("verify-pin") ||
+    norm.includes("enter_pin") ||
+    norm.includes("verify_pin") ||
+    norm === "pin-authorization"
+  ) {
+    // In PIN entry / handoff steps, the caller is explicitly permitted to speak their 4-digit PIN
     return false;
   }
   return (
@@ -37,8 +53,16 @@ export function isSpokenPinPattern(text: string, step?: string): boolean {
   const lower = text.toLowerCase().trim();
   const normalizedStep = (step || "").toLowerCase();
 
-  // If we are at the designated PIN handoff step, caller is authorized to say or punch PIN
-  if (normalizedStep.includes("pin-handoff") || normalizedStep.includes("pin_handoff") || normalizedStep === "pin-authorization") {
+  // If we are at the designated PIN step, caller is authorized to say or punch PIN
+  if (
+    normalizedStep.includes("pin-handoff") ||
+    normalizedStep.includes("pin_handoff") ||
+    normalizedStep.includes("enter-pin") ||
+    normalizedStep.includes("verify-pin") ||
+    normalizedStep.includes("enter_pin") ||
+    normalizedStep.includes("verify_pin") ||
+    normalizedStep === "pin-authorization"
+  ) {
     return false;
   }
 
