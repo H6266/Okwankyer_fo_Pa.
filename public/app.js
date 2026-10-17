@@ -2496,7 +2496,7 @@
       if (step === 'pin_handoff' || step === 'auth') {
         container.innerHTML = `
           <div style="font-size: 11.5px; color: #a7f3d0; padding: 7px 12px; background: rgba(16, 185, 129, 0.15); border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.35); text-align: center; width: 100%;">
-            🔒 ${isTwi ? 'Kasa nnyigyei no ayɛ din ma Zero-PIN ahobammbɔ. Bɔ wo PIN nɔma 4 wɔ wo fon no anim pɔtee.' : 'Speech layer is turned off for Zero-PIN security. Enter your 4-digit PIN on the handset keypad.'}
+            🔒 ${isTwi ? 'Pene so wɔ wo fon no so. Mfa wo MoMo PIN nka anaa mmɔ wɔ ha.' : 'Approve the secure payment prompt on your handset. Never enter or say your PIN in this app.'}
           </div>
         `;
         return;

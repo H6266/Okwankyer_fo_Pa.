@@ -265,6 +265,8 @@ export class ReplyComposer {
     if (
       input.conversationalText &&
       input.conversationalText.trim() &&
+      language === 'en' &&
+      validateSpokenReply(input.conversationalText.trim(), language) &&
       (decision.kind === 'clarify_slot' || decision.kind === 'clarify_intent' || (decision as any).kind === 'smalltalk')
     ) {
       return {
@@ -313,12 +315,18 @@ export class ReplyComposer {
       }
       replyKind = 'not_ready';
     } else if (decision.kind === 'clarify_slot') {
-      templateKey = decision.slot === 'amount'
-        ? 'clarify_slot_amount'
-        : (slots as any).crossNetworkRejected
-        ? 'cross_network_rejected'
-        : 'clarify_slot_recipient';
-      replyKind = 'clarify_slot';
+      if (decision.slot === 'amount') {
+        templateKey = 'clarify_slot_amount';
+        replyKind = 'clarify_slot';
+      } else if (decision.slot === 'recipient' || decision.slot === 'recipientPhone') {
+        templateKey = (slots as any).crossNetworkRejected
+          ? 'cross_network_rejected'
+          : 'clarify_slot_recipient';
+        replyKind = 'clarify_slot';
+      } else {
+        templateKey = 'clarify_intent';
+        replyKind = 'clarify_intent';
+      }
     } else if (decision.kind === 'clarify_intent') {
       templateKey = 'clarify_intent';
       replyKind = 'clarify_intent';
@@ -357,4 +365,3 @@ export class ReplyComposer {
 }
 
 export const replyComposer = new ReplyComposer();
-

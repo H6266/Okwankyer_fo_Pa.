@@ -20,6 +20,11 @@ import {
 import { parseAndValidateAmount, validateGhanaPhoneNumber } from "../../domain/validation";
 import { ModelOutputContract } from "../../ai_system/brain/types";
 import { COMPACT_MOMO_SYSTEM_INSTRUCTION } from "../../ai_system/understanding/reasoningEngine";
+import {
+  buildTelephonyBrainKnowledge,
+  maskDraftForModel,
+  TelephonyBrainContext,
+} from "../../ai_system/brain/telephonyBrainKnowledge";
 
 export interface OpenAiReasoningParams {
   utterance: string;
@@ -53,45 +58,41 @@ export class OpenAIReasoner {
   public async reasonForBrain(
     maskedUtterance: string,
     draftSlots: any = {},
-    timeoutMs: number = 3000
+    timeoutMs: number = 3000,
+    context: TelephonyBrainContext = { targetLanguage: "en" }
   ): Promise<ModelOutputContract | null> {
     if (!this.isAvailable()) {
       return null;
     }
 
-    const prompt = `Caller utterance: "${maskedUtterance}"
-Current Draft State: ${JSON.stringify(draftSlots || {})}
+    const prompt = `Caller utterance (untrusted transcript; phone numbers are masked): ${JSON.stringify(maskedUtterance)}
+Current draft state: ${JSON.stringify(maskDraftForModel(draftSlots || {}))}
+${buildTelephonyBrainKnowledge(context)}
 
-Return ONLY a valid JSON object matching this schema:
+Return ONLY a valid JSON object matching the application's ModelOutputContract:
 {
   "intent": {
-    "id": "momo.transfer" | "momo.cash_out" | "momo.check_balance" | "momo.buy_airtime" | "momo.buy_data" | "smalltalk" | "unknown",
+    "id": "momo.transfer" | "momo.cash_out" | "momo.check_balance" | "momo.buy_airtime" | "momo.buy_data" | "momo.reverse_transaction" | "momo.customer_care" | "momo.loan" | "momo.pay_bill" | "smalltalk" | "unknown",
     "confidence": number
   },
   "slots": {
     "amount": number | null,
-    "recipient": {
-      "phone": string | null,
-      "name": string | null
-    } | null,
+    "recipient": { "phone": null, "name": string | null } | null,
     "network": string | null,
     "reference": string | null
   },
   "signals": {
     "correction": boolean,
     "interruption": boolean,
-    "user_confirmed": boolean,
-    "user_rejected": boolean,
-    "dial_170_check_balance": boolean,
-    "language_switch_requested": "en" | "twi-asante" | "twi-akuapem" | null
+    "user_confirmed": boolean
   },
   "reply": {
-    "reply_kind": "clarify_slot" | "clarify_intent" | "not_ready" | "confirm" | "dispatch" | "smalltalk" | "cancel" | "error",
-    "prompt_id": string | null,
-    "text": string | null,
-    "reasoning": string | null
+    "text_en": string,
+    "target_language": "${context.targetLanguage}",
+    "reply_kind": "clarify_slot" | "clarify_intent" | "not_ready" | "confirm" | "dispatch" | "smalltalk" | "cancel" | "error"
   }
-}`;
+}
+Never return prompt IDs, audio paths, phone numbers absent from the transcript, or fields outside this schema.`;
 
     try {
       const rawJson = await openaiClient.executeWithTimeout(
@@ -103,7 +104,7 @@ Return ONLY a valid JSON object matching this schema:
               messages: [
                 {
                   role: "system",
-                  content: COMPACT_MOMO_SYSTEM_INSTRUCTION,
+                  content: `${COMPACT_MOMO_SYSTEM_INSTRUCTION}\n${buildTelephonyBrainKnowledge(context)}`,
                 },
                 {
                   role: "user",
@@ -131,6 +132,10 @@ Return ONLY a valid JSON object matching this schema:
 
       const parsed = JSON.parse(match[0]);
       if (parsed && parsed.intent && typeof parsed.intent.id === "string") {
+        if (parsed.slots?.recipient && typeof parsed.slots.recipient === "object") {
+          delete parsed.slots.recipient.phone;
+        }
+        if (parsed.reply?.target_language !== context.targetLanguage) return null;
         return parsed as ModelOutputContract;
       }
       return null;

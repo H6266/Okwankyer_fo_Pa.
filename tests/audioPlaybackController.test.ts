@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { audioPlaybackController } from "../src/audio/audioPlaybackController";
+import { audioPlaybackController, resolveSafePlayableUrl } from "../src/audio/audioPlaybackController";
 import { isAcousticSystemEcho, stripSystemEchoFromTranscript } from "../src/domain/echoFilter";
 
 describe("AudioPlaybackController & Phone Simulator Audio Gating", () => {
@@ -52,5 +52,20 @@ describe("AudioPlaybackController & Phone Simulator Audio Gating", () => {
     const res = await audioPlaybackController.play("");
     expect(res).toBe(false);
     expect(audioPlaybackController.isSpeaking()).toBe(false);
+  });
+
+  it("keeps AAC recordings on their real format instead of relabeling them as MP3", () => {
+    expect(resolveSafePlayableUrl("/audio/sample.m4a")).toBe("/audio/sample.m4a");
+  });
+
+  it("reports a failed sequence instead of marking it as played", async () => {
+    await expect(audioPlaybackController.playSequence(["/audio/unavailable.m4a"])).resolves.toBe(false);
+  });
+
+  it("clamps the master volume to its supported range", () => {
+    audioPlaybackController.setVolumeMultiplier(3);
+    expect(audioPlaybackController.getVolumeMultiplier()).toBe(2);
+    audioPlaybackController.setVolumeMultiplier(1.5);
+    expect(audioPlaybackController.getVolumeMultiplier()).toBe(1.5);
   });
 });

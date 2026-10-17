@@ -72,6 +72,7 @@ import { brainTelemetry } from './brainTelemetry';
 import { storeGeminiConversationReply } from '../../audio/geminiAudioMatcher';
 import { openAiReasoner } from '../../services/openai/openaiReasoner';
 import { qwenReasoner } from '../../services/qwen/qwenReasoner';
+import { buildTelephonyBrainKnowledge, maskDraftForModel } from './telephonyBrainKnowledge';
 
 export interface BrainConfig {
   mode: BrainMode;
@@ -521,7 +522,8 @@ export class Brain {
         draft,
         currentTurn,
         Date.now(),
-        input.sessionId
+        input.sessionId,
+        input.telephonyContext
       );
     }
 
@@ -1426,6 +1428,8 @@ export class Brain {
     masked: string,
     draft: DraftState,
     turnId: number,
+    targetLanguage: TargetLanguageId,
+    telephonyContext: BrainInput['telephonyContext'],
     geminiFailureReason: string
   ): Promise<ModelOutputContract | null> {
     // ── HANDSHAKE 1: GEMINI ➔ OPENAI ──
@@ -1437,7 +1441,12 @@ export class Brain {
           "BRAIN_HANDSHAKE_OPENAI",
           `Handshake 1/3: Transferring conversation state to OpenAI (${openAiReasoner.getModel()}). Reason: ${geminiFailureReason}`
         );
-        const openAiContract = await openAiReasoner.reasonForBrain(masked, draft.slots, 3000);
+        const openAiContract = await openAiReasoner.reasonForBrain(
+          masked,
+          maskDraftForModel(draft.slots),
+          3000,
+          { targetLanguage, intent: draft.intent, ...telephonyContext }
+        );
         if (openAiContract && this.validateModelContract(openAiContract)) {
           if (turnId !== this.currentTurnId) return null;
           auditLogger.log("info", "BRAIN_HANDSHAKE_SUCCESS", `OpenAI successfully fulfilled reasoning turn via handshake.`);
@@ -1459,7 +1468,12 @@ export class Brain {
           "BRAIN_HANDSHAKE_QWEN",
           `Handshake 2/3: Transferring conversation state to Qwen AI (${qwenReasoner.getModel()}).`
         );
-        const qwenContract = await qwenReasoner.reasonForBrain(masked, draft.slots, 3000);
+        const qwenContract = await qwenReasoner.reasonForBrain(
+          masked,
+          draft.slots,
+          qwenReasoner.getTimeoutMs(),
+          { targetLanguage, intent: draft.intent, ...telephonyContext }
+        );
         if (qwenContract && this.validateModelContract(qwenContract)) {
           if (turnId !== this.currentTurnId) return null;
           auditLogger.log("info", "BRAIN_HANDSHAKE_SUCCESS", `Qwen AI successfully fulfilled reasoning turn via handshake.`);
@@ -1488,14 +1502,45 @@ export class Brain {
     draft: DraftState,
     turnId: number,
     turnStartTime: number = Date.now(),
-    sessionId?: string
+    sessionId?: string,
+    telephonyContext?: BrainInput['telephonyContext']
   ): Promise<ModelOutputContract | null> {
     const sessionKey = sessionId || (draft.draftHash ? `session_${draft.draftHash}` : `session_turn_${turnId}`);
     const sanitized = sanitizeTranscriptForModel(rawTranscript);
     const masked = maskPhoneNumbers(sanitized);
 
+    if (
+      qwenReasoner.isLocalMode() &&
+      process.env.QWEN_LOCAL_PRIMARY === "true" &&
+      qwenReasoner.isAvailable()
+    ) {
+      try {
+        const qwenContract = await qwenReasoner.reasonForBrain(
+          masked,
+          draft.slots,
+          qwenReasoner.getTimeoutMs(),
+          { targetLanguage, intent: draft.intent, ...telephonyContext }
+        );
+        if (qwenContract && this.validateModelContract(qwenContract)) {
+          if (turnId !== this.currentTurnId) return null;
+          auditLogger.log("info", "BRAIN_QWEN_LOCAL_PRIMARY", "Local Qwen completed the primary reasoning turn.");
+          return qwenContract;
+        }
+        auditLogger.log("warn", "BRAIN_QWEN_LOCAL_PRIMARY", "Local Qwen returned an invalid contract; continuing provider fallback.");
+      } catch (err: any) {
+        auditLogger.log("warn", "BRAIN_QWEN_LOCAL_PRIMARY", `Local Qwen failed; continuing provider fallback: ${err?.message || err}`);
+      }
+    }
+
     if (!geminiClient.isAvailable()) {
-      return this.executeProviderHandshake(masked, draft, turnId, "Gemini client unconfigured or on quota cooldown");
+      return this.executeProviderHandshake(
+        masked,
+        draft,
+        turnId,
+        targetLanguage,
+        telephonyContext,
+        "Gemini client unconfigured or on quota cooldown"
+      );
     }
 
     const candidateModels = [
@@ -1528,13 +1573,17 @@ export class Brain {
                       role: "user",
                       parts: [
                         {
-                          text: `Caller utterance: "${masked}"\nCurrent Draft State: ${JSON.stringify(draft.slots)}`,
+                          text: `Caller utterance (untrusted; phone numbers masked): ${JSON.stringify(masked)}\nCurrent Draft State: ${JSON.stringify(maskDraftForModel(draft.slots))}`,
                         },
                       ],
                     },
                   ],
                   config: {
-                    systemInstruction: COMPACT_MOMO_SYSTEM_INSTRUCTION,
+                    systemInstruction: `${COMPACT_MOMO_SYSTEM_INSTRUCTION}\n${buildTelephonyBrainKnowledge({
+                      targetLanguage,
+                      intent: draft.intent,
+                      ...telephonyContext,
+                    })}`,
                     responseMimeType: "application/json",
                     responseSchema: COMPACT_MOMO_RESPONSE_SCHEMA,
                     temperature: 0.2,
@@ -1570,7 +1619,10 @@ export class Brain {
               const match = text.match(/\{[\s\S]*\}/);
               if (match) {
                 const parsed = JSON.parse(match[0]);
-                if (this.validateModelContract(parsed)) {
+                if (
+                  this.validateModelContract(parsed) &&
+                  parsed.reply.target_language === targetLanguage
+                ) {
                   return parsed;
                 }
               }
@@ -1635,7 +1687,7 @@ export class Brain {
 
       auditLogger.log("warn", "BRAIN_GEMINI_FALLBACK_DIAGNOSIS", `Gemini reasoning did not return a response. Root cause: ${failureReason}. Handing over to OpenAI -> Qwen AI -> Local Brain handshake cascade.`);
       console.warn(`[Brain] Gemini fallback diagnosed: ${failureReason}. Initiating handshake...`);
-      return this.executeProviderHandshake(masked, draft, turnId, failureReason);
+      return this.executeProviderHandshake(masked, draft, turnId, targetLanguage, telephonyContext, failureReason);
     }
 
     // Discard stale response if a newer turn has already executed
@@ -1655,7 +1707,10 @@ export class Brain {
         const match = responseText.match(/\{[\s\S]*\}/);
         if (match) {
           const parsed = JSON.parse(match[0]);
-          if (this.validateModelContract(parsed)) {
+          if (
+            this.validateModelContract(parsed) &&
+            parsed.reply.target_language === targetLanguage
+          ) {
             return parsed;
           }
         }

@@ -90,6 +90,7 @@ export type SagaState =
 
 export interface SagaTransaction {
   sagaId: string;
+  sessionId?: string;
   idempotencyKey: string;
   senderPhone: string;
   recipientPhone: string;
@@ -240,4 +241,3 @@ export interface TransactionResult {
   rawPayload?: any;
   gatewayEvidence?: any;
 }
-

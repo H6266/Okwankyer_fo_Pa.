@@ -926,28 +926,45 @@ momoRouter.all(["/api/momo/callback", "/momo/callback"], async (req: Request, re
         s.momoReferenceId === referenceId ||
         s.referenceId === referenceId ||
         s.sessionId === referenceId ||
-        s.idempotencyKey?.includes(referenceId)
+        s.idempotencyKey?.includes(referenceId) ||
+        paymentSaga.getLatestSagaForSession(s.sessionId)?.disbursementReference === referenceId
     );
 
-    if (matchingSession && matchingSession.state !== "COMPLETED" && matchingSession.state !== "FAILED") {
+    if (matchingSession && matchingSession.state === "PIN_PENDING") {
+      const saga = paymentSaga.getLatestSagaForSession(matchingSession.sessionId);
+      const isFinalDisbursementCallback = Boolean(
+        saga?.disbursementReference &&
+        saga.disbursementReference === referenceId &&
+        saga.state === "DISBURSEMENT_INITIATED"
+      );
       try {
-        if (feedItem.normalizedStatus === "SUCCESSFUL") {
-          transactionStateMachine.transition(matchingSession.sessionId, "COMPLETED");
-        } else if (feedItem.normalizedStatus === "DECLINED") {
-          transactionStateMachine.transition(matchingSession.sessionId, "FAILED", {
-            failureReason: feedItem.reason || "Customer declined payment authorization on handset.",
-          });
-        } else if (feedItem.normalizedStatus === "TIMEOUT") {
-          transactionStateMachine.transition(matchingSession.sessionId, "TIMEOUT", {
-            failureReason: feedItem.reason || "Handset authorization timed out.",
-          });
-        } else if (feedItem.normalizedStatus === "FAILED") {
-          transactionStateMachine.transition(matchingSession.sessionId, "FAILED", {
-            failureReason: feedItem.reason || "MoMo transaction failed.",
-          });
+        if (
+          isFinalDisbursementCallback &&
+          feedItem.normalizedStatus === "SUCCESSFUL" &&
+          feedItem.financialTransactionId &&
+          saga
+        ) {
+          const completedSaga = paymentSaga.finalizeDisbursement(
+            saga.sagaId,
+            true,
+            undefined,
+            feedItem.financialTransactionId
+          );
+          if (completedSaga.state === "COMPLETED") {
+            transactionStateMachine.transition(matchingSession.sessionId, "COMPLETED");
+          }
+        } else if (
+          isFinalDisbursementCallback &&
+          ["FAILED", "DECLINED", "TIMEOUT"].includes(feedItem.normalizedStatus)
+        ) {
+          paymentSaga.finalizeDisbursement(
+            saga!.sagaId,
+            false,
+            feedItem.reason || "The provider could not confirm the recipient disbursement."
+          );
         }
       } catch (err: any) {
-        console.warn(`[MoMo Webhook] State transition notice: ${err.message}`);
+        console.warn(`[MoMo Webhook] Final disbursement update notice: ${err.message}`);
       }
     }
 
@@ -1052,5 +1069,3 @@ momoRouter.post("/api/momo/sandbox/simulate-callback", async (req: Request, res:
     res.status(500).json({ success: false, error: err.message });
   }
 });
-
-

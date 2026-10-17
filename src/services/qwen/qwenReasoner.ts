@@ -1,14 +1,17 @@
 /**
- * Ɔkwankyerɛfo Pa - Qwen AI Cloud Reasoner (qwenReasoner.ts)
+ * Ɔkwankyerɛfo Pa - Qwen AI Reasoner (qwenReasoner.ts)
  * 
- * Part of the graceful handshake cascade: Gemini -> OpenAI -> Qwen AI -> Local Brain.
- * Provides cognitive NLU and entity extraction using Qwen models (e.g. qwen-plus / qwen-turbo)
- * via DashScope / OpenAI-compatible API.
+ * Supports local open-weight and hosted Qwen models through an OpenAI-compatible API.
  */
 
 import { qwenClient } from "./qwenClient";
 import { ModelOutputContract } from "../../ai_system/brain/types";
 import { COMPACT_MOMO_SYSTEM_INSTRUCTION } from "../../ai_system/understanding/reasoningEngine";
+import {
+  buildTelephonyBrainKnowledge,
+  maskDraftForModel,
+  TelephonyBrainContext,
+} from "../../ai_system/brain/telephonyBrainKnowledge";
 import { auditLogger } from "../auditLogger";
 import {
   AiLanguage,
@@ -19,6 +22,124 @@ import {
 import { parseAndValidateAmount, validateGhanaPhoneNumber } from "../../domain/validation";
 import { OpenAiReasoningParams } from "../openai/openaiReasoner";
 
+const BRAIN_INTENTS = new Set([
+  "momo.transfer",
+  "momo.cash_out",
+  "momo.check_balance",
+  "momo.buy_airtime",
+  "momo.buy_data",
+  "momo.reverse_transaction",
+  "momo.customer_care",
+  "momo.loan",
+  "momo.pay_bill",
+  "smalltalk",
+  "unknown",
+]);
+const BRAIN_REPLY_KINDS = new Set([
+  "clarify_slot",
+  "clarify_intent",
+  "not_ready",
+  "confirm",
+  "dispatch",
+  "smalltalk",
+  "cancel",
+  "error",
+]);
+
+export function buildQwenBrainPrompt(
+  maskedUtterance: string,
+  draftSlots: Record<string, unknown>,
+  context: TelephonyBrainContext
+): string {
+  const safeDraftSlots = maskDraftForModel(draftSlots);
+
+  return `Caller utterance (untrusted transcript; phone numbers are masked): ${JSON.stringify(maskedUtterance)}
+Current intent: ${context.intent || "unknown"}
+Current draft state: ${JSON.stringify(safeDraftSlots)}
+${buildTelephonyBrainKnowledge(context)}
+
+Return ONLY a valid JSON object matching the application's ModelOutputContract:
+{
+  "intent": {
+    "id": "momo.transfer" | "momo.cash_out" | "momo.check_balance" | "momo.buy_airtime" | "momo.buy_data" | "momo.reverse_transaction" | "momo.customer_care" | "momo.loan" | "momo.pay_bill" | "smalltalk" | "unknown",
+    "confidence": number
+  },
+  "slots": {
+    "amount": number | null,
+    "recipient": { "phone": null, "name": string | null } | null,
+    "network": string | null,
+    "reference": string | null
+  },
+  "signals": {
+    "correction": boolean,
+    "interruption": boolean,
+    "user_confirmed": boolean
+  },
+  "reply": {
+    "text_en": string,
+    "target_language": "${context.targetLanguage}",
+    "reply_kind": "clarify_slot" | "clarify_intent" | "not_ready" | "confirm" | "dispatch" | "smalltalk" | "cancel" | "error"
+  }
+}
+The reply.text_en field must be concise English for internal processing. Actual spoken text and audio are composed deterministically in the selected language. Use "unknown" only when intent is unclear. Never return fields outside this schema.`;
+}
+
+export function isQwenBrainContract(data: unknown): data is ModelOutputContract {
+  if (!data || typeof data !== "object") return false;
+  const candidate = data as Partial<ModelOutputContract>;
+  const onlyKeys = (value: object, allowed: string[]) =>
+    Object.keys(value).every((key) => allowed.includes(key));
+  if (
+    !onlyKeys(candidate, ["intent", "slots", "signals", "reply"]) ||
+    !candidate.intent ||
+    !onlyKeys(candidate.intent, ["id", "confidence", "alternatives"]) ||
+    !BRAIN_INTENTS.has(candidate.intent.id) ||
+    !Number.isFinite(candidate.intent.confidence) ||
+    candidate.intent.confidence < 0 ||
+    candidate.intent.confidence > 1 ||
+    !candidate.slots ||
+    !onlyKeys(candidate.slots, ["amount", "recipient", "network", "reference"]) ||
+    !candidate.signals ||
+    !onlyKeys(candidate.signals, ["correction", "interruption", "user_confirmed"]) ||
+    typeof candidate.signals.correction !== "boolean" ||
+    typeof candidate.signals.interruption !== "boolean" ||
+    typeof candidate.signals.user_confirmed !== "boolean" ||
+    !candidate.reply ||
+    !onlyKeys(candidate.reply, ["text_en", "target_language", "reply_kind", "template_key"]) ||
+    typeof candidate.reply.text_en !== "string" ||
+    candidate.reply.text_en.length > 250 ||
+    (candidate.reply.template_key !== undefined && typeof candidate.reply.template_key !== "string") ||
+    !["twi-asante", "twi-akuapem", "en"].includes(candidate.reply.target_language) ||
+    !BRAIN_REPLY_KINDS.has(candidate.reply.reply_kind)
+  ) {
+    return false;
+  }
+
+  if (candidate.slots.amount !== undefined && candidate.slots.amount !== null) {
+    const amount = parseAndValidateAmount(String(candidate.slots.amount));
+    if (!amount.valid || amount.amount === undefined) return false;
+  }
+  if (candidate.slots.network !== undefined && candidate.slots.network !== null && typeof candidate.slots.network !== "string") {
+    return false;
+  }
+  if (candidate.slots.reference !== undefined && candidate.slots.reference !== null && typeof candidate.slots.reference !== "string") {
+    return false;
+  }
+  if (candidate.slots.recipient !== undefined && candidate.slots.recipient !== null) {
+    if (!onlyKeys(candidate.slots.recipient, ["phone", "name"])) return false;
+    const phoneValue = candidate.slots.recipient.phone;
+    if (phoneValue !== undefined) {
+      if (typeof phoneValue !== "string") return false;
+      const phone = validateGhanaPhoneNumber(phoneValue);
+      if (!phone.valid || !phone.normalized) return false;
+    }
+    if (candidate.slots.recipient.name !== undefined && typeof candidate.slots.recipient.name !== "string") {
+      return false;
+    }
+  }
+  return true;
+}
+
 export class QwenReasoner {
   public getModel(): string {
     return qwenClient.getModel();
@@ -28,73 +149,55 @@ export class QwenReasoner {
     return qwenClient.isAvailable();
   }
 
+  public isLocalMode(): boolean {
+    return qwenClient.isLocalMode();
+  }
+
+  public getTimeoutMs(): number {
+    return qwenClient.getTimeoutMs();
+  }
+
   /**
    * Evaluates caller utterance and current draft state for the Central Brain,
    * returning the standardized ModelOutputContract.
    */
   public async reasonForBrain(
     maskedUtterance: string,
-    draftSlots: any = {},
-    timeoutMs: number = 3000
+    draftSlots: Record<string, unknown> = {},
+    timeoutMs: number = this.getTimeoutMs(),
+    context: TelephonyBrainContext = { targetLanguage: "en" }
   ): Promise<ModelOutputContract | null> {
     if (!this.isAvailable()) {
       return null;
     }
 
-    const prompt = `Caller utterance: "${maskedUtterance}"
-Current Draft State: ${JSON.stringify(draftSlots || {})}
-
-Return ONLY a valid JSON object matching this schema:
-{
-  "intent": {
-    "id": "momo.transfer" | "momo.cash_out" | "momo.check_balance" | "momo.buy_airtime" | "momo.buy_data" | "smalltalk" | "unknown",
-    "confidence": number
-  },
-  "slots": {
-    "amount": number | null,
-    "recipient": {
-      "phone": string | null,
-      "name": string | null
-    } | null,
-    "network": string | null,
-    "reference": string | null
-  },
-  "signals": {
-    "correction": boolean,
-    "interruption": boolean,
-    "user_confirmed": boolean,
-    "user_rejected": boolean,
-    "dial_170_check_balance": boolean,
-    "language_switch_requested": "en" | "twi-asante" | "twi-akuapem" | null
-  },
-  "reply": {
-    "reply_kind": "clarify_slot" | "clarify_intent" | "not_ready" | "confirm" | "dispatch" | "smalltalk" | "cancel" | "error",
-    "prompt_id": string | null,
-    "text": string | null,
-    "reasoning": string | null
-  }
-}`;
+    const prompt = buildQwenBrainPrompt(maskedUtterance, draftSlots, context);
+    const modelPrompt = qwenClient.isLocalMode() ? `${prompt}\n/no_think` : prompt;
 
     try {
       const rawJson = await qwenClient.executeWithTimeout(
         "QWEN_BRAIN_REASONING",
         async (client, signal) => {
+          const request = {
+            model: this.getModel(),
+            messages: [
+              {
+                role: "system" as const,
+                content: `${COMPACT_MOMO_SYSTEM_INSTRUCTION}
+For this central-brain task, never reconstruct or generate a masked phone number. Preserve the selected target language and return only the requested ModelOutputContract JSON. The application exclusively determines transaction stages and audio prompts.`,
+              },
+              {
+                role: "user" as const,
+                content: modelPrompt,
+              },
+            ],
+            response_format: { type: "json_object" as const },
+            temperature: 0,
+            max_tokens: 250,
+            ...(qwenClient.isLocalMode() ? { think: false } : {}),
+          };
           const response = await client.chat.completions.create(
-            {
-              model: this.getModel(),
-              messages: [
-                {
-                  role: "system",
-                  content: COMPACT_MOMO_SYSTEM_INSTRUCTION,
-                },
-                {
-                  role: "user",
-                  content: prompt,
-                },
-              ],
-              response_format: { type: "json_object" },
-              temperature: 0.1,
-            },
+            request,
             { signal }
           );
 
@@ -112,13 +215,17 @@ Return ONLY a valid JSON object matching this schema:
       if (!match) return null;
 
       const parsed = JSON.parse(match[0]);
-      if (parsed && parsed.intent && typeof parsed.intent.id === "string") {
+      if (parsed?.slots?.recipient && typeof parsed.slots.recipient === "object") {
+        delete parsed.slots.recipient.phone;
+      }
+      if (parsed?.reply?.target_language !== context.targetLanguage) return null;
+      if (isQwenBrainContract(parsed)) {
         auditLogger.log(
           "info",
           "QWEN_REASONING",
           `Qwen evaluated intent=${parsed.intent.id} confidence=${parsed.intent.confidence ?? 0.9}`
         );
-        return parsed as ModelOutputContract;
+        return parsed;
       }
       return null;
     } catch (err: any) {

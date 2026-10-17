@@ -774,17 +774,17 @@ export function useCallSession() {
   );
 
   // USSD modal approval handler for Zero-PIN handoff
-  const handleUssdPinSubmit = useCallback(
+  const handleUssdAuthorization = useCallback(
     (approved: boolean) => {
       if (approved) {
-        const ref = `OKP-${Date.now().toString().slice(-6)}`;
-        addLog(`✅ [OP52] Handset USSD PIN verified on private telco prompt. Confirmed Ref: ${ref}`);
-        goToStep("receipt", {
-          referenceId: ref,
-          activePromptId: "OP52",
+        addLog("Handset authorization was simulated only. No provider request was made, so the transfer is not confirmed.");
+        goToStep("zero_pin", {
+          isPinModalOpen: false,
+          isMicMuted: true,
+          activePromptTitle: "Awaiting provider confirmation",
         });
       } else {
-        addLog("❌ [OP57] Handset USSD PIN entry declined by user.");
+        addLog("Handset authorization was declined.");
         endCall("CANCELLED");
       }
     },
@@ -805,6 +805,6 @@ export function useCallSession() {
     goToStep,
     handleKeypadDigit,
     handleSpeechInput,
-    handleUssdPinSubmit,
+    handleUssdAuthorization,
   };
 }

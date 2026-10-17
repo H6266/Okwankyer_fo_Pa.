@@ -51,6 +51,13 @@ export class QwenClientManager {
     this.initClient();
   }
 
+  public isLocalMode(): boolean {
+    if (process.env.QWEN_MODE?.trim().toLowerCase() === "local") {
+      return true;
+    }
+    return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/|$)/i.test(this.getBaseUrl());
+  }
+
   public static getInstance(): QwenClientManager {
     if (!QwenClientManager.instance) {
       QwenClientManager.instance = new QwenClientManager();
@@ -61,17 +68,24 @@ export class QwenClientManager {
   public getApiKey(): string | undefined {
     const raw = (process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY || "").trim();
     if (isPlaceholderKey(raw)) {
-      return undefined;
+      return this.isLocalMode() ? "ollama" : undefined;
     }
     return raw || undefined;
   }
 
   public getBaseUrl(): string {
-    return process.env.QWEN_BASE_URL || "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
+    return process.env.QWEN_BASE_URL ||
+      (process.env.QWEN_MODE?.trim().toLowerCase() === "local"
+        ? "http://127.0.0.1:11434/v1"
+        : "https://dashscope-intl.aliyuncs.com/compatible-mode/v1");
   }
 
   public getModel(): string {
-    return process.env.QWEN_MODEL || "qwen-plus";
+    return process.env.QWEN_MODEL || (this.isLocalMode() ? "qwen3:1.7b" : "qwen-plus");
+  }
+
+  public getTimeoutMs(): number {
+    return this.isLocalMode() ? 20000 : 3000;
   }
 
   private initClient(): void {
@@ -82,7 +96,7 @@ export class QwenClientManager {
           apiKey,
           baseURL: this.getBaseUrl(),
           maxRetries: 1,
-          timeout: 10000,
+          timeout: Math.max(10000, this.getTimeoutMs() + 1000),
         });
       } catch (err: any) {
         console.warn("[QwenClient] Failed to initialize Qwen client:", err.message);

@@ -13,7 +13,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import express from "express";
 import request from "supertest";
-import { voiceRouter } from "../src/routes/voiceRoutes";
+import { getCollectionStagePromptId, simulatorRouter, voiceRouter } from "../src/routes/voiceRoutes";
 import { transactionStateMachine } from "../src/domain/stateMachine";
 import { paymentSaga } from "../src/integrations/momo/paymentSaga";
 import { brain } from "../src/ai_system/brain/brain";
@@ -35,6 +35,7 @@ function createTestApp() {
   app.use(express.urlencoded({ extended: true }));
   app.use(express.json());
   app.use(voiceRouter);
+  app.use("/api/simulator", simulatorRouter);
   return app;
 }
 
@@ -46,12 +47,19 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     app = createTestApp();
   });
 
+  it.each([
+    { slot: "recipient" as const, expectedPromptId: "OP16" },
+    { slot: "amount" as const, expectedPromptId: "OP28" },
+  ])("selects the canonical next-stage prompt for $slot collection", ({ slot, expectedPromptId }) => {
+    expect(getCollectionStagePromptId(slot, "model-or-template-prompt")).toBe(expectedPromptId);
+  });
+
   it("keeps language selection separate from mode selection and rejects menu-stage phone shortcuts", async () => {
     const sessionId = "AT-MODE-AND-MENU-001";
 
     await request(app)
       .post("/voice-menu")
-      .send({ sessionId, callerNumber: "+233543546010", isActive: "1" });
+      .send({ sessionId, callerNumber: "+233543546010", isActive: "1", lang: "en" });
     const languageRes = await request(app)
       .post("/language-selection")
       .send({ sessionId, dtmfDigits: "2" });
@@ -121,15 +129,18 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(balanceAttempt.text).not.toContain("/enter-recipient");
   });
 
-  it("plays the welcome and language selection as separate prompts", async () => {
+  it("plays the welcome before the language-selection prompt", async () => {
     const sessionId = "AT-OPENING-SEPARATE-001";
     const welcome = await request(app)
       .post("/voice-menu")
-      .send({ sessionId, callerNumber: "+233543546010", isActive: "1" });
+      .send({ sessionId, callerNumber: "+233543546010", isActive: "1", lang: "en" });
 
-    expect(welcome.text).toContain("/api/audio/prompt-tts/en/welcome");
+    const welcomePrompts = [...welcome.text.matchAll(/<Play[^>]*url="([^"]+)"/gi)].map((match) => match[1]);
+    expect(welcomePrompts).toHaveLength(2);
+    expect(welcomePrompts[0]).toContain("/api/audio/prompt-tts/en/welcome");
+    expect(welcomePrompts[1]).toContain("/api/audio/prompt-tts/en/language_selection");
     expect(welcome.text).toContain(`/language-selection?sessionId=${sessionId}`);
-    expect(welcome.text).not.toContain("For English, press 1");
+    expect(decodeURIComponent(welcome.headers["x-ai-reply-text"])).toContain("For English, press 1");
 
     const languagePrompt = await request(app)
       .post("/language-selection")
@@ -151,6 +162,18 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(recipientPrompt.text).not.toContain('numDigits="10"');
     expect(amountPrompt.text).toContain('finishOnKey="#"');
     expect(amountPrompt.text).not.toMatch(/numDigits="(?:6|8)"/);
+  });
+
+  it("routes amount submissions back to recipient verification rather than throwing on an unverified session", async () => {
+    const sessionId = "AT-AMOUNT-REQUIRES-VERIFIED-RECIPIENT";
+    const response = await request(app)
+      .post("/verify-amount")
+      .send({ sessionId, lang: "en", dtmfDigits: "50" });
+
+    expect(response.status).toBe(200);
+    expect(response.text).toContain("Please verify the recipient");
+    expect(response.text).toContain("/enter-recipient");
+    expect(transactionStateMachine.getSession(sessionId)?.state).toBe("INITIATED");
   });
 
   it.each(["024123456", "02412345678"])("rejects a %i-digit phone before recipient lookup", async (digits) => {
@@ -190,11 +213,11 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     // 1. Initial Inbound Call
     const callRes = await request(app)
       .post("/voice-menu")
-      .send({ sessionId, callerNumber: "+233543546010", isActive: "1" });
+      .send({ sessionId, callerNumber: "+233543546010", isActive: "1", lang: "en" });
     expect(callRes.status).toBe(200);
     expect(callRes.text).toContain("<Response>");
-    expect(callRes.text).toContain("/api/audio/prompt-tts/en/welcome");
-    expect(callRes.text).not.toContain("For English, press 1");
+    expect(callRes.text.match(/<Play\b/gi) || []).toHaveLength(2);
+    expect(decodeURIComponent(callRes.headers["x-ai-reply-text"])).toContain("For English, press 1");
 
     const languagePrompt = await request(app)
       .post("/language-selection")
@@ -277,7 +300,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       amount: 75,
       network: "MTN",
     }));
-    expect(outcomeRes.text).toContain("check your phone screen");
+    expect(outcomeRes.text).toContain("authorize the prompt on your handset");
     expect(outcomeRes.text).not.toContain("Congratulations");
     expect(outcomeRes.text).not.toContain("<Record");
     expect(outcomeRes.text).not.toContain("<GetDigits");
@@ -313,7 +336,6 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(speechLog?.message).toContain("[PHONE]");
     expect(speechLog?.message).toContain("[NUMBER]");
     expect(speechLog?.message).not.toContain("0241234567");
-    expect(speechLog?.message).not.toContain("500");
 
     const recipientRes = await request(app)
       .post("/verify-recipient")
@@ -332,6 +354,34 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(readbackRes.text).toContain("500");
     expect(readbackRes.text).toContain("Ama Mensah");
     expect(transactionStateMachine.getSession(sessionId)?.state).toBe("AMOUNT_ENTERED");
+  });
+
+  it("never accepts a submitted PIN as payment confirmation", async () => {
+    const sessionId = "AT-PIN-IS-NOT-PROOF-001";
+    transactionStateMachine.getOrCreateSession(sessionId, "en");
+    transactionStateMachine.transition(sessionId, "RECIPIENT_VERIFIED", {
+      recipientPhone: "0241234567",
+      recipientName: "Test Recipient",
+      isRecipientVerified: true,
+    });
+    transactionStateMachine.transition(sessionId, "AMOUNT_ENTERED", { amount: 10 });
+    transactionStateMachine.transition(sessionId, "CONFIRMED");
+    transactionStateMachine.transition(sessionId, "PIN_PENDING");
+
+    const response = await request(app)
+      .post("/verify-pin")
+      .query({ sessionId, lang: "en" })
+      .send({ dtmfDigits: "1234" });
+
+    expect(response.headers["x-payment-status"]).toBe("PENDING");
+    expect(response.text).toContain("Do not enter or say your Mobile Money PIN here");
+    expect(response.text).not.toContain("successful");
+    expect(transactionStateMachine.getSession(sessionId)?.state).toBe("PIN_PENDING");
+
+    const status = await request(app)
+      .get(`/api/simulator/transaction-status?sessionId=${sessionId}`);
+    expect(status.body.status).toBe("PIN_PENDING");
+    expect(status.body.paymentStatus).toBe("PIN_PENDING");
   });
 
   it("preserves a Brain-provided amount through recipient lookup and approval", async () => {
@@ -369,10 +419,16 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
 
     expect(processBrain).toHaveBeenCalledWith(expect.objectContaining({
       transcript: utterance,
-      forceModel: true,
+      sessionId,
+      sessionLanguage: "en",
+      telephonyContext: {
+        currentStep: "service-select",
+        transactionState: "INITIATED",
+        recipientVerified: false,
+      },
     }));
     expect(res.text).toContain(`/verify-recipient?sessionId=${sessionId}`);
-    expect(res.text).toContain("/api/audio/prompt-tts/en/intent_understood_ask_number");
+    expect(res.text).toContain("/api/audio/prompt-tts/en/OP16");
     expect(transactionStateMachine.getSession(sessionId)?.interactionMode).toBe("NATURAL_CONVERSATION");
     processBrain.mockRestore();
   });
@@ -394,7 +450,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .post("/safe-outcome")
       .send({ sessionId, lang: "en", dtmfDigits: "1" });
 
-    expect(res.text).toContain("currently support MTN and Telecel numbers only");
+    expect(res.text).toContain("currently supports MTN and Telecel numbers only");
     expect(startSaga).not.toHaveBeenCalled();
     expect(transactionStateMachine.getSession(sessionId)?.state).toBe("FAILED");
     startSaga.mockRestore();
@@ -412,7 +468,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
         .query({ secret })
         .send({ sessionId, callerNumber: "+233543546010", isActive: "1" });
       expect(callRes.status).toBe(200);
-      expect(callRes.text).toContain(`/language-selection?sessionId=${sessionId}&amp;secret=${secret}`);
+      expect(callRes.text).toContain(`/language-selection?sessionId=${sessionId}&amp;lang=twi&amp;secret=${secret}`);
 
       const languageRes = await request(app)
         .post("/language-selection")
@@ -465,7 +521,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .post("/service-choice")
       .send({ sessionId: "AT-UNSUPPORTED-BANKING-001", lang: "en", dtmfDigits: "2" });
 
-    expect(res.text).toContain("Banking is not supported in this pilot.");
+    expect(decodeURIComponent(res.headers["x-ai-reply-text"])).toContain("Banking is not supported in this pilot.");
     expect(res.text).not.toContain("not a valid choice");
   });
 
@@ -508,7 +564,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     const unavailableBankingChoice = await request(app)
       .post("/service-choice")
       .send({ sessionId, lang: "en", dtmfDigits: "3" });
-    expect(unavailableBankingChoice.text).toContain("Banking is not supported in this pilot.");
+    expect(decodeURIComponent(unavailableBankingChoice.headers["x-ai-reply-text"])).toContain("Banking is not supported in this pilot.");
     expect(unavailableBankingChoice.text).not.toContain("/provider-select");
     expect(unavailableBankingChoice.text).not.toContain("directTransfer=1");
 
@@ -532,7 +588,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .post("/voice-menu")
       .send({ sessionId, callerNumber: "+233543546010", isActive: "1" });
     expect(welcomeRes.status).toBe(200);
-    expect(welcomeRes.text).toContain("/api/audio/prompt-tts/en/welcome");
+    expect(welcomeRes.text.match(/<Play\b/gi) || []).toHaveLength(2);
 
     // User selects English (1)
     const langRes = await request(app)
@@ -604,7 +660,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       network: "MTN",
     }));
     startSaga.mockRestore();
-    expect(handoffRes.text).toContain("check your phone screen");
+    expect(handoffRes.text).toContain("authorize the prompt on your handset");
     expect(handoffRes.text).toContain("<Reject/>"); // stops listening to speech; no PIN over audio!
 
     const stateAfterHandoff = transactionStateMachine.getSession(sessionId);

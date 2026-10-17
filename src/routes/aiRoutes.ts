@@ -818,76 +818,13 @@ aiRouter.post("/api/ai/simulator/sync-session", publicApiRateLimiter, (req: Requ
   }
 });
 
-// Direct PIN transfer completion with accurate receipt generation
-aiRouter.post("/api/ai/simulator/complete-transfer", publicApiRateLimiter, async (req: Request, res: Response) => {
-  try {
-    const { sessionId, pin, language, amount: reqAmount, recipientPhone: reqPhone, recipientName: reqName, network: reqNet } = req.body;
-    if (!sessionId) {
-      return res.status(400).json({ error: "Missing 'sessionId' field" });
-    }
-    const lang = (language === "tw" || language === "twi" || language === "twi-asante" || language === "ak") ? "twi" : "en";
-    const session = transactionStateMachine.getOrCreateSession(sessionId, lang);
-
-    const effectiveAmount = typeof reqAmount === "number" && reqAmount > 0 ? reqAmount : session.amount || 90;
-    const effectivePhone = reqPhone ? normalizeGhanaPhoneNumber(String(reqPhone)) : session.recipientPhone || "0554848756";
-    const effectiveName = reqName || session.recipientName || "Emmanuel Mensah";
-    const effectiveNetwork = reqNet || session.network || "MTN";
-
-    // Transition to CONFIRMED and PIN_PENDING
-    transactionStateMachine.transition(sessionId, "CONFIRMED");
-    transactionStateMachine.transition(sessionId, "PIN_PENDING", {
-      amount: effectiveAmount,
-      recipientPhone: effectivePhone,
-      recipientName: effectiveName,
-      network: effectiveNetwork,
-    });
-
-    // Execute Payment Saga
-    const sagaResult = await paymentSaga.executeConfirmedTransferSaga({
-      sessionId,
-      senderPhone: session.callerPhone || "+233244123456",
-      recipientPhone: effectivePhone,
-      recipientName: effectiveName,
-      amount: effectiveAmount,
-      network: effectiveNetwork as any,
-      confirmedDraftHash: session.idempotencyKey,
-    });
-
-    transactionStateMachine.transition(sessionId, "COMPLETED");
-
-    // Generate accurate dynamic receipt
-    const refId = sagaResult.saga.collectionReference || session.referenceId;
-    const receipt = buildReceiptPrompt({
-      language: lang,
-      amount: effectiveAmount,
-      recipientPhone: effectivePhone,
-      recipientName: effectiveName,
-      referenceId: refId,
-      timestamp: new Date(),
-      status: "SUCCESSFUL",
-    });
-
-    // Determine audio match or dynamic TTS
-    const studioSuccessAudio = lang === "twi"
-      ? "/audio/Twi/8.Success%20%26%20Completion/SUCCESS.aac"
-      : "/audio/Success.m4a";
-
-    res.json({
-      success: true,
-      status: "SUCCESSFUL",
-      amount: effectiveAmount,
-      recipientPhone: effectivePhone,
-      recipientName: effectiveName,
-      network: effectiveNetwork,
-      referenceId: refId,
-      receiptText: receipt.spokenText,
-      audioUrl: studioSuccessAudio,
-      requiresTts: true,
-      saga: sagaResult.saga,
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || "Transfer completion failed" });
-  }
+// Legacy endpoint disabled: PIN input is never accepted or treated as payment proof.
+aiRouter.post("/api/ai/simulator/complete-transfer", publicApiRateLimiter, (_req: Request, res: Response) => {
+  return res.status(410).json({
+    success: false,
+    error: "DIRECT_PIN_FLOW_DISABLED",
+    message: "Confirm transfers through the safe IVR flow and authorize them on your handset.",
+  });
 });
 
 aiRouter.post("/api/ai/analyze", publicApiRateLimiter, async (req: Request, res: Response) => {
@@ -1303,113 +1240,13 @@ aiRouter.post("/api/ai/simulator/validate-recipient", publicApiRateLimiter, asyn
   }
 });
 
-// ── Live PIN Entry & MoMo Sandbox Execution ──────────────────────────
-const sessionPinAttempts = new Map<string, number>();
-
-aiRouter.post("/api/ai/simulator/submit-pin", publicApiRateLimiter, async (req: Request, res: Response) => {
-  try {
-    const { sessionId, pin, amount, recipientPhone, recipientName, network, callerPhone, language } = req.body || {};
-    if (!sessionId || !pin) {
-      return res.status(400).json({ success: false, error: "Missing sessionId or PIN." });
-    }
-
-    const currentAttempts = sessionPinAttempts.get(sessionId) || 0;
-    const cleanPin = String(pin).replace(/\D/g, "");
-    const isTwi = language === "twi" || language === "tw" || language === "ak" || language === "twi-asante";
-
-    // Valid sandbox test PINs are 1234 or 0000
-    const isValidPin = cleanPin === "1234" || cleanPin === "0000";
-
-    if (!isValidPin) {
-      const newAttempts = currentAttempts + 1;
-      sessionPinAttempts.set(sessionId, newAttempts);
-      const remaining = Math.max(0, 3 - newAttempts);
-
-      if (remaining === 0) {
-        const lockMsg = isTwi
-          ? "Woabɔ PIN no mfomsoɔ mprɛnsa. Ahobammbɔ nti, yɛato wo MoMo wallet mu kakra. Nante yie."
-          : "Too many incorrect PIN attempts. For your security, your Mobile Money wallet is temporarily locked. Goodbye.";
-        return res.json({
-          success: false,
-          error: "WALLET_LOCKED",
-          remainingAttempts: 0,
-          message: lockMsg,
-          messageTw: lockMsg,
-        });
-      }
-
-      const warnMsg = isTwi
-        ? `PIN no nyɛ pɛpɛɛpɛ. Wodeɛ aka mprɛ ${remaining} pɛ ansa na yɛato wo wallet mu. Mesrɛ wo, fa wo keypad no bɔ mu sɛ worentumi nka a, na nka wo PIN nkyerɛ obiara da.`
-        : `That PIN is incorrect. You have ${remaining} attempt${remaining === 1 ? "" : "s"} remaining before your wallet is locked. Please take your time, or use your phone keypad if you prefer. For your safety, remember never to share your PIN with anyone.`;
-
-      return res.json({
-        success: false,
-        error: "INVALID_PIN",
-        remainingAttempts: remaining,
-        message: warnMsg,
-        messageTw: warnMsg,
-      });
-    }
-
-    // PIN is correct! Clear attempt counter
-    sessionPinAttempts.delete(sessionId);
-
-    const txAmount = Number(amount) || 0;
-    const sender = callerPhone || "0244123456";
-    const refPhone = recipientPhone || "0240000000";
-    const refName = recipientName || "Recipient";
-
-    // Execute sandbox saga/transaction
-    let referenceId = `MOMO-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
-    try {
-      const sagaRes = await paymentSaga.executeConfirmedTransferSaga({
-        sessionId,
-        senderPhone: sender,
-        recipientPhone: refPhone,
-        recipientName: refName,
-        amount: txAmount,
-        network: (network || "MTN") as any,
-        confirmedDraftHash: `pin_auth_${Date.now()}`,
-      });
-      if (sagaRes?.saga?.collectionReference) {
-        referenceId = sagaRes.saga.collectionReference;
-      }
-    } catch {
-      // Fallback sandbox transaction record
-      momoEngine.transfer({
-        amount: txAmount,
-        payeePhone: refPhone,
-        payeeName: refName,
-        payerMessage: `Transfer of GHS ${txAmount}`,
-        payeeNote: `Received from ${sender}`,
-      }).catch(() => {});
-    }
-
-    callSessionRepository.upsertSession({
-      sessionId,
-      outcome: "COMPLETED",
-      amountGHS: txAmount,
-      recipientName: refName,
-      recipientPhone: refPhone,
-    });
-
-    const successMsg = isTwi
-      ? `Wo sika transfer a ɛyɛ GHS ${txAmount} a woremane ${refName} (${refPhone}) no akɔ yie pɛpɛɛpɛ! Wo reference nɔmba ne ${referenceId}. Yɛda wo ase sɛ wode Ɔkwankyerɛfo Pa adi dwuma.`
-      : `Your transfer of ${txAmount} Ghana Cedis to ${refName} on ${refPhone} has been completed successfully! Your MoMo reference ID is ${referenceId}. Thank you for using Ɔkwankyerɛfo Pa.`;
-
-    res.json({
-      success: true,
-      reference: referenceId,
-      amount: txAmount,
-      recipientName: refName,
-      recipientPhone: refPhone,
-      network: network || "MTN",
-      message: successMsg,
-      messageTw: successMsg,
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message || "Failed to process PIN authorization." });
-  }
+// Direct PIN submission is disabled; payment authorization occurs on the subscriber's handset.
+aiRouter.post("/api/ai/simulator/submit-pin", publicApiRateLimiter, (_req: Request, res: Response) => {
+  return res.status(410).json({
+    success: false,
+    error: "DIRECT_PIN_FLOW_DISABLED",
+    message: "Never submit your Mobile Money PIN to this application. Authorize on your handset.",
+  });
 });
 
 // ── MoMo Cash-Out & Voice Withdrawal Endpoints ────────────────────────
@@ -1489,95 +1326,13 @@ aiRouter.get("/api/ai/cashout/get-pending", publicApiRateLimiter, async (req: Re
   }
 });
 
-// 5. Approve Withdrawal Request (with Zero-PIN privacy advisory)
-// 5. Approve Withdrawal Request (with Zero-PIN privacy advisory & accurate failure reporting)
-aiRouter.post("/api/ai/cashout/approve", publicApiRateLimiter, async (req: Request, res: Response) => {
-  try {
-    const { callerPhone, pin, language } = req.body || {};
-    const phone = callerPhone || "0543546010";
-    const isTwi = language === "twi" || language === "tw" || language === "ak" || language === "twi-asante";
-
-    const approvalResult = cashOutService.approveWithdrawal(phone, String(pin || ""));
-    if (!approvalResult.success) {
-      if (approvalResult.error === "WALLET_LOCKED") {
-        const lockMsgEn = "Too many incorrect PIN attempts. For your security, your Mobile Money wallet has been temporarily locked. Please visit an MTN service centre or call 100 for assistance. Goodbye.";
-        const lockMsgTw = "Woabɔ PIN no mfomsoɔ mprɛnsa. Ahobammbɔ nti, yɛato wo MoMo wallet mu kakra. Mesrɛ wo kɔ MTN service centre anaa frɛ 100. Nante yie.";
-        return res.json({
-          success: false,
-          error: "WALLET_LOCKED",
-          isLocked: true,
-          remainingAttempts: 0,
-          message: isTwi ? lockMsgTw : lockMsgEn,
-          messageEn: lockMsgEn,
-          messageTw: lockMsgTw,
-        });
-      }
-
-      if (approvalResult.error === "INVALID_PIN") {
-        const rem = approvalResult.remainingAttempts ?? 2;
-        const warnMsgEn = `That PIN is incorrect. You have ${rem} attempt${rem === 1 ? "" : "s"} remaining before your wallet is locked. Please enter your PIN carefully on your phone keypad. Never share your PIN with anyone.`;
-        const warnMsgTw = `PIN no nyɛ pɛpɛɛpɛ. Wodeɛ aka mprɛ ${rem} pɛ ansa na yɛato wo wallet mu. Mesrɛ wo, fa wo keypad no bɔ mu pɛpɛɛpɛ na nka wo PIN nkyerɛ obiara da.`;
-        return res.json({
-          success: false,
-          error: "INVALID_PIN",
-          isLocked: false,
-          remainingAttempts: rem,
-          message: isTwi ? warnMsgTw : warnMsgEn,
-          messageEn: warnMsgEn,
-          messageTw: warnMsgTw,
-        });
-      }
-
-      if (approvalResult.error === "INSUFFICIENT_BALANCE" && approvalResult.balanceDetails) {
-        const b = approvalResult.balanceDetails;
-        const balStr = b.currentBalance.toFixed(2);
-        const amtStr = b.requestedAmount.toFixed(2);
-        const feeStr = b.fee.toFixed(2);
-        const totStr = b.totalRequired.toFixed(2);
-        const maxStr = b.maxPossibleWithdrawal.toFixed(2);
-        const shortStr = b.shortage.toFixed(2);
-
-        const msgEn = `The withdrawal could not be completed because your Mobile Money balance is ${balStr} Cedis, but the agent requested ${amtStr} Cedis plus a ${feeStr} fee, for a total of ${totStr} Cedis. Your account is short by ${shortStr} Cedis. The maximum amount you can withdraw right now is ${maxStr} Cedis. Please ask the agent to enter ${maxStr} Cedis instead.`;
-        const msgTw = `Wontumi nyi sika no efisɛ wo MoMo balance yɛ ${balStr} Cedis, nanso agent no rebisa ${amtStr} Cedis ne fee ${feeStr} Cedis, a ne nyinaa yɛ ${totStr} Cedis. Sika a ɛka wo ho yɛ ${shortStr} Cedis. Sika a wotumi yi seesei ara yɛ ${maxStr} Cedis. Mesrɛ wo ka kyerɛ agent no sɛ ɔnsesa nɔmba no mmɔ ${maxStr} Cedis.`;
-
-        return res.json({
-          success: false,
-          error: "INSUFFICIENT_BALANCE",
-          balanceDetails: b,
-          message: isTwi ? msgTw : msgEn,
-          messageEn: msgEn,
-          messageTw: msgTw,
-        });
-      }
-
-      return res.json({
-        success: false,
-        error: approvalResult.error || "NO_PENDING_REQUEST",
-        message: isTwi
-          ? "Agent biara nnya mfaa sika yi ho asɛm mmanee wo account mu. Mesrɛ wo ka kyerɛ agent no sɛ ɔmbɔ sika yi ansa."
-          : "There is no pending cash-out withdrawal request from an agent for your phone number right now. Please tell the agent to enter the withdrawal first.",
-      });
-    }
-
-    const reqData = approvalResult.request!;
-    const ref = approvalResult.referenceId!;
-
-    const msgEn = `Your cash withdrawal of ${reqData.amount.toFixed(2)} Cedis from ${reqData.agentName} has been approved successfully! MoMo Reference: ${ref}. Security Tip: For your safety, you can also press your PIN on your phone keypad next time so bystanders do not overhear your code.`;
-    const msgTw = `Sika a woyiiɛ GHS ${reqData.amount.toFixed(2)} wɔ ${reqData.agentName} hɔ no akɔ yie pɛpɛɛpɛ! MoMo Reference: ${ref}. Ahobammbɔ Afutuo: Da foforɔ no, wotumi fa wo phone so keypad no bɔ wo PIN ahintasɛm no na obiara ante wɔ baabi a wogyina no.`;
-
-    res.json({
-      success: true,
-      referenceId: ref,
-      request: reqData,
-      message: isTwi ? msgTw : msgEn,
-      messageEn: msgEn,
-      messageTw: msgTw,
-      privacyTipEn: "For your safety, you can also press your PIN on your phone keypad so bystanders do not overhear your code.",
-      privacyTipTw: "Da foforɔ no, wotumi fa wo phone so keypad no bɔ wo PIN ahintasɛm no na obiara ante wɔ baabi a wogyina no.",
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message || "Failed to approve withdrawal" });
-  }
+// Cash-out provider authorization is unavailable; never accept PINs or report mock approvals.
+aiRouter.post("/api/ai/cashout/approve", publicApiRateLimiter, (_req: Request, res: Response) => {
+  return res.status(501).json({
+    success: false,
+    error: "CASHOUT_PROVIDER_UNAVAILABLE",
+    message: "Cash-out cannot be authorized through this application. Do not provide a PIN.",
+  });
 });
 
 // 5b. Understand Cash-Out Conversational Intent via AI Agent (Zero-PIN Protected)

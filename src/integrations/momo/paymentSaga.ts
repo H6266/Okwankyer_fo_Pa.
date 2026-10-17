@@ -64,6 +64,7 @@ export interface SagaProviderEvidence {
 
 export interface SagaTransaction {
   sagaId: string;
+  sessionId?: string;
   idempotencyKey: string;
   senderPhone: string;
   recipientPhone: string;
@@ -148,6 +149,7 @@ export class PaymentSagaOrchestrator {
   }
 
   public createDraft(params: {
+    sessionId?: string;
     senderPhone: string;
     recipientPhone: string;
     amount: number;
@@ -285,6 +287,7 @@ export class PaymentSagaOrchestrator {
 
     const saga: SagaTransaction = {
       sagaId,
+      sessionId: params.sessionId,
       idempotencyKey,
       senderPhone:
         params.senderPhone,
@@ -1003,7 +1006,7 @@ export class PaymentSagaOrchestrator {
 
   public getLatestSagaForSession(sessionId: string): SagaTransaction | undefined {
     const all = durableTransactionStore.getAllSagas();
-    return all.slice().reverse().find((s) => s.idempotencyKey.startsWith(`${sessionId}:`) || (s as any).sessionId === sessionId);
+    return all.find((s) => s.sessionId === sessionId);
   }
 
   /**
@@ -1071,6 +1074,7 @@ export class PaymentSagaOrchestrator {
 
     // 2. Create and transition saga through authoritative pre-provider gates
     const draft = existing || this.createDraft({
+      sessionId: params.sessionId,
       senderPhone,
       recipientPhone,
       amount,

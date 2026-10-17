@@ -59,14 +59,12 @@ export function canBrowserPlayM4a(): boolean {
 
 export function resolveSafePlayableUrl(url: string): string {
   if (!url) return url;
-  // Always use universally compatible .mp3 for both .m4a and .aac files
-  // so every browser, iframe, and telephony server plays audio with 0 errors
-  return url.replace(/\.(m4a|aac)$/i, ".mp3");
+  return canBrowserPlayM4a() ? url : url.replace(/\.(m4a|aac)$/i, ".mp3");
 }
 
 export class AudioPlaybackController {
   private playbackVolume: number = 1.0;
-  private volumeMultiplier: number = 2.2; // Boosted volume: 220% (+6.8dB) with dynamics compression
+  private volumeMultiplier: number = 2.0; // Boosted volume: 200% (+6dB) with dynamics compression
   private audioElement: HTMLAudioElement | null = null;
   private mediaElementSource: MediaElementAudioSourceNode | null = null;
   private currentToken: number = 0;
@@ -93,14 +91,18 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Sets custom audio amplification multiplier (2.0 = boosted default, up to 3.0)
+   * Sets custom audio amplification multiplier (2.0 = boosted default, up to 2.0)
    */
   public setVolumeMultiplier(multiplier: number): void {
-    this.volumeMultiplier = Math.max(0.5, Math.min(3.0, multiplier));
+    if (!Number.isFinite(multiplier)) {
+      throw new Error("Audio volume multiplier must be a finite number.");
+    }
+    this.volumeMultiplier = Math.max(0.5, Math.min(2.0, multiplier));
     if (this.masterGainNode && this.audioContext) {
-      try {
-        this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
-      } catch {}
+      this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
+    }
+    if (!this.mediaElementSource && this.audioElement) {
+      this.connectAudioElementToOutput();
     }
   }
 
@@ -121,7 +123,6 @@ export class AudioPlaybackController {
       if (this.audioContext && !this.masterGainNode) {
         this.masterGainNode = this.audioContext.createGain();
         this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
-
         // Dynamics compressor guarantees boosted volume is crystal clear, loud, and unclipped
         this.compressorNode = this.audioContext.createDynamicsCompressor();
         this.compressorNode.threshold.setValueAtTime(-18, this.audioContext.currentTime);
@@ -129,7 +130,6 @@ export class AudioPlaybackController {
         this.compressorNode.ratio.setValueAtTime(8, this.audioContext.currentTime);
         this.compressorNode.attack.setValueAtTime(0.003, this.audioContext.currentTime);
         this.compressorNode.release.setValueAtTime(0.25, this.audioContext.currentTime);
-
         this.masterGainNode.connect(this.compressorNode);
         this.compressorNode.connect(this.audioContext.destination);
       }
@@ -170,6 +170,7 @@ export class AudioPlaybackController {
       if (this.audioContext && this.audioContext.state === "suspended") {
         this.audioContext.resume().catch(() => {});
       }
+      this.connectAudioElementToOutput();
       // Play silent 1-sample buffer to unlock AudioContext permanently in iframes
       if (this.audioContext) {
         try {
@@ -457,9 +458,20 @@ export class AudioPlaybackController {
     try {
       this.audioElement = new Audio();
       this.audioElement.preload = "auto";
+      this.connectAudioElementToOutput();
       return this.audioElement;
     } catch {
       return null;
+    }
+  }
+
+  private connectAudioElementToOutput(): void {
+    if (!this.audioContext || !this.masterGainNode || !this.audioElement || this.mediaElementSource) return;
+    try {
+      this.mediaElementSource = this.audioContext.createMediaElementSource(this.audioElement);
+      this.mediaElementSource.connect(this.masterGainNode);
+    } catch (err) {
+      console.warn("[AudioController] Could not connect media output to the volume controller:", err);
     }
   }
 
@@ -700,6 +712,7 @@ export class AudioPlaybackController {
     }
 
     audio.volume = this.playbackVolume;
+    this.connectAudioElementToOutput();
 
     return new Promise<boolean>((resolve) => {
       this.activeResolver = () => {
@@ -828,6 +841,7 @@ export class AudioPlaybackController {
           if (p !== undefined) {
             p.catch((err: any) => {
               if (err?.name === "AbortError" || err?.message?.includes("interrupted")) {
+                resolve(false);
                 return;
               }
               if (this.currentToken !== sequenceToken) return;
@@ -837,7 +851,7 @@ export class AudioPlaybackController {
         });
       })();
 
-      if (!ended && this.currentToken !== sequenceToken) {
+      if (!ended) {
         return false;
       }
     }
@@ -856,5 +870,3 @@ export class AudioPlaybackController {
 }
 
 export const audioPlaybackController = new AudioPlaybackController();
-
-

@@ -22,12 +22,13 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
     expect(res.headers["content-type"]).toContain("application/xml");
     const body = res.text;
 
-    // Must play welcome prompt once
+    // Play the welcome and language selection recordings sequentially, once each.
     expect(body).toContain("<Response>");
-    expect(body).toContain("Welcome_prompt_01.mp3");
-    // Must redirect to language-selection
+    const prompts = [...body.matchAll(/<Play[^>]*url="([^"]+)"/gi)].map((match) => match[1]);
+    expect(prompts).toHaveLength(2);
+    expect(prompts[0]).toContain("Welcome%201%20(2).mp3");
+    expect(prompts[1]).toContain("Language%20selection.mp3");
     expect(body).toContain("/language-selection?sessionId=");
-    // Must NOT contain duplicate greeting or welcome-back
     expect(body).not.toContain("Welcome back");
   });
 
@@ -40,9 +41,9 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
     expect(resEn.status).toBe(200);
     expect(resEn.text).toContain("/service-select?sessionId=");
     expect(resEn.text).toContain("lang=en");
-    // Must not play welcome back or repeat welcome
+    // The language selection response advances without replaying the opening.
     expect(resEn.text).not.toContain("Welcome back");
-    expect(resEn.text).not.toContain("Welcome to");
+    expect(resEn.text).not.toContain("Welcome%201%20(2).mp3");
 
     // Check service-select menu prompt
     const resService = await request(app)

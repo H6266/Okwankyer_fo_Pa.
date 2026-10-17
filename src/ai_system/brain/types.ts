@@ -157,6 +157,11 @@ export interface BrainInput {
   callerNumber?: string;
   sessionId?: string;
   forceModel?: boolean;
+  telephonyContext?: {
+    currentStep?: string;
+    transactionState?: string;
+    recipientVerified?: boolean;
+  };
 }
 
 export interface BrainOutput {
