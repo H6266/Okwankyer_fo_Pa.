@@ -100,8 +100,8 @@ dashboardRouter.get("/api/twi-audio", (_req: Request, res: Response) => {
         size,
         sizeFormatted: `${(size / 1024).toFixed(1)} KB`,
         url: p.url,
-        ext: ".m4a",
-        mimeType: "audio/mp4",
+        ext: ".mp3",
+        mimeType: "audio/mpeg",
       };
     }),
     count: twiPrompts.length,

@@ -39,10 +39,17 @@ import { SERVICE_CAPABILITIES, SUPPORTED_TRANSFER_NETWORKS } from "../domain/ser
 import { ivrDecisionEngine, IvrDecision } from "../ai_system/brain/ivrDecisionEngine";
 import { geminiClient } from "../services/geminiClient";
 import { speechNormalizer } from "../ai_system/speech/speechNormalizer";
+import { matchReplyToAudio } from "../audio/replyAudioMatcher";
 
 export const voiceRouter = Router();
 export const ivrRouter = Router();
 export const simulatorRouter = Router();
+
+export function getCollectionStagePromptId(slot: "recipient" | "amount" | string, fallbackPromptId: string): string {
+  if (slot === "recipient") return "OP16";
+  if (slot === "amount") return "OP28";
+  return fallbackPromptId;
+}
 
 interface RecipientLookupEntry {
   phone: string;
@@ -180,6 +187,10 @@ function brainPromptElement(promptId: string | undefined, replyText: string, bas
   const promptPath = promptId ? resolvePrompt(promptId, language) : null;
   if (promptPath) {
     return `<Play url="${escapeVoiceXml(`${baseUrl}${promptPath}`)}"/>`;
+  }
+  const match = matchReplyToAudio(replyText, language);
+  if (match.match && match.audioUrl) {
+    return `<Play url="${escapeVoiceXml(`${baseUrl}${match.audioUrl}`)}"/>`;
   }
   const scriptText = promptId ? resolvePromptText(promptId, language) : null;
   if (scriptText) {
@@ -368,30 +379,19 @@ export const handleInboundCall = (req: Request, res: Response) => {
   session.callerPhone = callerNumber;
   session.language = initialLang;
 
-  const defaultWelcomeUrl = `${baseUrl}/audio/Welcome_prompt_01.mp3`;
-  const welcomeUrl = initialLang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Welcome%201%20(2).mp3`
-    : `${baseUrl}/audio/Welcome_prompt_01.mp3`;
+  const welcomeUrl = `${baseUrl}/audio/Opening_voice_welcome_to_okwankyerefopa.mp3`;
 
-  const langSelectUrl = initialLang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Language%20selection.mp3`
-    : `${baseUrl}/audio/Welcome_prompt_01.mp3`;
-
-  const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?sessionId=${sessionId}&amp;lang=${initialLang}">
-        <Play url="${escapeVoiceXml(defaultWelcomeUrl)}"/>
+  const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?sessionId=${sessionId}">
         <Play url="${escapeVoiceXml(welcomeUrl)}"/>
-        <Play url="${escapeVoiceXml(langSelectUrl)}"/>
     </GetDigits>
-    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=language-selection&amp;sessionId=${sessionId}&amp;lang=${initialLang}&amp;retry=0"/>`;
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=language-selection&amp;sessionId=${sessionId}&amp;retry=0"/>`;
 
   xmlResponse(res, xml, {
     type: "understood_intent",
-    reason: "Call connected - playing canonical OP01 Welcome prompt",
-    replyText: initialLang === "twi"
-      ? "Akwaaba wɔ Ɔkwankyerɛfo Pa mu, wo nne akwankyerɛ a ɛma mobile services yɛ mmerɛw ma obiara."
-      : "Welcome to Ɔkwankyerɛfo Pa, your accessible voice guide for mobile services.",
+    reason: "Call connected - playing OP01 Welcome & Language Selection Gate",
+    replyText: "Welcome to Ɔkwankyerɛfo Pa. For English press 1, for Twi press 2.",
     replyKey: "OP01",
-    action: "repeat",
+    action: "advance",
     nextStep: "language-selection",
   });
 };
@@ -460,16 +460,28 @@ ivrRouter.all("/language-selection", (req: Request, res: Response) => {
     session.retryCount = 0;
     auditLogger.log("info", "TELEPHONY", `Language selected: ${lang.toUpperCase()}`, sessionId);
 
-    const nextRoute = "service-select";
+    // Play system description audio followed by network selection audio
+    const serviceDescUrl = `${baseUrl}/audio/service_description.mp3`;
+    const networkSelectUrl = `${baseUrl}/audio/Network_selection.mp3`;
+
     const decision: IvrDecision = {
       type: "understood_intent",
-      reason: `Language chosen: ${lang === "twi" ? "Twi" : "English"} (${dtmf})`,
-      replyText: lang === "twi" ? "Paw wo dwumadie." : "Select your service.",
-      replyKey: "supported_service_select",
+      reason: `Language chosen: ${lang === "twi" ? "Twi" : "English"} (${dtmf}). Playing system description and network selection.`,
+      replyText: lang === "twi"
+        ? "Akwaaba kɔ Ɔkwankyerɛfo Pa... Paw wo network. Sɛ ɛyɛ MTN a mia 1, Telecel mia 2, AT mia 3."
+        : "Welcome to Ɔkwankyerɛfo Pa... Select your network provider. For MTN press 1, Telecel press 2, AirtelTigo press 3.",
+      replyKey: "OP08",
       action: "advance",
-      nextStep: nextRoute,
+      nextStep: "provider-select",
     };
-    return xmlResponse(res, `    <Redirect>${baseUrl}/${nextRoute}?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, decision);
+
+    const xml = `    <GetDigits timeout="15" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}">
+        <Play url="${escapeVoiceXml(serviceDescUrl)}"/>
+        <Play url="${escapeVoiceXml(networkSelectUrl)}"/>
+    </GetDigits>
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=provider-select&amp;sessionId=${sessionId}&amp;lang=${lang}&amp;retry=0"/>`;
+
+    return xmlResponse(res, xml, decision);
   }
 
   // Invalid keypad input at language selection (e.g. 3, 4, 5, 6)
@@ -729,30 +741,26 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
   );
 });
 
-// ── Step 5: Supported Mobile Money Action ─────────────────────────────
 ivrRouter.all("/action-select", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const baseUrl = getBaseUrl(req);
 
-  const mtnMenu1Url = lang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/2.Main%20Service%20Navigation/MTN%20menu%201.mp3`
-    : "";
+  const mtnMenuUrl = `${baseUrl}/audio/MTN%20menu.mp3`;
 
-  const promptElement = mtnMenu1Url
-    ? `<Play url="${escapeVoiceXml(mtnMenu1Url)}"/>`
-    : canonicalPromptElement(
-        "send_money_menu",
-        lang,
-        baseUrl,
-        "To send money, press 1. To go back, press 8. To repeat, press 9, or press 0 to exit."
-      );
+  const xml = `    <GetDigits timeout="15" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?sessionId=${sessionId}&amp;lang=${lang}">
+        <Play url="${escapeVoiceXml(mtnMenuUrl)}"/>
+    </GetDigits>
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=action-select&amp;sessionId=${sessionId}&amp;lang=${lang}&amp;retry=0"/>`;
 
-  const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?sessionId=${sessionId}&amp;lang=${lang}">
-        ${promptElement}
-    </GetDigits>`;
-
-  xmlResponse(res, xml);
+  xmlResponse(res, xml, {
+    type: "understood_intent",
+    reason: "Playing selected network menu (MTN menu)",
+    replyText: "MTN Mobile Money. Sɛ wopɛ sɛ womane sika a mia 1. Sɛ wopɛ sɛ wohwɛ wo account a mia 2.",
+    replyKey: "OP09",
+    action: "advance",
+    nextStep: "action-choice",
+  });
 });
 
 ivrRouter.all("/action-choice", async (req: Request, res: Response) => {
@@ -861,21 +869,23 @@ ivrRouter.all("/enter-recipient", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const baseUrl = getBaseUrl(req);
 
-  const enterRecipient2Url = lang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Enter%20recipient%202.mp3`
-    : "";
+  const sendMoneySelectedUrl = `${baseUrl}/audio/Send_money_selected.mp3`;
+  const enterRecipientUrl = `${baseUrl}/audio/Enter_recipient.mp3`;
 
-  const promptElement = enterRecipient2Url
-    ? `<Play url="${escapeVoiceXml(enterRecipient2Url)}"/>`
-    : canonicalPromptElement("enter_recipient", lang, baseUrl, "Please enter the recipient's ten-digit phone number, followed by hash.");
-
-  // 40 second generous window for feature phone callers
-  const xml = `    <GetDigits timeout="40" finishOnKey="#" callbackUrl="${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}">
-        ${promptElement}
+  const xml = `    <GetDigits timeout="35" finishOnKey="#" numDigits="10" callbackUrl="${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}">
+        <Play url="${escapeVoiceXml(sendMoneySelectedUrl)}"/>
+        <Play url="${escapeVoiceXml(enterRecipientUrl)}"/>
     </GetDigits>
     <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="12" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=enter-recipient&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
 
-  xmlResponse(res, xml);
+  xmlResponse(res, xml, {
+    type: "understood_intent",
+    reason: "Enter Recipient Phone Number",
+    replyText: "Yɛsrɛ wo, bɔ obi a woremane no no fon nɔmba a ɛyɛ du na fa hash ka ho.",
+    replyKey: "OP16",
+    action: "advance",
+    nextStep: "enter-recipient",
+  });
 });
 
 // ── Step 7: Recipient Verification (Real Resolver) ────────────────────
@@ -973,10 +983,10 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
   const nameSpoken = resolution.name || (lang === "twi" ? `fon nɔmba ${fullPhoneSpoken}` : `subscriber ${fullPhoneSpoken}`);
 
   const useRecipient1Url = lang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Use%20recipient%201.m4a`
+    ? `${baseUrl}/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Use%20recipient%201.mp3`
     : "";
   const recipientConfirmSpeechUrl = lang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Recipient%20confirm%20speech.m4a`
+    ? `${baseUrl}/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Recipient%20confirm%20speech.mp3`
     : "";
 
   let verifyPrompt = "";
@@ -1087,24 +1097,25 @@ ivrRouter.all("/enter-amount", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const baseUrl = getBaseUrl(req);
 
-  const amountPromptUrl = lang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/4.Amount%20Entry%20%26%20Verification/Amount%20prompt.mp3`
-    : "";
-  const enterAmount4Url = lang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/4.Amount%20Entry%20%26%20Verification/Enter%20amount%204.mp3`
-    : "";
+  const enterAmountUrl = `${baseUrl}/audio/Enter%20amount.mp3`;
 
-  // 30 second window with star for pesewas
-  const xml = `    <GetDigits timeout="30" finishOnKey="#" callbackUrl="${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}">
-        ${amountPromptUrl ? `<Play url="${escapeVoiceXml(amountPromptUrl)}"/>` : ""}
-        ${enterAmount4Url ? `<Play url="${escapeVoiceXml(enterAmount4Url)}"/>` : canonicalPromptElement("enter_amount", lang, baseUrl, "Please enter the amount in Ghana Cedis.")}
+  // 30 second window with star for pesewas, wait strictly for finishOnKey #
+  const xml = `    <GetDigits timeout="30" finishOnKey="#" numDigits="6" callbackUrl="${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}">
+        <Play url="${escapeVoiceXml(enterAmountUrl)}"/>
     </GetDigits>
     <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="8" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=enter-amount&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
 
-  xmlResponse(res, xml);
+  xmlResponse(res, xml, {
+    type: "understood_intent",
+    reason: "Enter Transfer Amount",
+    replyText: "Sika dodoɔ sɛn na wopɛ sɛ womane? Bɔ sika no na fa hash ka ho.",
+    replyKey: "OP30",
+    action: "advance",
+    nextStep: "enter-amount",
+  });
 });
 
-// ── Step 9: Amount Verification & Routing to Safe Confirmation ────────
+// ── Step 9: Amount Verification & Routing to PIN Entry ────────────────
 ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
@@ -1153,7 +1164,15 @@ ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
     amount: amountValidation.amount,
   });
 
-  xmlResponse(res, `    <Redirect>${baseUrl}/safe-confirmation?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  if (!session.recipientPhone || !session.isRecipientVerified) {
+    return xmlResponse(
+      res,
+      `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`
+    );
+  }
+
+  // Next: Proceed to Enter PIN
+  xmlResponse(res, `    <Redirect>${baseUrl}/enter-pin?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
 });
 
 // ── Step 10: Safe Confirmation (DYNAMIC READBACK) ─────────────────────
@@ -1217,7 +1236,7 @@ ivrRouter.all("/pin-handoff", (req: Request, res: Response) => {
     return xmlResponse(res, `    <Redirect>${baseUrl}/confirm-speech?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${dtmf}</Redirect>`);
   }
 
-  const pinAudioUrl = `${baseUrl}/audio/additional/Pin%20Handoff.m4a`;
+  const pinAudioUrl = `${baseUrl}/audio/additional/Pin%20Handoff.mp3`;
   const pinPrompt = lang === "twi"
     ? "Wo transaction no ayɛ krado sɛ wode bɛma ho kwan. Yɛsrɛ wo, bɔ wo 4 digit password na fa hash ka ho, anaa ka wo PIN no."
     : "Your transaction is ready for authorization. Please enter your 4-digit password followed by hash, or say your 4-digit PIN.";
@@ -1250,8 +1269,8 @@ ivrRouter.all("/confirm-speech", (req: Request, res: Response) => {
   }
 
   const confirmAudioUrl = lang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/5.Transaction%20Confirmation/Confirm%20speech.m4a`
-    : `${baseUrl}/audio/Confirm%20understanding.m4a`;
+    ? `${baseUrl}/audio/supplied/Twi/5.Transaction%20Confirmation/Confirm%20speech.mp3`
+    : `${baseUrl}/audio/Confirm%20understanding.mp3`;
 
   const confirmPrompt = lang === "twi"
     ? "Sɛ wopene so a, mia baako (1) anaasɛ ka aane. Sɛ wopɛ sɛ wotwa mu a, mia mmienu (2) anaasɛ ka dabi."
@@ -1404,14 +1423,70 @@ ivrRouter.all("/enter-pin", (req: Request, res: Response) => {
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getOrCreateSession(sessionId);
 
+  const silenceCount = parseInt((req.query?.silence || req.body?.silence || "0") as string, 10);
+
+  // Stage 1 Inactivity Reassurance: "We are waiting for you to enter your PIN"
+  if (silenceCount === 1) {
+    const reassurePrompt = lang === "twi"
+      ? "Yɛretwɛn wo PIN, fa wo bere bɔ wo PIN nɔmba nnan no."
+      : "We are waiting for you to enter your PIN. Please take your time and enter your 4-digit PIN.";
+    const waitingAudio = `${baseUrl}/audio/Waiting_confirmation.mp3`;
+    const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="4" callbackUrl="${baseUrl}/verify-pin?sessionId=${sessionId}&amp;lang=${lang}">
+        <Play url="${escapeVoiceXml(waitingAudio)}"/>
+        <Say voice="female">${escapeVoiceXml(reassurePrompt)}</Say>
+    </GetDigits>
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="6" timeout="5" callbackUrl="${baseUrl}/enter-pin?silence=2&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
+    return xmlResponse(res, xml, {
+      stepId: "enter-pin",
+      stepName: "enter-pin",
+      replyText: reassurePrompt,
+    });
+  }
+
+  // Stage 2 Inactivity Reassurance: "Please enter your 4-digit PIN"
+  if (silenceCount === 2) {
+    const reassurePrompt2 = lang === "twi"
+      ? "Yɛsrɛ wo, yɛda so retwɛn wo PIN nɔmba nnan no na yɛatumi amane sika no."
+      : "Please enter your 4-digit PIN on the keypad or say it to authorize the transfer.";
+    const pleaseRespondAudio = `${baseUrl}/audio/Please_respond.mp3`;
+    const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="4" callbackUrl="${baseUrl}/verify-pin?sessionId=${sessionId}&amp;lang=${lang}">
+        <Play url="${escapeVoiceXml(pleaseRespondAudio)}"/>
+        <Say voice="female">${escapeVoiceXml(reassurePrompt2)}</Say>
+    </GetDigits>
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="6" timeout="5" callbackUrl="${baseUrl}/enter-pin?silence=3&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
+    return xmlResponse(res, xml, {
+      stepId: "enter-pin",
+      stepName: "enter-pin",
+      replyText: reassurePrompt2,
+    });
+  }
+
+  // Stage 3 Final Inactivity: End the call gracefully
+  if (silenceCount >= 3) {
+    const timeoutPrompt = lang === "twi"
+      ? "Yɛante wo nkyɛn nti, yɛretwa frɛ yi mu. Meda wo ase, nante yie."
+      : "We did not receive any input, so this call is now ending for your security. Thank you, goodbye.";
+    const timeoutAudio = `${baseUrl}/audio/Session%20timeout.mp3`;
+    const xml = `    <Play url="${escapeVoiceXml(timeoutAudio)}"/>
+    <Say voice="female">${escapeVoiceXml(timeoutPrompt)}</Say>
+    <Reject/>`;
+    transactionStateMachine.transition(sessionId, "TIMEOUT", { failureReason: "PIN inactivity timeout" });
+    return xmlResponse(res, xml, {
+      stepId: "enter-pin",
+      stepName: "enter-pin",
+      replyText: timeoutPrompt,
+    });
+  }
+
+  // Normal initial PIN prompt
   const pinPromptText = lang === "twi"
     ? "Yɛsrɛ wo, fa wo MoMo PIN nɔmba nnan no bɔ mu anaa ka kyerɛ me na yɛmfa nwie transfer no."
     : "Please enter your 4-digit Mobile Money PIN on the keypad or say it to authorize this transfer.";
 
-  const xml = `    <GetDigits timeout="30" finishOnKey="#" numDigits="4" callbackUrl="${baseUrl}/verify-pin?sessionId=${sessionId}&amp;lang=${lang}">
+  const xml = `    <GetDigits timeout="15" finishOnKey="#" numDigits="4" callbackUrl="${baseUrl}/verify-pin?sessionId=${sessionId}&amp;lang=${lang}">
         <Say voice="female">${escapeVoiceXml(pinPromptText)}</Say>
     </GetDigits>
-    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="6" timeout="6" callbackUrl="${baseUrl}/speech-fallback?step=enter-pin&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="6" timeout="6" callbackUrl="${baseUrl}/enter-pin?silence=1&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
 
   return xmlResponse(res, xml, {
     stepId: "enter-pin",
@@ -1439,17 +1514,18 @@ ivrRouter.all("/verify-pin", async (req: Request, res: Response) => {
       const failMsg = lang === "twi"
         ? "Wo PIN no anyɛ yie mpɛn pii. Yɛatwa transfer no mu. Nante yie."
         : "Too many incorrect PIN attempts. Transaction cancelled for security. Goodbye.";
-      return xmlResponse(res, `    <Say voice="female">${failMsg}</Say>\n    <Reject/>`);
+      const errorAudio = `${baseUrl}/audio/System_Error.mp3`;
+      return xmlResponse(res, `    <Play url="${escapeVoiceXml(errorAudio)}"/>\n    <Say voice="female">${failMsg}</Say>\n    <Reject/>`);
     }
     const retryMsg = lang === "twi"
       ? "Wo PIN no nnyɛ nɔmba nnan pɛpɛɛpɛ. Yɛsrɛ wo san bɔ wo PIN nɔmba nnan no anaa ka kyerɛ me."
       : "Your PIN must be 4 digits. Please re-enter your 4-digit PIN on the keypad or say it.";
     return xmlResponse(
       res,
-      `    <GetDigits timeout="25" finishOnKey="#" numDigits="4" callbackUrl="${baseUrl}/verify-pin?sessionId=${sessionId}&amp;lang=${lang}">
+      `    <GetDigits timeout="20" finishOnKey="#" numDigits="4" callbackUrl="${baseUrl}/verify-pin?sessionId=${sessionId}&amp;lang=${lang}">
           <Say voice="female">${escapeVoiceXml(retryMsg)}</Say>
       </GetDigits>
-      <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="6" timeout="6" callbackUrl="${baseUrl}/speech-fallback?step=enter-pin&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`,
+      <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="6" timeout="5" callbackUrl="${baseUrl}/enter-pin?silence=1&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`,
       {
         stepId: "enter-pin",
         stepName: "enter-pin",
@@ -1486,9 +1562,8 @@ ivrRouter.all("/verify-pin", async (req: Request, res: Response) => {
     console.warn("[VoiceRoutes] Payment saga async execution notice:", err?.message);
   });
 
-  const successAudio = lang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/8.Success%20%26%20Completion/SUCCESS.aac`
-    : `${baseUrl}/audio/Success.m4a`;
+  const successSentAudio = `${baseUrl}/audio/Success_sent.mp3`;
+  const successCloseAudio = `${baseUrl}/audio/Success_close.mp3`;
 
   const receipt = buildReceiptPrompt({
     language: lang,
@@ -1500,7 +1575,7 @@ ivrRouter.all("/verify-pin", async (req: Request, res: Response) => {
     status: "SUCCESSFUL",
   });
 
-  const finalXml = `    <Play url="${escapeVoiceXml(successAudio)}"/>\n    <Say voice="female">${escapeVoiceXml(receipt.spokenText)}</Say>\n    <Reject/>`;
+  const finalXml = `    <Play url="${escapeVoiceXml(successSentAudio)}"/>\n    <Play url="${escapeVoiceXml(successCloseAudio)}"/>\n    <Say voice="female">${escapeVoiceXml(receipt.spokenText)}</Say>\n    <Reject/>`;
 
   return xmlResponse(res, finalXml, {
     type: "transaction_success",
@@ -1905,7 +1980,11 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
       }
 
       if (brainOutput.decision.kind === "not_ready") {
-        return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(brainOutput.reply.text)}</Say>\n    <Reject/>`);
+        const audioMatch = matchReplyToAudio(brainOutput.reply.text, lang);
+        const playElement = audioMatch.audioUrl
+          ? `<Play url="${escapeVoiceXml(`${baseUrl}${audioMatch.audioUrl}`)}"/>`
+          : "";
+        return xmlResponse(res, `    ${playElement}\n    <Say voice="female">${escapeVoiceXml(brainOutput.reply.text)}</Say>\n    <Reject/>`);
       } else if (brainOutput.decision.kind === "clarify_intent") {
         const prompt = brainPromptElement(brainOutput.reply.promptId, brainOutput.reply.text, baseUrl, lang);
         return xmlResponse(

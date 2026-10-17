@@ -8,6 +8,7 @@ const promptUrl = (key: string, language: "en" | "twi") => resolvePrompt(key, la
 export type CallStep =
   | "idle"
   | "welcome"
+  | "service_description"
   | "language_select"
   | "service"
   | "provider"
@@ -47,13 +48,13 @@ export const CALL_STEPS: StepDefinition[] = [
   },
   {
     stepIndex: 2,
-    id: "language_select",
-    nameEn: "2. Language Selection",
-    nameTwi: "2. Kasa Paw",
-    expectedInput: "1 (English) or 2 (Twi)",
-    audioEn: promptUrl("language_selection", "en"),
-    audioTwi: promptUrl("language_selection", "twi"),
-    promptId: "OP02",
+    id: "service_description",
+    nameEn: "2. System Description",
+    nameTwi: "2. Dwumadie Nkyerɛkyerɛmu",
+    expectedInput: "Listening to System Description (OP01B)",
+    audioEn: promptUrl("service_description", "en"),
+    audioTwi: promptUrl("service_description", "twi"),
+    promptId: "OP01B",
   },
   {
     stepIndex: 3,
@@ -219,6 +220,7 @@ export function useCallSession() {
     const playback = audioUrl ? `<Play>${audioUrl}</Play>` : "";
     const promptKeyByStep: Partial<Record<CallStep, string>> = {
       welcome: "welcome",
+      service_description: "service_description",
       language_select: "language_selection",
       service: "service_select",
       provider: "provider_select",
@@ -240,13 +242,19 @@ export function useCallSession() {
     switch (step) {
       case "welcome":
         return `<Response>
-  <!-- OP01: Welcome Greeting (Separate Audio) -->
+  <!-- OP01: Welcome Greeting -->
   ${playback || promptSay}
-  <Redirect>/language-selection</Redirect>
+  <Redirect>/service-description</Redirect>
+</Response>`;
+      case "service_description":
+        return `<Response>
+  <!-- OP01B: System Description -->
+  ${playback || promptSay}
+  <Redirect>/service-choice</Redirect>
 </Response>`;
       case "language_select":
         return `<Response>
-  <!-- OP02: Language Selection (Separate Audio) -->
+  <!-- OP02: Language Selection -->
   <GetDigits timeout="10" finishOnKey="#" callbackUrl="/voice-menu">
     ${playback || promptSay}
   </GetDigits>
@@ -418,28 +426,37 @@ export function useCallSession() {
         setSession((s) => ({ ...s, callDurationSec: s.callDurationSec + 1 }));
       }, 1000);
 
-      if (preferredLang) {
-        goToStep("service", { language: preferredLang, activePromptId: "OP07" });
-      } else {
-        // Rule 1: Play OP01 (Welcome) first, then OP02 (Language Selection) separately
-        goToStep("welcome", { language: null, activePromptId: "OP01" });
-        // Automatically transition to OP02 language options once welcome intro is queued
-        setTimeout(() => {
-          setSession((curr) => {
-            if (curr.isActive && curr.step === "welcome") {
-              return {
-                ...curr,
-                step: "language_select",
-                activePromptId: "OP02",
-                activePromptTitle: "2. Language Selection",
-                currentAudioUrl: promptUrl("language_selection", "twi"),
-              };
-            }
-            return curr;
-          });
-        }, 1200);
-      }
-      addLog(`Call initiated to +233 30 804 8098 (OP01 Welcome queued)`);
+      // Rule: Play OP01 (Welcome) first, then OP01B (Service Description), then OP07 (Service Selection)
+      goToStep("welcome", { language: preferredLang || "twi", activePromptId: "OP01" });
+      setTimeout(() => {
+        setSession((curr) => {
+          if (curr.isActive && curr.step === "welcome") {
+            return {
+              ...curr,
+              step: "service_description",
+              activePromptId: "OP01B",
+              activePromptTitle: "2. System Description",
+              currentAudioUrl: promptUrl("service_description", "twi"),
+            };
+          }
+          return curr;
+        });
+      }, 1500);
+      setTimeout(() => {
+        setSession((curr) => {
+          if (curr.isActive && (curr.step === "welcome" || curr.step === "service_description")) {
+            return {
+              ...curr,
+              step: "service",
+              activePromptId: "OP07",
+              activePromptTitle: "3. Service Selection",
+              currentAudioUrl: promptUrl("service_select", "twi"),
+            };
+          }
+          return curr;
+        });
+      }, 3500);
+      addLog(`Call initiated to +233 30 804 8098 (OP01 Welcome & System Description queued)`);
     },
     [addLog, goToStep]
   );
@@ -490,24 +507,14 @@ export function useCallSession() {
           return { ...prev };
         }
 
-        // Welcome / Language Selection (OP01 / OP02)
-        if (prev.step === "welcome" || prev.step === "language_select") {
-          if (digit === "1") {
-            setTimeout(() => goToStep("service", { language: "en", activePromptId: "OP07" }), 80);
-          } else if (digit === "2") {
-            setTimeout(() => goToStep("service", { language: "twi", activePromptId: "OP07" }), 80);
-          } else if (digit === "0") {
-            setTimeout(() => endCall("CANCELLED"), 50);
-          }
-          return { ...prev, digitsBuffer: "", validationError: null };
-        }
-
-        // Service step (OP07): 1 = MoMo, 2 = Banking
-        if (prev.step === "service") {
+        // Welcome / Service Description / Service Selection
+        if (prev.step === "welcome" || prev.step === "service_description" || prev.step === "language_select" || prev.step === "service") {
           if (digit === "1") {
             setTimeout(() => goToStep("provider", { service: "momo", activePromptId: "OP08" }), 80);
           } else if (digit === "2") {
             setTimeout(() => goToStep("provider", { service: "banking", activePromptId: "OP08" }), 80);
+          } else if (digit === "0") {
+            setTimeout(() => endCall("CANCELLED"), 50);
           }
           return { ...prev, digitsBuffer: "", validationError: null };
         }

@@ -299,6 +299,39 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       ],
     });
 
+    // Record authoritative conversation turn in call session
+    const assistantReplyText = brainOutput.reply.text || result.dialogue?.response || "";
+    callSessionRepository.addTurn(sessionKey, {
+      id: `turn_${Date.now()}`,
+      turnNumber: storedSession.conversationTurns.length + 1,
+      timestamp: new Date().toLocaleTimeString(),
+      callerInput: effectiveInput,
+      callerChannel: channel || "SIMULATOR",
+      asrProvider: req.body.asrProvider || (channel === "VOICE" ? "ASR_ORCHESTRATOR" : undefined),
+      asrConfidence: typeof result.confidence === "number" ? result.confidence : undefined,
+      asrLatencyMs: typeof req.body.asrLatencyMs === "number" ? req.body.asrLatencyMs : undefined,
+      intent: result.intent,
+      entitiesExtracted: result.entities,
+      assistantResponse: assistantReplyText,
+      step: targetStep,
+      status: "SUCCESS",
+      rawAsrText: req.body.rawAsrText || effectiveInput,
+    });
+
+    // Record turn API trace in call session
+    callSessionRepository.addApiTrace(sessionKey, {
+      id: `turn_api_${Date.now()}`,
+      timestamp: new Date().toLocaleTimeString(),
+      endpoint: "/api/ai/simulator/turn",
+      method: "POST",
+      provider: "CANONICAL_BRAIN",
+      latencyMs: 120,
+      httpStatus: 200,
+      requestSummary: `Input: "${effectiveInput.slice(0, 45)}" [${channel || "SIMULATOR"}]`,
+      responseSummary: `Intent: ${result.intent}, Next Step: ${targetStep}`,
+      status: "SUCCESS",
+    });
+
     // Mask phone numbers and amounts in logged objects
     const draftSlots = (brainOutput.updatedDraft?.slots || {}) as any;
     const rawRecipientPhone = draftSlots.recipient?.phone || draftSlots.recipientPhone || "";
@@ -842,7 +875,7 @@ aiRouter.post("/api/ai/simulator/complete-transfer", publicApiRateLimiter, async
     // Determine audio match or dynamic TTS
     const studioSuccessAudio = lang === "twi"
       ? "/audio/Twi/8.Success%20%26%20Completion/SUCCESS.aac"
-      : "/audio/Success.m4a";
+      : "/audio/Success.mp3";
 
     res.json({
       success: true,
@@ -884,8 +917,9 @@ aiRouter.post("/api/ai/analyze", publicApiRateLimiter, async (req: Request, res:
 });
 
 aiRouter.post("/api/ai/transcribe", publicApiRateLimiter, async (req: Request, res: Response) => {
+  const startTs = performance.now();
   try {
-    const { audioBase64, mimeType, language, step, hintText } = req.body;
+    const { audioBase64, mimeType, language, step, hintText, sessionId } = req.body;
     if (!audioBase64) {
       return res.status(400).json({ error: "Missing 'audioBase64' payload." });
     }
@@ -896,8 +930,60 @@ aiRouter.post("/api/ai/transcribe", publicApiRateLimiter, async (req: Request, r
       step: hintText || step || "",
       skipEchoFiltering: true,
     });
+    const latencyMs = Math.round(performance.now() - startTs);
+
+    if (sessionId) {
+      callSessionRepository.addApiTrace(sessionId, {
+        id: `asr_${Date.now()}`,
+        timestamp: new Date().toLocaleTimeString(),
+        endpoint: "/api/ai/transcribe",
+        method: "POST",
+        provider: result.provider || "ASR_ORCHESTRATOR",
+        latencyMs,
+        httpStatus: 200,
+        requestSummary: `Audio (${mimeType || "audio/wav"}) [${language || "bilingual"}]`,
+        responseSummary: `Transcript: "${(result.text || "").slice(0, 45)}" (Confidence: ${result.confidence ?? "N/A"})`,
+        status: "SUCCESS",
+      });
+      if (result.fallbackUsed) {
+        callSessionRepository.addDiagnostic(sessionId, {
+          id: `diag_fallback_${Date.now()}`,
+          timestamp: new Date().toLocaleTimeString(),
+          type: result.quotaExhausted ? "ERROR" : "WARN",
+          message: result.quotaExhausted
+            ? (result.errorMessage || "ASR token has been maxed out across all providers. Caller advised to try again another time.")
+            : `ASR primary provider failed; fell back to ${result.provider}. Reason: ${result.fallbackReason || "Primary timeout or error"}`,
+        });
+      }
+    }
+
+    if (result.quotaExhausted) {
+      return res.status(429).json({
+        success: false,
+        quotaExhausted: true,
+        error: result.errorMessage || "ASR token has been maxed out. Please try again another time.",
+        result,
+      });
+    }
+
     res.json({ success: true, result });
   } catch (err: any) {
+    const latencyMs = Math.round(performance.now() - startTs);
+    if (req.body?.sessionId) {
+      callSessionRepository.addApiTrace(req.body.sessionId, {
+        id: `asr_err_${Date.now()}`,
+        timestamp: new Date().toLocaleTimeString(),
+        endpoint: "/api/ai/transcribe",
+        method: "POST",
+        provider: "ASR_ORCHESTRATOR",
+        latencyMs,
+        httpStatus: 500,
+        requestSummary: `Audio upload failed`,
+        responseSummary: err.message || "Failed to transcribe",
+        status: "ERROR",
+        errorMessage: err.message,
+      });
+    }
     res.status(500).json({ error: err.message || "Failed to transcribe audio" });
   }
 });
@@ -1101,25 +1187,64 @@ aiRouter.post("/api/ai/dialogue/turn", publicApiRateLimiter, async (req: Request
 });
 
 aiRouter.post("/api/ai/synthesize", publicApiRateLimiter, async (req: Request, res: Response) => {
+  const startTs = performance.now();
   try {
-    const { text, language, style } = req.body;
-    if (!text) {
-      return res.status(400).json({ error: "Missing 'text' to synthesize." });
+    const { text, language, sessionId } = req.body || {};
+    const rawText = String(text || "").trim();
+    if (!rawText) {
+      return res.status(400).json({ success: false, error: "Text is required for speech synthesis." });
     }
-    const result = await aiSystem.synthesizeSpeech(text, language || "en", style);
-    const audioBase64 = result?.audioBuffer
-      ? (result.audioBuffer as Buffer).toString("base64")
-      : (result as any)?.audioBase64 || null;
+    const isTwi = language === "twi" || language === "tw" || language === "ak" || language === "twi-asante";
+    const synthResult = await ttsRouter.synthesize({
+      text: rawText,
+      language: isTwi ? "tw" : "en",
+    });
+
+    const latencyMs = Math.round(performance.now() - startTs);
+    const base64 = synthResult.audioBuffer ? synthResult.audioBuffer.toString("base64") : null;
+
+    if (sessionId) {
+      callSessionRepository.addApiTrace(sessionId, {
+        id: `tts_${Date.now()}`,
+        timestamp: new Date().toLocaleTimeString(),
+        endpoint: "/api/ai/synthesize",
+        method: "POST",
+        provider: synthResult.providerUsed || "TTS_ROUTER",
+        latencyMs,
+        httpStatus: 200,
+        requestSummary: `Text (${rawText.length} chars) [${isTwi ? "tw" : "en"}]: "${rawText.slice(0, 45)}"`,
+        responseSummary: `Provider: ${synthResult.providerUsed}, Audio size: ${synthResult.audioBuffer?.length || 0} bytes`,
+        status: "SUCCESS",
+      });
+    }
+
     res.json({
       success: true,
       result: {
-        ...result,
-        audioBase64,
-        audioMimeType: result?.audioMimeType || "audio/wav",
+        audioBase64: base64,
+        audioMimeType: synthResult.audioMimeType || "audio/wav",
+        providerUsed: synthResult.providerUsed,
+        durationEstimateSec: synthResult.durationEstimateSec,
       },
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message || "Failed to synthesize speech" });
+    const latencyMs = Math.round(performance.now() - startTs);
+    if (req.body?.sessionId) {
+      callSessionRepository.addApiTrace(req.body.sessionId, {
+        id: `tts_err_${Date.now()}`,
+        timestamp: new Date().toLocaleTimeString(),
+        endpoint: "/api/ai/synthesize",
+        method: "POST",
+        provider: "TTS_ROUTER",
+        latencyMs,
+        httpStatus: 500,
+        requestSummary: `Text: "${String(req.body?.text || '').slice(0, 40)}"`,
+        responseSummary: err.message || "Failed to synthesize",
+        status: "ERROR",
+        errorMessage: err.message,
+      });
+    }
+    res.status(500).json({ success: false, error: err.message || "Failed to synthesize speech." });
   }
 });
 
@@ -1780,31 +1905,3 @@ aiRouter.post("/api/ai/brain/telemetry/reset", (_req: Request, res: Response) =>
   });
 });
 
-// ── Dynamic TTS Synthesis Endpoint ────────────────────────────────────
-aiRouter.post("/api/ai/synthesize", publicApiRateLimiter, async (req: Request, res: Response) => {
-  try {
-    const { text, language } = req.body || {};
-    const rawText = String(text || "").trim();
-    if (!rawText) {
-      return res.status(400).json({ success: false, error: "Text is required for speech synthesis." });
-    }
-    const isTwi = language === "twi" || language === "tw" || language === "ak" || language === "twi-asante";
-    const synthResult = await ttsRouter.synthesize({
-      text: rawText,
-      language: isTwi ? "tw" : "en",
-    });
-
-    const base64 = synthResult.audioBuffer ? synthResult.audioBuffer.toString("base64") : null;
-    res.json({
-      success: true,
-      result: {
-        audioBase64: base64,
-        audioMimeType: synthResult.audioMimeType || "audio/wav",
-        providerUsed: synthResult.providerUsed,
-        durationEstimateSec: synthResult.durationEstimateSec,
-      },
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message || "Failed to synthesize speech." });
-  }
-});

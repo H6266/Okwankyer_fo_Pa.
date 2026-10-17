@@ -309,19 +309,19 @@ export class AudioPlaybackController {
       const lower = cleanText.toLowerCase();
       let fallbackStudioUrl: string | null = null;
       if (lower.includes("sika") && (lower.includes("dodow") || lower.includes("amount") || lower.includes("cedis") || lower.includes("bɔ"))) {
-        fallbackStudioUrl = "/audio/supplied/Twi/4.Amount Entry & Verification/Enter amount 4.m4a";
+        fallbackStudioUrl = "/audio/supplied/Twi/4.Amount Entry & Verification/Enter amount 4.mp3";
       } else if (lower.includes("nɔmba") || lower.includes("fon") || lower.includes("recipient") || lower.includes("phone")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a";
+        fallbackStudioUrl = "/audio/supplied/Twi/3.Recipient Entry & Verification/Enter recipient 2.mp3";
       } else if (lower.includes("pene") || lower.includes("confirm") || lower.includes("approval") || lower.includes("review") || lower.includes("aane")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/5.Transaction Confirmation/Review transaction.m4a";
+        fallbackStudioUrl = "/audio/supplied/Twi/5.Transaction Confirmation/Review transaction.mp3";
       } else if (lower.includes("pin") || lower.includes("handoff") || lower.includes("ahobammɔ")) {
-        fallbackStudioUrl = "/audio/Pin Handoff.m4a";
+        fallbackStudioUrl = "/audio/Pin Handoff.mp3";
       } else if (lower.includes("balance") || lower.includes("star") || lower.includes("170")) {
         fallbackStudioUrl = "/audio/supplied/Twi/13.Balance  Unsupported Services/Balance unavailable.aac";
       } else if (lower.includes("mane") || lower.includes("send")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/Send money selected.m4a";
+        fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/Send money selected.mp3";
       } else if (lower.includes("paw") || lower.includes("menyu") || lower.includes("menu")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/MTN menu 1.m4a";
+        fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/MTN menu 1.mp3";
       } else if (lower.includes("twa") || lower.includes("cancel") || lower.includes("dabi")) {
         fallbackStudioUrl = "/audio/supplied/Twi/11.Navigation & Recovery/Cancel.aac";
       } else if (lower.includes("wie") || lower.includes("success") || lower.includes("medaase") || lower.includes("nante yie")) {
@@ -341,36 +341,17 @@ export class AudioPlaybackController {
       }
     }
 
-    // 3. Dynamic Neural Speech Synthesis via backend pipeline for authentic voice
-    try {
-      const isTwi = /[ɛɔ]|sika|mane|akwaaba|dabi|aane|paw|sidi|nɔmba|yɛsrɛ|nte|frɛ/i.test(cleanText);
-      const res = await fetch("/api/ai/synthesize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: cleanText, language: isTwi ? "twi" : "en" }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const base64 = data?.result?.audioBase64 || (data?.result?.audioBuffer?.data
-          ? btoa(String.fromCharCode(...new Uint8Array(data.result.audioBuffer.data)))
-          : null);
-        const mimeType = data?.result?.audioMimeType || "audio/wav";
-        if (base64) {
-          const dataUrl = `data:${mimeType};base64,${base64}`;
-          return this.play(dataUrl, {
-            ...options,
-            onStart: () => {
-              this.setState({ activeText: cleanText });
-              options?.onStart?.();
-            },
-            onEnd: options?.onEnd,
-            onError: options?.onError,
-          });
-        }
-      }
-    } catch (synthErr) {
-      console.warn("[AudioController] Speech synthesis fallback notice:", synthErr);
-    }
+    // 3. Pre-recorded Processing audio fallback (No TTS API dependency)
+    const processingUrl = "/audio/Processing.mp3";
+    return this.play(processingUrl, {
+      ...options,
+      onStart: () => {
+        this.setState({ activeText: cleanText });
+        options?.onStart?.();
+      },
+      onEnd: options?.onEnd,
+      onError: options?.onError,
+    });
 
     // 4. Acoustic guidance tone indicator as clear fail-safe (Zero robotic SpeechSynthesis interference)
     if (typeof window !== "undefined" && "speechSynthesis" in window) {

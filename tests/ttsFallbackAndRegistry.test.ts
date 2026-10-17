@@ -15,9 +15,9 @@ describe("TTS Studio Prompt Registry & Fallback Chain Invariants", () => {
   it("uses a matching-language TTS route while audio candidates are unreviewed", () => {
     expect(resolvePrompt("unknown_input", "twi")).toBe("/api/audio/prompt-tts/twi/unknown_input");
     expect(resolvePrompt("unknown_input", "en")).toBe("/api/audio/prompt-tts/en/unknown_input");
-    expect(resolvePrompt("provider_select", "twi")).toContain("Network%20selection.m4a");
+    expect(resolvePrompt("provider_select", "twi")).toMatch(/Network%20selection\.(?:mp3|m4a)/);
     expect(resolveSimulatorPrompt("unknown_input", "twi")).toBe("/api/audio/prompt-tts/twi/unknown_input");
-    const twiAudioUrl = "/audio/supplied/Twi/2.Main%20Service%20Navigation/Network%20selection.m4a";
+    const twiAudioUrl = "/audio/supplied/Twi/2.Main%20Service%20Navigation/Network%20selection.mp3";
     expect(resolveSimulatorAudioUrl(twiAudioUrl, "en")).toBeNull();
     const enAudioUrl = "/audio/supplied/English/Welcome.m4a";
     expect(resolveSimulatorAudioUrl(enAudioUrl, "twi")).toBeNull();

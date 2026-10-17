@@ -139,7 +139,7 @@ export async function startPiperWorker(customPort?: number): Promise<http.Server
 
   return new Promise((resolve) => {
     const server = http.createServer(async (req, res) => {
-      const parsedUrl = url.parse(req.url || "/", true);
+      const parsedUrl = new URL(req.url || "/", `http://${req.headers.host || "127.0.0.1"}`);
       const pathname = parsedUrl.pathname || "/";
       const method = (req.method || "GET").toUpperCase();
 

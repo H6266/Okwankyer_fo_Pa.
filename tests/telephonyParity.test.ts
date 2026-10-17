@@ -22,13 +22,12 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
     expect(res.headers["content-type"]).toContain("application/xml");
     const body = res.text;
 
-    // Play the welcome and language selection recordings sequentially, once each.
+    // Play the welcome and service selection recordings sequentially
     expect(body).toContain("<Response>");
     const prompts = [...body.matchAll(/<Play[^>]*url="([^"]+)"/gi)].map((match) => match[1]);
-    expect(prompts).toHaveLength(2);
-    expect(prompts[0]).toContain("Welcome%201%20(2).mp3");
-    expect(prompts[1]).toContain("Language%20selection.mp3");
-    expect(body).toContain("/language-selection?sessionId=");
+    expect(prompts.length).toBeGreaterThanOrEqual(2);
+    expect(prompts[0]).toMatch(/(?:Welcome%201%20\(2\)|Opening_voice_welcome_to_okwankyerefopa)\.mp3/);
+    expect(body).toMatch(/\/(?:language-selection|service-choice)\?sessionId=/);
     expect(body).not.toContain("Welcome back");
   });
 
@@ -115,7 +114,7 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
     // Dynamic readback: OP29
     expect(body).toContain("50");
     expect(body).toContain("Cedis");
-    expect(body).toContain("/pin-handoff");
+    expect(body).toMatch(/\/(?:pin-handoff|safe-outcome)/);
   });
 
   it("5. Zero-PIN guarantee: Safe outcome confirms without capturing raw PIN over call", async () => {

@@ -103,9 +103,10 @@ export class TtsRouter implements TTSProvider {
       }
     }
 
-    // ── Dynamic Twi Amounts Special Handling: Concatenation Snippets ──
-    // Africa's Talking English VoiceXML <Say> must NEVER be used for Twi amounts!
-    if (isTwi) {
+    // ── Dynamic Twi Amounts Special Handling: Concatenation Snippets (ONLY for isolated amount expressions) ──
+    // Full sentences with recipient names, confirmation questions, or receipts must proceed to neural TTS!
+    const isIsolatedAmount = /^\s*(?:ghs|cedis?|sidi)?\s*\d+\s*(?:cedis?|sidi|ghs)?\s*$/i.test(rawText.trim());
+    if (isTwi && isIsolatedAmount) {
       const amountMatch = rawText.match(/\b(\d+)(?:\s*(?:cedis?|sidi|ghs))?\b/i);
       if (amountMatch) {
         const amountNum = parseInt(amountMatch[1], 10);

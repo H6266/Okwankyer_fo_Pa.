@@ -54,8 +54,8 @@ describe("AudioPlaybackController & Phone Simulator Audio Gating", () => {
     expect(audioPlaybackController.isSpeaking()).toBe(false);
   });
 
-  it("keeps AAC recordings on their real format instead of relabeling them as MP3", () => {
-    expect(resolveSafePlayableUrl("/audio/sample.m4a")).toBe("/audio/sample.m4a");
+  it("maps audio recordings to universally compatible .mp3 format", () => {
+    expect(resolveSafePlayableUrl("/audio/sample.m4a")).toBe("/audio/sample.mp3");
   });
 
   it("reports a failed sequence instead of marking it as played", async () => {

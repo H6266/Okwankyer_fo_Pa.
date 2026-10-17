@@ -1,12 +1,11 @@
-import promptManifest from "../../Audio_files/prompts.json";
-import canonicalManifestData from "../../Audio_files/TWI_AUDIO_LINK_MANIFEST.json";
 import audioTranscripts from "../../audio_transcripts.json";
+import { CANONICAL_IVR_CATEGORIES } from "./twiSequentialAudioFlow";
 
 export type RecordingLanguage = "en" | "twi" | "unresolved";
 export type AudioAssetRoot = "supplied" | "public" | "additional";
 export type RecordingRole = "fixed" | "dynamic" | "alternative" | "unmapped";
 
-interface PromptManifestEntry {
+export interface PromptManifestEntry {
   id: string;
   category: string;
   state: string;
@@ -21,24 +20,6 @@ interface PromptManifestEntry {
   };
   mappingStatus?: string;
   usePolicy?: string;
-}
-
-interface PromptManifest {
-  prompts: PromptManifestEntry[];
-}
-
-interface CanonicalManifestPrompt {
-  promptId: string;
-  state: string;
-  englishScript?: string;
-  twiWorkingScript?: string;
-  type?: string;
-  mappingStatus?: string;
-  usePolicy?: string;
-}
-
-interface CanonicalManifest {
-  canonicalPrompts?: CanonicalManifestPrompt[];
 }
 
 export interface AudioRecording {
@@ -59,104 +40,111 @@ export interface AudioRecording {
   mappingStatus: string;
 }
 
-const manifest = promptManifest as PromptManifest;
-const canonicalManifest = canonicalManifestData as unknown as CanonicalManifest;
-const transcriptLookup = audioTranscripts as Record<string, { verbatim?: string; language?: string; step?: string; options?: unknown }>;
+const transcriptLookup: Record<string, { verbatim?: string; language?: string; step?: string; options?: unknown }> = {
+  ...(audioTranscripts as Record<string, { verbatim?: string; language?: string; step?: string; options?: unknown }>),
+};
 
-const canonicalPromptEntries: PromptManifestEntry[] = (canonicalManifest?.canonicalPrompts ?? []).map((prompt) => ({
-  id: prompt.promptId,
-  category: prompt.state,
-  state: prompt.state,
-  type: prompt.type || "FIXED",
-  english: prompt.englishScript || "",
-  twi: prompt.twiWorkingScript || "",
-  audio: {
-    english: null,
-    twi: null,
-    english_other_takes: [],
-    twi_other_takes: [],
-  },
-  mappingStatus: prompt.mappingStatus || "MISSING_OR_UNVERIFIED",
-  usePolicy: prompt.usePolicy || "",
-}));
-
-const mergedPromptEntries = [...canonicalPromptEntries, ...(manifest.prompts ?? [])];
-const promptManifestLookup = new Map<string, PromptManifestEntry>();
-for (const prompt of mergedPromptEntries) {
-  const existing = promptManifestLookup.get(prompt.id);
-  if (!existing) {
-    promptManifestLookup.set(prompt.id, prompt);
-    continue;
+// Enrich transcript lookup with local transcriped_twi_audio_library.txt entries
+try {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const localTranscriptPath = path.resolve(process.cwd(), "Audio_files", "Twi_library", "transcriped_twi_audio_library.txt");
+  if (fs.existsSync(localTranscriptPath)) {
+    const rawContent = fs.readFileSync(localTranscriptPath, "utf8");
+    for (const line of rawContent.split("\n")) {
+      const match = line.match(/^\s*([^:\r\n]+?)\s*:\s*["'](.*?)["'],?\s*$/);
+      if (match) {
+        const key = match[1].trim();
+        const text = match[2].trim();
+        const base = key.replace(/\.(m4a|mp3|aac|wav|pm3)$/i, "").toLowerCase();
+        transcriptLookup[key] = { verbatim: text, language: "twi" };
+        transcriptLookup[`audio/${key}`] = { verbatim: text, language: "twi" };
+        transcriptLookup[`audio/supplied/${key}`] = { verbatim: text, language: "twi" };
+        transcriptLookup[`audio/Twi_library/${key}`] = { verbatim: text, language: "twi" };
+        transcriptLookup[base] = { verbatim: text, language: "twi" };
+      }
+    }
   }
-  promptManifestLookup.set(prompt.id, {
-    ...existing,
-    ...prompt,
-    english: prompt.english || existing.english || "",
-    twi: prompt.twi || existing.twi || "",
-    audio: {
-      english: prompt.audio?.english ?? existing.audio?.english ?? null,
-      twi: prompt.audio?.twi ?? existing.audio?.twi ?? null,
-      english_other_takes: prompt.audio?.english_other_takes?.length ? prompt.audio.english_other_takes : existing.audio?.english_other_takes ?? [],
-      twi_other_takes: prompt.audio?.twi_other_takes?.length ? prompt.audio.twi_other_takes : existing.audio?.twi_other_takes ?? [],
-    },
-  });
+} catch {}
+
+// Build authoritative prompt manifest lookup directly from canonical categories (no external prompts.json needed)
+const promptManifestLookup = new Map<string, PromptManifestEntry>();
+for (const cat of CANONICAL_IVR_CATEGORIES) {
+  for (const item of cat.prompts) {
+    promptManifestLookup.set(item.promptId, {
+      id: item.promptId,
+      category: item.categoryName,
+      state: item.state,
+      type: item.isDynamic ? "DYNAMIC" : "FIXED",
+      english: item.spokenTextEn || "",
+      twi: item.spokenTextTwi || "",
+      audio: {
+        english: null,
+        twi: item.audioUrl || null,
+        english_other_takes: [],
+        twi_other_takes: item.fallbackAudioUrl ? [item.fallbackAudioUrl] : [],
+      },
+      mappingStatus: "VERIFIED",
+      usePolicy: "CANONICAL",
+    });
+  }
 }
 
 const suppliedRecordingPaths = [
   // 1. Welcome & Session Start
-  "Twi/1.Welcome & Session Start/Welcome 1 (2).m4a",
-  "Twi/1.Welcome & Session Start/Language selection.m4a",
-  "Twi/1.Welcome & Session Start/Greetings 2.m4a",
-  "Twi/1.Welcome & Session Start/Welcome back.m4a",
-  "Twi/1.Welcome & Session Start/Acknowledge.m4a",
-  "Twi/1.Welcome & Session Start/Processing.m4a",
+  "Twi/1.Welcome & Session Start/Welcome 1 (2).mp3",
+  "Twi/1.Welcome & Session Start/Language selection.mp3",
+  "Twi/1.Welcome & Session Start/Greetings 2.mp3",
+  "Twi/1.Welcome & Session Start/Welcome back.mp3",
+  "Twi/1.Welcome & Session Start/Acknowledge.mp3",
+  "Twi/1.Welcome & Session Start/Processing.mp3",
 
   // 2. Main Service Navigation
-  "Twi/2.Main Service Navigation/Service selection.m4a",
-  "Twi/2.Main Service Navigation/Service selection 2.m4a",
-  "Twi/2.Main Service Navigation/Service selection 2 (2).m4a",
-  "Twi/2.Main Service Navigation/Network selection.m4a",
-  "Twi/2.Main Service Navigation/Network selection 2.m4a",
-  "Twi/2.Main Service Navigation/MTN menu.m4a",
-  "Twi/2.Main Service Navigation/MTN menu 1.m4a",
-  "Twi/2.Main Service Navigation/Send money selected.m4a",
-  "Twi/2.Main Service Navigation/Service unavailable.m4a",
-  "Twi/2.Main Service Navigation/Service unavailable 1.m4a",
-  "Twi/2.Main Service Navigation/Main service Unavailable.m4a",
-  "Twi/2.Main Service Navigation/Service alternative.m4a",
-  "Twi/2.Main Service Navigation/Service not ready.m4a",
-  "Twi/2.Main Service Navigation/Try another service.m4a",
-  "Twi/2.Main Service Navigation/Choose instead.m4a",
-  "Twi/service_description.m4a",
+  "Twi/2.Main Service Navigation/Service selection.mp3",
+  "Twi/2.Main Service Navigation/Service selection 2.mp3",
+  "Twi/2.Main Service Navigation/Service selection 2 (2).mp3",
+  "Twi/2.Main Service Navigation/Network selection.mp3",
+  "Twi/2.Main Service Navigation/Network selection 2.mp3",
+  "Twi/2.Main Service Navigation/MTN menu.mp3",
+  "Twi/2.Main Service Navigation/MTN menu 1.mp3",
+  "Twi/2.Main Service Navigation/Send money selected.mp3",
+  "Twi/2.Main Service Navigation/Service unavailable.mp3",
+  "Twi/2.Main Service Navigation/Service unavailable 1.mp3",
+  "Twi/2.Main Service Navigation/Main service Unavailable.mp3",
+  "Twi/2.Main Service Navigation/Service alternative.mp3",
+  "Twi/2.Main Service Navigation/Service not ready.mp3",
+  "Twi/2.Main Service Navigation/Try another service.mp3",
+  "Twi/2.Main Service Navigation/Choose instead.mp3",
+  "Twi/service_description.mp3",
 
   // 3. Recipient Entry & Verification
-  "Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a",
-  "Twi/3.Recipient Entry & Verification/Invalid recipient 1.m4a",
-  "Twi/3.Recipient Entry & Verification/Recipient found.m4a",
-  "Twi/3.Recipient Entry & Verification/Recipient verify.m4a",
-  "Twi/3.Recipient Entry & Verification/Recipient confirm speech.m4a",
-  "Twi/3.Recipient Entry & Verification/Use recipient 1.m4a",
-  "Twi/3.Recipient Entry & Verification/Change recipient.m4a",
+  "Twi/3.Recipient Entry & Verification/Enter recipient 2.mp3",
+  "Twi/3.Recipient Entry & Verification/Invalid recipient 1.mp3",
+  "Twi/3.Recipient Entry & Verification/Recipient found.mp3",
+  "Twi/3.Recipient Entry & Verification/Recipient verify.mp3",
+  "Twi/3.Recipient Entry & Verification/Recipient confirm speech.mp3",
+  "Twi/3.Recipient Entry & Verification/Use recipient 1.mp3",
+  "Twi/3.Recipient Entry & Verification/Change recipient.mp3",
 
   // 4. Amount Entry & Verification
-  "Twi/4.Amount Entry & Verification/Enter amount 4.m4a",
-  "Twi/4.Amount Entry & Verification/Invalid amount.m4a",
-  "Twi/4.Amount Entry & Verification/Amount prompt.m4a",
-  "Twi/4.Amount Entry & Verification/Amount readback 2.m4a",
-  "Twi/4.Amount Entry & Verification/Repeat amount.m4a",
-  "Twi/4.Amount Entry & Verification/Amount too high 3.m4a",
-  "Twi/4.Amount Entry & Verification/Amount too low.m4a",
-  "Twi/4.Amount Entry & Verification/Change amount 2.m4a",
+  "Twi/4.Amount Entry & Verification/Enter amount 4.mp3",
+  "Twi/4.Amount Entry & Verification/Invalid amount.mp3",
+  "Twi/4.Amount Entry & Verification/Amount prompt.mp3",
+  "Twi/4.Amount Entry & Verification/Amount readback 2.mp3",
+  "Twi/4.Amount Entry & Verification/Repeat amount.mp3",
+  "Twi/4.Amount Entry & Verification/Amount too high 3.mp3",
+  "Twi/4.Amount Entry & Verification/Amount too low.mp3",
+  "Twi/4.Amount Entry & Verification/Change amount 2.mp3",
 
   // 5. Transaction Confirmation
-  "Twi/5.Transaction Confirmation/Confirmation intro.m4a",
-  "Twi/5.Transaction Confirmation/Review transaction.m4a",
-  "Twi/5.Transaction Confirmation/Confirm continue.m4a",
-  "Twi/5.Transaction Confirmation/Confirm continue 1.m4a",
-  "Twi/5.Transaction Confirmation/Confirm speech.m4a",
-  "Twi/5.Transaction Confirmation/Reject speech.m4a",
-  "Twi/5.Transaction Confirmation/Ready submit.m4a",
-  "Twi/5.Transaction Confirmation/Ready submit 2.m4a",
+  "Twi/5.Transaction Confirmation/Confirmation intro.mp3",
+  "Twi/5.Transaction Confirmation/Review transaction.mp3",
+  "Twi/5.Transaction Confirmation/Confirm continue.mp3",
+  "Twi/5.Transaction Confirmation/Confirm continue 1.mp3",
+  "Twi/5.Transaction Confirmation/Confirm speech.mp3",
+  "Twi/5.Transaction Confirmation/Reject speech.mp3",
+  "Twi/5.Transaction Confirmation/Ready submit.mp3",
+  "Twi/5.Transaction Confirmation/Ready submit 2.mp3",
 
   // 6. PIN & Security
   "Twi/6.PIN & Security/Pin block.aac",
@@ -232,62 +220,59 @@ const suppliedRecordingPaths = [
 
 const suppliedPromptIdByPath: Readonly<Record<string, string>> = {
   // Category 1: Welcome & Session Start
-  "Twi/1.Welcome & Session Start/Welcome 1 (2).m4a": "OP01",
   "Twi/1.Welcome & Session Start/Welcome 1 (2).mp3": "OP01",
-  "Twi/1.Welcome & Session Start/Language selection.m4a": "OP02",
-  "Twi/1.Welcome & Session Start/Greetings 2.m4a": "OP03",
-  "Twi/1.Welcome & Session Start/Welcome back.m4a": "OP04",
-  "Twi/1.Welcome & Session Start/Acknowledge.m4a": "OP05",
-  "Twi/1.Welcome & Session Start/Processing.m4a": "OP06",
+  "Twi/1.Welcome & Session Start/Language selection.mp3": "OP02",
+  "Twi/1.Welcome & Session Start/Greetings 2.mp3": "OP03",
+  "Twi/1.Welcome & Session Start/Welcome back.mp3": "OP04",
+  "Twi/1.Welcome & Session Start/Acknowledge.mp3": "OP05",
+  "Twi/1.Welcome & Session Start/Processing.mp3": "OP06",
 
   // Category 2: Main Service Navigation
-  "Twi/2.Main Service Navigation/Service selection.m4a": "OP07",
-  "Twi/2.Main Service Navigation/Service selection 2.m4a": "OP07",
-  "Twi/2.Main Service Navigation/Service selection 2 (2).m4a": "OP07",
-  "Twi/2.Main Service Navigation/Network selection.m4a": "OP08",
-  "Twi/2.Main Service Navigation/Network selection 2.m4a": "OP08",
-  "Twi/2.Main Service Navigation/MTN menu.m4a": "OP09",
+  "Twi/2.Main Service Navigation/Service selection.mp3": "OP07",
+  "Twi/2.Main Service Navigation/Service selection 2.mp3": "OP07",
+  "Twi/2.Main Service Navigation/Service selection 2 (2).mp3": "OP07",
+  "Twi/2.Main Service Navigation/Network selection.mp3": "OP08",
+  "Twi/2.Main Service Navigation/Network selection 2.mp3": "OP08",
   "Twi/2.Main Service Navigation/MTN menu.mp3": "OP09",
-  "Twi/2.Main Service Navigation/MTN menu 1.m4a": "OP09",
   "Twi/2.Main Service Navigation/MTN menu 1.mp3": "OP09",
-  "Twi/2.Main Service Navigation/Send money selected.m4a": "OP10",
-  "Twi/2.Main Service Navigation/Service unavailable.m4a": "OP11",
-  "Twi/2.Main Service Navigation/Service unavailable 1.m4a": "OP11",
-  "Twi/2.Main Service Navigation/Main service Unavailable.m4a": "OP11",
-  "Twi/2.Main Service Navigation/Service alternative.m4a": "OP12",
-  "Twi/2.Main Service Navigation/Service not ready.m4a": "OP13",
-  "Twi/2.Main Service Navigation/Try another service.m4a": "OP14",
-  "Twi/2.Main Service Navigation/Choose instead.m4a": "OP15",
-  "Twi/service_description.m4a": "OP12",
+  "Twi/2.Main Service Navigation/Send money selected.mp3": "OP10",
+  "Twi/2.Main Service Navigation/Service unavailable.mp3": "OP11",
+  "Twi/2.Main Service Navigation/Service unavailable 1.mp3": "OP11",
+  "Twi/2.Main Service Navigation/Main service Unavailable.mp3": "OP11",
+  "Twi/2.Main Service Navigation/Service alternative.mp3": "OP12",
+  "Twi/2.Main Service Navigation/Service not ready.mp3": "OP13",
+  "Twi/2.Main Service Navigation/Try another service.mp3": "OP14",
+  "Twi/service_description.mp3": "OP01B",
+  "service_description.mp3": "OP01B",
 
   // Category 3: Recipient Entry & Verification
-  "Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a": "OP16",
-  "Twi/3.Recipient Entry & Verification/Invalid recipient 1.m4a": "OP17",
-  "Twi/3.Recipient Entry & Verification/Recipient found.m4a": "OP18",
-  "Twi/3.Recipient Entry & Verification/Recipient verify.m4a": "OP19",
-  "Twi/3.Recipient Entry & Verification/Recipient confirm speech.m4a": "OP23",
-  "Twi/3.Recipient Entry & Verification/Use recipient 1.m4a": "OP24",
-  "Twi/3.Recipient Entry & Verification/Change recipient.m4a": "OP25",
+  "Twi/3.Recipient Entry & Verification/Enter recipient 2.mp3": "OP16",
+  "Twi/3.Recipient Entry & Verification/Invalid recipient 1.mp3": "OP17",
+  "Twi/3.Recipient Entry & Verification/Recipient found.mp3": "OP18",
+  "Twi/3.Recipient Entry & Verification/Recipient verify.mp3": "OP19",
+  "Twi/3.Recipient Entry & Verification/Recipient confirm speech.mp3": "OP23",
+  "Twi/3.Recipient Entry & Verification/Use recipient 1.mp3": "OP24",
+  "Twi/3.Recipient Entry & Verification/Change recipient.mp3": "OP25",
 
   // Category 4: Amount Entry & Verification
-  "Twi/4.Amount Entry & Verification/Enter amount 4.m4a": "OP26",
-  "Twi/4.Amount Entry & Verification/Invalid amount.m4a": "OP27",
-  "Twi/4.Amount Entry & Verification/Amount prompt.m4a": "OP28",
-  "Twi/4.Amount Entry & Verification/Amount readback 2.m4a": "OP29",
-  "Twi/4.Amount Entry & Verification/Repeat amount.m4a": "OP30",
-  "Twi/4.Amount Entry & Verification/Amount too high 3.m4a": "OP31",
-  "Twi/4.Amount Entry & Verification/Amount too low.m4a": "OP32",
-  "Twi/4.Amount Entry & Verification/Change amount 2.m4a": "OP33",
+  "Twi/4.Amount Entry & Verification/Enter amount 4.mp3": "OP26",
+  "Twi/4.Amount Entry & Verification/Invalid amount.mp3": "OP27",
+  "Twi/4.Amount Entry & Verification/Amount prompt.mp3": "OP28",
+  "Twi/4.Amount Entry & Verification/Amount readback 2.mp3": "OP29",
+  "Twi/4.Amount Entry & Verification/Repeat amount.mp3": "OP30",
+  "Twi/4.Amount Entry & Verification/Amount too high 3.mp3": "OP31",
+  "Twi/4.Amount Entry & Verification/Amount too low.mp3": "OP32",
+  "Twi/4.Amount Entry & Verification/Change amount 2.mp3": "OP33",
 
   // Category 5: Transaction Confirmation
-  "Twi/5.Transaction Confirmation/Confirmation intro.m4a": "OP34",
-  "Twi/5.Transaction Confirmation/Review transaction.m4a": "OP35",
-  "Twi/5.Transaction Confirmation/Confirm continue.m4a": "OP36",
-  "Twi/5.Transaction Confirmation/Confirm continue 1.m4a": "OP36",
-  "Twi/5.Transaction Confirmation/Confirm speech.m4a": "OP37",
-  "Twi/5.Transaction Confirmation/Reject speech.m4a": "OP38",
-  "Twi/5.Transaction Confirmation/Ready submit.m4a": "OP39",
-  "Twi/5.Transaction Confirmation/Ready submit 2.m4a": "OP39",
+  "Twi/5.Transaction Confirmation/Confirmation intro.mp3": "OP34",
+  "Twi/5.Transaction Confirmation/Review transaction.mp3": "OP35",
+  "Twi/5.Transaction Confirmation/Confirm continue.mp3": "OP36",
+  "Twi/5.Transaction Confirmation/Confirm continue 1.mp3": "OP36",
+  "Twi/5.Transaction Confirmation/Confirm speech.mp3": "OP37",
+  "Twi/5.Transaction Confirmation/Reject speech.mp3": "OP38",
+  "Twi/5.Transaction Confirmation/Ready submit.mp3": "OP39",
+  "Twi/5.Transaction Confirmation/Ready submit 2.mp3": "OP39",
 
   // Category 6: PIN & Security
   "Twi/6.PIN & Security/Pin block.aac": "OP43",
@@ -362,60 +347,60 @@ const suppliedPromptIdByPath: Readonly<Record<string, string>> = {
 };
 
 const additionalUnresolvedFiles = [
-  "Another recipient.m4a",
-  "Another transaction.m4a",
-  "Anything else.m4a",
-  "Auth received.m4a",
-  "Authorize phone.m4a",
-  "Back.m4a",
-  "Balance Unavailable.m4a",
-  "Cancel.m4a",
-  "Check final status.m4a",
-  "Check messages.m4a",
-  "Check phone.m4a",
-  "Confirm understanding.m4a",
-  "Continue.m4a",
-  "Correct prompt.m4a",
-  "Customer Declined.m4a",
-  "Did not get.m4a",
-  "Exit.m4a",
-  "Failed.m4a",
-  "Failure Retry.m4a",
-  "Finish.m4a",
-  "Help command.m4a",
-  "Help.m4a",
-  "Input not recognized.m4a",
-  "Keep reference.m4a",
-  "Keypad option.m4a",
-  "Main menu.m4a",
-  "No transfer confirmed.m4a",
-  "Not understood.m4a",
-  "Pin Block.m4a",
-  "Pin Handoff.m4a",
-  "Please respond.m4a",
-  "Post success Help.m4a",
-  "Processing.m4a",
-  "Repeat Option.m4a",
-  "Repeat.m4a",
-  "Restart.m4a",
-  "Secure pin.m4a",
-  "Security warning.m4a",
-  "Sensitive Block.m4a",
-  "Session End.m4a",
-  "Session timeout.m4a",
-  "Start Again.m4a",
-  "Submitted.m4a",
-  "Success close.m4a",
-  "Success sent.m4a",
-  "Success.m4a",
-  "System Error.m4a",
-  "Take your time.m4a",
-  "Timeout.m4a",
-  "Unsupported service.m4a",
-  "Voice or keypad.m4a",
-  "Waiting confirmation.m4a",
-  "Yes -No.m4a",
-  "Yes -no- keypad.m4a",
+  "Another recipient.mp3",
+  "Another transaction.mp3",
+  "Anything else.mp3",
+  "Auth received.mp3",
+  "Authorize phone.mp3",
+  "Back.mp3",
+  "Balance Unavailable.mp3",
+  "Cancel.mp3",
+  "Check final status.mp3",
+  "Check messages.mp3",
+  "Check phone.mp3",
+  "Confirm understanding.mp3",
+  "Continue.mp3",
+  "Correct prompt.mp3",
+  "Customer Declined.mp3",
+  "Did not get.mp3",
+  "Exit.mp3",
+  "Failed.mp3",
+  "Failure Retry.mp3",
+  "Finish.mp3",
+  "Help command.mp3",
+  "Help.mp3",
+  "Input not recognized.mp3",
+  "Keep reference.mp3",
+  "Keypad option.mp3",
+  "Main menu.mp3",
+  "No transfer confirmed.mp3",
+  "Not understood.mp3",
+  "Pin Block.mp3",
+  "Pin Handoff.mp3",
+  "Please respond.mp3",
+  "Post success Help.mp3",
+  "Processing.mp3",
+  "Repeat Option.mp3",
+  "Repeat.mp3",
+  "Restart.mp3",
+  "Secure pin.mp3",
+  "Security warning.mp3",
+  "Sensitive Block.mp3",
+  "Session End.mp3",
+  "Session timeout.mp3",
+  "Start Again.mp3",
+  "Submitted.mp3",
+  "Success close.mp3",
+  "Success sent.mp3",
+  "Success.mp3",
+  "System Error.mp3",
+  "Take your time.mp3",
+  "Timeout.mp3",
+  "Unsupported service.mp3",
+  "Voice or keypad.mp3",
+  "Waiting confirmation.mp3",
+  "Yes -No.mp3",
+  "Yes -no- keypad.mp3",
 ] as const;
 
 function encodePath(path: string): string {
@@ -548,63 +533,81 @@ const publicWelcomeRecordings: AudioRecording[] = [
     recordingRole: "fixed",
     mappingStatus: "MAPPED_EXACT",
   },
+  {
+    id: "supplied:service_description.mp3",
+    promptId: "OP01B",
+    state: "SERVICE_DESCRIPTION",
+    category: "01_Welcome_Session_Start",
+    context: "01_Welcome_Session_Start:SERVICE_DESCRIPTION",
+    language: "twi",
+    title: "System Service Description",
+    spokenText: "Welcome to Okwankyerɛfo Pa, we are an accessibility layer that helps and makes services easy for everyone with inclusivity, the elderly and disabled.",
+    relativePath: "service_description.mp3",
+    assetRoot: "supplied",
+    url: "/audio/service_description.mp3",
+    mimeType: "audio/mpeg",
+    isAlternate: false,
+    recordingRole: "fixed",
+    mappingStatus: "MAPPED_EXACT",
+  },
 ];
 
 export const ADDITIONAL_FILE_TO_PROMPT_MAP: Record<string, { promptId: string; language: "twi" | "en"; state: string }> = {
-  "Cancel.m4a": { promptId: "OP76", language: "twi", state: "CANCEL" },
-  "Exit.m4a": { promptId: "OP77", language: "twi", state: "EXIT" },
-  "Pin Handoff.m4a": { promptId: "OP40", language: "twi", state: "PIN_HANDOFF" },
-  "Security warning.m4a": { promptId: "OP41", language: "twi", state: "SECURITY_WARNING" },
-  "Secure pin.m4a": { promptId: "OP42", language: "twi", state: "SECURE_PIN" },
-  "Pin Block.m4a": { promptId: "OP43", language: "twi", state: "PIN_BLOCK" },
-  "Sensitive Block.m4a": { promptId: "OP44", language: "twi", state: "SENSITIVE_BLOCK" },
-  "Submitted.m4a": { promptId: "OP45", language: "twi", state: "SUBMITTED" },
-  "Waiting confirmation.m4a": { promptId: "OP46", language: "twi", state: "WAITING_CONFIRMATION" },
-  "Check phone.m4a": { promptId: "OP47", language: "twi", state: "CHECK_PHONE" },
-  "Authorize phone.m4a": { promptId: "OP48", language: "twi", state: "AUTHORIZE_PHONE" },
-  "Auth received.m4a": { promptId: "OP49", language: "twi", state: "AUTH_RECEIVED" },
-  "Check final status.m4a": { promptId: "OP50", language: "twi", state: "CHECK_FINAL_STATUS" },
-  "Processing.m4a": { promptId: "OP51", language: "twi", state: "PROCESSING" },
-  "Success sent.m4a": { promptId: "OP53", language: "twi", state: "SUCCESS_SENT" },
-  "Success.m4a": { promptId: "OP53", language: "twi", state: "SUCCESS_SENT" },
-  "Keep reference.m4a": { promptId: "OP54", language: "twi", state: "KEEP_REFERENCE" },
-  "Success close.m4a": { promptId: "OP55", language: "twi", state: "SUCCESS_CLOSE" },
-  "Anything else.m4a": { promptId: "OP56", language: "twi", state: "ANYTHING_ELSE" },
-  "Customer Declined.m4a": { promptId: "OP57", language: "twi", state: "CUSTOMER_DECLINED" },
-  "Failed.m4a": { promptId: "OP58", language: "twi", state: "FAILED" },
-  "Timeout.m4a": { promptId: "OP59", language: "twi", state: "TIMEOUT" },
-  "Failure Retry.m4a": { promptId: "OP60", language: "twi", state: "FAILURE_RETRY" },
-  "No transfer confirmed.m4a": { promptId: "OP61", language: "twi", state: "NO_TRANSFER_CONFIRMED" },
-  "Check messages.m4a": { promptId: "OP62", language: "twi", state: "CHECK_MESSAGES" },
-  "Start Again.m4a": { promptId: "OP63", language: "twi", state: "START_AGAIN" },
-  "Not understood.m4a": { promptId: "OP64", language: "twi", state: "NOT_UNDERSTOOD" },
-  "Did not get.m4a": { promptId: "OP65", language: "twi", state: "DID_NOT_GET" },
-  "Please respond.m4a": { promptId: "OP67", language: "twi", state: "PLEASE_RESPOND" },
-  "Input not recognized.m4a": { promptId: "OP68", language: "twi", state: "INPUT_NOT_RECOGNIZED" },
-  "Repeat.m4a": { promptId: "OP69", language: "twi", state: "REPEAT" },
-  "Confirm understanding.m4a": { promptId: "OP70", language: "twi", state: "CONFIRM_UNDERSTANDING" },
-  "Correct prompt.m4a": { promptId: "OP71", language: "twi", state: "CORRECT_PROMPT" },
-  "Yes -No.m4a": { promptId: "OP72", language: "twi", state: "YES_NO" },
-  "Back.m4a": { promptId: "OP73", language: "twi", state: "BACK" },
-  "Main menu.m4a": { promptId: "OP74", language: "twi", state: "MAIN_MENU" },
-  "Restart.m4a": { promptId: "OP75", language: "twi", state: "RESTART" },
-  "Session End.m4a": { promptId: "OP78", language: "twi", state: "SESSION_END" },
-  "Continue.m4a": { promptId: "OP79", language: "twi", state: "CONTINUE" },
-  "Session timeout.m4a": { promptId: "OP80", language: "twi", state: "SESSION_TIMEOUT" },
-  "Repeat Option.m4a": { promptId: "OP81", language: "twi", state: "REPEAT_OPTIONS" },
-  "Keypad option.m4a": { promptId: "OP82", language: "twi", state: "KEYPAD_OPTION" },
-  "Voice or keypad.m4a": { promptId: "OP83", language: "twi", state: "VOICE_OR_KEYPAD" },
-  "Take your time.m4a": { promptId: "OP84", language: "twi", state: "TAKE_YOUR_TIME" },
-  "Yes -no- keypad.m4a": { promptId: "OP85", language: "twi", state: "YES_NO_KEYPAD" },
-  "Help.m4a": { promptId: "OP86", language: "twi", state: "HELP" },
-  "Help command.m4a": { promptId: "OP87", language: "twi", state: "HELP_COMMANDS" },
-  "Balance Unavailable.m4a": { promptId: "OP88", language: "twi", state: "BALANCE_UNAVAILABLE" },
-  "Unsupported service.m4a": { promptId: "OP89", language: "twi", state: "UNSUPPORTED_SERVICE" },
-  "System Error.m4a": { promptId: "OP90", language: "twi", state: "SYSTEM_ERROR" },
-  "Post success Help.m4a": { promptId: "OP91", language: "twi", state: "POST_SUCCESS_HELP" },
-  "Another transaction.m4a": { promptId: "OP92", language: "twi", state: "ANOTHER_TRANSACTION" },
-  "Another recipient.m4a": { promptId: "OP93", language: "twi", state: "ANOTHER_RECIPIENT" },
-  "Finish.m4a": { promptId: "OP94", language: "twi", state: "FINISH" },
+  "service_description.mp3": { promptId: "OP01B", language: "twi", state: "SERVICE_DESCRIPTION" },
+  "Cancel.mp3": { promptId: "OP76", language: "twi", state: "CANCEL" },
+  "Exit.mp3": { promptId: "OP77", language: "twi", state: "EXIT" },
+  "Pin Handoff.mp3": { promptId: "OP40", language: "twi", state: "PIN_HANDOFF" },
+  "Security warning.mp3": { promptId: "OP41", language: "twi", state: "SECURITY_WARNING" },
+  "Secure pin.mp3": { promptId: "OP42", language: "twi", state: "SECURE_PIN" },
+  "Pin Block.mp3": { promptId: "OP43", language: "twi", state: "PIN_BLOCK" },
+  "Sensitive Block.mp3": { promptId: "OP44", language: "twi", state: "SENSITIVE_BLOCK" },
+  "Submitted.mp3": { promptId: "OP45", language: "twi", state: "SUBMITTED" },
+  "Waiting confirmation.mp3": { promptId: "OP46", language: "twi", state: "WAITING_CONFIRMATION" },
+  "Check phone.mp3": { promptId: "OP47", language: "twi", state: "CHECK_PHONE" },
+  "Authorize phone.mp3": { promptId: "OP48", language: "twi", state: "AUTHORIZE_PHONE" },
+  "Auth received.mp3": { promptId: "OP49", language: "twi", state: "AUTH_RECEIVED" },
+  "Check final status.mp3": { promptId: "OP50", language: "twi", state: "CHECK_FINAL_STATUS" },
+  "Processing.mp3": { promptId: "OP51", language: "twi", state: "PROCESSING" },
+  "Success sent.mp3": { promptId: "OP53", language: "twi", state: "SUCCESS_SENT" },
+  "Success.mp3": { promptId: "OP53", language: "twi", state: "SUCCESS_SENT" },
+  "Keep reference.mp3": { promptId: "OP54", language: "twi", state: "KEEP_REFERENCE" },
+  "Success close.mp3": { promptId: "OP55", language: "twi", state: "SUCCESS_CLOSE" },
+  "Anything else.mp3": { promptId: "OP56", language: "twi", state: "ANYTHING_ELSE" },
+  "Customer Declined.mp3": { promptId: "OP57", language: "twi", state: "CUSTOMER_DECLINED" },
+  "Failed.mp3": { promptId: "OP58", language: "twi", state: "FAILED" },
+  "Timeout.mp3": { promptId: "OP59", language: "twi", state: "TIMEOUT" },
+  "Failure Retry.mp3": { promptId: "OP60", language: "twi", state: "FAILURE_RETRY" },
+  "No transfer confirmed.mp3": { promptId: "OP61", language: "twi", state: "NO_TRANSFER_CONFIRMED" },
+  "Check messages.mp3": { promptId: "OP62", language: "twi", state: "CHECK_MESSAGES" },
+  "Start Again.mp3": { promptId: "OP63", language: "twi", state: "START_AGAIN" },
+  "Not understood.mp3": { promptId: "OP64", language: "twi", state: "NOT_UNDERSTOOD" },
+  "Did not get.mp3": { promptId: "OP65", language: "twi", state: "DID_NOT_GET" },
+  "Please respond.mp3": { promptId: "OP67", language: "twi", state: "PLEASE_RESPOND" },
+  "Input not recognized.mp3": { promptId: "OP68", language: "twi", state: "INPUT_NOT_RECOGNIZED" },
+  "Repeat.mp3": { promptId: "OP69", language: "twi", state: "REPEAT" },
+  "Confirm understanding.mp3": { promptId: "OP70", language: "twi", state: "CONFIRM_UNDERSTANDING" },
+  "Correct prompt.mp3": { promptId: "OP71", language: "twi", state: "CORRECT_PROMPT" },
+  "Yes -No.mp3": { promptId: "OP72", language: "twi", state: "YES_NO" },
+  "Back.mp3": { promptId: "OP73", language: "twi", state: "BACK" },
+  "Main menu.mp3": { promptId: "OP74", language: "twi", state: "MAIN_MENU" },
+  "Restart.mp3": { promptId: "OP75", language: "twi", state: "RESTART" },
+  "Session End.mp3": { promptId: "OP78", language: "twi", state: "SESSION_END" },
+  "Continue.mp3": { promptId: "OP79", language: "twi", state: "CONTINUE" },
+  "Session timeout.mp3": { promptId: "OP80", language: "twi", state: "SESSION_TIMEOUT" },
+  "Repeat Option.mp3": { promptId: "OP81", language: "twi", state: "REPEAT_OPTIONS" },
+  "Keypad option.mp3": { promptId: "OP82", language: "twi", state: "KEYPAD_OPTION" },
+  "Voice or keypad.mp3": { promptId: "OP83", language: "twi", state: "VOICE_OR_KEYPAD" },
+  "Take your time.mp3": { promptId: "OP84", language: "twi", state: "TAKE_YOUR_TIME" },
+  "Yes -no- keypad.mp3": { promptId: "OP85", language: "twi", state: "YES_NO_KEYPAD" },
+  "Help.mp3": { promptId: "OP86", language: "twi", state: "HELP" },
+  "Help command.mp3": { promptId: "OP87", language: "twi", state: "HELP_COMMANDS" },
+  "Balance Unavailable.mp3": { promptId: "OP88", language: "twi", state: "BALANCE_UNAVAILABLE" },
+  "Unsupported service.mp3": { promptId: "OP89", language: "twi", state: "UNSUPPORTED_SERVICE" },
+  "System Error.mp3": { promptId: "OP90", language: "twi", state: "SYSTEM_ERROR" },
+  "Post success Help.mp3": { promptId: "OP91", language: "twi", state: "POST_SUCCESS_HELP" },
+  "Another transaction.mp3": { promptId: "OP92", language: "twi", state: "ANOTHER_TRANSACTION" },
+  "Another recipient.mp3": { promptId: "OP93", language: "twi", state: "ANOTHER_RECIPIENT" },
+  "Finish.mp3": { promptId: "OP94", language: "twi", state: "FINISH" },
 };
 
 const additionalRecordings = additionalUnresolvedFiles.map((relativePath) => {
@@ -628,6 +631,8 @@ export const AUDIO_RECORDINGS: AudioRecording[] = [
 
 export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
   welcome: "OP01",
+  service_description: "OP01B",
+  system_description: "OP01B",
   language_selection: "OP02",
   service_select: "OP07",
   supported_service_select: "OP07",
@@ -757,7 +762,7 @@ export function getRecordingByPromptKey(
   key: string,
   language: "en" | "twi" = "twi"
 ): AudioRecording | null {
-  const promptId = PROMPT_KEY_TO_RECORDING_ID[key] || (/^OP\d{2}$/i.test(key) ? key.toUpperCase() : undefined);
+  const promptId = PROMPT_KEY_TO_RECORDING_ID[key] || (/^OP\d{2}[A-Z]?$/i.test(key) ? key.toUpperCase() : undefined);
   return promptId ? getRecordingByPromptId(promptId, language) : null;
 }
 

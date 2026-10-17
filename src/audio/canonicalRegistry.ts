@@ -14,7 +14,6 @@
  *    audio endpoints, and state transitions.
  */
 
-import promptsData from "../../Audio_files/prompts.json";
 import {
   renderDynamicPromptTemplate,
   formatFullPhoneNumberForSpeech,
@@ -22,6 +21,7 @@ import {
   DynamicPromptParams,
 } from "./dynamicPromptBuilder";
 import { AUDIO_RECORDINGS } from "./recordingRegistry";
+import { CANONICAL_IVR_CATEGORIES } from "./twiSequentialAudioFlow";
 
 export type PromptType = "FIXED" | "DYNAMIC";
 export type CanonicalPromptLanguage = "en" | "twi";
@@ -55,6 +55,7 @@ export const DYNAMIC_PROMPT_IDS: ReadonlySet<string> = new Set([
 export const STATE_TO_CANONICAL_PROMPT_ID: Readonly<Record<string, string>> = {
   // Session start
   WELCOME: "OP01",
+  SERVICE_DESCRIPTION: "OP01B",
   LANGUAGE_SELECTION: "OP02",
   GREETING: "OP03",
   WELCOME_BACK: "OP04",
@@ -164,9 +165,69 @@ export const STATE_TO_CANONICAL_PROMPT_ID: Readonly<Record<string, string>> = {
   GOODBYE: "OP94",
 };
 
-const loadedPrompts: CanonicalPrompt[] = Array.isArray((promptsData as any)?.prompts)
-  ? ((promptsData as any).prompts as CanonicalPrompt[])
-  : [];
+// Build canonical prompt list directly from CANONICAL_IVR_CATEGORIES and AUDIO_RECORDINGS
+const canonicalPromptMap = new Map<string, CanonicalPrompt>();
+
+// 1. Populate all OP01-OP94 from canonical IVR categories
+for (const cat of CANONICAL_IVR_CATEGORIES) {
+  for (const item of cat.prompts) {
+    const id = item.promptId.toUpperCase().trim();
+    canonicalPromptMap.set(id, {
+      id,
+      category: item.categoryName,
+      state: item.state,
+      type: item.isDynamic || DYNAMIC_PROMPT_IDS.has(id) ? "DYNAMIC" : "FIXED",
+      english: item.spokenTextEn || "",
+      twi: item.spokenTextTwi || "",
+      placeholders: [],
+      audio: {
+        english: null,
+        twi: item.audioUrl || null,
+        twi_other_takes: item.fallbackAudioUrl ? [item.fallbackAudioUrl] : [],
+      },
+    });
+  }
+}
+
+// 2. Ensure all state machine mapped states exist
+for (const [state, promptId] of Object.entries(STATE_TO_CANONICAL_PROMPT_ID)) {
+  const id = promptId.toUpperCase().trim();
+  const existing = canonicalPromptMap.get(id);
+  if (!existing) {
+    canonicalPromptMap.set(id, {
+      id,
+      category: state,
+      state,
+      type: DYNAMIC_PROMPT_IDS.has(id) ? "DYNAMIC" : "FIXED",
+      english: "",
+      twi: "",
+      placeholders: [],
+      audio: {
+        english: null,
+        twi: null,
+        twi_other_takes: [],
+      },
+    });
+  }
+}
+
+// 3. Link discovered audio recordings
+for (const rec of AUDIO_RECORDINGS) {
+  if (!rec.promptId) continue;
+  const id = rec.promptId.toUpperCase().trim();
+  const entry = canonicalPromptMap.get(id);
+  if (entry) {
+    if (rec.language === "en") {
+      if (!entry.english && rec.spokenText) entry.english = rec.spokenText;
+      if (!entry.audio.english && rec.url) entry.audio.english = rec.url;
+    } else if (rec.language === "twi") {
+      if (!entry.twi && rec.spokenText) entry.twi = rec.spokenText;
+      if (!entry.audio.twi && rec.url) entry.audio.twi = rec.url;
+    }
+  }
+}
+
+const loadedPrompts: CanonicalPrompt[] = Array.from(canonicalPromptMap.values());
 
 export const CANONICAL_PROMPT_LIST: readonly CanonicalPrompt[] = Object.freeze(loadedPrompts);
 

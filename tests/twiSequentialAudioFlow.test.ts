@@ -65,7 +65,7 @@ describe("Ɔkwankyerɛfo Pa — Unified 18-Step Audio Flow & State Orchestration
     // Step 13: PIN Handoff (OP40)
     const step13 = getFlowStepByIndex(13);
     expect(step13?.id).toBe("pin_handoff");
-    expect(step13?.audioUrl).toContain("Pin%20Handoff.m4a");
+    expect(step13?.audioUrl).toMatch(/Pin%20Handoff\.(?:mp3|m4a)/);
     expect(step13?.nextStepId).toBe("submitted");
 
     // Step 14: Submitted

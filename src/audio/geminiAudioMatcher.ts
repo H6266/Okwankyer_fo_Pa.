@@ -10,9 +10,8 @@
  */
 
 import { AUDIO_RECORDINGS } from "./recordingRegistry";
-import { TWI_SEQUENTIAL_FLOW_STEPS } from "./twiSequentialAudioFlow";
+import { TWI_SEQUENTIAL_FLOW_STEPS, CANONICAL_IVR_CATEGORIES } from "./twiSequentialAudioFlow";
 import { UnifiedGeminiClient } from "../services/geminiClient";
-import promptManifest from "../../Audio_files/prompts.json";
 import { matchReplyToAudio } from "./replyAudioMatcher";
 
 export interface GeminiAudioMatchResult {
@@ -142,25 +141,24 @@ function buildCandidateCatalog(): CatalogCandidate[] {
     }
   }
 
-  // 2. From prompts.json linked with AUDIO_RECORDINGS
-  const manifestPrompts = (promptManifest as any).prompts || [];
-  for (const p of manifestPrompts) {
-    if (seenIds.has(p.id)) continue;
-    const twiAudio = p.audio?.twi;
-    if (!twiAudio) continue;
+  // 2. From CANONICAL_IVR_CATEGORIES linked with AUDIO_RECORDINGS
+  for (const cat of CANONICAL_IVR_CATEGORIES) {
+    for (const p of cat.prompts) {
+      if (seenIds.has(p.promptId)) continue;
+      const rec = AUDIO_RECORDINGS.find((r) => r.promptId === p.promptId && r.url);
+      const audioUrl = rec?.url || p.audioUrl;
+      if (!audioUrl) continue;
 
-    const rec = AUDIO_RECORDINGS.find((r) => r.promptId === p.id && r.url);
-    const audioUrl = rec?.url || `/audio/supplied/${twiAudio.replace(/^audio\/Twi\//, "Twi/")}`;
-
-    candidates.push({
-      promptId: p.id,
-      category: p.category,
-      state: p.state,
-      twiText: p.twi || "",
-      englishText: p.english || "",
-      audioUrl,
-    });
-    seenIds.add(p.id);
+      candidates.push({
+        promptId: p.promptId,
+        category: p.categoryName,
+        state: p.state,
+        twiText: p.spokenTextTwi || "",
+        englishText: p.spokenTextEn || "",
+        audioUrl,
+      });
+      seenIds.add(p.promptId);
+    }
   }
 
   // 3. From remaining AUDIO_RECORDINGS with spokenText
@@ -323,7 +321,7 @@ Return ONLY a valid JSON object with:
 Caller Literacy Profile: ${literacyLevel} (prefers intuitive, colloquial spoken clarity)
 AI Reply Text to play (stored from conversation): "${textToSend}"
 
-Prompt Catalog Candidates (from prompts.json manifest):
+Prompt Catalog Candidates:
 ${JSON.stringify(candidatesSummary.slice(0, 30), null, 2)}
 
 Determine if an authentic studio audio clip matches this reply, or if dynamic TTS is required.`;

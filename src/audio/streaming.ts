@@ -231,6 +231,51 @@ export function resolveSafeAudioPath(requestedSubpath: string): string | null {
     } catch {}
   }
 
+  // 4b. Fallback: search Audio_files/Twi_library flat directory for matching audio files
+  const twiLibraryDir = path.resolve(process.cwd(), "Audio_files", "Twi_library");
+  if (fs.existsSync(twiLibraryDir)) {
+    const targetBaseNormalized = baseNameWithoutExt.toLowerCase().replace(/[\s_\-]/g, "");
+    const targetBaseStripped = baseNameWithoutExt
+      .toLowerCase()
+      .replace(/\s*\(\d+\)\s*$/g, "")
+      .replace(/\s+\d+\s*$/g, "")
+      .replace(/[\s_\-]/g, "");
+
+    try {
+      const files = fs.readdirSync(twiLibraryDir);
+      for (const f of files) {
+        const fBase = path.basename(f, path.extname(f)).toLowerCase();
+        const fBaseNormalized = fBase.replace(/[\s_\-]/g, "");
+        const fBaseStripped = fBase
+          .replace(/\s*\(\d+\)\s*$/g, "")
+          .replace(/\s+\d+\s*$/g, "")
+          .replace(/[\s_\-]/g, "");
+
+        if (
+          fBaseNormalized === targetBaseNormalized ||
+          fBaseStripped === targetBaseStripped ||
+          fBaseNormalized === targetBaseStripped ||
+          fBaseStripped === targetBaseNormalized ||
+          f.toLowerCase().startsWith(baseNameWithoutExt.toLowerCase()) ||
+          (targetBaseNormalized.includes("checkfinal") && fBaseNormalized.includes("checkfinal"))
+        ) {
+          const fullPath = path.join(twiLibraryDir, f);
+          if (fs.existsSync(fullPath) && !fs.statSync(fullPath).isDirectory()) {
+            return fs.realpathSync(fullPath);
+          }
+        }
+      }
+
+      // Special welcome alias if specific take not found
+      if (targetBaseStripped === "welcome" || targetBaseNormalized.startsWith("welcome1")) {
+        const welcomeCandidate = path.join(twiLibraryDir, "Opening_voice_welcome_to_okwankyerefopa.mp3");
+        if (fs.existsSync(welcomeCandidate)) {
+          return fs.realpathSync(welcomeCandidate);
+        }
+      }
+    } catch {}
+  }
+
   // 5. Fallback: check public/audio
   const publicAudioDir = path.resolve(process.cwd(), "public", "audio");
   for (const ext of audioExtensions) {
