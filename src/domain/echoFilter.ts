@@ -125,6 +125,22 @@ const CANONICAL_SYSTEM_PROMPTS: string[] = [
   "how much would you like to send",
   "please enter the amount",
   "would you like to confirm",
+  "sika ahe na wopɛ sɛ womane",
+  "sika ahe na wopɛ sɛ wode mane",
+  "yɛsrɛ wo bɔ sika dodow a wopɛ sɛ womane no wɔ cedi mu na fa hash ka ho",
+  "yɛsrɛ wo bɔ sika dodow a wopɛ sɛ womane",
+  "bɔ sika no dodow na fa hash ka ho",
+  "bɔ sika dodow a wopɛ sɛ womane",
+  "sika dodow a wobɔe no nyɛ pɛpɛɛpɛ",
+  "sika a wobɔe no ne eyi",
+  "yɛsrɛ wo tie yie",
+  "obi a woremane no no din ne",
+  "wopɛ sɛ womane sika kɔ nɔmba foforɔ bɛn so",
+  "sɛ wopene so a mia baako",
+  "sɛ wosesa a mia mmienu",
+  "wopɛ sɛ womane sika kɔma",
+  "sika dodoɔ sɛn na wopɛ sɛ womane",
+  "sika dodoɔ a woremane no bɛyɛ sɛn",
 ];
 
 function normalizeTextForComparison(text: string): string {

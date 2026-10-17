@@ -1780,29 +1780,6 @@ aiRouter.post("/api/ai/brain/telemetry/reset", (_req: Request, res: Response) =>
   });
 });
 
-aiRouter.post("/api/ai/brain/process", async (req: Request, res: Response) => {
-  try {
-    const { transcript, language, sessionLanguage, draft, callerNumber, sessionId, forceModel } = req.body || {};
-    const result = await brain.process({
-      transcript: transcript || "",
-      language: language || "en",
-      sessionLanguage: sessionLanguage || language || "en",
-      draft: draft || { slots: {} },
-      callerNumber,
-      sessionId,
-      forceModel,
-    });
-    res.json({
-      success: true,
-      result,
-      brainOutput: result,
-      telemetry: result.telemetry,
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message || "Failed to process brain turn" });
-  }
-});
-
 // ── Dynamic TTS Synthesis Endpoint ────────────────────────────────────
 aiRouter.post("/api/ai/synthesize", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {

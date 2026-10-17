@@ -554,6 +554,13 @@ export class Brain {
 
     if (modelOutput) {
       // ── CONVERSATIONAL PATH (GEMINI IN THE DRIVER'S SEAT) ──
+      // Always extract unmasked phone numbers and candidate names directly from raw transcript
+      // so model-masked tokens ([PHONE_MASKED]) never drop the caller's actual recipient phone.
+      this.extractSlotsFromUtterance(rawTranscript, draft.slots, decoderResult);
+      if (draft.slots.recipient?.phone) {
+        await this.performKycAndDiscrepancyCheck(draft);
+      }
+
       // Gating for balance checks
       if (modelOutput.intent?.id === 'momo.check_balance' || modelOutput.reply?.reply_kind === 'not_ready') {
         const settledIntent = 'momo.check_balance';

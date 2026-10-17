@@ -37,6 +37,8 @@ export interface PlayOptions {
   onStart?: () => void;
   onEnd?: () => void;
   onError?: (err: any) => void;
+  skipStudioMatch?: boolean;
+  language?: string;
 }
 
 type StateListener = (state: PlaybackState) => void;
@@ -285,10 +287,49 @@ export class AudioPlaybackController {
     const cleanText = text.trim();
 
     // 1. High-priority match to native studio audio recording (Akan Twi ready files)
-    try {
-      const match = matchReplyToAudio(cleanText, "twi", { minConfidence: 0.30 });
-      if (match.match && match.audioUrl) {
-        return this.play(match.audioUrl, {
+    if (!options?.skipStudioMatch) {
+      try {
+        const match = matchReplyToAudio(cleanText, "twi", { minConfidence: 0.30 });
+        if (match.match && match.audioUrl) {
+          return this.play(match.audioUrl, {
+            ...options,
+            onStart: () => {
+              this.setState({ activeText: cleanText });
+              options?.onStart?.();
+            },
+            onEnd: options?.onEnd,
+            onError: options?.onError,
+          });
+        }
+      } catch (matchErr) {
+        console.warn("[AudioController] Studio audio matching notice:", matchErr);
+      }
+
+      // 2. Intelligent keyword match to authentic Akan Twi studio recordings
+      const lower = cleanText.toLowerCase();
+      let fallbackStudioUrl: string | null = null;
+      if (lower.includes("sika") && (lower.includes("dodow") || lower.includes("amount") || lower.includes("cedis") || lower.includes("bɔ"))) {
+        fallbackStudioUrl = "/audio/supplied/Twi/4.Amount Entry & Verification/Enter amount 4.m4a";
+      } else if (lower.includes("nɔmba") || lower.includes("fon") || lower.includes("recipient") || lower.includes("phone")) {
+        fallbackStudioUrl = "/audio/supplied/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a";
+      } else if (lower.includes("pene") || lower.includes("confirm") || lower.includes("approval") || lower.includes("review") || lower.includes("aane")) {
+        fallbackStudioUrl = "/audio/supplied/Twi/5.Transaction Confirmation/Review transaction.m4a";
+      } else if (lower.includes("pin") || lower.includes("handoff") || lower.includes("ahobammɔ")) {
+        fallbackStudioUrl = "/audio/Pin Handoff.m4a";
+      } else if (lower.includes("balance") || lower.includes("star") || lower.includes("170")) {
+        fallbackStudioUrl = "/audio/supplied/Twi/13.Balance  Unsupported Services/Balance unavailable.aac";
+      } else if (lower.includes("mane") || lower.includes("send")) {
+        fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/Send money selected.m4a";
+      } else if (lower.includes("paw") || lower.includes("menyu") || lower.includes("menu")) {
+        fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/MTN menu 1.m4a";
+      } else if (lower.includes("twa") || lower.includes("cancel") || lower.includes("dabi")) {
+        fallbackStudioUrl = "/audio/supplied/Twi/11.Navigation & Recovery/Cancel.aac";
+      } else if (lower.includes("wie") || lower.includes("success") || lower.includes("medaase") || lower.includes("nante yie")) {
+        fallbackStudioUrl = "/audio/supplied/Twi/14.Post-Transaction Conversation/Finish.aac";
+      }
+
+      if (fallbackStudioUrl) {
+        return this.play(fallbackStudioUrl, {
           ...options,
           onStart: () => {
             this.setState({ activeText: cleanText });
@@ -298,43 +339,6 @@ export class AudioPlaybackController {
           onError: options?.onError,
         });
       }
-    } catch (matchErr) {
-      console.warn("[AudioController] Studio audio matching notice:", matchErr);
-    }
-
-    // 2. Intelligent keyword match to authentic Akan Twi studio recordings
-    const lower = cleanText.toLowerCase();
-    let fallbackStudioUrl: string | null = null;
-    if (lower.includes("sika") && (lower.includes("dodow") || lower.includes("amount") || lower.includes("cedis") || lower.includes("bɔ"))) {
-      fallbackStudioUrl = "/audio/supplied/Twi/4.Amount Entry & Verification/Enter amount 4.m4a";
-    } else if (lower.includes("nɔmba") || lower.includes("fon") || lower.includes("recipient") || lower.includes("phone")) {
-      fallbackStudioUrl = "/audio/supplied/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a";
-    } else if (lower.includes("pene") || lower.includes("confirm") || lower.includes("approval") || lower.includes("review") || lower.includes("aane")) {
-      fallbackStudioUrl = "/audio/supplied/Twi/5.Transaction Confirmation/Review transaction.m4a";
-    } else if (lower.includes("pin") || lower.includes("handoff") || lower.includes("ahobammɔ")) {
-      fallbackStudioUrl = "/audio/Pin Handoff.m4a";
-    } else if (lower.includes("balance") || lower.includes("star") || lower.includes("170")) {
-      fallbackStudioUrl = "/audio/supplied/Twi/13.Balance  Unsupported Services/Balance unavailable.aac";
-    } else if (lower.includes("mane") || lower.includes("send")) {
-      fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/Send money selected.m4a";
-    } else if (lower.includes("paw") || lower.includes("menyu") || lower.includes("menu")) {
-      fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/MTN menu 1.m4a";
-    } else if (lower.includes("twa") || lower.includes("cancel") || lower.includes("dabi")) {
-      fallbackStudioUrl = "/audio/supplied/Twi/11.Navigation & Recovery/Cancel.aac";
-    } else if (lower.includes("wie") || lower.includes("success") || lower.includes("medaase") || lower.includes("nante yie")) {
-      fallbackStudioUrl = "/audio/supplied/Twi/14.Post-Transaction Conversation/Finish.aac";
-    }
-
-    if (fallbackStudioUrl) {
-      return this.play(fallbackStudioUrl, {
-        ...options,
-        onStart: () => {
-          this.setState({ activeText: cleanText });
-          options?.onStart?.();
-        },
-        onEnd: options?.onEnd,
-        onError: options?.onError,
-      });
     }
 
     // 3. Dynamic Neural Speech Synthesis via backend pipeline for authentic voice
@@ -816,9 +820,17 @@ export class AudioPlaybackController {
           if (p !== undefined) {
             p.catch((err: any) => {
               if (err?.name === "AbortError" || err?.message?.includes("interrupted")) {
+                if (this.currentToken === sequenceToken) {
+                  this.playViaWebAudio(url, sequenceToken, { keepPlayingOnEnd: !isLast }).then(resolve);
+                } else {
+                  resolve(false);
+                }
                 return;
               }
-              if (this.currentToken !== sequenceToken) return;
+              if (this.currentToken !== sequenceToken) {
+                resolve(false);
+                return;
+              }
               this.playViaWebAudio(url, sequenceToken, { keepPlayingOnEnd: !isLast }).then(resolve);
             });
           }

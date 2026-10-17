@@ -284,6 +284,8 @@ export const PhoneSimulatorPage: React.FC = () => {
   const zeroPinOverlayRef = useRef<boolean>(false);
   const brainDraftRef = useRef<any>({ slots: {} });
   const startPinAuthorizationFlowRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const digitsBufferRef = useRef<string>("");
+  const amountAutoSubmitTimerRef = useRef<any>(null);
 
   useEffect(() => { callActiveRef.current = callActive; }, [callActive]);
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
@@ -293,6 +295,7 @@ export const PhoneSimulatorPage: React.FC = () => {
   useEffect(() => { currentPromptRef.current = currentPrompt; }, [currentPrompt]);
   useEffect(() => { isMicMutedRef.current = isMicMuted; }, [isMicMuted]);
   useEffect(() => { zeroPinOverlayRef.current = zeroPinOverlay; }, [zeroPinOverlay]);
+  useEffect(() => { digitsBufferRef.current = digitsBuffer; }, [digitsBuffer]);
 
   // Prepare audio on any initial user touch or interaction so audio plays automatically
   useEffect(() => {
