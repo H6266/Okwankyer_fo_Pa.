@@ -982,35 +982,44 @@ export function usePhoneSimulator() {
         }
       }
 
-      // 4. Play audio prompt (<Play url="...">)
-      if (parsed.playUrl) {
-        let audioUrl = parsed.playUrl;
-        if (audioUrl.startsWith("http://") || audioUrl.startsWith("https://")) {
-          try {
-            const u = new URL(audioUrl);
-            audioUrl = u.pathname;
-          } catch {}
-        }
-        setActiveAudioClip(audioUrl);
-        if (audioRef.current && enableTts) {
-          audioRef.current.src = audioUrl;
-          const promptText = parsed.say?.text || getPromptTranscript(audioUrl);
-          updateAiSpeaking(true, promptText);
-          audioRef.current.onended = () => {
+      // 4. Play audio prompt (<Play url="..."> or sequence of <Play> clips)
+      const urlsToPlay = (parsed.playUrls && parsed.playUrls.length > 0)
+        ? parsed.playUrls
+        : parsed.playUrl ? [parsed.playUrl] : [];
+
+      if (urlsToPlay.length > 0 && audioRef.current && enableTts) {
+        let currentIdx = 0;
+        const playNextClip = async () => {
+          if (currentIdx >= urlsToPlay.length) {
             updateAiSpeaking(false);
             setActiveAudioClip(null);
-          };
-          audioRef.current.onerror = () => {
-            updateAiSpeaking(false);
-            setActiveAudioClip(null);
-          };
-          try {
-            await audioRef.current.play();
-          } catch (err) {
-            console.warn("[AT Voice Prompt] Audio playback failed; falling back to speech synthesis:", err);
-            await playAudioSynthesis(promptText, language, stepLabel);
+            return;
           }
-        }
+          let audioUrl = urlsToPlay[currentIdx++];
+          if (audioUrl.startsWith("http://") || audioUrl.startsWith("https://")) {
+            try {
+              const u = new URL(audioUrl);
+              audioUrl = u.pathname;
+            } catch {}
+          }
+          setActiveAudioClip(audioUrl);
+          audioRef.current!.src = audioUrl;
+          const promptText = getPromptTranscript(audioUrl) || parsed.say?.text || "";
+          updateAiSpeaking(true, promptText);
+          audioRef.current!.onended = () => {
+            playNextClip();
+          };
+          audioRef.current!.onerror = () => {
+            playNextClip();
+          };
+          try {
+            await audioRef.current!.play();
+          } catch (err) {
+            console.warn("[AT Voice Prompt] Audio clip playback error; advancing:", err);
+            playNextClip();
+          }
+        };
+        await playNextClip();
       }
 
       // 5. Spoken text (<Say voice="...">)
@@ -1335,50 +1344,47 @@ export function usePhoneSimulator() {
    */
   const resolveStudioPrompt = useCallback((text: string, lang: string, step?: string): string | null => {
     const isTwi = lang === "tw" || lang === "ak";
+
+    // If the response text contains dynamic transaction entities (amounts, recipient details, reference IDs),
+    // NEVER substitute with canned static clips! Dynamic neural TTS MUST speak the actual details.
+    const hasDynamicEntities =
+      /\b\d{2,}\b/.test(text) ||
+      /\b(ghs|cedis?|sidi|gh¢)\b/i.test(text) ||
+      /\b(055|024|020|027|050|054|059|026)\d{7}\b/.test(text) ||
+      /\b(okp[-_ ]?\d+|reference)\b/i.test(text);
+
+    if (hasDynamicEntities) {
+      return null;
+    }
+
     if (!isTwi) {
-      if (step?.includes("welcome") || text?.toLowerCase().includes("welcome")) {
+      if ((step?.includes("welcome") || text?.toLowerCase().includes("welcome")) && !hasDynamicEntities) {
         return "/audio/Welcome_prompt_01.mp3";
       }
       return null;
     }
 
-    // 1. Confidence-based phrase matcher (>= 50% match)
+    // 1. Confidence-based phrase matcher (>= 65% match for static phrases)
     if (text) {
       try {
-        const audioMatch = matchReplyToAudio(text, "tw", { minConfidence: 0.50 });
+        const audioMatch = matchReplyToAudio(text, "tw", { minConfidence: 0.65 });
         if (audioMatch.match && audioMatch.audioUrl) {
           return audioMatch.audioUrl;
         }
       } catch {}
     }
 
-    // 2. Step and intent heuristics
+    // 2. Step and intent heuristics for static prompt menus
     const lower = (text || "").toLowerCase().replace(/[-_]/g, " ");
     const currentCheck = (step || "").toLowerCase();
 
     let key: string | null = null;
-    if (currentCheck.includes("amount") || lower.includes("enter amount") || lower.includes("sika dodow")) {
-      key = "enter_amount";
-    } else if (currentCheck.includes("recipient") || currentCheck.includes("phone") || lower.includes("bɔ nɔmba")) {
-      key = "enter_recipient";
-    } else if (currentCheck.includes("verify") || lower.includes("recipient verify") || lower.includes("din")) {
-      key = "recipient_verify";
+    if (currentCheck.includes("service") || lower.includes("service selection") || lower.includes("paw dwumadie")) {
+      key = "service_select";
     } else if (currentCheck.includes("network") || currentCheck.includes("provider") || lower.includes("paw wo network")) {
       key = "provider_select";
-    } else if (currentCheck.includes("service") || lower.includes("service selection") || lower.includes("paw dwumadie")) {
-      key = "service_select";
     } else if (currentCheck.includes("action") || lower.includes("send money selected") || lower.includes("woremane sika")) {
       key = "action_select";
-    } else if (currentCheck.includes("confirm") || lower.includes("confirmation intro") || lower.includes("pene so")) {
-      key = "confirmation_intro";
-    } else if (lower.includes("ready submit") || lower.includes("mia 1 anaasɛ ka aane")) {
-      key = "ready_submit";
-    } else if (lower.includes("success") || lower.includes("sika no akɔ")) {
-      key = "success";
-    } else if (lower.includes("failed") || lower.includes("mfomsoɔ")) {
-      key = "failed";
-    } else if (lower.includes("cancel") || lower.includes("wotwaa")) {
-      key = "cancel";
     } else if (lower.includes("timeout") || lower.includes("berɛ atwa mu")) {
       key = "timeout";
     } else if (lower.includes("repeat") || lower.includes("tie bio")) {
@@ -1401,16 +1407,10 @@ export function usePhoneSimulator() {
       updateAiSpeaking(true, text);
       const isTwi = lang === "tw" || lang === "ak";
 
-      // 1. Studio Pre-Recorded Prompts Mode (Priority 1 for known workflow steps)
-      const matchedPrompt = resolveStudioPrompt(text, lang, step || currentStep);
-      const matchedPromptUnsupported =
-        Boolean(matchedPrompt?.endsWith(".m4a") &&
-        audioRef.current &&
-        !audioRef.current.canPlayType('audio/mp4; codecs="mp4a.40.2"') &&
-        !audioRef.current.canPlayType('audio/mp4') &&
-        !audioRef.current.canPlayType('audio/x-m4a') &&
-        !audioRef.current.canPlayType('audio/aac'));
-      if (matchedPrompt && voiceMode !== "BROWSER" && !matchedPromptUnsupported) {
+      // 1. Studio Pre-Recorded Prompts Mode (Priority 1 for known fixed menu steps)
+      const rawMatchedPrompt = resolveStudioPrompt(text, lang, step || currentStep);
+      const matchedPrompt = rawMatchedPrompt ? rawMatchedPrompt.replace(/\.m4a$/i, ".mp3") : null;
+      if (matchedPrompt && voiceMode !== "BROWSER") {
         if (audioRef.current) {
           audioRef.current.src = matchedPrompt;
           setActiveAudioClip(matchedPrompt);
@@ -1444,6 +1444,7 @@ export function usePhoneSimulator() {
           text,
           language: isTwi ? "tw" : "en",
           style: "ghanaian-warm",
+          sessionId,
         });
 
         if (synth?.result?.audioBase64 && audioRef.current) {
@@ -1763,8 +1764,8 @@ export function usePhoneSimulator() {
     setLastTurnDiagnostic(null);
 
     const welcomeGreeting = initialLang === "tw"
-      ? "Akwaaba! Ɔkwankyerɛfo Pa MoMo Ntentan so. Sika bɛn na wobɛpɛ sɛ womane anaa wobɛyɛ?"
-      : "Welcome to Ɔkwankyerɛfo Pa Voice Mobile Money! Who would you like to send money to today?";
+      ? "Akwaaba! Ɔkwankyerɛfo Pa, yɛyɛ dwumadie a ɛboa obiara ma sika ho nkitahodie yɛ mmerɛw. Sɛ wopɛ mobile money services a, mia 1. Sɛ wopɛ banking services a, mia 2."
+      : "Welcome to Ɔkwankyerɛfo Pa. We are an accessibility layer that makes services easy for everyone. For Mobile Money services, press 1. For banking services, press 2.";
 
     const initialXml = `<Response>\n  <GetDigits timeout="2" finishOnKey="#" numDigits="10">\n    <Say voice="${initialLang === "tw" ? "woman" : "alice"}">${welcomeGreeting}</Say>\n  </GetDigits>\n</Response>`;
     setVoiceXmlTraces([
@@ -1783,7 +1784,7 @@ export function usePhoneSimulator() {
         role: "ai",
         text: welcomeGreeting,
         timestamp: Date.now(),
-        stage: "language-selection",
+        stage: "service-select",
         language: initialLang,
       },
     ]);
@@ -2014,7 +2015,7 @@ export function usePhoneSimulator() {
             ? "bilingual"
             : language;
           try {
-            const asrRes = await api.transcribeAudio(wavBase64, "audio/wav", languageHint, currentStep);
+            const asrRes = await api.transcribeAudio(wavBase64, "audio/wav", languageHint, currentStep, undefined, sessionId);
             const latency = Math.round(performance.now() - startTime);
             const serverText = typeof asrRes?.result?.text === "string"
               ? asrRes.result.text.trim()
@@ -2089,19 +2090,57 @@ export function usePhoneSimulator() {
               await sendInputTurn(textToSend, "VOICE");
             } else {
               setTranscriptionStatus("ERROR");
-              const heardSpeech = asrRes?.result?.speechActivityDetected;
-              setAiProcessingDetail(
-                heardSpeech === false
-                  ? "I didn't hear speech. Please speak clearly after the prompt finishes, or use the keypad."
-                  : "I couldn't understand that. Please say it again, or use the keypad."
+              const isQuota = Boolean(
+                asrRes?.result?.quotaExhausted ||
+                (asrRes as any)?.quotaExhausted ||
+                (asrRes as any)?.error?.toLowerCase().includes("maxed out") ||
+                asrRes?.result?.message?.toLowerCase().includes("maxed out")
               );
+              if (isQuota) {
+                setAiProcessingDetail("ASR token has been maxed out. Please try another time, or type in the input box to test.");
+                setTranscript((prev) => [
+                  ...prev,
+                  {
+                    id: `asr_quota_${Date.now()}`,
+                    role: "system",
+                    text: "⚠️ ASR token has been maxed out. Please try another time, or type in the input box to test.",
+                    timestamp: Date.now(),
+                  },
+                ]);
+              } else {
+                const heardSpeech = asrRes?.result?.speechActivityDetected;
+                setAiProcessingDetail(
+                  heardSpeech === false
+                    ? "I didn't hear speech. Please speak clearly after the prompt finishes, or use the keypad / type to test."
+                    : "I couldn't understand that. Please say it again, or use the keypad / type to test."
+                );
+              }
             }
           } catch (err: unknown) {
             console.warn("[VoiceCapture] ASR error:", err);
             voiceCaptureRef.current?.updateTelemetry({
               chunksFailed: (voiceCaptureRef.current.getTelemetry().chunksFailed || 0) + 1,
             });
-            if (browserFinalTranscript) {
+            const message = err instanceof Error ? err.message : String(err);
+            const isQuotaError = Boolean(
+              (err as any)?.quotaExhausted ||
+              message.toLowerCase().includes("maxed out") ||
+              message.toLowerCase().includes("quota")
+            );
+
+            if (isQuotaError) {
+              setTranscriptionStatus("ERROR");
+              setAiProcessingDetail("ASR token has been maxed out. Please try another time, or type in the input box to test.");
+              setTranscript((prev) => [
+                ...prev,
+                {
+                  id: `asr_quota_${Date.now()}`,
+                  role: "system",
+                  text: "⚠️ ASR token has been maxed out. Please try another time, or type in the input box to test.",
+                  timestamp: Date.now(),
+                },
+              ]);
+            } else if (browserFinalTranscript) {
               const fallbackText = formatSpokenNumbersAsDigits(browserFinalTranscript);
               voiceCaptureRef.current?.updateTelemetry({
                 lastTranscript: fallbackText,
@@ -2122,10 +2161,9 @@ export function usePhoneSimulator() {
               setAiProcessingDetail(`Server ASR failed; using browser final transcript: "${fallbackText}". Processing with AI Brain...`);
               await sendInputTurn(fallbackText, "VOICE");
             } else {
-              const message = err instanceof Error ? err.message : String(err);
               setTranscriptionStatus("ERROR");
               console.warn("[VoiceCapture] Final speech recognition request failed:", message);
-              setAiProcessingDetail("I couldn't understand that. Please try speaking again, or use the keypad.");
+              setAiProcessingDetail("I couldn't understand that. Please try speaking again, or use the keypad / type to test.");
             }
           } finally {
             if (voiceListeningEnabledRef.current && !isAiSpeakingRef.current) {
@@ -2382,6 +2420,73 @@ export function usePhoneSimulator() {
     }
   }, [aiResponse, language, currentStep, playAudioSynthesis]);
 
+  // PIN Entry Inactivity & Multi-Stage Reassurance Timer
+  useEffect(() => {
+    const isPinStep = isActive && (currentStep?.includes("pin") || currentStep === "enter-pin" || currentStep === "pin-handoff");
+    if (!isPinStep) return;
+
+    let inactivityStage = 0;
+    const interval = setInterval(async () => {
+      inactivityStage++;
+      if (inactivityStage === 1) {
+        // Reassure user: "We are waiting for you to enter your PIN"
+        const reassureText = language === "tw"
+          ? "Yɛretwɛn wo PIN, fa wo bere bɔ wo PIN nɔmba nnan no."
+          : "We are waiting for you to enter your PIN. Please take your time and enter your 4-digit PIN.";
+        setAiResponse(reassureText);
+        setTranscript((prev) => [
+          ...prev,
+          {
+            id: `ai_reassure_1_${Date.now()}`,
+            role: "ai",
+            text: reassureText,
+            timestamp: Date.now(),
+            stage: "enter-pin",
+          },
+        ]);
+        playAudioSynthesis(reassureText, language, "enter-pin");
+      } else if (inactivityStage === 2) {
+        // Second reminder: "Please enter your 4-digit PIN"
+        const remindText = language === "tw"
+          ? "Yɛsrɛ wo, yɛda so retwɛn wo PIN nɔmba nnan no na yɛatumi amane sika no."
+          : "Please enter your 4-digit PIN on the keypad or say it to authorize the transfer.";
+        setAiResponse(remindText);
+        setTranscript((prev) => [
+          ...prev,
+          {
+            id: `ai_reassure_2_${Date.now()}`,
+            role: "ai",
+            text: remindText,
+            timestamp: Date.now(),
+            stage: "enter-pin",
+          },
+        ]);
+        playAudioSynthesis(remindText, language, "enter-pin");
+      } else if (inactivityStage >= 3) {
+        // Final timeout: Terminate call gracefully
+        clearInterval(interval);
+        const timeoutText = language === "tw"
+          ? "Yɛante wo nkyɛn nti, yɛretwa frɛ yi mu. Meda wo ase, nante yie."
+          : "We did not receive any input, so this call is now ending for your security. Thank you, goodbye.";
+        setAiResponse(timeoutText);
+        setTranscript((prev) => [
+          ...prev,
+          {
+            id: `ai_timeout_${Date.now()}`,
+            role: "ai",
+            text: timeoutText,
+            timestamp: Date.now(),
+            stage: "call-ended",
+          },
+        ]);
+        await playAudioSynthesis(timeoutText, language, "call-ended");
+        endCall("PIN inactivity timeout");
+      }
+    }, 12000);
+
+    return () => clearInterval(interval);
+  }, [isActive, currentStep, language, playAudioSynthesis, endCall]);
+
   /**
    * Direct 1-click test transfer to a KYC verified contact
    */
@@ -2444,31 +2549,24 @@ export function usePhoneSimulator() {
     if (!enableTts) return;
     if (!target) return;
     try {
+      const cleanTarget = target.replace(/\.m4a$/i, ".mp3");
       const isAudioFile =
-        target.endsWith(".m4a") ||
-        target.endsWith(".mp3") ||
-        target.endsWith(".wav") ||
-        target.startsWith("/audio/") ||
-        target.startsWith("/api/audio/prompt/") ||
-        target.startsWith("/api/audio/prompt-tts/") ||
-        target.startsWith("audio/");
+        cleanTarget.endsWith(".mp3") ||
+        cleanTarget.endsWith(".wav") ||
+        cleanTarget.startsWith("/audio/") ||
+        cleanTarget.startsWith("/api/audio/prompt/") ||
+        cleanTarget.startsWith("/api/audio/prompt-tts/") ||
+        cleanTarget.startsWith("audio/");
 
       if (isAudioFile) {
-        const promptTranscript = getPromptTranscript(target);
-        const urlPromptKey = target.match(/^\/api\/audio\/prompt\/twi\/([^/?]+)/)?.[1];
-        const servesM4a = target.toLowerCase().endsWith(".m4a") ||
-          Boolean(urlPromptKey && getRecordingByPromptKey(decodeURIComponent(urlPromptKey))?.url.endsWith(".m4a"));
-        if (servesM4a && !audioRef.current?.canPlayType('audio/mp4; codecs="mp4a.40.2"')) {
-          playBrowserSpeechFallback(promptTranscript);
-          return;
-        }
+        const promptTranscript = getPromptTranscript(cleanTarget);
         updateAiSpeaking(true, promptTranscript);
-        setActiveAudioClip(target);
-        const url = target.startsWith("/audio/") || target.startsWith("/api/audio/prompt")
-          ? target
-          : target.startsWith("audio/")
-          ? `/${target}`
-          : `/audio/${target}`;
+        setActiveAudioClip(cleanTarget);
+        const url = cleanTarget.startsWith("/audio/") || cleanTarget.startsWith("/api/audio/prompt")
+          ? cleanTarget
+          : cleanTarget.startsWith("audio/")
+          ? `/${cleanTarget}`
+          : `/audio/${cleanTarget}`;
 
         if (audioRef.current) {
           audioRef.current.src = url;

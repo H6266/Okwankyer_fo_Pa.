@@ -103,7 +103,7 @@ export const DEFAULT_BRAIN_CONFIG: BrainConfig = {
   shadowSamplingRate: 1.0,
   confidenceThreshold: 0.65,
   ambiguityMargin: 0.15,
-  modelTimeoutMs: 5000,
+  modelTimeoutMs: 12000,
   skipModelTierConfidence: 0.85,
   maxTransferAmount: 5000,
   modelName: process.env.GEMINI_MODEL || (process.env.NODE_ENV === 'production' ? '' : 'gemini-3.8-flash'),
@@ -1551,13 +1551,13 @@ export class Brain {
     }
 
     const candidateModels = [
-      this.config.modelName || AI_CONFIG.model || 'gemini-3.8-flash',
-      AI_CONFIG.fallbackModel || 'gemini-flash-latest',
-      'gemini-3.8-flash',
+      this.config.modelName || AI_CONFIG.model || 'gemini-3.5-flash',
+      AI_CONFIG.fallbackModel || 'gemini-3.5-flash-lite',
+      'gemini-flash-lite-latest',
     ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
 
     let response: any = null;
-    let selectedModel = candidateModels[0] || 'gemini-3.8-flash';
+    let selectedModel = candidateModels[0] || 'gemini-3.5-flash';
     let lastError: any = null;
     let skippedDueToCooldown = 0;
     let quotaHit = false;
@@ -1649,8 +1649,8 @@ export class Brain {
             console.warn(`[Brain] Model '${model}' quota exceeded; attempting candidate failover...`);
             break;
           } else if (msg.includes("Timeout")) {
-            console.warn(`[Brain] Model '${model}' reasoning exceeded timeout budget.`);
-            return null;
+            console.warn(`[Brain] Model '${model}' reasoning exceeded timeout budget; failing over to provider handshake.`);
+            break;
           } else {
             console.warn(`[Brain] Model '${model}' error: ${msg.slice(0, 100)}`);
             break;

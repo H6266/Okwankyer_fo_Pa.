@@ -54,6 +54,7 @@ export const DYNAMIC_PROMPT_IDS: ReadonlySet<string> = new Set([
 export const STATE_TO_CANONICAL_PROMPT_ID: Readonly<Record<string, string>> = {
   // Session start
   WELCOME: "OP01",
+  SERVICE_DESCRIPTION: "OP01B",
   LANGUAGE_SELECTION: "OP02",
   GREETING: "OP03",
   WELCOME_BACK: "OP04",

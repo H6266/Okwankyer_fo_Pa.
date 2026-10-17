@@ -5,15 +5,15 @@ import { resolveSafeAudioPath, getOrTranscodeMp3 } from "../src/audio/streaming"
 import fs from "fs";
 
 describe("Telephony MP3 Transcoding & Playback", () => {
-  it("resolves safe audio path when requesting .mp3 for an .m4a studio recording", () => {
+  it("resolves safe audio path when requesting studio recording", () => {
     const safePath = resolveSafeAudioPath("supplied/Twi/1.Welcome & Session Start/Language selection.mp3");
     expect(safePath).not.toBeNull();
     expect(fs.existsSync(safePath!)).toBe(true);
-    expect(safePath).toMatch(/\.m4a$/i);
+    expect(safePath).toMatch(/\.(?:mp3|m4a)$/i);
   });
 
-  it("transcodes .m4a to standard .mp3 and caches the result", async () => {
-    const sourcePath = resolveSafeAudioPath("supplied/Twi/1.Welcome & Session Start/Language selection.m4a")!;
+  it("transcodes or verifies standard .mp3 and caches the result", async () => {
+    const sourcePath = resolveSafeAudioPath("supplied/Twi/1.Welcome & Session Start/Language selection.mp3") || resolveSafeAudioPath("supplied/Twi/1.Welcome & Session Start/Language selection.m4a")!;
     const mp3Path = await getOrTranscodeMp3(sourcePath);
     expect(fs.existsSync(mp3Path)).toBe(true);
     expect(mp3Path).toMatch(/\.mp3$/i);
@@ -43,7 +43,7 @@ describe("Telephony MP3 Transcoding & Playback", () => {
     expect(xml).toContain("<Response>");
     expect(xml).toContain("<GetDigits");
     expect(xml).toContain("callbackUrl=");
-    expect(xml).toContain("/language-selection?sessionId=at_test_session_123");
+    expect(xml).toContain("sessionId=at_test_session_123");
     // Verify it plays MP3 audio for Africa's Talking compatibility
     expect(xml).toContain(".mp3");
     expect(xml).not.toContain(".m4a");

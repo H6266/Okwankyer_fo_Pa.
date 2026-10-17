@@ -44,6 +44,8 @@ export interface AsrOrchestrationResult {
   latencyMs: number;
   audioQuality: AudioQualityReport;
   pinDiscarded?: boolean;
+  quotaExhausted?: boolean;
+  errorMessage?: string;
 }
 
 export interface AsrTranscribeOptions {
@@ -108,6 +110,36 @@ export class AsrOrchestrator {
       resolvedLanguage = "twi";
     }
 
+    // ── STEP 3: API Key Configuration & Speech Strategy ──
+    const hasHciKey = hciLabService.isConfigured();
+    const hasGhanaNlpKey = ghanaNlpAsrService.isConfigured();
+    const hasGeminiKey = geminiClient.isAvailable();
+    const hasAnySpeechApiKey = hasHciKey || hasGhanaNlpKey || hasGeminiKey;
+
+    let hciQuotaFailed = false;
+    let ghanaNlpQuotaFailed = false;
+    let geminiQuotaFailed = false;
+
+    // When NO API key is configured:
+    // User is in typing/text testing mode. Do not trigger fatal errors for missing credentials.
+    if (!hasAnySpeechApiKey) {
+      return {
+        text: "",
+        rawTranscript: "",
+        normalizedTranscript: "",
+        numericNormalizedTranscript: "",
+        confidence: null,
+        confidenceSource: "unavailable",
+        languageDetected: options.languageHint || "eng",
+        providerUsed: "text-testing-mode",
+        fallbackUsed: false,
+        fallbackReason: "NO_VOICE_API_KEY: No voice speech API key configured. Switch to typing to test the system or provide an API key for voice testing.",
+        errorMessage: "No voice API key configured. You can type in the input box to test the system, or provide an API key for voice testing.",
+        latencyMs: Math.round(performance.now() - startTime),
+        audioQuality,
+      };
+    }
+
     let rawText = "";
     let providerUsed = "";
     let providerAttempted: string | undefined;
@@ -116,11 +148,11 @@ export class AsrOrchestrator {
     let confidence: number | null = null;
     let confidenceSource: AsrOrchestrationResult["confidenceSource"] = "unavailable";
 
-    // ── STEP 4A: Dedicated Ghanaian ASR: University of Ghana HCI Lab (with Quota Guard) ──
-    if (hciLabService.isConfigured() && (resolvedLanguage === "twi" || resolvedLanguage === "atw")) {
+    // ── STEP 4A: Dedicated Ghanaian ASR: University of Ghana HCI Lab ──
+    if (hasHciKey && (resolvedLanguage === "twi" || resolvedLanguage === "atw")) {
       providerAttempted = "HCI_LAB_ASR";
       try {
-        const timeoutMs = options.timeoutMs || 2500;
+        const timeoutMs = options.timeoutMs || 8000;
         const hciResult = await hciLabService.transcribe(
           normalized.wavBuffer,
           "audio/wav",
@@ -133,13 +165,23 @@ export class AsrOrchestrator {
           confidenceSource = "provider";
         }
       } catch (err: any) {
+        if (
+          err?.isQuotaError ||
+          err?.statusCode === 429 ||
+          String(err?.code || "").includes("QUOTA") ||
+          String(err?.message || "").toLowerCase().includes("quota") ||
+          String(err?.message || "").toLowerCase().includes("token") ||
+          String(err?.message || "").toLowerCase().includes("rate limit")
+        ) {
+          hciQuotaFailed = true;
+        }
         fallbackReason = err.message || "HCI Lab ASR transcription failure";
         auditLogger.log("warn", "ASR_ORCHESTRATOR", `HCI Lab primary ASR attempt notice: ${fallbackReason}. Proceeding to fallback.`);
       }
     }
 
     // ── STEP 4B: Primary Provider: GhanaNLP ASR v3 ──
-    if (!rawText && ghanaNlpAsrService.isConfigured()) {
+    if (!rawText && hasGhanaNlpKey) {
       providerAttempted = "GhanaNLP_ASR_v3";
       try {
         const timeoutMs = options.timeoutMs || ghanaNlpAsrService.defaultTimeoutMs;
@@ -153,16 +195,22 @@ export class AsrOrchestrator {
         if (ghaResult.text && ghaResult.text.trim().length > 0) {
           rawText = ghaResult.text;
           providerUsed = "GhanaNLP_ASR_v3";
-          confidence = ghaResult.confidence; // null
-          confidenceSource = ghaResult.confidenceSource; // "provider_unreported"
+          confidence = ghaResult.confidence;
+          confidenceSource = ghaResult.confidenceSource;
         }
       } catch (err: any) {
+        if (
+          err?.code === "GHANANLP_RATE_LIMIT" ||
+          err?.statusCode === 429 ||
+          String(err?.message || "").toLowerCase().includes("quota") ||
+          String(err?.message || "").toLowerCase().includes("token") ||
+          String(err?.message || "").toLowerCase().includes("rate limit")
+        ) {
+          ghanaNlpQuotaFailed = true;
+        }
         fallbackReason = err.message || "GhanaNLP transcription failure";
         auditLogger.log("warn", "ASR_ORCHESTRATOR", `GhanaNLP primary attempt notice: ${fallbackReason}. Proceeding to fallback.`);
       }
-    } else {
-      providerAttempted = "GhanaNLP_ASR_v3";
-      fallbackReason = "GHANANLP_UNCONFIGURED: Missing GHANANLP_API_KEY";
     }
 
     // ── STEP 4B: Local neural ASR fallback ──
@@ -268,6 +316,14 @@ Output ONLY the transcription text without commentary.`;
             confidenceSource = "provider_unreported";
           }
         } catch (gemErr: any) {
+          if (
+            String(gemErr?.message || "").includes("429") ||
+            String(gemErr?.message || "").toLowerCase().includes("quota") ||
+            String(gemErr?.message || "").toLowerCase().includes("resource_exhausted") ||
+            String(gemErr?.message || "").toLowerCase().includes("token")
+          ) {
+            geminiQuotaFailed = true;
+          }
           auditLogger.log("warn", "ASR_ORCHESTRATOR", `Gemini fallback notice: ${gemErr.message}`);
         }
       }
@@ -343,6 +399,14 @@ Output ONLY the transcription text without commentary.`;
       qualityStatus: audioQuality.status,
     });
 
+    const anyQuotaFailed = hciQuotaFailed || ghanaNlpQuotaFailed || geminiQuotaFailed;
+    const quotaExhausted = !rawText && anyQuotaFailed;
+    const quotaErrorMessage = quotaExhausted
+      ? (resolvedLanguage.includes("tw")
+          ? "ASR token no aba awieeɛ. Yɛsrɛ wo sɔ hwɛ bio da foforɔ."
+          : "ASR token has been maxed out. Please try again another time.")
+      : undefined;
+
     return {
       text: finalText,
       rawTranscript: rawText,
@@ -359,6 +423,8 @@ Output ONLY the transcription text without commentary.`;
       latencyMs,
       audioQuality,
       pinDiscarded,
+      quotaExhausted,
+      errorMessage: quotaErrorMessage,
     };
   }
 }

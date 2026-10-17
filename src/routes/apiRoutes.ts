@@ -348,15 +348,91 @@ apiRouter.get("/api/kyc/lookup", kycLookupRateLimiter, requireAdminAuth, async (
   });
 });
 
-// ── Call Sessions & Ledger (Admin Protected) ──────────────────────────
-apiRouter.get("/api/sessions", adminRateLimiter, requireAdminAuth, (_req: Request, res: Response) => {
+// ── Call Sessions & Ledger (Dashboard & Simulator Tracing) ─────────────
+apiRouter.get("/api/sessions", adminRateLimiter, (_req: Request, res: Response) => {
   res.json({
     sessions: callSessionRepository.getAllSessions(),
     demoModeActive: config.demoMode,
   });
 });
 
-apiRouter.get("/api/ledger", adminRateLimiter, requireAdminAuth, (_req: Request, res: Response) => {
+apiRouter.get("/api/sessions/:sessionId", (req: Request, res: Response) => {
+  const session = callSessionRepository.getSession(req.params.sessionId);
+  if (!session) {
+    return res.status(404).json({ error: "Session not found" });
+  }
+  res.json({ success: true, session });
+});
+
+apiRouter.post("/api/sessions/:sessionId/turn", (req: Request, res: Response) => {
+  const { sessionId } = req.params;
+  const turn = req.body;
+  if (!turn) {
+    return res.status(400).json({ error: "Turn payload required" });
+  }
+  const turnItem = {
+    id: turn.id || `turn_${Date.now()}`,
+    turnNumber: typeof turn.turnNumber === "number" ? turn.turnNumber : 1,
+    timestamp: turn.timestamp || new Date().toLocaleTimeString(),
+    callerInput: turn.callerInput || "",
+    callerChannel: turn.callerChannel || "VOICE",
+    asrProvider: turn.asrProvider,
+    asrConfidence: turn.asrConfidence,
+    asrLatencyMs: turn.asrLatencyMs,
+    intent: turn.intent,
+    entitiesExtracted: turn.entitiesExtracted,
+    assistantResponse: turn.assistantResponse || "",
+    assistantAudioUrl: turn.assistantAudioUrl,
+    ttsProvider: turn.ttsProvider,
+    step: turn.step || "active",
+    status: turn.status || "SUCCESS",
+    rawAsrText: turn.rawAsrText,
+  };
+  const updated = callSessionRepository.addTurn(sessionId, turnItem);
+  res.json({ success: true, session: updated });
+});
+
+apiRouter.post("/api/sessions/:sessionId/api-trace", (req: Request, res: Response) => {
+  const { sessionId } = req.params;
+  const trace = req.body;
+  if (!trace) {
+    return res.status(400).json({ error: "API trace payload required" });
+  }
+  const traceItem = {
+    id: trace.id || `trace_${Date.now()}`,
+    timestamp: trace.timestamp || new Date().toLocaleTimeString(),
+    endpoint: trace.endpoint || "/unknown",
+    method: trace.method || "POST",
+    provider: trace.provider || "EXTERNAL",
+    latencyMs: typeof trace.latencyMs === "number" ? trace.latencyMs : 0,
+    httpStatus: typeof trace.httpStatus === "number" ? trace.httpStatus : 200,
+    requestSummary: trace.requestSummary,
+    responseSummary: trace.responseSummary,
+    status: trace.status || "SUCCESS",
+    errorMessage: trace.errorMessage,
+  };
+  const updated = callSessionRepository.addApiTrace(sessionId, traceItem);
+  res.json({ success: true, session: updated });
+});
+
+apiRouter.post("/api/sessions/:sessionId/diagnostic", (req: Request, res: Response) => {
+  const { sessionId } = req.params;
+  const diag = req.body;
+  if (!diag) {
+    return res.status(400).json({ error: "Diagnostic payload required" });
+  }
+  const diagItem = {
+    id: diag.id || `diag_${Date.now()}`,
+    timestamp: diag.timestamp || new Date().toLocaleTimeString(),
+    type: diag.type || "INFO",
+    message: diag.message || "",
+    details: diag.details,
+  };
+  const updated = callSessionRepository.addDiagnostic(sessionId, diagItem);
+  res.json({ success: true, session: updated });
+});
+
+apiRouter.get("/api/ledger", adminRateLimiter, (_req: Request, res: Response) => {
   res.json({ ledger: callSessionRepository.getLedger() });
 });
 

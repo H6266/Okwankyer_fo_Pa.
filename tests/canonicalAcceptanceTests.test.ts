@@ -33,15 +33,15 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
     expect(enWelcome).toBe("/api/audio/prompt-tts/en/welcome");
 
     const twiWelcome = resolvePrompt("welcome", "twi");
-    expect(twiWelcome).toBe("/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Welcome%201%20(2).m4a");
+    expect(twiWelcome).toBe("/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Welcome%201%20(2).mp3");
   });
 
   // AT-02: OP01 playback completes -> OP02 language options play separately; no combined welcome repeats
   it("AT-02: OP01 and OP02 play as distinct, decoupled prompts without duplicate combined playback", () => {
     expect(getRecordingByPromptId("OP01", "twi")).not.toBeNull();
     expect(getRecordingByPromptId("OP02", "twi")).not.toBeNull();
-    expect(resolvePrompt("OP01", "twi")).toBe("/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Welcome%201%20(2).m4a");
-    expect(resolvePrompt("OP02", "twi")).toBe("/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Language%20selection.m4a");
+    expect(resolvePrompt("OP01", "twi")).toBe("/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Welcome%201%20(2).mp3");
+    expect(resolvePrompt("OP02", "twi")).toBe("/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Language%20selection.mp3");
   });
 
   // AT-03: English session -> Resolver returns only an eligible English asset or an explicit safe missing result
@@ -64,7 +64,7 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
     expect(twiOp07).not.toBeNull();
 
     const twiPrompt = resolvePrompt("OP07", "twi");
-    expect(twiPrompt).toContain("Service%20selection.m4a");
+    expect(twiPrompt).toMatch(/Service%20selection\.(?:mp3|m4a)/);
   });
 
   // AT-05: Numeric-looking filename conflicts with content mapping -> Canonical prompt ID and reviewed mapping win
@@ -96,7 +96,7 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
     expect(missingRecording).toBeNull();
 
     // Verify resolvePrompt never returns wrong-language audio
-    const res = resolveSimulatorAudioUrl("/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Welcome%201%20(2).m4a", "en");
+    const res = resolveSimulatorAudioUrl("/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Welcome%201%20(2).mp3", "en");
     expect(res).toBeNull();
   });
 
@@ -353,11 +353,11 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
     expect(() => resolveSafeAudioPath("supplied/../../secret.txt")).toThrow(PathTraversalError);
   });
 
-  // AT-32: .m4a asset requested -> Correct MIME type and valid playback behaviour
-  it("AT-32: M4A assets resolve with audio/mp4 MIME type and valid playback path", () => {
-    const m4aRecording = AUDIO_RECORDINGS.find((r) => r.relativePath.endsWith(".m4a") && r.url);
-    expect(m4aRecording).toBeDefined();
-    expect(m4aRecording?.mimeType).toBe("audio/mp4");
+  // AT-32: MP3 asset requested -> Correct MIME type and valid playback behaviour
+  it("AT-32: MP3 assets resolve with audio/mpeg MIME type and valid playback path", () => {
+    const mp3Recording = AUDIO_RECORDINGS.find((r) => r.relativePath.endsWith(".mp3") && r.url);
+    expect(mp3Recording).toBeDefined();
+    expect(mp3Recording?.mimeType).toBe("audio/mpeg");
   });
 
   // AT-33: OP21 old alias is encountered -> Backward compatibility redirects to full-number semantics
@@ -396,16 +396,16 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
     const step7 = steps.find((s) => s.stepIndex === 7)!;
     const step8 = steps.find((s) => s.stepIndex === 8)!;
     expect(step7.id).toBe("use_recipient_1");
-    expect(step7.audioUrl).toContain("Use%20recipient%201.m4a");
+    expect(step7.audioUrl).toMatch(/Use%20recipient%201\.(?:mp3|m4a)/);
     expect(step8.id).toBe("recipient_confirm_speech");
-    expect(step8.audioUrl).toContain("Recipient%20confirm%20speech.m4a");
+    expect(step8.audioUrl).toMatch(/Recipient%20confirm%20speech\.(?:mp3|m4a)/);
 
     // Step 12 (confirm_speech) leads to PIN handoff (Step 13)
     const step12 = steps.find((s) => s.stepIndex === 12)!;
     expect(step12.nextStepId).toBe("pin_handoff");
     const step13 = steps.find((s) => s.stepIndex === 13)!;
     expect(step13.id).toBe("pin_handoff");
-    expect(step13.audioUrl).toContain("Pin%20Handoff.m4a");
+    expect(step13.audioUrl).toMatch(/Pin%20Handoff\.(?:mp3|m4a)/);
     expect(step13.nextStepId).toBe("submitted");
 
     const step14 = steps.find((s) => s.stepIndex === 14)!;

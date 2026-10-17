@@ -341,36 +341,17 @@ export class AudioPlaybackController {
       }
     }
 
-    // 3. Dynamic Neural Speech Synthesis via backend pipeline for authentic voice
-    try {
-      const isTwi = /[ɛɔ]|sika|mane|akwaaba|dabi|aane|paw|sidi|nɔmba|yɛsrɛ|nte|frɛ/i.test(cleanText);
-      const res = await fetch("/api/ai/synthesize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: cleanText, language: isTwi ? "twi" : "en" }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const base64 = data?.result?.audioBase64 || (data?.result?.audioBuffer?.data
-          ? btoa(String.fromCharCode(...new Uint8Array(data.result.audioBuffer.data)))
-          : null);
-        const mimeType = data?.result?.audioMimeType || "audio/wav";
-        if (base64) {
-          const dataUrl = `data:${mimeType};base64,${base64}`;
-          return this.play(dataUrl, {
-            ...options,
-            onStart: () => {
-              this.setState({ activeText: cleanText });
-              options?.onStart?.();
-            },
-            onEnd: options?.onEnd,
-            onError: options?.onError,
-          });
-        }
-      }
-    } catch (synthErr) {
-      console.warn("[AudioController] Speech synthesis fallback notice:", synthErr);
-    }
+    // 3. Pre-recorded Processing audio fallback (No TTS API dependency)
+    const processingUrl = "/audio/Processing.mp3";
+    return this.play(processingUrl, {
+      ...options,
+      onStart: () => {
+        this.setState({ activeText: cleanText });
+        options?.onStart?.();
+      },
+      onEnd: options?.onEnd,
+      onError: options?.onError,
+    });
 
     // 4. Acoustic guidance tone indicator as clear fail-safe (Zero robotic SpeechSynthesis interference)
     if (typeof window !== "undefined" && "speechSynthesis" in window) {

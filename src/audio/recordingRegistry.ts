@@ -45,6 +45,8 @@ const transcriptLookup = audioTranscripts as Record<string, { verbatim?: string;
 // ── Canonical Prompt Definitions (OP01-OP94) ─────────────────────────
 export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
   welcome: "OP01",
+  service_description: "OP01B",
+  system_description: "OP01B",
   language_selection: "OP02",
   greetings: "OP03",
   welcome_back: "OP04",

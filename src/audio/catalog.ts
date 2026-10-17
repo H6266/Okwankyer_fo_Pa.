@@ -45,6 +45,8 @@ export const AUDIO_CATALOG_ALTERNATES: AudioPromptMetadata[] = AUDIO_CATALOG.fil
 );
 export const ALL_AUDIO_CATALOG = AUDIO_CATALOG;
 
+import { resolveSafeAudioPath } from "./streaming";
+
 export function getAudioFilePath(filename: string, assetRoot?: AudioAssetRoot): string | null {
   const recording = AUDIO_RECORDINGS.find((item) =>
     item.relativePath === filename && (assetRoot === undefined || item.assetRoot === assetRoot)

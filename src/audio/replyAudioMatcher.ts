@@ -64,6 +64,8 @@ function resolveDiskPath(audioUrlOrRelative: string, _assetRoot: "supplied" | "p
   const candidates = [
     path.resolve(process.cwd(), "Audio_files", decoded),
     path.resolve(process.cwd(), "Audio_files", "Twi", decoded),
+    path.resolve(process.cwd(), "Audio_files", "Twi_library", decoded),
+    path.resolve(process.cwd(), "Audio_files", "Twi_library", path.basename(decoded)),
     path.resolve(process.cwd(), "public", "audio", decoded),
     path.resolve(process.cwd(), "audio", decoded),
     path.resolve(process.cwd(), "Audio_files", path.basename(decoded)),
@@ -384,6 +386,32 @@ export function matchReplyToAudio(
       }
       bestResult.audioBuffer = buf;
     }
+  }
+
+  // 4. Safe Fallback: When no audio matched and TTS is unavailable, fallback to pre-recorded Processing audio
+  if (!bestResult.match) {
+    const processingUrl = "/audio/Processing.mp3";
+    const diskPath = resolveDiskPath(processingUrl);
+    const { fs } = getNodeModules();
+    let buf: Buffer | undefined;
+    if (fs && diskPath && fs.existsSync(diskPath)) {
+      buf = audioBufferCache.get(diskPath);
+      if (!buf) {
+        buf = fs.readFileSync(diskPath);
+        audioBufferCache.set(diskPath, buf);
+      }
+    }
+    return {
+      match: true,
+      confidence: 0.5,
+      audioUrl: processingUrl,
+      title: "Processing",
+      spokenText: "Yɛretwɛn... Yɛrebɔ mmɔden ahwɛ wo dwumadie no. Please wait as we process your request.",
+      filePath: diskPath || undefined,
+      audioBuffer: buf,
+      isFallbackToTts: false,
+      matchReason: "processing_audio_fallback",
+    };
   }
 
   return bestResult;

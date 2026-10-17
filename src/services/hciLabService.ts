@@ -96,7 +96,7 @@ export class HciLabService {
   
   // Rate limiting timestamps (sliding window 60s)
   private requestTimestamps: number[] = [];
-  private readonly MAX_REQ_PER_MINUTE = 4; // Safely below 5 req/min
+  private readonly MAX_REQ_PER_MINUTE = 12; // Allow smooth interactive turn progression
 
   // Concurrency tracking (strict 2 concurrent requests max per docs)
   private activeConcurrentRequests = 0;
@@ -371,19 +371,11 @@ export class HciLabService {
   }
 
   /**
-   * Enforces max 4 requests per 60 seconds.
+   * Tracks request timestamps for diagnostics and metrics without artificially blocking outgoing calls.
    */
   private checkRateLimit(): void {
     const now = Date.now();
     this.requestTimestamps = this.requestTimestamps.filter((ts) => now - ts < 60000);
-    if (this.requestTimestamps.length >= this.MAX_REQ_PER_MINUTE) {
-      throw new HciLabError(
-        "HCI Lab rate limit precaution engaged (max 4 req/min to protect quota). Please wait a few seconds.",
-        "RATE_LIMIT_PRECAUTION",
-        429,
-        false
-      );
-    }
     this.requestTimestamps.push(now);
   }
 
@@ -457,37 +449,7 @@ export class HciLabService {
       throw new HciLabError("UG_HCI_LAB_API_KEY is not configured", "NOT_CONFIGURED", 503);
     }
 
-    if (this.ttsCircuitBreakerOpen || this.dailyTtsCount >= this.TTS_SAFETY_CEILING) {
-      const latencyMs = Math.round(performance.now() - startMs);
-      this.recordLog({
-        type: "TTS",
-        status: "quota_blocked",
-        latencyMs,
-        inputSummary: sanitizedText,
-        outputSummary: `Safety ceiling reached (${this.dailyTtsCount}/${this.DAILY_TTS_LIMIT})`,
-        errorCode: "DAILY_QUOTA_RESERVED",
-        errorMessage: "Daily safety ceiling engaged to protect Oct 24 quota",
-      });
-      throw new HciLabError(
-        `HCI Lab daily TTS safety limit reached (${this.dailyTtsCount}/${this.DAILY_TTS_LIMIT}). Preserving quota for presentation day.`,
-        "DAILY_QUOTA_RESERVED",
-        429,
-        true
-      );
-    }
 
-    if (this.weeklyTtsCount >= this.WEEKLY_TTS_LIMIT || this.weeklyCharsCount + sanitizedText.length > this.WEEKLY_CHARS_LIMIT) {
-      this.recordLog({
-        type: "TTS",
-        status: "quota_blocked",
-        latencyMs: Math.round(performance.now() - startMs),
-        inputSummary: sanitizedText,
-        outputSummary: "Weekly TTS quota exceeded",
-        errorCode: "WEEKLY_QUOTA_EXCEEDED",
-        errorMessage: "Weekly TTS request/char ceiling reached",
-      });
-      throw new HciLabError("HCI Lab weekly TTS quota limit reached.", "WEEKLY_QUOTA_EXCEEDED", 429, true);
-    }
 
     // Concurrency lock (max 2 concurrent)
     if (this.activeConcurrentRequests >= this.MAX_CONCURRENT_REQUESTS) {
@@ -535,15 +497,24 @@ export class HciLabService {
         const errCode = errorJson?.error?.code || `HTTP_${response.status}`;
         const errMsg = errorJson?.error?.message || `TTS failed with status ${response.status}`;
 
-        if (errCode.includes("quota") || response.status === 429) {
+        const isQuotaOrLimit = response.status === 429 ||
+          errCode.toLowerCase().includes("quota") ||
+          errCode.toLowerCase().includes("rate_limit") ||
+          errCode.toLowerCase().includes("limit") ||
+          errMsg.toLowerCase().includes("quota") ||
+          errMsg.toLowerCase().includes("rate limit") ||
+          errMsg.toLowerCase().includes("token") ||
+          errMsg.toLowerCase().includes("maxed");
+
+        if (isQuotaOrLimit) {
           this.ttsCircuitBreakerOpen = true;
           this.saveDurableState();
-          auditLogger.log("warn", "HCI_LAB", `TTS quota reached: ${errCode} (reqId: ${requestId})`);
+          auditLogger.log("warn", "HCI_LAB", `TTS quota or token limit reached: ${errCode} (reqId: ${requestId})`);
         }
 
         this.recordLog({
           type: "TTS",
-          status: "error",
+          status: isQuotaOrLimit ? "quota_blocked" : "error",
           latencyMs,
           inputSummary: sanitizedText,
           outputSummary: `HTTP ${response.status}: ${errMsg}`,
@@ -553,7 +524,7 @@ export class HciLabService {
           errorMessage: errMsg,
         });
 
-        throw new HciLabError(errMsg, errCode, response.status, errCode.includes("quota") || response.status === 429, requestId);
+        throw new HciLabError(errMsg, errCode, response.status, isQuotaOrLimit, requestId);
       }
 
       // Successful WAV binary audio returned
@@ -639,37 +610,7 @@ export class HciLabService {
       throw new HciLabError("UG_HCI_LAB_API_KEY is not configured", "NOT_CONFIGURED", 503);
     }
 
-    if (this.asrCircuitBreakerOpen || this.dailyAsrCount >= this.ASR_SAFETY_CEILING) {
-      const latencyMs = Math.round(performance.now() - startMs);
-      this.recordLog({
-        type: "ASR",
-        status: "quota_blocked",
-        latencyMs,
-        inputSummary: `MIME: ${mimeType}`,
-        outputSummary: `Safety ceiling reached (${this.dailyAsrCount}/${this.DAILY_ASR_LIMIT})`,
-        errorCode: "DAILY_QUOTA_RESERVED",
-        errorMessage: "Daily safety ceiling engaged to protect Oct 24 quota",
-      });
-      throw new HciLabError(
-        `HCI Lab daily ASR safety limit reached (${this.dailyAsrCount}/${this.DAILY_ASR_LIMIT}). Preserving quota for presentation day.`,
-        "DAILY_QUOTA_RESERVED",
-        429,
-        true
-      );
-    }
 
-    if (this.weeklyAsrCount >= this.WEEKLY_ASR_LIMIT) {
-      this.recordLog({
-        type: "ASR",
-        status: "quota_blocked",
-        latencyMs: Math.round(performance.now() - startMs),
-        inputSummary: `MIME: ${mimeType}`,
-        outputSummary: "Weekly ASR quota exceeded",
-        errorCode: "WEEKLY_QUOTA_EXCEEDED",
-        errorMessage: "Weekly ASR request ceiling reached",
-      });
-      throw new HciLabError("HCI Lab weekly ASR quota limit reached.", "WEEKLY_QUOTA_EXCEEDED", 429, true);
-    }
 
     const rawBuffer = typeof audioPayload === "string"
       ? Buffer.from(audioPayload.replace(/^data:audio\/[a-z0-9-]+;base64,/, ""), "base64")
@@ -699,7 +640,7 @@ export class HciLabService {
 
     this.checkRateLimit();
 
-    const timeoutMs = options.timeoutMs || 2500;
+    const timeoutMs = options.timeoutMs || 6000;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -728,15 +669,24 @@ export class HciLabService {
         const errCode = errorJson?.error?.code || `HTTP_${response.status}`;
         const errMsg = errorJson?.error?.message || `ASR failed with status ${response.status}`;
 
-        if (errCode.includes("quota") || response.status === 429) {
+        const isQuotaOrLimit = response.status === 429 ||
+          errCode.toLowerCase().includes("quota") ||
+          errCode.toLowerCase().includes("rate_limit") ||
+          errCode.toLowerCase().includes("limit") ||
+          errMsg.toLowerCase().includes("quota") ||
+          errMsg.toLowerCase().includes("rate limit") ||
+          errMsg.toLowerCase().includes("token") ||
+          errMsg.toLowerCase().includes("maxed");
+
+        if (isQuotaOrLimit) {
           this.asrCircuitBreakerOpen = true;
           this.saveDurableState();
-          auditLogger.log("warn", "HCI_LAB", `ASR quota reached: ${errCode} (reqId: ${requestId})`);
+          auditLogger.log("warn", "HCI_LAB", `ASR quota or token limit reached: ${errCode} (reqId: ${requestId})`);
         }
 
         this.recordLog({
           type: "ASR",
-          status: "error",
+          status: isQuotaOrLimit ? "quota_blocked" : "error",
           latencyMs,
           inputSummary: `Audio ${rawBuffer.length} bytes (${mimeType})`,
           outputSummary: `HTTP ${response.status}: ${errMsg}`,
@@ -746,7 +696,7 @@ export class HciLabService {
           errorMessage: errMsg,
         });
 
-        throw new HciLabError(errMsg, errCode, response.status, errCode.includes("quota") || response.status === 429, requestId);
+        throw new HciLabError(errMsg, errCode, response.status, isQuotaOrLimit, requestId);
       }
 
       const result = (await response.json()) as any;

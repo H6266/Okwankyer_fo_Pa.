@@ -71,6 +71,47 @@ export interface AudioManifestResponse {
   allPresent?: boolean;
 }
 
+export interface SessionConversationTurn {
+  id: string;
+  turnNumber: number;
+  timestamp: string;
+  callerInput: string;
+  callerChannel: "VOICE" | "DTMF" | "SIMULATOR" | "TEXT";
+  asrProvider?: string;
+  asrConfidence?: number | null;
+  asrLatencyMs?: number;
+  intent?: string;
+  entitiesExtracted?: Record<string, any>;
+  assistantResponse: string;
+  assistantAudioUrl?: string | null;
+  ttsProvider?: string;
+  step: string;
+  status: "SUCCESS" | "FAILED" | "FALLBACK";
+  rawAsrText?: string;
+}
+
+export interface SessionApiTrace {
+  id: string;
+  timestamp: string;
+  endpoint: string;
+  method: string;
+  provider: string;
+  latencyMs: number;
+  httpStatus: number;
+  requestSummary?: string;
+  responseSummary?: string;
+  status: "SUCCESS" | "ERROR" | "TIMEOUT" | "RATE_LIMITED" | "QUOTA_EXCEEDED";
+  errorMessage?: string;
+}
+
+export interface SessionDiagnosticEvent {
+  id: string;
+  timestamp: string;
+  type: "INFO" | "WARN" | "ERROR" | "QUOTA" | "RATE_LIMIT";
+  message: string;
+  details?: any;
+}
+
 export interface SessionRecord {
   id: string;
   sessionId: string;
@@ -79,12 +120,16 @@ export interface SessionRecord {
   durationSeconds: number;
   language: "en" | "twi";
   finalStep: string;
-  stepReachedIndex: number;
-  outcome: "COMPLETED" | "CANCELLED" | "TIMEOUT" | "ERROR";
+  stepReachedIndex?: number;
+  outcome: "COMPLETED" | "CANCELLED" | "TIMEOUT" | "ERROR" | "FAILED" | "IN_PROGRESS" | "RECONCILIATION_REQUIRED";
   amountGHS?: number;
   recipientName?: string;
   recipientPhone?: string;
   referenceId?: string;
+  isDemo?: boolean;
+  conversationTurns?: SessionConversationTurn[];
+  apiRequests?: SessionApiTrace[];
+  diagnostics?: SessionDiagnosticEvent[];
   voiceXmlTrace: Array<{
     step: string;
     requestBody?: any;
@@ -374,10 +419,69 @@ export const api = {
   },
 
   async getSessions(): Promise<SessionRecord[]> {
-    const res = await fetch("/api/sessions");
+    const res = await fetch("/api/sessions", {
+      headers: getAdminAuthHeaders(),
+      credentials: "same-origin",
+    });
     if (!res.ok) throw new Error(`Sessions fetch failed: ${res.status}`);
     const data = await res.json();
     return data.sessions || [];
+  },
+
+  async getSessionDetail(sessionId: string): Promise<SessionRecord | null> {
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+        headers: getAdminAuthHeaders(),
+        credentials: "same-origin",
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.session || null;
+    } catch {
+      return null;
+    }
+  },
+
+  async logSessionTurn(sessionId: string, turn: Partial<SessionConversationTurn>): Promise<any> {
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/turn`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(turn),
+      });
+      return res.json();
+    } catch (e) {
+      console.warn("Failed to log session turn:", e);
+      return null;
+    }
+  },
+
+  async logSessionApiTrace(sessionId: string, trace: Partial<SessionApiTrace>): Promise<any> {
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/api-trace`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(trace),
+      });
+      return res.json();
+    } catch (e) {
+      console.warn("Failed to log session API trace:", e);
+      return null;
+    }
+  },
+
+  async logSessionDiagnostic(sessionId: string, diag: Partial<SessionDiagnosticEvent>): Promise<any> {
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/diagnostic`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(diag),
+      });
+      return res.json();
+    } catch (e) {
+      console.warn("Failed to log session diagnostic:", e);
+      return null;
+    }
   },
 
   async getLedger(): Promise<LedgerItem[]> {
@@ -1159,6 +1263,7 @@ export const api = {
     text: string;
     language?: string;
     style?: string;
+    sessionId?: string;
   }): Promise<{ success: boolean; result: { audioBase64?: string; audioMimeType?: string; providerUsed?: string } }> {
     const res = await fetch("/api/ai/synthesize", {
       method: "POST",
@@ -1260,9 +1365,12 @@ export const api = {
     mimeType?: string,
     language?: string,
     step?: string,
-    hintText?: string
+    hintText?: string,
+    sessionId?: string
   ): Promise<{
     success: boolean;
+    quotaExhausted?: boolean;
+    error?: string;
     result: {
       text: string;
       confidence: number;
@@ -1270,15 +1378,22 @@ export const api = {
       provider?: string;
       durationMs?: number;
       speechActivityDetected?: boolean;
+      quotaExhausted?: boolean;
+      message?: string;
     };
   }> {
     const res = await fetch("/api/ai/transcribe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ audioBase64, mimeType, language, step, hintText }),
+      body: JSON.stringify({ audioBase64, mimeType, language, step, hintText, sessionId }),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Audio transcription failed");
+    if (!res.ok) {
+      const err: any = new Error(data.error || "Audio transcription failed");
+      err.quotaExhausted = Boolean(data.quotaExhausted);
+      err.data = data;
+      throw err;
+    }
     return data;
   },
 

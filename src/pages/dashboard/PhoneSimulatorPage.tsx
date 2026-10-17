@@ -170,20 +170,7 @@ function resolvePlayableSimulatorAudioUrl(
   const suppliedUrl = resolveSimulatorAudioUrl(audioUrl, language);
   if (!suppliedUrl) return null;
 
-  if (suppliedUrl.endsWith(".m4a") && typeof document !== "undefined") {
-    const audio = document.createElement("audio");
-    const canPlay =
-      audio.canPlayType?.('audio/mp4; codecs="mp4a.40.2"') ||
-      audio.canPlayType?.('audio/mp4') ||
-      audio.canPlayType?.('audio/x-m4a') ||
-      audio.canPlayType?.('audio/aac');
-    if (!canPlay) {
-      // Browser rejects .m4a (AAC); seamlessly use .mp3 mirror
-      return suppliedUrl.replace(/\.m4a$/i, ".mp3");
-    }
-  }
-
-  return suppliedUrl;
+  return suppliedUrl.replace(/\.m4a$/i, ".mp3");
 }
 
 export const PhoneSimulatorPage: React.FC = () => {
@@ -1607,7 +1594,7 @@ export const PhoneSimulatorPage: React.FC = () => {
       // Fast-Path Step-Aware Routing for Spoken Amount:
       if (curStep === "enter-amount" || curStep === "amount-entry" || curStep.includes("amount")) {
         const amtMatch = effectiveClean.match(/(\d+(?:\.\d+)?)\s*(?:cedis?|ghs|gh¢)?/i);
-        const parsedAmt = amtMatch ? parseFloat(amtMatch[1]) : (extractedDigits.length > 0 && extractedDigits.length <= 5 ? parseFloat(extractedDigits) : NaN);
+        const parsedAmt = amtMatch ? parseFloat(amtMatch[1]) : (rawDigits.length > 0 && rawDigits.length <= 5 ? parseFloat(rawDigits) : NaN);
         if (!isNaN(parsedAmt) && parsedAmt > 0 && parsedAmt <= 10000) {
           const amtStr = String(parsedAmt);
           addLog("asr", `💰 Step-Aware Router: Detected amount: ${amtStr} Cedis`);

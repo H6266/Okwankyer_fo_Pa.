@@ -263,6 +263,17 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         spokenTextEn: "Welcome to Ɔkwankyerɛfo Pa, your accessible voice guide for mobile services.",
       },
       {
+        promptId: "OP01B",
+        title: "System Service Description",
+        categoryNumber: 1,
+        categoryName: "Welcome & Session Start",
+        state: "SERVICE_DESCRIPTION",
+        audioUrl: "/audio/service_description.mp3",
+        fallbackAudioUrl: "/audio/Twi_library/service_description.mp3",
+        spokenTextTwi: "Welcome to Okwankyerɛfo Pa, we are an accessibility layer that help and makes services easy for everyone with inclusivity, the elderly and disabled.",
+        spokenTextEn: "Welcome to Okwankyerɛfo Pa, we are an accessibility layer that helps and makes services easy for everyone with inclusivity, the elderly and disabled.",
+      },
+      {
         promptId: "OP02",
         title: "Language Selection Gate",
         categoryNumber: 1,
