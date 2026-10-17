@@ -189,30 +189,52 @@ export function isAcousticSystemEcho(
   const normalizedTranscript = normalizeTextForComparison(transcript);
   if (normalizedTranscript.length < 1) return false;
 
-  // Explicit user inputs (digits, affirmative words, caller commands) are NOT echoes!
+  const normalizedPrompt = activeAssistantPrompt ? normalizeTextForComparison(activeAssistantPrompt) : "";
+
+  // 1. Extra sensitivity and strict suppression while the assistant is actively playing audio through the speakers
+  if (isAssistantSpeaking) {
+    // If active prompt contains the transcript chunk (e.g. prompt is speaking "press 9 to repeat" and mic hears "repeat" or "9")
+    if (normalizedPrompt && (normalizedPrompt.includes(normalizedTranscript) || normalizedTranscript.includes(normalizedPrompt))) {
+      return true;
+    }
+    // Any repeat/navigation command while assistant is actively speaking is 100% speaker leakage
+    if (/^(repeat|again|say again|bio|tie bio|san akyi|what|menu|back|cancel|stop|0|1|2|3|4|5|6|7|8|9)$/i.test(normalizedTranscript)) {
+      return true;
+    }
+    for (const prompt of CANONICAL_SYSTEM_PROMPTS) {
+      if (prompt.includes(normalizedTranscript) || normalizedTranscript.includes(prompt)) {
+        return true;
+      }
+      const words = normalizedTranscript.split(" ").filter((w) => w.length > 2);
+      if (words.length >= 2) {
+        const matchCount = words.filter((w) => prompt.includes(w)).length;
+        if (matchCount / words.length >= 0.5) {
+          return true;
+        }
+      }
+    }
+  }
+
+  // 2. Suppress acoustic tail echoes of the prompt's own trailing repeat/option phrases
+  // E.g. Prompt says "...To repeat these options, press 9" and room reverb feeds "repeat" into the mic
+  if (normalizedPrompt) {
+    if (
+      normalizedTranscript.length >= 3 &&
+      normalizedPrompt.includes(normalizedTranscript) &&
+      /^(repeat|again|say again|tie bio|san akyi|to repeat|press 9 to repeat|to repeat press 9|mia 9|mia nkron)$/i.test(normalizedTranscript)
+    ) {
+      return true;
+    }
+  }
+
+  // 3. Explicit user inputs (digits, genuine commands, recipient names/amounts) are NOT echoes when assistant is not speaking
   if (isStandaloneCallerIntent(normalizedTranscript)) {
     return false;
   }
 
-  // CRITICAL: Acoustic echo from system speakers can ONLY physically happen while
-  // the assistant is actively speaking audio through the loudspeakers!
-  // Once the prompt has finished playing, any sound entering the mic is the USER's voice.
-  if (!isAssistantSpeaking) {
-    // If assistant is not speaking, only flag as echo if the transcript is an exact verbatim copy of the entire prompt
-    if (activeAssistantPrompt && activeAssistantPrompt.trim().length > 0) {
-      const normalizedPrompt = normalizeTextForComparison(activeAssistantPrompt);
-      if (normalizedTranscript.length >= 15 && normalizedPrompt === normalizedTranscript) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  // 1. Check against the currently playing assistant prompt
-  if (activeAssistantPrompt && activeAssistantPrompt.trim().length > 0) {
-    const normalizedPrompt = normalizeTextForComparison(activeAssistantPrompt);
-    
-    // Substring match: transcript is a direct phrase from the actively playing prompt
+  // 4. Check against the currently / recently playing assistant prompt
+  if (normalizedPrompt) {
+    // Substring match: transcript is a direct phrase from the prompt
     if (normalizedTranscript.length >= 6 && normalizedPrompt.includes(normalizedTranscript)) {
       return true;
     }
@@ -227,12 +249,21 @@ export function isAcousticSystemEcho(
     }
   }
 
-  // 2. Extra sensitivity if the assistant is actively playing audio through the speakers
+  // 5. Check against known system prompt catalog
   for (const prompt of CANONICAL_SYSTEM_PROMPTS) {
+    // If transcript is found inside a known system prompt
+    if (prompt.includes(normalizedTranscript) && normalizedTranscript.length >= 8) {
+      return true;
+    }
+    // If transcript contains a major chunk of a system prompt
+    if (normalizedTranscript.includes(prompt) && prompt.length >= 10) {
+      return true;
+    }
+    // High word overlap against known prompt
     const words = normalizedTranscript.split(" ").filter((w) => w.length > 2);
-    if (words.length >= 2) {
+    if (words.length >= 3) {
       const matchCount = words.filter((w) => prompt.includes(w)).length;
-      if (matchCount / words.length >= 0.6) {
+      if (matchCount / words.length >= 0.7) {
         return true;
       }
     }

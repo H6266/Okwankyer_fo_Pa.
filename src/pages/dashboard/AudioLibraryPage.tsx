@@ -134,9 +134,6 @@ export const AudioLibraryPage: React.FC = () => {
   useEffect(() => {
     fetchManifest();
     runMatcherTest("Please enter the recipient phone number", "en");
-    return () => {
-      stopAudio();
-    };
   }, []);
 
   const fetchManifest = async () => {

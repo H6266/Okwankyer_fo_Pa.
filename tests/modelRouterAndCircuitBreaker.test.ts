@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { ModelRouter, CognitiveCapability } from "../src/ai_system/providers/modelRouter";
+import { geminiClient } from "../src/services/geminiClient";
 
 describe("ModelRouter & Circuit Breakers (Section 41 & 42)", () => {
   it("uses Gemini as the primary provider and keeps deterministic / local-brain fallbacks in the default routing order", () => {
@@ -11,6 +12,7 @@ describe("ModelRouter & Circuit Breakers (Section 41 & 42)", () => {
   });
 
   it("trips circuit breaker after consecutive failures and falls back to deterministic engine", async () => {
+    vi.spyOn(geminiClient, "isAvailable").mockReturnValue(false);
     const router = new ModelRouter();
 
     let remoteAttempts = 0;

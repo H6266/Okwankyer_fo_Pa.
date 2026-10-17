@@ -113,32 +113,26 @@ const PHONETIC_CORRECTION_RULES: Array<{
   { pattern: /\b(?:ahanum|aha\s*num)\b/gi, replacement: "500", category: "number", reason: "Akan 500 normalization" },
   { pattern: /\b(?:apem|mpem)\b/gi, replacement: "1000", category: "number", reason: "Akan 1000 normalization" },
 
-  // ── English Numbers & Ordinals Normalization ──
-  { pattern: /\b(?:option\s*1|number\s*1|option\s*one|number\s*one|menu\s*1|item\s*1)\b/gi, replacement: "1", category: "number", reason: "Option 1 normalization" },
-  { pattern: /\b(?:option\s*2|number\s*2|option\s*two|number\s*two|menu\s*2|item\s*2)\b/gi, replacement: "2", category: "number", reason: "Option 2 normalization" },
-  { pattern: /\b(?:option\s*3|number\s*3|option\s*three|number\s*three|menu\s*3|item\s*3)\b/gi, replacement: "3", category: "number", reason: "Option 3 normalization" },
-  { pattern: /\b(?:baako\s*pɛ|baa\s*ko)\b/gi, replacement: "1", category: "number", reason: "Akan 1 normalization" },
-  { pattern: /\b(?:one|won|wan|first|1st)\b/gi, replacement: "1", category: "number", reason: "Number 1 normalization" },
-  { pattern: /\b(?:two|too|tu|to|second|2nd)\b/gi, replacement: "2", category: "number", reason: "Number 2 normalization" },
-  { pattern: /\b(?:three|tree|tri|third|3rd)\b/gi, replacement: "3", category: "number", reason: "Number 3 normalization" },
-  { pattern: /\b(?:four|fo|fore|fourth|4th)\b/gi, replacement: "4", category: "number", reason: "Number 4 normalization" },
-  { pattern: /\b(?:five|faiv|fiv|fifth|5th)\b/gi, replacement: "5", category: "number", reason: "Number 5 normalization" },
-  { pattern: /\b(?:six|siks|sixth|6th)\b/gi, replacement: "6", category: "number", reason: "Number 6 normalization" },
-  { pattern: /\b(?:seven|sevn|seventh|7th)\b/gi, replacement: "7", category: "number", reason: "Number 7 normalization" },
-  { pattern: /\b(?:eight|eit|ate|eighth|8th)\b/gi, replacement: "8", category: "number", reason: "Number 8 normalization" },
-  { pattern: /\b(?:nine|nain|ninth|9th)\b/gi, replacement: "9", category: "number", reason: "Number 9 normalization" },
-  { pattern: /\b(?:zero|ziro|zerro|oh|hwee)\b/gi, replacement: "0", category: "number", reason: "Number 0 normalization" },
-  { pattern: /\b(?:ten|tɛn)\b/gi, replacement: "10", category: "number", reason: "Number 10 normalization" },
-  { pattern: /\b(?:twenty|twenti)\b/gi, replacement: "20", category: "number", reason: "Number 20 normalization" },
-  { pattern: /\b(?:thirty|toti|tarti)\b/gi, replacement: "30", category: "number", reason: "Number 30 normalization" },
-  { pattern: /\b(?:forty|foti|fawti)\b/gi, replacement: "40", category: "number", reason: "Number 40 normalization" },
-  { pattern: /\b(?:fifty|fifti|fivety|fiftie)\b/gi, replacement: "50", category: "number", reason: "Number 50 normalization" },
-  { pattern: /\b(?:sixty|siksti)\b/gi, replacement: "60", category: "number", reason: "Number 60 normalization" },
-  { pattern: /\b(?:seventy|sevnti)\b/gi, replacement: "70", category: "number", reason: "Number 70 normalization" },
-  { pattern: /\b(?:eighty|eiti)\b/gi, replacement: "80", category: "number", reason: "Number 80 normalization" },
-  { pattern: /\b(?:ninety|nainti)\b/gi, replacement: "90", category: "number", reason: "Number 90 normalization" },
-  { pattern: /\b(?:hundred|handred|handrid|hondred)\b/gi, replacement: "100", category: "number", reason: "Number 100 normalization" },
-  { pattern: /\b(?:thousand|tusan|taosan)\b/gi, replacement: "1000", category: "number", reason: "Number 1000 normalization" },
+  // ── English Numbers with Ghanaian Accents ──
+  { pattern: /\b(?:won|wan)\b/gi, replacement: "1", category: "number", reason: "Ghanaian accent 1" },
+  { pattern: /\b(?:too|tu)\b/gi, replacement: "2", category: "number", reason: "Ghanaian accent 2" },
+  { pattern: /\b(?:tree|tri)\b/gi, replacement: "3", category: "number", reason: "Ghanaian accent 3" },
+  { pattern: /\b(?:fo|fore)\b/gi, replacement: "4", category: "number", reason: "Ghanaian accent 4" },
+  { pattern: /\b(?:faiv|fiv)\b/gi, replacement: "5", category: "number", reason: "Ghanaian accent 5" },
+  { pattern: /\b(?:siks)\b/gi, replacement: "6", category: "number", reason: "Ghanaian accent 6" },
+  { pattern: /\b(?:sevn)\b/gi, replacement: "7", category: "number", reason: "Ghanaian accent 7" },
+  { pattern: /\b(?:eit|ate)\b/gi, replacement: "8", category: "number", reason: "Ghanaian accent 8" },
+  { pattern: /\b(?:nain)\b/gi, replacement: "9", category: "number", reason: "Ghanaian accent 9" },
+  { pattern: /\b(?:ziro|zerro)\b/gi, replacement: "0", category: "number", reason: "Ghanaian accent 0" },
+  { pattern: /\b(?:toti|tarti)\b/gi, replacement: "30", category: "number", reason: "Ghanaian accent 30" },
+  { pattern: /\b(?:foti|fawti)\b/gi, replacement: "40", category: "number", reason: "Ghanaian accent 40" },
+  { pattern: /\b(?:fifti|fivety|fiftie)\b/gi, replacement: "50", category: "number", reason: "Ghanaian accent 50" },
+  { pattern: /\b(?:siksti)\b/gi, replacement: "60", category: "number", reason: "Ghanaian accent 60" },
+  { pattern: /\b(?:sevnti)\b/gi, replacement: "70", category: "number", reason: "Ghanaian accent 70" },
+  { pattern: /\b(?:eiti)\b/gi, replacement: "80", category: "number", reason: "Ghanaian accent 80" },
+  { pattern: /\b(?:nainti)\b/gi, replacement: "90", category: "number", reason: "Ghanaian accent 90" },
+  { pattern: /\b(?:handred|handrid|hondred)\b/gi, replacement: "100", category: "number", reason: "Ghanaian accent 100" },
+  { pattern: /\b(?:tusan|taosan)\b/gi, replacement: "1000", category: "number", reason: "Ghanaian accent 1000" },
 
   // ── Ghanaian Names Phonetic Normalization ──
   { pattern: /\b(?:kwami|quame|kame)\b/gi, replacement: "Kwame", category: "name", reason: "Kwame spelling normalization" },
@@ -170,19 +164,21 @@ export function repairGhanaianPronunciation(rawText: string): PhoneticMatchResul
 
   // 1. Apply Rule-Based Phonetic Normalizations
   for (const rule of PHONETIC_CORRECTION_RULES) {
-    const rx = new RegExp(rule.pattern.source, rule.pattern.flags);
-    if (rx.test(text)) {
-      const replRx = new RegExp(rule.pattern.source, rule.pattern.flags);
-      text = text.replace(replRx, (match) => {
-        corrections.push({
-          original: match,
-          corrected: rule.replacement,
-          confidence: 0.96,
-          category: rule.category,
-          reason: rule.reason,
+    if (rule.pattern.test(text)) {
+      // Find original matches
+      const matches = text.match(rule.pattern);
+      if (matches) {
+        matches.forEach((m) => {
+          corrections.push({
+            original: m,
+            corrected: rule.replacement,
+            confidence: 0.96,
+            category: rule.category,
+            reason: rule.reason,
+          });
         });
-        return rule.replacement;
-      });
+      }
+      text = text.replace(rule.pattern, rule.replacement);
     }
   }
 

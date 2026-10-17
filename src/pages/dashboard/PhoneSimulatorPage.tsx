@@ -344,6 +344,7 @@ export const PhoneSimulatorPage: React.FC = () => {
   const lastUtteranceTimeRef = useRef<number>(0);
   const lastUtteranceTextRef = useRef<string>("");
   const prevInterimTranscriptRef = useRef<string>("");
+  const consecutiveRepeatCountRef = useRef<number>(0);
 
   // Synchronous session state refs
   const callActiveRef = useRef<boolean>(false);
@@ -355,7 +356,6 @@ export const PhoneSimulatorPage: React.FC = () => {
   const isMicMutedRef = useRef<boolean>(false);
   const zeroPinOverlayRef = useRef<boolean>(false);
   const brainDraftRef = useRef<any>({ slots: {} });
-  const micUnmuteTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => { callActiveRef.current = callActive; }, [callActive]);
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
@@ -493,60 +493,37 @@ export const PhoneSimulatorPage: React.FC = () => {
   }, [chatTurns, terminalLogs, interimTranscript]);
 
   // Audio controller subscription: keep mic strictly OFF while prompt audio is playing,
-  // and automatically turn on the mic IMMEDIATELY after the prompt audio finishes playing.
+  // and automatically turn on the mic ONLY after the prompt audio finishes playing.
   useEffect(() => {
     let wasPlaying = false;
     const unsubscribe = audioPlaybackController.subscribe((state) => {
       setIsAudioSpeaking(state.isPlaying);
       if (!callActiveRef.current) return;
-
       if (state.isPlaying) {
         wasPlaying = true;
-        if (micUnmuteTimerRef.current) {
-          clearTimeout(micUnmuteTimerRef.current);
-          micUnmuteTimerRef.current = null;
-        }
         // Turn mic OFF while prompt is playing so internal audio is never recorded
         setIsMicMuted(true);
         isMicMutedRef.current = true;
         continuousAudioEngine.pauseForPlayback();
         setCallStatus("Speaking");
       } else {
-        // When prompt audio ends (or if call is active and mic needs to be opened)
-        if (!zeroPinOverlayRef.current && !isVoiceCaptureBlockedForStep(activeStepNameRef.current)) {
-          if (micUnmuteTimerRef.current) {
-            clearTimeout(micUnmuteTimerRef.current);
-            micUnmuteTimerRef.current = null;
-          }
-          // Acoustic breath buffer (250ms): room speaker sound decays, then mic turns ON automatically
-          micUnmuteTimerRef.current = setTimeout(() => {
-            micUnmuteTimerRef.current = null;
-            if (
-              !audioPlaybackController.isSpeaking() &&
-              callActiveRef.current &&
-              !zeroPinOverlayRef.current &&
-              !isVoiceCaptureBlockedForStep(activeStepNameRef.current)
-            ) {
+        if (wasPlaying && !zeroPinOverlayRef.current && !isVoiceCaptureBlockedForStep(activeStepNameRef.current)) {
+          wasPlaying = false;
+          // Generous 650ms acoustic tail buffer so speaker room echo isn't recorded, then auto-turn ON mic
+          setTimeout(() => {
+            if (!audioPlaybackController.isSpeaking() && callActiveRef.current && !zeroPinOverlayRef.current) {
               setIsMicMuted(false);
               isMicMutedRef.current = false;
               continuousAudioEngine.setZeroPinMuted(false);
-              continuousAudioEngine.resumeAfterPlayback();
               continuousAudioEngine.startAlwaysOnMic(languageRef.current || "en", activeStepNameRef.current);
               setCallStatus("Listening");
-              addLog("asr", "🎙️ Audio prompt finished — Microphone automatically enabled (Listening).");
+              addLog("asr", "🎙️ Audio prompt finished — Microphone automatically turned ON to record your need.");
             }
-          }, 250);
+          }, 650);
         }
-        wasPlaying = false;
       }
     });
-    return () => {
-      if (micUnmuteTimerRef.current) {
-        clearTimeout(micUnmuteTimerRef.current);
-        micUnmuteTimerRef.current = null;
-      }
-      unsubscribe();
-    };
+    return () => unsubscribe();
   }, [addLog]);
 
   // Format MM:SS timer
@@ -658,17 +635,8 @@ export const PhoneSimulatorPage: React.FC = () => {
         setDigitsBuffer("");
       }
 
-      // Follow <Redirect> after auto-playing any associated audio prompt
+      // Follow <Redirect> to next VoiceXML document
       if (parsed.redirectUrl) {
-        if (playbackUrl) {
-          addLog("audio", `🔊 Auto-playing feed prompt: ${playbackUrl}`);
-          try {
-            await audioPlaybackController.play(playbackUrl, parsed.sayText || undefined);
-          } catch (err) {
-            console.warn("[PhoneSimulator] Redirect audio play notice:", err);
-          }
-        }
-        audioPlaybackController.stop();
         addLog("state", `Redirecting to ${parsed.redirectUrl}`);
         return dispatchVoiceWebhook(parsed.redirectUrl);
       }
@@ -856,8 +824,8 @@ export const PhoneSimulatorPage: React.FC = () => {
         options: choices,
       });
 
-      // Stop any prior audio atomically without broadcast flap so new prompts never collide
-      audioPlaybackController.stop(false);
+      // Stop any prior audio so new prompts never collide
+      audioPlaybackController.stop();
       audioPlaybackController.unlockAudio();
       const resolvedSequence = (parsed.playUrls && parsed.playUrls.length > 1)
         ? (parsed.playUrls.map(u => resolvePlayableSimulatorAudioUrl(u, responseLanguage)).filter(Boolean) as string[])
@@ -873,12 +841,12 @@ export const PhoneSimulatorPage: React.FC = () => {
         const sequencePlayback = audioPlaybackController.playSequence(resolvedSequence);
         const sequenceToken = audioPlaybackController.getCurrentToken();
         sequencePlayback.then(async (played) => {
-          if (!played && audioPlaybackController.getCurrentToken() === sequenceToken && promptText) {
+          if (!played && audioPlaybackController.getCurrentToken() === sequenceToken) {
             await audioPlaybackController.speakText(promptText);
           }
         }).catch((err) => {
           console.warn("[PhoneSimulator] Sequence auto-play notice:", err);
-          if (audioPlaybackController.getCurrentToken() === sequenceToken && promptText) {
+          if (audioPlaybackController.getCurrentToken() === sequenceToken) {
             return audioPlaybackController.speakText(promptText);
           }
         }).catch((err) => {
@@ -888,15 +856,6 @@ export const PhoneSimulatorPage: React.FC = () => {
         addLog("audio", `🔊 Auto-playing prompt: ${playbackUrl}`);
         audioPlaybackController.play(playbackUrl, promptText).catch((err) => {
           console.warn("[PhoneSimulator] Auto-play prompt notice:", err);
-          if (promptText) {
-            audioPlaybackController.speakText(promptText).catch(() => {});
-          } else {
-            audioPlaybackController.playToneIndicator().catch(() => {});
-          }
-        });
-      } else if (promptText && promptText.trim()) {
-        addLog("audio", `🔊 Auto-playing speech prompt: "${promptText}"`);
-        audioPlaybackController.speakText(promptText).catch(() => {
           audioPlaybackController.playToneIndicator().catch(() => {});
         });
       } else {
@@ -1184,10 +1143,8 @@ export const PhoneSimulatorPage: React.FC = () => {
       const clean = normalizeSpokenDigits(utterance.trim());
       if (!clean) return;
 
-      // STRICT GUARD: If audio prompt is actively playing or draining, DROP this utterance completely
-      // so audios never hear themselves, play themselves, or overlap!
-      if (!isDirectSimulated && (audioPlaybackController.isSpeaking() || isAudioSpeaking || audioPlaybackController.isWithinEchoDrainWindow(600))) {
-        console.warn("[PhoneSimulator] Dropping speech while audio is playing/draining:", clean);
+      // Do not process live microphone speech while system audio is actively playing through speakers
+      if (audioPlaybackController.isSpeaking() && !isDirectSimulated) {
         return;
       }
 
@@ -1204,9 +1161,9 @@ export const PhoneSimulatorPage: React.FC = () => {
         return;
       }
 
-      // Debounce duplicate recognition events
+      // Debounce duplicate recognition events (2500ms deduplication window)
       const now = Date.now();
-      if (clean === lastUtteranceTextRef.current && now - lastUtteranceTimeRef.current < 400) {
+      if (clean === lastUtteranceTextRef.current && now - lastUtteranceTimeRef.current < 2500) {
         return;
       }
       lastUtteranceTextRef.current = clean;
@@ -1577,27 +1534,12 @@ export const PhoneSimulatorPage: React.FC = () => {
         stop: "0",
         exit: "0",
       };
-      // Direct spoken digit and shortcut matching (1, 2, 3, etc.)
-      let directDigit: string | undefined;
-      if (/^(?:1|one|won|wan|baako|bako|first|option\s*1|number\s*1|menu\s*1|item\s*1)$/i.test(normalizedOption)) {
-        directDigit = "1";
-      } else if (/^(?:2|two|too|mmienu|mienu|second|option\s*2|number\s*2|menu\s*2|item\s*2)$/i.test(normalizedOption)) {
-        directDigit = "2";
-      } else if (/^(?:3|three|tree|mmiɛnsa|mmiensa|third|option\s*3|number\s*3|menu\s*3|item\s*3)$/i.test(normalizedOption)) {
-        directDigit = "3";
-      } else if (/^(?:4|four|fo|enan|ɛnan|fourth)$/i.test(normalizedOption)) {
-        directDigit = "4";
-      } else if (/^(?:5|five|faiv|enum|ɛnum|fifth)$/i.test(normalizedOption)) {
-        directDigit = "5";
-      } else if (/^(?:0|zero|ziro|stop|cancel|exit|gyae|hwee)$/i.test(normalizedOption)) {
-        directDigit = "0";
-      }
-
-      // Single-token menu shortcuts trigger immediate DTMF auto-dial.
-      const isSingleChoice = effectiveClean.split(/\s+/).length <= 3;
-      const matchedDtmf = directDigit || (isSingleChoice
-        ? (navigationOptions[normalizedOption] || (stepGroup ? optionMap[stepGroup]?.[normalizedOption] : undefined))
-        : undefined);
+      // Only single-token menu shortcuts (e.g. "1", "2", "8", "9", "0") trigger immediate DTMF auto-dial.
+      // Full natural conversation sentences are routed directly to the AI Brain.
+      const isSingleChoice = effectiveClean.split(/\s+/).length <= 2;
+      const matchedDtmf = isSingleChoice
+        ? (navigationOptions[normalizedOption] || (stepGroup ? optionMap[stepGroup][normalizedOption] : undefined))
+        : undefined;
 
       // Fast-path spoken recipient verification handler (OP24)
       if (curStep === "verify-recipient" || curStep === "recipient-verify-choice" || curStep.includes("recipient-verify")) {
@@ -1650,6 +1592,15 @@ export const PhoneSimulatorPage: React.FC = () => {
       }
 
       if (matchedDtmf) {
+        if (matchedDtmf === "9") {
+          consecutiveRepeatCountRef.current += 1;
+          if (consecutiveRepeatCountRef.current > 2) {
+            addLog("asr", "⚠️ Spoken repeat suppressed to prevent infinite loop. Awaiting caller selection.");
+            return;
+          }
+        } else {
+          consecutiveRepeatCountRef.current = 0;
+        }
         addLog("asr", `Spoken menu choice "${effectiveClean}" mapped to keypad [${matchedDtmf}]`);
         setVoiceSyncStatus({ text: effectiveClean, action: `Auto-dialed DTMF [${matchedDtmf}]`, dtmf: matchedDtmf, timestamp: Date.now() });
         setActiveKeypadPulse(matchedDtmf);
@@ -1657,6 +1608,8 @@ export const PhoneSimulatorPage: React.FC = () => {
         setTimeout(() => setActiveKeypadPulse(null), 450);
         return dispatchVoiceWebhook(targetCallback, { dtmfDigits: matchedDtmf });
       }
+
+      consecutiveRepeatCountRef.current = 0;
 
       if (curStep.includes("confirm") || curStep.includes("verify-choice")) {
         addLog("state", "Routing spoken approval through the guarded simulator confirmation callback.");
@@ -1839,9 +1792,7 @@ export const PhoneSimulatorPage: React.FC = () => {
   // ── Simulated Voice Utterance (Word-by-word streaming) ─────────────────
   const simulateVoiceUtterance = useCallback(
     async (textToSpeak: string) => {
-      // Strip UI helper parenthetical notes like "(One)" or "(Proceed)" so spoken phrase is clean
-      const cleanedInput = textToSpeak.replace(/\s*\([^)]*\)/g, "").trim() || textToSpeak.trim();
-      const phrase = cleanedInput;
+      const phrase = textToSpeak.trim();
       if (!phrase || isSimulatingSpeech) return;
 
       audioPlaybackController.unlockAudio();
@@ -1865,15 +1816,11 @@ export const PhoneSimulatorPage: React.FC = () => {
         rolling = rolling ? `${rolling} ${rawWord}` : rawWord;
         setInterimTranscript(rolling);
 
-        const normalizedRaw = normalizeSpokenDigits(rawWord);
         const phonetic = repairGhanaianPronunciation(rawWord);
-        const isMatch = phonetic.repairedWords.length > 0 || (rawWord.toLowerCase() !== normalizedRaw.toLowerCase());
-        const repairedValue = normalizedRaw !== rawWord ? normalizedRaw : phonetic.normalizedTranscript;
-
         const tokenItem = {
           word: rawWord,
-          repaired: isMatch ? repairedValue : undefined,
-          isPhoneticMatch: isMatch,
+          repaired: phonetic.repairedWords.length > 0 ? phonetic.normalizedTranscript : undefined,
+          isPhoneticMatch: phonetic.repairedWords.length > 0,
           timestamp: Date.now(),
         };
 
@@ -1889,22 +1836,15 @@ export const PhoneSimulatorPage: React.FC = () => {
         await new Promise((r) => setTimeout(r, 75));
       }
 
-      // Finalize utterance with Ghanaian pronunciation repair & digit normalization
+      // Finalize utterance with Ghanaian pronunciation repair
       const normalized = normalizeSpokenDigits(phrase);
-      const repair = repairGhanaianPronunciation(phrase);
-      const effective = normalizeSpokenDigits(repair.normalizedTranscript || normalized);
+      const repair = repairGhanaianPronunciation(normalized);
+      const effective = repair.normalizedTranscript || normalized;
 
-      const allCorrections = [
-        ...repair.repairedWords,
-        ...(phrase.toLowerCase() !== normalized.toLowerCase() && !repair.repairedWords.some((r) => r.corrected === normalized)
-          ? [{ original: phrase, corrected: normalized, reason: "Numeral normalization", confidence: 0.98, category: "number" as const }]
-          : []),
-      ];
-
-      if (allCorrections.length > 0) {
+      if (repair.repairedWords.length > 0) {
         addLog(
           "asr",
-          `💡 Pronunciation normalized: ${allCorrections
+          `💡 Pronunciation normalized: ${repair.repairedWords
             .map((r) => `"${r.original}" ➔ "${r.corrected}" (${r.reason})`)
             .join(", ")}`
         );
@@ -1929,15 +1869,7 @@ export const PhoneSimulatorPage: React.FC = () => {
   // Subscribe to Always-On continuous audio engine utterances & state
   useEffect(() => {
     const unsubUtterance = continuousAudioEngine.subscribeUtterance((utterance) => {
-      if (
-        isMicMutedRef.current ||
-        zeroPinOverlayRef.current ||
-        isAudioSpeaking ||
-        audioPlaybackController.isSpeaking() ||
-        audioPlaybackController.isWithinEchoDrainWindow(600)
-      ) {
-        return;
-      }
+      if (isMicMutedRef.current || zeroPinOverlayRef.current) return;
       if (utterance && utterance.trim()) {
         processSpokenUtterance(utterance);
       }
@@ -2013,6 +1945,7 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       // 2. Barge-in: stop system audio on keypress
       audioPlaybackController.stop();
+      consecutiveRepeatCountRef.current = 0;
 
       // If inactive, dial in chosen language
       if (!callActiveRef.current) {
@@ -2959,29 +2892,29 @@ export const PhoneSimulatorPage: React.FC = () => {
 
             <div className="flex flex-wrap gap-1.5">
               {[
-                { label: "1 (One)", phrase: "one", desc: "Say 'one' -> Transcribed as 1 and auto-dialed to DTMF [1]" },
-                { label: "1 (Confirm Recipient)", phrase: "1", desc: "Confirm Recipient & Advance to Amount (OP24)" },
-                { label: "Yoo, kɔ so (Proceed)", phrase: "Yoo, kɔ so", desc: "Twi: Advance past recipient verification" },
-                { label: "2 (Two)", phrase: "two", desc: "Say 'two' -> Transcribed as 2 and auto-dialed to DTMF [2]" },
-                { label: "3 (Three)", phrase: "three", desc: "Say 'three' -> Transcribed as 3 and auto-dialed to DTMF [3]" },
-                { label: "English", phrase: "English", desc: "Select English (DTMF 1)" },
-                { label: "Twi", phrase: "Twi", desc: "Select Akan Twi (DTMF 2)" },
-                { label: "Mobile Money", phrase: "Mobile Money", desc: "Service 1 (MoMo)" },
-                { label: "MTN", phrase: "MTN", desc: "Network 1 (MTN)" },
-                { label: "Send money", phrase: "Send money", desc: "Action 1 (Send Money)" },
-                { label: "0553838464", phrase: "0553838464", desc: "10-Digit Recipient Phone (Voice ASR: advances without #)" },
-                { label: "50 cedis", phrase: "50 cedis", desc: "Amount 50 Cedis (Voice ASR: advances without #)" },
-                { label: "Confirm", phrase: "Confirm", desc: "Confirm Safe Transfer (1)" },
-                { label: "1234", phrase: "1234", desc: "Voice PIN authorization (Voice ASR: advances without #)" },
-                { label: "Baako", phrase: "Baako", desc: "Twi 1 (Baako)" },
-                { label: "Mmienu", phrase: "Mmienu", desc: "Twi 2 (Mmienu)" },
-                { label: "Aane, pene so", phrase: "Aane, pene so", desc: "Twi: Confirm transfer" },
-                { label: "Mepɛ sɛ mesoma 50 cedis", phrase: "Mepɛ sɛ mesoma 50 cedis", desc: "Twi: Send 50 Cedis" },
+                { label: "1 (One)", desc: "Say 'One' -> Mapped to DTMF 1" },
+                { label: "1 (Confirm Recipient)", desc: "Confirm Recipient & Advance to Amount (OP24)" },
+                { label: "Yoo, kɔ so (Proceed)", desc: "Twi: Advance past recipient verification" },
+                { label: "2 (Two)", desc: "Say 'Two' -> Mapped to DTMF 2" },
+                { label: "3 (Three)", desc: "Say 'Three' -> Mapped to DTMF 3" },
+                { label: "English", desc: "Select English (DTMF 1)" },
+                { label: "Twi", desc: "Select Akan Twi (DTMF 2)" },
+                { label: "Mobile Money", desc: "Service 1 (MoMo)" },
+                { label: "MTN", desc: "Network 1 (MTN)" },
+                { label: "Send money", desc: "Action 1 (Send Money)" },
+                { label: "0553838464", desc: "10-Digit Recipient Phone (Voice ASR: advances without #)" },
+                { label: "50 cedis", desc: "Amount 50 Cedis (Voice ASR: advances without #)" },
+                { label: "Confirm", desc: "Confirm Safe Transfer (1)" },
+                { label: "1234", desc: "Voice PIN authorization (Voice ASR: advances without #)" },
+                { label: "Baako", desc: "Twi 1 (Baako)" },
+                { label: "Mmienu", desc: "Twi 2 (Mmienu)" },
+                { label: "Aane, pene so", desc: "Twi: Confirm transfer" },
+                { label: "Mepɛ sɛ mesoma 50 cedis", desc: "Twi: Send 50 Cedis" },
               ].map((chip) => (
                 <button
                   key={chip.label}
                   type="button"
-                  onClick={() => simulateVoiceUtterance(chip.phrase || chip.label)}
+                  onClick={() => simulateVoiceUtterance(chip.label)}
                   disabled={isSimulatingSpeech}
                   title={chip.desc}
                   className="px-2.5 py-1 text-xs bg-slate-950 hover:bg-slate-800 active:bg-cyan-700 active:text-white text-slate-200 rounded-lg border border-slate-800 hover:border-cyan-500/40 transition-colors cursor-pointer disabled:opacity-40"

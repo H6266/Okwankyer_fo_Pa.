@@ -5,8 +5,6 @@ import { getRecordingByPromptKey } from "../../audio/recordingRegistry";
 
 const twiWelcomeRecording = getRecordingByPromptKey("welcome");
 
-import { audioPlaybackController } from "../../audio/audioPlaybackController";
-
 export const HowItWorks: React.FC = () => {
   const { t } = useThemeLanguage();
   const [playingAudio, setPlayingAudio] = useState<string | null>(null);
@@ -23,16 +21,13 @@ export const HowItWorks: React.FC = () => {
   const handleToggleAudio = (url: string) => {
     if (playingAudio === url && activeAudioObj) {
       activeAudioObj.pause();
-      activeAudioObj.currentTime = 0;
       setPlayingAudio(null);
       return;
     }
 
     if (activeAudioObj) {
       activeAudioObj.pause();
-      activeAudioObj.currentTime = 0;
     }
-    audioPlaybackController.stop();
 
     const audio = new Audio(url);
     audio.play().catch(console.warn);

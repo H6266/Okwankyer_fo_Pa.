@@ -151,25 +151,30 @@ export function resolveSimulatorAudioUrl(
   const language = normalizeRecordingLanguage(lang);
   if (!language) return null;
   try {
-    const parsed = new URL(audioUrl, "http://localhost");
-    const pathname = parsed.pathname;
-    const search = parsed.search;
+    const pathname = new URL(audioUrl, "http://localhost").pathname;
     const ttsMatch = pathname.match(/^\/(?:api\/)?audio\/prompt-tts\/(en|twi)\//);
     if (ttsMatch) {
       if (ttsMatch[1] !== language) return null;
-      return `${pathname}${search}`;
+      return pathname;
+    }
+
+    // Cross-language prevention: strictly reject Twi assets during English sessions and vice versa
+    if (language === "en" && (pathname.includes("/Twi/") || /\b(twi)\b/i.test(pathname))) {
+      return null;
+    }
+    if (language === "twi" && (pathname.includes("/English/") || /\b(english)\b/i.test(pathname))) {
+      return null;
     }
 
     const recording = getRecordingByUrl(pathname, language);
     if (recording) {
-      const recUrl = recording.url ? recording.url.replace(/\.(m4a|aac)$/i, ".mp3") : null;
-      return recUrl ? `${recUrl}${search}` : null;
+      return recording.url ? recording.url.replace(/\.(m4a|aac)$/i, ".mp3") : null;
     }
 
     if (pathname.startsWith("/audio/") || pathname.startsWith("/Audio_files/")) {
-      return `${pathname.replace(/\.(m4a|aac)$/i, ".mp3")}${search}`;
+      return pathname.replace(/\.(m4a|aac)$/i, ".mp3");
     }
-    return `${pathname.replace(/\.(m4a|aac)$/i, ".mp3")}${search}`;
+    return pathname.replace(/\.(m4a|aac)$/i, ".mp3");
   } catch {
     return (audioUrl || "").replace(/\.(m4a|aac)$/i, ".mp3");
   }
