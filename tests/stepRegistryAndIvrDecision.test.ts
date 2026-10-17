@@ -347,10 +347,11 @@ describe("IVR Telephony Route Integration (Real Express XML Responses)", () => {
     expect(res.status).toBe(200);
     expect(res.headers["x-ai-decision-type"]).toBe("understood_intent");
     expect(res.headers["x-ai-reply-key"]).toBe("intent_understood_ask_number");
-    expect(res.text).toContain("/api/audio/prompt-tts/en/OP16");
+    expect(res.text).toContain("/api/audio/prompt-tts/en/intent_understood_ask_number");
     expect(res.text).toContain("<GetDigits timeout=\"40\" finishOnKey=\"#\"");
     expect(res.text).not.toContain('numDigits="10"');
     expect(res.text).toContain("callbackUrl=\"http://localhost:3000/verify-recipient?sessionId=TEST_SESS_B&amp;lang=en");
+    expect(res.text).toContain("/api/audio/prompt-tts/en/intent_understood_ask_number");
   });
 
   it("Scenario c (invalid phone): At enter-recipient enter '6666666666#': states invalid prefix 666, re-prompts", async () => {

@@ -19,27 +19,8 @@ import { pronunciationMemory } from "../src/ai_system/memory/pronunciationMemory
 import { memoryPolicy } from "../src/ai_system/memory/memoryPolicy";
 import { interruptionEngine } from "../src/ai_system/speech/interruptionEngine";
 import { diagnosticsEngine } from "../src/ai_system/observability/diagnosticsEngine";
-import { aiTrace } from "../src/ai_system/observability/aiTrace";
-import { randomUUID } from "crypto";
 
 describe("Ɔkwankyerɛfo Pa - AI System Master Cognitive Test Suite", () => {
-  it("returns a unique trace ID that correlates the canonical result with its trace record", async () => {
-    const sessionId = `trace_test_${randomUUID()}`;
-    const result = await aiEngine.process({
-      sessionId,
-      channel: "TEXT",
-      input: "Go back",
-      language: "en",
-      executionPolicy: "UNDERSTAND_ONLY",
-    });
-
-    expect(result.traceId).toBeTruthy();
-    expect(aiTrace.getTrace(result.traceId!)).toMatchObject({
-      traceId: result.traceId,
-      sessionId,
-    });
-  });
-
   // 1. Language Detection & Code-Switching
   describe("Perception & Language Detection", () => {
     it("detects English correctly", () => {

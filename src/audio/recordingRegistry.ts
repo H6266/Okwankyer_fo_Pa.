@@ -233,6 +233,7 @@ const suppliedRecordingPaths = [
 const suppliedPromptIdByPath: Readonly<Record<string, string>> = {
   // Category 1: Welcome & Session Start
   "Twi/1.Welcome & Session Start/Welcome 1 (2).m4a": "OP01",
+  "Twi/1.Welcome & Session Start/Welcome 1 (2).mp3": "OP01",
   "Twi/1.Welcome & Session Start/Language selection.m4a": "OP02",
   "Twi/1.Welcome & Session Start/Greetings 2.m4a": "OP03",
   "Twi/1.Welcome & Session Start/Welcome back.m4a": "OP04",
@@ -246,7 +247,9 @@ const suppliedPromptIdByPath: Readonly<Record<string, string>> = {
   "Twi/2.Main Service Navigation/Network selection.m4a": "OP08",
   "Twi/2.Main Service Navigation/Network selection 2.m4a": "OP08",
   "Twi/2.Main Service Navigation/MTN menu.m4a": "OP09",
+  "Twi/2.Main Service Navigation/MTN menu.mp3": "OP09",
   "Twi/2.Main Service Navigation/MTN menu 1.m4a": "OP09",
+  "Twi/2.Main Service Navigation/MTN menu 1.mp3": "OP09",
   "Twi/2.Main Service Navigation/Send money selected.m4a": "OP10",
   "Twi/2.Main Service Navigation/Service unavailable.m4a": "OP11",
   "Twi/2.Main Service Navigation/Service unavailable 1.m4a": "OP11",
@@ -437,7 +440,7 @@ function createRecording(
       : assetRoot === "supplied"
         ? `/audio/supplied/${encodePath(relativePath)}`
         : assetRoot === "additional"
-          ? `/audio/additional/${encodePath(relativePath)}`
+          ? `/audio/${encodePath(relativePath)}`
           : null;
 
   return {
@@ -510,6 +513,40 @@ const publicWelcomeRecordings: AudioRecording[] = [
     isAlternate: true,
     recordingRole: "alternative",
     mappingStatus: "AMBIGUOUS_COMBINED_WELCOME_LANGUAGE_PROMPT",
+  },
+  {
+    id: "public:welcome_en.mp3",
+    promptId: "OP01",
+    state: "WELCOME",
+    category: "01_Welcome_Session_Start",
+    context: "01_Welcome_Session_Start:WELCOME",
+    language: "en",
+    title: "English Welcome Audio",
+    spokenText: "Welcome to Ɔkwankyerɛfo Pa, your accessible voice guide for mobile services. For English, press 1. For Twi, press 2.",
+    relativePath: "welcome_en.mp3",
+    assetRoot: "public",
+    url: "/audio/welcome_en.mp3",
+    mimeType: "audio/mpeg",
+    isAlternate: false,
+    recordingRole: "fixed",
+    mappingStatus: "MAPPED_EXACT",
+  },
+  {
+    id: "public:welcome_twi.mp3",
+    promptId: "OP01",
+    state: "WELCOME",
+    category: "01_Welcome_Session_Start",
+    context: "01_Welcome_Session_Start:WELCOME",
+    language: "twi",
+    title: "Akan Twi Welcome Audio",
+    spokenText: "Akwaaba wɔ Ɔkwankyerɛfo Pa mu, wo nne akwankyerɛ a ɛma mobile services yɛ mmerɛw ma obiara.",
+    relativePath: "welcome_twi.mp3",
+    assetRoot: "public",
+    url: "/audio/welcome_twi.mp3",
+    mimeType: "audio/mpeg",
+    isAlternate: false,
+    recordingRole: "fixed",
+    mappingStatus: "MAPPED_EXACT",
   },
 ];
 
@@ -733,7 +770,7 @@ export function getRecordingByUrl(url: string, preferredLang?: "en" | "twi"): Au
   const cleanUrl = url.split("?")[0].trim();
   const decodedTarget = decodeURIComponent(cleanUrl)
     .replace(/^\/+/, "")
-    .replace(/^(?:api\/)?audio\/(?:supplied\/)?/i, "")
+    .replace(/^(?:api\/)?audio\/(?:supplied\/|additional\/)?/i, "")
     .toLowerCase();
   const stemTarget = decodedTarget.replace(/\.[a-z0-9]+$/i, "");
   const baseTarget = stemTarget.split("/").pop() || "";
@@ -744,7 +781,7 @@ export function getRecordingByUrl(url: string, preferredLang?: "en" | "twi"): Au
     if (recording.url === cleanUrl) return true;
     const decodedRec = decodeURIComponent(recording.url)
       .replace(/^\/+/, "")
-      .replace(/^(?:api\/)?audio\/(?:supplied\/)?/i, "")
+      .replace(/^(?:api\/)?audio\/(?:supplied\/|additional\/)?/i, "")
       .toLowerCase();
     if (decodedRec === decodedTarget) return true;
     const stemRec = decodedRec.replace(/\.[a-z0-9]+$/i, "");
@@ -782,6 +819,9 @@ export function getRecordingFilePath(relativePath: string): string | null {
   if (!recording) {
     if (/welcome_prompt_01\.mp3$/i.test(relativePath)) {
       return `public/audio/Welcome_prompt_01.mp3`;
+    }
+    if (/welcome_(?:en|twi)\.mp3$/i.test(relativePath)) {
+      return `public/audio/${relativePath}`;
     }
     return null;
   }

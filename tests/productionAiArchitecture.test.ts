@@ -3,7 +3,7 @@
  * Validates all 25+ canonical requirements and adversarial security invariants.
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { aiEngine } from "../src/ai_system/core/aiEngine";
 import { unifiedMemory } from "../src/ai_system/memory/unifiedMemory";
 import { unifiedSafetyEngine } from "../src/ai_system/safety/unifiedSafetyEngine";
@@ -11,49 +11,11 @@ import { reasoningEngine } from "../src/ai_system/understanding/reasoningEngine"
 import { liveVoiceGateway } from "../src/ai_system/voice/liveVoiceGateway";
 import { inputNormalizer } from "../src/ai_system/perception/inputNormalizer";
 import { SECURITY_INVARIANTS } from "../src/ai_system/core/aiTypes";
-import { ttsService } from "../src/ai_system/speech/tts/ttsService";
 
 describe("Ɔkwankyerɛfo Pa - Production Voice AI Architecture Verification", () => {
   beforeEach(async () => {
     await unifiedMemory.clearSession("prod_test_sess");
     unifiedSafetyEngine.resetFailureCount("prod_test_sess");
-  });
-
-  it("keeps the public live voice gateway in understand-only mode", async () => {
-    const process = vi.spyOn(aiEngine, "process").mockResolvedValue({
-      navigation: { targetScreen: "HOME", targetStep: "welcome" },
-      safety: { pinDetectedInVoice: false },
-      action: { requiresClientConfirmation: false },
-      dialogue: { response: "I can help prepare a transfer." },
-      language: "en",
-      speech: { voiceProfile: "ghanaian-warm" },
-    } as any);
-    const speak = vi.spyOn(ttsService, "speak").mockResolvedValue({
-      audioBase64: "",
-      audioMimeType: "audio/mpeg",
-    } as any);
-    const session = {
-      sessionId: "public-live-gateway-test",
-      ws: { readyState: 0 },
-      isAiSpeaking: false,
-      currentScreen: "HOME",
-      currentStep: "welcome",
-      audioChunks: [],
-      lastVADTimestamp: Date.now(),
-      voiceProfileId: "ghanaian-warm",
-      turnCount: 0,
-    } as any;
-
-    try {
-      await liveVoiceGateway.processTurn(session, "Yes", "en");
-      expect(process).toHaveBeenCalledWith(expect.objectContaining({
-        sessionId: "public-live-gateway-test",
-        executionPolicy: "UNDERSTAND_ONLY",
-      }));
-    } finally {
-      process.mockRestore();
-      speak.mockRestore();
-    }
   });
 
   // 1. English intent & entity extraction

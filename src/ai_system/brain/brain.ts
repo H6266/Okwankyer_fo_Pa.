@@ -432,42 +432,22 @@ export class Brain {
         (draft.readback?.amount === undefined || draft.readback?.amount === draft.slots?.amount);
 
       if (isExplicitConfirm && isPreviousReplyReadback) {
-        const settledIntent = draft.intent || 'momo.transfer';
-        const serviceDef = serviceRegistry.get(settledIntent);
-        if (!serviceDef || serviceDef.status !== 'ready' || !serviceDef.handler) {
-          draft.confirmed = false;
-          draft.lastReplyKind = 'not_ready';
-          const decision: BrainDecision = {
-            kind: 'not_ready',
-            intent: settledIntent,
-          };
-          const reply = await replyComposer.composeReply({
-            decision,
-            language: activeLanguage,
-            slots: draft.slots,
-            notReadyMessageKey: serviceDef?.notReadyMessageKey,
-          });
-          return finalizeOutput({
-            decision,
-            reply: { text: reply.text, language: reply.language, promptId: reply.promptId },
-            updatedDraft: draft,
-            sessionLanguage,
-          });
-        }
-
         draft.confirmed = true;
         draft.confirmedDraftHash = currentDraftHash;
         draft.lastReplyKind = 'dispatch';
-        const dispatchKey = `${input.sessionId || 'session'}:${currentDraftHash}`;
-        await serviceDef.handler({
-          slots: draft.slots,
-          sessionLanguage,
-          callerNumber: input.callerNumber,
-          sessionId: input.sessionId,
-          confirmedDraftHash: currentDraftHash,
-          dispatchKey,
-        });
-
+        const settledIntent = draft.intent || 'momo.transfer';
+        const serviceDef = serviceRegistry.get(settledIntent);
+        if (serviceDef?.handler) {
+          const dispatchKey = `${input.sessionId || 'session'}:${currentDraftHash}`;
+          await serviceDef.handler({
+            slots: draft.slots,
+            sessionLanguage,
+            callerNumber: input.callerNumber,
+            sessionId: input.sessionId,
+            confirmedDraftHash: currentDraftHash,
+            dispatchKey,
+          });
+        }
         const decision: BrainDecision = {
           kind: 'dispatch',
           intent: settledIntent,

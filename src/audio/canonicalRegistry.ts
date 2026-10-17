@@ -316,8 +316,8 @@ export function resolveCanonicalAudioUrl(
   // Canonical welcome alias
   if (normId === "OP01") {
     const welcomeUrl = lang === "twi"
-      ? "/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Welcome%201%20(2).mp3"
-      : "/audio/Welcome_prompt_01.mp3";
+      ? "/audio/welcome_twi.mp3"
+      : "/audio/welcome_en.mp3";
     return {
       url: cleanBase ? `${cleanBase}${welcomeUrl}` : welcomeUrl,
       mode: "RECORDED",

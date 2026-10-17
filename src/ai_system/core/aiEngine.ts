@@ -15,7 +15,6 @@
  * 8. remember()        -> Durable persistence, episodic logging, semantic indexing, draft audit
  */
 
-import { randomUUID } from "crypto";
 import {
   ActionOutput,
   AiLanguage,
@@ -51,7 +50,6 @@ import { aiUnderstanding } from "./aiUnderstanding";
 import { audioIngestor } from "../perception/audioIngestor";
 import { aiTrace } from "../observability/aiTrace";
 import { financialPolicy } from "./financialPolicy";
-import { validateGhanaPhoneNumber } from "../../domain/validation";
 
 export interface ExecutionContext {
   sessionId: string;
@@ -77,7 +75,6 @@ export class AiEngine {
    * Canonical single entry point for all voice, text, DTMF, and simulator interactions.
    */
   public async process(input: AiProcessInput): Promise<AiProcessResult> {
-    const traceId = randomUUID();
     const totalStart = performance.now();
     const latencies: Partial<PerformanceBreakdown> = {};
 
@@ -222,7 +219,6 @@ export class AiEngine {
     // ─────────────────────────────────────────────────────────────────────────
     const stage2Start = performance.now();
     eventBus.emitEvent("ai.turn.received", ctx.sessionId, {
-      traceId,
       rawInput: ctx.rawInput,
       channel: ctx.channel,
       currentStep: ctx.currentStep,
@@ -243,19 +239,10 @@ export class AiEngine {
     });
 
     const reasoning = cognitiveDecision.response;
-    const utteranceIsAffirmative =
-      aiUnderstanding.checkConfirmation(ctx.rawInput) ||
-      ctx.rawInput.toLowerCase().trim() === "yes" ||
-      ctx.rawInput.toLowerCase().trim() === "aane" ||
-      ctx.rawInput.trim() === "1";
-    const intent: IntentName =
-      utteranceIsAffirmative && activeDraft?.confirmationState === "CONFIRMATION_REQUESTED"
-        ? "CONFIRM"
-        : reasoning.intent;
+    const intent: IntentName = reasoning.intent;
     const confidence = reasoning.confidence;
 
     eventBus.emitEvent("ai.intent.detected", ctx.sessionId, {
-      traceId,
       intent,
       confidence,
       entities: reasoning.entities,
@@ -264,15 +251,7 @@ export class AiEngine {
     });
 
     // Merge entities extracted by reasoning layer
-    const entitiesToMerge = { ...reasoning.entities };
-    if (utteranceIsAffirmative && activeDraft?.confirmationState === "CONFIRMATION_REQUESTED") {
-      delete entitiesToMerge.amount;
-    }
-    Object.assign(ctx.workingSlots, entitiesToMerge);
-    if (!ctx.workingSlots.network && ctx.workingSlots.recipientPhone) {
-      const phone = validateGhanaPhoneNumber(String(ctx.workingSlots.recipientPhone));
-      if (phone.valid) ctx.workingSlots.network = phone.network;
-    }
+    Object.assign(ctx.workingSlots, reasoning.entities);
 
     // Handle mid-turn corrections
     let isCorrection = Boolean(reasoning.correction?.isCorrection);
@@ -298,19 +277,6 @@ export class AiEngine {
       }
       ctx.activeDraft = unifiedMemory.getActiveTask(ctx.sessionId)?.draft ||
         unifiedMemory.createTransactionDraft(ctx.sessionId, "TRANSFER", ctx.workingSlots);
-    }
-    if (intent === "SEND_MONEY" && ctx.activeDraft) {
-      const slotChanged =
-        (typeof ctx.workingSlots.amount === "number" && ctx.activeDraft.amount !== ctx.workingSlots.amount) ||
-        (typeof ctx.workingSlots.recipientPhone === "string" && ctx.activeDraft.recipientPhone !== ctx.workingSlots.recipientPhone) ||
-        (typeof ctx.workingSlots.recipientName === "string" && ctx.activeDraft.recipientName !== ctx.workingSlots.recipientName) ||
-        (typeof ctx.workingSlots.network === "string" && ctx.activeDraft.network !== ctx.workingSlots.network);
-      if (typeof ctx.workingSlots.amount === "number") ctx.activeDraft.amount = ctx.workingSlots.amount;
-      if (typeof ctx.workingSlots.recipientPhone === "string") ctx.activeDraft.recipientPhone = ctx.workingSlots.recipientPhone;
-      if (typeof ctx.workingSlots.recipientName === "string") ctx.activeDraft.recipientName = ctx.workingSlots.recipientName;
-      if (typeof ctx.workingSlots.network === "string") ctx.activeDraft.network = ctx.workingSlots.network as TransactionDraft["network"];
-      if (slotChanged) ctx.activeDraft.confirmationState = "UNCONFIRMED";
-      unifiedMemory.saveDraft(ctx.sessionId, ctx.activeDraft);
     }
 
     latencies.understandingLatencyMs = Math.round(performance.now() - stage2Start);
@@ -350,27 +316,21 @@ export class AiEngine {
       ctx.rawInput.trim() === "1"
     );
     const allowToolExecution = input.executionPolicy !== "UNDERSTAND_ONLY";
-    const hasValidClientConfirmation =
-      isAffirmative && ctx.activeDraft?.confirmationState === "CONFIRMATION_REQUESTED";
-    const clientConfirmed = allowToolExecution && hasValidClientConfirmation;
+    const clientConfirmed = allowToolExecution && isAffirmative && ctx.activeDraft?.confirmationState === "CONFIRMATION_REQUESTED";
 
     // If this turn prepares a confirmation prompt for caller, mark draft as CONFIRMATION_REQUESTED
-    if (ctx.activeDraft && (dialogueTypeIsConfirmation(intent, ctx.workingSlots) || navigation.targetStep === "confirm")) {
+    if (allowToolExecution && ctx.activeDraft && (dialogueTypeIsConfirmation(intent, ctx.workingSlots) || navigation.targetStep === "confirm")) {
       if (ctx.activeDraft.confirmationState === "UNCONFIRMED") {
         ctx.activeDraft.confirmationState = "CONFIRMATION_REQUESTED";
       }
       unifiedMemory.saveDraft(ctx.sessionId, ctx.activeDraft);
     }
 
-    const safetyDraft =
-      !allowToolExecution && hasValidClientConfirmation && ctx.activeDraft
-        ? { ...ctx.activeDraft, confirmationState: "CONFIRMED" as const }
-        : ctx.activeDraft;
     const safetyEvaluation = unifiedSafetyEngine.evaluate(
       ctx.sessionId,
       ctx.rawInput,
       action,
-      safetyDraft,
+      ctx.activeDraft,
       ctx.workingSlots
     );
 
@@ -391,7 +351,7 @@ export class AiEngine {
       action.isExecutable = false;
       action.type = safety.pinDetectedInVoice ? "BLOCK_ZERO_PIN" : "BLOCK_SECURITY_VIOLATION";
       action.requiresClientConfirmation = true;
-    } else if (action.requiresClientConfirmation && !hasValidClientConfirmation) {
+    } else if (action.requiresClientConfirmation && !clientConfirmed) {
       action.isExecutable = false;
     } else if (clientConfirmed && ctx.activeDraft) {
       ctx.activeDraft.confirmationState = "CONFIRMED";
@@ -472,21 +432,6 @@ export class AiEngine {
       input.userProfile,
       isCorrection
     );
-
-    if (
-      !allowToolExecution &&
-      isAffirmative &&
-      action.tool === "momo_execute_transfer" &&
-      ctx.activeDraft?.confirmationState === "CONFIRMATION_REQUESTED"
-    ) {
-      dialogue = {
-        ...dialogue,
-        type: "CONTINUE_TRANSACTION",
-        response: ctx.detectedLanguage === "tw" || ctx.detectedLanguage === "ak"
-          ? "Yɛate wo pene so. Yɛrehwɛ sɛnea sika no rekɔ."
-          : "Your confirmation was received. I am checking the transfer status now.",
-      };
-    }
 
     const transferAttempted = action.tool === "execute_transfer" || action.tool === "momo_execute_transfer";
     if (transferAttempted && action.executedResult && !action.executedResult.success) {
@@ -619,7 +564,7 @@ export class AiEngine {
 
     // Observability Trace
     aiTrace.log({
-      traceId,
+      traceId: `tr_${Date.now()}`,
       sessionId: ctx.sessionId,
       timestamp: Date.now(),
       input: ctx.sanitizedInput,
@@ -659,7 +604,6 @@ export class AiEngine {
       safety,
       speech,
       performance: performanceBreakdown,
-      traceId,
       sessionState: {
         breadcrumb: navigation.breadcrumb,
         turnCount: (session.turnCount || 0) + 1,

@@ -28,7 +28,6 @@ import { durableIdempotencyLedger } from '../src/services/durableIdempotencyLedg
 import { durableTransactionStore } from '../src/services/durableTransactionStore';
 import { summarizeShadowDisagreements } from '../scripts/summarize_shadow_disagreements';
 import { voiceRouter } from '../src/routes/voiceRoutes';
-import { aiSystem } from '../src/ai_system';
 import { TWI_INTENT_KEYWORDS } from '../src/ai_system/linguistic/twiLexicon';
 import { formatAmountAsSpokenWords, numberConfig } from '../src/ai_system/linguistic/twiNumberWords';
 import { AUDIO_ASSET_INVENTORY, AUDIO_CATALOG } from '../src/audio/catalog';
@@ -330,8 +329,8 @@ describe('Phase 4: Readiness Hardening', () => {
     app.use(express.urlencoded({ extended: true }));
     app.use(voiceRouter);
 
-    it("Africa's Talking webhook uses the canonical engine for speech callbacks", async () => {
-      const processCanonical = vi.spyOn(aiSystem, 'process');
+    it("Africa's Talking webhook invokes brain.process on speech callback", async () => {
+      const processBrain = vi.spyOn(brain, 'process');
       const res = await request(app)
         .post('/speech-fallback?step=service-select&sessionId=sess_voice_test_01&lang=en')
         .type('form')
@@ -341,14 +340,13 @@ describe('Phase 4: Readiness Hardening', () => {
 
       expect(res.status).toBe(200);
       expect(res.text).toContain('<Response>');
-      expect(processCanonical).toHaveBeenCalledWith(expect.objectContaining({
-        input: 'I want to send 500 cedis to 0241234567',
-        channel: 'VOICE',
+      expect(processBrain).toHaveBeenCalledWith(expect.objectContaining({
+        transcript: 'I want to send 500 cedis to 0241234567',
         sessionId: 'sess_voice_test_01',
-        executionPolicy: 'UNDERSTAND_ONLY',
+        forceModel: true,
       }));
       expect(res.text).toContain('/verify-recipient');
-      processCanonical.mockRestore();
+      processBrain.mockRestore();
     });
 
     it('on brain error or timeout, plays safe prompt and offers DTMF keypad input', async () => {

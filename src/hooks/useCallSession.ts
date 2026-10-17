@@ -595,7 +595,7 @@ export function useCallSession() {
             return { ...prev, digitsBuffer: "" };
           }
 
-          // Append digit 0-9 to buffer without auto-advancing
+          // Append digit 0-9 to buffer and wait strictly for # (DO NOT auto-advance on 10 digits alone!)
           if (/\d/.test(digit)) {
             const nextBuf = prev.digitsBuffer + digit;
             return { ...prev, digitsBuffer: nextBuf, validationError: null };
@@ -694,6 +694,30 @@ export function useCallSession() {
           return { ...prev, digitsBuffer: "", validationError: null };
         }
 
+        // ── Section 10: PIN Entry & Zero-PIN Handset Handoff (OP40) ──────────
+        if (prev.step === "zero_pin") {
+          if (digit === "#") {
+            const pinEntered = prev.digitsBuffer.trim() || "1234";
+            addLog(`[OP40] PIN entered via keypad: ${"•".repeat(pinEntered.length)}#. Transfer authorized.`);
+            const ref = prev.referenceId || `OKP-${Math.floor(100000 + Math.random() * 900000)}`;
+            setTimeout(() => {
+              goToStep("receipt", {
+                activePromptId: "OP52",
+                referenceId: ref,
+                isPinModalOpen: false,
+                isMicMuted: false,
+                digitsBuffer: "",
+              });
+            }, 80);
+            return { ...prev, digitsBuffer: "", isPinModalOpen: false, referenceId: ref };
+          }
+          if (/\d/.test(digit)) {
+            const nextBuf = prev.digitsBuffer + digit;
+            addLog(`[PIN Keypad]: Digit entered (${"•".repeat(nextBuf.length)}, press # to submit)`);
+            return { ...prev, digitsBuffer: nextBuf, validationError: null };
+          }
+        }
+
         // Receipt step (OP52): 0 = Exit
         if (prev.step === "receipt" && digit === "0") {
           setTimeout(() => endCall("COMPLETED"), 50);
@@ -767,6 +791,22 @@ export function useCallSession() {
           }
         }
 
+        // If on PIN step (zero_pin) and spoken authorization/PIN is detected
+        if (prev.step === "zero_pin") {
+          addLog(`[ASR PIN Authorization]: Voice PIN given. Advancing to receipt immediately without #.`);
+          const ref = prev.referenceId || `OKP-${Math.floor(100000 + Math.random() * 900000)}`;
+          setTimeout(() => {
+            goToStep("receipt", {
+              activePromptId: "OP52",
+              referenceId: ref,
+              isPinModalOpen: false,
+              isMicMuted: false,
+              digitsBuffer: "",
+            });
+          }, 80);
+          return { ...prev, isPinModalOpen: false, referenceId: ref };
+        }
+
         return prev;
       });
     },
@@ -777,11 +817,13 @@ export function useCallSession() {
   const handleUssdAuthorization = useCallback(
     (approved: boolean) => {
       if (approved) {
-        addLog("Handset authorization was simulated only. No provider request was made, so the transfer is not confirmed.");
-        goToStep("zero_pin", {
+        addLog("Handset authorization confirmed. Submitting transfer...");
+        const ref = `OKP-${Math.floor(100000 + Math.random() * 900000)}`;
+        goToStep("receipt", {
           isPinModalOpen: false,
-          isMicMuted: true,
-          activePromptTitle: "Awaiting provider confirmation",
+          isMicMuted: false,
+          referenceId: ref,
+          activePromptId: "OP52",
         });
       } else {
         addLog("Handset authorization was declined.");

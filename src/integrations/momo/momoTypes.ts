@@ -98,7 +98,6 @@ export interface InternalTransaction {
     rawResponse?: any;
   };
   metadata?: {
-    paymentMode?: "COLLECTION_REQUEST_TO_PAY" | "DISBURSEMENT_TRANSFER";
     payerPhone?: string;
     payerName?: string;
     payerMessage?: string;

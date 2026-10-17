@@ -64,7 +64,7 @@ export function resolveSafePlayableUrl(url: string): string {
 
 export class AudioPlaybackController {
   private playbackVolume: number = 1.0;
-  private volumeMultiplier: number = 2.0; // Boosted volume: 200% (+6dB) with dynamics compression
+  private volumeMultiplier: number = 2.8; // Boosted volume: 280% (+9dB) with dynamics compression
   private audioElement: HTMLAudioElement | null = null;
   private mediaElementSource: MediaElementAudioSourceNode | null = null;
   private currentToken: number = 0;
@@ -91,13 +91,13 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Sets custom audio amplification multiplier (2.0 = boosted default, up to 2.0)
+   * Sets custom audio amplification multiplier (2.8 = boosted default, up to 3.5)
    */
   public setVolumeMultiplier(multiplier: number): void {
     if (!Number.isFinite(multiplier)) {
       throw new Error("Audio volume multiplier must be a finite number.");
     }
-    this.volumeMultiplier = Math.max(0.5, Math.min(2.0, multiplier));
+    this.volumeMultiplier = Math.max(0.5, Math.min(3.5, multiplier));
     if (this.masterGainNode && this.audioContext) {
       this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
     }
@@ -125,11 +125,11 @@ export class AudioPlaybackController {
         this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
         // Dynamics compressor guarantees boosted volume is crystal clear, loud, and unclipped
         this.compressorNode = this.audioContext.createDynamicsCompressor();
-        this.compressorNode.threshold.setValueAtTime(-18, this.audioContext.currentTime);
-        this.compressorNode.knee.setValueAtTime(30, this.audioContext.currentTime);
-        this.compressorNode.ratio.setValueAtTime(8, this.audioContext.currentTime);
-        this.compressorNode.attack.setValueAtTime(0.003, this.audioContext.currentTime);
-        this.compressorNode.release.setValueAtTime(0.25, this.audioContext.currentTime);
+        this.compressorNode.threshold.setValueAtTime(-24, this.audioContext.currentTime);
+        this.compressorNode.knee.setValueAtTime(25, this.audioContext.currentTime);
+        this.compressorNode.ratio.setValueAtTime(12, this.audioContext.currentTime);
+        this.compressorNode.attack.setValueAtTime(0.002, this.audioContext.currentTime);
+        this.compressorNode.release.setValueAtTime(0.2, this.audioContext.currentTime);
         this.masterGainNode.connect(this.compressorNode);
         this.compressorNode.connect(this.audioContext.destination);
       }

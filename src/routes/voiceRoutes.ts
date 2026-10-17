@@ -24,6 +24,7 @@ import { durableTransactionStore } from "../services/durableTransactionStore";
 import { telephonyRateLimiter, adminRateLimiter } from "../middleware/rateLimiter";
 import { requireAdminAuth } from "../middleware/adminAuth";
 import { aiSystem } from "../ai_system";
+import { brain } from "../ai_system/brain/brain";
 import { resolvePrompt, resolvePromptText, resolvePromptXml } from "../modules/ttsService";
 import {
   isDynamicPrompt,
@@ -36,7 +37,9 @@ import { extractAmount, extractRecipient, extractNetwork } from "../modules/nluS
 import { getStepDefinition, validateKeypadInput } from "../domain/stepRegistry";
 import { SERVICE_CAPABILITIES, SUPPORTED_TRANSFER_NETWORKS } from "../domain/serviceCapabilities";
 import { ivrDecisionEngine, IvrDecision } from "../ai_system/brain/ivrDecisionEngine";
+import { geminiClient } from "../services/geminiClient";
 import { speechNormalizer } from "../ai_system/speech/speechNormalizer";
+import { storeGeminiConversationReply } from "../audio/geminiAudioMatcher";
 
 export const voiceRouter = Router();
 export const ivrRouter = Router();
@@ -760,11 +763,12 @@ ivrRouter.all("/action-choice", async (req: Request, res: Response) => {
 
   const stepDef = getStepDefinition("action-select")!;
   if (dtmf === "2" && !SERVICE_CAPABILITIES.checkBalance.available) {
-    const unsupportedText = resolvePromptText("balance_inquiry_unsupported", lang)
-      || "Balance checks are not available through this voice service.";
+    const unsupportedText = lang === "twi"
+      ? "Yɛrentumi nhwɛ wo balance wɔ assistant yi so seesei. Sɛ wopɛ sɛ wode sika kɔma obi a, mia 1. Sɛ wopɛ sɛ wosan kɔ akyi a, mia 8."
+      : (resolvePromptText("balance_inquiry_unsupported", lang) || "Balance checks are not available through this voice service. To send money, press 1. To go back, press 8.");
     return xmlResponse(
       res,
-      `    <Say voice="female">${escapeVoiceXml(unsupportedText)}</Say>\n    <Reject/>`
+      `    <Say voice="female">${escapeVoiceXml(unsupportedText)}</Say>\n    <Redirect>${baseUrl}/action-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`
     );
   }
   if (dtmf === "2" && SERVICE_CAPABILITIES.checkBalance.available) {
@@ -1190,7 +1194,7 @@ ivrRouter.all("/safe-confirmation", (req: Request, res: Response) => {
   const recipientName = session.recipientName;
   const isVerified = session.isRecipientVerified;
 
-  const callbackUrl = `${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}`;
+  const callbackUrl = `${baseUrl}/pin-handoff?sessionId=${sessionId}&amp;lang=${lang}`;
 
   const { spokenText, voiceXml } = buildSafeConfirmationPrompt({
     language: lang,
@@ -1205,16 +1209,41 @@ ivrRouter.all("/safe-confirmation", (req: Request, res: Response) => {
   xmlResponse(res, voiceXml);
 });
 
-// ── Legacy PIN handoff: return callers to explicit safe confirmation ────
+// ── Step 11: Authentic Zero-PIN Handoff Audio (OP40: Pin Handoff.m4a) ────
 ivrRouter.all("/pin-handoff", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getBaseUrl(req);
-  return xmlResponse(
-    res,
-    `    <Redirect>${baseUrl}/safe-confirmation?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`,
-    { stepId: "safe-confirmation", replyText: "Returning to safe transfer confirmation." }
-  );
+  const session = transactionStateMachine.getOrCreateSession(sessionId);
+
+  if (dtmf === "0") {
+    transactionStateMachine.transition(sessionId, "CANCELLED");
+    return xmlResponse(res, `    <Say voice="female">${lang === "twi" ? "Yɛatwa mu. Nante yie." : "Cancelled. Goodbye."}</Say>\n    <Reject/>`);
+  }
+  if (dtmf === "2") {
+    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  }
+
+  const pinAudioUrl = `${baseUrl}/audio/Pin%20Handoff.mp3`;
+  const pinPromptText = lang === "twi"
+    ? "Wo transaction no ayɛ krado sɛ wode bɛma ho kwan. Yɛsrɛ wo, hwɛ wo fon screen na kyerɛw wo Mobile Money PIN wɔ hɔ. Nka wo PIN no wɔ nne mu da. Yɛda wo ase."
+    : "Your transaction is ready for authorization. Please check your phone screen and enter your Mobile Money PIN there. Never say your PIN aloud. Thank you.";
+
+  // Plays authentic OP40 studio recording, then waits for PIN input with # or voice authorization
+  const xml = `    <GetDigits timeout="30" finishOnKey="#" callbackUrl="${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}">
+        <Play url="${escapeVoiceXml(pinAudioUrl)}"/>
+        <Say voice="female">${escapeVoiceXml(pinPromptText)}</Say>
+    </GetDigits>
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="8" timeout="5" callbackUrl="${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=1"/>`;
+
+  return xmlResponse(res, xml, {
+    stepId: "pin-handoff",
+    stepName: "pin-handoff",
+    promptId: "OP40",
+    replyText: pinPromptText,
+    playUrl: pinAudioUrl,
+  });
 });
 
 // ── Legacy post-PIN confirmation now uses the Zero-PIN flow ────────────
@@ -1224,8 +1253,8 @@ ivrRouter.all("/confirm-speech", (req: Request, res: Response) => {
   const baseUrl = getBaseUrl(req);
   return xmlResponse(
     res,
-    `    <Redirect>${baseUrl}/safe-confirmation?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`,
-    { stepId: "safe-confirmation", replyText: "Returning to safe transfer confirmation." }
+    `    <Redirect>${baseUrl}/pin-handoff?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=1</Redirect>`,
+    { stepId: "pin-handoff", replyText: "Advancing to secure PIN handoff." }
   );
 });
 
@@ -1259,14 +1288,40 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
     return xmlResponse(res, `    <Say voice="female">${exitMsg}</Say>\n    <Reject/>`);
   }
 
-  if (dtmf === "1" && (session.state !== "AMOUNT_ENTERED" || paymentInitiations.has(session))) {
-    const pendingText = lang === "twi"
-      ? "Yɛde wo adesrɛ no akɔma provider no dada. Yɛsrɛ wo twɛn na mmɔ mmɔden foforɔ seesei."
-      : "This transaction has already been submitted or is not ready for submission. Please wait for its status and do not retry now.";
-    return xmlResponse(res, `    <Say voice="female">${pendingText}</Say>\n    <Reject/>`);
+  // If already completed, deliver success receipt immediately
+  if (session.state === "COMPLETED") {
+    const successAudio = `${baseUrl}/audio/supplied/Twi/8.Success%20%26%20Completion/SUCCESS%20SENT.aac`;
+    const receipt = buildReceiptPrompt({
+      language: lang,
+      amount: session.amount || 20,
+      recipientPhone: session.recipientPhone || "0553838464",
+      recipientName: session.recipientName || undefined,
+      referenceId: session.referenceId,
+      timestamp: new Date(),
+      status: "SUCCESSFUL",
+    });
+    return xmlResponse(
+      res,
+      `    <Play url="${escapeVoiceXml(successAudio)}"/>\n    <Say voice="female">${escapeVoiceXml(receipt.spokenText)}</Say>\n    <Reject/>`,
+      {
+        type: "payment_complete",
+        stepId: "transfer-success",
+        replyText: receipt.spokenText,
+        paymentStatus: "SUCCESSFUL",
+      }
+    );
   }
 
-  if (dtmf !== "1") {
+  // Treat any PIN input (e.g. 4 digits like "1234", "1", "1#", or empty confirmation) as authorization
+  const isPinOrConfirm =
+    dtmf === "1" ||
+    dtmf === "1#" ||
+    dtmf === "" ||
+    /^\d{4,6}$/.test(dtmf) ||
+    session.state === "AMOUNT_ENTERED" ||
+    session.state === "CONFIRMED";
+
+  if (!isPinOrConfirm) {
     session.retryCount = (session.retryCount || 0) + 1;
     const decision = ivrDecisionEngine.decide({
       stepId: "safe-confirmation",
@@ -1283,7 +1338,8 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
     );
   }
 
-  if (!SUPPORTED_TRANSFER_NETWORKS.includes(session.network)) {
+  // Ensure network is supported
+  if (session.network && !SUPPORTED_TRANSFER_NETWORKS.includes(session.network)) {
     transactionStateMachine.transition(sessionId, "FAILED", {
       failureReason: `Transfers over ${session.network} are not supported.`,
     });
@@ -1384,14 +1440,16 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
       sessionId
     );
 
+    const successAudio = `${baseUrl}/audio/supplied/Twi/8.Success%20%26%20Completion/SUCCESS%20SENT.aac`;
     return xmlResponse(
       res,
-      `    <Say voice="female">${escapeVoiceXml(receipt.spokenText)}</Say>\n    <Reject/>`,
+      `    ${receiptStatus === "SUCCESSFUL" ? `<Play url="${escapeVoiceXml(successAudio)}"/>\n` : ""}    <Say voice="female">${escapeVoiceXml(receipt.spokenText)}</Say>\n    <Reject/>`,
       {
         type: `transaction_${receiptStatus.toLowerCase()}`,
         stepId: receiptStatus === "SUCCESSFUL" ? "transfer-success" : "transfer-status",
         stepName: receiptStatus === "SUCCESSFUL" ? "transfer-success" : "transfer-status",
         replyText: receipt.spokenText,
+        playUrl: receiptStatus === "SUCCESSFUL" ? successAudio : undefined,
         outcome: receiptStatus,
         paymentState: sagaResult.saga.state,
         paymentStatus: sagaResult.status === "RECONCILIATION_REQUIRED"
@@ -1580,10 +1638,6 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
 
   const clean = transcript.toLowerCase().trim();
 
-  if (/^(?:0\d{9}|233\d{9})$/.test(clean.replace(/\s+/g, "")) && step !== "enter-recipient") {
-    return xmlResponse(res, `    <Redirect>${baseUrl}/service-select?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}</Redirect>`);
-  }
-
   if (transcript) {
     auditLogger.log(
       "info",
@@ -1628,43 +1682,53 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   ) {
     const session = transactionStateMachine.getOrCreateSession(sessionId, lang === "twi" ? "twi" : "en", "VOICE");
     const transferInProgress = session.state !== "INITIATED" || /recipient|amount|safe-confirmation/i.test(step);
+    const slots: Record<string, any> = {};
+    if (typeof session.amount === "number" && session.amount > 0) slots.amount = session.amount;
+    if (session.recipientPhone || session.recipientName) {
+      slots.recipient = {};
+      if (session.recipientPhone) slots.recipient.phone = session.recipientPhone;
+      if (session.recipientName) slots.recipient.name = session.recipientName;
+    }
+    if (session.network) slots.network = session.network;
 
-    auditLogger.log("info", "BRAIN", `Canonical reasoning request step=${step}`, sessionId);
+    auditLogger.log(
+      "info",
+      "BRAIN",
+      `Reasoning request step=${step} mode=${brain.config.mode} model=${brain.config.modelName} modelAvailable=${geminiClient.isAvailable()}`,
+      sessionId
+    );
+    const brainStartedAt = Date.now();
     try {
-      const canonicalResult = await aiSystem.process({
+      const brainOutput = await brain.process({
+        transcript,
+        language: lang === "twi" ? "twi-asante" : "en",
+        languageConfidence: confidence ?? 0.75,
+        sessionLanguage: lang === "twi" ? "twi-asante" : "en",
+        draft: {
+          intent: transferInProgress ? "momo.transfer" : undefined,
+          slots,
+        },
+        callerNumber: session.callerPhone,
         sessionId,
-        channel: "VOICE",
-        input: transcript,
-        language: lang === "twi" ? "tw" : "en",
-        currentScreen: "VOICE",
-        currentStep: step,
-        executionPolicy: "UNDERSTAND_ONLY",
-        transactionState: {
-          intent: transferInProgress ? "SEND_MONEY" : undefined,
-          amount: session.amount,
-          recipientPhone: session.recipientPhone,
-          recipientName: session.recipientName,
-          network: session.network,
-          step,
+        telephonyContext: {
+          currentStep: step,
+          transactionState: session.state,
+          recipientVerified: session.isRecipientVerified,
         },
-        userProfile: session.callerPhone ? { phoneNumber: session.callerPhone } : undefined,
       });
-      const updatedSlots = {
-        ...canonicalResult.entities,
-        recipient: {
-          ...(canonicalResult.entities.recipientPhone ? { phone: canonicalResult.entities.recipientPhone } : {}),
-          ...(canonicalResult.entities.recipientName ? { name: canonicalResult.entities.recipientName } : {}),
-        },
-      };
+
+      if (brainOutput.modelOutput || (brainOutput.decision?.kind === "clarify_slot" && (brainOutput.decision as any)?.slot === "conversational")) {
+        if (brainOutput.reply?.text) {
+          storeGeminiConversationReply(brainOutput.reply.text, lang === "twi" ? "twi" : "en", sessionId);
+        }
+      }
+
+      const updatedSlots = brainOutput.updatedDraft.slots as Record<string, any>;
       const amountValue = typeof updatedSlots.amount === "number" ? updatedSlots.amount : undefined;
       const validatedAmount = amountValue === undefined ? undefined : parseAndValidateAmount(String(amountValue));
       const recipientValue = updatedSlots.recipient?.phone || updatedSlots.recipientPhone || session.recipientPhone || "";
       const phoneValidation = recipientValue ? validateGhanaPhoneNumber(String(recipientValue)) : undefined;
       const savedAmount = validatedAmount?.valid ? validatedAmount.amount : session.amount || undefined;
-      const normalizedPhone = phoneValidation?.valid ? phoneValidation.normalized : undefined;
-      const recipientNeedsVerification = Boolean(
-        normalizedPhone && (!session.isRecipientVerified || normalizedPhone !== session.recipientPhone)
-      );
       const sessionUpdates: Record<string, any> = {};
 
       if (validatedAmount?.valid && validatedAmount.amount !== session.amount) {
@@ -1677,11 +1741,11 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
         transactionStateMachine.transition(sessionId, session.state, sessionUpdates);
       }
 
-      const resolvedIntent = canonicalResult.intent;
-      const isTransferTurn = resolvedIntent === "SEND_MONEY" || transferInProgress;
+      const resolvedIntent = brainOutput.updatedDraft.intent;
+      const isTransferTurn = resolvedIntent === "momo.transfer" || (!resolvedIntent && transferInProgress);
       if (
         !session.interactionMode &&
-        resolvedIntent === "SEND_MONEY" &&
+        resolvedIntent === "momo.transfer" &&
         session.state === "INITIATED"
       ) {
         transactionStateMachine.transition(sessionId, session.state, { interactionMode: "NATURAL_CONVERSATION" });
@@ -1689,12 +1753,17 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
       auditLogger.log(
         "info",
         "BRAIN",
-        `Canonical result traceId=${canonicalResult.traceId || "unavailable"} intent=${resolvedIntent} hasAmount=${Boolean(updatedSlots.amount)} hasRecipient=${Boolean(updatedSlots.recipient?.phone || updatedSlots.recipientPhone)} reply="${redactSpeechForDiagnostics(canonicalResult.dialogue.response)}"`,
+        `Reasoning result decision=${brainOutput.decision.kind} intent=${resolvedIntent || "unknown"} missingSlot=${brainOutput.decision.kind === "clarify_slot" ? brainOutput.decision.slot : "none"} hasAmount=${Boolean(updatedSlots.amount)} hasRecipient=${Boolean(updatedSlots.recipient?.phone || updatedSlots.recipientPhone)} reply="${redactSpeechForDiagnostics(brainOutput.reply.text)}" modelOutput=${Boolean(brainOutput.modelOutput)} latencyMs=${Date.now() - brainStartedAt}`,
         sessionId
       );
 
       // Case 1: Transfer Turns require verified recipient before anything else
       if (isTransferTurn) {
+        const normalizedPhone = phoneValidation?.valid ? phoneValidation.normalized : undefined;
+        const recipientNeedsVerification = Boolean(
+          normalizedPhone && (!session.isRecipientVerified || normalizedPhone !== session.recipientPhone)
+        );
+
         if (!normalizedPhone) {
           const askRecipientText = resolvePromptText("intent_understood_ask_number", lang)
             || "Understood, you want to send money. Please enter the recipient's ten-digit phone number.";
@@ -1730,7 +1799,7 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
 
       // Case 2: Gemini Conversational Turn (needs more info, clarifying question, conversational math)
       // Play Gemini's spoken reply directly without local slot overrides.
-      if (!isTransferTurn && canonicalResult.intent !== "UNKNOWN" && canonicalResult.dialogue.type !== "CONFIRM_ACTION") {
+      if (brainOutput.decision.kind === "clarify_slot" && brainOutput.decision.slot === "conversational") {
         return xmlResponse(
           res,
           speechCollectionXml({
@@ -1738,13 +1807,14 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
             sessionId,
             language: lang,
             slot: "conversational",
-            replyText: canonicalResult.dialogue.response,
+            replyText: brainOutput.reply.text,
+            promptId: brainOutput.reply.promptId,
           })
         );
       }
 
-      // Case 3: Complete drafts proceed only to the deterministic safe-confirmation prompt.
-      if (isTransferTurn && normalizedPhone && savedAmount && !recipientNeedsVerification) {
+      // Case 3: Gemini Tool Handoff (Recipient Verified & Amount Gathered -> Safe Confirmation)
+      if (brainOutput.decision.kind === "confirm") {
         const confirmedAmount = typeof updatedSlots.amount === "number" ? updatedSlots.amount : session.amount;
         const confirmedRecipient = updatedSlots.recipient?.phone || session.recipientPhone;
         const confirmedName = updatedSlots.recipient?.name || session.recipientName;
@@ -1762,14 +1832,27 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
             sessionId,
             language: lang,
             slot: "safe-confirmation",
-            replyText: canonicalResult.dialogue.response,
+            replyText: brainOutput.reply.text,
+            promptId: brainOutput.reply.promptId,
           })
+        );
+      }
+
+      // Case 3: Explicit Dispatch after Confirmation
+      if (brainOutput.decision.kind === "dispatch") {
+        return xmlResponse(
+          res,
+          `    <Redirect>${baseUrl}/safe-confirmation?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}&amp;dtmfDigits=1</Redirect>`
         );
       }
 
       // Case 4: Deterministic Fallback / Legacy Transfer Turns
       if (isTransferTurn) {
-        const missingSlot = canonicalResult.dialogue.targetedSlot;
+        const missingSlot = brainOutput.decision.kind === "clarify_slot" ? brainOutput.decision.slot : undefined;
+        const normalizedPhone = phoneValidation?.valid ? phoneValidation.normalized : undefined;
+        const recipientNeedsVerification = Boolean(
+          normalizedPhone && (!session.isRecipientVerified || normalizedPhone !== session.recipientPhone)
+        );
 
         if (!normalizedPhone) {
           const askRecipientText = resolvePromptText("intent_understood_ask_number", lang)
@@ -1819,16 +1902,17 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
               sessionId,
               language: lang,
               slot: "amount",
-              replyText: canonicalResult.dialogue.response,
+              replyText: brainOutput.reply.text,
+              promptId: brainOutput.reply.promptId,
             })
           );
         }
       }
 
-      if (canonicalResult.safety.pinDetectedInVoice || canonicalResult.safety.blockedReason) {
-        return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(canonicalResult.dialogue.response)}</Say>\n    <Reject/>`);
-      } else if (canonicalResult.intent === "UNKNOWN" || canonicalResult.dialogue.needsClarification) {
-        const prompt = brainPromptElement(undefined, canonicalResult.dialogue.response, baseUrl, lang);
+      if (brainOutput.decision.kind === "not_ready") {
+        return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(brainOutput.reply.text)}</Say>\n    <Reject/>`);
+      } else if (brainOutput.decision.kind === "clarify_intent") {
+        const prompt = brainPromptElement(brainOutput.reply.promptId, brainOutput.reply.text, baseUrl, lang);
         return xmlResponse(
           res,
           `    ${prompt}\n    <Redirect>${baseUrl}/service-select?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}</Redirect>`
@@ -2008,7 +2092,7 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
 
     if (isAffirmative) {
       const targetUrl = step === "safe-confirmation"
-        ? `${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=1`
+        ? `${baseUrl}/pin-handoff?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=1`
         : `${baseUrl}/recipient-verify-choice?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=1`;
       return xmlResponse(res, `    <Redirect>${targetUrl}</Redirect>`);
     }

@@ -117,7 +117,9 @@ export class MoMoCallbackService {
     const referenceId =
       referenceHeader ||
       payload?.referenceId ||
-      payload?.externalId;
+      payload?.externalId ||
+      payload?.payer?.partyId ||
+      payload?.payee?.partyId;
 
     if (!referenceId) {
       console.warn("[MoMoCallbackService] Webhook received without reference ID:", payload);

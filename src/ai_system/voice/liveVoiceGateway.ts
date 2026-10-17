@@ -301,7 +301,6 @@ export class LiveVoiceGateway {
       language: (languageHint as any) || "tw",
       currentScreen: session.currentScreen,
       currentStep: session.currentStep,
-      executionPolicy: "UNDERSTAND_ONLY",
     });
 
     // Clear buffered chunks for next turn

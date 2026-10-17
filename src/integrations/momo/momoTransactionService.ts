@@ -201,7 +201,6 @@ export class MoMoTransactionService {
 
     const { targetEnv, baseUrl, currency } = this.authService.getEnvironment();
     const mode = options?.mode || (tx.metadata?.payerPhone ? "COLLECTION_REQUEST_TO_PAY" : "DISBURSEMENT_TRANSFER");
-    tx.metadata = { ...tx.metadata, paymentMode: mode };
     const mtnReferenceId = crypto.randomUUID();
     const externalId = tx.transactionId;
 

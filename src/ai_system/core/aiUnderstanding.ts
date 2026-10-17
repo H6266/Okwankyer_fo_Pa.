@@ -572,11 +572,11 @@ export class AiUnderstanding {
   // MULTILINGUAL CONFIRMATION & DENIAL
   // =========================================================================
   public checkConfirmation(text: string): boolean {
-    const lower = text.toLowerCase().replace(/[.,!?;:]/g, " ").replace(/\s+/g, " ").trim();
+    const lower = text.toLowerCase().trim();
     if (lower === "1") return true;
     const confirmTokens = [
       "yes", "yeah", "yep", "sure", "correct", "confirm", "proceed",
-      "okay", "ok", "aane", "aane yoo", "ɛyɛ", "yɛ", "ampa", "pene so", "kɔ so", "send it", "yoo"
+      "okay", "ok", "aane", "aane yoo", "ɛyɛ", "yɛ", "ampa", "kɔ so", "send it", "yoo"
     ];
     return confirmTokens.some((tok) => lower === tok || lower.startsWith(`${tok} `) || lower.endsWith(` ${tok}`) || lower.includes(` ${tok} `));
   }

@@ -91,7 +91,7 @@ export function checkCallerRateLimit(caller: string, limit: number = 30): { allo
 
 export function verifyAtWebhook(req: Request, res: Response, next: NextFunction): void {
   const isProd = process.env.NODE_ENV === "production";
-  const expectedSecret = process.env.AT_WEBHOOK_SECRET?.trim();
+  const expectedSecret = process.env.AT_WEBHOOK_SECRET;
 
   // Attach diagnostic response headers helper
   const rejectWithReason = (status: number, reason: string) => {
@@ -99,45 +99,6 @@ export function verifyAtWebhook(req: Request, res: Response, next: NextFunction)
     res.setHeader("X-Telephony-Status", status.toString());
     res.status(status).send("<Response><Reject/></Response>");
   };
-
-  const headerSecret = req.headers["x-at-webhook-secret"];
-  const authorization = req.headers.authorization;
-  const querySecret = req.query?.secret;
-  const rawProvided =
-    typeof headerSecret === "string"
-      ? headerSecret
-      : typeof querySecret === "string"
-        ? querySecret
-        : typeof authorization === "string"
-          ? authorization
-          : "";
-  const providedSecret = rawProvided.startsWith("Bearer ")
-    ? rawProvided.slice(7).trim()
-    : rawProvided.trim();
-
-  if (!expectedSecret && isProd) {
-    auditLogger.log("error", "SECURITY", "Rejected telephony callback because webhook authentication is not configured", req.ip);
-    rejectWithReason(500, "Telephony webhook authentication is not configured");
-    return;
-  }
-  if (expectedSecret && !providedSecret) {
-    auditLogger.log("warn", "SECURITY", "Rejected telephony callback without webhook authentication", req.ip);
-    rejectWithReason(401, "Missing AT_WEBHOOK_SECRET signature");
-    return;
-  }
-  if (expectedSecret && !safeCompare(providedSecret, expectedSecret)) {
-    auditLogger.log("error", "SECURITY", "Telephony webhook authentication failed", req.ip);
-    rejectWithReason(401, "Invalid AT_WEBHOOK_SECRET signature");
-    return;
-  }
-  if (!expectedSecret) {
-    auditLogger.log(
-      isProd ? "error" : "warn",
-      "SECURITY",
-      "Telephony webhook accepted without configured authentication secret",
-      req.ip
-    );
-  }
 
   const sessionId = (req.body?.sessionId || req.query?.sessionId || "") as string;
 
@@ -159,6 +120,42 @@ export function verifyAtWebhook(req: Request, res: Response, next: NextFunction)
     auditLogger.log("warn", "SECURITY", `Rejected malformed sessionId: "${sessionId.slice(0, 32)}"`, req.ip);
     rejectWithReason(400, `Malformed sessionId format: "${sessionId.slice(0, 32)}"`);
     return;
+  }
+
+  // 3. Webhook signature/secret verification
+  const rawProvided = (req.headers["x-at-webhook-secret"] || req.query?.secret || req.headers["authorization"] || "") as string;
+  const providedSecret = rawProvided.startsWith("Bearer ") ? rawProvided.slice(7).trim() : rawProvided.trim();
+
+  // If secret is configured and provided, strictly enforce constant-time matching
+  if (expectedSecret && providedSecret) {
+    if (!safeCompare(providedSecret, expectedSecret)) {
+      auditLogger.log("error", "SECURITY", `Telephony webhook signature verification failed for session ${sessionId}`, req.ip);
+      rejectWithReason(401, "Invalid AT_WEBHOOK_SECRET signature");
+      return;
+    }
+  } else if (expectedSecret && !providedSecret) {
+    // Africa's Talking native telephony voice gateways do not attach custom HTTP headers when dialing inbound numbers.
+    // Allow legitimate inbound call payloads to establish the session automatically.
+    const isLegitAtPayload = Boolean(
+      req.body?.callerNumber ||
+      req.query?.callerNumber ||
+      req.body?.phoneNumber ||
+      req.body?.isActive !== undefined ||
+      req.body?.direction === "Inbound"
+    );
+    if (!isLegitAtPayload) {
+      auditLogger.log("warn", "SECURITY", `Telephony callback missing signature for session ${sessionId}`, req.ip);
+      rejectWithReason(401, "Missing AT_WEBHOOK_SECRET signature");
+      return;
+    }
+    auditLogger.log("info", "TELEPHONY", `Initial inbound call connected for session ${sessionId} (automatic pass-through)`);
+  } else {
+    // Open webhook mode (when AT_WEBHOOK_SECRET is not set)
+    auditLogger.log(
+      "info",
+      "TELEPHONY",
+      `Telephony callback accepted for session ${sessionId} (automatic public gateway)`
+    );
   }
 
   next();
