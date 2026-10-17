@@ -876,7 +876,7 @@ aiRouter.post("/api/ai/simulator/complete-transfer", publicApiRateLimiter, async
 
     // Determine audio match or dynamic TTS
     const studioSuccessAudio = lang === "twi"
-      ? "/audio/Twi/8.Success%20%26%20Completion/SUCCESS.aac"
+      ? "/audio/Twi_library/Success_sent.m4a"
       : "/audio/Success.m4a";
 
     res.json({

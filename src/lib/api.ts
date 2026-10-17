@@ -1363,6 +1363,49 @@ export const api = {
     });
     return res.json();
   },
+
+  async matchReplyAudio(payload: {
+    text: string;
+    language?: "twi" | "en";
+    literacyLevel?: string;
+    sessionId?: string;
+  }): Promise<{
+    replyText: string;
+    source: "gemini" | "openai" | "qwen" | "local_fallback";
+    segments: Array<{
+      type: "clip" | "tts";
+      filename?: string;
+      audioUrl?: string;
+      transcript?: string;
+      text?: string;
+    }>;
+    orderedClipFilenames: string[];
+    ttsText: string | null;
+    reasoning: string;
+    confidence: number;
+  }> {
+    const res = await fetch("/api/audio/match-reply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return res.json();
+  },
+
+  async getTwiAudioLibrary(): Promise<{
+    total: number;
+    items: Array<{
+      key: string;
+      filename: string;
+      audioUrl: string;
+      transcript: string;
+      category: string;
+      keywords: string[];
+    }>;
+  }> {
+    const res = await fetch("/api/audio/twi-library");
+    return res.json();
+  },
 };
 
 export type TaskStatus = "todo" | "in_progress" | "in_review" | "done";

@@ -1040,6 +1040,10 @@ export const PhoneSimulatorPage: React.FC = () => {
     await audioPlaybackController.speakText(promptText);
   }, [language, sessionId, addLog, addChatTurn]);
 
+  useEffect(() => {
+    startPinAuthorizationFlowRef.current = startPinAuthorizationFlow;
+  }, [startPinAuthorizationFlow]);
+
   const playAiAgentReply = useCallback(
     async (
       textToPlay: string,
@@ -1199,7 +1203,7 @@ export const PhoneSimulatorPage: React.FC = () => {
       const isTwi = curLang === "twi";
 
       // Direct Spoken PIN Entry
-      if (curStep === "enter-pin" || curStep === "verify-pin") {
+      if (curStep === "enter-pin" || curStep === "verify-pin" || curStep.includes("pin") || curStep.includes("auth")) {
         const WORD_TO_DIGIT: Record<string, string> = {
           zero: "0", oh: "0", hwee: "0",
           one: "1", baako: "1", bako: "1",
@@ -1524,7 +1528,9 @@ export const PhoneSimulatorPage: React.FC = () => {
         curStep === "safe-confirmation" ||
         curStep === "safe-outcome" ||
         curStep === "transaction-confirm" ||
-        curStep === "confirm";
+        curStep === "confirm" ||
+        curStep === "confirm-speech" ||
+        curStep.includes("confirm");
 
       if (isTransferConfirmStep) {
         if (brainDraftRef.current?.slots?.hasNetworkDiscrepancy) {
@@ -2039,7 +2045,9 @@ export const PhoneSimulatorPage: React.FC = () => {
         activeStepNameRef.current === "safe-confirmation" ||
         activeStepNameRef.current === "safe-outcome" ||
         activeStepNameRef.current === "transaction-confirm" ||
-        activeStepNameRef.current === "confirm";
+        activeStepNameRef.current === "confirm" ||
+        activeStepNameRef.current === "confirm-speech" ||
+        activeStepNameRef.current.includes("confirm");
       if (digit === "1" && isTransferConfirmStep) {
         setDigitsBuffer("");
         addLog("caller", "Keypad '1' confirmed transaction. Moving to PIN entry.");
@@ -2048,13 +2056,26 @@ export const PhoneSimulatorPage: React.FC = () => {
       }
 
       // Special Handling: Direct 4-Digit PIN Entry on Keypad
-      if (activeStepNameRef.current === "enter-pin" || activeStepNameRef.current === "verify-pin") {
+      const isPinStep =
+        activeStepNameRef.current === "enter-pin" ||
+        activeStepNameRef.current === "verify-pin" ||
+        activeStepNameRef.current === "pin-authorization" ||
+        activeStepNameRef.current.includes("pin") ||
+        activeStepNameRef.current.includes("auth");
+
+      if (isPinStep) {
+        const curSession = sessionIdRef.current || sessionId || `call_${Date.now()}`;
+        const curLang = languageRef.current || language || "twi";
+        const pinCallback = activeCallbackUrlRef.current?.includes("verify-pin")
+          ? activeCallbackUrlRef.current
+          : `/api/simulator/verify-pin?sessionId=${encodeURIComponent(curSession)}&lang=${curLang}`;
+
         if (digit === "#") {
           if (digitsBuffer.length >= 4) {
             const pinVal = digitsBuffer.slice(0, 4);
             setCallStatus("Verifying PIN");
             addLog("caller", "Keypad PIN submitted: ● ● ● ● — Verifying MoMo PIN...");
-            dispatchVoiceWebhook(targetCallback, { dtmfDigits: pinVal });
+            dispatchVoiceWebhook(pinCallback, { dtmfDigits: pinVal });
           }
           return;
         }
@@ -2063,9 +2084,9 @@ export const PhoneSimulatorPage: React.FC = () => {
         setDigitsBuffer(nextPin);
         if (nextPin.length === 4) {
           setCallStatus("Verifying PIN");
-          addLog("caller", "Keypad PIN entered: ● ● ● ● — Verifying MoMo PIN...");
+          addLog("caller", "Keypad PIN entered: ● ● ● ● — Verifying MoMo PIN with carrier gateway...");
           setTimeout(() => {
-            dispatchVoiceWebhook(targetCallback, { dtmfDigits: nextPin });
+            dispatchVoiceWebhook(pinCallback, { dtmfDigits: nextPin });
           }, 350);
         }
         return;
@@ -2297,7 +2318,7 @@ export const PhoneSimulatorPage: React.FC = () => {
 
               {/* Center Display: Digits or State */}
               <div className="my-auto py-1 text-center w-full">
-                {activeStepName.includes("pin") ? (
+                {(activeStepName.includes("pin") || activeStepName.includes("auth") || callStatus === "Verifying PIN") ? (
                   <div className="flex flex-col items-center justify-center gap-1.5 w-full px-2 py-1">
                     <div className="flex items-center justify-between w-full text-[10px] text-emerald-400 font-semibold uppercase tracking-wider">
                       <span className="flex items-center gap-1">
@@ -2323,9 +2344,16 @@ export const PhoneSimulatorPage: React.FC = () => {
                     </div>
                     <div className="flex items-center justify-between w-full text-[10px] text-slate-400">
                       <span className="text-amber-400/90 font-medium">
-                        {callStatus === "Verifying PIN" ? "Sending for verification..." : "Type PIN on keypad or say aloud"}
+                        {callStatus === "Verifying PIN" ? (
+                          <span className="flex items-center gap-1 text-emerald-300 animate-pulse font-semibold">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block mr-1" />
+                            Validating PIN with MoMo Switch...
+                          </span>
+                        ) : (
+                          "Type 4-digit PIN on keypad or say aloud"
+                        )}
                       </span>
-                      <span className="font-mono text-emerald-400">Direct PIN</span>
+                      <span className="font-mono text-emerald-400 bg-emerald-950/70 px-1.5 py-0.5 rounded border border-emerald-700/40">Secure PIN</span>
                     </div>
                   </div>
                 ) : activeStepName === "transfer-success" || callStatus === "Completed" ? (
@@ -2353,7 +2381,7 @@ export const PhoneSimulatorPage: React.FC = () => {
                     </div>
                     <div className="flex items-center justify-between w-full text-[10px] text-slate-400">
                       <span className="text-amber-400/90 font-medium">1=Confirm, 2=Re-enter</span>
-                      <span className="font-mono text-emerald-400">OP24</span>
+                      <span className="font-mono text-emerald-400">Recipient Verification</span>
                     </div>
                   </div>
                 ) : activeStepName.includes("recipient") ? (
@@ -2369,7 +2397,7 @@ export const PhoneSimulatorPage: React.FC = () => {
                     </div>
                     <div className="flex items-center justify-between w-full text-[10px] text-slate-400">
                       <span className="text-amber-400/90 font-medium animate-pulse">Waiting for # to submit</span>
-                      <span className="font-mono text-emerald-400">OP16</span>
+                      <span className="font-mono text-emerald-400">Phone Entry</span>
                     </div>
                   </div>
                 ) : activeStepName.includes("amount") ? (
@@ -2383,7 +2411,7 @@ export const PhoneSimulatorPage: React.FC = () => {
                     </div>
                     <div className="flex items-center justify-between w-full text-[10px] text-slate-400">
                       <span className="text-amber-400/90 font-medium animate-pulse">Waiting for # to submit</span>
-                      <span className="font-mono text-emerald-400">OP26</span>
+                      <span className="font-mono text-emerald-400">Amount Entry</span>
                     </div>
                   </div>
                 ) : digitsBuffer ? (
@@ -2873,14 +2901,6 @@ export const PhoneSimulatorPage: React.FC = () => {
                           {isSystem && (
                             <>
                               <span className="font-bold text-teal-400">Ɔkwankyerɛfo Pa IVR</span>
-                              {turn.promptId && (
-                                <>
-                                  <span className="text-slate-500">·</span>
-                                  <span className="font-mono text-emerald-300 font-semibold">
-                                    {turn.promptId}
-                                  </span>
-                                </>
-                              )}
                               {turn.stepName && (
                                 <>
                                   <span className="text-slate-500">·</span>
@@ -2955,7 +2975,6 @@ export const PhoneSimulatorPage: React.FC = () => {
                               <span className="flex items-center gap-1 text-teal-400">
                                 <Volume2 className="w-3.5 h-3.5" />
                                 <span>
-                                  {turn.promptId ? `${turn.promptId} · ` : ""}
                                   {turn.audioSource === "synthesis" ? "Dynamic TTS" : (turn.audioUrl ? "Studio Audio" : "Dynamic TTS")}
                                 </span>
                               </span>

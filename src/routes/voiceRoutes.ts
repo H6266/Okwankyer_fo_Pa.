@@ -862,7 +862,7 @@ ivrRouter.all("/enter-recipient", (req: Request, res: Response) => {
   const baseUrl = getBaseUrl(req);
 
   const enterRecipient2Url = lang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Enter%20recipient%202.mp3`
+    ? `${baseUrl}/audio/Twi_library/Enter_recipient.m4a`
     : "";
 
   const promptElement = enterRecipient2Url
@@ -973,10 +973,10 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
   const nameSpoken = resolution.name || (lang === "twi" ? `fon nɔmba ${fullPhoneSpoken}` : `subscriber ${fullPhoneSpoken}`);
 
   const useRecipient1Url = lang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Use%20recipient%201.m4a`
+    ? `${baseUrl}/audio/Twi_library/Use_recipient%201.m4a`
     : "";
   const recipientConfirmSpeechUrl = lang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Recipient%20confirm%20speech.m4a`
+    ? `${baseUrl}/audio/Twi_library/Recipient_confirm_speech.m4a`
     : "";
 
   let verifyPrompt = "";
@@ -1088,10 +1088,10 @@ ivrRouter.all("/enter-amount", (req: Request, res: Response) => {
   const baseUrl = getBaseUrl(req);
 
   const amountPromptUrl = lang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/4.Amount%20Entry%20%26%20Verification/Amount%20prompt.mp3`
+    ? `${baseUrl}/audio/Twi_library/Amount%20prompt.m4a`
     : "";
   const enterAmount4Url = lang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/4.Amount%20Entry%20%26%20Verification/Enter%20amount%204.mp3`
+    ? `${baseUrl}/audio/Twi_library/Enter%20amount.m4a`
     : "";
 
   // 30 second window with star for pesewas
@@ -1217,7 +1217,7 @@ ivrRouter.all("/pin-handoff", (req: Request, res: Response) => {
     return xmlResponse(res, `    <Redirect>${baseUrl}/confirm-speech?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${dtmf}</Redirect>`);
   }
 
-  const pinAudioUrl = `${baseUrl}/audio/additional/Pin%20Handoff.m4a`;
+  const pinAudioUrl = `${baseUrl}/audio/Twi_library/Authorize_phone.m4a`;
   const pinPrompt = lang === "twi"
     ? "Wo transaction no ayɛ krado sɛ wode bɛma ho kwan. Yɛsrɛ wo, bɔ wo 4 digit password na fa hash ka ho, anaa ka wo PIN no."
     : "Your transaction is ready for authorization. Please enter your 4-digit password followed by hash, or say your 4-digit PIN.";
@@ -1250,7 +1250,7 @@ ivrRouter.all("/confirm-speech", (req: Request, res: Response) => {
   }
 
   const confirmAudioUrl = lang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/5.Transaction%20Confirmation/Confirm%20speech.m4a`
+    ? `${baseUrl}/audio/Twi_library/Confirm%20speech.m4a`
     : `${baseUrl}/audio/Confirm%20understanding.m4a`;
 
   const confirmPrompt = lang === "twi"
@@ -1487,7 +1487,7 @@ ivrRouter.all("/verify-pin", async (req: Request, res: Response) => {
   });
 
   const successAudio = lang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/8.Success%20%26%20Completion/SUCCESS.aac`
+    ? `${baseUrl}/audio/Twi_library/Success_sent.m4a`
     : `${baseUrl}/audio/Success.m4a`;
 
   const receipt = buildReceiptPrompt({

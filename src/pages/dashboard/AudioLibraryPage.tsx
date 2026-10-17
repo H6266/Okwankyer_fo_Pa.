@@ -21,16 +21,27 @@ import { api, AudioManifestResponse } from "../../lib/api";
 import { useAudioPlayer } from "../../hooks/useAudioPlayer";
 import {
   TWI_SEQUENTIAL_FLOW_STEPS,
-  CANONICAL_IVR_CATEGORIES,
   FlowStepDefinition,
-  IvrCategoryDefinition
 } from "../../audio/twiSequentialAudioFlow";
+import { TWI_AUDIO_LIBRARY_ITEMS, TwiLibraryItem } from "../../audio/twiLibraryManifest";
 import { matchReplyToAudio, AudioMatchResult } from "../../audio/replyAudioMatcher";
+
+const TWI_CATEGORIES = [
+  { id: "session", title: "1. Session & Welcome", description: "Inbound greetings, welcome introductions, language selection, and service accessibility." },
+  { id: "navigation", title: "2. Navigation & Menus", description: "Main menu, network choice (MTN/Telecel/AT), service selection, and back actions." },
+  { id: "recipient", title: "3. Recipient Entry & Verification", description: "Phone number entry, directory verification, KYC confirmation, and re-entry." },
+  { id: "amount", title: "4. Amount Entry & Validation", description: "Amount in Cedis/Pesewas, cashout limits, repetition, and correction prompts." },
+  { id: "confirmation", title: "5. Transaction Confirmation", description: "Review details, speech and DTMF agreement, and cancel choices." },
+  { id: "auth", title: "6. Handset & Out-of-Band Authorization", description: "USSD approval on handset, waiting for network response, and verification process." },
+  { id: "outcome", title: "7. Transaction Outcomes & Receipts", description: "Success sent, success close, cancel notices, declined, timeout, and failure retry." },
+  { id: "help", title: "8. Guidance, Accessibility & Recovery", description: "Help commands, voice or keypad options, comfort prompts, and not understood recovery." },
+  { id: "general", title: "9. General & System Messages", description: "Acknowledge, exit, restart, timeout, reference number notice, and security warnings." },
+];
 
 export const AudioLibraryPage: React.FC = () => {
   const [manifest, setManifest] = useState<AudioManifestResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"flow" | "categories" | "matcher" | "manifest">("flow");
+  const [activeTab, setActiveTab] = useState<"flow" | "categories" | "matcher" | "manifest">("categories");
   const [selectedLang, setSelectedLang] = useState<"all" | "en" | "twi">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [byteRangeCheckResults, setByteRangeCheckResults] = useState<Record<string, { status: number; rangeOk: boolean }>>({});
@@ -43,24 +54,19 @@ export const AudioLibraryPage: React.FC = () => {
   const autoPlayFlowActiveRef = useRef<boolean>(false);
 
   // Auto-play state for Categories
-  const [autoPlayCategoryActive, setAutoPlayCategoryActive] = useState<number | null>(null);
+  const [autoPlayCategoryActive, setAutoPlayCategoryActive] = useState<string | null>(null);
   const [autoPlayCategoryPromptIndex, setAutoPlayCategoryPromptIndex] = useState<number>(0);
-  const autoPlayCategoryRef = useRef<{ catNum: number | null; promptIdx: number }>({ catNum: null, promptIdx: 0 });
-  const [expandedCategories, setExpandedCategories] = useState<Record<number, boolean>>({
-    1: true,
-    2: true,
-    3: false,
-    4: false,
-    5: false,
-    6: false,
-    7: false,
-    8: false,
-    9: false,
-    10: false,
-    11: false,
-    12: false,
-    13: false,
-    14: false,
+  const autoPlayCategoryRef = useRef<{ catId: string | null; promptIdx: number }>({ catId: null, promptIdx: 0 });
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({
+    session: true,
+    navigation: true,
+    recipient: true,
+    amount: false,
+    confirmation: false,
+    auth: false,
+    outcome: false,
+    help: false,
+    general: false,
   });
 
   // Confidence Matcher Test State
@@ -72,7 +78,7 @@ export const AudioLibraryPage: React.FC = () => {
 
   autoPlayFlowIndexRef.current = currentFlowStepIndex;
   autoPlayFlowActiveRef.current = autoPlayFlowActive;
-  autoPlayCategoryRef.current = { catNum: autoPlayCategoryActive, promptIdx: autoPlayCategoryPromptIndex };
+  autoPlayCategoryRef.current = { catId: autoPlayCategoryActive, promptIdx: autoPlayCategoryPromptIndex };
 
   const handleAudioEnded = useCallback(() => {
     // 1. Advance sequential flow auto-play
@@ -112,21 +118,19 @@ export const AudioLibraryPage: React.FC = () => {
 
     // 2. Advance Category auto-play
     const currentCatInfo = autoPlayCategoryRef.current;
-    if (currentCatInfo.catNum !== null) {
-      const cat = CANONICAL_IVR_CATEGORIES.find((c) => c.categoryNumber === currentCatInfo.catNum);
-      if (cat) {
-        const nextPromptIdx = currentCatInfo.promptIdx + 1;
-        if (nextPromptIdx < cat.prompts.length) {
-          setAutoPlayCategoryPromptIndex(nextPromptIdx);
-          autoPlayCategoryRef.current = { catNum: currentCatInfo.catNum, promptIdx: nextPromptIdx };
-          const prompt = cat.prompts[nextPromptIdx];
-          if (prompt.audioUrl) {
-            playAudio(prompt.audioUrl, prompt.title);
-          }
-        } else {
-          setAutoPlayCategoryActive(null);
-          autoPlayCategoryRef.current = { catNum: null, promptIdx: 0 };
+    if (currentCatInfo.catId !== null) {
+      const items = TWI_AUDIO_LIBRARY_ITEMS.filter((i) => i.category === currentCatInfo.catId);
+      const nextPromptIdx = currentCatInfo.promptIdx + 1;
+      if (nextPromptIdx < items.length) {
+        setAutoPlayCategoryPromptIndex(nextPromptIdx);
+        autoPlayCategoryRef.current = { catId: currentCatInfo.catId, promptIdx: nextPromptIdx };
+        const prompt = items[nextPromptIdx];
+        if (prompt.audioUrl) {
+          playAudio(prompt.audioUrl, prompt.filename);
         }
+      } else {
+        setAutoPlayCategoryActive(null);
+        autoPlayCategoryRef.current = { catId: null, promptIdx: 0 };
       }
     }
   }, []);
@@ -158,7 +162,7 @@ export const AudioLibraryPage: React.FC = () => {
     }
     if (autoPlayCategoryActive !== null) {
       setAutoPlayCategoryActive(null);
-      autoPlayCategoryRef.current = { catNum: null, promptIdx: 0 };
+      autoPlayCategoryRef.current = { catId: null, promptIdx: 0 };
     }
 
     if (isPlaying && currentUrl === url) {
@@ -189,35 +193,35 @@ export const AudioLibraryPage: React.FC = () => {
     stopAudio();
   };
 
-  const startAutoPlayCategory = (categoryNumber: number, fromPromptIndex: number = 0) => {
+  const startAutoPlayCategory = (categoryId: string, fromPromptIndex: number = 0) => {
     stopAudio();
     setAutoPlayFlowActive(false);
     autoPlayFlowActiveRef.current = false;
 
-    const cat = CANONICAL_IVR_CATEGORIES.find((c) => c.categoryNumber === categoryNumber);
-    if (!cat || !cat.prompts.length) return;
+    const items = TWI_AUDIO_LIBRARY_ITEMS.filter((i) => i.category === categoryId);
+    if (!items.length) return;
 
-    setAutoPlayCategoryActive(categoryNumber);
+    setAutoPlayCategoryActive(categoryId);
     setAutoPlayCategoryPromptIndex(fromPromptIndex);
-    autoPlayCategoryRef.current = { catNum: categoryNumber, promptIdx: fromPromptIndex };
+    autoPlayCategoryRef.current = { catId: categoryId, promptIdx: fromPromptIndex };
 
     // Auto-expand this category in UI
-    setExpandedCategories((prev) => ({ ...prev, [categoryNumber]: true }));
+    setExpandedCategories((prev) => ({ ...prev, [categoryId]: true }));
 
-    const prompt = cat.prompts[fromPromptIndex];
+    const prompt = items[fromPromptIndex];
     if (prompt?.audioUrl) {
-      playAudio(prompt.audioUrl, prompt.title);
+      playAudio(prompt.audioUrl, prompt.filename);
     }
   };
 
   const stopAutoPlayCategory = () => {
     setAutoPlayCategoryActive(null);
-    autoPlayCategoryRef.current = { catNum: null, promptIdx: 0 };
+    autoPlayCategoryRef.current = { catId: null, promptIdx: 0 };
     stopAudio();
   };
 
-  const toggleCategoryExpand = (catNum: number) => {
-    setExpandedCategories((prev) => ({ ...prev, [catNum]: !prev[catNum] }));
+  const toggleCategoryExpand = (catId: string) => {
+    setExpandedCategories((prev) => ({ ...prev, [catId]: !prev[catId] }));
   };
 
   const testByteRangeSupport = async (url: string) => {
@@ -248,31 +252,43 @@ export const AudioLibraryPage: React.FC = () => {
   };
 
   const runMatcherTest = async (phrase: string, lang: "tw" | "en") => {
-    const res = matchReplyToAudio(phrase, lang, { minConfidence: 0.50 });
-    setMatchResult(res);
+    if (!phrase.trim()) {
+      setMatchResult(null);
+      setAiAssemblyPlan(null);
+      return;
+    }
 
-    if (phrase.trim()) {
-      setIsAiMatching(true);
-      try {
-        const response = await fetch("/api/ai/cross-reference-audio", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            replyText: phrase,
-            language: lang === "tw" ? "twi" : "en",
-          }),
-        });
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success && data.plan) {
-            setAiAssemblyPlan(data.plan);
-          }
+    setIsAiMatching(true);
+    let aiSucceeded = false;
+
+    // 1. Primary Path: AI API Request (The Brain)
+    try {
+      const response = await fetch("/api/ai/cross-reference-audio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          replyText: phrase,
+          language: lang === "tw" ? "twi" : "en",
+        }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.plan) {
+          setAiAssemblyPlan(data.plan);
+          aiSucceeded = true;
+          setMatchResult(null);
         }
-      } catch (err) {
-        console.warn("AI cross-reference test notice:", err);
-      } finally {
-        setIsAiMatching(false);
       }
+    } catch (err) {
+      console.warn("AI cross-reference test notice:", err);
+    } finally {
+      setIsAiMatching(false);
+    }
+
+    // 2. Secondary Path: Local Matching Fallback (ONLY if AI API fails)
+    if (!aiSucceeded) {
+      const res = matchReplyToAudio(phrase, lang, { minConfidence: 0.50 });
+      setMatchResult(res);
     }
   };
 
@@ -525,22 +541,55 @@ export const AudioLibraryPage: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 2: 14 IVR CATEGORIES (OP01-OP94) */}
+      {/* TAB 2: CONSOLIDATED TWI AUDIO LIBRARY (Audio_files/Twi_library/) */}
       {activeTab === "categories" && (
         <div className="space-y-4">
           <div className="p-4 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div>
-              <span className="font-bold">14 Canonical IVR Audio Categories:</span> Complete architecture linking all 94 prompt states (OP01–OP94) to authentic audio recordings. Click any category to play prompts individually or auto-play through the entire category.
+              <span className="font-bold">Consolidated Akan Twi Audio Library:</span> 86 authentic studio human recordings in <code className="bg-emerald-100 dark:bg-emerald-900/60 px-1 py-0.5 rounded text-[11px] font-mono">Audio_files/Twi_library/</code> with ground-truth transcripts from <code className="bg-emerald-100 dark:bg-emerald-900/60 px-1 py-0.5 rounded text-[11px] font-mono">transcriped_twi_audio_library.txt</code>.
             </div>
             <div className="text-[11px] font-mono font-bold bg-emerald-100 dark:bg-emerald-900/50 px-2.5 py-1 rounded shrink-0">
-              14 Categories • 94 States
+              9 Categories • 86 Physical Recordings
             </div>
           </div>
 
+          {/* Search Bar for Library */}
+          <div className="flex items-center gap-2 bg-white dark:bg-[#101B15] border border-[#0F382A]/15 dark:border-white/10 rounded-xl px-3 py-2">
+            <Search className="w-4 h-4 text-slate-400 shrink-0" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Filter audio files by filename, transcript, or keyword..."
+              className="w-full text-xs bg-transparent focus:outline-hidden text-[#111A15] dark:text-[#F8FAF8] placeholder:text-slate-400"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="text-xs text-slate-400 hover:text-slate-200 px-1.5 py-0.5 rounded cursor-pointer"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
           <div className="space-y-3">
-            {CANONICAL_IVR_CATEGORIES.map((cat) => {
-              const isExpanded = expandedCategories[cat.categoryNumber];
-              const isCatAutoPlaying = autoPlayCategoryActive === cat.categoryNumber;
+            {TWI_CATEGORIES.map((cat) => {
+              const categoryItems = TWI_AUDIO_LIBRARY_ITEMS.filter((i) => i.category === cat.id);
+              const filteredItems = searchQuery.trim()
+                ? categoryItems.filter(
+                    (i) =>
+                      i.filename.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      i.transcript.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      i.keywords.some((k) => k.toLowerCase().includes(searchQuery.toLowerCase()))
+                  )
+                : categoryItems;
+
+              if (searchQuery.trim() && filteredItems.length === 0) return null;
+
+              const isExpanded = expandedCategories[cat.id] ?? true;
+              const isCatAutoPlaying = autoPlayCategoryActive === cat.id;
 
               return (
                 <div
@@ -550,8 +599,8 @@ export const AudioLibraryPage: React.FC = () => {
                   {/* Category Header */}
                   <div className="p-4 flex items-center justify-between gap-4 bg-slate-50/60 dark:bg-slate-900/40 border-b border-[#0F382A]/5">
                     <button
-                      onClick={() => toggleCategoryExpand(cat.categoryNumber)}
-                      className="flex items-center gap-2.5 text-left flex-1"
+                      onClick={() => toggleCategoryExpand(cat.id)}
+                      className="flex items-center gap-2.5 text-left flex-1 cursor-pointer"
                     >
                       {isExpanded ? (
                         <ChevronDown className="w-4 h-4 text-[#0F382A] dark:text-[#D4AF37]" />
@@ -564,7 +613,7 @@ export const AudioLibraryPage: React.FC = () => {
                             {cat.title}
                           </span>
                           <span className="px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300">
-                            {cat.prompts.length} prompts
+                            {filteredItems.length} recordings
                           </span>
                         </div>
                         <p className="text-[11px] text-[#5E7265] mt-0.5">{cat.description}</p>
@@ -575,15 +624,15 @@ export const AudioLibraryPage: React.FC = () => {
                       {isCatAutoPlaying ? (
                         <button
                           onClick={stopAutoPlayCategory}
-                          className="px-3 py-1.5 text-xs font-bold bg-[#A32828] text-white rounded-lg flex items-center gap-1.5"
+                          className="px-3 py-1.5 text-xs font-bold bg-[#A32828] text-white rounded-lg flex items-center gap-1.5 cursor-pointer"
                         >
                           <Square className="w-3 h-3 fill-current" />
                           Stop
                         </button>
                       ) : (
                         <button
-                          onClick={() => startAutoPlayCategory(cat.categoryNumber, 0)}
-                          className="px-3 py-1.5 text-xs font-bold bg-[#0F382A] hover:bg-[#1A543F] text-white rounded-lg flex items-center gap-1.5"
+                          onClick={() => startAutoPlayCategory(cat.id, 0)}
+                          className="px-3 py-1.5 text-xs font-bold bg-[#0F382A] hover:bg-[#1A543F] text-white rounded-lg flex items-center gap-1.5 cursor-pointer"
                         >
                           <Play className="w-3 h-3 fill-current" />
                           Auto-Play Category
@@ -592,16 +641,16 @@ export const AudioLibraryPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Prompts list */}
+                  {/* Audio Items list */}
                   {isExpanded && (
                     <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3 bg-white dark:bg-[#101B15]">
-                      {cat.prompts.map((p, pIdx) => {
-                        const isThisPlaying = isPlaying && currentUrl === p.audioUrl;
-                        const isThisAutoStep = isCatAutoPlaying && autoPlayCategoryPromptIndex === pIdx;
+                      {filteredItems.map((item, itemIdx) => {
+                        const isThisPlaying = isPlaying && currentUrl === item.audioUrl;
+                        const isThisAutoStep = isCatAutoPlaying && autoPlayCategoryPromptIndex === itemIdx;
 
                         return (
                           <div
-                            key={p.promptId}
+                            key={item.key}
                             className={`p-3.5 rounded-xl border transition-all ${
                               isThisAutoStep
                                 ? "bg-[#D4AF37]/15 border-[#D4AF37] ring-1 ring-[#D4AF37]"
@@ -611,31 +660,40 @@ export const AudioLibraryPage: React.FC = () => {
                             }`}
                           >
                             <div className="flex items-start justify-between gap-3">
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="px-1.5 py-0.5 rounded bg-[#0F382A] text-white font-mono text-[10px] font-bold">
-                                    {p.promptId}
+                              <div className="space-y-1.5 flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-mono text-xs font-bold text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-700/50">
+                                    {item.filename}
                                   </span>
-                                  <span className="text-xs font-bold text-[#111A15] dark:text-[#F8FAF8]">
-                                    {p.title}
+                                  <span className="text-[10px] uppercase font-bold px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                                    {item.category}
                                   </span>
                                 </div>
-                                <p className="text-xs text-[#111A15] dark:text-[#F8FAF8] italic">
-                                  "{p.spokenTextTwi}"
+                                <p className="text-xs text-[#111A15] dark:text-[#F8FAF8] font-medium leading-relaxed">
+                                  &ldquo;{item.transcript}&rdquo;
                                 </p>
-                                <p className="text-[11px] text-[#5E7265]">
-                                  "{p.spokenTextEn}"
-                                </p>
+                                {item.keywords && item.keywords.length > 0 && (
+                                  <div className="flex flex-wrap gap-1 pt-1">
+                                    {item.keywords.slice(0, 4).map((kw, ki) => (
+                                      <span
+                                        key={ki}
+                                        className="text-[10px] px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-mono"
+                                      >
+                                        {kw}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
 
                               <button
-                                onClick={() => handleTogglePlay(p.audioUrl, p.title)}
-                                className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors ${
+                                onClick={() => handleTogglePlay(item.audioUrl, item.filename)}
+                                className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
                                   isThisPlaying
                                     ? "bg-[#A32828] text-white"
                                     : "bg-[#0F382A] text-white hover:bg-[#1A543F]"
                                 }`}
-                                aria-label={isThisPlaying ? "Pause audio" : "Play prompt"}
+                                aria-label={isThisPlaying ? "Pause audio" : "Play recording"}
                               >
                                 {isThisPlaying ? (
                                   <Pause className="w-3.5 h-3.5" />
@@ -646,9 +704,9 @@ export const AudioLibraryPage: React.FC = () => {
                             </div>
 
                             <div className="mt-2.5 pt-2 border-t border-[#0F382A]/5 flex items-center justify-between text-[10px] font-mono text-[#5E7265]">
-                              <span className="truncate max-w-[260px]">{p.audioUrl}</span>
+                              <span className="truncate max-w-[260px]">{item.audioUrl}</span>
                               <span className="uppercase text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
-                                Verified
+                                Studio Audio
                               </span>
                             </div>
                           </div>
@@ -731,61 +789,11 @@ export const AudioLibraryPage: React.FC = () => {
               ))}
             </div>
 
-            {/* Result Display */}
-            {matchResult && (
-              <div
-                className={`p-5 rounded-xl border mt-4 ${
-                  matchResult.match
-                    ? "bg-emerald-50 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-700/50"
-                    : "bg-amber-50 dark:bg-amber-950/20 border-amber-300 dark:border-amber-700/50"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`px-2.5 py-1 text-[11px] font-bold rounded-full ${
-                          matchResult.match
-                            ? "bg-emerald-600 text-white"
-                            : "bg-amber-600 text-white"
-                        }`}
-                      >
-                        {matchResult.match ? "STUDIO AUDIO MATCH" : "TTS FALLBACK DISPATCH"}
-                      </span>
-                      <span className="text-xs font-mono font-extrabold text-[#111A15] dark:text-[#F8FAF8]">
-                        Confidence: {Math.round(matchResult.confidence * 100)}% (Threshold: &ge; 50%)
-                      </span>
-                    </div>
-
-                    <p className="text-xs text-[#111A15] dark:text-[#F8FAF8] font-semibold mt-1">
-                      {matchResult.match
-                        ? `Matched: "${matchResult.spokenText || matchResult.title}"`
-                        : "Confidence below 50% threshold. Sent to GhanaNLP / Piper neural speech synthesis."}
-                    </p>
-
-                    <div className="text-[11px] font-mono text-[#5E7265] mt-1">
-                      Match Reason: {matchResult.matchReason || "none"}
-                    </div>
-                  </div>
-
-                  {matchResult.match && matchResult.audioUrl && (
-                    <button
-                      onClick={() => handleTogglePlay(matchResult.audioUrl!, matchResult.title)}
-                      className="px-4 py-2 bg-[#0F382A] text-white hover:bg-[#1A543F] text-xs font-bold rounded-xl flex items-center gap-1.5 shrink-0 cursor-pointer"
-                    >
-                      <Play className="w-3.5 h-3.5 fill-current" />
-                      Play Matched Audio
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* AI Audio Assembly Brain Plan */}
+            {/* AI Audio Assembly Brain Plan (Primary Brain) */}
             {isAiMatching && (
               <div className="p-4 rounded-xl border border-sky-500/30 bg-sky-950/20 text-xs text-sky-300 flex items-center gap-2">
                 <RefreshCw className="w-4 h-4 animate-spin text-sky-400" />
-                <span>AI Brain (Gemini/OpenAI/Qwen) is cross-referencing reply with library transcripts...</span>
+                <span>AI Brain (Gemini 3.8 Flash / OpenAI / Qwen) is analyzing reply and cross-referencing audio library...</span>
               </div>
             )}
 
@@ -794,7 +802,7 @@ export const AudioLibraryPage: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-emerald-300 flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-emerald-400" />
-                    AI Assembly Brain Plan [{aiAssemblyPlan.source?.toUpperCase()}]
+                    PRIMARY: AI Audio Assembly Brain Plan [{aiAssemblyPlan.source?.toUpperCase()}]
                   </span>
                   <span className="text-[11px] font-mono text-slate-400 bg-slate-800 px-2 py-0.5 rounded">
                     Confidence: {Math.round((aiAssemblyPlan.confidence || 0.9) * 100)}%
@@ -808,7 +816,7 @@ export const AudioLibraryPage: React.FC = () => {
                 {aiAssemblyPlan.segments && aiAssemblyPlan.segments.length > 0 && (
                   <div className="space-y-2 mt-2">
                     <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                      Ordered Playback Sequence:
+                      Ordered Playback Sequence (The Body Initiates):
                     </span>
                     <div className="space-y-1.5">
                       {aiAssemblyPlan.segments.map((seg: any, idx: number) => (
@@ -853,6 +861,59 @@ export const AudioLibraryPage: React.FC = () => {
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Local Matching Fallback (Engages only if AI fails) */}
+            {matchResult && (
+              <div
+                className={`p-5 rounded-xl border mt-4 ${
+                  matchResult.match
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-700/50"
+                    : "bg-amber-50 dark:bg-amber-950/20 border-amber-300 dark:border-amber-700/50"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-slate-700 text-slate-200">
+                        SECONDARY FALLBACK: LOCAL RULE MATCHER
+                      </span>
+                      <span
+                        className={`px-2.5 py-1 text-[11px] font-bold rounded-full ${
+                          matchResult.match
+                            ? "bg-emerald-600 text-white"
+                            : "bg-amber-600 text-white"
+                        }`}
+                      >
+                        {matchResult.match ? "STUDIO AUDIO MATCH" : "TTS FALLBACK DISPATCH"}
+                      </span>
+                      <span className="text-xs font-mono font-extrabold text-[#111A15] dark:text-[#F8FAF8]">
+                        Confidence: {Math.round(matchResult.confidence * 100)}%
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-[#111A15] dark:text-[#F8FAF8] font-semibold mt-1">
+                      {matchResult.match
+                        ? `Matched: "${matchResult.spokenText || matchResult.title}"`
+                        : "Confidence below 50% threshold. Sent to GhanaNLP / Piper neural speech synthesis."}
+                    </p>
+
+                    <div className="text-[11px] font-mono text-[#5E7265] mt-1">
+                      Match Reason: {matchResult.matchReason || "none"}
+                    </div>
+                  </div>
+
+                  {matchResult.match && matchResult.audioUrl && (
+                    <button
+                      onClick={() => handleTogglePlay(matchResult.audioUrl!, matchResult.title)}
+                      className="px-4 py-2 bg-[#0F382A] text-white hover:bg-[#1A543F] text-xs font-bold rounded-xl flex items-center gap-1.5 shrink-0 cursor-pointer"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      Play Matched Audio
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>

@@ -24,6 +24,8 @@ import { ttsRouter as speechSynthesisRouter } from "../ai_system/speech/tts/ttsR
 import { resolvePrompt, resolvePromptText } from "../modules/ttsService";
 import { isDynamicPrompt, resolvePromptSpokenText } from "../audio/canonicalRegistry";
 import { aiBootstrap } from "../ai_system/core/aiBootstrap";
+import { crossReferenceReplyAudioWithAi } from "../audio/geminiAudioMatcher";
+import { TWI_AUDIO_LIBRARY_ITEMS } from "../audio/twiLibraryManifest";
 
 export const apiRouter = Router();
 
@@ -125,7 +127,31 @@ apiRouter.get(
   }
 );
 
-// ── Health Status ─────────────────────────────────────────────────────
+// ── AI-Driven Audio Assembly & Cross-Referencing Brain ────────────────
+apiRouter.post("/api/audio/match-reply", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { text, language = "twi", literacyLevel, prefersColloquial, sessionId } = req.body || {};
+    if (!text || typeof text !== "string") {
+      return res.status(400).json({ error: "Missing required 'text' parameter." });
+    }
+    const plan = await crossReferenceReplyAudioWithAi(
+      text,
+      language === "en" ? "en" : "twi",
+      { literacyLevel, prefersColloquial, sessionId }
+    );
+    return res.json(plan);
+  } catch (err: any) {
+    return res.status(500).json({ error: `Audio cross-referencing failed: ${err?.message || err}` });
+  }
+});
+
+// ── Canonical Twi Audio Library Manifest (Physical Files + Verbatim Transcripts) ─
+apiRouter.get("/api/audio/twi-library", publicApiRateLimiter, (_req: Request, res: Response) => {
+  return res.json({
+    total: TWI_AUDIO_LIBRARY_ITEMS.length,
+    items: TWI_AUDIO_LIBRARY_ITEMS,
+  });
+});
 const handleHealth = (req: Request, res: Response) => {
   const forwardedHost = ((req.headers["x-forwarded-host"] as string) || "").split(",")[0]?.trim();
   const host = forwardedHost || req.get("host") || `localhost:${config.port}`;

@@ -309,23 +309,23 @@ export class AudioPlaybackController {
       const lower = cleanText.toLowerCase();
       let fallbackStudioUrl: string | null = null;
       if (lower.includes("sika") && (lower.includes("dodow") || lower.includes("amount") || lower.includes("cedis") || lower.includes("bɔ"))) {
-        fallbackStudioUrl = "/audio/supplied/Twi/4.Amount Entry & Verification/Enter amount 4.m4a";
+        fallbackStudioUrl = "/audio/Twi_library/Enter amount.m4a";
       } else if (lower.includes("nɔmba") || lower.includes("fon") || lower.includes("recipient") || lower.includes("phone")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a";
+        fallbackStudioUrl = "/audio/Twi_library/Enter_recipient.m4a";
       } else if (lower.includes("pene") || lower.includes("confirm") || lower.includes("approval") || lower.includes("review") || lower.includes("aane")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/5.Transaction Confirmation/Review transaction.m4a";
+        fallbackStudioUrl = "/audio/Twi_library/Review transaction.m4a";
       } else if (lower.includes("pin") || lower.includes("handoff") || lower.includes("ahobammɔ")) {
-        fallbackStudioUrl = "/audio/Pin Handoff.m4a";
+        fallbackStudioUrl = "/audio/Twi_library/Pin Block.m4a";
       } else if (lower.includes("balance") || lower.includes("star") || lower.includes("170")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/13.Balance  Unsupported Services/Balance unavailable.aac";
+        fallbackStudioUrl = "/audio/Twi_library/Balance_Unavailable.m4a";
       } else if (lower.includes("mane") || lower.includes("send")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/Send money selected.m4a";
+        fallbackStudioUrl = "/audio/Twi_library/Send_money_selected.m4a";
       } else if (lower.includes("paw") || lower.includes("menyu") || lower.includes("menu")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/MTN menu 1.m4a";
+        fallbackStudioUrl = "/audio/Twi_library/MTN menu.mp3";
       } else if (lower.includes("twa") || lower.includes("cancel") || lower.includes("dabi")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/11.Navigation & Recovery/Cancel.aac";
+        fallbackStudioUrl = "/audio/Twi_library/Cancel.m4a";
       } else if (lower.includes("wie") || lower.includes("success") || lower.includes("medaase") || lower.includes("nante yie")) {
-        fallbackStudioUrl = "/audio/supplied/Twi/14.Post-Transaction Conversation/Finish.aac";
+        fallbackStudioUrl = "/audio/Twi_library/Finish.m4a";
       }
 
       if (fallbackStudioUrl) {
