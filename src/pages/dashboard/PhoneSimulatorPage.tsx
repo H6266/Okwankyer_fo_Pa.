@@ -344,6 +344,7 @@ export const PhoneSimulatorPage: React.FC = () => {
   const lastUtteranceTimeRef = useRef<number>(0);
   const lastUtteranceTextRef = useRef<string>("");
   const prevInterimTranscriptRef = useRef<string>("");
+  const isProcessingUtteranceRef = useRef<boolean>(false);
 
   // Synchronous session state refs
   const callActiveRef = useRef<boolean>(false);
@@ -355,7 +356,6 @@ export const PhoneSimulatorPage: React.FC = () => {
   const isMicMutedRef = useRef<boolean>(false);
   const zeroPinOverlayRef = useRef<boolean>(false);
   const brainDraftRef = useRef<any>({ slots: {} });
-  const micUnmuteTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => { callActiveRef.current = callActive; }, [callActive]);
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
@@ -501,10 +501,6 @@ export const PhoneSimulatorPage: React.FC = () => {
       if (!callActiveRef.current) return;
       if (state.isPlaying) {
         wasPlaying = true;
-        if (micUnmuteTimerRef.current) {
-          clearTimeout(micUnmuteTimerRef.current);
-          micUnmuteTimerRef.current = null;
-        }
         // Turn mic OFF while prompt is playing so internal audio is never recorded
         setIsMicMuted(true);
         isMicMutedRef.current = true;
@@ -513,37 +509,26 @@ export const PhoneSimulatorPage: React.FC = () => {
       } else {
         if (wasPlaying && !zeroPinOverlayRef.current && !isVoiceCaptureBlockedForStep(activeStepNameRef.current)) {
           wasPlaying = false;
-          if (micUnmuteTimerRef.current) {
-            clearTimeout(micUnmuteTimerRef.current);
-            micUnmuteTimerRef.current = null;
-          }
-          // Acoustic drain buffer (600ms): guarantees speaker sound in the room has completely decayed before mic turns on
-          micUnmuteTimerRef.current = setTimeout(() => {
-            micUnmuteTimerRef.current = null;
+          // Acoustic drain buffer (400ms): guarantees speaker sound in the room has completely decayed before mic un-gates
+          setTimeout(() => {
             if (
               !audioPlaybackController.isSpeaking() &&
-              !audioPlaybackController.isWithinEchoDrainWindow(600) &&
+              !audioPlaybackController.isWithinEchoDrainWindow(400) &&
               callActiveRef.current &&
               !zeroPinOverlayRef.current
             ) {
               setIsMicMuted(false);
               isMicMutedRef.current = false;
               continuousAudioEngine.setZeroPinMuted(false);
-              continuousAudioEngine.startAlwaysOnMic(languageRef.current || "en", activeStepNameRef.current);
+              continuousAudioEngine.resumeAfterPlayback();
               setCallStatus("Listening");
-              addLog("asr", "🎙️ Audio prompt finished — Microphone automatically turned ON to record your need.");
+              addLog("asr", "🎙️ Audio prompt finished — Microphone automatically unmuted.");
             }
-          }, 600);
+          }, 400);
         }
       }
     });
-    return () => {
-      if (micUnmuteTimerRef.current) {
-        clearTimeout(micUnmuteTimerRef.current);
-        micUnmuteTimerRef.current = null;
-      }
-      unsubscribe();
-    };
+    return () => unsubscribe();
   }, [addLog]);
 
   // Format MM:SS timer
@@ -853,8 +838,8 @@ export const PhoneSimulatorPage: React.FC = () => {
         options: choices,
       });
 
-      // Stop any prior audio atomically without broadcast flap so new prompts never collide
-      audioPlaybackController.stop(false);
+      // Stop any prior audio so new prompts never collide
+      audioPlaybackController.stop();
       audioPlaybackController.unlockAudio();
       const resolvedSequence = (parsed.playUrls && parsed.playUrls.length > 1)
         ? (parsed.playUrls.map(u => resolvePlayableSimulatorAudioUrl(u, responseLanguage)).filter(Boolean) as string[])
@@ -870,26 +855,36 @@ export const PhoneSimulatorPage: React.FC = () => {
         const sequencePlayback = audioPlaybackController.playSequence(resolvedSequence);
         const sequenceToken = audioPlaybackController.getCurrentToken();
         sequencePlayback.then(async (played) => {
-          if (!played && audioPlaybackController.getCurrentToken() === sequenceToken) {
-            await audioPlaybackController.speakText(promptText);
+          if (audioPlaybackController.getCurrentToken() === sequenceToken) {
+            if (parsed.sayText) {
+              await audioPlaybackController.speakText(parsed.sayText);
+            } else if (!played) {
+              await audioPlaybackController.speakText(promptText);
+            }
           }
         }).catch((err) => {
           console.warn("[PhoneSimulator] Sequence auto-play notice:", err);
           if (audioPlaybackController.getCurrentToken() === sequenceToken) {
-            return audioPlaybackController.speakText(promptText);
+            return audioPlaybackController.speakText(parsed.sayText || promptText);
           }
         }).catch((err) => {
           console.error("[PhoneSimulator] Sequence fallback speech failed:", err);
         });
       } else if (playbackUrl) {
         addLog("audio", `🔊 Auto-playing prompt: ${playbackUrl}`);
-        audioPlaybackController.play(playbackUrl, promptText).catch((err) => {
+        audioPlaybackController.play(playbackUrl, promptText).then(async () => {
+          if (parsed.sayText && promptText !== parsed.sayText) {
+            await audioPlaybackController.speakText(parsed.sayText);
+          }
+        }).catch((err) => {
           console.warn("[PhoneSimulator] Auto-play prompt notice:", err);
-          audioPlaybackController.playToneIndicator().catch(() => {});
+          audioPlaybackController.speakText(promptText).catch(() => {});
         });
       } else {
-        addLog("audio", `🔔 Prompt guidance indicator.`);
-        audioPlaybackController.playToneIndicator().catch(() => {});
+        addLog("audio", `🔊 Dynamic Voice Prompt TTS: "${promptText}"`);
+        audioPlaybackController.speakText(promptText).catch(() => {
+          audioPlaybackController.playToneIndicator().catch(() => {});
+        });
       }
     },
     [addLog, addChatTurn, language]
@@ -1151,140 +1146,177 @@ export const PhoneSimulatorPage: React.FC = () => {
       utterance: string,
       isDirectSimulated: boolean = false
     ) => {
-      // If call is inactive, initiate call first
-      if (!callActiveRef.current) {
-        addLog("state", `Speech arrived while call inactive (previous step=${activeStepNameRef.current}); starting a new call.`);
-        await startCall();
+      if (isProcessingUtteranceRef.current) {
+        console.warn("[PhoneSimulator] Utterance lock busy, dropping concurrent speech:", utterance);
+        return;
       }
+      isProcessingUtteranceRef.current = true;
+      try {
+        // If call is inactive, initiate call only on explicit intention
+        if (!callActiveRef.current) {
+          const isIntentToCall = isDirectSimulated || /\b(call|start|begin|hello|dial|akwaaba|frɛ)\b/i.test(utterance);
+          if (!isIntentToCall) {
+            return;
+          }
+          addLog("state", `Speech arrived to initiate call; starting a new session.`);
+          await startCall();
+        }
 
-      const curStep = activeStepNameRef.current;
-      const isPinStep = curStep.includes("pin") || curStep === "pin-handoff" || curStep === "enter-pin" || curStep === "pin-authorization" || curStep === "verify-pin";
-      if (!isPinStep && (zeroPinOverlayRef.current || isVoiceCaptureBlockedForStep(curStep))) return;
-      if (!isPinStep && shouldDiscardSensitiveSpeech(utterance, curStep)) {
+        const curStep = activeStepNameRef.current;
+        const isPinStep = curStep.includes("pin") || curStep === "pin-handoff" || curStep === "enter-pin" || curStep === "pin-authorization" || curStep === "verify-pin";
+        if (!isPinStep && (zeroPinOverlayRef.current || isVoiceCaptureBlockedForStep(curStep))) return;
+        if (!isPinStep && shouldDiscardSensitiveSpeech(utterance, curStep)) {
+          setIsMicMuted(true);
+          isMicMutedRef.current = true;
+          continuousAudioEngine.setZeroPinMuted(true);
+          continuousAudioEngine.pauseForPlayback();
+          addLog("system", "Sensitive credential-like speech was discarded.");
+          return;
+        }
+
+        const clean = normalizeSpokenDigits(utterance.trim());
+        if (!clean) return;
+
+        // STRICT GUARD: If audio prompt is actively playing or draining, DROP this utterance completely
+        if (!isDirectSimulated && (audioPlaybackController.isSpeaking() || isAudioSpeaking || audioPlaybackController.isWithinEchoDrainWindow(500))) {
+          console.warn("[PhoneSimulator] Dropping speech while audio is playing/draining:", clean);
+          return;
+        }
+
+        // Echo filter check: ignore system audio echoing back into mic
+        if (
+          !isDirectSimulated &&
+          isAcousticSystemEcho(
+            clean,
+            currentPromptRef.current,
+            audioPlaybackController.isSpeaking(),
+            isDirectSimulated
+          )
+        ) {
+          return;
+        }
+
+        // Debounce duplicate recognition events
+        const now = Date.now();
+        if (clean === lastUtteranceTextRef.current && now - lastUtteranceTimeRef.current < 400) {
+          return;
+        }
+        lastUtteranceTextRef.current = clean;
+        lastUtteranceTimeRef.current = now;
+
+        // Ghanaian phonetic tolerance & repair
+        const phoneticRepair = repairGhanaianPronunciation(clean);
+        const effectiveClean = phoneticRepair.normalizedTranscript || clean;
+
+        // Automatically turn the microphone OFF now that the user has finished their sentence!
         setIsMicMuted(true);
         isMicMutedRef.current = true;
-        continuousAudioEngine.setZeroPinMuted(true);
         continuousAudioEngine.pauseForPlayback();
-        addLog("system", "Sensitive credential-like speech was discarded.");
-        return;
-      }
+        setCallStatus("Processing");
 
-      const clean = normalizeSpokenDigits(utterance.trim());
-      if (!clean) return;
+        const curSession = sessionIdRef.current;
+        const curLang = languageRef.current || "en";
+        const isTwi = curLang === "twi";
 
-      // STRICT GUARD: If audio prompt is actively playing or draining, DROP this utterance completely
-      // so audios never hear themselves, play themselves, or overlap!
-      if (!isDirectSimulated && (audioPlaybackController.isSpeaking() || isAudioSpeaking || audioPlaybackController.isWithinEchoDrainWindow(600))) {
-        console.warn("[PhoneSimulator] Dropping speech while audio is playing/draining:", clean);
-        return;
-      }
-
-      // Echo filter check: ignore system audio echoing back into mic (only for live mic, not for direct simulated)
-      if (
-        !isDirectSimulated &&
-        isAcousticSystemEcho(
-          clean,
-          currentPromptRef.current,
-          audioPlaybackController.isSpeaking(),
-          isDirectSimulated
-        )
-      ) {
-        return;
-      }
-
-      // Debounce duplicate recognition events
-      const now = Date.now();
-      if (clean === lastUtteranceTextRef.current && now - lastUtteranceTimeRef.current < 400) {
-        return;
-      }
-      lastUtteranceTextRef.current = clean;
-      lastUtteranceTimeRef.current = now;
-
-      // Ghanaian phonetic tolerance & repair
-      const phoneticRepair = repairGhanaianPronunciation(clean);
-      const effectiveClean = phoneticRepair.normalizedTranscript || clean;
-
-      // Automatically turn the microphone OFF now that the user has finished their sentence!
-      // It will automatically turn back ON after the next audio prompt finishes playing.
-      setIsMicMuted(true);
-      isMicMutedRef.current = true;
-      continuousAudioEngine.pauseForPlayback();
-      setCallStatus("Processing");
-
-      const curSession = sessionIdRef.current;
-      const curLang = languageRef.current || "en";
-      const isTwi = curLang === "twi";
-
-      // ── Step: PIN Authorization via Voice ASR (No # required!) ──
-      if (curStep === "pin-handoff" || curStep === "enter-pin" || curStep === "pin-authorization" || curStep === "verify-pin" || curStep.includes("pin")) {
-        if (verifyRecipientTimerRef.current) {
-          clearTimeout(verifyRecipientTimerRef.current);
-          verifyRecipientTimerRef.current = null;
-        }
-        const maskedSpeech = effectiveClean.replace(/\b\d{4}\b/g, "••••");
-        addLog("caller", `PIN authorization given via voice ASR: "${maskedSpeech}". Advancing to payment execution immediately without #.`);
-        addChatTurn({
-          sender: "caller",
-          text: maskedSpeech,
-          stepName: curStep,
-        });
-        return dispatchVoiceWebhook(
-          `/api/simulator/safe-outcome?sessionId=${curSession}&lang=${curLang}&dtmfDigits=1`,
-          { dtmfDigits: "1" }
-        );
-      }
-
-      addLog("caller", `Speech "${clean}"`);
-      addLog("asr", `✅ Sentence complete: "${effectiveClean}" — Microphone automatically turned OFF.`);
-
-      // Add to Chat Timeline with phonetic annotations
-      addChatTurn({
-        sender: "caller",
-        text: effectiveClean,
-        rawTranscript: clean !== effectiveClean ? clean : undefined,
-        phoneticRepairs: phoneticRepair.repairedWords,
-        confidence: 0.98,
-      });
-
-      // ── Step: Recipient 10-Digit Phone Entry via Voice ASR (No # required!) ──
-      if (curStep === "enter-recipient" || curStep === "enter-phone" || curStep.includes("recipient")) {
-        const spokenDigits = formatSpokenNumbersAsDigits(effectiveClean).replace(/[^0-9]/g, "");
-        if (spokenDigits.length === 10) {
-          const validated = validateGhanaPhoneNumber(spokenDigits);
-          if (validated.valid && validated.normalized) {
-            addLog("caller", `Spoken 10-digit phone number: "${validated.normalized}". Advancing to recipient verification immediately without #.`);
-            addChatTurn({
-              sender: "caller",
-              text: validated.normalized,
-              stepName: curStep,
-            });
-            return dispatchVoiceWebhook(
-              `/api/simulator/verify-recipient?sessionId=${curSession}&lang=${curLang}`,
-              { dtmfDigits: validated.normalized }
-            );
+        // ── Step: PIN Authorization via Voice ASR (No # required!) ──
+        if (curStep === "pin-handoff" || curStep === "enter-pin" || curStep === "pin-authorization" || curStep === "verify-pin" || curStep.includes("pin")) {
+          if (verifyRecipientTimerRef.current) {
+            clearTimeout(verifyRecipientTimerRef.current);
+            verifyRecipientTimerRef.current = null;
           }
-        }
-      }
-
-      // ── Step: Amount Entry via Voice ASR (No # required!) ──
-      if (curStep === "enter-amount" || curStep === "verify-amount" || curStep.includes("amount")) {
-        const spokenWithDigits = formatSpokenNumbersAsDigits(effectiveClean);
-        const parsedAmt = parseAndValidateAmount(spokenWithDigits);
-        const digitMatch = spokenWithDigits.match(/\b(\d+(?:\.\d{1,2})?)\b/);
-        const effectiveAmt = parsedAmt.valid && parsedAmt.amount ? parsedAmt.amount : (digitMatch ? parseFloat(digitMatch[1]) : null);
-        if (effectiveAmt && effectiveAmt >= 1 && effectiveAmt <= 5000) {
-          addLog("caller", `Spoken transfer amount: GH₵ ${effectiveAmt}. Advancing to safe confirmation immediately without #.`);
+          const maskedSpeech = effectiveClean.replace(/\b\d{4}\b/g, "••••");
+          addLog("caller", `PIN authorization given via voice ASR: "${maskedSpeech}". Advancing to payment execution immediately without #.`);
           addChatTurn({
             sender: "caller",
-            text: `GH₵ ${effectiveAmt}`,
+            text: maskedSpeech,
             stepName: curStep,
           });
           return dispatchVoiceWebhook(
-            `/api/simulator/verify-amount?sessionId=${curSession}&lang=${curLang}`,
-            { dtmfDigits: String(effectiveAmt) }
+            `/api/simulator/safe-outcome?sessionId=${curSession}&lang=${curLang}&dtmfDigits=1`,
+            { dtmfDigits: "1" }
           );
         }
-      }
+
+        addLog("caller", `Speech "${clean}"`);
+        addLog("asr", `✅ Sentence complete: "${effectiveClean}" — Microphone automatically turned OFF.`);
+
+        // Add to Chat Timeline with phonetic annotations
+        addChatTurn({
+          sender: "caller",
+          text: effectiveClean,
+          rawTranscript: clean !== effectiveClean ? clean : undefined,
+          phoneticRepairs: phoneticRepair.repairedWords,
+          confidence: 0.98,
+        });
+
+        // ── Step: Recipient 10-Digit Phone Entry via Voice ASR (No # required!) ──
+        const isEnterRecipientStep =
+          curStep === "enter-recipient" ||
+          curStep === "enter-phone" ||
+          (curStep.includes("recipient") && !curStep.includes("verify") && !curStep.includes("choice"));
+
+        if (isEnterRecipientStep) {
+          const spokenDigits = formatSpokenNumbersAsDigits(effectiveClean).replace(/[^0-9]/g, "");
+          if (spokenDigits.length === 10) {
+            const validated = validateGhanaPhoneNumber(spokenDigits);
+            if (validated.valid && validated.normalized) {
+              addLog("caller", `Spoken 10-digit phone number: "${validated.normalized}". Advancing to recipient verification immediately without #.`);
+              addChatTurn({
+                sender: "caller",
+                text: validated.normalized,
+                stepName: curStep,
+              });
+              return dispatchVoiceWebhook(
+                `/api/simulator/verify-recipient?sessionId=${curSession}&lang=${curLang}`,
+                { dtmfDigits: validated.normalized }
+              );
+            }
+          }
+          // If caller spoke during recipient entry step but digits were incomplete, guide them locally
+          const repeatRecipient = curLang === "twi"
+            ? "Yɛsrɛ wo, bɔ anaasɛ ka obi a woremane no sika no fon nɔmba a ɛyɛ du na fa hash ka ho."
+            : "Please speak or enter the recipient's ten-digit phone number, followed by hash.";
+          addLog("reply", `"${repeatRecipient}"`);
+          addChatTurn({ sender: "ai", text: repeatRecipient, audioSource: "synthesis", stepName: curStep });
+          setCurrentPrompt(repeatRecipient);
+          currentPromptRef.current = repeatRecipient;
+          await audioPlaybackController.speakText(repeatRecipient);
+          return;
+        }
+
+        // ── Step: Amount Entry via Voice ASR (No # required!) ──
+        const isEnterAmountStep =
+          curStep === "enter-amount" ||
+          curStep === "verify-amount" ||
+          (curStep.includes("amount") && !curStep.includes("confirm"));
+
+        if (isEnterAmountStep) {
+          const spokenWithDigits = formatSpokenNumbersAsDigits(effectiveClean);
+          const parsedAmt = parseAndValidateAmount(spokenWithDigits);
+          const digitMatch = spokenWithDigits.match(/\b(\d+(?:\.\d{1,2})?)\b/);
+          const effectiveAmt = parsedAmt.valid && parsedAmt.amount ? parsedAmt.amount : (digitMatch ? parseFloat(digitMatch[1]) : null);
+          if (effectiveAmt && effectiveAmt >= 1 && effectiveAmt <= 5000) {
+            addLog("caller", `Spoken transfer amount: GH₵ ${effectiveAmt}. Advancing to safe confirmation immediately without #.`);
+            addChatTurn({
+              sender: "caller",
+              text: `GH₵ ${effectiveAmt}`,
+              stepName: curStep,
+            });
+            return dispatchVoiceWebhook(
+              `/api/simulator/verify-amount?sessionId=${curSession}&lang=${curLang}`,
+              { dtmfDigits: String(effectiveAmt) }
+            );
+          }
+          const repeatAmt = curLang === "twi"
+            ? "Sika dodow sɛn na wopɛ sɛ womane? Bɔ anaasɛ ka sika dodow no wɔ Cedi mu na fa hash ka ho."
+            : "How much would you like to send? Please enter or speak the amount in Cedis followed by hash.";
+          addLog("reply", `"${repeatAmt}"`);
+          addChatTurn({ sender: "ai", text: repeatAmt, audioSource: "synthesis", stepName: curStep });
+          setCurrentPrompt(repeatAmt);
+          currentPromptRef.current = repeatAmt;
+          await audioPlaybackController.speakText(repeatAmt);
+          return;
+        }
 
       if (curStep === "cashout-confirm-approval") {
         const normalizedApproval = effectiveClean.toLowerCase();
@@ -1592,6 +1624,28 @@ export const PhoneSimulatorPage: React.FC = () => {
           addLog("caller", `Spoken change recipient request: "${effectiveClean}". Returning to recipient entry.`);
           return dispatchVoiceWebhook(cb, { dtmfDigits: "2" });
         }
+
+        const spokenDigits = formatSpokenNumbersAsDigits(effectiveClean).replace(/[^0-9]/g, "");
+        if (spokenDigits.length === 10) {
+          addLog("caller", `Spoken replacement recipient: "${spokenDigits}". Re-verifying recipient.`);
+          return dispatchVoiceWebhook(`/api/simulator/verify-recipient?sessionId=${curSession}&lang=${curLang}`, { dtmfDigits: spokenDigits });
+        }
+        if (spokenDigits === "1") {
+          return dispatchVoiceWebhook(cb, { dtmfDigits: "1" });
+        }
+        if (spokenDigits === "2") {
+          return dispatchVoiceWebhook(cb, { dtmfDigits: "2" });
+        }
+
+        const clarify = curLang === "twi"
+          ? "Sɛ wopene so a, mia baako (1) anaa ka aane. Sɛ wopɛ sɛ wosesa nɔmba no a, mia mmienu (2) anaa ka dabi."
+          : "Press 1 or say yes to confirm, press 2 or say no to re-enter the number.";
+        addLog("reply", `"${clarify}"`);
+        addChatTurn({ sender: "ai", text: clarify, audioSource: "synthesis", stepName: curStep });
+        setCurrentPrompt(clarify);
+        currentPromptRef.current = clarify;
+        await audioPlaybackController.speakText(clarify);
+        return;
       }
 
       if (curStep.includes("confirm") || curStep === "safe-confirmation") {
@@ -1795,8 +1849,10 @@ export const PhoneSimulatorPage: React.FC = () => {
         clearInterval(reasoningInterval);
         setIsAiReasoning(false);
       }
-
-    },
+    } finally {
+      isProcessingUtteranceRef.current = false;
+    }
+  },
     [
       activeCallbackUrl,
       activeNumDigits,
@@ -1894,7 +1950,7 @@ export const PhoneSimulatorPage: React.FC = () => {
         zeroPinOverlayRef.current ||
         isAudioSpeaking ||
         audioPlaybackController.isSpeaking() ||
-        audioPlaybackController.isWithinEchoDrainWindow(600)
+        audioPlaybackController.isWithinEchoDrainWindow(500)
       ) {
         return;
       }

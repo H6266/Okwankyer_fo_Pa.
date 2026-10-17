@@ -1065,18 +1065,7 @@ aiRouter.post("/api/ai/dialogue/turn", publicApiRateLimiter, async (req: Request
   }
 });
 
-aiRouter.post("/api/ai/synthesize", publicApiRateLimiter, async (req: Request, res: Response) => {
-  try {
-    const { text, language, style } = req.body;
-    if (!text) {
-      return res.status(400).json({ error: "Missing 'text' to synthesize." });
-    }
-    const result = await aiSystem.synthesizeSpeech(text, language || "en", style);
-    res.json({ success: true, result });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || "Failed to synthesize speech" });
-  }
-});
+
 
 
 
