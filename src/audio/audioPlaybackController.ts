@@ -66,7 +66,7 @@ export function resolveSafePlayableUrl(url: string): string {
 
 export class AudioPlaybackController {
   private playbackVolume: number = 1.0;
-  private volumeMultiplier: number = 2.0; // Boosted volume: 200% (+6dB) with dynamics compression
+  private volumeMultiplier: number = 2.2; // Boosted volume: 220% (+6.8dB) with dynamics compression
   private audioElement: HTMLAudioElement | null = null;
   private mediaElementSource: MediaElementAudioSourceNode | null = null;
   private currentToken: number = 0;

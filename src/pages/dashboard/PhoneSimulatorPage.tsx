@@ -110,6 +110,7 @@ const STEP_OPTIONS_MAP: Record<string, string> = {
   "verify-amount": "Amount followed by #",
   "safe-confirmation": "1=Confirm Transfer, 2=Edit, 9=Repeat, 0=Cancel",
   "safe-outcome": "1=Confirm Transfer, 0=Cancel",
+  "pin-handoff": "Enter 4-digit PIN on keypad (Mic Muted)",
   "enter-pin": "Enter 4-digit PIN on keypad or say it aloud",
   "verify-pin": "Verifying MoMo PIN...",
   "transfer-success": "Transaction Completed",
@@ -127,6 +128,7 @@ const STEP_FRIENDLY_NAMES: Record<string, string> = {
   "service-choice": "Service Selection",
   "provider-select": "Network Selection (MTN)",
   "provider-choice": "Network Provider",
+  "pin-handoff": "Zero-PIN Handset Handoff (OP40)",
   "enter-pin": "MoMo PIN Entry",
   "verify-pin": "Verifying PIN",
   "transfer-success": "Transfer Successful",
@@ -264,7 +266,7 @@ export const PhoneSimulatorPage: React.FC = () => {
   const [showDevView, setShowDevView] = useState<boolean>(false);
   const [testAudioStatus, setTestAudioStatus] = useState<string>("");
   const [volumeMultiplier, setVolumeMultiplierState] = useState<number>(() => {
-    return audioPlaybackController.getVolumeMultiplier() || 2.0;
+    return audioPlaybackController.getVolumeMultiplier() || 2.2;
   });
   const verifyRecipientTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [hciQuota, setHciQuota] = useState<{
@@ -994,20 +996,23 @@ export const PhoneSimulatorPage: React.FC = () => {
   );
 
   const startPinAuthorizationFlow = useCallback(async () => {
-    activeStepNameRef.current = "enter-pin";
-    setActiveStepName("enter-pin");
+    activeStepNameRef.current = "pin-handoff";
+    setActiveStepName("pin-handoff");
     setDigitsBuffer("");
-    zeroPinOverlayRef.current = false;
-    setZeroPinOverlay(false);
-    setIsMicMuted(false);
-    isMicMutedRef.current = false;
-    continuousAudioEngine.setZeroPinMuted(false);
+    zeroPinOverlayRef.current = true;
+    setZeroPinOverlay(true);
+    setIsMicMuted(true);
+    isMicMutedRef.current = true;
+    continuousAudioEngine.setZeroPinMuted(true);
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch {}
+    }
 
     const curLang = languageRef.current || language;
     const isTwi = curLang === "twi";
     const promptText = isTwi
-      ? "Yɛsrɛ wo, fa wo MoMo PIN nɔmba nnan no bɔ mu anaa ka kyerɛ me na yɛmfa nwie transfer no."
-      : "Please enter your 4-digit Mobile Money PIN on the keypad or say it to authorize this transfer.";
+      ? "Wo transaction no ayɛ krado sɛ wode bɛma ho kwan. Yɛsrɛ wo, bɔ wo 4 digit password wɔ wo handset screen so."
+      : "Your transaction is ready for authorization. Please enter your 4-digit PIN securely on your handset screen.";
 
     const curSession = sessionIdRef.current || sessionId || `call_${Date.now()}`;
     const targetCallback = `/api/simulator/verify-pin?sessionId=${encodeURIComponent(curSession)}&lang=${curLang}`;
@@ -1016,12 +1021,19 @@ export const PhoneSimulatorPage: React.FC = () => {
     setActiveNumDigits(4);
     setActiveFinishOnKey("#");
 
-    addLog("state", "Direct PIN entry active. Caller can enter 4-digit PIN on keypad or speak aloud.");
-    addChatTurn({ sender: "ai", text: promptText, audioSource: "synthesis", stepName: "enter-pin" });
+    addLog("state", "Zero-PIN Handset Handoff active (OP40: Pin Handoff.m4a). Microphone strictly muted for security.");
+    addChatTurn({
+      sender: "ai",
+      text: promptText,
+      promptId: "OP40",
+      audioUrl: "/audio/Pin Handoff.mp3",
+      audioSource: "studio",
+      stepName: "pin-handoff",
+    });
     setCurrentPrompt(promptText);
     currentPromptRef.current = promptText;
 
-    await audioPlaybackController.speakText(promptText);
+    await audioPlaybackController.play("/audio/Pin Handoff.mp3", promptText);
   }, [language, sessionId, addLog, addChatTurn]);
 
   const playAiAgentReply = useCallback(
@@ -1862,7 +1874,42 @@ export const PhoneSimulatorPage: React.FC = () => {
         return;
       }
 
-      if (zeroPinOverlayRef.current) return;
+      // Special Handling: Direct 4-Digit PIN Entry on Handset Keypad (Zero-PIN Handset Security)
+      if (
+        zeroPinOverlayRef.current ||
+        activeStepNameRef.current === "pin-handoff" ||
+        activeStepNameRef.current === "enter-pin" ||
+        activeStepNameRef.current === "verify-pin"
+      ) {
+        const pinCallback = (
+          activeCallbackUrlRef.current ||
+          activeCallbackUrl ||
+          `/api/simulator/verify-pin?sessionId=${encodeURIComponent(sessionIdRef.current)}&lang=${languageRef.current || "twi"}`
+        );
+
+        if (digit === "#") {
+          if (digitsBuffer.length >= 4) {
+            const pinVal = digitsBuffer.slice(0, 4);
+            setCallStatus("Verifying PIN");
+            addLog("caller", "Handset Keypad PIN submitted: ● ● ● ● — Verifying MoMo PIN...");
+            dispatchVoiceWebhook(pinCallback, { dtmfDigits: pinVal });
+          }
+          return;
+        }
+        if (/^\d$/.test(digit)) {
+          if (digitsBuffer.length >= 4) return;
+          const nextPin = digitsBuffer + digit;
+          setDigitsBuffer(nextPin);
+          if (nextPin.length === 4) {
+            setCallStatus("Verifying PIN");
+            addLog("caller", "Handset Keypad PIN entered: ● ● ● ● — Verifying MoMo PIN...");
+            setTimeout(() => {
+              dispatchVoiceWebhook(pinCallback, { dtmfDigits: nextPin });
+            }, 350);
+          }
+        }
+        return;
+      }
 
       const targetCallback =
         activeCallbackUrlRef.current ||
@@ -1995,29 +2042,6 @@ export const PhoneSimulatorPage: React.FC = () => {
         return;
       }
 
-      // Special Handling: Direct 4-Digit PIN Entry on Keypad
-      if (activeStepNameRef.current === "enter-pin" || activeStepNameRef.current === "verify-pin") {
-        if (digit === "#") {
-          if (digitsBuffer.length >= 4) {
-            const pinVal = digitsBuffer.slice(0, 4);
-            setCallStatus("Verifying PIN");
-            addLog("caller", "Keypad PIN submitted: ● ● ● ● — Verifying MoMo PIN...");
-            dispatchVoiceWebhook(targetCallback, { dtmfDigits: pinVal });
-          }
-          return;
-        }
-        if (digitsBuffer.length >= 4) return;
-        const nextPin = digitsBuffer + digit;
-        setDigitsBuffer(nextPin);
-        if (nextPin.length === 4) {
-          setCallStatus("Verifying PIN");
-          addLog("caller", "Keypad PIN entered: ● ● ● ● — Verifying MoMo PIN...");
-          setTimeout(() => {
-            dispatchVoiceWebhook(targetCallback, { dtmfDigits: nextPin });
-          }, 350);
-        }
-        return;
-      }
 
       // Multi-digit input with finish on key (#)
       if (digit === activeFinishOnKey) {
@@ -2211,7 +2235,7 @@ export const PhoneSimulatorPage: React.FC = () => {
             <span className="text-[11px] font-semibold text-amber-300 flex items-center gap-1">
               🔊 Volume:
             </span>
-            {[1.0, 1.5, 2.0, 2.5].map((lvl) => (
+            {[1.0, 1.5, 2.0, 2.2, 2.5].map((lvl) => (
               <button
                 key={lvl}
                 type="button"
@@ -2331,9 +2355,9 @@ export const PhoneSimulatorPage: React.FC = () => {
                     </div>
                     <div className="flex items-center justify-between w-full text-[10px] text-slate-400">
                       <span className="text-amber-400/90 font-medium">
-                        {callStatus === "Verifying PIN" ? "Sending for verification..." : "Type PIN on keypad or say aloud"}
+                        {callStatus === "Verifying PIN" ? "Verifying secret PIN..." : "Enter 4-digit PIN on keypad · Mic Muted"}
                       </span>
-                      <span className="font-mono text-emerald-400">Direct PIN</span>
+                      <span className="font-mono text-emerald-400">Zero-PIN</span>
                     </div>
                   </div>
                 ) : activeStepName === "transfer-success" || callStatus === "Completed" ? (

@@ -69,11 +69,11 @@ export async function getOrTranscodeMp3(sourceFilePath: string): Promise<string>
   const transcodePromise = (async () => {
     const tempPath = `${cachedMp3Path}.tmp.${Date.now()}`;
     try {
-      // 16kHz mono 64kbps MP3 with 2.0x (+6dB) volume boost filter for loud and clear telephony & web playback
+      // 16kHz mono 64kbps MP3 with 2.2x (+6.8dB) volume boost filter for loud and clear telephony & web playback
       await execFileAsync("ffmpeg", [
         "-y",
         "-i", sourceFilePath,
-        "-filter:a", "volume=2.0",
+        "-filter:a", "volume=2.2",
         "-codec:a", "libmp3lame",
         "-b:a", "64k",
         "-ar", "16000",

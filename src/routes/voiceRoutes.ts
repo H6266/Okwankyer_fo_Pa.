@@ -893,6 +893,12 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
     return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
   }
 
+  // If recipient is already resolved/verified and caller presses 1 (or #) to confirm
+  if ((rawDigits === "1" || rawDigits === "#" || rawDigits === "") && (session.recipientPhone || session.state === "RECIPIENT_VERIFIED")) {
+    session.retryCount = 0;
+    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  }
+
   // Validate phone number format and prefix
   const phoneValidation = validateGhanaPhoneNumber(rawDigits);
   if (!phoneValidation.valid || !phoneValidation.normalized) {
@@ -1322,6 +1328,13 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
     }
 
     if (!session.callerPhone || !session.callerPhone.trim()) {
+      const incomingCaller = (req.body?.callerNumber || req.query?.callerNumber || req.body?.callerPhone || req.query?.callerPhone || (req.baseUrl.includes("simulator") ? "0543546010" : ""));
+      if (incomingCaller) {
+        session.callerPhone = String(incomingCaller);
+      }
+    }
+
+    if (!session.callerPhone || !session.callerPhone.trim()) {
       transactionStateMachine.transition(sessionId, "FAILED", {
         failureReason: "Missing verified caller phone number from telephony webhook.",
       });
@@ -1355,13 +1368,15 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
 
     return xmlResponse(
       res,
-      `    <Redirect>${baseUrl}/enter-pin?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`,
+      `    <Redirect>${baseUrl}/pin-handoff?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`,
       {
-        stepId: "enter-pin",
-        stepName: "enter-pin",
+        stepId: "pin-handoff",
+        stepName: "pin-handoff",
+        promptKey: "OP40",
+        replyKey: "OP40",
         replyText: lang === "twi"
-          ? "Yɛsrɛ wo, fa wo MoMo PIN nɔmba nnan no bɔ mu anaa ka kyerɛ me."
-          : "Please enter your 4-digit Mobile Money PIN on the keypad or say it to authorize this transfer.",
+          ? "Wo transaction no ayɛ krado sɛ wode bɛma ho kwan. Yɛsrɛ wo, bɔ wo 4 digit password wɔ wo handset screen so."
+          : "Your transaction is ready for authorization. Please enter your 4-digit PIN securely on your handset screen.",
       }
     );
   } catch (err: any) {
