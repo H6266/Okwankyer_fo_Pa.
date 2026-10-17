@@ -49,15 +49,28 @@ export function getAudioFilePath(filename: string, assetRoot?: AudioAssetRoot): 
   const recording = AUDIO_RECORDINGS.find((item) =>
     item.relativePath === filename && (assetRoot === undefined || item.assetRoot === assetRoot)
   );
-  if (!recording) return null;
+  if (recording) {
+    const root = recording.assetRoot === "supplied"
+      ? path.resolve(process.cwd(), "Audio_files")
+      : recording.assetRoot === "public"
+        ? path.resolve(process.cwd(), "public", "audio")
+        : path.resolve(process.cwd(), "Audio_files");
+    const resolved = path.resolve(root, recording.relativePath);
+    if (fs.existsSync(resolved) && !fs.statSync(resolved).isDirectory()) {
+      return resolved;
+    }
+  }
 
-  const root = recording.assetRoot === "supplied"
-    ? path.resolve(process.cwd(), "Audio_files")
-    : recording.assetRoot === "public"
-      ? path.resolve(process.cwd(), "public", "audio")
-      : path.resolve(process.cwd(), "Audio_files");
-  const resolved = path.resolve(root, recording.relativePath);
-  return fs.existsSync(resolved) && !fs.statSync(resolved).isDirectory() ? resolved : null;
+  // Fallback to resolveSafeAudioPath for restructured files in Audio_files/Twi_library
+  try {
+    const { resolveSafeAudioPath } = require("./streaming");
+    const safe = resolveSafeAudioPath(filename);
+    if (safe && fs.existsSync(safe) && !fs.statSync(safe).isDirectory()) {
+      return safe;
+    }
+  } catch {}
+
+  return null;
 }
 
 export function audioFileExists(filename: string, assetRoot?: AudioAssetRoot): boolean {

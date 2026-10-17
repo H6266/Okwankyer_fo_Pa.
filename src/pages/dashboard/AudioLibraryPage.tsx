@@ -67,6 +67,8 @@ export const AudioLibraryPage: React.FC = () => {
   const [testPhrase, setTestPhrase] = useState("Please enter the recipient phone number");
   const [testLanguage, setTestLanguage] = useState<"tw" | "en">("en");
   const [matchResult, setMatchResult] = useState<AudioMatchResult | null>(null);
+  const [aiAssemblyPlan, setAiAssemblyPlan] = useState<any>(null);
+  const [isAiMatching, setIsAiMatching] = useState(false);
 
   autoPlayFlowIndexRef.current = currentFlowStepIndex;
   autoPlayFlowActiveRef.current = autoPlayFlowActive;
@@ -245,9 +247,33 @@ export const AudioLibraryPage: React.FC = () => {
     setCheckingByteRange(false);
   };
 
-  const runMatcherTest = (phrase: string, lang: "tw" | "en") => {
+  const runMatcherTest = async (phrase: string, lang: "tw" | "en") => {
     const res = matchReplyToAudio(phrase, lang, { minConfidence: 0.50 });
     setMatchResult(res);
+
+    if (phrase.trim()) {
+      setIsAiMatching(true);
+      try {
+        const response = await fetch("/api/ai/cross-reference-audio", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            replyText: phrase,
+            language: lang === "tw" ? "twi" : "en",
+          }),
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.plan) {
+            setAiAssemblyPlan(data.plan);
+          }
+        }
+      } catch (err) {
+        console.warn("AI cross-reference test notice:", err);
+      } finally {
+        setIsAiMatching(false);
+      }
+    }
   };
 
   const allManifestClips = manifest
@@ -745,13 +771,88 @@ export const AudioLibraryPage: React.FC = () => {
                   {matchResult.match && matchResult.audioUrl && (
                     <button
                       onClick={() => handleTogglePlay(matchResult.audioUrl!, matchResult.title)}
-                      className="px-4 py-2 bg-[#0F382A] text-white hover:bg-[#1A543F] text-xs font-bold rounded-xl flex items-center gap-1.5 shrink-0"
+                      className="px-4 py-2 bg-[#0F382A] text-white hover:bg-[#1A543F] text-xs font-bold rounded-xl flex items-center gap-1.5 shrink-0 cursor-pointer"
                     >
                       <Play className="w-3.5 h-3.5 fill-current" />
                       Play Matched Audio
                     </button>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* AI Audio Assembly Brain Plan */}
+            {isAiMatching && (
+              <div className="p-4 rounded-xl border border-sky-500/30 bg-sky-950/20 text-xs text-sky-300 flex items-center gap-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-sky-400" />
+                <span>AI Brain (Gemini/OpenAI/Qwen) is cross-referencing reply with library transcripts...</span>
+              </div>
+            )}
+
+            {aiAssemblyPlan && (
+              <div className="p-5 rounded-xl border border-emerald-500/40 bg-slate-900/90 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-emerald-300 flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-emerald-400" />
+                    AI Assembly Brain Plan [{aiAssemblyPlan.source?.toUpperCase()}]
+                  </span>
+                  <span className="text-[11px] font-mono text-slate-400 bg-slate-800 px-2 py-0.5 rounded">
+                    Confidence: {Math.round((aiAssemblyPlan.confidence || 0.9) * 100)}%
+                  </span>
+                </div>
+
+                <p className="text-xs text-slate-300 italic">
+                  &ldquo;{aiAssemblyPlan.reasoning}&rdquo;
+                </p>
+
+                {aiAssemblyPlan.segments && aiAssemblyPlan.segments.length > 0 && (
+                  <div className="space-y-2 mt-2">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                      Ordered Playback Sequence:
+                    </span>
+                    <div className="space-y-1.5">
+                      {aiAssemblyPlan.segments.map((seg: any, idx: number) => (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between p-2.5 rounded-lg bg-slate-950/60 border border-slate-800 text-xs"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <span className="w-5 h-5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-500/40 flex items-center justify-center font-bold text-[10px]">
+                              {idx + 1}
+                            </span>
+                            {seg.type === "clip" ? (
+                              <div>
+                                <span className="font-semibold text-emerald-200">
+                                  Studio Clip: {seg.filename}
+                                </span>
+                                {seg.transcript && (
+                                  <p className="text-[11px] text-slate-400 mt-0.5">&ldquo;{seg.transcript}&rdquo;</p>
+                                )}
+                              </div>
+                            ) : (
+                              <div>
+                                <span className="font-semibold text-amber-300">
+                                  Dynamic TTS Segment
+                                </span>
+                                <p className="text-[11px] text-slate-300 mt-0.5">&ldquo;{seg.text}&rdquo;</p>
+                              </div>
+                            )}
+                          </div>
+
+                          {seg.type === "clip" && seg.audioUrl && (
+                            <button
+                              onClick={() => handleTogglePlay(seg.audioUrl, seg.filename)}
+                              className="p-1.5 rounded-lg bg-emerald-900/40 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/50 cursor-pointer"
+                              title="Play clip"
+                            >
+                              <Play className="w-3.5 h-3.5 fill-current" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

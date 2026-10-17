@@ -20,7 +20,11 @@ import { simulatorTelephonyAdapter } from "../providers/telephony/telephonyAdapt
 import { eventBus } from "../services/eventBus";
 import { brain } from "../ai_system/brain/brain";
 import { brainTelemetry } from "../ai_system/brain/brainTelemetry";
-import { matchAiReplyWithGemini, storeGeminiConversationReply } from "../audio/geminiAudioMatcher";
+import {
+  matchAiReplyWithGemini,
+  storeGeminiConversationReply,
+  crossReferenceReplyAudioWithAi,
+} from "../audio/geminiAudioMatcher";
 import { ttsRouter } from "../ai_system/speech/tts/ttsRouter";
 import { formatSpokenNumbersAsDigits } from "../domain/numberFormatter";
 import { paymentSaga } from "../integrations/momo/paymentSaga";
@@ -760,6 +764,37 @@ aiRouter.post("/api/ai/match-audio", publicApiRateLimiter, async (req: Request, 
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Audio matching failed" });
+  }
+});
+
+/**
+ * AI Audio Cross-Referencing Endpoint
+ * The AI is the brain: analyzes the reply text against transcriped_twi_audio_library.txt,
+ * produces an ordered audio assembly plan of clips to play, and extracts dynamic variables for TTS.
+ * Only if the AI fails does the local system fallback engage.
+ */
+aiRouter.post("/api/ai/cross-reference-audio", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { replyText, language, literacyLevel, sessionId } = req.body;
+    if (!replyText || typeof replyText !== "string") {
+      return res.status(400).json({ success: false, error: "Missing required 'replyText' parameter" });
+    }
+
+    const lang = (language === "tw" || language === "ak" || language === "twi" || language === "twi-asante" || language === "twi-akuapem")
+      ? "twi"
+      : "en";
+
+    const plan = await crossReferenceReplyAudioWithAi(replyText, lang, {
+      literacyLevel: literacyLevel || "standard",
+      sessionId,
+    });
+
+    res.json({
+      success: true,
+      plan,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Audio cross-referencing failed" });
   }
 });
 

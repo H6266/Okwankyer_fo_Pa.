@@ -370,11 +370,11 @@ export const handleInboundCall = (req: Request, res: Response) => {
 
   const defaultWelcomeUrl = `${baseUrl}/audio/Welcome_prompt_01.mp3`;
   const welcomeUrl = initialLang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Welcome%201%20(2).mp3`
+    ? `${baseUrl}/audio/Twi_library/Opening_voice_welcome_to_okwankyerefopa.mp3`
     : `${baseUrl}/audio/Welcome_prompt_01.mp3`;
 
   const langSelectUrl = initialLang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Language%20selection.mp3`
+    ? `${baseUrl}/audio/Twi_library/Language_selection.m4a`
     : `${baseUrl}/audio/Welcome_prompt_01.mp3`;
 
   const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?sessionId=${sessionId}&amp;lang=${initialLang}">
@@ -500,7 +500,7 @@ ivrRouter.all("/service-select", (req: Request, res: Response) => {
   const baseUrl = getBaseUrl(req);
 
   const serviceSelection2Url = lang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/2.Main%20Service%20Navigation/Service%20selection%202.mp3`
+    ? `${baseUrl}/audio/Twi_library/Service_selection.mp3`
     : "";
 
   const promptElement = serviceSelection2Url
@@ -736,7 +736,7 @@ ivrRouter.all("/action-select", (req: Request, res: Response) => {
   const baseUrl = getBaseUrl(req);
 
   const mtnMenu1Url = lang === "twi"
-    ? `${baseUrl}/audio/supplied/Twi/2.Main%20Service%20Navigation/MTN%20menu%201.mp3`
+    ? `${baseUrl}/audio/Twi_library/MTN%20menu.mp3`
     : "";
 
   const promptElement = mtnMenu1Url
