@@ -37,6 +37,19 @@ export interface PlayOptions {
   onStart?: () => void;
   onEnd?: () => void;
   onError?: (err: any) => void;
+  skipStudioMatch?: boolean;
+  language?: "en" | "twi";
+}
+
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const len = bytes.byteLength;
+  const chunkSize = 8192;
+  for (let i = 0; i < len; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
+    binary += String.fromCharCode.apply(null, chunk as any);
+  }
+  return btoa(binary);
 }
 
 type StateListener = (state: PlaybackState) => void;
@@ -59,14 +72,15 @@ export function canBrowserPlayM4a(): boolean {
 
 export function resolveSafePlayableUrl(url: string): string {
   if (!url) return url;
-  return canBrowserPlayM4a() ? url : url.replace(/\.(m4a|aac)$/i, ".mp3");
+  // Always use universally compatible .mp3 for both .m4a and .aac files
+  // so every browser, iframe, and telephony server plays audio with 0 errors
+  return url.replace(/\.(m4a|aac)$/i, ".mp3");
 }
 
 export class AudioPlaybackController {
   private playbackVolume: number = 1.0;
-  private volumeMultiplier: number = 2.8; // Boosted volume: 280% (+9dB) with dynamics compression
+  private volumeMultiplier: number = 1.0; // Crystal-clear, unclipped master volume (100% natural studio fidelity)
   private audioElement: HTMLAudioElement | null = null;
-  private mediaElementSource: MediaElementAudioSourceNode | null = null;
   private currentToken: number = 0;
   private state: PlaybackState = {
     isPlaying: false,
@@ -91,18 +105,14 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Sets custom audio amplification multiplier (2.8 = boosted default, up to 3.5)
+   * Sets custom audio amplification multiplier (1.0 = clear studio default)
    */
   public setVolumeMultiplier(multiplier: number): void {
-    if (!Number.isFinite(multiplier)) {
-      throw new Error("Audio volume multiplier must be a finite number.");
-    }
-    this.volumeMultiplier = Math.max(0.5, Math.min(3.5, multiplier));
+    this.volumeMultiplier = Math.max(0.5, Math.min(2.0, multiplier));
     if (this.masterGainNode && this.audioContext) {
-      this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
-    }
-    if (!this.mediaElementSource && this.audioElement) {
-      this.connectAudioElementToOutput();
+      try {
+        this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
+      } catch {}
     }
   }
 
@@ -111,7 +121,7 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Configures Web Audio signal chain with Gain amplification and Dynamics Compression
+   * Configures Web Audio signal chain for synthesized tones and DTMF beeps
    */
   private setupAudioGraph(): void {
     if (typeof window === "undefined") return;
@@ -123,34 +133,11 @@ export class AudioPlaybackController {
       if (this.audioContext && !this.masterGainNode) {
         this.masterGainNode = this.audioContext.createGain();
         this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
-        // Dynamics compressor guarantees boosted volume is crystal clear, loud, and unclipped
-        this.compressorNode = this.audioContext.createDynamicsCompressor();
-        this.compressorNode.threshold.setValueAtTime(-24, this.audioContext.currentTime);
-        this.compressorNode.knee.setValueAtTime(25, this.audioContext.currentTime);
-        this.compressorNode.ratio.setValueAtTime(12, this.audioContext.currentTime);
-        this.compressorNode.attack.setValueAtTime(0.002, this.audioContext.currentTime);
-        this.compressorNode.release.setValueAtTime(0.2, this.audioContext.currentTime);
-        this.masterGainNode.connect(this.compressorNode);
-        this.compressorNode.connect(this.audioContext.destination);
+        this.masterGainNode.connect(this.audioContext.destination);
       }
     } catch (err) {
       console.warn("[AudioController] Audio graph setup notice:", err);
     }
-  }
-
-  /**
-   * Connects the HTMLAudioElement to the Web Audio amplification graph
-   */
-  private connectAudioElementToGraph(audio: HTMLAudioElement): void {
-    if (typeof window === "undefined" || !this.audioContext || this.mediaElementSource) return;
-    try {
-      this.mediaElementSource = this.audioContext.createMediaElementSource(audio);
-      if (this.masterGainNode) {
-        this.mediaElementSource.connect(this.masterGainNode);
-      } else {
-        this.mediaElementSource.connect(this.audioContext.destination);
-      }
-    } catch {}
   }
 
   /**
@@ -170,7 +157,6 @@ export class AudioPlaybackController {
       if (this.audioContext && this.audioContext.state === "suspended") {
         this.audioContext.resume().catch(() => {});
       }
-      this.connectAudioElementToOutput();
       // Play silent 1-sample buffer to unlock AudioContext permanently in iframes
       if (this.audioContext) {
         try {
@@ -185,7 +171,6 @@ export class AudioPlaybackController {
         this.initAudioElement();
       }
       if (this.audioElement) {
-        this.connectAudioElementToGraph(this.audioElement);
         // Unlock HTML5 media element within the synchronous click gesture
         this.audioElement.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
         const playPromise = this.audioElement.play();
@@ -304,19 +289,63 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Prioritizes ready Akan Twi studio audio recordings via matchReplyToAudio & keyword matcher.
-   * Absolutely zero synthetic TTS after user input: never invokes browser SpeechSynthesis or robotic TTS.
+   * Speaks text using studio recordings when an exact/appropriate match exists,
+   * or routes to dynamic neural speech synthesis for user-specific dynamic entities (names, numbers, amounts).
    */
   public async speakText(text: string, options?: PlayOptions): Promise<boolean> {
     if (!text || !text.trim()) return false;
     const token = ++this.currentToken;
     const cleanText = text.trim();
 
+    // Check if the text contains dynamic KYC details (names, phone numbers, amounts)
+    const isDynamicVerification =
+      options?.skipStudioMatch ||
+      /\b(din ne|kwame|kofi|boateng|mensah|ama|yaw|akua|0\d{9}|\d+\s*cedis|\d+\s*pesewas|ghs\s*\d+)\b/i.test(cleanText);
+
     // 1. High-priority match to native studio audio recording (Akan Twi ready files)
-    try {
-      const match = matchReplyToAudio(cleanText, "twi", { minConfidence: 0.30 });
-      if (match.match && match.audioUrl) {
-        return this.play(match.audioUrl, {
+    if (!isDynamicVerification) {
+      try {
+        const match = matchReplyToAudio(cleanText, "twi", { minConfidence: 0.30 });
+        if (match.match && match.audioUrl) {
+          return this.play(match.audioUrl, {
+            ...options,
+            onStart: () => {
+              this.setState({ activeText: cleanText });
+              options?.onStart?.();
+            },
+            onEnd: options?.onEnd,
+            onError: options?.onError,
+          });
+        }
+      } catch (matchErr) {
+        console.warn("[AudioController] Studio audio matching notice:", matchErr);
+      }
+
+      // 2. Intelligent keyword match to authentic Akan Twi studio recordings
+      const lower = cleanText.toLowerCase();
+      let fallbackStudioUrl: string | null = null;
+      if (lower.includes("sika") && (lower.includes("dodow") || lower.includes("amount") || lower.includes("bɔ"))) {
+        fallbackStudioUrl = "/audio/supplied/Twi/4.Amount Entry & Verification/Enter amount 4.m4a";
+      } else if (lower.includes("nɔmba") || lower.includes("fon") || lower.includes("recipient") || lower.includes("phone")) {
+        fallbackStudioUrl = "/audio/supplied/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a";
+      } else if (lower.includes("pene") || lower.includes("confirm") || lower.includes("approval") || lower.includes("review") || lower.includes("aane")) {
+        fallbackStudioUrl = "/audio/supplied/Twi/5.Transaction Confirmation/Review transaction.m4a";
+      } else if (lower.includes("pin") || lower.includes("handoff") || lower.includes("ahobammɔ")) {
+        fallbackStudioUrl = "/audio/supplied/Twi/7.Handset PIN Delivery & Handoff/Pin handoff.m4a";
+      } else if (lower.includes("balance") || lower.includes("star") || lower.includes("170")) {
+        fallbackStudioUrl = "/audio/supplied/Twi/13.Balance  Unsupported Services/Balance unavailable.aac";
+      } else if (lower.includes("mane") || lower.includes("send")) {
+        fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/Send money selected.m4a";
+      } else if (lower.includes("paw") || lower.includes("menyu") || lower.includes("menu")) {
+        fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/MTN menu 1.m4a";
+      } else if (lower.includes("twa") || lower.includes("cancel") || lower.includes("dabi")) {
+        fallbackStudioUrl = "/audio/supplied/Twi/11.Navigation & Recovery/Cancel.aac";
+      } else if (lower.includes("wie") || lower.includes("success") || lower.includes("medaase") || lower.includes("nante yie")) {
+        fallbackStudioUrl = "/audio/supplied/Twi/14.Post-Transaction Conversation/Finish.aac";
+      }
+
+      if (fallbackStudioUrl) {
+        return this.play(fallbackStudioUrl, {
           ...options,
           onStart: () => {
             this.setState({ activeText: cleanText });
@@ -326,51 +355,11 @@ export class AudioPlaybackController {
           onError: options?.onError,
         });
       }
-    } catch (matchErr) {
-      console.warn("[AudioController] Studio audio matching notice:", matchErr);
-    }
-
-    // 2. Intelligent keyword match to authentic Akan Twi studio recordings
-    const lower = cleanText.toLowerCase();
-    let fallbackStudioUrl: string | null = null;
-    if (lower.includes("nɔmba") || lower.includes("fon") || lower.includes("recipient") || lower.includes("phone") || lower.includes("obi a woremane")) {
-      fallbackStudioUrl = "/audio/supplied/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a";
-    } else if (
-      (!lower.includes("nɔmba") && !lower.includes("fon") && !lower.includes("recipient")) &&
-      (lower.includes("dodow") || lower.includes("amount") || lower.includes("cedis") || lower.includes("pesewas") || (lower.includes("sika") && (lower.includes("dodow") || lower.includes("cedi") || lower.includes("bɔ sika"))))
-    ) {
-      fallbackStudioUrl = "/audio/supplied/Twi/4.Amount Entry & Verification/Enter amount 4.m4a";
-    } else if (lower.includes("pene") || lower.includes("confirm") || lower.includes("approval") || lower.includes("review") || lower.includes("aane")) {
-      fallbackStudioUrl = "/audio/supplied/Twi/5.Transaction Confirmation/Review transaction.m4a";
-    } else if (lower.includes("pin") || lower.includes("handoff") || lower.includes("ahobammɔ")) {
-      fallbackStudioUrl = "/audio/supplied/Twi/7.Handset PIN Delivery & Handoff/Pin handoff.m4a";
-    } else if (lower.includes("balance") || lower.includes("star") || lower.includes("170")) {
-      fallbackStudioUrl = "/audio/supplied/Twi/13.Balance  Unsupported Services/Balance unavailable.aac";
-    } else if (lower.includes("mane") || lower.includes("send")) {
-      fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/Send money selected.m4a";
-    } else if (lower.includes("paw") || lower.includes("menyu") || lower.includes("menu")) {
-      fallbackStudioUrl = "/audio/supplied/Twi/2.Main Service Navigation/MTN menu 1.m4a";
-    } else if (lower.includes("twa") || lower.includes("cancel") || lower.includes("dabi")) {
-      fallbackStudioUrl = "/audio/supplied/Twi/11.Navigation & Recovery/Cancel.aac";
-    } else if (lower.includes("wie") || lower.includes("success") || lower.includes("medaase") || lower.includes("nante yie")) {
-      fallbackStudioUrl = "/audio/supplied/Twi/14.Post-Transaction Conversation/Finish.aac";
-    }
-
-    if (fallbackStudioUrl) {
-      return this.play(fallbackStudioUrl, {
-        ...options,
-        onStart: () => {
-          this.setState({ activeText: cleanText });
-          options?.onStart?.();
-        },
-        onEnd: options?.onEnd,
-        onError: options?.onError,
-      });
     }
 
     // 3. Dynamic Neural Speech Synthesis via backend pipeline for authentic voice
     try {
-      const isTwi = /[ɛɔ]|sika|mane|akwaaba|dabi|aane|paw|sidi|nɔmba|yɛsrɛ|nte|frɛ/i.test(cleanText);
+      const isTwi = options?.language === "twi" || (options?.language !== "en" && /[ɛɔ]|sika|mane|akwaaba|dabi|aane|paw|sidi|nɔmba|yɛsrɛ|nte|frɛ/i.test(cleanText));
       const res = await fetch("/api/ai/synthesize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -378,9 +367,10 @@ export class AudioPlaybackController {
       });
       if (res.ok) {
         const data = await res.json();
-        const base64 = data?.result?.audioBase64 || (data?.result?.audioBuffer?.data
-          ? btoa(String.fromCharCode(...new Uint8Array(data.result.audioBuffer.data)))
-          : null);
+        let base64 = data?.result?.audioBase64 || null;
+        if (!base64 && data?.result?.audioBuffer?.data) {
+          base64 = uint8ArrayToBase64(new Uint8Array(data.result.audioBuffer.data));
+        }
         const mimeType = data?.result?.audioMimeType || "audio/wav";
         if (base64) {
           const dataUrl = `data:${mimeType};base64,${base64}`;
@@ -399,7 +389,7 @@ export class AudioPlaybackController {
       console.warn("[AudioController] Speech synthesis fallback notice:", synthErr);
     }
 
-    // 4. Acoustic guidance tone indicator as clear fail-safe (Zero robotic SpeechSynthesis interference)
+    // 4. Acoustic guidance tone indicator as clear fail-safe
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       try {
         window.speechSynthesis.cancel();
@@ -461,20 +451,9 @@ export class AudioPlaybackController {
     try {
       this.audioElement = new Audio();
       this.audioElement.preload = "auto";
-      this.connectAudioElementToOutput();
       return this.audioElement;
     } catch {
       return null;
-    }
-  }
-
-  private connectAudioElementToOutput(): void {
-    if (!this.audioContext || !this.masterGainNode || !this.audioElement || this.mediaElementSource) return;
-    try {
-      this.mediaElementSource = this.audioContext.createMediaElementSource(this.audioElement);
-      this.mediaElementSource.connect(this.masterGainNode);
-    } catch (err) {
-      console.warn("[AudioController] Could not connect media output to the volume controller:", err);
     }
   }
 
@@ -715,7 +694,6 @@ export class AudioPlaybackController {
     }
 
     audio.volume = this.playbackVolume;
-    this.connectAudioElementToOutput();
 
     return new Promise<boolean>((resolve) => {
       this.activeResolver = () => {
@@ -844,7 +822,6 @@ export class AudioPlaybackController {
           if (p !== undefined) {
             p.catch((err: any) => {
               if (err?.name === "AbortError" || err?.message?.includes("interrupted")) {
-                resolve(false);
                 return;
               }
               if (this.currentToken !== sequenceToken) return;
@@ -854,7 +831,7 @@ export class AudioPlaybackController {
         });
       })();
 
-      if (!ended) {
+      if (!ended && this.currentToken !== sequenceToken) {
         return false;
       }
     }
@@ -873,3 +850,5 @@ export class AudioPlaybackController {
 }
 
 export const audioPlaybackController = new AudioPlaybackController();
+
+

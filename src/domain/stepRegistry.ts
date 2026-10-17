@@ -106,14 +106,14 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
     name: "Service Selection",
     promptKey: "supported_service_select",
     promptText: {
-      en: "For Mobile Money services, press 1. To transfer money to another mobile wallet, press 2. For banking and international services, press 3. To hear these options again, press 9. To exit, press 0.",
-      twi: "Sɛ wopɛ mobile money services a, mia 1. Sɛ woremane sika kɔ wallet foforɔ so a, mia 2. Sɛ wopɛ banking services a, mia 3. Mia 9 na mate bio, anaasɛ mia 0 na woapue.",
+      en: "For Mobile Money services, press 1. For banking services, press 2. Press 9 to hear this again, or press 0 to exit.",
+      twi: "Sɛ wopɛ mobile money services a, mia 1. Sɛ wopɛ banking services a, mia 2. Mia 9 na mate bio, anaasɛ mia 0 na woapue.",
     },
     inputType: "single_digit",
-    acceptedDigits: ["1", "2", "3"],
+    acceptedDigits: ["1", "2"],
     optionsDescription: {
-      en: "1 for Mobile Money, 2 for Direct Wallet Transfer, 3 for Banking (Unavailable), 9 to repeat, 0 to exit",
-      twi: "1 ma Mobile Money, 2 ma Sika Mane kɔ Wallet foforɔ so, 3 ma Sikakorabea (Banking), 9 na tie bio, 0 na woapue",
+      en: "1 for Mobile Money, 2 for Banking (Unavailable), 9 to repeat, 0 to exit",
+      twi: "1 ma Mobile Money, 2 ma Sikakorabea (Banking), 9 na tie bio, 0 na woapue",
     },
     navigation: {
       allowBack: true,
@@ -124,8 +124,7 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
     collects: "service",
     nextStepMap: {
       "1": "provider-select",
-      "2": "enter-recipient",
-      "3": "unsupported-banking",
+      "2": "unsupported-banking",
     },
   },
 
