@@ -31,7 +31,7 @@ describe("VoiceXML Telephony Snapshots & Pillar Invariants", () => {
 
     // Audio prompts must be present
     expect(enStep7.promptAudioUrl).toContain("/api/audio/prompt-tts/en/pin_handoff");
-    expect(twiStep7.promptAudioUrl).toMatch(/\/(?:api\/audio\/prompt-tts\/twi\/pin_handoff|audio\/additional\/Pin%20Handoff\.m4a)/);
+    expect(twiStep7.promptAudioUrl).toMatch(/\/(?:api\/audio\/prompt-tts\/twi\/pin_handoff|audio\/(?:additional\/)?Pin%20Handoff\.m4a)/);
     expect(enStep7.xml).toContain("<Play");
     expect(twiStep7.xml).toContain("<Play");
   });

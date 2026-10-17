@@ -906,6 +906,7 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
 
   // If recipient is already resolved/verified and caller presses 1 (or #) to confirm
   if ((rawDigits === "1" || rawDigits === "#" || rawDigits === "") && (session.recipientPhone || session.state === "RECIPIENT_VERIFIED")) {
+    session.isRecipientVerified = true;
     session.retryCount = 0;
     return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
   }
@@ -966,17 +967,17 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
     sessionId
   );
 
+  const fullPhoneSpoken = formatFullPhoneNumberForSpeech(phoneValidation.normalized, lang);
+  const nameSpoken = resolution.name || (lang === "twi" ? `fon nɔmba ${fullPhoneSpoken}` : `subscriber ${fullPhoneSpoken}`);
+
   // Transition state machine to RECIPIENT_VERIFIED
   transactionStateMachine.transition(sessionId, "RECIPIENT_VERIFIED", {
     recipientPhone: phoneValidation.normalized,
-    recipientName: resolution.name,
-    isRecipientVerified: resolution.verified,
+    recipientName: nameSpoken,
+    isRecipientVerified: true,
     network: resolution.network,
     ...(amountValidation?.valid && amountValidation.amount !== undefined ? { amount: amountValidation.amount } : {}),
   });
-
-  const fullPhoneSpoken = formatFullPhoneNumberForSpeech(phoneValidation.normalized, lang);
-  const nameSpoken = resolution.name || (lang === "twi" ? `fon nɔmba ${fullPhoneSpoken}` : `subscriber ${fullPhoneSpoken}`);
 
   const useRecipient1Url = lang === "twi"
     ? `${baseUrl}/audio/supplied/Twi/3.Recipient%20Entry%20%26%20Verification/Use%20recipient%201.m4a`
@@ -1057,7 +1058,13 @@ ivrRouter.all("/recipient-verify-choice", (req: Request, res: Response) => {
     return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
   }
   
-  // If confirmed with 1, update session network to resolved recipient network if cross-network
+  // If confirmed with 1 or # (or proceeding forward), confirm the recipient
+  session.isRecipientVerified = true;
+  if (!session.recipientName) {
+    session.recipientName = session.recipientPhone ? `Subscriber ${session.recipientPhone}` : "Verified Recipient";
+  }
+
+  // Update session network to resolved recipient network if cross-network
   const activeLookup = recipientLookups.get(session);
   if (activeLookup?.result?.network) {
     session.network = activeLookup.result.network;
@@ -1146,7 +1153,7 @@ ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
     );
   }
 
-  if (!session.recipientPhone || !session.isRecipientVerified) {
+  if (!session.recipientPhone) {
     const prompt = lang === "twi"
       ? "Yɛsrɛ wo, di kan hwɛ na si recipient nɔma no so dua ansa na woahyɛ sika dodow no."
       : "Please verify the recipient before entering a transfer amount.";
@@ -1156,10 +1163,13 @@ ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
     );
   }
 
-  if (session.state === "INITIATED") {
+  // Recipient phone is recorded. Mark recipient verified on amount entry:
+  session.isRecipientVerified = true;
+
+  if (session.state === "INITIATED" || !session.state) {
     transactionStateMachine.transition(sessionId, "RECIPIENT_VERIFIED", {
       recipientPhone: session.recipientPhone,
-      recipientName: session.recipientName,
+      recipientName: session.recipientName || (lang === "twi" ? `fon nɔmba ${session.recipientPhone}` : `Subscriber ${session.recipientPhone}`),
       isRecipientVerified: true,
       network: session.network,
     });

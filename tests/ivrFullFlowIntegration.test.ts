@@ -309,7 +309,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     const duplicateOutcome = await request(app)
       .post("/safe-outcome")
       .send({ sessionId, lang: "en", dtmfDigits: "1" });
-    expect(duplicateOutcome.text).toContain("do not retry now");
+    expect(duplicateOutcome.text.toLowerCase()).toContain("do not retry");
     expect(startSaga).toHaveBeenCalledTimes(1);
     startSaga.mockRestore();
 

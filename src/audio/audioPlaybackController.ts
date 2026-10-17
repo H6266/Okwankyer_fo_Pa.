@@ -333,10 +333,13 @@ export class AudioPlaybackController {
     // 2. Intelligent keyword match to authentic Akan Twi studio recordings
     const lower = cleanText.toLowerCase();
     let fallbackStudioUrl: string | null = null;
-    if (lower.includes("sika") && (lower.includes("dodow") || lower.includes("amount") || lower.includes("cedis") || lower.includes("bɔ"))) {
-      fallbackStudioUrl = "/audio/supplied/Twi/4.Amount Entry & Verification/Enter amount 4.m4a";
-    } else if (lower.includes("nɔmba") || lower.includes("fon") || lower.includes("recipient") || lower.includes("phone")) {
+    if (lower.includes("nɔmba") || lower.includes("fon") || lower.includes("recipient") || lower.includes("phone") || lower.includes("obi a woremane")) {
       fallbackStudioUrl = "/audio/supplied/Twi/3.Recipient Entry & Verification/Enter recipient 2.m4a";
+    } else if (
+      (!lower.includes("nɔmba") && !lower.includes("fon") && !lower.includes("recipient")) &&
+      (lower.includes("dodow") || lower.includes("amount") || lower.includes("cedis") || lower.includes("pesewas") || (lower.includes("sika") && (lower.includes("dodow") || lower.includes("cedi") || lower.includes("bɔ sika"))))
+    ) {
+      fallbackStudioUrl = "/audio/supplied/Twi/4.Amount Entry & Verification/Enter amount 4.m4a";
     } else if (lower.includes("pene") || lower.includes("confirm") || lower.includes("approval") || lower.includes("review") || lower.includes("aane")) {
       fallbackStudioUrl = "/audio/supplied/Twi/5.Transaction Confirmation/Review transaction.m4a";
     } else if (lower.includes("pin") || lower.includes("handoff") || lower.includes("ahobammɔ")) {

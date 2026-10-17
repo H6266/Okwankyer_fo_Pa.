@@ -272,6 +272,7 @@ export const PhoneSimulatorPage: React.FC = () => {
     return audioPlaybackController.getVolumeMultiplier() || 2.8;
   });
   const verifyRecipientTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const phoneAutoSubmitTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [hciQuota, setHciQuota] = useState<{
     dailyAsrCount: number;
     dailyAsrLimit: number;
@@ -625,9 +626,13 @@ export const PhoneSimulatorPage: React.FC = () => {
           playbackUrl ? `<Play url="${playbackUrl}"/>` : ""
         )
       );
+      const prevStep = activeStepNameRef.current;
       activeStepNameRef.current = stepName;
       setActiveStepName(stepName);
       continuousAudioEngine.setContext(stepName, responseLanguage);
+      if (prevStep && prevStep !== stepName) {
+        setDigitsBuffer("");
+      }
 
       // Follow <Redirect> after auto-playing any associated audio prompt
       if (parsed.redirectUrl) {
@@ -639,6 +644,7 @@ export const PhoneSimulatorPage: React.FC = () => {
             console.warn("[PhoneSimulator] Redirect audio play notice:", err);
           }
         }
+        audioPlaybackController.stop();
         addLog("state", `Redirecting to ${parsed.redirectUrl}`);
         return dispatchVoiceWebhook(parsed.redirectUrl);
       }
@@ -826,7 +832,8 @@ export const PhoneSimulatorPage: React.FC = () => {
         options: choices,
       });
 
-      // Play audio automatically (studio audio with zero robotic TTS interference)
+      // Stop any prior audio so new prompts never collide
+      audioPlaybackController.stop();
       audioPlaybackController.unlockAudio();
       const resolvedSequence = (parsed.playUrls && parsed.playUrls.length > 1)
         ? (parsed.playUrls.map(u => resolvePlayableSimulatorAudioUrl(u, responseLanguage)).filter(Boolean) as string[])
@@ -836,21 +843,6 @@ export const PhoneSimulatorPage: React.FC = () => {
         clearTimeout(verifyRecipientTimerRef.current);
         verifyRecipientTimerRef.current = null;
       }
-
-      const scheduleRecipientAutoAdvance = (delayMs: number = 1500) => {
-        if (stepName === "recipient-verify-choice" || stepName === "verify-recipient") {
-          verifyRecipientTimerRef.current = setTimeout(() => {
-            if (
-              callActiveRef.current &&
-              (activeStepNameRef.current === "recipient-verify-choice" || activeStepNameRef.current === "verify-recipient")
-            ) {
-              addLog("state", "Advancing seamlessly past recipient verification (OP24) to transfer amount entry...");
-              const cb = `/api/simulator/recipient-verify-choice?sessionId=${sessionIdRef.current}&lang=${languageRef.current || "twi"}`;
-              dispatchVoiceWebhook(cb, { dtmfDigits: "1" });
-            }
-          }, delayMs);
-        }
-      };
 
       if (resolvedSequence.length > 1) {
         addLog("audio", `🔊 Auto-playing sequence: ${resolvedSequence.join(" -> ")}`);
@@ -867,22 +859,16 @@ export const PhoneSimulatorPage: React.FC = () => {
           }
         }).catch((err) => {
           console.error("[PhoneSimulator] Sequence fallback speech failed:", err);
-        }).finally(() => {
-          scheduleRecipientAutoAdvance(600);
         });
       } else if (playbackUrl) {
         addLog("audio", `🔊 Auto-playing prompt: ${playbackUrl}`);
-        audioPlaybackController.play(playbackUrl, promptText).then(() => {
-          scheduleRecipientAutoAdvance(600);
-        }).catch((err) => {
+        audioPlaybackController.play(playbackUrl, promptText).catch((err) => {
           console.warn("[PhoneSimulator] Auto-play prompt notice:", err);
           audioPlaybackController.playToneIndicator().catch(() => {});
-          scheduleRecipientAutoAdvance(600);
         });
       } else {
         addLog("audio", `🔔 Prompt guidance indicator.`);
         audioPlaybackController.playToneIndicator().catch(() => {});
-        scheduleRecipientAutoAdvance(1200);
       }
     },
     [addLog, addChatTurn, language]
@@ -1060,6 +1046,10 @@ export const PhoneSimulatorPage: React.FC = () => {
       if (verifyRecipientTimerRef.current) {
         clearTimeout(verifyRecipientTimerRef.current);
         verifyRecipientTimerRef.current = null;
+      }
+      if (phoneAutoSubmitTimerRef.current) {
+        clearTimeout(phoneAutoSubmitTimerRef.current);
+        phoneAutoSubmitTimerRef.current = null;
       }
 
       audioPlaybackController.stop();
@@ -2153,8 +2143,13 @@ export const PhoneSimulatorPage: React.FC = () => {
       }
 
       // Special Handling for 10-Digit Recipient Phone Entry:
-      // When typing on keypad, strictly accumulate digits and ALWAYS wait for #!
+      // When typing on keypad, accumulate digits, auto-submit when 10 digits are reached (with 600ms debounce), or submit immediately on #!
       if (curStep === "enter-recipient" || curStep === "enter-phone" || (curStep.includes("recipient") && !curStep.includes("verify"))) {
+        if (phoneAutoSubmitTimerRef.current) {
+          clearTimeout(phoneAutoSubmitTimerRef.current);
+          phoneAutoSubmitTimerRef.current = null;
+        }
+
         if (digit === activeFinishOnKey || digit === "#") {
           const rawPhone = digitsBuffer.trim();
           if (rawPhone.length > 0) {
@@ -2165,11 +2160,21 @@ export const PhoneSimulatorPage: React.FC = () => {
           return;
         }
 
-        // Digits 0-9 for phone number: accumulate and strictly wait for #
+        // Digits 0-9 for phone number: accumulate and auto-submit on 10 digits or wait for #
         if (/^[0-9]$/.test(digit)) {
           if (digitsBuffer.length >= 12) return;
           const nextBuf = digitsBuffer + digit;
           setDigitsBuffer(nextBuf);
+          const cleanDigits = nextBuf.replace(/\D/g, "");
+          if (cleanDigits.length === 10) {
+            addLog("caller", `Keypad phone digit '${digit}' (10/10 digits reached). Submitting in 600ms or press #...`);
+            phoneAutoSubmitTimerRef.current = setTimeout(() => {
+              setDigitsBuffer("");
+              addLog("caller", `Keypad phone number auto-submitted: '${cleanDigits}'. Verifying recipient...`);
+              dispatchVoiceWebhook(targetCallback, { dtmfDigits: cleanDigits });
+            }, 600);
+            return;
+          }
           addLog("caller", `Keypad phone digit '${digit}' (${nextBuf.length}/10 digits, press # to submit)`);
           return;
         }
@@ -2190,7 +2195,8 @@ export const PhoneSimulatorPage: React.FC = () => {
 
         // Digits 0-9 and * for pesewas: accumulate and strictly wait for #
         if (/^[0-9\*]$/.test(digit)) {
-          if (digitsBuffer.length >= 8) return;
+          const maxLen = (digitsBuffer.startsWith("0") || digitsBuffer.startsWith("233")) ? 12 : 8;
+          if (digitsBuffer.length >= maxLen) return;
           const nextBuf = digitsBuffer + digit;
           setDigitsBuffer(nextBuf);
           addLog("caller", `Keypad amount digit '${digit}' (press # to submit)`);
@@ -2527,11 +2533,36 @@ export const PhoneSimulatorPage: React.FC = () => {
                         {digitsBuffer.replace(/\D/g, "").length} / 10 digits
                       </span>
                     </div>
-                    <div className="text-xl font-bold tracking-widest text-emerald-300 font-mono w-full bg-slate-950/80 py-1.5 px-2 rounded-lg border border-emerald-500/30">
-                      {digitsBuffer ? digitsBuffer : <span className="text-slate-500 tracking-normal text-xs">Enter 10 digits</span>}
+                    <div className="flex items-center gap-1.5 w-full">
+                      <div className="text-xl font-bold tracking-widest text-emerald-300 font-mono flex-1 bg-slate-950/80 py-1.5 px-2 rounded-lg border border-emerald-500/30 truncate">
+                        {digitsBuffer ? digitsBuffer : <span className="text-slate-500 tracking-normal text-xs">Enter 10 digits</span>}
+                      </div>
+                      {digitsBuffer.replace(/\D/g, "").length >= 10 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (phoneAutoSubmitTimerRef.current) {
+                              clearTimeout(phoneAutoSubmitTimerRef.current);
+                              phoneAutoSubmitTimerRef.current = null;
+                            }
+                            const rawPhone = digitsBuffer.trim();
+                            if (rawPhone.length > 0) {
+                              setDigitsBuffer("");
+                              addLog("caller", `Keypad phone number entered: '${rawPhone}#'. Verifying recipient...`);
+                              dispatchVoiceWebhook(activeCallbackUrlRef.current || "/api/simulator/verify-recipient", { dtmfDigits: rawPhone });
+                            }
+                          }}
+                          className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-mono font-bold text-xs rounded-lg shadow-sm border border-emerald-400/50 transition-all cursor-pointer animate-pulse shrink-0"
+                          title="Submit phone number (#)"
+                        >
+                          Submit (#)
+                        </button>
+                      )}
                     </div>
                     <div className="flex items-center justify-between w-full text-[10px] text-slate-400">
-                      <span className="text-amber-400/90 font-medium animate-pulse">Waiting for # to submit</span>
+                      <span className="text-amber-400/90 font-medium">
+                        {digitsBuffer.replace(/\D/g, "").length >= 10 ? "Auto-submitting... or press #" : "Waiting for # to submit"}
+                      </span>
                       <span className="font-mono text-emerald-400">OP16</span>
                     </div>
                   </div>
