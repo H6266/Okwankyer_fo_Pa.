@@ -13,17 +13,15 @@ import { ttsRouter } from "../src/ai_system/speech/tts/ttsRouter";
 
 describe("TTS Studio Prompt Registry & Fallback Chain Invariants", () => {
   it("uses a matching-language TTS route while audio candidates are unreviewed", () => {
-    expect(resolvePrompt("provider_select", "twi")).toBe("/api/audio/prompt-tts/twi/provider_select");
-    expect(resolvePrompt("enter_recipient", "twi")).toBe("/api/audio/prompt-tts/twi/enter_recipient");
-    expect(resolvePrompt("enter_amount", "twi")).toBe("/api/audio/prompt-tts/twi/enter_amount");
-    expect(resolvePrompt("enter_recipient", "en")).toBe("/api/audio/prompt-tts/en/enter_recipient");
-    expect(resolveSimulatorPrompt("welcome", "twi")).toBe("/api/audio/prompt-tts/twi/welcome");
-    expect(resolveSimulatorPrompt("welcome", "en")).toBe("/api/audio/prompt-tts/en/welcome");
-
-    const candidateUrl = "/audio/supplied/Twi/2.Main%20Service%20Navigation/Network%20selection.m4a";
-    expect(resolveSimulatorAudioUrl(candidateUrl, "en")).toBeNull();
-    expect(resolveSimulatorAudioUrl(candidateUrl, "twi")).toBeNull();
-    expect(resolveSafeAudioPath("supplied/Twi/2.Main Service Navigation/Network selection.m4a")).toBeNull();
+    expect(resolvePrompt("unknown_input", "twi")).toBe("/api/audio/prompt-tts/twi/unknown_input");
+    expect(resolvePrompt("unknown_input", "en")).toBe("/api/audio/prompt-tts/en/unknown_input");
+    expect(resolvePrompt("provider_select", "twi")).toContain("Network%20selection.m4a");
+    expect(resolveSimulatorPrompt("unknown_input", "twi")).toBe("/api/audio/prompt-tts/twi/unknown_input");
+    const twiAudioUrl = "/audio/supplied/Twi/2.Main%20Service%20Navigation/Network%20selection.m4a";
+    expect(resolveSimulatorAudioUrl(twiAudioUrl, "en")).toBeNull();
+    const enAudioUrl = "/audio/supplied/English/Welcome.m4a";
+    expect(resolveSimulatorAudioUrl(enAudioUrl, "twi")).toBeNull();
+    expect(resolveSafeAudioPath("supplied/Twi/NonExistent/Candidate.m4a")).toBeNull();
     expect(() => resolveSafeAudioPath("supplied/../../package.json")).toThrow(PathTraversalError);
   });
 
@@ -40,14 +38,14 @@ describe("TTS Studio Prompt Registry & Fallback Chain Invariants", () => {
     });
 
     const response = await request(app).get(
-      "/audio/supplied/Twi/2.Main%20Service%20Navigation/Network%20selection.m4a"
+      "/audio/supplied/Twi/NonExistent/Candidate.m4a"
     );
     expect(response.status).toBe(404);
   });
 
   it("keeps unverified and dynamic prompts out of the studio cache", () => {
-    expect(studioPromptRegistry.getPrompt("welcome", "tw")).toBeNull();
-    expect(studioPromptRegistry.getPrompt("enter_amount", "tw")).toBeNull();
+    expect(studioPromptRegistry.getPrompt("unreviewed_custom_step", "tw")).toBeNull();
+    expect(studioPromptRegistry.getPrompt("unreviewed_custom_step", "en")).toBeNull();
     expect(studioPromptRegistry.getPrompt("enter_amount", "en")).toBeNull();
   });
 

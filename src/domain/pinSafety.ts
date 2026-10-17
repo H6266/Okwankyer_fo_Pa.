@@ -10,7 +10,8 @@
 import { formatSpokenNumbersAsDigits } from "./numberFormatter";
 
 export function isVoiceCaptureBlockedForStep(step?: string): boolean {
-  return false;
+  const norm = (step || "").toLowerCase();
+  return norm === "pin-authorization" || norm === "enter-pin";
 }
 
 export function shouldDiscardSensitiveSpeech(text: string, step?: string): boolean {

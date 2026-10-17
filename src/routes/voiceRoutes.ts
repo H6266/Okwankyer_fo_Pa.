@@ -1714,6 +1714,7 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
         language: lang === "twi" ? "twi-asante" : "en",
         languageConfidence: confidence ?? 0.75,
         sessionLanguage: lang === "twi" ? "twi-asante" : "en",
+        forceModel: brain.config.mode === "live",
         draft: {
           intent: transferInProgress ? "momo.transfer" : undefined,
           slots,

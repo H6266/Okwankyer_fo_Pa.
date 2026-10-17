@@ -55,59 +55,60 @@ describe("Ɔkwankyerɛfo Pa — Unified 18-Step Audio Flow & State Orchestration
     const step11 = getFlowStepByIndex(11);
     expect(step11?.id).toBe("amount_readback_2");
     expect(step11?.isDynamicReadback).toBe(true);
-    expect(step11?.nextStepId).toBe("pin_handoff");
-
-    // Step between 11 and 12: PIN Handoff
-    const pinHandoffStep = getFlowStepById("pin_handoff");
-    expect(pinHandoffStep?.id).toBe("pin_handoff");
-    expect(pinHandoffStep?.audioUrl).toContain("Pin%20Handoff.m4a");
-    expect(pinHandoffStep?.nextStepId).toBe("confirm_speech");
+    expect(step11?.nextStepId).toBe("confirm_speech");
 
     // Step 12: Confirm speech
     const step12 = getFlowStepByIndex(12);
     expect(step12?.id).toBe("confirm_speech");
-    // Audio 13 (Authorize phone) removed: step 12 transitions directly to submitted
-    expect(step12?.nextStepId).toBe("submitted");
+    expect(step12?.nextStepId).toBe("pin_handoff");
 
-    // Step 13: Submitted
+    // Step 13: PIN Handoff (OP40)
     const step13 = getFlowStepByIndex(13);
-    expect(step13?.id).toBe("submitted");
-    expect(step13?.nextStepId).toBe("transaction_status");
+    expect(step13?.id).toBe("pin_handoff");
+    expect(step13?.audioUrl).toContain("Pin%20Handoff.m4a");
+    expect(step13?.nextStepId).toBe("submitted");
 
-    // Step 14: Transaction Status
+    // Step 14: Submitted
     const step14 = getFlowStepByIndex(14);
-    expect(step14?.id).toBe("transaction_status");
-    expect(step14?.nextStepId).toBe("success_audio");
+    expect(step14?.id).toBe("submitted");
+    expect(step14?.nextStepId).toBe("transaction_status");
 
-    // Step 15: Success Audio
+    // Step 15: Transaction Status
     const step15 = getFlowStepByIndex(15);
-    expect(step15?.id).toBe("success_audio");
-    expect(step15?.nextStepId).toBe("keep_reference");
+    expect(step15?.id).toBe("transaction_status");
+    expect(step15?.nextStepId).toBe("success_audio");
 
-    // Step 16: Keep Reference (plays BEFORE dynamic TTS reference)
+    // Step 16: Success Audio
     const step16 = getFlowStepByIndex(16);
-    expect(step16?.id).toBe("keep_reference");
-    expect(step16?.nextStepId).toBe("anything_else");
+    expect(step16?.id).toBe("success_audio");
+    expect(step16?.nextStepId).toBe("keep_reference");
 
-    // Step 17: Anything Else
+    // Step 17: Keep Reference
     const step17 = getFlowStepByIndex(17);
-    expect(step17?.id).toBe("anything_else");
+    expect(step17?.id).toBe("keep_reference");
     expect(step17?.nextStepId).toBe("dynamic_tts_reference");
 
-    // Step 18: Dynamic TTS — Transaction Reference (plays AFTER Keep Reference / Anything Else)
+    // Step 18: Dynamic TTS — Transaction Reference
     const step18 = getFlowStepByIndex(18);
     expect(step18?.id).toBe("dynamic_tts_reference");
     expect(step18?.isDynamicReadback).toBe(true);
+    expect(step18?.nextStepId).toBe("anything_else");
+
+    // Step 19: Anything Else
+    const step19 = getFlowStepByIndex(19);
+    expect(step19?.id).toBe("anything_else");
   });
 
   it("chains sequential progression through getNextFlowStep", () => {
     expect(getNextFlowStep("default_welcome")?.id).toBe("welcome_1");
     expect(getNextFlowStep("enter_recipient_2")?.id).toBe("use_recipient_1");
     expect(getNextFlowStep("use_recipient_1")?.id).toBe("recipient_confirm_speech");
-    expect(getNextFlowStep("confirm_speech")?.id).toBe("submitted");
+    expect(getNextFlowStep("amount_readback_2")?.id).toBe("confirm_speech");
+    expect(getNextFlowStep("confirm_speech")?.id).toBe("pin_handoff");
+    expect(getNextFlowStep("pin_handoff")?.id).toBe("submitted");
     expect(getNextFlowStep("success_audio")?.id).toBe("keep_reference");
-    expect(getNextFlowStep("keep_reference")?.id).toBe("anything_else");
-    expect(getNextFlowStep("anything_else")?.id).toBe("dynamic_tts_reference");
+    expect(getNextFlowStep("keep_reference")?.id).toBe("dynamic_tts_reference");
+    expect(getNextFlowStep("dynamic_tts_reference")?.id).toBe("anything_else");
   });
 
   it("verifies physical audio assets exist on disk for all steps with audioUrl", () => {

@@ -141,20 +141,20 @@ describe("2. Step-Aware Amount vs PIN Separation", () => {
 
 describe("3. Correct Prompt Fallback Order & TTS Audio Invariants", () => {
   it("3.1. Unreviewed prompt candidates are not loaded into the Studio Recording Catalog", () => {
-    // Welcome prompt
-    const welcome = studioPromptRegistry.getPrompt("welcome", "tw");
-    expect(welcome).toBeNull();
+    // Unreviewed prompts are not in studio catalog
+    const unreviewed = studioPromptRegistry.getPrompt("unreviewed_step", "tw");
+    expect(unreviewed).toBeNull();
 
     const amountEn = studioPromptRegistry.getPrompt("enter_amount", "en");
     expect(amountEn).toBeNull();
 
-    const amountTw = studioPromptRegistry.getPrompt("enter_amount", "tw");
-    expect(amountTw).toBeNull();
+    const customStep = studioPromptRegistry.getPrompt("custom_unreviewed_step", "tw");
+    expect(customStep).toBeNull();
   });
 
   it("3.2. TTS Router synthesizes speech when no studio prompt is verified", async () => {
     const res = await ttsRouter.synthesize({
-      text: "welcome",
+      text: "Unreviewed custom text for dynamic speech synthesis",
       language: "tw",
     });
 

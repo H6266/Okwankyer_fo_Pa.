@@ -387,10 +387,10 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
     expect(twiStep.targetStep).toBe("service-select");
   });
 
-  // AT-36: Canonical 18-step progression: Audio 8 before 7, Audio 13 removed, Keep Reference before Dynamic TTS
-  it("AT-36: Unified 18-step sequence has audio 8 before 7, audio 13 removed, and keep reference before dynamic TTS", () => {
+  // AT-36: Canonical 19-step progression: Audio 8 before 7, Pin Handoff included, Keep Reference before Dynamic TTS
+  it("AT-36: Unified 19-step sequence has audio 8 before 7, PIN handoff, and keep reference before dynamic TTS", () => {
     const steps = TWI_SEQUENTIAL_FLOW_STEPS;
-    expect(steps).toHaveLength(18);
+    expect(steps).toHaveLength(19);
 
     // Audio 8 (Use Recipient 1) is Step 7; Audio 7 (Recipient Confirm Speech) is Step 8
     const step7 = steps.find((s) => s.stepIndex === 7)!;
@@ -400,30 +400,35 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
     expect(step8.id).toBe("recipient_confirm_speech");
     expect(step8.audioUrl).toContain("Recipient%20confirm%20speech.m4a");
 
-    // Audio 13 (Authorize phone) is removed; Step 12 (confirm_speech) leads directly to submitted (Step 13)
+    // Step 12 (confirm_speech) leads to PIN handoff (Step 13)
     const step12 = steps.find((s) => s.stepIndex === 12)!;
-    expect(step12.nextStepId).toBe("submitted");
+    expect(step12.nextStepId).toBe("pin_handoff");
     const step13 = steps.find((s) => s.stepIndex === 13)!;
-    expect(step13.id).toBe("submitted");
-    expect(step13.audioUrl).toContain("Submitted.aac");
+    expect(step13.id).toBe("pin_handoff");
+    expect(step13.audioUrl).toContain("Pin%20Handoff.m4a");
+    expect(step13.nextStepId).toBe("submitted");
 
-    // Updated Audio 16: SUCCESS SENT
-    const step15 = steps.find((s) => s.stepIndex === 15)!;
-    expect(step15.id).toBe("success_audio");
-    expect(step15.audioUrl).toContain("SUCCESS%20SENT.aac");
+    const step14 = steps.find((s) => s.stepIndex === 14)!;
+    expect(step14.id).toBe("submitted");
+    expect(step14.audioUrl).toContain("Submitted.aac");
 
-    // Audio 18 (Keep reference) is Step 16, and Dynamic TTS Reference is Step 17 (plays AFTER Audio 18)
+    // Success audio: SUCCESS SENT (Step 16)
     const step16 = steps.find((s) => s.stepIndex === 16)!;
-    const step17 = steps.find((s) => s.stepIndex === 17)!;
-    expect(step16.id).toBe("keep_reference");
-    expect(step16.audioUrl).toContain("Keep%20reference.aac");
-    expect(step17.id).toBe("dynamic_tts_reference");
-    expect(step17.isDynamicReadback).toBe(true);
-    expect(step16.nextStepId).toBe("dynamic_tts_reference");
+    expect(step16.id).toBe("success_audio");
+    expect(step16.audioUrl).toContain("SUCCESS%20SENT.aac");
 
-    // Step 18 is completion / Anything Else
+    // Keep reference is Step 17, and Dynamic TTS Reference is Step 18 (plays AFTER Audio 17)
+    const step17 = steps.find((s) => s.stepIndex === 17)!;
     const step18 = steps.find((s) => s.stepIndex === 18)!;
-    expect(step18.id).toBe("anything_else");
+    expect(step17.id).toBe("keep_reference");
+    expect(step17.audioUrl).toContain("Keep%20reference.aac");
+    expect(step18.id).toBe("dynamic_tts_reference");
+    expect(step18.isDynamicReadback).toBe(true);
+    expect(step17.nextStepId).toBe("dynamic_tts_reference");
+
+    // Step 19 is completion / Anything Else
+    const step19 = steps.find((s) => s.stepIndex === 19)!;
+    expect(step19.id).toBe("anything_else");
   });
 
   // AT-37: Phone number entry auto-advances or advances with # without stalling

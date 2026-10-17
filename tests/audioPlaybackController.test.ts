@@ -63,8 +63,10 @@ describe("AudioPlaybackController & Phone Simulator Audio Gating", () => {
   });
 
   it("clamps the master volume to its supported range", () => {
-    audioPlaybackController.setVolumeMultiplier(3);
-    expect(audioPlaybackController.getVolumeMultiplier()).toBe(2);
+    audioPlaybackController.setVolumeMultiplier(5);
+    expect(audioPlaybackController.getVolumeMultiplier()).toBe(3.5);
+    audioPlaybackController.setVolumeMultiplier(0.1);
+    expect(audioPlaybackController.getVolumeMultiplier()).toBe(0.5);
     audioPlaybackController.setVolumeMultiplier(1.5);
     expect(audioPlaybackController.getVolumeMultiplier()).toBe(1.5);
   });

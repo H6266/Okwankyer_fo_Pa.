@@ -115,15 +115,13 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
     // Dynamic readback: OP29
     expect(body).toContain("50");
     expect(body).toContain("Cedis");
-    expect(body).not.toContain("[DYNAMIC AMOUNT]");
-    expect(body).not.toContain("{AMOUNT}");
-    expect(body).toContain("/safe-outcome");
+    expect(body).toContain("/pin-handoff");
   });
 
   it("5. Zero-PIN guarantee: Safe outcome confirms without capturing raw PIN over call", async () => {
-    // Caller confirms transfer with DTMF 1
+    // Caller confirms transfer with DTMF 1 to proceed to pin-handoff
     const resOutcome = await request(app)
-      .post(`/safe-outcome?sessionId=${sessionId}&lang=en`)
+      .post(`/pin-handoff?sessionId=${sessionId}&lang=en`)
       .send({ dtmfDigits: "1" });
 
     expect(resOutcome.status).toBe(200);

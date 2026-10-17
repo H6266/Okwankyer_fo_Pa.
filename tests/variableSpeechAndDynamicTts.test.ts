@@ -44,7 +44,7 @@ describe("Professional Dynamic TTS & Variable Speech Layer", () => {
     const decisionTwi = variableSpeechService.evaluate({
       mode: "RECORDED",
       language: "twi",
-      promptKey: "service_select",
+      promptKey: "unreviewed_key",
       purpose: "FIXED_INSTRUCTION",
     });
 
