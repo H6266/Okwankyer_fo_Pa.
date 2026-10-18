@@ -750,13 +750,14 @@ ivrRouter.all("/provider-select", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const baseUrl = getBaseUrl(req);
+  const promptKey = lang === "twi" ? "network_selection" : "mtn_network_select";
 
   const xml = `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}">
         ${canonicalPromptElement(
-          "mtn_network_select",
+          promptKey,
           lang,
           baseUrl,
-          resolvePromptText("mtn_network_select", lang) || "Only MTN Mobile Money transfers are currently supported. Press 1 for MTN."
+          resolvePromptText(promptKey, lang) || "Only MTN Mobile Money transfers are currently supported. Press 1 for MTN."
         )}
     </GetDigits>`;
 
@@ -768,6 +769,7 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getBaseUrl(req);
+  const promptKey = lang === "twi" ? "network_selection" : "mtn_network_select";
   const session = transactionStateMachine.getOrCreateSession(sessionId);
 
   if (!dtmf) {
@@ -858,9 +860,10 @@ ivrRouter.all("/action-select", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const baseUrl = getBaseUrl(req);
+  const promptKey = lang === "twi" ? "mtn_menu" : "send_money_menu";
 
   const xml = `    <GetDigits timeout="15" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?sessionId=${sessionId}&amp;lang=${lang}">
-        ${canonicalPromptElement("send_money_menu", lang, baseUrl, "To send money, press 1.")}
+        ${canonicalPromptElement(promptKey, lang, baseUrl, "To send money, press 1.")}
     </GetDigits>
     <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=action-select&amp;sessionId=${sessionId}&amp;lang=${lang}&amp;retry=0"/>`;
 
@@ -1080,9 +1083,14 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
   );
 
   if (!resolution.verified || !resolution.name) {
-    const message = lang === "twi"
-      ? "Yɛantumi ankyerɛ recipient no din yie. Yɛsrɛ wo, fa nɔmba foforɔ bɔ mmɔden."
-      : "We could not verify the recipient's name. Please enter a different number.";
+    const isSandboxResolver = recipientResolver.id === "SANDBOX";
+    const message = isSandboxResolver
+      ? lang === "twi"
+        ? "Yɛagye nɔma no, nanso yɛrentumi nhu no wɔ local sandbox no mu. Fa test nɔma 0553838464 anaa 0241234567."
+        : "I received the number, but this local sandbox cannot verify it. To continue the demo, enter 0553838464 or 0241234567."
+      : lang === "twi"
+        ? "Yɛagye nɔma no, nanso provider no antumi ankyerɛ din no. Hwɛ nɔma no mu na san sɔ hwɛ."
+        : "I received the number, but the provider could not verify its owner. Check the number and try again.";
     return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(message)}</Say>\n    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
   }
 

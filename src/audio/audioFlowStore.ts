@@ -25,6 +25,7 @@ export interface FlowStepAudioConfig {
   keypadAction?: string;
   conversationalUtterance?: string;
   suggestedFilesTwi: string[];
+  audioSequenceTwi?: string[];
 }
 
 export interface AvailableAudioFile {
@@ -67,7 +68,7 @@ export const AUTHENTIC_TWI_RECORDINGS: AvailableAudioFile[] = [
   { filename: "Confirm_understanding.mp3", url: "/audio/Twi_library/Confirm_understanding.mp3", title: "Confirm Understanding", language: "twi", transcript: "I heard you want to send money, is that correct?", category: "confirmation" },
   { filename: "Reject speech.mp3", url: "/audio/Twi_library/Reject speech.mp3", title: "Reject / Change Spoken", language: "twi", transcript: "If you want to change this transaction say no or press 2", category: "confirmation" },
   { filename: "Ready submit.mp3", url: "/audio/Twi_library/Ready submit.mp3", title: "Ready to Submit", language: "twi", transcript: "Your transaction is ready to be submitted, do you want to proceed?", category: "confirmation" },
-  { filename: "Authorize_phone.mp3", url: "/audio/Twi_library/Authorize_phone.mp3", title: "Authorize on Phone (Zero-PIN Handoff)", language: "twi", transcript: "Please authorize the transaction on your phone when the prompt appears. Do not mention your PIN over the call!", category: "auth" },
+  { filename: "Pin_Handoff.mp3", url: "/audio/Twi_library/Pin_Handoff.mp3", title: "PIN Handoff (Zero-PIN Authorization)", language: "twi", transcript: "Please authorize the transaction on your phone when the prompt appears. Do not mention your PIN over the call!", category: "auth" },
   { filename: "Security_warning.mp3", url: "/audio/Twi_library/Security_warning.mp3", title: "Zero-PIN Security Warning", language: "twi", transcript: "I cannot take your PIN over voice call because it would expose your credentials. Enter it privately on your phone keypad!", category: "auth" },
   { filename: "Pin Block.mp3", url: "/audio/Twi_library/Pin Block.mp3", title: "Spoken PIN Block Safeguard", language: "twi", transcript: "Please I cannot work with any PIN entered or spoken over voice! Protect your PIN.", category: "auth" },
   { filename: "Processing.mp3", url: "/audio/Twi_library/Processing.mp3", title: "Processing Transaction", language: "twi", transcript: "Please wait while we check your authorization process with the network", category: "outcome" },
@@ -236,11 +237,11 @@ export const MONEY_TRANSFER_FLOW_STEPS: FlowStepAudioConfig[] = [
     titleTwi: "Gyinapɛn 9: Fon So Banbɔ (PIN Handoff - Zero-PIN)",
     category: "auth",
     defaultAudioEn: "/audio/welcome_en.mp3",
-    defaultAudioTwi: "/audio/Twi_library/Authorize_phone.mp3",
+    defaultAudioTwi: "/audio/Twi_library/Pin_Handoff.mp3",
     transcriptEn: "Please authorize the transfer privately on your phone keypad. Never speak or enter your PIN over voice!",
     transcriptTwi: "Mepawokyɛw yɛ transaction authorization wɔ wo fon no ankasa so. Mma nka wo PIN wɔ nne yi mu da!",
     keypadAction: "Authorize Privately on Phone Prompt",
-    suggestedFilesTwi: ["Authorize_phone.mp3", "Security_warning.mp3", "Check phone.mp3", "Pin Block.mp3"],
+    suggestedFilesTwi: ["Pin_Handoff.mp3", "Security_warning.mp3", "Check phone.mp3", "Pin Block.mp3"],
   },
   {
     id: "normal_step_10_processing",
@@ -270,7 +271,8 @@ export const MONEY_TRANSFER_FLOW_STEPS: FlowStepAudioConfig[] = [
     transcriptEn: "Transfer complete! The money has been transferred successfully. Please keep your transaction reference.",
     transcriptTwi: "Sika mane no wiee pɛpɛɛpɛ! Yɛamane sika no kɔma no. Kora wo transaction reference nɔmba yi yiye.",
     keypadAction: "Call Completes Cleanly",
-    suggestedFilesTwi: ["Success_sent.mp3", "Success_close.mp3", "Keep_reference.mp3", "Check_messages.mp3", "Finish.mp3"],
+    suggestedFilesTwi: ["Success_sent.mp3", "Keep_reference.mp3", "Check_messages.mp3", "Success_close.mp3", "Finish.mp3"],
+    audioSequenceTwi: ["Success_sent.mp3", "Keep_reference.mp3", "Dynamic reference read-back (OP52b)", "Success_close.mp3"],
   },
   {
     id: "normal_step_12_recovery",

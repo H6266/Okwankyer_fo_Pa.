@@ -22,6 +22,7 @@ import { resolvePromptText } from "../src/modules/ttsService";
 
 import { durableTransactionStore } from "../src/services/durableTransactionStore";
 import { recipientResolver } from "../src/providers/recipient/RecipientResolver";
+import { config } from "../src/config/env";
 
 let nextTestClientIp = 1;
 
@@ -117,12 +118,25 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(resolvePromptText("mtn_network_select", "en")).toContain("For Telecel Cash, press 2");
     expect(resolvePromptText("mtn_network_select", "en")).not.toContain("AirtelTigo");
 
+    const twiNetworkMenu = await request(app)
+      .post("/provider-select")
+      .query({ sessionId: "AT-TWI-NETWORK-AUDIO-001", lang: "twi" });
+    expect(twiNetworkMenu.text).toContain("/audio/Twi/Network_selection.mp3?format=mp3");
+    expect(twiNetworkMenu.text).not.toContain("Twi audio is unavailable");
+
     const actionMenu = await request(app)
       .post("/action-select")
       .query({ sessionId, lang: "en" });
     expect(actionMenu.text).toContain("To send money, press 1.");
     expect(resolvePromptText("send_money_menu", "en")).toContain("To send money, press 1.");
     expect(resolvePromptText("send_money_menu", "en")).not.toContain("check your account, press 2");
+
+    const twiActionMenu = await request(app)
+      .post("/action-select")
+      .query({ sessionId: "AT-TWI-ACTION-AUDIO-001", lang: "twi" });
+    expect(twiActionMenu.text).toContain("/audio/Twi/MTN%20menu.mp3?format=mp3");
+    expect(twiActionMenu.text).toContain("/speech-fallback?step=action-select");
+    expect(twiActionMenu.text).not.toContain("Twi audio is unavailable");
 
     const balanceAttempt = await request(app)
       .post("/action-choice")
@@ -165,6 +179,25 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(recipientPrompt.text).not.toContain('numDigits="10"');
     expect(amountPrompt.text).toContain('finishOnKey="#"');
     expect(amountPrompt.text).not.toMatch(/numDigits="(?:6|8)"/);
+  });
+
+  it("accepts a valid unknown sandbox number in demo mode and continues the transfer flow", async () => {
+    const sessionId = "AT-DEMO-UNKNOWN-RECIPIENT-001";
+    const previousDemoMode = config.demoMode;
+
+    try {
+      config.demoMode = true;
+
+      const response = await request(app)
+        .post("/verify-recipient")
+        .send({ sessionId, lang: "en", dtmfDigits: "0249999999" });
+
+      expect(response.text).toContain("/recipient-verify-choice");
+      expect(response.text).not.toContain("local sandbox cannot verify it");
+      expect(transactionStateMachine.getSession(sessionId)?.state).toBe("RECIPIENT_VERIFIED");
+    } finally {
+      config.demoMode = previousDemoMode;
+    }
   });
 
   it("waits 90 seconds before reminding silent callers and keeps the current step", async () => {
@@ -326,6 +359,18 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(response.text).toContain("/verify-recipient");
     expect(lookup).not.toHaveBeenCalled();
     lookup.mockRestore();
+  });
+
+  it("explains when a valid number is missing from the local sandbox directory", async () => {
+    const sessionId = "AT-UNKNOWN-SANDBOX-RECIPIENT";
+    const response = await request(app)
+      .post("/verify-recipient")
+      .send({ sessionId, lang: "en", dtmfDigits: "0244123903#" });
+
+    expect(response.text).toContain("this local sandbox cannot verify it");
+    expect(response.text).toContain("0553838464 or 0241234567");
+    expect(response.text).toContain("/enter-recipient");
+    expect(transactionStateMachine.getSession(sessionId)?.isRecipientVerified).toBe(false);
   });
 
   it("runs recipient lookup once for duplicate valid callbacks", async () => {

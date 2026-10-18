@@ -8,7 +8,6 @@ import {
   Trash2,
   ChevronDown,
   ChevronUp,
-  ShieldCheck,
   CheckCircle2,
   Play,
   RotateCcw,
@@ -16,12 +15,8 @@ import {
   MessageSquare,
   Terminal as TerminalIcon,
   Activity,
-  Layers,
   Send,
-  HelpCircle,
   Radio,
-  Clock,
-  Check,
   Brain,
   Lock,
 } from "lucide-react";
@@ -36,19 +31,17 @@ import { api } from "../../lib/api";
 import { getRecordingByUrl } from "../../audio/recordingRegistry";
 import { resolvePromptText } from "../../modules/ttsService";
 import { isDynamicPrompt, STATE_TO_CANONICAL_PROMPT_ID } from "../../audio/canonicalRegistry";
-import { MOMO_9_STEP_SEQUENCE } from "../../domain/momoFlowSequence";
-import { TWI_SEQUENTIAL_FLOW_STEPS, getFlowStepById } from "../../audio/twiSequentialAudioFlow";
-import { continuousAudioEngine, ContinuousAudioState } from "../../audio/continuousAudioEngine";
-import { AcousticVisualizer } from "../../components/audio/AcousticVisualizer";
+import { MONEY_TRANSFER_FLOW_STEPS } from "../../audio/audioFlowStore";
+import { continuousAudioEngine } from "../../audio/continuousAudioEngine";
 import { normalizeSpokenDigits } from "../../ai_system/speech/acousticModels/ghanaAcousticDataset";
 import {
   repairGhanaianPronunciation,
-  extractStreamingWords,
   PhoneticCorrection,
 } from "../../ai_system/speech/asr/ghanaianPhoneticMatcher";
 import { normalizeGhanaPhoneNumber } from "../../domain/validation";
 import { shouldDiscardSensitiveSpeech, isVoiceCaptureBlockedForStep } from "../../domain/pinSafety";
 import { speechNormalizer } from "../../ai_system/speech/speechNormalizer";
+import type { DraftState } from "../../ai_system/brain/types";
 
 // ── Types ─────────────────────────────────────────────────────────────
 interface TerminalLog {
@@ -108,6 +101,11 @@ interface ParsedVoiceXml {
   };
 }
 
+interface BrowserSpeechRecognition {
+  stop(): void;
+  abort(): void;
+}
+
 const STEP_OPTIONS_MAP: Record<string, string> = {
   "voice-menu": "1=English, 2=Twi, 0=Exit",
   "language-selection": "1=English, 2=Twi, 0=Exit",
@@ -117,7 +115,7 @@ const STEP_OPTIONS_MAP: Record<string, string> = {
   "provider-choice": "1=MTN, 2=Telecel, 3=AirtelTigo, 9=Repeat, 0=Exit",
   "action-select": "1=Send Money, 8=Back, 9=Repeat, 0=Exit",
   "action-choice": "1=Send Money, 8=Back, 9=Repeat, 0=Exit",
-  "enter-recipient": "10-digit number followed by #",
+  "enter-recipient": "Keypad: 10 digits + #; voice: say all 10 digits",
   "verify-recipient": "1=Confirm Recipient, 2=Re-enter Number, 0=Exit",
   "recipient-verify-choice": "1=Confirm Recipient, 2=Re-enter Number, 8=Back, 0=Exit",
   "enter-amount": "Amount in Cedis followed by # (* for pesewas)",
@@ -190,11 +188,10 @@ export const PhoneSimulatorPage: React.FC = () => {
   const [callActive, setCallActive] = useState<boolean>(false);
   const [callStatus, setCallStatus] = useState<string>("Idle");
   const [sessionId, setSessionId] = useState<string>("");
-  const [callerNumber, setCallerNumber] = useState<string>("0244123456");
+  const [callerNumber] = useState<string>("0244123456");
   const [interactionMode, setInteractionMode] = useState<string>("UNSELECTED");
   const [conversationState, setConversationState] = useState<string>("INITIATED");
   const [language, setLanguage] = useState<"en" | "twi" | null>("twi");
-  const [voiceMode, setVoiceMode] = useState<"twi" | "en" | "auto">("twi");
   const voiceModeRef = useRef<"twi" | "en" | "auto">("twi");
   const [currentPrompt, setCurrentPrompt] = useState<string>("Lift handset or press Call to begin.");
   const [activePlayUrl, setActivePlayUrl] = useState<string | null>(null);
@@ -207,13 +204,11 @@ export const PhoneSimulatorPage: React.FC = () => {
   const [isAudioSpeaking, setIsAudioSpeaking] = useState<boolean>(false);
   const [isAiReasoning, setIsAiReasoning] = useState<boolean>(false);
   const [reasoningSec, setReasoningSec] = useState<number>(0);
-  const [volumeMultiplier, setVolumeMultiplier] = useState<number>(1.0);
+  const [volumeMultiplier, setVolumeMultiplier] = useState<number>(audioPlaybackController.getVolumeMultiplier());
 
   // ── Cash-Out & Voice Withdrawal State ────────────────────────────────
   const [cashOutActive, setCashOutActive] = useState<boolean>(false);
-  const [cashOutExpiryMin, setCashOutExpiryMin] = useState<number>(15);
   const [walletBalance, setWalletBalance] = useState<number>(30.0);
-  const [pendingAgentRequest, setPendingAgentRequest] = useState<any | null>(null);
   const requestedWithdrawalAmountRef = useRef<number>(30);
 
   // ── XML & Telephony Routing State ────────────────────────────────────
@@ -225,13 +220,6 @@ export const PhoneSimulatorPage: React.FC = () => {
 
   // ── Terminal & Chat Timeline State ───────────────────────────────────
   const [activeTab, setActiveTab] = useState<"chat" | "terminal" | "asr_diag">("chat");
-  const [splitView, setSplitView] = useState<boolean>(true);
-  const [voiceSyncStatus, setVoiceSyncStatus] = useState<{
-    text: string;
-    action: string;
-    dtmf?: string;
-    timestamp: number;
-  } | null>(null);
   const [activeKeypadPulse, setActiveKeypadPulse] = useState<string | null>(null);
   const [chatTurns, setChatTurns] = useState<ChatTurnItem[]>([
     {
@@ -264,7 +252,6 @@ export const PhoneSimulatorPage: React.FC = () => {
 
   // ── Real-Time ASR & Streaming Words State ────────────────────────────
   const [interimTranscript, setInterimTranscript] = useState<string>("");
-  const [finalizedTranscript, setFinalizedTranscript] = useState<string>("");
   const [customSpeechText, setCustomSpeechText] = useState<string>("");
   const [isSimulatingSpeech, setIsSimulatingSpeech] = useState<boolean>(false);
   const [recentStreamingWords, setRecentStreamingWords] = useState<
@@ -278,10 +265,9 @@ export const PhoneSimulatorPage: React.FC = () => {
   // Refs
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
   const terminalEndRef = useRef<HTMLDivElement | null>(null);
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const lastUtteranceTimeRef = useRef<number>(0);
   const lastUtteranceTextRef = useRef<string>("");
-  const prevInterimTranscriptRef = useRef<string>("");
 
   // Synchronous session state refs
   const callActiveRef = useRef<boolean>(false);
@@ -292,10 +278,9 @@ export const PhoneSimulatorPage: React.FC = () => {
   const currentPromptRef = useRef<string>("");
   const isMicMutedRef = useRef<boolean>(false);
   const zeroPinOverlayRef = useRef<boolean>(false);
-  const brainDraftRef = useRef<any>({ slots: {} });
+  const brainDraftRef = useRef<DraftState>({ slots: {} });
   const startPinAuthorizationFlowRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const digitsBufferRef = useRef<string>("");
-  const amountAutoSubmitTimerRef = useRef<any>(null);
 
   useEffect(() => { callActiveRef.current = callActive; }, [callActive]);
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
@@ -445,9 +430,13 @@ export const PhoneSimulatorPage: React.FC = () => {
         if (!session?.authenticated && session?.hint) {
           try {
             await api.adminLogin(session.hint);
-          } catch {}
+          } catch (error) {
+            console.warn("[PhoneSimulator] Admin login fallback failed.", error);
+          }
         }
-      } catch {}
+      } catch (error) {
+        console.warn("[PhoneSimulator] Admin session check failed.", error);
+      }
     };
     checkSession();
     return () => {
@@ -457,7 +446,7 @@ export const PhoneSimulatorPage: React.FC = () => {
 
   // Call duration counter
   useEffect(() => {
-    let timer: any = null;
+    let timer: ReturnType<typeof setInterval> | null = null;
     if (callActive) {
       timer = setInterval(() => {
         setCallDuration((prev) => prev + 1);
@@ -465,7 +454,9 @@ export const PhoneSimulatorPage: React.FC = () => {
     } else {
       setCallDuration(0);
     }
-    return () => clearInterval(timer);
+    return () => {
+      if (timer) clearInterval(timer);
+    };
   }, [callActive]);
 
   // Auto-scroll chat & terminal
@@ -593,7 +584,7 @@ export const PhoneSimulatorPage: React.FC = () => {
         const match = effectiveUrl.match(/\/([a-zA-Z0-9_-]+)(?:\?|$)/);
         if (match) stepName = match[1];
       }
-      let playbackUrl = resolvePlayableSimulatorAudioUrl(requestedPlayUrl, responseLanguage);
+      const playbackUrl = resolvePlayableSimulatorAudioUrl(requestedPlayUrl, responseLanguage);
       setRawVoiceXml(
         xmlText.replace(
           /<Play\b[^>]*(?:\/>|>[\s\S]*?<\/Play>)/gi,
@@ -625,12 +616,29 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       // Follow <Redirect> after auto-playing any associated audio prompt
       if (parsed.redirectUrl) {
+        if (parsed.sayText?.trim()) {
+          setCurrentPrompt(parsed.sayText);
+          currentPromptRef.current = parsed.sayText;
+          addChatTurn({
+            sender: "system",
+            text: parsed.sayText,
+            stepName,
+            audioUrl: playbackUrl || undefined,
+            audioSource: playbackUrl ? "studio" : "synthesis",
+          });
+        }
         if (playbackUrl) {
           addLog("audio", `🔊 Auto-playing feed prompt: ${playbackUrl}`);
           try {
             await audioPlaybackController.play(playbackUrl, parsed.sayText || undefined);
           } catch (err) {
             console.warn("[PhoneSimulator] Redirect audio play notice:", err);
+          }
+        } else if (parsed.sayText?.trim()) {
+          try {
+            await audioPlaybackController.speakText(parsed.sayText, { language: responseLanguage });
+          } catch (err) {
+            console.warn("[PhoneSimulator] Redirect message speech notice:", err);
           }
         }
         addLog("state", `Redirecting to ${parsed.redirectUrl}`);
@@ -643,7 +651,9 @@ export const PhoneSimulatorPage: React.FC = () => {
         if (recognitionRef.current) {
           try {
             recognitionRef.current.stop();
-          } catch {}
+          } catch (error) {
+            console.warn("[PhoneSimulator] Recognition stop during reject path failed.", error);
+          }
         }
 
         if (parsed.transactionOutcome === "PENDING" || parsed.transactionOutcome === "RECONCILIATION_REQUIRED") {
@@ -770,8 +780,8 @@ export const PhoneSimulatorPage: React.FC = () => {
       }
 
       // Determine display prompt text
-      let promptText = "";
-      let resolvedPromptId: string | null = null;
+      let promptText: string;
+      let resolvedPromptId: string | null;
       if (requestedPlayUrl) {
         const pathname = new URL(requestedPlayUrl, window.location.origin).pathname;
         const recording = getRecordingByUrl(pathname);
@@ -953,7 +963,9 @@ export const PhoneSimulatorPage: React.FC = () => {
         try {
           const u = new URL(targetUrl);
           targetUrl = u.pathname + u.search;
-        } catch {}
+        } catch (error) {
+          console.warn("[PhoneSimulator] URL normalization failed for external webhook target.", error);
+        }
       }
 
       if (!targetUrl.startsWith("/api/simulator")) {
@@ -1012,6 +1024,10 @@ export const PhoneSimulatorPage: React.FC = () => {
         const aiReplyText = decodeHeader(res.headers.get("x-ai-reply-text"));
         const aiReplyKey = decodeHeader(res.headers.get("x-ai-reply-key"));
 
+        if (aiReplyKey) {
+          addLog("AI", `AI reply key resolved: ${aiReplyKey}`);
+        }
+
         const recipientName = decodeHeader(res.headers.get("x-recipient-name"));
         const recipientPhone = decodeHeader(res.headers.get("x-recipient-phone"));
         if (recipientPhone) {
@@ -1047,8 +1063,9 @@ export const PhoneSimulatorPage: React.FC = () => {
         } else {
           await executeVoiceXml(text, targetUrl, { httpStatus: res.status, guardReason, transactionOutcome });
         }
-      } catch (err: any) {
-        addLog("system", `Webhook transport error: ${err.message}`);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        addLog("system", `Webhook transport error: ${message}`);
       }
     },
     [callerNumber, executeVoiceXml, sessionId, addLog, addChatTurn]
@@ -1095,18 +1112,23 @@ export const PhoneSimulatorPage: React.FC = () => {
     addLog("state", "Connecting to phone simulator (/api/simulator/voice-menu)...");
     addLog("audio", `🔊 Playing welcome audio: ${initialWelcomeAudio}`);
 
-    // Immediately play the authentic studio welcome recording
-    audioPlaybackController.play(initialWelcomeAudio, initialWelcomeText).catch((err) => {
-      console.warn("[PhoneSimulator] Immediate welcome audio play notice:", err);
-    });
-
     // Keep microphone OFF during initial welcome prompt playback; it will automatically turn ON when the prompt finishes playing
     setIsMicMuted(true);
     isMicMutedRef.current = true;
     continuousAudioEngine.pauseForPlayback();
     continuousAudioEngine.resetDiscussionBuffer();
     setInterimTranscript("");
-    setFinalizedTranscript("");
+
+    // Play the opening greeting followed by the available localized welcome clip.
+    const followUpWelcomeAudio = initialLang === "twi"
+      ? "/audio/welcome_twi.mp3"
+      : "/audio/welcome_en.mp3";
+    try {
+      const welcomeSequence = [...new Set([initialWelcomeAudio, followUpWelcomeAudio])];
+      await audioPlaybackController.playSequence(welcomeSequence, initialWelcomeText);
+    } catch (err) {
+      console.warn("[PhoneSimulator] Welcome audio sequence notice:", err);
+    }
 
     // Initial step expectations
     setActiveStepName("voice-menu");
@@ -1135,7 +1157,6 @@ export const PhoneSimulatorPage: React.FC = () => {
       setZeroPinOverlay(false);
       setActiveCallbackUrl(null);
       setInterimTranscript("");
-      setFinalizedTranscript("");
 
       audioPlaybackController.stop();
       continuousAudioEngine.stop();
@@ -1143,7 +1164,9 @@ export const PhoneSimulatorPage: React.FC = () => {
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();
-        } catch {}
+        } catch (error) {
+          console.warn("[PhoneSimulator] Recognition abort during end-call failed.", error);
+        }
       }
 
       addLog("state", `Call ended (${reason})`);
@@ -1264,8 +1287,9 @@ export const PhoneSimulatorPage: React.FC = () => {
 
         addLog("AI", `Dynamic response requires TTS: "${matchData?.matchReason || matchData?.reason || "Synthesizing"}"`);
         await audioPlaybackController.speakText(textToPlay, { language: langToUse });
-      } catch (err: any) {
-        addLog("AI", `Audio assembly notice: playing TTS fallback (${err?.message || "Standard"})`);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        addLog("AI", `Audio assembly notice: playing TTS fallback (${message || "Standard"})`);
         await audioPlaybackController.speakText(textToPlay, { language: langToUse });
       }
     },
@@ -1422,7 +1446,6 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       if (isCashOutInitiation) {
         setCashOutActive(true);
-        setCashOutExpiryMin(15);
         activeStepNameRef.current = "cashout-offer-balance";
         setActiveStepName("cashout-offer-balance");
 
@@ -1447,8 +1470,9 @@ export const PhoneSimulatorPage: React.FC = () => {
           setCurrentPrompt(speakText);
           currentPromptRef.current = speakText;
           await audioPlaybackController.speakText(speakText);
-        } catch (err: any) {
-          addLog("system", `Error enabling cash-out: ${err.message}`);
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          addLog("system", `Error enabling cash-out: ${message}`);
         }
         return;
       }
@@ -1475,7 +1499,6 @@ export const PhoneSimulatorPage: React.FC = () => {
             });
             pending = { success: true, hasPending: true, request: simRes.request };
           }
-          setPendingAgentRequest(pending.request);
           activeStepNameRef.current = "cashout-confirm-approval";
           setActiveStepName("cashout-confirm-approval");
           const readbackMsg = isTwi
@@ -1522,7 +1545,6 @@ export const PhoneSimulatorPage: React.FC = () => {
             const parsed = parseFloat(amtMatch[1]);
             if (!isNaN(parsed) && parsed > 0) {
               requestedWithdrawalAmountRef.current = parsed;
-              setPendingAgentRequest(null);
               const fee = parsed <= 50 ? (parsed * 0.01 < 0.20 ? 0.20 : Math.round(parsed * 0.01 * 100) / 100) : parsed <= 1000 ? Math.round(parsed * 0.01 * 100) / 100 : 10.0;
               const total = parsed + fee;
               const updateMsg = isTwi
@@ -1549,7 +1571,6 @@ export const PhoneSimulatorPage: React.FC = () => {
               });
               pending = { success: true, hasPending: true, request: simRes.request };
             }
-            setPendingAgentRequest(pending.request);
 
             activeStepNameRef.current = "cashout-confirm-approval";
             setActiveStepName("cashout-confirm-approval");
@@ -1712,7 +1733,6 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       if (matchedDtmf) {
         addLog("asr", `Spoken menu choice "${effectiveClean}" mapped to keypad [${matchedDtmf}]`);
-        setVoiceSyncStatus({ text: effectiveClean, action: `Auto-dialed DTMF [${matchedDtmf}]`, dtmf: matchedDtmf, timestamp: Date.now() });
         setActiveKeypadPulse(matchedDtmf);
         audioPlaybackController.playDtmfTone(matchedDtmf, 130);
         setTimeout(() => setActiveKeypadPulse(null), 450);
@@ -1897,12 +1917,12 @@ export const PhoneSimulatorPage: React.FC = () => {
         setCurrentPrompt(replyText);
         currentPromptRef.current = replyText;
         await playAiAgentReply(replyText, curLang, isGeminiOrigin, curSession);
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (stallTimer) clearTimeout(stallTimer);
         if (timeout20sTimer) clearTimeout(timeout20sTimer);
         clearInterval(reasoningInterval);
         setIsAiReasoning(false);
-        const errMsg = String(err?.message || "");
+        const errMsg = err instanceof Error ? err.message : String(err);
         const isTimeout = errMsg.includes("Timeout") || errMsg.includes("20s");
         if (isTimeout) {
           addLog("system", "⏱️ [Gemini Diagnosis @20s] Gemini turn exceeded 20-second threshold. Cause: Remote API latency / processing delay. Seamlessly activating local fallback.");
@@ -1949,7 +1969,6 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       audioPlaybackController.stop();
       setInterimTranscript("");
-      setFinalizedTranscript("");
       const currentLang = languageRef.current || language;
       addLog("asr", `🎙️ Incoming speech stream detected (${currentLang === "twi" ? "Akan Twi" : "Ghanaian English"})`);
 
@@ -1996,7 +2015,6 @@ export const PhoneSimulatorPage: React.FC = () => {
       }
       addLog("asr", `✅ Final ASR: "${effective}"`);
       setInterimTranscript("");
-      setFinalizedTranscript(effective);
       setIsSimulatingSpeech(false);
 
       // Process utterance directly (bypassing mic acoustic echo filter since it is direct test input)
@@ -2043,9 +2061,6 @@ export const PhoneSimulatorPage: React.FC = () => {
     const unsubState = continuousAudioEngine.subscribeState((state) => {
       if (state.currentInterimTranscript) {
         setInterimTranscript(state.currentInterimTranscript);
-      }
-      if (state.finalizedTranscript) {
-        setFinalizedTranscript(state.finalizedTranscript);
       }
       if (state.isListening && !isAudioSpeaking && !zeroPinOverlayRef.current && !isMicMutedRef.current) {
         setCallStatus("Listening");
@@ -2172,7 +2187,6 @@ export const PhoneSimulatorPage: React.FC = () => {
             });
             req = sim.request;
           }
-          setPendingAgentRequest(req);
           activeStepNameRef.current = "cashout-confirm-approval";
           setActiveStepName("cashout-confirm-approval");
           const readback = (languageRef.current === "twi")
@@ -2229,8 +2243,6 @@ export const PhoneSimulatorPage: React.FC = () => {
       if (digitsBuffer.length >= 16) return;
       const nextBuf = digitsBuffer + digit;
       setDigitsBuffer(nextBuf);
-
-      // Rule 3: Do not auto-advance after the 10th digit alone; wait strictly for '#' finishOnKey!
 
       // Single-digit expectation (only when NOT accumulating a 10-digit phone number)
       const isAccumulatingInput =
@@ -2620,7 +2632,7 @@ export const PhoneSimulatorPage: React.FC = () => {
                   </span>
                 </div>
                 <div className="flex items-center gap-1">
-                  {[0.5, 0.75, 1.0].map((v) => (
+                  {[1.0, 1.5, 2.0].map((v) => (
                     <button
                       key={v}
                       type="button"
@@ -2785,44 +2797,47 @@ export const PhoneSimulatorPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Authoritative 9-Step USSD/MoMo Money Transfer Sequence */}
+            {/* Audio-aligned MoMo transfer guide */}
             <div className="bg-slate-900/90 border border-emerald-900/40 rounded-2xl p-3 shadow-md mb-3">
               <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-800">
                 <span className="text-xs font-semibold text-emerald-300 flex items-center gap-1.5">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Authoritative 9-Step MoMo Transfer Flow</span>
+                  <span>MoMo Audio Flow Guide</span>
                 </span>
                 <span className="text-[10px] font-mono text-slate-400 bg-slate-800 px-2 py-0.5 rounded">
                   Active: {activeStepName || "idle"}
                 </span>
               </div>
 
-              <div className="grid grid-cols-3 sm:grid-cols-9 gap-1.5 text-center">
-                {MOMO_9_STEP_SEQUENCE.map((s) => {
-                  const stepNum = s.stepNumber;
-                  const isActive =
-                    (stepNum === 1 && (activeStepName === "idle" || activeStepName.includes("welcome") || activeStepName.includes("language"))) ||
-                    (stepNum === 2 && (activeStepName.includes("service") || activeStepName.includes("main_menu"))) ||
-                    (stepNum === 3 && (activeStepName.includes("network") || activeStepName.includes("provider"))) ||
-                    (stepNum === 4 && activeStepName.includes("recipient") && !activeStepName.includes("verify") && !activeStepName.includes("confirm")) ||
-                    (stepNum === 5 && activeStepName.includes("amount")) ||
-                    (stepNum === 6 && (activeStepName.includes("reference") || activeStepName.includes("verify") || activeStepName.includes("confirm"))) ||
-                    (stepNum === 7 && (activeStepName.includes("pin") || activeStepName.includes("auth") || activeStepName.includes("handoff"))) ||
-                    (stepNum === 8 && (activeStepName.includes("initiat") || activeStepName.includes("process") || activeStepName.includes("pending"))) ||
-                    (stepNum === 9 && (activeStepName.includes("success") || activeStepName.includes("complete") || activeStepName.includes("report")));
-
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
+                {MONEY_TRANSFER_FLOW_STEPS
+                  .filter((step) => step.flowType === "NORMAL" && step.category !== "recovery")
+                  .map((step) => {
+                  const selectedAudio = language === "en" ? step.defaultAudioEn : step.defaultAudioTwi;
+                  const audioFilename = selectedAudio.split("/").pop() || selectedAudio;
+                  const activeFilename = activePlayUrl?.split("/").pop()?.toLowerCase();
+                  const isActive = Boolean(activeFilename && activeFilename === audioFilename.toLowerCase());
+                  const title = language === "en" ? step.titleEn : step.titleTwi;
+                  const transcript = language === "en" ? step.transcriptEn : step.transcriptTwi;
+                  const audioSequence = step.audioSequenceTwi || [audioFilename];
                   return (
                     <div
-                      key={s.id}
-                      className={`p-1.5 rounded-lg border text-[10px] flex flex-col items-center justify-center transition-all ${
+                      key={step.id}
+                      className={`p-2 rounded-lg border text-[10px] transition-all ${
                         isActive
                           ? "bg-emerald-950/80 border-emerald-500/80 text-emerald-200 ring-1 ring-emerald-400"
                           : "bg-slate-950/40 border-slate-800/80 text-slate-400"
                       }`}
-                      title={`${s.name}: ${s.description}\nAudio: ${s.defaultAudioFilename}`}
+                      title={`${title}\nAudio: ${audioSequence.join(" -> ")}`}
                     >
-                      <span className="font-bold text-[11px]">{stepNum}</span>
-                      <span className="truncate w-full text-[9px] font-medium mt-0.5">{s.name.split(". ")[1]}</span>
+                      <div className="flex items-start gap-2">
+                        <span className="font-bold text-[11px] shrink-0">{step.sequenceOrder}</span>
+                        <span className="font-semibold leading-tight">{title}</span>
+                      </div>
+                      <p className="mt-1.5 text-slate-300 leading-snug">{transcript}</p>
+                      <p className="mt-1.5 text-[9px] font-mono text-emerald-300/80 break-words">
+                        {audioSequence.join(" -> ")}
+                      </p>
                     </div>
                   );
                 })}
@@ -2884,13 +2899,12 @@ export const PhoneSimulatorPage: React.FC = () => {
               <button
                 type="button"
                 onClick={async () => {
-                  const sim = await api.simulateAgentCashOutRequest({
+                  await api.simulateAgentCashOutRequest({
                     callerPhone: callerNumber,
                     agentCode: "284910",
                     agentName: "Kofi Mensah Enterprise (MoMo Agent)",
                     amount: 50.0,
                   });
-                  setPendingAgentRequest(sim.request);
                   addLog("state", "MoMo Agent terminal submitted a request.");
                 }}
                 className="px-2.5 py-1 text-xs bg-teal-950/90 hover:bg-teal-900 text-teal-200 rounded-lg border border-teal-500/40 font-medium transition-colors cursor-pointer"

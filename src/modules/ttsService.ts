@@ -28,6 +28,8 @@ const TTS_SCRIPT_KEY_BY_PROMPT_KEY: Readonly<Record<string, string>> = {
   service_select: "supported_service_select",
   network_selection: "mtn_network_select",
   mtn_menu: "send_money_menu",
+  send_money_menu: "send_money_menu",
+  enter_recipient: "enter_recipient",
 };
 
 /**
@@ -55,8 +57,12 @@ export const PROMPT_SCRIPTS: Record<string, { en: string; twi: string }> = {
     twi: "Sɛ wopɛ Mobile Money transfer a yɛboa a, mia 1. Mia 9 na tie bio, anaasɛ mia 0 na woapue.",
   },
   send_money_menu: {
-    en: "To send money, press 1. To go back, press 8. To hear this again, press 9. To exit, press 0.",
-    twi: "Sɛ wopɛ sɛ womane sika a, mia 1. Mia 8 na san kɔ akyi, mia 9 na tie bio, anaasɛ mia 0 na woapue.",
+    en: "To send money, press 1. To go back, press 8. Press 9 to repeat, or 0 to exit.",
+    twi: "Sɛ wopɛ sɛ womane sika a mia 1. Mia 8 na san kɔ akyi, mia 9 na tie bio, anaasɛ mia 0 na woapue.",
+  },
+  enter_recipient: {
+    en: "Please enter the recipient's ten-digit phone number. When finished, press hash (#). Or press 0 to exit.",
+    twi: "Mepawokyɛw bɔ obi a woremane no sika no fon nɔmba edu no. Wowie a mia hash (#), anaa mia 0.",
   },
   send_money_selected: {
     en: "You selected send money.",

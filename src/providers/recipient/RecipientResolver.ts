@@ -76,6 +76,19 @@ export class SandboxRecipientResolver implements RecipientResolver {
       };
     }
 
+    if (config.nodeEnv !== "production" && config.demoMode) {
+      return {
+        valid: true,
+        phoneNumber: rawPhoneNumber,
+        normalizedPhone: val.normalized,
+        name: "Demo Recipient",
+        network: val.network,
+        verified: true,
+        source: "SANDBOX_FIXTURE",
+        warning: `Demo mode accepted ${redactPii(val.normalized)} as a valid sandbox recipient without provider lookup.`,
+      };
+    }
+
     return {
       valid: true,
       phoneNumber: rawPhoneNumber,
