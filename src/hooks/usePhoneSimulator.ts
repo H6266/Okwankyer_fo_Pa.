@@ -18,6 +18,7 @@ import {
 } from "../domain/echoFilter";
 import { getRecordingByPromptKey, getRecordingByUrl } from "../audio/recordingRegistry";
 import { resolvePromptText } from "../modules/ttsService";
+import { audioFlowStore } from "../audio/audioFlowStore";
 import { matchReplyToAudio } from "../audio/replyAudioMatcher";
 import {
   ContinuousVoiceCapture,
@@ -1445,7 +1446,23 @@ export function usePhoneSimulator() {
       } catch {}
     }
 
-    // 2. Step and intent heuristics for static prompt menus
+    const targetLang = isTwi ? "twi" : "en";
+
+    // 0. Check custom audio assignment from Audio Flow Studio first
+    const customOverride = audioFlowStore.resolvePromptOverride(step || text, targetLang);
+    if (customOverride) return customOverride;
+
+    // 1. Try fuzzy audio matcher for conversational turns
+    if (isTwi) {
+      try {
+        const audioMatch = matchReplyToAudio(text, "tw", { minConfidence: 0.65 });
+        if (audioMatch.match && audioMatch.audioUrl) {
+          return audioMatch.audioUrl;
+        }
+      } catch {}
+    }
+
+    // 2. Step and intent heuristics for money transfer flows
     const lower = (text || "").toLowerCase().replace(/[-_]/g, " ");
     const currentCheck = (step || "").toLowerCase();
 
@@ -1458,21 +1475,51 @@ export function usePhoneSimulator() {
       key = "provider_select";
     } else if (currentCheck.includes("action") || lower.includes("send money selected") || lower.includes("woremane sika")) {
       key = "action_select";
+    } else if (currentCheck.includes("recipient") || currentCheck.includes("phone") || lower.includes("recipient") || lower.includes("fon nɔmba")) {
+      if (lower.includes("invalid") || lower.includes("problem") || lower.includes("nyɛ pɛ")) {
+        key = "invalid_recipient";
+      } else if (lower.includes("verify") || lower.includes("found") || lower.includes("yɛahu")) {
+        key = "recipient_verify";
+      } else {
+        key = "enter_recipient";
+      }
+    } else if (currentCheck.includes("amount") || lower.includes("amount") || lower.includes("sika dodoɔ") || lower.includes("sika dodow")) {
+      if (lower.includes("high") || lower.includes("exceed") || lower.includes("boro")) {
+        key = "amount_too_high";
+      } else if (lower.includes("low") || lower.includes("sua")) {
+        key = "amount_too_low";
+      } else if (lower.includes("readback") || lower.includes("heard") || lower.includes("mate")) {
+        key = "amount_readback";
+      } else {
+        key = "enter_amount";
+      }
+    } else if (currentCheck.includes("confirm") || currentCheck.includes("review") || lower.includes("confirm") || lower.includes("pene so")) {
+      key = "confirm_continue";
+    } else if (currentCheck.includes("pin") || currentCheck.includes("handoff") || currentCheck.includes("auth") || lower.includes("authorize") || lower.includes("kokoam")) {
+      key = "authorize_phone";
+    } else if (currentCheck.includes("processing") || lower.includes("processing") || lower.includes("twɛn kakra")) {
+      key = "processing";
+    } else if (currentCheck.includes("submitted") || lower.includes("submitted") || lower.includes("yɛasoma")) {
+      key = "submitted";
+    } else if (currentCheck.includes("success") || lower.includes("success") || lower.includes("nkunimdie") || lower.includes("awie")) {
+      key = "success_sent";
     } else if (lower.includes("timeout") || lower.includes("berɛ atwa mu")) {
       key = "timeout";
     } else if (lower.includes("repeat") || lower.includes("tie bio")) {
       key = "repeat";
     } else if (lower.includes("help") || lower.includes("mboa")) {
       key = "help";
-    }
-
-    if (key === "welcome") {
-      const recording = getRecordingByPromptKey(key, isTwi ? "twi" : "en");
-      return recording?.audioVerified ? recording.url : null;
+    } else if (lower.includes("respond") || lower.includes("reply") || lower.includes("mmuaeɛ")) {
+      key = "please_respond";
     }
 
     if (!key) return null;
-    const recording = getRecordingByPromptKey(key, isTwi ? "twi" : "en");
+
+    // Check custom override for this key
+    const keyOverride = audioFlowStore.resolvePromptOverride(key, targetLang);
+    if (keyOverride) return keyOverride;
+
+    const recording = getRecordingByPromptKey(key, targetLang);
     return recording?.audioVerified ? recording.url : null;
   }, []);
 

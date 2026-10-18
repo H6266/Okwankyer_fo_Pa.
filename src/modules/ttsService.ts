@@ -17,7 +17,7 @@ import {
 import { getStepDefinition } from "../domain/stepRegistry";
 import { getCanonicalPrompt, isDynamicPrompt, resolvePromptSpokenText } from "../audio/canonicalRegistry";
 import type { DynamicPromptParams } from "../audio/dynamicPromptBuilder";
-import { ttsRouter } from "../ai_system/speech/tts/ttsRouter";
+import { audioFlowStore } from "../audio/audioFlowStore";
 
 const TTS_SCRIPT_KEY_BY_PROMPT_KEY: Readonly<Record<string, string>> = {
   invalid_recipient: "number_invalid",
@@ -180,6 +180,10 @@ export function resolvePrompt(key: string, lang: SupportedLanguage = "en"): stri
   const language = normalizeRecordingLanguage(lang);
   if (!language) return null;
 
+  // 1. Check custom audio assignment from Audio Flow Studio first
+  const customOverride = audioFlowStore.resolvePromptOverride(key, language);
+  if (customOverride) return customOverride;
+
   const recording = getRecordingByPromptKey(key, language);
   if (recording?.audioVerified && recording.url) return recording.url;
 
@@ -316,6 +320,7 @@ export function resolvePromptXml(
 export async function speak(text: string, lang: SupportedLanguage = "en"): Promise<Buffer> {
   const normalizedLanguage = normalizeRecordingLanguage(lang);
   if (!normalizedLanguage) throw new Error(`TTS_LANGUAGE_UNSUPPORTED: ${lang}`);
+  const { ttsRouter } = await import("../ai_system/speech/tts/ttsRouter");
   const result = await ttsRouter.synthesize({
     text,
     language: normalizedLanguage === "twi" ? "tw" : "en",

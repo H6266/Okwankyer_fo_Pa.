@@ -84,6 +84,9 @@ export class AudioPlaybackController {
 
   private audioContext: AudioContext | null = null;
   private masterGainNode: GainNode | null = null;
+  private volumeMultiplier: number = 2.0; // High volume boost with dynamics compression for accessibility
+  private playbackVolume: number = 1.0;
+  private compressorNode: DynamicsCompressorNode | null = null;
 
   constructor() {
     if (typeof window !== "undefined") {
@@ -92,10 +95,10 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Sets the master gain without boosting the source signal above unity.
+   * Sets the master volume multiplier with clean limiter protection.
    */
   public setVolumeMultiplier(multiplier: number): void {
-    this.volumeMultiplier = Math.max(0.5, Math.min(1.0, multiplier));
+    this.volumeMultiplier = Math.max(0.5, Math.min(3.0, multiplier));
     if (this.masterGainNode && this.audioContext) {
       try {
         this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
@@ -108,7 +111,7 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Configures the Web Audio signal chain at unity gain.
+   * Configures the Web Audio signal chain with high-clarity speech compression and volume boost.
    */
   private setupAudioGraph(): void {
     if (typeof window === "undefined") return;
@@ -118,19 +121,18 @@ export class AudioPlaybackController {
         this.audioContext = new AudioCtx();
       }
       if (this.audioContext && !this.masterGainNode) {
+        this.compressorNode = this.audioContext.createDynamicsCompressor();
+        this.compressorNode.threshold.setValueAtTime(-18, this.audioContext.currentTime);
+        this.compressorNode.knee.setValueAtTime(6, this.audioContext.currentTime);
+        this.compressorNode.ratio.setValueAtTime(4, this.audioContext.currentTime);
+        this.compressorNode.attack.setValueAtTime(0.003, this.audioContext.currentTime);
+        this.compressorNode.release.setValueAtTime(0.2, this.audioContext.currentTime);
+
         this.masterGainNode = this.audioContext.createGain();
         this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
-        this.masterGainNode.connect(this.audioContext.destination);
-      }
 
-      // Route HTML5 AudioElement through the unity-gain master volume.
-      if (this.audioContext && this.audioElement && !this.mediaElementSource) {
-        try {
-          this.mediaElementSource = this.audioContext.createMediaElementSource(this.audioElement);
-          this.mediaElementSource.connect(this.masterGainNode || this.audioContext.destination);
-        } catch {
-          // Fallback if media element already hooked or restricted
-        }
+        this.masterGainNode.connect(this.compressorNode);
+        this.compressorNode.connect(this.audioContext.destination);
       }
     } catch (err) {
       console.warn("[AudioController] Audio graph setup notice:", err);

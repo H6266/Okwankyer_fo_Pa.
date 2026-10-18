@@ -16,9 +16,15 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400;1,700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-    <!-- Guard against unhandled third-party browser extension errors (e.g. MetaMask / Web3 injected scripts in iframe) -->
+    <!-- Guard against unhandled third-party browser extension errors and polyfill process for browser -->
     <script>
       (function() {
+        if (typeof window !== "undefined") {
+          window.process = window.process || { env: {}, cwd: function() { return "/"; } };
+          if (typeof window.process.cwd !== "function") {
+            window.process.cwd = function() { return "/"; };
+          }
+        }
         function isExtensionError(err) {
           var str = String(err && (err.message || err.reason || err) || "").toLowerCase();
           return str.includes("metamask") || str.includes("ethereum") || str.includes("web3") || str.includes("chrome-extension") || str.includes("websocket closed without opened") || str.includes("@vite/client");

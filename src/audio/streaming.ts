@@ -157,23 +157,18 @@ export function resolveSafeAudioPath(requestedSubpath: string): string | null {
   let rootDir: string;
   let relativePath: string;
 
-  if (/^Twi\//i.test(normalized)) {
-    rootDir = path.resolve(process.cwd(), "Audio_files", "audio", "Twi");
-    relativePath = normalized.slice("Twi/".length);
-  } else if (/^supplied\/Twi\//i.test(normalized)) {
-    rootDir = path.resolve(process.cwd(), "Audio_files", "audio", "Twi");
-    relativePath = normalized.replace(/^supplied\/Twi\//i, "");
-  } else if (/^English_Library\//i.test(normalized)) {
+  if (/^(?:supplied\/)?Twi_library\//i.test(normalized)) {
+    rootDir = path.resolve(process.cwd(), "Audio_files", "Twi_library");
+    relativePath = normalized.replace(/^(?:supplied\/)?Twi_library\//i, "");
+  } else if (/^(?:supplied\/)?Twi\//i.test(normalized)) {
+    rootDir = path.resolve(process.cwd(), "Audio_files", "Twi_library");
+    relativePath = normalized.replace(/^(?:supplied\/)?Twi\//i, "");
+  } else if (/^(?:supplied\/)?English_Library\//i.test(normalized)) {
     rootDir = path.resolve(process.cwd(), "Audio_files", "English_Library");
-    relativePath = normalized.slice("English_Library/".length);
-  } else if (/^supplied\/English_Library\//i.test(normalized)) {
-    rootDir = path.resolve(process.cwd(), "Audio_files", "English_Library");
-    relativePath = normalized.replace(/^supplied\/English_Library\//i, "");
+    relativePath = normalized.replace(/^(?:supplied\/)?English_Library\//i, "");
   } else if (/^additional\//i.test(normalized)) {
     rootDir = path.resolve(process.cwd(), "Audio_files", "additional");
     relativePath = normalized.slice("additional/".length);
-  } else if (/^(?:supplied\/)?Twi_library(?:\/|$)/i.test(normalized)) {
-    return null;
   } else {
     rootDir = path.resolve(process.cwd(), "public", "audio");
     relativePath = normalized.replace(/^public\//i, "");
@@ -185,20 +180,49 @@ export function resolveSafeAudioPath(requestedSubpath: string): string | null {
   }
 
   const resolveInsideRoot = (candidate: string): string | null => {
-    if (!fs.existsSync(candidate) || fs.statSync(candidate).isDirectory()) return null;
-    const realPath = fs.realpathSync(candidate);
-    const realRoot = fs.realpathSync(rootDir);
-    return realPath.startsWith(`${realRoot}${path.sep}`) ? realPath : null;
+    if (fs.existsSync(candidate) && !fs.statSync(candidate).isDirectory()) {
+      const realPath = fs.realpathSync(candidate);
+      const realRoot = fs.realpathSync(rootDir);
+      return realPath.startsWith(`${realRoot}${path.sep}`) ? realPath : null;
+    }
+
+    // Try finding matching filename in same directory (case-insensitive, space/underscore agnostic)
+    const targetDir = path.dirname(candidate);
+    if (!fs.existsSync(targetDir) || !fs.statSync(targetDir).isDirectory()) return null;
+
+    const targetExt = path.extname(candidate).toLowerCase();
+    const targetStem = path.basename(candidate, targetExt).toLowerCase().replace(/[-_]/g, " ").trim();
+
+    try {
+      const files = fs.readdirSync(targetDir);
+      // First try matching stem with any audio extension (.mp3, .m4a, .wav)
+      for (const file of files) {
+        const fileExt = path.extname(file).toLowerCase();
+        const fileStem = path.basename(file, fileExt).toLowerCase().replace(/[-_]/g, " ").trim();
+        if (fileStem === targetStem && [".mp3", ".m4a", ".aac", ".wav"].includes(fileExt)) {
+          const fullPath = path.join(targetDir, file);
+          const realPath = fs.realpathSync(fullPath);
+          const realRoot = fs.realpathSync(rootDir);
+          if (realPath.startsWith(`${realRoot}${path.sep}`)) return realPath;
+        }
+      }
+    } catch {}
+
+    return null;
   };
 
   const exact = resolveInsideRoot(resolved);
   if (exact) return exact;
 
-  // A .mp3 URL may name an M4A/AAC source only at the identical path and stem;
-  // streamAudioFile() must transcode that source before returning it.
-  if (path.extname(resolved).toLowerCase() === ".mp3") {
-    const stem = resolved.slice(0, -path.extname(resolved).length);
-    return resolveInsideRoot(`${stem}.m4a`) || resolveInsideRoot(`${stem}.aac`);
+  // If candidate had .m4a/.aac, look for .mp3 alternative
+  const ext = path.extname(resolved).toLowerCase();
+  const stem = resolved.slice(0, -ext.length);
+  if (ext === ".m4a" || ext === ".aac") {
+    const mp3Candidate = resolveInsideRoot(`${stem}.mp3`);
+    if (mp3Candidate) return mp3Candidate;
+  } else if (ext === ".mp3") {
+    const m4aCandidate = resolveInsideRoot(`${stem}.m4a`) || resolveInsideRoot(`${stem}.aac`);
+    if (m4aCandidate) return m4aCandidate;
   }
 
   return null;
