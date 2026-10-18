@@ -178,11 +178,10 @@ describe("Canonical Prompt Registry (OP01–OP94)", () => {
       expect(audioResult.url).not.toContain(".mp3");
     });
 
-    it("uses language-specific fallback when no English OP01 recording is available", () => {
+    it("routes approved fixed prompts (OP01) to their studio recording", () => {
       const audioResult = resolveCanonicalAudioUrl("OP01", "en", "https://api.example.com");
-      expect(audioResult.mode).toBe("DYNAMIC_TTS");
-      expect(audioResult.url).toContain("/api/audio/prompt-tts/en/OP01");
-      expect(audioResult.url).not.toContain("Twi_library");
+      expect(audioResult.mode).toBe("RECORDED");
+      expect(audioResult.url).toBe("https://api.example.com/audio/welcome_en.mp3");
     });
 
     it("builds valid VoiceXML with GetDigits and dynamic Say for OP20", () => {

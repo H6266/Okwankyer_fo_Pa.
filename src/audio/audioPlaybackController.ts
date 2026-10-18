@@ -712,21 +712,83 @@ export class AudioPlaybackController {
     });
   }
 
+  private playbackQueue: Array<{
+    item: string | PlaybackRequest;
+    options?: PlayOptions;
+    resolve: (val: boolean) => void;
+  }> = [];
+  private isProcessingQueue: boolean = false;
+
+  /**
+   * Enqueues an audio item into a sequential FIFO queue so resources do not compete or cut off.
+   * Items play one after another in exact order.
+   */
+  public enqueue(
+    item: string | PlaybackRequest,
+    options?: PlayOptions
+  ): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      this.playbackQueue.push({ item, options, resolve });
+      if (!this.isProcessingQueue) {
+        void this.processPlaybackQueue();
+      }
+    });
+  }
+
+  /**
+   * Drains the sequential playback queue item by item.
+   */
+  private async processPlaybackQueue(): Promise<void> {
+    if (this.isProcessingQueue) return;
+    this.isProcessingQueue = true;
+
+    while (this.playbackQueue.length > 0) {
+      const next = this.playbackQueue.shift();
+      if (!next) break;
+
+      try {
+        const result = await this.play(next.item, next.options);
+        next.resolve(result);
+      } catch (err) {
+        next.resolve(false);
+      }
+    }
+
+    this.isProcessingQueue = false;
+  }
+
+  /**
+   * Clears the pending playback queue without playing remaining items.
+   */
+  public clearQueue(): void {
+    while (this.playbackQueue.length > 0) {
+      const item = this.playbackQueue.shift();
+      item?.resolve(false);
+    }
+    this.isProcessingQueue = false;
+  }
+
   /**
    * Plays an array of URLs sequentially.
-   * If any item is superseded by another play()/stop(), the sequence aborts cleanly.
+   * Items play one after another cleanly.
    */
   public async playSequence(urls: string[], promptText?: string): Promise<boolean> {
     this.stop();
+    this.clearQueue();
     const safeUrls = urls.filter(Boolean).map((url) => resolveSafePlayableUrl(url));
     if (safeUrls.length === 0) return false;
 
+    let allSucceeded = true;
     for (const url of safeUrls) {
       const played = await this.play(url, promptText || undefined);
-      if (!played) return false;
+      if (!played) {
+        allSucceeded = false;
+        break;
+      }
     }
-    return true;
+    return allSucceeded;
   }
 }
 
 export const audioPlaybackController = new AudioPlaybackController();
+

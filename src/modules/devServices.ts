@@ -139,7 +139,7 @@ export function generateVoiceXmlStep(
   sampleAmount = 50
 ): VoiceXmlStepSnapshot {
   const promptKeyByStep: Record<number, string> = {
-    1: "opening_voice_welcome_to_okwankyerefopa",
+    1: "welcome",
     2: "service_select",
     3: "enter_recipient",
     4: "recipient_verify",
@@ -147,10 +147,9 @@ export function generateVoiceXmlStep(
     7: "pin_handoff",
   };
   const promptKey = promptKeyByStep[stepNumber];
-  const promptLanguage = stepNumber === 1 ? "twi" : language;
-  const audioPath = promptKey ? resolvePrompt(promptKey, promptLanguage) : null;
+  const audioPath = promptKey ? resolvePrompt(promptKey, language) : null;
   const audioUrl = audioPath ? `${baseUrl}${audioPath}` : "";
-  const promptText = promptKey ? resolvePromptText(promptKey, promptLanguage) : null;
+  const promptText = promptKey ? resolvePromptText(promptKey, language) : null;
   const escapeXml = (value: string) => value.replace(/[<>&'"]/g, (character) => ({
     "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;",
   })[character] || character);

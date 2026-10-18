@@ -12,11 +12,11 @@ import { twiAmountSynthesizer } from "../src/ai_system/speech/tts/twiAmountSynth
 import { ttsRouter } from "../src/ai_system/speech/tts/ttsRouter";
 
 describe("TTS Studio Prompt Registry & Fallback Chain Invariants", () => {
-  it("uses a matching-language TTS route while audio candidates are unreviewed", () => {
-    expect(resolvePrompt("unknown_input", "twi")).toBe("/api/audio/prompt-tts/twi/unknown_input");
-    expect(resolvePrompt("unknown_input", "en")).toBe("/api/audio/prompt-tts/en/unknown_input");
-    expect(resolvePrompt("provider_select", "twi")).toBe("/audio/Twi_library/Network_selection.mp3");
-    expect(resolveSimulatorPrompt("unknown_input", "twi")).toBe("/api/audio/prompt-tts/twi/unknown_input");
+  it("does not route fixed or unknown prompts into TTS", () => {
+    expect(resolvePrompt("unknown_input", "twi")).toBeNull();
+    expect(resolvePrompt("unknown_input", "en")).toBeNull();
+    expect(resolvePrompt("provider_select", "twi")).toBeNull();
+    expect(resolveSimulatorPrompt("unknown_input", "twi")).toBeNull();
     const twiAudioUrl = "/audio/supplied/Twi/2.Main%20Service%20Navigation/Network%20selection.mp3";
     expect(resolveSimulatorAudioUrl(twiAudioUrl, "en")).toBeNull();
     const enAudioUrl = "/audio/supplied/English/Welcome.m4a";

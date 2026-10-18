@@ -7,16 +7,7 @@
 - No dataset currently meets that gate for NLU. The production-approved English-Twi code-switch dataset is speech-only; the text/dialogue datasets are not approved for production training. Do not train a production artifact from user, simulator, payment-sandbox, or ASR-feedback records.
 - `training/evaluate_nlu.py` uses the trainer's tokenizer and intent scorer, but reports intent accuracy only. Its softmax score is not calibrated, and it is not a release benchmark.
 - `models/manifest.json` records no verified trained artifacts. No training result or accuracy claim is currently available.
-- `eval/brain/conversation_scenarios.json` and `tests/brainScenarioBenchmark.test.ts` provide 101 expanded synthetic regression cases for English, Asante Twi, code-switching, missing slots, phone numbers, amount correction/ambiguity, and zero-PIN safety. All 101 scenario cases passed on 2026-10-18. Twi cases are synthetic and need fluent-speaker review. This is not a representative held-out accuracy result or production training data.
 - ASR corrections require explicit consent and are stored separately; they do not automatically enter training. Any later corpus build still requires human label review, data minimization, license/provenance review, speaker-safe splits where applicable, and a held-out evaluation set.
-
-## Open-Weight Reasoning Runtime Selected
-
-Qwen3-1.7B is the selected open-weight semantic-reasoning candidate (upstream license: Apache-2.0). The repository already contains an OpenAI-compatible Qwen client and a validated brain adapter in `src/services/qwen/`; the main brain uses it only when explicitly configured. Qwen is a reasoning fallback, not an ASR engine, and no Qwen fine-tune or accuracy claim exists for Ghanaian English, Asante/Akuapem Twi, or code-switching.
-
-For a local Ollama host, the adapter defaults to `http://127.0.0.1:11434/v1` and `qwen3:1.7b`. `QWEN_MODE=local` selects that route; `QWEN_LOCAL_PRIMARY=true` opts the main brain into trying it before Gemini. Keep the primary flag false until the model is installed, the endpoint is reachable from the app, and the held-out evaluation passes. This Render deployment declares only the Node web service; it does not provision Ollama or model weights. Run inference on a separate suitably sized host rather than adding multi-gigabyte weights to the free web process.
-
-The NLU trainer remains separate from this runtime. Do not describe Qwen as trained for this product or train on the internal financial corpus until a commercially usable text dataset has verified rights, provenance, consent/PII review, and a speaker-disjoint held-out split.
 
 ## 1. Principles of Compact & Specialized Training
 Rather than attempting to train a multi-billion parameter general model from scratch, Ɔkwankyerɛfo Pa employs a modular training strategy:

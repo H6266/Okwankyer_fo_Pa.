@@ -327,6 +327,10 @@ export interface StepValidationResult {
   targetStep?: string;
   normalizedValue?: any;
   errorReason?: string;
+  feedbackText?: {
+    en: string;
+    twi: string;
+  };
 }
 
 /**
@@ -363,6 +367,10 @@ export function validateKeypadInput(
         valid: false,
         isNavigation: false,
         errorReason: `Key '${clean}' is not an option for ${stepDef.name}. Valid choices: ${stepDef.optionsDescription[language]}.`,
+        feedbackText: {
+          en: "The answer you gave doesn't tally, I will mention the audio again please choose the answer again.",
+          twi: "Mmuaeɛ a wode maa no nnyɛ pɛpɛɛpɛ, mɛbɔ nne no bio mesrɛ wo paw mmuaeɛ no bio.",
+        },
       };
     }
 

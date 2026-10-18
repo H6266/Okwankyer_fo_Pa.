@@ -13,7 +13,6 @@ import {
   getPromptManifestEntry,
   normalizeRecordingLanguage,
   PROMPT_KEY_TO_RECORDING_ID,
-  recordingFileExists,
 } from "../audio/recordingRegistry";
 import { getStepDefinition } from "../domain/stepRegistry";
 import { getCanonicalPrompt, isDynamicPrompt, resolvePromptSpokenText } from "../audio/canonicalRegistry";
@@ -132,8 +131,12 @@ export const PROMPT_SCRIPTS: Record<string, { en: string; twi: string }> = {
     twi: "Meda wo ase sɛ wode Ɔkwankyerɛfo Pa dii dwuma. Nante yie.",
   },
   invalid_choice: {
-    en: "Option is not a valid choice. Please choose from the available options.",
-    twi: "Deɛ wobɔe no nyɛ pɛpɛɛpɛ. Yɛsrɛ wo paw deɛ ɛwɔ menyu no so.",
+    en: "The answer you gave doesn't tally, I will mention the audio again please choose the answer again.",
+    twi: "Mmuaeɛ a wode maaeɛ no ntɔ asom, mɛbɔ nne no bio, yɛsrɛ wo paw mmuaeɛ no bio.",
+  },
+  key_tally_mismatch: {
+    en: "The answer you gave doesn't tally, I will mention the audio again please choose the answer again.",
+    twi: "Mmuaeɛ a wode maaeɛ no ntɔ asom, mɛbɔ nne no bio, yɛsrɛ wo paw mmuaeɛ no bio.",
   },
   intent_understood_ask_number: {
     en: "Understood, you want to send money. Please enter the recipient's ten-digit phone number, followed by the hash key.",
@@ -181,13 +184,18 @@ export function resolvePrompt(key: string, lang: SupportedLanguage = "en"): stri
   const language = normalizeRecordingLanguage(lang);
   if (!language) return null;
 
-  const recording = getRecordingByPromptKey(key, language);
-  if (recording?.url && recordingFileExists(recording)) {
-    return encodeURI(recording.url);
-  }
+  // 1. Check custom audio assignment from Audio Flow Studio first
+  const customOverride = audioFlowStore.resolvePromptOverride(key, language);
+  if (customOverride) return customOverride;
 
-  return resolvePromptText(key, language)
-    ? `/api/audio/prompt-tts/${language}/${encodeURIComponent(key.trim())}`
+  const recording = getRecordingByPromptKey(key, language);
+  if (recording?.audioVerified && recording.url) return recording.url;
+
+  const canonicalId = PROMPT_KEY_TO_RECORDING_ID[key.toLowerCase()]
+    || (/^OP\d{2}(?:B)?$/i.test(key) ? key.toUpperCase() : key);
+  if (!isDynamicPrompt(canonicalId)) return null;
+  return resolvePromptText(canonicalId, lang)
+    ? `/api/audio/prompt-tts/${lang}/${encodeURIComponent(canonicalId)}`
     : null;
 }
 
@@ -200,33 +208,25 @@ export function resolvePromptText(
   if (!language) return null;
 
   const languageKey = language === "twi" ? "twi" : "en";
-  const normalizedKey = key.trim().toLowerCase();
-  const promptId = /^OP\d{2}b?$/i.test(key.trim())
-    ? key.trim().toUpperCase()
-    : PROMPT_KEY_TO_RECORDING_ID[normalizedKey];
+  const canonicalKey = /^OP\d{2}(?:B)?$/i.test(key)
+    ? Object.entries(PROMPT_KEY_TO_RECORDING_ID).find(([, id]) => id.toUpperCase() === key.toUpperCase())?.[0] || key
+    : key;
 
   // Dynamic prompts strictly resolve via template pipeline
-  if (promptId && isDynamicPrompt(promptId)) {
-    return resolvePromptSpokenText(promptId, languageKey, params || {});
+  if (isDynamicPrompt(key)) {
+    return resolvePromptSpokenText(key, languageKey, params || {});
   }
 
-  const scriptKey = TTS_SCRIPT_KEY_BY_PROMPT_KEY[normalizedKey] || normalizedKey;
+  const scriptKey = TTS_SCRIPT_KEY_BY_PROMPT_KEY[key] || TTS_SCRIPT_KEY_BY_PROMPT_KEY[canonicalKey] || canonicalKey;
   if (PROMPT_SCRIPTS[scriptKey]?.[languageKey]) {
     return PROMPT_SCRIPTS[scriptKey][languageKey];
   }
-  const recording = getRecordingByPromptKey(key, language);
-  const manifestPrompt = getPromptManifestEntry(promptId || "");
-  const stepPrompt = getStepDefinition(normalizedKey.replace(/_/g, "-"))?.promptText[languageKey];
-  const manifestText = manifestPrompt
-    ? language === "twi" ? manifestPrompt.twi : manifestPrompt.english
-    : null;
-  if (recording?.spokenText || manifestText || stepPrompt) {
-    return recording?.spokenText || manifestText || stepPrompt || null;
-  }
-
-  return promptId && getCanonicalPrompt(promptId)
-    ? resolvePromptSpokenText(promptId, languageKey, params || {})
-    : null;
+  const recording = getRecordingByPromptKey(key, language) || getRecordingByPromptKey(canonicalKey, language);
+  const stepPrompt = getStepDefinition(canonicalKey.replace(/_/g, "-"))?.promptText[languageKey];
+  return (recording?.audioVerified ? recording.spokenText : null)
+    || stepPrompt
+    || getCanonicalPrompt(key)?.[languageKey]
+    || null;
 }
 
 export function resolveSimulatorPrompt(key: string, lang: SupportedLanguage): string | null {

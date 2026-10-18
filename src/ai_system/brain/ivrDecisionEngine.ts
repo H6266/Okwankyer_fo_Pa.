@@ -391,8 +391,8 @@ export class IvrDecisionEngine {
         reason,
         replyText:
           language === "twi"
-            ? `Paw ${clean} nyɛ pɛpɛɛpɛ wɔ ha. Yɛsrɛ wo, paw: ${optionsTwi}.`
-            : `Option ${clean} is not a valid choice. Please choose: ${optionsEn}.`,
+            ? `Mmuaeɛ a wode maa no nnyɛ pɛpɛɛpɛ, mɛbɔ nne no bio mesrɛ wo paw mmuaeɛ no bio.`
+            : `The answer you gave doesn't tally, I will mention the audio again please choose the answer again.`,
         replyKey: "invalid_choice",
         nextStep: stepDef.id,
         action: "replay",

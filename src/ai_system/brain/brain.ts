@@ -231,16 +231,6 @@ export function isDeterministicFastPathTurn(rawTranscript: string, draft: DraftS
     return true;
   }
 
-  const directIntentPatterns = [
-    /^(?:please\s+)?(?:i\s+(?:want|need|would\s+like)\s+to\s+)?(?:send|transfer)\s+(?:money|sika)$/i,
-    /^(?:please\s+)?(?:i\s+(?:want|need|would\s+like)\s+to\s+)?(?:check|view|get)\s+(?:my\s+)?(?:account\s+)?balance$/i,
-    /^(?:please\s+)?(?:i\s+(?:want|need|would\s+like)\s+to\s+)?(?:check|view|get)\s+(?:my\s+)?balance$/i,
-    /^(?:please\s+)?(?:i\s+(?:want|need|would\s+like)\s+to\s+)?(?:buy|top\s+up)\s+(?:airtime|credit)$/i,
-    /^(?:please\s+)?(?:i\s+(?:want|need|would\s+like)\s+to\s+)?(?:buy|get)\s+(?:data|bundle|internet)$/i,
-    /^(?:please\s+)?(?:i\s+(?:want|need|would\s+like)\s+to\s+)?(?:cash\s+out|withdraw|withdraw\s+money)$/i,
-    /^(?:mepɛ\s+|mepɛ\s+sɛ\s+)?(?:me|memane|mɛmane|mɛ\s+)?(?:sika|mane\s+sika|soma\s+sika)$/i,
-  ];
-
   // 5. Standalone single-intent command phrases without compound conversational clauses
   if (/^(?:how much (?:do i have|is in my account)|check balance|hwɛ me balance|sika a aka|what is my balance|balance)$/i.test(t)) {
     return true;
@@ -255,9 +245,6 @@ export function isDeterministicFastPathTurn(rawTranscript: string, draft: DraftS
     return true;
   }
   if (/^(?:send money|transfer|soma sika|transfer money)$/i.test(t)) {
-    return true;
-  }
-  if (directIntentPatterns.some((pattern) => pattern.test(t))) {
     return true;
   }
 
@@ -336,8 +323,7 @@ export class Brain {
     const finalizeOutput = (
       output: BrainOutput,
       tierOverride?: 'TIER_1_DETERMINISTIC' | 'TIER_2_MODEL',
-      decisionSourceOverride?: string,
-      suppressSensitiveInput = false
+      decisionSourceOverride?: string
     ): BrainOutput => {
       const latencyMs = Math.max(1, Date.now() - turnStartTime);
       const isTier2 = tierOverride === 'TIER_2_MODEL' || Boolean(output.modelOutput);
@@ -349,7 +335,7 @@ export class Brain {
         tier,
         tokensUsed,
         latencyMs,
-        utterance: suppressSensitiveInput ? '[REDACTED_SENSITIVE_INPUT]' : rawTranscript,
+        utterance: rawTranscript,
         decisionKind: output.decision.kind,
         intent: (output.decision as any).intent || output.updatedDraft.intent,
         decisionSource,
@@ -362,7 +348,7 @@ export class Brain {
         decisionSource,
       };
 
-      if (rawTranscript && !suppressSensitiveInput) {
+      if (rawTranscript) {
         output.updatedDraft.recentTurns = [
           ...(output.updatedDraft.recentTurns || []),
           { role: 'user' as const, text: rawTranscript },
@@ -374,7 +360,7 @@ export class Brain {
         storeGeminiConversationReply(output.reply.text, output.reply.language || 'twi', input.sessionId);
       }
 
-      if (!suppressSensitiveInput && effectiveBrainMode === 'shadow' && Math.random() <= this.config.shadowSamplingRate && geminiClient.isAvailable()) {
+      if (effectiveBrainMode === 'shadow' && Math.random() <= this.config.shadowSamplingRate && geminiClient.isAvailable()) {
         shadowEngine.recordShadowComparison({
           input,
           offlineDecision: output.decision,
@@ -414,7 +400,7 @@ export class Brain {
         },
         updatedDraft: draft,
         sessionLanguage: langRes.sessionLanguage,
-      }, undefined, 'PIN_SAFETY_GATE', true);
+      });
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -545,17 +531,6 @@ export class Brain {
 
     // Rule: Ambiguous spoken numbers (e.g. "mpem ahanu ne aduonum") MUST clarify via keypad; never pick one.
     if (decoderResult.ambiguous) {
-      this.extractSlotsFromUtterance(rawTranscript, draft.slots, decoderResult);
-      if (!draft.intent) {
-        const rankedIntents = Object.entries(this.scoreIntents(rawTranscript, draft))
-          .filter(([intent]) => intent !== 'unknown')
-          .sort((left, right) => right[1] - left[1]);
-        const [topIntent, topScore] = rankedIntents[0] || ['unknown', 0];
-        const secondScore = rankedIntents[1]?.[1] || 0;
-        if (topScore >= this.config.confidenceThreshold && topScore - secondScore >= this.config.ambiguityMargin) {
-          draft.intent = topIntent as IntentId;
-        }
-      }
       delete draft.slots.amount;
       draft.lastReplyKind = 'clarify_slot';
       const decision: BrainDecision = { kind: 'clarify_slot', slot: 'amount' };
@@ -2043,7 +2018,7 @@ export class Brain {
       scores[draft.intent] += 0.15;
     }
 
-    if (/^(hello|hi|akwaaba|good\s+morning|good\s+afternoon|how\s+are\s+you|thank\s+you|help)\b/i.test(lower) && !isCare && !hasTransferWord && !hasTransferSlots) {
+    if (/^(hello|hi|akwaaba|good\s+morning|good\s+afternoon|how\s+are\s+you|thank\s+you|help)\b/i.test(lower) && !isCare && !hasTransferSlots) {
       scores['smalltalk'] += 0.75;
     }
 
@@ -2148,29 +2123,25 @@ export class Brain {
     }
 
     // 2. Amount extraction
-    if (precomputedDecoder?.ambiguous) {
-      delete currentSlots.amount;
+    const halfMatch = text.match(/half of (?:my )?(\d+)/i) || text.match(/(?:i have|got)\s+(\d+).*?half/i);
+    if (halfMatch) {
+      const parsed = parseFloat(halfMatch[1]) / 2;
+      if (!isNaN(parsed) && parsed > 0 && parsed <= this.config.maxTransferAmount) {
+        currentSlots.amount = parsed;
+      }
     } else {
-      const halfMatch = text.match(/half of (?:my )?(\d+)/i) || text.match(/(?:i have|got)\s+(\d+).*?half/i);
-      if (halfMatch) {
-        const parsed = parseFloat(halfMatch[1]) / 2;
+      const currencyAmountRegex = /\b(\d+(?:\.\d{1,2})?)\s*(?:ghs|cedis?|sedis|sidi)\b/i;
+      const genericAmountRegex = /\b(\d+(?:\.\d{1,2})?)\b/i;
+      const amtMatch = text.match(currencyAmountRegex) || text.match(genericAmountRegex);
+      if (amtMatch && !currentSlots.recipient.phone?.includes(amtMatch[1])) {
+        const parsed = parseFloat(amtMatch[1]);
         if (!isNaN(parsed) && parsed > 0 && parsed <= this.config.maxTransferAmount) {
           currentSlots.amount = parsed;
         }
       } else {
-        const currencyAmountRegex = /\b(\d+(?:\.\d{1,2})?)\s*(?:ghs|cedis?|sedis|sidi)\b/i;
-        const genericAmountRegex = /\b(\d+(?:\.\d{1,2})?)\b/i;
-        const amtMatch = text.match(currencyAmountRegex) || text.match(genericAmountRegex);
-        if (amtMatch && !currentSlots.recipient.phone?.includes(amtMatch[1])) {
-          const parsed = parseFloat(amtMatch[1]);
-          if (!isNaN(parsed) && parsed > 0 && parsed <= this.config.maxTransferAmount) {
-            currentSlots.amount = parsed;
-          }
-        } else {
-          const decodedNum = precomputedDecoder || numberDecoder.decode(raw);
-          if (decodedNum.numericValue && decodedNum.numericValue > 0 && decodedNum.numericValue <= this.config.maxTransferAmount) {
-            currentSlots.amount = decodedNum.numericValue;
-          }
+        const decodedNum = precomputedDecoder || numberDecoder.decode(raw);
+        if (decodedNum.numericValue && decodedNum.numericValue > 0 && decodedNum.numericValue <= this.config.maxTransferAmount) {
+          currentSlots.amount = decodedNum.numericValue;
         }
       }
     }

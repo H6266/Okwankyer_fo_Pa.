@@ -279,18 +279,16 @@ export function matchReplyToAudio(
 ): AudioMatchResult {
   const minConfidence = options?.minConfidence ?? DEFAULT_MATCH_CONFIDENCE_THRESHOLD;
   const isTwi = language.startsWith("tw") || language === "twi" || language === "mixed-twi-en";
-  const wantedLanguage = normalizeRecordingLanguage(language)
-    || (language === "mixed-twi-en" ? "twi" : null);
+  const wantedLanguage = normalizeRecordingLanguage(language);
 
   let bestResult: AudioMatchResult = {
     match: false,
     confidence: 0,
     isFallbackToTts: true,
   };
-  if (!wantedLanguage) return bestResult;
 
-  // The sequential flow contains Twi recordings only.
-  for (const step of isTwi ? TWI_SEQUENTIAL_FLOW_STEPS : []) {
+  // 1. Check Sequential Flow Steps
+  for (const step of TWI_SEQUENTIAL_FLOW_STEPS) {
     if (!step.audioUrl) continue;
     const flowRecording = getRecordingByUrl(step.audioUrl, wantedLanguage || undefined);
     if (!flowRecording?.audioVerified) continue;
@@ -300,8 +298,6 @@ export function matchReplyToAudio(
     const { confidence, reason } = calculateMatchConfidence(text, targetScript, aliases);
     if (confidence > bestResult.confidence) {
       const diskPath = resolveDiskPath(step.audioUrl);
-      const { fs } = getNodeModules();
-      if (fs && !diskPath) continue;
       bestResult = {
         match: confidence >= minConfidence,
         confidence,
@@ -316,23 +312,19 @@ export function matchReplyToAudio(
     }
   }
 
-  // 2. Check recordings in the requested language only.
-  const catalogCandidates = AUDIO_RECORDINGS.filter((recording) => {
-    if (recording.language !== wantedLanguage) return false;
+  // 2. Check only recordings explicitly approved for playback in this language.
+  let catalogCandidates = AUDIO_RECORDINGS.filter((r) => {
+    if (wantedLanguage && r.language !== wantedLanguage) return false;
     return Boolean(
-      recording.spokenText &&
-      recording.url &&
-      recording.mappingStatus === "VERIFIED" &&
-      recording.recordingRole === "fixed"
+      r.spokenText &&
+      r.url &&
+      r.audioVerified &&
+      r.recordingRole === "fixed"
     );
   });
 
   for (const recording of catalogCandidates) {
     if (!recording.spokenText || !recording.url) continue;
-    const diskPath = resolveDiskPath(recording.url);
-    const { fs } = getNodeModules();
-    if (fs && !diskPath) continue;
-
     let { confidence, reason } = calculateMatchConfidence(text, recording.spokenText, []);
 
     // Also check if prompt manifest has an English script matching the text
@@ -348,6 +340,7 @@ export function matchReplyToAudio(
     }
 
     if (confidence > bestResult.confidence) {
+      const diskPath = resolveDiskPath(recording.url);
       bestResult = {
         match: confidence >= minConfidence,
         confidence,
@@ -366,22 +359,23 @@ export function matchReplyToAudio(
   if (bestResult.match && bestResult.filePath) {
     const { fs } = getNodeModules();
     if (fs) {
-      try {
-        let buf = audioBufferCache.get(bestResult.filePath);
-        if (!buf) {
-          buf = fs.readFileSync(bestResult.filePath);
-          audioBufferCache.set(bestResult.filePath, buf);
-        }
-        bestResult.audioBuffer = buf;
-      } catch {
-        return {
-          match: false,
-          confidence: bestResult.confidence,
-          isFallbackToTts: true,
-          matchReason: "recording_unavailable",
-        };
+      let buf = audioBufferCache.get(bestResult.filePath);
+      if (!buf && fs.existsSync(bestResult.filePath)) {
+        buf = fs.readFileSync(bestResult.filePath);
+        audioBufferCache.set(bestResult.filePath, buf);
       }
+      bestResult.audioBuffer = buf;
     }
+  }
+
+  // Never substitute an unrelated recording when no approved reply clip matches.
+  if (!bestResult.match) {
+    return {
+      ...bestResult,
+      match: false,
+      isFallbackToTts: true,
+      matchReason: "no_approved_audio_match_use_tts",
+    };
   }
 
   return bestResult;

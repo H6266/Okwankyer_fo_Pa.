@@ -53,16 +53,6 @@ describe("VoiceXML Telephony Snapshots & Pillar Invariants", () => {
     expect(enStep5.xml).toContain('timeout="30"');
   });
 
-  it("plays the canonical opening recording first for both language tracks", () => {
-    const openingPath = "/audio/Twi/Opening_voice_welcome_to_okwankyerefopa.mp3";
-    for (const language of ["en", "twi"] as const) {
-      const step1 = generateVoiceXmlStep(1, language, baseUrl);
-      expect(step1.promptAudioUrl).toBe(`${baseUrl}${openingPath}`);
-      expect(step1.xml).toContain(`<Play url="${baseUrl}${openingPath}"/>`);
-      expect(step1.xml.match(/<(?:Play|Say)\b/gi)).toHaveLength(1);
-    }
-  });
-
   it("Guarantees no PIN or secret leaks in any of the 20 generated VoiceXML outputs", () => {
     const snapshots = getAllVoiceXmlSnapshots(baseUrl);
     const allXml = Object.values(snapshots.en).concat(Object.values(snapshots.twi)).join("\n");

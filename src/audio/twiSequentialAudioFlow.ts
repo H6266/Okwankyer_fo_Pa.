@@ -2,13 +2,14 @@
  * Ɔkwankyerɛfo Pa - Canonical Audio Flow & 14-Category IVR Architecture
  *
  * Defines:
- * 1. The standard structured sequential audio journey (14 steps):
- *    - audio/welcome -> service description -> network selection -> services selection ->
- *      send money selected -> enter recipient -> enter amount prompt -> confirmation intro ->
- *      review transaction -> dynamic readback -> ready submit/confirm -> outcomes (reject / success).
+ * 1. The guided keypad audio preview, from welcome through provider-pending status.
+ *    Success and failure are separate outcome branches and are not auto-played here.
  * 2. Full synchronization with all 14 IVR audio categories (OP01-OP94) linking
  *    pre-recorded studio audio assets across both Twi and English.
  */
+
+import { getRecordingByPromptId } from "./recordingRegistry";
+import { isDynamicPrompt } from "./canonicalRegistry";
 
 export interface FlowStepDefinition {
   id: string;
@@ -19,23 +20,9 @@ export interface FlowStepDefinition {
   spokenTextTwi: string;
   spokenTextEn: string;
   nextStepId?: string;
-  advanceCondition?: FlowAdvanceCondition;
   keypadPrompt?: string;
   isDynamicReadback?: boolean;
 }
-
-export type FlowAdvanceCondition =
-  | "language-selected"
-  | "mobile-money-selected"
-  | "supported-network-selected"
-  | "transfer-selected"
-  | "recipient-verified"
-  | "recipient-confirmed"
-  | "amount-validated"
-  | "amount-confirmed"
-  | "transaction-confirmed"
-  | "provider-submitted"
-  | "provider-confirmed-success";
 
 export interface IvrPromptItem {
   promptId: string;
@@ -58,13 +45,7 @@ export interface IvrCategoryDefinition {
   prompts: IvrPromptItem[];
 }
 
-/**
- * 14-Step Core Sequential Audio Journey
- */
-/**
- * Authoritative 22-Step Sequential Audio Journey
- * Fully synchronized with physical studio recordings in Audio_files/ and dynamic neural TTS slots
- */
+/** Guided transfer sequence; dynamic stages require live transaction data. */
 export const TWI_SEQUENTIAL_FLOW_STEPS: FlowStepDefinition[] = [
   {
     id: "step_01_welcome",
@@ -75,40 +56,36 @@ export const TWI_SEQUENTIAL_FLOW_STEPS: FlowStepDefinition[] = [
     spokenTextEn: "Welcome to Ɔkwankyerɛfo Pa, an easy financial transaction service. For English, press 1. For Twi, press 2.",
     keypadPrompt: "2: Twi, 1: English",
     nextStepId: "step_02_service_selection",
-    advanceCondition: "language-selected",
   },
   {
     id: "step_02_service_selection",
     stepIndex: 2,
     name: "02. Service Selection (OP07)",
     audioUrl: "/audio/Twi/Service_selection.mp3",
-    spokenTextTwi: "Sɛ wopɛ mobile money dwumadie a, mia baako (1). Sɛ wopɛ banking dwumadie a, mia mmienu (2). Sɛ wopɛ sɛ mesan bɔ a, mia nkron (9). Sɛ wopɛ sɛ wotwa mu a, mia hwee (0).",
-    spokenTextEn: "For Mobile Money services press 1, for banking press 2, press 9 to repeat, or press 0 to end.",
+    spokenTextTwi: "Sɛ wopɛ Mobile Money transfer a yɛboa a, mia baako (1). Mia nkron na tie bio, anaasɛ mia hwee na woapue.",
+    spokenTextEn: "For a supported Mobile Money transfer, press 1. Press 9 to repeat, or 0 to exit.",
     keypadPrompt: "1",
     nextStepId: "step_03_network_selection",
-    advanceCondition: "mobile-money-selected",
   },
   {
     id: "step_03_network_selection",
     stepIndex: 3,
     name: "03. Network Selection (OP08)",
     audioUrl: "/audio/Twi/Network_selection.mp3",
-    spokenTextTwi: "Yɛsrɛ wo, paw network no. MTN yɛ baako (1), Telecel yɛ mmienu (2), AirtelTigo yɛ mmiɛnsa (3). Sɛ wopɛ sɛ mesan bɔ a, mia nkron (9). Sɛ wopɛ sɛ wotwa mu a, mia hwee (0).",
-    spokenTextEn: "Please select network: 1 for MTN, 2 for Telecel, 3 for AirtelTigo. Press 9 to repeat, 0 to end.",
+    spokenTextTwi: "Paw network no. MTN yɛ baako (1), Telecel yɛ mmienu (2). Mia nkron na tie bio, anaasɛ mia hwee na woapue.",
+    spokenTextEn: "Select network: press 1 for MTN or 2 for Telecel. Press 9 to repeat, or 0 to exit.",
     keypadPrompt: "1",
     nextStepId: "step_04_mtn_menu",
-    advanceCondition: "supported-network-selected",
   },
   {
     id: "step_04_mtn_menu",
     stepIndex: 4,
     name: "04. Network Service Menu (OP09)",
     audioUrl: "/audio/Twi/MTN%20menu.mp3",
-    spokenTextTwi: "MTN Mobile Money. Sɛ wopɛ sɛ womane sika a, mia baako (1). Sɛ wopɛ sɛ wohwɛ wo sika akonta a, mia mmienu (2). Sɛ wopɛ sɛ wosan kɔ akyi a, mia nwɔtwe (8).",
-    spokenTextEn: "MTN Mobile Money. To transfer money press 1, to check account press 2, press 8 to go back.",
+    spokenTextTwi: "MTN Mobile Money. Sɛ wopɛ sɛ womane sika a, mia baako (1). Mia nwɔtwe na san kɔ akyi, mia nkron na tie bio, anaasɛ mia hwee na woapue.",
+    spokenTextEn: "MTN Mobile Money. To send money, press 1. Press 8 to go back, 9 to repeat, or 0 to exit.",
     keypadPrompt: "1",
     nextStepId: "step_05_send_money_ack",
-    advanceCondition: "transfer-selected",
   },
   {
     id: "step_05_send_money_ack",
@@ -128,7 +105,6 @@ export const TWI_SEQUENTIAL_FLOW_STEPS: FlowStepDefinition[] = [
     spokenTextEn: "Please enter the recipient's ten-digit phone number followed by hash (#), or press 0 to exit.",
     keypadPrompt: "10 digits + #",
     nextStepId: "step_07_recipient_found",
-    advanceCondition: "recipient-verified",
   },
   {
     id: "step_07_recipient_found",
@@ -152,7 +128,7 @@ export const TWI_SEQUENTIAL_FLOW_STEPS: FlowStepDefinition[] = [
     id: "step_09_tts_recipient_name",
     stepIndex: 9,
     name: "09. TTS: Actual Recipient Name (OP20)",
-    audioUrl: "/api/audio/prompt-tts/twi/OP20",
+    audioUrl: "",
     isDynamicReadback: true,
     spokenTextTwi: "Obi a woremane no sika no din ne {recipient_name}.",
     spokenTextEn: "The recipient's name is {recipient_name}.",
@@ -162,7 +138,7 @@ export const TWI_SEQUENTIAL_FLOW_STEPS: FlowStepDefinition[] = [
     id: "step_10_tts_full_phone",
     stepIndex: 10,
     name: "10. TTS/Concat: Full 10-Digit Phone Number (OP21)",
-    audioUrl: "/api/audio/prompt-tts/twi/OP21",
+    audioUrl: "",
     isDynamicReadback: true,
     spokenTextTwi: "Ne phone nɔmba a ɛdi mũ no ne {recipient_phone_spaced}.",
     spokenTextEn: "The recipient's full telephone number is {recipient_phone_spaced}.",
@@ -173,11 +149,10 @@ export const TWI_SEQUENTIAL_FLOW_STEPS: FlowStepDefinition[] = [
     stepIndex: 11,
     name: "11. Confirm Recipient (OP23)",
     audioUrl: "/audio/Twi/Recipient_confirm_speech.mp3",
-    spokenTextTwi: "Woremane saa onipa yi sika. Sɛ wopene so a, ka aane anaasɛ mia baako (1). Sɛ dabi a, mia mmienu (2). Sɛ wopɛ sɛ wotwa mu a, mia hwee (0).",
-    spokenTextEn: "You are sending money to this recipient. Say yes or press 1 to confirm, press 2 to change, or press 0 to cancel.",
+    spokenTextTwi: "Sɛ nsɛm no yɛ nokware a, mia baako (1). Sɛ wopɛ sɛ wosesa recipient no a, mia mmienu (2). Sɛ wopɛ sɛ wogyae a, mia hwee (0).",
+    spokenTextEn: "If these details are correct, press 1. To change the recipient, press 2. To cancel, press 0.",
     keypadPrompt: "1: Confirm, 2: Change, 0: Cancel",
     nextStepId: "step_12_use_recipient_ack",
-    advanceCondition: "recipient-confirmed",
   },
   {
     id: "step_12_use_recipient_ack",
@@ -206,103 +181,70 @@ export const TWI_SEQUENTIAL_FLOW_STEPS: FlowStepDefinition[] = [
     spokenTextEn: "Please enter the amount you want to send. Press star (*) to add pesewas, and press hash (#) when done.",
     keypadPrompt: "Amount in Cedis + #",
     nextStepId: "step_15_amount_readback",
-    advanceCondition: "amount-validated",
   },
   {
     id: "step_15_amount_readback",
     stepIndex: 15,
     name: "15. Dynamic Amount Read-back (OP29)",
-    audioUrl: "/api/audio/prompt-tts/twi/OP29",
+    audioUrl: "",
     isDynamicReadback: true,
     spokenTextTwi: "Sika dodow a mate sɛ wopɛ sɛ womane ne Ghana Cedis {amount}. Saa sika dodow yi yɛ nokware anaa?",
     spokenTextEn: "I heard you want to send {amount} Ghana Cedis. Is that amount correct?",
     nextStepId: "step_16_review_transaction",
-    advanceCondition: "amount-confirmed",
   },
   {
-    id: "step_16_review_transaction",
+    id: "step_16_full_transaction_review",
     stepIndex: 16,
-    name: "16. Review Transaction Intro (OP35)",
-    audioUrl: "/audio/Twi/Review%20transaction.mp3",
-    spokenTextTwi: "Yɛsrɛ wo, hwɛ wo transaction no yiye ansa na yɛakɔ so.",
-    spokenTextEn: "Please review your transaction details before we continue.",
-    nextStepId: "step_17_full_transaction_review",
+    name: "16. Full Transaction Review (OP35)",
+    audioUrl: "",
+    isDynamicReadback: true,
+    spokenTextTwi: "Worepɛ sɛ womane Ghana Cedis {amount} kɔma {recipient_name} wɔ {network} so. Recipient phone nɔmba no awiei ne {last_four}.",
+    spokenTextEn: "You are about to send {amount} to {recipient_name} on {network}. The recipient phone number ends in {last_four}.",
+    nextStepId: "step_17_final_confirmation",
   },
   {
-    id: "step_17_full_transaction_review",
+    id: "step_17_final_confirmation",
     stepIndex: 17,
-    name: "17. Full Transaction Review (TTS)",
-    audioUrl: "/api/audio/prompt-tts/twi/OP36",
-    isDynamicReadback: true,
-    spokenTextTwi: "Worepɛ sɛ womane Ghana Cedis {amount} kɔma {recipient_name} a ne fon nɔmba a ɛdi mũ ne {recipient_phone_spaced}. Sɛ wopene so a, mia baako (1). Sɛ wosesa a, mia mmienu (2). Sɛ wogyae a, mia hwee (0).",
-    spokenTextEn: "You are about to send {amount} Ghana Cedis to {recipient_name}. Full phone number is {recipient_phone_spaced}. Press 1 to confirm, 2 to change, 0 to cancel.",
-    keypadPrompt: "1: Confirm, 2: Change, 0: Cancel",
+    name: "17. Confirm Transaction (OP36)",
+    audioUrl: "/audio/Twi/Confirm_continue.mp3",
+    spokenTextTwi: "Sɛ wopene so a, mia baako (1). Sɛ wopɛ sɛ wosesa sika no a, mia mmienu (2). Sɛ wopɛ sɛ wosesa recipient no a, mia mmiɛnsa (3). Sɛ wopɛ sɛ wotwa mu a, mia hwee (0).",
+    spokenTextEn: "Press 1 to confirm. To change the amount, press 2. To change the recipient, press 3. To cancel, press 0.",
+    keypadPrompt: "1: Confirm, 2: Change amount, 3: Change recipient, 0: Cancel",
     nextStepId: "step_18_pin_handoff",
-    advanceCondition: "transaction-confirmed",
   },
   {
     id: "step_18_pin_handoff",
     stepIndex: 18,
     name: "18. Secure Handset Authorization (OP40)",
     audioUrl: "/audio/Twi/Authorize_phone.mp3",
-    spokenTextTwi: "Yɛsrɛ wo, bɔ wo PIN wɔ wo fon screen so de ma transaction no kwan. Nka wo PIN wɔ nne mu da!",
-    spokenTextEn: "Please authorize the transaction on your phone screen. Never say your PIN over the call!",
-    nextStepId: "step_19_waiting_confirmation",
-    advanceCondition: "provider-submitted",
+    spokenTextTwi: "Yɛde wo request no akɔma provider no. Pene so wɔ wo handset so. Mfa wo PIN nka wɔ telefon frɛ yi mu.",
+    spokenTextEn: "Your request has been sent to the provider. Approve it on your handset. Never say your PIN on this call.",
+    nextStepId: "step_19_submitted",
   },
   {
-    id: "step_19_waiting_confirmation",
+    id: "step_19_submitted",
     stepIndex: 19,
-    name: "19. Waiting for Confirmation (OP46)",
-    audioUrl: "/audio/Twi/Waiting_confirmation.mp3",
-    spokenTextTwi: "Yɛretwɛn confirmation a ɛfiri Mobile Money service no hɔ.",
-    spokenTextEn: "We are waiting for confirmation from the Mobile Money service.",
-    nextStepId: "step_20_success_sent",
-    advanceCondition: "provider-confirmed-success",
+    name: "19. Request Submitted (OP45)",
+    audioUrl: "/audio/Twi/Submitted.mp3",
+    spokenTextTwi: "Yɛde wo request no akɔma provider no. Eyi nkyerɛ sɛ transfer no awie.",
+    spokenTextEn: "Your request has been submitted. This does not mean the transfer is complete.",
+    nextStepId: "step_20_waiting_confirmation",
   },
   {
-    id: "step_20_success_sent",
+    id: "step_20_waiting_confirmation",
     stepIndex: 20,
-    name: "20. Success Audio (OP53)",
-    audioUrl: "/audio/Twi/Success_sent.mp3",
-    spokenTextTwi: "Yɛade sika no akɔma no pɛpɛɛpɛ!",
-    spokenTextEn: "The money has been sent successfully!",
-    nextStepId: "step_21_keep_reference",
-  },
-  {
-    id: "step_21_keep_reference",
-    stepIndex: 21,
-    name: "21. Keep-Reference Audio (OP54)",
-    audioUrl: "/audio/Twi/Keep_reference.mp3",
-    spokenTextTwi: "Daakye nsɛm nti, yɛsrɛ wo fa saa reference nɔmba yi sie.",
-    spokenTextEn: "For future reference, please keep this reference number.",
-    nextStepId: "step_22_slow_reference_readback",
-  },
-  {
-    id: "step_22_slow_reference_readback",
-    stepIndex: 22,
-    name: "22. Slow Reference Read-Back (OP52b)",
-    audioUrl: "/api/audio/prompt-tts/twi/OP52b",
-    isDynamicReadback: true,
-    spokenTextTwi: "Wo reference nɔmba a ɛdi mũ no ne: {slow_reference}.",
-    spokenTextEn: "Your complete reference number is: {slow_reference}.",
-    nextStepId: "step_23_anything_else",
-  },
-  {
-    id: "step_23_anything_else",
-    stepIndex: 23,
-    name: "23. Anything Else? (OP56)",
-    audioUrl: "/audio/Twi/Anything_else.mp3",
-    spokenTextTwi: "Wopɛ sɛ yɛyɛ dwumadie foforɔ bi ma wo? Sɛ wopɛ foforɔ a mia baako (1), sɛ wowie a mia hwee (0).",
-    spokenTextEn: "Would you like us to perform another transaction for you? Press 1 for another, or 0 to exit.",
-    keypadPrompt: "1: Another, 0: Exit",
+    name: "20. Waiting for Provider Confirmation (OP46)",
+    audioUrl: "/audio/Twi/Waiting_confirmation.mp3",
+    spokenTextTwi: "Yɛretwɛn provider no mmuae. Mfa transfer foforɔ mmɔ mmɔden. Mia hwee sɛ wopɛ sɛ wope frɛ no.",
+    spokenTextEn: "We are waiting for provider confirmation. Do not start another transfer. Press 0 to end the call.",
+    keypadPrompt: "0: End call",
   },
 ];
 
 /**
  * 14 Canonical IVR Categories synchronized with all prompt recordings
  */
-export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
+const CANONICAL_IVR_CATEGORY_DEFINITIONS: IvrCategoryDefinition[] = [
   {
     categoryNumber: 1,
     id: "welcome_session_start",
@@ -357,7 +299,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryNumber: 1,
         categoryName: "Welcome & Session Start",
         state: "WELCOME_BACK",
-        audioUrl: "/audio/Twi/Welcome back.mp3",
+        audioUrl: "/audio/Twi/Welcome back.m4a",
         spokenTextTwi: "Akwaaba bio. Ɛdeɛn na metumi aboa wo?",
         spokenTextEn: "Welcome back. How can I help you?",
       },
@@ -435,7 +377,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryNumber: 2,
         categoryName: "Main Service Navigation",
         state: "SERVICE_UNAVAILABLE",
-        audioUrl: "/audio/Twi/Service unavailable.mp3",
+        audioUrl: "/audio/Twi/Service unavailable.m4a",
         spokenTextTwi: "Dwumadie yi nni hɔ seesei. Mesrɛ wo sɔ hwɛ akyire.",
         spokenTextEn: "This service is currently unavailable. Please try again later.",
       },
@@ -543,7 +485,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryNumber: 3,
         categoryName: "Recipient Entry & Verification",
         state: "USE_RECIPIENT",
-        audioUrl: "/audio/Twi/Use_recipient 1.mp3",
+        audioUrl: "/audio/Twi/Use_recipient 1.m4a",
         spokenTextTwi: "Yɛde saa nɔmba yi rekɔ anim.",
         spokenTextEn: "Proceeding with this recipient account.",
       },
@@ -553,7 +495,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryNumber: 3,
         categoryName: "Recipient Entry & Verification",
         state: "CHANGE_RECIPIENT",
-        audioUrl: "/audio/Twi/Change recipient.mp3",
+        audioUrl: "/audio/Twi/Change recipient.m4a",
         spokenTextTwi: "Bɔ nɔmba foforɔ no a wopɛ sɛ woremane kɔ so no.",
         spokenTextEn: "Enter the new recipient number you wish to transfer to.",
       },
@@ -571,7 +513,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryNumber: 4,
         categoryName: "Amount Entry & Verification",
         state: "ENTER_AMOUNT",
-        audioUrl: "/audio/Twi/Enter amount.mp3",
+        audioUrl: "/audio/Twi/Enter amount.m4a",
         spokenTextTwi: "Yɛsrɛ wo bɔ sika dodow a wopɛ sɛ womane no wɔ Cedi mu na fa hash ka ho.",
         spokenTextEn: "Please enter the amount in Cedis, followed by hash.",
       },
@@ -591,7 +533,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryNumber: 4,
         categoryName: "Amount Entry & Verification",
         state: "AMOUNT_PROMPT",
-        audioUrl: "/audio/Twi/Amount prompt.mp3",
+        audioUrl: "/audio/Twi/Amount prompt.m4a",
         spokenTextTwi: "Sika ahe na wopɛ sɛ womane?",
         spokenTextEn: "How much would you like to send?",
       },
@@ -601,7 +543,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryNumber: 4,
         categoryName: "Amount Entry & Verification",
         state: "AMOUNT_READBACK",
-        audioUrl: "/audio/Twi/Amount readback.mp3",
+        audioUrl: "/audio/Twi/Amount readback.m4a",
         spokenTextTwi: "Sika a wobɔe no ne eyi. Yɛsrɛ wo tie yie.",
         spokenTextEn: "You entered this amount. Please listen carefully.",
       },
@@ -611,7 +553,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryNumber: 4,
         categoryName: "Amount Entry & Verification",
         state: "REPEAT_AMOUNT",
-        audioUrl: "/audio/Twi/Repeat amount.mp3",
+        audioUrl: "/audio/Twi/Repeat amount.m4a",
         spokenTextTwi: "Sɛ wopɛ sɛ yɛbɔ sika no bio a, mia 9.",
         spokenTextEn: "To hear the amount again, press 9.",
       },
@@ -621,7 +563,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryNumber: 4,
         categoryName: "Amount Entry & Verification",
         state: "AMOUNT_TOO_HIGH",
-        audioUrl: "/audio/Twi/Amount too high 3.mp3",
+        audioUrl: "/audio/Twi/Amount too high 3.m4a",
         spokenTextTwi: "Sika no dɔɔso dodo sene wo wallet ahyesoɔ. Bɔ sika ketewa bi.",
         spokenTextEn: "Amount exceeds the single-transaction limit for this wallet tier. Please enter a lower amount.",
       },
@@ -631,7 +573,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryNumber: 4,
         categoryName: "Amount Entry & Verification",
         state: "AMOUNT_TOO_LOW",
-        audioUrl: "/audio/Twi/Amount too low.mp3",
+        audioUrl: "/audio/Twi/Amount too low.m4a",
         spokenTextTwi: "Sika no sua dodo. Minimum transfer yɛ 1 Cedi.",
         spokenTextEn: "Amount is too low. The minimum transfer is 1 Cedi.",
       },
@@ -659,7 +601,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryNumber: 5,
         categoryName: "Transaction Confirmation",
         state: "CONFIRMATION_INTRO",
-        audioUrl: "/audio/Twi/Review transaction.mp3",
+        audioUrl: "/audio/Twi/Review transaction.m4a",
         spokenTextTwi: "Yɛrekɔ transaction confirmation so. Yɛsrɛ wo tie deɛ ɛdidi so yi yie.",
         spokenTextEn: "Proceeding to transaction confirmation. Please listen carefully.",
       },
@@ -669,7 +611,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryNumber: 5,
         categoryName: "Transaction Confirmation",
         state: "REVIEW_TRANSACTION",
-        audioUrl: "/audio/Twi/Review transaction.mp3",
+        audioUrl: "/audio/Twi/Review transaction.m4a",
         spokenTextTwi: "Yɛsrɛ wo hwɛ wo transaction no yie na fa wo nsa to so.",
         spokenTextEn: "Please review your transaction details before approving.",
       },
@@ -689,7 +631,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryNumber: 5,
         categoryName: "Transaction Confirmation",
         state: "CONFIRM_SPEECH",
-        audioUrl: "/audio/Twi/Confirm speech.mp3",
+        audioUrl: "/audio/Twi/Confirm speech.m4a",
         spokenTextTwi: "Wotumi ka Aane anaasɛ Confirm wɔ wo nne mu.",
         spokenTextEn: "You may say Yes or Confirm with your voice.",
       },
@@ -699,7 +641,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryNumber: 5,
         categoryName: "Transaction Confirmation",
         state: "REJECT_SPEECH",
-        audioUrl: "/audio/Twi/Reject speech.mp3",
+        audioUrl: "/audio/Twi/Reject speech.m4a",
         spokenTextTwi: "Wotwaa transaction no mu anaasɛ mfomsoɔ bi sii. Yɛrentumi nkɔ so.",
         spokenTextEn: "Transaction cancelled or rejected. The transfer was not executed.",
       },
@@ -709,7 +651,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryNumber: 5,
         categoryName: "Transaction Confirmation",
         state: "READY_SUBMIT",
-        audioUrl: "/audio/Twi/Ready submit.mp3",
+        audioUrl: "/audio/Twi/Ready submit.m4a",
         spokenTextTwi: "Sɛ wopene so a, mia 1 anaasɛ ka aane. Sɛ wopɛ sɛ wotwa mu a, mia 2 anaasɛ ka dabi.",
         spokenTextEn: "To confirm and submit, press 1 or say yes. To cancel, press 2 or say no.",
       },
@@ -757,8 +699,8 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryNumber: 6,
         categoryName: "PIN & Security",
         state: "PIN_BLOCK",
-        audioUrl: "/audio/Twi/Pin Block.mp3",
-        fallbackAudioUrl: "/audio/Twi/Pin%20block.mp3",
+        audioUrl: "/audio/Twi/Pin Block.m4a",
+        fallbackAudioUrl: "/audio/Twi/Pin%20block.m4a",
         spokenTextTwi: "Gyae! Mma nka wo PIN wɔ fon so. Yɛatwa audio no mu ama wo ahobammbɔ.",
         spokenTextEn: "Stop! Never say your PIN aloud on a phone call. We have blocked and redacted your audio for your security.",
       },
@@ -769,7 +711,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "PIN & Security",
         state: "SENSITIVE_BLOCK",
         audioUrl: "/audio/Twi/Security_warning.mp3",
-        fallbackAudioUrl: "/audio/Twi/Sensitive%20block.mp3",
+        fallbackAudioUrl: "/audio/Twi/Sensitive%20block.m4a",
         spokenTextTwi: "Ahintasɛm a ɛfa sika ho no, yɛnnnye wɔ nne mu.",
         spokenTextEn: "Sensitive financial secrets cannot be captured through voice audio.",
       },
@@ -799,7 +741,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Transaction Processing",
         state: "WAITING_CONFIRMATION",
         audioUrl: "/audio/Twi/Waiting_confirmation.mp3",
-        fallbackAudioUrl: "/audio/Twi/Waiting%20confirmation.mp3",
+        fallbackAudioUrl: "/audio/Twi/Waiting%20confirmation.m4a",
         spokenTextTwi: "Yɛretwɛn authorization a ɛbɛfiri wo fon so.",
         spokenTextEn: "Waiting for wallet authorization from your phone handset.",
       },
@@ -809,7 +751,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryNumber: 7,
         categoryName: "Transaction Processing",
         state: "CHECK_PHONE",
-        audioUrl: "/audio/Twi/Check phone.mp3",
+        audioUrl: "/audio/Twi/Check phone.m4a",
         fallbackAudioUrl: "/audio/Twi/Check%20phone.mp3",
         spokenTextTwi: "Mesrɛ wo, hwɛ wo fon screen so seesei ara.",
         spokenTextEn: "Please look at your phone screen now.",
@@ -821,7 +763,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Transaction Processing",
         state: "AUTHORIZE_PHONE",
         audioUrl: "/audio/Twi/Authorize_phone.mp3",
-        fallbackAudioUrl: "/audio/Twi/Authorize%20phone.mp3",
+        fallbackAudioUrl: "/audio/Twi/Authorize%20phone.m4a",
         spokenTextTwi: "Pene so wɔ wo fon so na sika no nkɔ.",
         spokenTextEn: "Authorize the transfer prompt directly on your handset.",
       },
@@ -832,7 +774,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Transaction Processing",
         state: "AUTH_RECEIVED",
         audioUrl: "/audio/Twi/Auth_received.mp3",
-        fallbackAudioUrl: "/audio/Twi/Auth%20received.mp3",
+        fallbackAudioUrl: "/audio/Twi/Auth%20received.m4a",
         spokenTextTwi: "Yɛanya authorization no afiri network hɔ.",
         spokenTextEn: "Authorization received from the carrier network.",
       },
@@ -843,7 +785,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Transaction Processing",
         state: "CHECK_FINAL_STATUS",
         audioUrl: "/audio/Twi/Check_final_tatus.mp3",
-        fallbackAudioUrl: "/audio/Twi/Check%20final%20status.mp3",
+        fallbackAudioUrl: "/audio/Twi/Check%20final%20status.m4a",
         spokenTextTwi: "Yɛrehwehwɛ awieeɛ gyinabea wɔ MoMo so.",
         spokenTextEn: "Verifying final transaction status on the carrier ledger.",
       },
@@ -873,7 +815,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Success & Completion",
         state: "SUCCESS_SENT",
         audioUrl: "/audio/Twi/Success_sent.mp3",
-        fallbackAudioUrl: "/audio/Twi/SUCCESS%20SENT.mp3",
+        fallbackAudioUrl: "/audio/Twi/SUCCESS%20SENT.m4a",
         spokenTextTwi: "Sika no akɔ pɛpɛɛpɛ! MoMo transaction no agye atom.",
         spokenTextEn: "Transfer sent successfully! The mobile money payment was completed.",
       },
@@ -936,7 +878,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Failure, Decline & Timeout",
         state: "CUSTOMER_DECLINED",
         audioUrl: "/audio/Twi/Customer_Declined.mp3",
-        fallbackAudioUrl: "/audio/Twi/Customer%20declined.mp3",
+        fallbackAudioUrl: "/audio/Twi/Customer%20declined.m4a",
         spokenTextTwi: "Wopoow transaction no wɔ wo fon so. Yɛammfa sika no anyɛ hwee.",
         spokenTextEn: "The transaction was declined on your handset. No funds were transferred.",
       },
@@ -969,7 +911,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Failure, Decline & Timeout",
         state: "FAILURE_RETRY",
         audioUrl: "/audio/Twi/Failure_Retry.mp3",
-        fallbackAudioUrl: "/audio/Twi/Failure%20retry.mp3",
+        fallbackAudioUrl: "/audio/Twi/Failure%20retry.m4a",
         spokenTextTwi: "Wopɛ sɛ wosan bɔ mmɔden bio? Mia 1 na yɛnsan mfiti aseɛ.",
         spokenTextEn: "Would you like to try this transfer again? Press 1 to retry.",
       },
@@ -980,7 +922,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Failure, Decline & Timeout",
         state: "NO_TRANSFER_CONFIRMED",
         audioUrl: "/audio/Twi/No_transfer_confirmed.mp3",
-        fallbackAudioUrl: "/audio/Twi/No%20transfer%20confirmed.mp3",
+        fallbackAudioUrl: "/audio/Twi/No%20transfer%20confirmed.m4a",
         spokenTextTwi: "Sika biara nkɔeɛ. Wo account balance nsesaeɛ.",
         spokenTextEn: "No transfer took place. Your account balance remains unchanged.",
       },
@@ -991,7 +933,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Failure, Decline & Timeout",
         state: "CHECK_MESSAGES",
         audioUrl: "/audio/Twi/Check_messages.mp3",
-        fallbackAudioUrl: "/audio/Twi/Check%20messages.mp3",
+        fallbackAudioUrl: "/audio/Twi/Check%20messages.m4a",
         spokenTextTwi: "Mesrɛ wo, hwɛ wo fon mu nkratoɔ (SMS) no mu na hu deɛ esii.",
         spokenTextEn: "Please check your SMS messages for official notification from your provider.",
       },
@@ -1002,7 +944,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Failure, Decline & Timeout",
         state: "START_AGAIN",
         audioUrl: "/audio/Twi/Start_Again.mp3",
-        fallbackAudioUrl: "/audio/Twi/Start%20again.mp3",
+        fallbackAudioUrl: "/audio/Twi/Start%20again.m4a",
         spokenTextTwi: "Yɛnhyɛ aseɛ bio firi ahyɛaseɛ.",
         spokenTextEn: "Let us start again from the beginning.",
       },
@@ -1020,7 +962,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryNumber: 10,
         categoryName: "Voice Understanding & Verification",
         state: "NOT_UNDERSTOOD",
-        audioUrl: "/audio/Twi/Not understood.mp3",
+        audioUrl: "/audio/Twi/Not understood.m4a",
         fallbackAudioUrl: "/audio/Twi/Not%20understood.mp3",
         spokenTextTwi: "Mante deɛ wokaeɛ no ase yie. Mesrɛ wo san ka biom.",
         spokenTextEn: "I did not understand what you said clearly. Please say it again.",
@@ -1032,7 +974,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Voice Understanding & Verification",
         state: "DID_NOT_GET",
         audioUrl: "/audio/Twi/Did_not_get.mp3",
-        fallbackAudioUrl: "/audio/Twi/Do%20not%20get.mp3",
+        fallbackAudioUrl: "/audio/Twi/Do%20not%20get.m4a",
         spokenTextTwi: "Mante wo nne. Kasa kɛse kakra.",
         spokenTextEn: "I did not catch that. Please speak a little louder.",
       },
@@ -1043,7 +985,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Voice Understanding & Verification",
         state: "PLEASE_RESPOND",
         audioUrl: "/audio/Twi/Please_respond.mp3",
-        fallbackAudioUrl: "/audio/Twi/Please%20respond.mp3",
+        fallbackAudioUrl: "/audio/Twi/Please%20respond.m4a",
         spokenTextTwi: "Mesrɛ wo, bua anaa mia nɔmba bi wɔ wo keypad so.",
         spokenTextEn: "Please respond or press a key on your phone keypad.",
       },
@@ -1054,7 +996,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Voice Understanding & Verification",
         state: "INPUT_NOT_RECOGNIZED",
         audioUrl: "/audio/Twi/Input_not_recognized.mp3",
-        fallbackAudioUrl: "/audio/Twi/input%20not%20recognized.mp3",
+        fallbackAudioUrl: "/audio/Twi/input%20not%20recognized.m4a",
         spokenTextTwi: "Deɛ wobɔe no nni menyu no so. Yɛsrɛ wo paw deɛ ɛwɔ ha no mu baako.",
         spokenTextEn: "Your input was not recognized. Please choose from the available options.",
       },
@@ -1076,7 +1018,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Voice Understanding & Verification",
         state: "CONFIRM_UNDERSTANDING",
         audioUrl: "/audio/Twi/Confirm_understanding.mp3",
-        fallbackAudioUrl: "/audio/Twi/Confirm%20understanding.mp3",
+        fallbackAudioUrl: "/audio/Twi/Confirm%20understanding.m4a",
         spokenTextTwi: "Sɛ mate wo aseɛ pɛpɛɛpɛ a, mia 1.",
         spokenTextEn: "Press 1 if I have understood you correctly.",
       },
@@ -1087,7 +1029,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Voice Understanding & Verification",
         state: "CORRECT_PROMPT",
         audioUrl: "/audio/Twi/Correct_prompt.mp3",
-        fallbackAudioUrl: "/audio/Twi/Correct%20prompt.mp3",
+        fallbackAudioUrl: "/audio/Twi/Correct%20prompt.m4a",
         spokenTextTwi: "Sɛ ɛnyɛ saa a, mia 2 na sesa deɛ wopɛ sɛ wosesa no.",
         spokenTextEn: "Otherwise, press 2 to make a correction.",
       },
@@ -1128,7 +1070,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Navigation & Recovery",
         state: "MAIN_MENU",
         audioUrl: "/audio/Twi/Main_menu.mp3",
-        fallbackAudioUrl: "/audio/Twi/Main%20menu.mp3",
+        fallbackAudioUrl: "/audio/Twi/Main%20menu.m4a",
         spokenTextTwi: "Mia 7 na san kɔ main menu so.",
         spokenTextEn: "Press 7 to return to the main menu.",
       },
@@ -1172,7 +1114,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Navigation & Recovery",
         state: "SESSION_END",
         audioUrl: "/audio/Twi/Session_End.mp3",
-        fallbackAudioUrl: "/audio/Twi/Session%20end.mp3",
+        fallbackAudioUrl: "/audio/Twi/Session%20end.m4a",
         spokenTextTwi: "Frɛ no awie. Yɛbɛhyia bio.",
         spokenTextEn: "Your session has ended. We look forward to assisting you again.",
       },
@@ -1193,7 +1135,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryNumber: 11,
         categoryName: "Navigation & Recovery",
         state: "SESSION_TIMEOUT",
-        audioUrl: "/audio/Twi/Session timeout.mp3",
+        audioUrl: "/audio/Twi/Session timeout.m4a",
         fallbackAudioUrl: "/audio/Twi/Session%20timeout.mp3",
         spokenTextTwi: "Berɛ atwam. Ahobammbɔ nti, yɛtwa frɛ yi mu.",
         spokenTextEn: "Your session has timed out due to inactivity. For your protection, this call is ending.",
@@ -1213,7 +1155,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Accessibility & Help",
         state: "REPEAT_OPTIONS",
         audioUrl: "/audio/Twi/Repeat_Option.mp3",
-        fallbackAudioUrl: "/audio/Twi/REPEAT%20OPTIONS.mp3",
+        fallbackAudioUrl: "/audio/Twi/REPEAT%20OPTIONS.m4a",
         spokenTextTwi: "Wotumi mia 9 berɛ biara na yɛasan aka nsɛm no akyerɛ wo.",
         spokenTextEn: "You can press 9 at any time to hear the menu options repeated.",
       },
@@ -1224,7 +1166,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Accessibility & Help",
         state: "KEYPAD_OPTION",
         audioUrl: "/audio/Twi/Keypad_option.mp3",
-        fallbackAudioUrl: "/audio/Twi/KEYPAD%20OPTION.mp3",
+        fallbackAudioUrl: "/audio/Twi/KEYPAD%20OPTION.m4a",
         spokenTextTwi: "Wotumi nso fa wo fon so keypad no bɔ nɔmba no mu.",
         spokenTextEn: "You can also use your phone's touch keypad to enter the numbers.",
       },
@@ -1235,7 +1177,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Accessibility & Help",
         state: "VOICE_OR_KEYPAD",
         audioUrl: "/audio/Twi/Voice_or_keypad.mp3",
-        fallbackAudioUrl: "/audio/Twi/VOICE%20OR%20KEYPAD.mp3",
+        fallbackAudioUrl: "/audio/Twi/VOICE%20OR%20KEYPAD.m4a",
         spokenTextTwi: "Wotumi ka wɔ nne mu, anaasɛ wotumi mia nɔmba wɔ keypad no so.",
         spokenTextEn: "You may speak your answer or press the digits on your phone keypad.",
       },
@@ -1246,7 +1188,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Accessibility & Help",
         state: "TAKE_YOUR_TIME",
         audioUrl: "/audio/Twi/Take_your_time.mp3",
-        fallbackAudioUrl: "/audio/Twi/TAKE%20YOUR%20TIME.mp3",
+        fallbackAudioUrl: "/audio/Twi/TAKE%20YOUR%20TIME.m4a",
         spokenTextTwi: "Nya abotare na yɛ wo transaction no kɔɔm. Biribiara nka wo.",
         spokenTextEn: "Take your time. There is no rush to complete your transaction.",
       },
@@ -1257,7 +1199,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Accessibility & Help",
         state: "YES_NO_KEYPAD",
         audioUrl: "/audio/Twi/Yes_no_keypad.mp3",
-        fallbackAudioUrl: "/audio/Twi/YES%20OR%20NO%20KEYPAD.mp3",
+        fallbackAudioUrl: "/audio/Twi/YES%20OR%20NO%20KEYPAD.m4a",
         spokenTextTwi: "Sɛ wopene so a mia 1, sɛ wompene so a mia 2.",
         spokenTextEn: "Press 1 to confirm, or press 2 to decline.",
       },
@@ -1268,7 +1210,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Accessibility & Help",
         state: "HELP",
         audioUrl: "/audio/Twi/Help.mp3",
-        fallbackAudioUrl: "/audio/Twi/HELP.mp3",
+        fallbackAudioUrl: "/audio/Twi/HELP.m4a",
         spokenTextTwi: "Ɔkwankyerɛfo Pa boa wo ma woyɛ wo mobile money dwumadie pɛpɛɛpɛ.",
         spokenTextEn: "Ɔkwankyerɛfo Pa assists you in carrying out your financial transactions with complete voice guidance.",
       },
@@ -1279,7 +1221,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Accessibility & Help",
         state: "HELP_COMMANDS",
         audioUrl: "/audio/Twi/Help_command.mp3",
-        fallbackAudioUrl: "/audio/Twi/Help%20Commands.mp3",
+        fallbackAudioUrl: "/audio/Twi/Help%20Commands.m4a",
         spokenTextTwi: "Mia 8 na san kɔ akyi, 9 na tie bio, anaasɛ 0 na woapue.",
         spokenTextEn: "Press 8 to go back, 9 to repeat, or 0 to exit at any time.",
       },
@@ -1298,7 +1240,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Balance & Unsupported Services",
         state: "BALANCE_UNAVAILABLE",
         audioUrl: "/audio/Twi/Balance_Unavailable.mp3",
-        fallbackAudioUrl: "/audio/Twi/Balance%20unavailable.mp3",
+        fallbackAudioUrl: "/audio/Twi/Balance%20unavailable.m4a",
         spokenTextTwi: "Mentumi nhwɛ wo balance wɔ ha. Fa wo fon bɔ star baako nson hwee hash.",
         spokenTextEn: "Wallet balances cannot be checked over this voice service. Please dial star one seven zero hash on your handset.",
       },
@@ -1309,7 +1251,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Balance & Unsupported Services",
         state: "UNSUPPORTED_SERVICE",
         audioUrl: "/audio/Twi/Unsupported_service.mp3",
-        fallbackAudioUrl: "/audio/Twi/Unsupported%20service.mp3",
+        fallbackAudioUrl: "/audio/Twi/Unsupported%20service.m4a",
         spokenTextTwi: "Saa dwumadie yi nni ha seesei.",
         spokenTextEn: "This requested service is not supported in this voice accessibility pilot.",
       },
@@ -1320,7 +1262,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Balance & Unsupported Services",
         state: "SYSTEM_ERROR",
         audioUrl: "/audio/Twi/System_Error.mp3",
-        fallbackAudioUrl: "/audio/Twi/System%20error.mp3",
+        fallbackAudioUrl: "/audio/Twi/System%20error.m4a",
         spokenTextTwi: "Mfomsoɔ bi asi wɔ system no mu. Yɛsrɛ wo sɔ hwɛ bio akyire.",
         spokenTextEn: "A system error has occurred. Please try your call again shortly.",
       },
@@ -1339,7 +1281,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Post-Transaction Conversation",
         state: "POST_SUCCESS_HELP",
         audioUrl: "/audio/Twi/Post_success_Help.mp3",
-        fallbackAudioUrl: "/audio/Twi/Post%20success%20help.mp3",
+        fallbackAudioUrl: "/audio/Twi/Post%20success%20help.m4a",
         spokenTextTwi: "Sika no akɔ awie. Wopɛ sɛ woyɛ transaction foforɔ bi?",
         spokenTextEn: "The transfer is complete. Would you like to carry out another transaction?",
       },
@@ -1350,7 +1292,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Post-Transaction Conversation",
         state: "ANOTHER_TRANSACTION",
         audioUrl: "/audio/Twi/Do_you_want_Another_transaction.mp3",
-        fallbackAudioUrl: "/audio/Twi/Another%20transaction.mp3",
+        fallbackAudioUrl: "/audio/Twi/Another%20transaction.m4a",
         spokenTextTwi: "Mia 1 na mane sika foforɔ kɔ obi nkyɛn.",
         spokenTextEn: "Press 1 to initiate another transfer.",
       },
@@ -1361,7 +1303,7 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
         categoryName: "Post-Transaction Conversation",
         state: "ANOTHER_RECIPIENT",
         audioUrl: "/audio/Twi/Do_you_want_to_send_money_to_another_person.mp3",
-        fallbackAudioUrl: "/audio/Twi/Another%20recipient.mp3",
+        fallbackAudioUrl: "/audio/Twi/Another%20recipient.m4a",
         spokenTextTwi: "Mia 2 na mane sika kɔ nɔmba foforɔ so.",
         spokenTextEn: "Press 2 to send to a different recipient.",
       },
@@ -1380,6 +1322,26 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
   },
 ];
 
+export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = CANONICAL_IVR_CATEGORY_DEFINITIONS.map((category) => ({
+  ...category,
+  prompts: category.prompts.map((prompt) => {
+    if (isDynamicPrompt(prompt.promptId)) {
+      return {
+        ...prompt,
+        audioUrl: `/api/audio/prompt-tts/twi/${prompt.promptId}`,
+        fallbackAudioUrl: undefined,
+      };
+    }
+
+    const recording = getRecordingByPromptId(prompt.promptId, "twi");
+    return {
+      ...prompt,
+      audioUrl: recording?.url || "",
+      fallbackAudioUrl: undefined,
+    };
+  }),
+}));
+
 export function getFlowStepById(stepId: string): FlowStepDefinition | undefined {
   return TWI_SEQUENTIAL_FLOW_STEPS.find((s) => s.id === stepId);
 }
@@ -1388,14 +1350,9 @@ export function getFlowStepByIndex(index: number): FlowStepDefinition | undefine
   return TWI_SEQUENTIAL_FLOW_STEPS.find((s) => s.stepIndex === index);
 }
 
-export function getNextFlowStep(
-  currentStepId: string,
-  satisfiedCondition?: FlowAdvanceCondition
-): FlowStepDefinition | undefined {
+export function getNextFlowStep(currentStepId: string): FlowStepDefinition | undefined {
   const current = getFlowStepById(currentStepId);
-  if (!current?.nextStepId || (current.advanceCondition && current.advanceCondition !== satisfiedCondition)) {
-    return undefined;
-  }
+  if (!current?.nextStepId) return undefined;
   return getFlowStepById(current.nextStepId);
 }
 

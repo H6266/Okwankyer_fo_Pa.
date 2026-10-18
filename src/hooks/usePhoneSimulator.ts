@@ -1059,48 +1059,12 @@ export function usePhoneSimulator() {
         }
       }
 
-      // 4. Play audio prompt (<Play url="..."> or sequence of <Play> clips)
+      // 4. Handle Spoken text (<Say voice="...">) and Audio Prompts (<Play url="...">) sequentially
+      const spokenText = parsed.say?.text || "";
       const urlsToPlay = (parsed.playUrls && parsed.playUrls.length > 0)
         ? parsed.playUrls
         : parsed.playUrl ? [parsed.playUrl] : [];
 
-      if (urlsToPlay.length > 0 && audioRef.current && enableTts) {
-        let currentIdx = 0;
-        const playNextClip = async () => {
-          if (currentIdx >= urlsToPlay.length) {
-            updateAiSpeaking(false);
-            setActiveAudioClip(null);
-            return;
-          }
-          let audioUrl = urlsToPlay[currentIdx++];
-          if (audioUrl.startsWith("http://") || audioUrl.startsWith("https://")) {
-            try {
-              const u = new URL(audioUrl);
-              audioUrl = u.pathname;
-            } catch {}
-          }
-          setActiveAudioClip(audioUrl);
-          audioRef.current!.src = audioUrl;
-          const promptText = getPromptTranscript(audioUrl) || parsed.say?.text || "";
-          updateAiSpeaking(true, promptText);
-          audioRef.current!.onended = () => {
-            playNextClip();
-          };
-          audioRef.current!.onerror = () => {
-            playNextClip();
-          };
-          try {
-            await audioRef.current!.play();
-          } catch (err) {
-            console.warn("[AT Voice Prompt] Audio clip playback error; advancing:", err);
-            playNextClip();
-          }
-        };
-        await playNextClip();
-      }
-
-      // 5. Spoken text (<Say voice="...">)
-      const spokenText = parsed.say?.text || "";
       if (spokenText) {
         setAiResponse(spokenText);
         setTranscript((prev) => [
@@ -1113,9 +1077,6 @@ export function usePhoneSimulator() {
             stage: stepLabel,
           },
         ]);
-        if (!parsed.playUrl && enableTts) {
-          playAudioSynthesis(spokenText, language);
-        }
       } else if (parsed.playUrl) {
         const promptText = getPromptTranscript(parsed.playUrl);
         setAiResponse(promptText);
@@ -1129,6 +1090,53 @@ export function usePhoneSimulator() {
             stage: stepLabel,
           },
         ]);
+      }
+
+      if (enableTts && audioRef.current) {
+        const playClips = async () => {
+          let currentIdx = 0;
+          const playNextClip = async () => {
+            if (currentIdx >= urlsToPlay.length) {
+              updateAiSpeaking(false);
+              setActiveAudioClip(null);
+              return;
+            }
+            let audioUrl = urlsToPlay[currentIdx++];
+            if (audioUrl.startsWith("http://") || audioUrl.startsWith("https://")) {
+              try {
+                const u = new URL(audioUrl);
+                audioUrl = u.pathname;
+              } catch {}
+            }
+            setActiveAudioClip(audioUrl);
+            audioRef.current!.src = audioUrl;
+            const promptText = getPromptTranscript(audioUrl) || spokenText || "";
+            updateAiSpeaking(true, promptText);
+            audioRef.current!.onended = () => {
+              playNextClip();
+            };
+            audioRef.current!.onerror = () => {
+              playNextClip();
+            };
+            try {
+              await audioRef.current!.play();
+            } catch (err) {
+              console.warn("[AT Voice Prompt] Audio clip playback error; advancing:", err);
+              playNextClip();
+            }
+          };
+          await playNextClip();
+        };
+
+        if (spokenText && urlsToPlay.length > 0) {
+          // Play spoken feedback first (e.g. tally mismatch error), then the prompt audio sequentially!
+          await playAudioSynthesis(spokenText, language);
+          await playClips();
+        } else if (spokenText) {
+          await playAudioSynthesis(spokenText, language);
+        } else if (urlsToPlay.length > 0) {
+          await playClips();
+        }
       }
 
       // 6. GetDigits expectation
@@ -1341,8 +1349,8 @@ export function usePhoneSimulator() {
         return;
       }
 
-      // Strict non-negotiable rule: never auto-advance multi-digit phone, amount, or PIN entries on length alone. Wait strictly for '#'
-      const isMultiDigitField = isEnteringPhone || atFinishOnKey === "#" || currentStep?.includes("recipient") || currentStep?.includes("amount") || currentStep?.includes("pin");
+      // Strict rule: number and pin keys must not be processed but stored until user presses '#'
+      const isMultiDigitField = atExpectedDigits > 1 || isEnteringPhone || atFinishOnKey === "#" || currentStep?.includes("recipient") || currentStep?.includes("amount") || currentStep?.includes("pin");
       if (isMultiDigitField) {
         return;
       }

@@ -69,15 +69,15 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
 
   // AT-05: Numeric-looking filename conflicts with content mapping -> Canonical prompt ID and reviewed mapping win
   it("AT-05: Canonical prompt ID and reviewed mapping win over numeric filename order", () => {
-    const op07 = getRecordingByPromptId("OP07", "twi");
-    expect(op07?.state).toBe("SERVICE_SELECTION");
+    const op07 = AUDIO_RECORDINGS.find((recording) => recording.promptId === "OP07" && recording.language === "twi");
+    expect(op07?.category).toBe("navigation");
     expect(op07?.relativePath).toContain("Service_selection");
     expect(op07?.mappingStatus).toBe("VERIFIED");
     expect(op07?.audioVerified).toBe(true);
     expect(getRecordingByPromptId("OP07", "twi")).not.toBeNull();
 
-    const op08 = AUDIO_RECORDINGS.find((recording) => recording.promptId === "OP08");
-    expect(op08?.state).toBe("NETWORK_SELECTION");
+    const op08 = AUDIO_RECORDINGS.find((recording) => recording.promptId === "OP08" && recording.language === "twi");
+    expect(op08?.category).toBe("navigation");
     expect(op08?.relativePath).toContain("Network_selection");
     expect(getRecordingByPromptId("OP08", "twi")).not.toBeNull();
   });
@@ -374,7 +374,7 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
   // AT-34: Audio asset audit verifies real physical files on disk
   it("AT-34: Audio asset audit verifies real physical files on disk", () => {
     for (const recording of AUDIO_RECORDINGS) {
-      if (recording.assetRoot === "supplied" && recording.audioVerified) {
+      if (recording.assetRoot === "supplied") {
         expect(audioFileExists(recording.relativePath, recording.assetRoot), recording.relativePath).toBe(true);
       }
     }
@@ -392,21 +392,26 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
     expect(twiStep.targetStep).toBe("service-select");
   });
 
-  // AT-36: Conditional canonical flow; provider confirmation gates success.
-  it("AT-36: Unified 23-step sequence gates progression on validated inputs and provider outcomes", () => {
+  // AT-36: Main path stops in pending status; success receipt remains conditional.
+  it("AT-36: Guided sequence separates dynamic review from confirmation and stops pending", () => {
     const steps = TWI_SEQUENTIAL_FLOW_STEPS;
-    expect(steps).toHaveLength(23);
-    expect(steps.find((step) => step.stepIndex === 6)?.advanceCondition).toBe("recipient-verified");
-    expect(steps.find((step) => step.stepIndex === 11)?.advanceCondition).toBe("recipient-confirmed");
-    expect(steps.find((step) => step.stepIndex === 14)?.advanceCondition).toBe("amount-validated");
-    expect(steps.find((step) => step.stepIndex === 17)?.advanceCondition).toBe("transaction-confirmed");
+    expect(steps).toHaveLength(20);
+    expect(steps.map((step) => step.name.match(/\(OP\d{2}\)/)?.[0])).toEqual([
+      "(OP01)", "(OP07)", "(OP08)", "(OP09)", "(OP10)", "(OP16)", "(OP18)", "(OP19)",
+      "(OP20)", "(OP21)", "(OP23)", "(OP24)", "(OP28)", "(OP26)", "(OP29)", "(OP35)",
+      "(OP36)", "(OP40)", "(OP45)", "(OP46)",
+    ]);
 
-    const authorization = steps.find((step) => step.stepIndex === 18)!;
-    expect(authorization.audioUrl).toBe("/audio/Twi/Authorize_phone.mp3");
-    expect(authorization.advanceCondition).toBe("provider-submitted");
+    const review = steps.find((step) => step.name.includes("(OP35)"))!;
+    const confirmation = steps.find((step) => step.name.includes("(OP36)"))!;
+    expect(review.isDynamicReadback).toBe(true);
+    expect(review.audioUrl).toBe("");
+    expect(review.nextStepId).toBe(confirmation.id);
+    expect(confirmation.keypadPrompt).toContain("3: Change recipient");
 
-    const waiting = steps.find((step) => step.stepIndex === 19)!;
-    expect(waiting.advanceCondition).toBe("provider-confirmed-success");
+    const pending = steps.find((step) => step.name.includes("(OP46)"))!;
+    expect(pending.nextStepId).toBeUndefined();
+    expect(steps.some((step) => /OP(52|53|54|56)/.test(step.name))).toBe(false);
   });
 
   // AT-37: Phone number entry auto-advances or advances with # without stalling

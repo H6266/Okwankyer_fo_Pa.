@@ -2803,13 +2803,13 @@ export const PhoneSimulatorPage: React.FC = () => {
                   const isActive =
                     (stepNum === 1 && (activeStepName === "idle" || activeStepName.includes("welcome") || activeStepName.includes("language"))) ||
                     (stepNum === 2 && (activeStepName.includes("service") || activeStepName.includes("main_menu"))) ||
-                    (stepNum === 3 && activeStepName.includes("network")) ||
-                    (stepNum === 4 && activeStepName.includes("recipient")) ||
+                    (stepNum === 3 && (activeStepName.includes("network") || activeStepName.includes("provider"))) ||
+                    (stepNum === 4 && activeStepName.includes("recipient") && !activeStepName.includes("verify") && !activeStepName.includes("confirm")) ||
                     (stepNum === 5 && activeStepName.includes("amount")) ||
-                    (stepNum === 6 && activeStepName.includes("reference")) ||
-                    (stepNum === 7 && (activeStepName.includes("review") || activeStepName.includes("confirm"))) ||
-                    (stepNum === 8 && (activeStepName.includes("pin") || activeStepName.includes("auth"))) ||
-                    (stepNum === 9 && (activeStepName.includes("success") || activeStepName.includes("completed")));
+                    (stepNum === 6 && (activeStepName.includes("reference") || activeStepName.includes("verify") || activeStepName.includes("confirm"))) ||
+                    (stepNum === 7 && (activeStepName.includes("pin") || activeStepName.includes("auth") || activeStepName.includes("handoff"))) ||
+                    (stepNum === 8 && (activeStepName.includes("initiat") || activeStepName.includes("process") || activeStepName.includes("pending"))) ||
+                    (stepNum === 9 && (activeStepName.includes("success") || activeStepName.includes("complete") || activeStepName.includes("report")));
 
                   return (
                     <div

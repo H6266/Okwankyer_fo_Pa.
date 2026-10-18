@@ -27,13 +27,25 @@ export type TransactionState =
 
 export type InteractionMode = "GUIDED_IVR" | "NATURAL_CONVERSATION";
 
+export interface TransactionChecklist {
+  language: boolean;
+  service: boolean;
+  network: boolean;
+  recipient: boolean;
+  amount: boolean;
+  referenceKyc: boolean;
+  pinGatePassed: boolean;
+  transactionInitiated: boolean;
+  stateReported: boolean;
+}
+
 export interface TransactionSession {
   sessionId: string;
   idempotencyKey: string;
   source: "VOICE" | "KEYPAD";
   interactionMode?: InteractionMode;
-  language: "en" | "twi";
-  network: GhanaianNetwork;
+  language: "en" | "twi" | null;
+  network: GhanaianNetwork | null;
   callerPhone?: string;
   recipientPhone: string | null;
   recipientName: string | null;
@@ -50,6 +62,9 @@ export interface TransactionSession {
   failureReason?: string;
   retryCount: number;
   serviceSelected?: boolean;
+  pinGatePassed?: boolean;
+  transactionInitiated?: boolean;
+  stateReported?: boolean;
 }
 
 const VALID_TRANSITIONS: Record<TransactionState, TransactionState[]> = {
@@ -64,6 +79,48 @@ const VALID_TRANSITIONS: Record<TransactionState, TransactionState[]> = {
   TIMEOUT: [], // Terminal
 };
 
+export class TransactionChecklistManager {
+  public static getChecklist(session?: TransactionSession | null): TransactionChecklist {
+    if (!session) {
+      return {
+        language: false,
+        service: false,
+        network: false,
+        recipient: false,
+        amount: false,
+        referenceKyc: false,
+        pinGatePassed: false,
+        transactionInitiated: false,
+        stateReported: false,
+      };
+    }
+
+    return {
+      language: session.language === "en" || session.language === "twi",
+      service: Boolean(session.serviceSelected),
+      network: session.network !== null && session.network !== undefined,
+      recipient: Boolean(session.recipientPhone && session.recipientPhone.length === 10),
+      amount: typeof session.amount === "number" && session.amount > 0,
+      referenceKyc: Boolean(session.isRecipientVerified && session.recipientName),
+      pinGatePassed: Boolean(session.pinGatePassed || session.state === "PIN_PENDING" || session.state === "CONFIRMED"),
+      transactionInitiated: Boolean(session.transactionInitiated || session.state === "COMPLETED"),
+      stateReported: Boolean(session.stateReported || session.completedAt),
+    };
+  }
+
+  public static canInitiateTransaction(session?: TransactionSession | null): { allowed: boolean; missingStage?: string } {
+    const list = this.getChecklist(session);
+    if (!list.language) return { allowed: false, missingStage: "Language (Stage 1)" };
+    if (!list.service) return { allowed: false, missingStage: "Service (Stage 2)" };
+    if (!list.network) return { allowed: false, missingStage: "Networks (Stage 3)" };
+    if (!list.recipient) return { allowed: false, missingStage: "Recipient (Stage 4)" };
+    if (!list.amount) return { allowed: false, missingStage: "Amount (Stage 5)" };
+    if (!list.referenceKyc) return { allowed: false, missingStage: "Check for Reference Telco KYC (Stage 6)" };
+    if (!list.pinGatePassed) return { allowed: false, missingStage: "Pin Gate Security (Stage 7)" };
+    return { allowed: true };
+  }
+}
+
 export class TransactionStateMachine {
   private store: DurableTransactionStore;
 
@@ -73,12 +130,15 @@ export class TransactionStateMachine {
 
   public getOrCreateSession(
     sessionId: string,
-    language: "en" | "twi" = "en",
+    language: "en" | "twi" | null = null,
     source: "VOICE" | "KEYPAD" = "VOICE"
   ): TransactionSession {
     const existing = this.store.getSession(sessionId);
     if (existing) {
       existing.updatedAt = Date.now();
+      if (language && !existing.language) {
+        existing.language = language;
+      }
       this.store.saveSession(existing);
       return existing;
     }
@@ -90,8 +150,8 @@ export class TransactionStateMachine {
       sessionId,
       idempotencyKey,
       source,
-      language,
-      network: "MTN",
+      language: language || null,
+      network: null, // Strict: No default network
       recipientPhone: null,
       recipientName: null,
       isRecipientVerified: false,
@@ -101,10 +161,24 @@ export class TransactionStateMachine {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       retryCount: 0,
+      serviceSelected: false,
+      pinGatePassed: false,
+      transactionInitiated: false,
+      stateReported: false,
     };
 
     this.store.saveSession(newSession);
     return newSession;
+  }
+
+  public getChecklist(sessionId: string): TransactionChecklist {
+    const session = this.getSession(sessionId);
+    return TransactionChecklistManager.getChecklist(session);
+  }
+
+  public canInitiateTransaction(sessionId: string): { allowed: boolean; missingStage?: string } {
+    const session = this.getSession(sessionId);
+    return TransactionChecklistManager.canInitiateTransaction(session);
   }
 
   public getSession(sessionId: string): TransactionSession | undefined {

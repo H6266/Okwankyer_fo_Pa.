@@ -15,7 +15,6 @@ import {
 } from '../../linguistic/numberLexicon';
 import { convertNumberToTwiWords } from '../../linguistic/twiNumberWords';
 import { normalizeGhanaPhoneNumber } from '../../../domain/validation';
-import { formatSpokenNumbersAsDigits } from '../../../domain/numberFormatter';
 
 export interface DecodedNumberResult {
   raw: string;
@@ -137,35 +136,6 @@ export class GhanaianNumberDecoder {
     const currencyTaggedMatch = textWithoutPhone.match(/\b(\d+(?:\.\d+)?)\s*(?:cedis?|ghs|sidi|pesewas?)\b/i);
     const digitAmountMatch = currencyTaggedMatch || textWithoutPhone.match(/(\d+(?:\.\d+)?)\s*(?:cedis?|ghs|sidi|pesewas?)?/i);
     const hasCurrencyWord = /(?:cedis?|ghs|sidi|pesewas?|kaprɛ)/i.test(text);
-
-    const normalizedAmountText = formatSpokenNumbersAsDigits(textWithoutPhone);
-    const alternativeAmountMatch = normalizedAmountText.match(
-      /\b(\d+(?:\.\d+)?)(?:\s*(?:cedis?|ghs|sidi|pesewas?))?\s+(?:or|anaa)\s+(?:(?:cedis?|ghs|sidi|pesewas?)\s+)?(\d+(?:\.\d+)?)(?:\s*(?:cedis?|ghs|sidi|pesewas?))?\b/i
-    );
-    const hasAmountContext = hasCurrencyWord || /\b(?:send|transfer|soma|mane|fa)\b/i.test(textWithoutPhone);
-    if (alternativeAmountMatch) {
-      const firstCandidate = Number(alternativeAmountMatch[1]);
-      const secondCandidate = Number(alternativeAmountMatch[2]);
-      if (
-        hasAmountContext &&
-        Number.isFinite(firstCandidate) &&
-        Number.isFinite(secondCandidate) &&
-        firstCandidate !== secondCandidate
-      ) {
-        return {
-          raw: input,
-          value: null,
-          numericValue: null,
-          ambiguous: true,
-          candidates: [firstCandidate, secondCandidate].sort((a, b) => a - b),
-          isPhoneNumber: Boolean(embeddedPhoneNumber),
-          phoneNumberDigits: embeddedPhoneNumber,
-          isCurrencyAmount: true,
-          currency: "GHS",
-          confidence: 0.5,
-        };
-      }
-    }
 
     if (digitAmountMatch && digitAmountMatch[1]) {
       const val = parseFloat(digitAmountMatch[1]);
