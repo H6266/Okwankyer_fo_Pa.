@@ -355,6 +355,50 @@ export const PhoneSimulatorPage: React.FC = () => {
     ]);
   }, []);
 
+  // ── 60-Second Caller Silence Watchdog (OP67) ──────────────────────────
+  const silenceWatchdogTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const clearSilenceWatchdog = useCallback(() => {
+    if (silenceWatchdogTimerRef.current) {
+      clearTimeout(silenceWatchdogTimerRef.current);
+      silenceWatchdogTimerRef.current = null;
+    }
+  }, []);
+
+  const triggerSilenceTimeout = useCallback(async () => {
+    if (!callActiveRef.current) return;
+    const curLang = languageRef.current || "twi";
+    const isTwi = curLang === "twi";
+    const op67Text = isTwi
+      ? "Mante deɛ wofiri wo hɔ bae, yɛsrɛ wo ma yɛn mmuaeɛ!"
+      : "I did not get any response from you, please give us a response!";
+    const op67AudioUrl = "/audio/Twi_library/Please_respond.m4a";
+
+    addLog("system", "⏱️ [60s Silence Watchdog] 1 minute elapsed with no caller response. Triggering OP67 (Please Respond). Step retained without skipping.");
+    addChatTurn({
+      sender: "system",
+      text: `⏱️ OP67: "${op67Text}"`,
+      promptId: "OP67",
+      audioUrl: op67AudioUrl,
+      audioSource: "studio",
+    });
+
+    try {
+      await audioPlaybackController.play(op67AudioUrl, op67Text);
+    } catch {
+      await audioPlaybackController.speakText(op67Text, { language: curLang });
+    }
+  }, [addLog, addChatTurn]);
+
+  const armSilenceWatchdog = useCallback(() => {
+    clearSilenceWatchdog();
+    if (!callActiveRef.current) return;
+    // Exactly 1 minute (60,000 ms) of silence before playing OP67
+    silenceWatchdogTimerRef.current = setTimeout(() => {
+      triggerSilenceTimeout();
+    }, 60000);
+  }, [clearSilenceWatchdog, triggerSilenceTimeout]);
+
   // ── Clock & Auto-Login ───────────────────────────────────────────────
   useEffect(() => {
     const updateClock = () => {
@@ -405,12 +449,16 @@ export const PhoneSimulatorPage: React.FC = () => {
     terminalEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatTurns, terminalLogs, interimTranscript]);
 
-  // Audio controller subscription: update UI indicators for playback state
+  // Audio controller subscription: update UI indicators for playback state and arm silence watchdog
   useEffect(() => {
     const unsubscribe = audioPlaybackController.subscribe((state) => {
       setIsAudioSpeaking(state.isPlaying);
-      if (!callActiveRef.current) return;
+      if (!callActiveRef.current) {
+        clearSilenceWatchdog();
+        return;
+      }
       if (state.isPlaying) {
+        clearSilenceWatchdog();
         setIsMicMuted(true);
         isMicMutedRef.current = true;
         setCallStatus("Speaking");
@@ -419,11 +467,15 @@ export const PhoneSimulatorPage: React.FC = () => {
           setIsMicMuted(false);
           isMicMutedRef.current = false;
           setCallStatus("Listening");
+          armSilenceWatchdog();
         }
       }
     });
-    return () => unsubscribe();
-  }, []);
+    return () => {
+      clearSilenceWatchdog();
+      unsubscribe();
+    };
+  }, [armSilenceWatchdog, clearSilenceWatchdog]);
 
   // Format MM:SS timer
   const formatTimer = (sec: number) => {
@@ -961,6 +1013,7 @@ export const PhoneSimulatorPage: React.FC = () => {
   // ── End Call ──────────────────────────────────────────────────────────
   const endCall = useCallback(
     async (reason = "User hung up") => {
+      clearSilenceWatchdog();
       callActiveRef.current = false;
       sessionIdRef.current = "";
       brainDraftRef.current = { slots: {} };
@@ -993,7 +1046,7 @@ export const PhoneSimulatorPage: React.FC = () => {
         stepName: "ended",
       });
     },
-    [addLog, addChatTurn]
+    [addLog, addChatTurn, clearSilenceWatchdog]
   );
 
   const startPinAuthorizationFlow = useCallback(async () => {
@@ -1140,6 +1193,7 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       const clean = normalizeSpokenDigits(utterance.trim());
       if (!clean) return;
+      clearSilenceWatchdog();
 
       // Echo filter check: ignore system audio echoing back into mic (only for live mic, not for direct simulated)
       if (
@@ -1926,6 +1980,7 @@ export const PhoneSimulatorPage: React.FC = () => {
   // Keypad click handler with dual-tone audio beep
   const handleKeypadPress = useCallback(
     async (digit: string) => {
+      clearSilenceWatchdog();
       if (zeroPinOverlayRef.current || isVoiceCaptureBlockedForStep(activeStepNameRef.current)) {
         if (digit === "0") endCall("Caller ended the secure handset handoff");
         return;
@@ -2741,6 +2796,15 @@ export const PhoneSimulatorPage: React.FC = () => {
             </div>
 
             <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={triggerSilenceTimeout}
+                disabled={!callActive}
+                title="Rule 3 Test: Trigger OP67 (Please Respond) after 1-minute silence without skipping the step"
+                className="px-2.5 py-1 text-xs bg-amber-950/80 hover:bg-amber-900 active:bg-amber-700 text-amber-200 rounded-lg border border-amber-500/60 font-semibold transition-colors cursor-pointer disabled:opacity-40"
+              >
+                ⏱️ Test 1m Silence (OP67)
+              </button>
               {[
                 { label: "1 (One)", desc: "Say 'One' -> Mapped to DTMF 1" },
                 { label: "2 (Two)", desc: "Say 'Two' -> Mapped to DTMF 2" },
@@ -2750,6 +2814,7 @@ export const PhoneSimulatorPage: React.FC = () => {
                 { label: "Mobile Money", desc: "Service 1 (MoMo)" },
                 { label: "MTN", desc: "Network 1 (MTN)" },
                 { label: "Send money", desc: "Action 1 (Send Money)" },
+                { label: "0543546010", desc: "Full 10-Digit Recipient Phone (OP21)" },
                 { label: "0553838464", desc: "10-Digit Recipient Phone" },
                 { label: "50 cedis", desc: "Amount 50 Cedis" },
                 { label: "Confirm", desc: "Confirm Safe Transfer (1)" },

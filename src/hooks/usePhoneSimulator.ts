@@ -758,10 +758,55 @@ export function usePhoneSimulator() {
     }
   }, []);
 
+  const triggerInactivityPleaseRespond = useCallback(() => {
+    const pleaseRespondAudioUrl = "/audio/Twi_library/Please_respond.mp3";
+    const transcriptText = "I did not get any response from you, please give us a response!";
+    setTranscript((prev) => [
+      ...prev,
+      {
+        id: `sys_silence_${Date.now()}`,
+        role: "system",
+        text: `⏳ [60s Inactivity Watchdog] OP67 — Please Respond: "${transcriptText}"`,
+        timestamp: Date.now(),
+      },
+    ]);
+    if (audioRef.current) {
+      setIsAiSpeaking(true);
+      isAiSpeakingRef.current = true;
+      audioRef.current.src = pleaseRespondAudioUrl;
+      setActiveAudioClip(pleaseRespondAudioUrl);
+      audioRef.current.onended = () => {
+        setIsAiSpeaking(false);
+        isAiSpeakingRef.current = false;
+        setActiveAudioClip(null);
+        // Restart 60s timer after repeating instruction
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = setTimeout(() => {
+          if (!isAiSpeakingRef.current && voiceListeningEnabledRef.current) {
+            triggerInactivityPleaseRespond();
+          }
+        }, 60000);
+      };
+      audioRef.current.onerror = () => {
+        setIsAiSpeaking(false);
+        isAiSpeakingRef.current = false;
+        setActiveAudioClip(null);
+      };
+      audioRef.current.play().catch(() => {
+        setIsAiSpeaking(false);
+        isAiSpeakingRef.current = false;
+      });
+    }
+  }, []);
+
   const updateAiSpeaking = useCallback((speaking: boolean, promptText?: string) => {
     setIsAiSpeaking(speaking);
     isAiSpeakingRef.current = speaking;
     if (speaking) {
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
+      }
       stopInterimRecognition();
       if (voiceCaptureRef.current) {
         voiceCaptureRef.current.mute();
@@ -777,6 +822,14 @@ export function usePhoneSimulator() {
       } else {
         startContinuousVoiceRef.current?.();
       }
+
+      // Start 60-second inactivity watchdog (1 minute wait before OP67 Please Respond)
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = setTimeout(() => {
+        if (!isAiSpeakingRef.current && voiceListeningEnabledRef.current) {
+          triggerInactivityPleaseRespond();
+        }
+      }, 60000);
     }
     if (voiceListeningEnabledRef.current) {
       setTranscriptionStatus(speaking ? "PAUSED" : "LISTENING");
@@ -795,7 +848,7 @@ export function usePhoneSimulator() {
         }
       }, 1500);
     }
-  }, [startInterimRecognition, stopInterimRecognition]);
+  }, [startInterimRecognition, stopInterimRecognition, triggerInactivityPleaseRespond]);
 
   const applySyncPayload = useCallback((data: any) => {
     if (!data) return;

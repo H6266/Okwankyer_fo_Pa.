@@ -2103,14 +2103,22 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
           action: "repeat",
         });
       } else {
-        // Empty or silent audio on first attempt: repeat prompt gently
+        // Canonical OP67 — Please Respond: play pre-recorded audio / spoken text, stay on current step without skipping
+        const op67Url = `${baseUrl}/audio/Twi_library/Please_respond.m4a`;
         const retryPrompt = lang === "twi"
-          ? "Mante wo nne yiye. Yɛsrɛ wo kasa biom."
-          : "I did not hear you clearly. Please speak again.";
-        const voice = lang === "twi" ? "woman" : "alice";
+          ? "Mante deɛ wofiri wo hɔ bae, yɛsrɛ wo ma yɛn mmuaeɛ!"
+          : "I did not get any response from you, please give us a response!";
         return xmlResponse(
           res,
-          `    <Say voice="${voice}">${escapeVoiceXml(retryPrompt)}</Say>\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="8" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=${encodeURIComponent(step)}&amp;sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}&amp;retry=${retry + 1}"/>`
+          `    <Play url="${escapeVoiceXml(op67Url)}"/>\n    <Say voice="female">${escapeVoiceXml(retryPrompt)}</Say>\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="10" timeout="60" callbackUrl="${baseUrl}/speech-fallback?step=${encodeURIComponent(step)}&amp;sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}&amp;retry=${retry + 1}"/>`,
+          {
+            type: "clarify",
+            reason: "Caller silence timeout: playing OP67 (Please Respond). Step retained.",
+            replyText: retryPrompt,
+            replyKey: "OP67",
+            action: "repeat",
+            nextStep: step,
+          }
         );
       }
     }
