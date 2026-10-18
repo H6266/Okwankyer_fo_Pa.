@@ -11,6 +11,7 @@ export interface TwiLibraryItem {
   filename: string;
   audioUrl: string;
   transcript: string;
+  audioVerified?: boolean;
   category: "session" | "navigation" | "recipient" | "amount" | "confirmation" | "auth" | "outcome" | "help" | "general";
   keywords: string[];
 }
@@ -213,6 +214,7 @@ const MANIFEST_TWI_AUDIO_LIBRARY_ITEMS: TwiLibraryItem[] = [
     filename: "Invalid_amount.m4a",
     audioUrl: "/audio/Twi_library/Invalid_amount.m4a",
     transcript: "please the amount you mentioned is invalid, please give us a different amount to continue with this transaction",
+    audioVerified: false,
     category: "amount",
     keywords: ["invalid amount", "different amount", "sika nyɛ pɛpɛɛpɛ"]
   },

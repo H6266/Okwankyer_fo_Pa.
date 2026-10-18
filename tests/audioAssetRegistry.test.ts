@@ -31,8 +31,9 @@ describe("canonical audio asset registry", () => {
         expect(audioFileExists(asset.filename, asset.assetRoot), asset.filename).toBe(true);
       }
     }
-    expect(AUDIO_RECORDINGS.filter((asset) => asset.language === "twi")
+    expect(AUDIO_RECORDINGS.filter((asset) => asset.language === "twi" && asset.audioVerified)
       .every((asset) => audioFileExists(asset.relativePath, asset.assetRoot))).toBe(true);
+    expect(getRecordingByPromptId("OP27", "twi")).toBeNull();
   });
 
   it("plays approved fixed recordings in English and Twi without fixed-prompt TTS", () => {

@@ -65,8 +65,6 @@ export function resolveSafePlayableUrl(url: string): string {
 }
 
 export class AudioPlaybackController {
-  private playbackVolume: number = 1.0;
-  private volumeMultiplier: number = 1.0;
   private audioElement: HTMLAudioElement | null = null;
   private mediaElementSource: MediaElementAudioSourceNode | null = null;
   private currentToken: number = 0;
@@ -102,7 +100,9 @@ export class AudioPlaybackController {
     if (this.masterGainNode && this.audioContext) {
       try {
         this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
-      } catch {}
+        } catch (error) {
+          console.warn("[AudioController] Could not update the audio gain.", error);
+        }
     }
   }
 
@@ -154,7 +154,9 @@ export class AudioPlaybackController {
     try {
       this.setupAudioGraph();
       if (this.audioContext && this.audioContext.state === "suspended") {
-        this.audioContext.resume().catch(() => {});
+        this.audioContext.resume().catch((error) => {
+          console.warn("[AudioController] Could not resume the audio context.", error);
+        });
       }
       // Play silent 1-sample buffer to unlock AudioContext permanently in iframes
       if (this.audioContext) {
@@ -164,10 +166,14 @@ export class AudioPlaybackController {
           silentSource.buffer = silentBuffer;
           silentSource.connect(this.masterGainNode || this.audioContext.destination);
           silentSource.start(0);
-        } catch {}
+        } catch (error) {
+          console.warn("[AudioController] Could not unlock the audio context.", error);
+        }
       }
       this.initAudioElement();
-    } catch {}
+    } catch (error) {
+      console.warn("[AudioController] Could not unlock audio playback.", error);
+    }
   }
 
   /**
@@ -216,7 +222,9 @@ export class AudioPlaybackController {
       osc2.start(now);
       osc1.stop(now + durationMs / 1000);
       osc2.stop(now + durationMs / 1000);
-    } catch {}
+    } catch (error) {
+      console.warn("[AudioController] Could not play the keypad tone.", error);
+    }
   }
 
   /**
@@ -317,7 +325,9 @@ export class AudioPlaybackController {
           audio.preload = "auto";
           audio.src = clean;
           this.preloadElements.set(clean, audio);
-        } catch {}
+        } catch (error) {
+          console.warn("[AudioController] Could not preload the audio element.", error);
+        }
       }
       if (!this.audioBufferCache.has(clean) && this.audioContext) {
         fetch(clean)
@@ -399,7 +409,9 @@ export class AudioPlaybackController {
         this.activeBufferSource.onended = null;
         this.activeBufferSource.stop();
         this.activeBufferSource.disconnect();
-      } catch {}
+      } catch (error) {
+        console.debug("[AudioController] Audio buffer source was already stopped.", error);
+      }
       this.activeBufferSource = null;
     }
 
@@ -409,13 +421,17 @@ export class AudioPlaybackController {
         this.audioElement.onerror = null;
         this.audioElement.pause();
         this.audioElement.currentTime = 0;
-      } catch {}
+      } catch (error) {
+        console.debug("[AudioController] Audio element was already stopped.", error);
+      }
     }
 
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       try {
         window.speechSynthesis.cancel();
-      } catch {}
+      } catch (error) {
+        console.warn("[AudioController] Could not cancel speech synthesis.", error);
+      }
     }
 
     if (this.activeResolver) {
@@ -474,7 +490,11 @@ export class AudioPlaybackController {
       return new Promise<boolean>((resolve) => {
         const timeout = setTimeout(() => {
           if (this.currentToken !== token) return;
-          try { source.stop(); } catch {}
+          try {
+            source.stop();
+          } catch (error) {
+            console.debug("[AudioController] Timed-out audio source was already stopped.", error);
+          }
           this.activeBufferSource = null;
           this.activeResolver = null;
           options?.onError?.(new Error("Audio playback timed out."));
@@ -592,7 +612,6 @@ export class AudioPlaybackController {
 
     return new Promise<boolean>((resolve) => {
       let settled = false;
-      let timeout: ReturnType<typeof setTimeout>;
       const settle = (played: boolean, error?: Error) => {
         if (settled) return;
         settled = true;
@@ -623,7 +642,7 @@ export class AudioPlaybackController {
         resolve(played);
       };
       const cancelPlayback = () => settle(false);
-      timeout = setTimeout(() => settle(false, new Error("Audio playback timed out.")), 60_000);
+      const timeout = setTimeout(() => settle(false, new Error("Audio playback timed out.")), 60_000);
       this.activeResolver = cancelPlayback;
 
       const handleEnded = () => {

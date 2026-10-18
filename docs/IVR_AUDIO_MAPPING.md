@@ -2,9 +2,9 @@
 
 Generated from the prompt manifest, runtime registry, and current checkout by `scripts/generate_audio_inventory_and_mapping.ts`.
 
-The inventory contains 92 physical audio files. The approved library contains 84 Twi and 4 English fixed recordings. Canonical audio URLs are served from their registered asset roots. Other candidate and ambiguous files remain blocked from automatic playback. Dynamic prompts must use validated live values and approved TTS; no static sample audio is eligible for them.
+The inventory contains 91 physical audio files. The approved library contains 83 Twi and 4 English fixed recordings. Canonical audio URLs are served from their registered asset roots. Other candidate and ambiguous files remain blocked from automatic playback. Dynamic prompts must use validated live values and approved TTS; no static sample audio is eligible for them.
 
-Coverage totals (English and Twi combined): VERIFIED_FIXED_ASSET 92, CANDIDATE_NOT_AUDIO_VERIFIED 0, AMBIGUOUS_REVIEW_REQUIRED 0, DYNAMIC_TTS_REQUIRED 14, SAFE_FALLBACK_ONLY 84, MISSING_ASSET 0.
+Coverage totals (English and Twi combined): VERIFIED_FIXED_ASSET 91, CANDIDATE_NOT_AUDIO_VERIFIED 0, AMBIGUOUS_REVIEW_REQUIRED 0, DYNAMIC_TTS_REQUIRED 14, SAFE_FALLBACK_ONLY 84, MISSING_ASSET 1.
 
 | Prompt ID | State | Type | English status | English asset path(s) | Twi status | Twi asset path(s) |
 |---|---|---|---|---|---|---|
@@ -34,7 +34,7 @@ Coverage totals (English and Twi combined): VERIFIED_FIXED_ASSET 92, CANDIDATE_N
 | OP24 | USE_RECIPIENT | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Use_recipient 1.mp3 |
 | OP25 | CHANGE_RECIPIENT | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Change recipient.mp3 |
 | OP26 | ENTER_AMOUNT | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Enter amount.mp3 |
-| OP27 | INVALID_AMOUNT | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Invalid_amount.mp3 |
+| OP27 | INVALID_AMOUNT | FIXED | SAFE_FALLBACK_ONLY | — | MISSING_ASSET | MISSING: Audio_files/Twi/Invalid_amount.mp3 |
 | OP28 | AMOUNT_PROMPT | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Amount prompt.mp3 |
 | OP29 | AMOUNT_READBACK | DYNAMIC | DYNAMIC_TTS_REQUIRED | — | DYNAMIC_TTS_REQUIRED | — |
 | OP30 | REPEAT_AMOUNT | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Repeat amount.mp3 |

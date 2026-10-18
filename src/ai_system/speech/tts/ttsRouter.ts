@@ -77,22 +77,7 @@ export class TtsRouter implements TTSProvider {
           console.warn("[TtsRouter] HCI Lab synthesis failed, using dynamic speech fallback:", err?.message || err);
         }
       }
-      try {
-        const googleTTS = await import("google-tts-api");
-        const chunks = await googleTTS.getAllAudioBase64(text, { lang: "en", timeout: 8000 });
-        const audioBuffer = Buffer.concat(chunks.map((c) => Buffer.from(c.base64, "base64")));
-        return assertTtsResponse(request, {
-          audioBuffer,
-          audioBase64: audioBuffer.toString("base64"),
-          audioMimeType: "audio/mpeg",
-          mimeType: "audio/mpeg",
-          providerUsed: "google-tts-dynamic",
-          language: "twi",
-          model: "google-tts-fallback",
-        }, "twi");
-      } catch (err: any) {
-        throw new Error(`TWI_TTS_UNAVAILABLE: Dynamic synthesis failed (${err?.message || err}).`);
-      }
+      throw new Error("TWI_TTS_UNAVAILABLE: No approved Twi speech provider is configured.");
     }
 
     const providerErrors: string[] = [];

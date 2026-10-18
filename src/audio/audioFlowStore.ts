@@ -17,7 +17,7 @@ export interface FlowStepAudioConfig {
   sequenceOrder: number;
   titleEn: string;
   titleTwi: string;
-  category: "session" | "service" | "recipient" | "amount" | "auth" | "outcome" | "recovery";
+  category: "session" | "service" | "recipient" | "amount" | "confirmation" | "auth" | "outcome" | "recovery";
   defaultAudioEn: string;
   defaultAudioTwi: string;
   transcriptEn: string;

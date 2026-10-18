@@ -228,6 +228,7 @@ for (const item of TWI_AUDIO_LIBRARY_ITEMS) {
   const mappedPromptId = PROMPT_KEY_TO_RECORDING_ID[item.key] || null;
   const isDynamicRecording = mappedPromptId !== null && DYNAMIC_PROMPT_IDS.has(mappedPromptId.toUpperCase());
   const promptId = isDynamicRecording ? null : mappedPromptId;
+  const audioVerified = !isDynamicRecording && item.audioVerified !== false;
   const mimeType = item.filename.endsWith(".mp3") ? "audio/mpeg" : "audio/mp4";
   recordings.push({
     id: `supplied:Twi_library/${item.filename}`,
@@ -238,15 +239,15 @@ for (const item of TWI_AUDIO_LIBRARY_ITEMS) {
     language: "twi",
     title: item.filename.replace(/\.[a-z0-9]+$/i, ""),
     spokenText: item.transcript,
-    relativePath: `Twi_library/${item.filename}`,
-    legacyRelativePath: `Twi/${item.filename}`,
+    relativePath: `Twi/${item.filename}`,
+    legacyRelativePath: `Twi_library/${item.filename}`,
     assetRoot: "supplied",
     url: item.audioUrl,
     mimeType,
     isAlternate: false,
-    recordingRole: isDynamicRecording ? "dynamic" : "fixed",
-    mappingStatus: isDynamicRecording ? "DYNAMIC_SAMPLE_NOT_FOR_PLAYBACK" : "VERIFIED",
-    audioVerified: !isDynamicRecording,
+    recordingRole: isDynamicRecording ? "dynamic" : audioVerified ? "fixed" : "unmapped",
+    mappingStatus: isDynamicRecording ? "DYNAMIC_SAMPLE_NOT_FOR_PLAYBACK" : audioVerified ? "VERIFIED" : "MISSING_ASSET",
+    audioVerified,
   });
 }
 

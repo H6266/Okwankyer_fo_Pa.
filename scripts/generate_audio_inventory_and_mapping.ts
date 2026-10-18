@@ -191,14 +191,23 @@ const coverageStatuses = ["VERIFIED_FIXED_ASSET", "CANDIDATE_NOT_AUDIO_VERIFIED"
 function coverage(promptId: string, language: "en" | "twi", type: string, script: string): { status: string; paths: string } {
   if (type.toUpperCase() === "DYNAMIC") return { status: "DYNAMIC_TTS_REQUIRED", paths: "" };
   const recordings = getRecordingsByPromptId(promptId, language);
-  const eligible = recordings.filter((recording) => recording.audioVerified && recording.recordingRole === "fixed");
+  const eligible = recordings.filter((recording) =>
+    recording.audioVerified
+    && recording.recordingRole === "fixed"
+    && !physicalPathForRecording(recording).startsWith("MISSING:")
+  );
   const paths = (eligible.length > 0 ? eligible : recordings).map(physicalPathForRecording).join("<br>");
 
   if (eligible.length === 1) return { status: "VERIFIED_FIXED_ASSET", paths };
   if (recordings.some((recording) => recording.mappingStatus.startsWith("AMBIGUOUS")) || recordings.length > 1) {
     return { status: "AMBIGUOUS_REVIEW_REQUIRED", paths };
   }
-  if (recordings.length > 0) return { status: "CANDIDATE_NOT_AUDIO_VERIFIED", paths };
+  if (recordings.length > 0) {
+    return {
+      status: paths.includes("MISSING:") ? "MISSING_ASSET" : "CANDIDATE_NOT_AUDIO_VERIFIED",
+      paths,
+    };
+  }
   return { status: script.trim() ? "SAFE_FALLBACK_ONLY" : "MISSING_ASSET", paths: "" };
 }
 
@@ -216,13 +225,15 @@ for (const prompt of promptEntries) {
 }
 
 const verifiedRegistryCount = AUDIO_RECORDINGS.filter((recording) =>
-  recording.audioVerified && recording.recordingRole === "fixed"
+  recording.audioVerified && recording.recordingRole === "fixed" && !physicalPathForRecording(recording).startsWith("MISSING:")
 ).length;
 const verifiedTwiRecordingCount = AUDIO_RECORDINGS.filter((recording) =>
   recording.audioVerified && recording.recordingRole === "fixed" && recording.language === "twi"
+    && !physicalPathForRecording(recording).startsWith("MISSING:")
 ).length;
 const verifiedEnglishRecordingCount = AUDIO_RECORDINGS.filter((recording) =>
   recording.audioVerified && recording.recordingRole === "fixed" && recording.language === "en"
+    && !physicalPathForRecording(recording).startsWith("MISSING:")
 ).length;
 
 const mappingMarkdown = [

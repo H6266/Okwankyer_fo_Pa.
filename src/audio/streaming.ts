@@ -218,6 +218,7 @@ export function resolveSafeAudioPath(requestedSubpath: string): string | null {
   };
 
   for (const rootDir of rootDirs) {
+    if (!fs.existsSync(rootDir) || !fs.statSync(rootDir).isDirectory()) continue;
     const exact = resolveInsideRoot(rootDir, path.resolve(rootDir, relativePath));
     if (exact) return exact;
 
