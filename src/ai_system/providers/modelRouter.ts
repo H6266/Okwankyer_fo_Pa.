@@ -13,6 +13,7 @@ import { geminiClient } from "../../services/geminiClient";
 import { reasoningEngine } from "../understanding/reasoningEngine";
 import { localLanguageBrain } from "./LocalLanguageBrain";
 import { openAiReasoner } from "../../services/openai/openaiReasoner";
+import { groqReasoner } from "../../services/groq/groqReasoner";
 import { qwenReasoner } from "../../services/qwen/qwenReasoner";
 
 export type CognitiveCapability =
@@ -130,22 +131,23 @@ export class ModelRouter {
       },
     });
 
-    // 3. Qwen AI Cloud Reasoning: Handshake 2 fallback after OpenAI (priority 20)
+    // 3. Groq AI Cloud Reasoning: Handshake 2 fallback after OpenAI (priority 20)
     this.register({
-      id: "qwen_reasoning",
-      name: "Qwen AI Cloud Reasoning (qwen-plus)",
+      id: "groq_reasoning",
+      name: "Groq AI LPU Cloud Reasoning",
       isLocal: false,
       capabilities: new Set(["GEMINI_REASONING"]),
       priority: 20,
       timeoutMs: 3000,
-      isAvailable: () => qwenReasoner.isAvailable(),
+      isAvailable: () => groqReasoner.isAvailable() || qwenReasoner.isAvailable(),
       execute: async (payload) => {
-        const res = await qwenReasoner.reasonForBrain(
+        const activeReasoner = groqReasoner.isAvailable() ? groqReasoner : qwenReasoner;
+        const res = await activeReasoner.reasonForBrain(
           payload?.utterance || payload?.prompt || "",
           payload?.existingSlots || {},
           3000
         );
-        if (!res) throw new Error("Qwen AI reasoning yielded no result");
+        if (!res) throw new Error("Groq / Fast AI reasoning yielded no result");
         return res;
       },
     });

@@ -18,6 +18,7 @@ import { languageDetector } from "../perception/languageDetector";
 import { aiUnderstanding } from "../core/aiUnderstanding";
 import { geminiClient } from "../../services/geminiClient";
 import { openAiReasoner } from "../../services/openai/openaiReasoner";
+import { groqReasoner } from "../../services/groq/groqReasoner";
 import { qwenReasoner } from "../../services/qwen/qwenReasoner";
 
 export const COMPACT_MOMO_SYSTEM_INSTRUCTION = `You are Ɔkwankyerɛfo Pa, a low-latency voice assistant for MTN Mobile Money (MoMo) in Ghana.
@@ -413,11 +414,13 @@ export class ReasoningEngine {
       }
     }
 
-    // ── Handshake 2: OpenAI ➔ Qwen AI Reasoner ──
-    if (qwenReasoner.isAvailable()) {
+    // ── Handshake 2: OpenAI ➔ Groq AI Reasoner ──
+    const fastReasoner = groqReasoner.isAvailable() ? groqReasoner : (qwenReasoner.isAvailable() ? qwenReasoner : null);
+    if (fastReasoner) {
       try {
-        console.log("[ReasoningEngine] OpenAI unavailable or failed. Handshake 2/3: Passing utterance to Qwen AI...");
-        return await qwenReasoner.reason({
+        const providerName = fastReasoner === groqReasoner ? "Groq AI" : "Qwen AI";
+        console.log(`[ReasoningEngine] OpenAI unavailable or failed. Handshake 2/3: Passing utterance to ${providerName}...`);
+        return await fastReasoner.reason({
           utterance: cleanUtterance,
           languageHint: params.languageHint,
           currentScreen: params.currentScreen,
@@ -428,11 +431,11 @@ export class ReasoningEngine {
           frequentContacts: params.frequentContacts,
         });
       } catch (err: any) {
-        console.warn("[ReasoningEngine] Qwen AI reasoner candidate attempt notice:", err?.message || err);
+        console.warn("[ReasoningEngine] Fast AI reasoner candidate attempt notice:", err?.message || err);
       }
     }
 
-    // ── Handshake 3: Qwen AI ➔ Local Inbuilt Brain (Deterministic Ghanaian Reasoning) ──
+    // ── Handshake 3: Groq AI ➔ Local Inbuilt Brain (Deterministic Ghanaian Reasoning) ──
     console.log("[ReasoningEngine] All cloud LLMs exhausted. Handshake 3/3: Passing to Local Inbuilt Brain.");
     return this.deterministicReasoning(params);
   }

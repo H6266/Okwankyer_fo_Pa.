@@ -1489,7 +1489,7 @@ export const api = {
     sessionId?: string;
   }): Promise<{
     replyText: string;
-    source: "gemini" | "openai" | "qwen" | "local_fallback";
+    source: "gemini" | "openai" | "groq" | "qwen" | "local_fallback";
     segments: Array<{
       type: "clip" | "tts";
       filename?: string;

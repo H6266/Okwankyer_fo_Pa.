@@ -299,6 +299,8 @@ export const PhoneSimulatorPage: React.FC = () => {
   const languageRef = useRef<"en" | "twi" | null>(null);
   const currentPromptRef = useRef<string>("");
   const isMicMutedRef = useRef<boolean>(false);
+  const isSystemProcessingRef = useRef<boolean>(false);
+  const isAudioSequenceActiveRef = useRef<boolean>(false);
   const zeroPinOverlayRef = useRef<boolean>(false);
   const brainDraftRef = useRef<DraftState>({ slots: {} });
   const startPinAuthorizationFlowRef = useRef<() => Promise<void>>(() => Promise.resolve());
@@ -490,18 +492,28 @@ export const PhoneSimulatorPage: React.FC = () => {
   // Audio controller subscription: update UI indicators for playback state and arm silence watchdog
   useEffect(() => {
     const unsubscribe = audioPlaybackController.subscribe((state) => {
-      setIsAudioSpeaking(state.isPlaying);
+      const isSpeakingNow = state.isPlaying || isAudioSequenceActiveRef.current;
+      setIsAudioSpeaking(isSpeakingNow);
       if (!callActiveRef.current) {
         clearSilenceWatchdog();
         return;
       }
-      if (state.isPlaying) {
+      if (isSpeakingNow || isSystemProcessingRef.current) {
         clearSilenceWatchdog();
         setIsMicMuted(true);
         isMicMutedRef.current = true;
-        setCallStatus("Speaking");
+        if (isSystemProcessingRef.current) {
+          setCallStatus("Processing");
+        } else {
+          setCallStatus("Speaking");
+        }
       } else {
-        if (!zeroPinOverlayRef.current && !isVoiceCaptureBlockedForStep(activeStepNameRef.current)) {
+        if (
+          !isAudioSequenceActiveRef.current &&
+          !isSystemProcessingRef.current &&
+          !zeroPinOverlayRef.current &&
+          !isVoiceCaptureBlockedForStep(activeStepNameRef.current)
+        ) {
           setIsMicMuted(false);
           isMicMutedRef.current = false;
           setCallStatus("Listening");
@@ -880,11 +892,20 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       const hasDynamicSay = Boolean(parsed.sayText && parsed.sayText.trim());
 
-      if (hasDynamicSay && (stepName === "verify-recipient" || stepName.includes("recipient") || stepName.includes("confirm") || resolvedSequence.length > 0)) {
-        // Step with dynamic readback (KYC name, phone number, amount):
-        // 1. Play introductory fixed clip if present (e.g. "Use recipient 1.m4a" -> "Yoo, yɛde saa recipient yi bedi dwuma")
-        // 2. Synthesize & speak dynamic KYC/amount readback (<Say>)
-        (async () => {
+      // Mark audio sequence active, mute microphone immediately
+      isAudioSequenceActiveRef.current = true;
+      setIsAudioSpeaking(true);
+      setIsMicMuted(true);
+      isMicMutedRef.current = true;
+      continuousAudioEngine.pauseForPlayback();
+      setCallStatus("Speaking");
+      clearSilenceWatchdog();
+
+      try {
+        if (hasDynamicSay && (stepName === "verify-recipient" || stepName.includes("recipient") || stepName.includes("confirm") || resolvedSequence.length > 0)) {
+          // Step with dynamic readback (KYC name, phone number, amount):
+          // 1. Play introductory fixed clip if present (e.g. "Use recipient 1.m4a" -> "Yoo, yɛde saa recipient yi bedi dwuma")
+          // 2. Synthesize & speak dynamic KYC/amount readback (<Say>)
           if (resolvedSequence.length > 0) {
             addLog("audio", `🔊 Auto-playing intro clip: ${resolvedSequence[0]}`);
             try {
@@ -912,66 +933,87 @@ export const PhoneSimulatorPage: React.FC = () => {
               setActiveCallbackUrl(parsed.getDigits.callbackUrl);
             }
           }
-        })().catch((err) => {
-          console.warn("[PhoneSimulator] Dynamic readback notice:", err);
-          if (requiresSuccessfulReadback) blockFailedReadback();
-        });
-      } else if (resolvedSequence.length > 1) {
-        addLog("audio", `🔊 Auto-playing sequence: ${resolvedSequence.join(" -> ")}`);
-        audioPlaybackController.playSequence(resolvedSequence, promptText).then(async () => {
-          if (parsed.sayText && !parsed.redirectUrl) {
-            await audioPlaybackController.speakText(parsed.sayText);
-          }
-        }).catch((err) => {
-          console.warn("[PhoneSimulator] Sequence auto-play notice:", err);
-          setCallStatus("Audio unavailable");
-        });
-      } else if (playbackUrl) {
-        addLog("audio", `🔊 Auto-playing prompt: ${playbackUrl}`);
-        audioPlaybackController.play(playbackUrl, promptText).then(async () => {
-          if (parsed.sayText && !parsed.redirectUrl) {
-            // Intro audio finished; synthesize dynamic KYC readback text
-            await audioPlaybackController.speakText(parsed.sayText);
-          }
-        }).catch((err) => {
-          console.warn("[PhoneSimulator] Auto-play prompt notice:", err);
-          if (parsed.sayText) {
-            audioPlaybackController.speakText(parsed.sayText, { language: responseLanguage }).then((played) => {
-              if (requiresSuccessfulReadback && !played) blockFailedReadback();
-              if (requiresSuccessfulReadback && played && parsed.getDigits?.callbackUrl) {
-                activeCallbackUrlRef.current = parsed.getDigits.callbackUrl;
-                setActiveCallbackUrl(parsed.getDigits.callbackUrl);
-              }
-            }).catch(() => {
-              if (requiresSuccessfulReadback) blockFailedReadback();
-            });
-          } else {
+        } else if (resolvedSequence.length > 1) {
+          addLog("audio", `🔊 Auto-playing sequence: ${resolvedSequence.join(" -> ")}`);
+          try {
+            await audioPlaybackController.playSequence(resolvedSequence, promptText);
+            if (parsed.sayText && !parsed.redirectUrl) {
+              await audioPlaybackController.speakText(parsed.sayText, { language: responseLanguage });
+            }
+          } catch (err) {
+            console.warn("[PhoneSimulator] Sequence auto-play notice:", err);
             setCallStatus("Audio unavailable");
           }
-        });
-      } else if (parsed.sayText) {
-        addLog("audio", "Synthesizing dynamic prompt.");
-        audioPlaybackController.speakText(parsed.sayText, { language: responseLanguage }).then((played) => {
-          if (requiresSuccessfulReadback && !played) blockFailedReadback();
-          if (requiresSuccessfulReadback && played && parsed.getDigits?.callbackUrl) {
-            activeCallbackUrlRef.current = parsed.getDigits.callbackUrl;
-            setActiveCallbackUrl(parsed.getDigits.callbackUrl);
+        } else if (playbackUrl) {
+          addLog("audio", `🔊 Auto-playing prompt: ${playbackUrl}`);
+          try {
+            await audioPlaybackController.play(playbackUrl, promptText);
+            if (parsed.sayText && !parsed.redirectUrl) {
+              // Intro audio finished; synthesize dynamic KYC readback text
+              await audioPlaybackController.speakText(parsed.sayText, { language: responseLanguage });
+            }
+          } catch (err) {
+            console.warn("[PhoneSimulator] Auto-play prompt notice:", err);
+            if (parsed.sayText) {
+              try {
+                const played = await audioPlaybackController.speakText(parsed.sayText, { language: responseLanguage });
+                if (requiresSuccessfulReadback && !played) blockFailedReadback();
+                if (requiresSuccessfulReadback && played && parsed.getDigits?.callbackUrl) {
+                  activeCallbackUrlRef.current = parsed.getDigits.callbackUrl;
+                  setActiveCallbackUrl(parsed.getDigits.callbackUrl);
+                }
+              } catch {
+                if (requiresSuccessfulReadback) blockFailedReadback();
+              }
+            } else {
+              setCallStatus("Audio unavailable");
+            }
           }
-        }).catch((err) => {
-          console.warn("[PhoneSimulator] Dynamic speakText notice:", err);
-          if (requiresSuccessfulReadback) blockFailedReadback();
-        });
-      } else if (hasDynamicSay) {
-        addLog("audio", "Synthesizing dynamic prompt.");
-        audioPlaybackController.speakText(parsed.sayText!, { skipStudioMatch: true, language: responseLanguage })
-          .then((played) => {
+        } else if (parsed.sayText) {
+          addLog("audio", "Synthesizing dynamic prompt.");
+          try {
+            const played = await audioPlaybackController.speakText(parsed.sayText, { language: responseLanguage });
             if (requiresSuccessfulReadback && !played) blockFailedReadback();
-          })
-          .catch(() => {
+            if (requiresSuccessfulReadback && played && parsed.getDigits?.callbackUrl) {
+              activeCallbackUrlRef.current = parsed.getDigits.callbackUrl;
+              setActiveCallbackUrl(parsed.getDigits.callbackUrl);
+            }
+          } catch (err) {
+            console.warn("[PhoneSimulator] Dynamic speakText notice:", err);
             if (requiresSuccessfulReadback) blockFailedReadback();
-          });
-      } else {
-        addLog("audio", "No approved audio is available for this prompt.");
+          }
+        } else if (hasDynamicSay) {
+          addLog("audio", "Synthesizing dynamic prompt.");
+          try {
+            const played = await audioPlaybackController.speakText(parsed.sayText!, { skipStudioMatch: true, language: responseLanguage });
+            if (requiresSuccessfulReadback && !played) blockFailedReadback();
+          } catch {
+            if (requiresSuccessfulReadback) blockFailedReadback();
+          }
+        } else {
+          addLog("audio", "No approved audio is available for this prompt.");
+        }
+      } finally {
+        isAudioSequenceActiveRef.current = false;
+        // Strict 400ms acoustic tail buffer before turning microphone on:
+        // ensures room echo from computer speakers is completely gone before listening
+        setTimeout(() => {
+          if (
+            callActiveRef.current &&
+            !isSystemProcessingRef.current &&
+            !isAudioSequenceActiveRef.current &&
+            !audioPlaybackController.isSpeaking() &&
+            !zeroPinOverlayRef.current &&
+            !isVoiceCaptureBlockedForStep(activeStepNameRef.current)
+          ) {
+            setIsAudioSpeaking(false);
+            setIsMicMuted(false);
+            isMicMutedRef.current = false;
+            setCallStatus("Listening");
+            continuousAudioEngine.resumeAfterPlayback();
+            armSilenceWatchdog();
+          }
+        }, 400);
       }
     },
     [addLog, addChatTurn, language]
@@ -1018,6 +1060,14 @@ export const PhoneSimulatorPage: React.FC = () => {
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
+
+      // Mute microphone & pause speech recognition immediately while dispatching and waiting for response
+      isSystemProcessingRef.current = true;
+      setIsMicMuted(true);
+      isMicMutedRef.current = true;
+      continuousAudioEngine.setProcessing(true);
+      setCallStatus("Processing");
+      clearSilenceWatchdog();
 
       try {
         const res = await fetch(targetUrl, {
@@ -1093,6 +1143,9 @@ export const PhoneSimulatorPage: React.FC = () => {
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         addLog("system", `Webhook transport error: ${message}`);
+      } finally {
+        isSystemProcessingRef.current = false;
+        continuousAudioEngine.setProcessing(false);
       }
     },
     [callerNumber, executeVoiceXml, sessionId, addLog, addChatTurn]
@@ -1384,7 +1437,8 @@ export const PhoneSimulatorPage: React.FC = () => {
       // It will automatically turn back ON after the next audio prompt finishes playing.
       setIsMicMuted(true);
       isMicMutedRef.current = true;
-      continuousAudioEngine.pauseForPlayback();
+      isSystemProcessingRef.current = true;
+      continuousAudioEngine.setProcessing(true);
       setCallStatus("Processing");
 
       addLog("caller", `Speech "${clean}"`);
@@ -2059,7 +2113,14 @@ export const PhoneSimulatorPage: React.FC = () => {
   // Subscribe to Always-On continuous audio engine utterances & state
   useEffect(() => {
     const unsubUtterance = continuousAudioEngine.subscribeUtterance((utterance) => {
-      if (isMicMutedRef.current || zeroPinOverlayRef.current) return;
+      if (
+        isMicMutedRef.current ||
+        zeroPinOverlayRef.current ||
+        isSystemProcessingRef.current ||
+        isAudioSequenceActiveRef.current
+      ) {
+        return;
+      }
       if (utterance && utterance.trim()) {
         processSpokenUtterance(utterance);
       }
@@ -2135,8 +2196,11 @@ export const PhoneSimulatorPage: React.FC = () => {
       // 1. Play realistic DTMF telephone beep
       audioPlaybackController.playDtmfTone(digit);
 
-      // 2. Barge-in: stop system audio on keypress
+      // 2. Barge-in: stop system audio on keypress and mute mic
       audioPlaybackController.stop();
+      setIsMicMuted(true);
+      isMicMutedRef.current = true;
+      continuousAudioEngine.pauseForPlayback();
 
       // If inactive, dial in chosen language
       if (!callActiveRef.current) {

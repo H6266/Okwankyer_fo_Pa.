@@ -25,6 +25,7 @@ import { TransactionSession, transactionStateMachine } from "./stateMachine";
 import { recipientResolver, RecipientResolutionResult } from "../providers/recipient/RecipientResolver";
 import { UnifiedGeminiClient } from "../services/geminiClient";
 import { openaiClient } from "../services/openai/openaiClient";
+import { groqClient } from "../services/groq/groqClient";
 import { qwenClient } from "../services/qwen/qwenClient";
 import { localLanguageBrain } from "../ai_system/providers/LocalLanguageBrain";
 import { auditLogger } from "../services/auditLogger";
@@ -321,9 +322,9 @@ export class TelcoKycReferenceService {
   }
 }
 
-// ── 6. AI Handshake Pipeline (Gemini -> OpenAI -> Qwen -> Local Brain) ──────
+// ── 6. AI Handshake Pipeline (Gemini -> OpenAI -> Groq/Qwen -> Local Brain) ──────
 export interface AiHandshakeResponse<T = any> {
-  providerUsed: "gemini" | "openai" | "qwen" | "local_brain";
+  providerUsed: "gemini" | "openai" | "groq" | "qwen" | "local_brain";
   success: boolean;
   data: T;
   fallbackOccurred: boolean;
@@ -339,7 +340,8 @@ export class AiHandshakePipeline {
     geminiFn: () => Promise<T>,
     openAiFn: () => Promise<T>,
     qwenFn: () => Promise<T>,
-    localBrainFn: () => T | Promise<T>
+    localBrainFn: () => T | Promise<T>,
+    groqFn?: () => Promise<T>
   ): Promise<AiHandshakeResponse<T>> {
     return aiResourceQueue.enqueue(async () => {
       // 1. Try Gemini
@@ -375,11 +377,29 @@ export class AiHandshakePipeline {
           }
         }
       } catch (openAiErr: any) {
-        console.warn(`[AiHandshake:${operationName}] OpenAI failed, falling to Qwen:`, openAiErr?.message || openAiErr);
-        auditLogger.log("warn", "AI", `OpenAI API quota/network error: ${openAiErr?.message || openAiErr}. Initiating Qwen handshake.`);
+        console.warn(`[AiHandshake:${operationName}] OpenAI failed, falling to Groq/Qwen:`, openAiErr?.message || openAiErr);
+        auditLogger.log("warn", "AI", `OpenAI API quota/network error: ${openAiErr?.message || openAiErr}. Initiating Groq handshake.`);
       }
 
-      // 3. Try Qwen (qwen-plus)
+      // 3. Try Groq (LPU ultra-fast)
+      if (groqFn && groqClient.isAvailable()) {
+        try {
+          const res = await groqFn();
+          if (res !== undefined && res !== null) {
+            return {
+              providerUsed: "groq",
+              success: true,
+              data: res,
+              fallbackOccurred: true,
+            };
+          }
+        } catch (groqErr: any) {
+          console.warn(`[AiHandshake:${operationName}] Groq failed, falling to Qwen/Local:`, groqErr?.message || groqErr);
+          auditLogger.log("warn", "AI", `Groq API error: ${groqErr?.message || groqErr}.`);
+        }
+      }
+
+      // 4. Try Qwen (qwen-plus or bridged Groq)
       try {
         if (qwenClient.isAvailable()) {
           const res = await qwenFn();
@@ -397,7 +417,7 @@ export class AiHandshakePipeline {
         auditLogger.log("warn", "AI", `Qwen API error: ${qwenErr?.message || qwenErr}. Initiating Local Ghanaian Brain.`);
       }
 
-      // 4. Infallible Local Brain System
+      // 5. Infallible Local Brain System
       try {
         const res = await localBrainFn();
         return {

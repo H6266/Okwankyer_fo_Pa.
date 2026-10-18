@@ -474,7 +474,7 @@ export class HciLabService {
 
     this.checkRateLimit();
 
-    const timeoutMs = options.timeoutMs || 4000;
+    const timeoutMs = options.timeoutMs || 12000;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -647,7 +647,7 @@ export class HciLabService {
 
     this.checkRateLimit();
 
-    const timeoutMs = options.timeoutMs || 6000;
+    const timeoutMs = options.timeoutMs || 15000;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 

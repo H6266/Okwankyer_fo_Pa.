@@ -16,6 +16,7 @@ import { TWI_AUDIO_LIBRARY_ITEMS, TwiLibraryItem } from "./twiLibraryManifest";
 import { AUDIO_RECORDINGS, AudioRecording } from "./recordingRegistry";
 import { UnifiedGeminiClient } from "../services/geminiClient";
 import { openaiClient } from "../services/openai/openaiClient";
+import { groqClient } from "../services/groq/groqClient";
 import { qwenClient } from "../services/qwen/qwenClient";
 
 export interface AudioSegment {
@@ -28,7 +29,7 @@ export interface AudioSegment {
 
 export interface CrossReferenceAudioPlan {
   replyText: string;
-  source: "gemini" | "openai" | "qwen" | "local_fallback";
+  source: "gemini" | "openai" | "groq" | "qwen" | "local_fallback";
   segments: AudioSegment[];
   orderedClipFilenames: string[];
   ttsText: string | null;
@@ -161,15 +162,15 @@ export async function crossReferenceReplyAudioWithAi(
     console.warn("[AudioMatcherBrain] OpenAI fallback failed:", err?.message || err);
   }
 
-  // 4. Fallback 2: Qwen
+  // 4. Fallback 2: Groq / Qwen (Fast LPU AI)
   try {
-    const plan = await callQwenAudioMatcher(cleanReply, language);
+    const plan = await callGroqAudioMatcher(cleanReply, language) || await callQwenAudioMatcher(cleanReply, language);
     if (plan && plan.segments.length > 0) {
       matchPlanCache.set(cacheKey, plan);
       return plan;
     }
   } catch (err: any) {
-    console.warn("[AudioMatcherBrain] Qwen fallback failed:", err?.message || err);
+    console.warn("[AudioMatcherBrain] Groq/Qwen fallback failed:", err?.message || err);
   }
 
   // 5. Ultimate Fallback: Local Rule & Token Matcher
@@ -281,6 +282,43 @@ Respond strictly in JSON:
 }
 
 /**
+ * Groq Fallback Execution (Ultra-fast LPU inference)
+ */
+async function callGroqAudioMatcher(
+  replyText: string,
+  language: "twi" | "en"
+): Promise<CrossReferenceAudioPlan | null> {
+  if (!groqClient.isAvailable()) return null;
+  const rawClient = groqClient.getRawClient();
+  if (!rawClient) return null;
+
+  const prompt = `Audio library:
+${CATALOG_PROMPT_STRING}
+Message: "${replyText}"
+Select matching audio clips in order and any TTS remainder as JSON:
+{"orderedClipFilenames": [], "ttsText": "", "reasoning": "", "confidence": 0.8}`;
+
+  try {
+    const response = await rawClient.chat.completions.create({
+      model: groqClient.getModel(),
+      messages: [
+        { role: "system", content: "You output JSON only." },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.1,
+      max_tokens: 400,
+    });
+
+    const resText = response.choices?.[0]?.message?.content;
+    if (!resText) return null;
+    return parseAiPlanResponse(resText, replyText, "groq");
+  } catch (err: any) {
+    console.warn("[callGroqAudioMatcher] Error calling Groq:", err?.message || err);
+    return null;
+  }
+}
+
+/**
  * Qwen Fallback Execution
  */
 async function callQwenAudioMatcher(
@@ -318,7 +356,7 @@ Select matching audio clips in order and any TTS remainder as JSON:
 function parseAiPlanResponse(
   rawText: string,
   replyText: string,
-  source: "gemini" | "openai" | "qwen"
+  source: "gemini" | "openai" | "groq" | "qwen"
 ): CrossReferenceAudioPlan | null {
   try {
     const jsonMatch = rawText.match(/\{[\s\S]*\}/);
