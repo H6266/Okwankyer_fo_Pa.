@@ -104,14 +104,15 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     const serviceMenu = await request(app)
       .post("/service-select")
       .query({ sessionId, lang: "en" });
-    expect(serviceMenu.text).toContain("/prompt-tts/en/supported_service_select");
+    expect(serviceMenu.text).toContain("For a supported Mobile Money transfer, press 1.");
     expect(resolvePromptText("supported_service_select", "en")).toContain("supported Mobile Money transfer");
     expect(resolvePromptText("supported_service_select", "en")).not.toMatch(/banking/i);
 
     const networkMenu = await request(app)
       .post("/provider-select")
       .query({ sessionId, lang: "en" });
-    expect(networkMenu.text).toContain("/prompt-tts/en/mtn_network_select");
+    expect(networkMenu.text).toContain("For MTN Mobile Money, press 1");
+    expect(networkMenu.text).toContain("For Telecel Cash, press 2");
     expect(resolvePromptText("mtn_network_select", "en")).toContain("For MTN Mobile Money, press 1");
     expect(resolvePromptText("mtn_network_select", "en")).toContain("For Telecel Cash, press 2");
     expect(resolvePromptText("mtn_network_select", "en")).not.toContain("AirtelTigo");
@@ -119,7 +120,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     const actionMenu = await request(app)
       .post("/action-select")
       .query({ sessionId, lang: "en" });
-    expect(actionMenu.text).toContain("/prompt-tts/en/send_money_menu");
+    expect(actionMenu.text).toContain("To send money, press 1.");
     expect(resolvePromptText("send_money_menu", "en")).toContain("To send money, press 1.");
     expect(resolvePromptText("send_money_menu", "en")).not.toContain("check your account, press 2");
 
@@ -145,7 +146,8 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     const languagePrompt = await request(app)
       .post("/language-selection")
       .query({ sessionId, lang: "en" });
-    expect(languagePrompt.text).toContain("/api/audio/prompt-tts/en/OP02");
+    expect(languagePrompt.text).toContain("For English, press 1. For Twi, press 2.");
+    expect(languagePrompt.text).toContain(`/language-selection?sessionId=${sessionId}`);
     expect(languagePrompt.text).not.toContain("Welcome to Ɔkwankyerɛfo Pa");
   });
 
@@ -181,6 +183,52 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(transactionStateMachine.getSession(sessionId)?.retryCount).toBe(0);
   });
 
+  it("repeats recipient confirmation on invalid input and advances only after acceptance", async () => {
+    const sessionId = "AT-RECIPIENT-EXPLICIT-CONFIRMATION";
+    transactionStateMachine.getOrCreateSession(sessionId, "en");
+    transactionStateMachine.transition(sessionId, "RECIPIENT_VERIFIED", {
+      recipientPhone: "0241234567",
+      recipientName: "Ama Mensah",
+      isRecipientVerified: true,
+      network: "MTN",
+    });
+
+    const invalidChoice = await request(app)
+      .post("/recipient-verify-choice")
+      .send({ sessionId, lang: "en", dtmfDigits: "4" });
+    expect(invalidChoice.text).toContain("/recipient-verify-choice");
+    expect(invalidChoice.text).toContain("If these details are correct, press 1");
+    expect(transactionStateMachine.getSession(sessionId)?.state).toBe("RECIPIENT_VERIFIED");
+
+    const accepted = await request(app)
+      .post("/recipient-verify-choice")
+      .send({ sessionId, lang: "en", dtmfDigits: "1" });
+    expect(accepted.text).toContain("/enter-amount");
+  });
+
+  it("routes amounts below and above limits to OP32 and OP31", async () => {
+    const sessionId = "AT-AMOUNT-LIMIT-PROMPTS";
+    transactionStateMachine.getOrCreateSession(sessionId, "en");
+    transactionStateMachine.transition(sessionId, "RECIPIENT_VERIFIED", {
+      recipientPhone: "0241234567",
+      recipientName: "Ama Mensah",
+      isRecipientVerified: true,
+      network: "MTN",
+    });
+
+    const lowAmount = await request(app)
+      .post("/verify-amount")
+      .send({ sessionId, lang: "en", dtmfDigits: "0*50" });
+    expect(lowAmount.text).toContain("GHS 1.00 minimum");
+    expect(lowAmount.text).not.toContain("/amount-readback-choice");
+
+    const highAmount = await request(app)
+      .post("/verify-amount")
+      .send({ sessionId, lang: "en", dtmfDigits: "5001" });
+    expect(highAmount.text).toContain("GHS 5,000 limit");
+    expect(highAmount.text).not.toContain("/amount-readback-choice");
+  });
+
   it("requires OP29 amount acceptance before OP35 final transaction review", async () => {
     const sessionId = "AT-TWO-STAGE-READBACK-001";
     transactionStateMachine.getOrCreateSession(sessionId, "en");
@@ -211,6 +259,9 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(finalReview.text).toContain("MTN");
     expect(finalReview.text).toContain("4 5 6 7");
     expect(finalReview.text).not.toContain("0 2 4 1 2 3 4 5 6 7");
+    expect(finalReview.text).toContain("Press 1 to confirm");
+    expect(finalReview.text).toContain("To change the amount, press 2");
+    expect(finalReview.text).toContain("To change the recipient, press 3");
   });
 
   it("keeps pending provider status on the call and receipts only trusted completion", async () => {
@@ -312,7 +363,8 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     const languagePrompt = await request(app)
       .post("/language-selection")
       .query({ sessionId, lang: "en" });
-    expect(languagePrompt.text).toContain("/api/audio/prompt-tts/en/OP02");
+    expect(languagePrompt.text).toContain("For English, press 1. For Twi, press 2.");
+    expect(languagePrompt.text).toContain(`/language-selection?sessionId=${sessionId}`);
 
     // 2. Language Selection -> English (1)
     const langRes = await request(app)
@@ -595,7 +647,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
         .get("/service-select")
         .query({ sessionId, lang: "en", secret });
       expect(serviceMenuRes.status).toBe(200);
-      expect(serviceMenuRes.text).toContain("/api/audio/prompt-tts/en/supported_service_select");
+      expect(serviceMenuRes.text).toContain("For a supported Mobile Money transfer, press 1.");
       expect(serviceMenuRes.text).toContain(`callbackUrl="http://`);
       expect(serviceMenuRes.text).toContain(`secret=${secret}`);
 
@@ -673,12 +725,12 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     const menuRes = await request(app)
       .post("/service-select")
       .query({ sessionId, lang: "en" });
-    expect(menuRes.text).toContain("/api/audio/prompt-tts/en/supported_service_select");
+    expect(menuRes.text).toContain("For a supported Mobile Money transfer, press 1.");
 
     const unavailableBankingChoice = await request(app)
       .post("/service-choice")
       .send({ sessionId, lang: "en", dtmfDigits: "3" });
-    expect(decodeURIComponent(unavailableBankingChoice.headers["x-ai-reply-text"])).toContain("Banking is not supported in this pilot.");
+    expect(decodeURIComponent(unavailableBankingChoice.headers["x-ai-reply-text"])).toContain("That service is not supported in this pilot.");
     expect(unavailableBankingChoice.text).not.toContain("/provider-select");
     expect(unavailableBankingChoice.text).not.toContain("directTransfer=1");
 

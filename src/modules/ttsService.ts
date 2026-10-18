@@ -288,7 +288,11 @@ export function resolvePromptXml(
   fallbackText?: string
 ): string | null {
   const recording = getRecordingByPromptKey(key, lang);
-  if (recording && !recording.audioVerified && fallbackText) {
+  if (recording?.audioVerified && recording.url) {
+    const telephonyUrl = toTelephonyAudioUrl(recording.url);
+    return `<Play url="${baseUrl}${telephonyUrl}"/>`;
+  }
+  if (fallbackText) {
     return `<Say voice="female">${escapeXmlText(fallbackText)}</Say>`;
   }
   const audioUrl = resolvePrompt(key, lang);
@@ -296,7 +300,7 @@ export function resolvePromptXml(
     const telephonyUrl = toTelephonyAudioUrl(audioUrl);
     return `<Play url="${baseUrl}${telephonyUrl}"/>`;
   }
-  const text = fallbackText || resolvePromptText(key, lang);
+  const text = resolvePromptText(key, lang);
   return text ? `<Say voice="female">${escapeXmlText(text)}</Say>` : null;
 }
 

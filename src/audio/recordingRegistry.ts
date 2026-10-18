@@ -1,4 +1,5 @@
 import { TWI_AUDIO_LIBRARY_ITEMS, TwiLibraryItem } from "./twiLibraryManifest";
+import { DYNAMIC_PROMPT_IDS } from "./dynamicPromptBuilder";
 
 export type RecordingLanguage = "en" | "twi" | "unresolved";
 export type AudioAssetRoot = "supplied" | "public" | "additional";
@@ -67,6 +68,7 @@ export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
   recipient_found: "OP18",
   recipient_verify: "OP19",
   recipient_name: "OP20",
+  recipient_last4: "OP21",
   recipient_full_number: "OP21",
   recipient_confirm_speech: "OP23",
   use_recipient: "OP24",
@@ -227,7 +229,6 @@ for (const item of TWI_AUDIO_LIBRARY_ITEMS) {
   });
 }
 
-
 export const AUDIO_RECORDINGS: AudioRecording[] = recordings;
 
 // ── Lookups and Accessors ─────────────────────────────────────────────
@@ -235,10 +236,11 @@ export function getRecordingByPromptId(
   promptId: string,
   language: "en" | "twi" = "twi"
 ): AudioRecording | null {
-  const match = AUDIO_RECORDINGS.find(
-    (r) => r.promptId === promptId && r.language === language && r.url
+  const normalizedPromptId = promptId.toUpperCase();
+  const matches = AUDIO_RECORDINGS.filter(
+    (r) => r.promptId?.toUpperCase() === normalizedPromptId && r.language === language && r.url
   );
-  return match || null;
+  return matches.find((recording) => recording.audioVerified) || matches[0] || null;
 }
 
 export function getRecordingsByPromptId(
@@ -310,12 +312,71 @@ export function getAudioAssetInventory(): AudioRecording[] {
   return [...AUDIO_RECORDINGS];
 }
 
+const DYNAMIC_PROMPT_COPY: Readonly<Record<string, Omit<PromptManifestEntry, "id" | "audio" | "type" | "mappingStatus">>> = {
+  OP20: {
+    category: "recipient",
+    state: "RECIPIENT_NAME",
+    english: "The recipient's name is {recipient_name}.",
+    twi: "Recipient no din ne {recipient_name}.",
+  },
+  OP21: {
+    category: "recipient",
+    state: "RECIPIENT_FULL_NUMBER",
+    english: "The full recipient phone number is {recipient_phone_spaced}.",
+    twi: "Ne phone nɔmba a ɛdi mũ no ne {recipient_phone_spaced}.",
+  },
+  OP29: {
+    category: "amount",
+    state: "AMOUNT_READBACK",
+    english: "I heard {amount}. Is that amount correct?",
+    twi: "Mate sɛ ɛyɛ {amount}. Saa sika dodow yi yɛ nokware anaa?",
+  },
+  OP35: {
+    category: "confirmation",
+    state: "REVIEW_TRANSACTION",
+    english: "You are about to send {amount} to {recipient_name} on {network}. The recipient phone number ends in {last_four}.",
+    twi: "Wopɛ sɛ womane {amount} kɔma {recipient_name} wɔ {network} so. Recipient phone nɔmba no awiei ne {last_four}.",
+  },
+  OP52: {
+    category: "outcome",
+    state: "SUCCESS",
+    english: "Your transfer of {amount} to {recipient_name} is complete. Your application reference is {reference_id}.",
+    twi: "Wo transfer a ɛyɛ {amount} kɔma {recipient_name} no awie. Application reference no ne {reference_id}.",
+  },
+  OP52B: {
+    category: "outcome",
+    state: "REFERENCE_READBACK",
+    english: "Your complete transaction reference is {slow_reference}.",
+    twi: "Wo transaction reference nɔmba a ɛdi mũ no ne {slow_reference}.",
+  },
+  OP70: {
+    category: "recovery",
+    state: "CONFIRM_UNDERSTANDING",
+    english: "I heard you say {response}. Is that correct?",
+    twi: "Mate sɛ wokae {response}. Ɛyɛ nokware anaa?",
+  },
+};
+
 export function getPromptManifestEntry(promptId: string): PromptManifestEntry | null {
-  const rec = getRecordingByPromptId(promptId, "twi");
-  const enRec = getRecordingByPromptId(promptId, "en");
+  const normalizedPromptId = promptId.toUpperCase();
+  if (DYNAMIC_PROMPT_IDS.has(normalizedPromptId)) {
+    const copy = DYNAMIC_PROMPT_COPY[normalizedPromptId];
+    if (!copy) return null;
+    return {
+      id: normalizedPromptId,
+      ...copy,
+      type: "DYNAMIC",
+      audio: { english: null, twi: null },
+      mappingStatus: "DYNAMIC_TTS_REQUIRED",
+      usePolicy: "Render with current transaction values; never use sample audio.",
+    };
+  }
+
+  const rec = getRecordingByPromptId(normalizedPromptId, "twi");
+  const enRec = getRecordingByPromptId(normalizedPromptId, "en");
   if (!rec && !enRec) return null;
   return {
-    id: promptId,
+    id: normalizedPromptId,
     category: rec?.category || enRec?.category || "general",
     state: rec?.state || enRec?.state || "GENERAL",
     type: "FIXED",
@@ -326,12 +387,18 @@ export function getPromptManifestEntry(promptId: string): PromptManifestEntry | 
       twi: rec?.url || null,
     },
     mappingStatus: "VERIFIED",
+    usePolicy: rec?.audioVerified || enRec?.audioVerified
+      ? "Approved audio may play for this prompt."
+      : "Candidate audio is not approved for live playback; use the canonical text fallback.",
   };
 }
 
 export function getPromptManifestEntries(): PromptManifestEntry[] {
-  const ids = Array.from(new Set(AUDIO_RECORDINGS.map((r) => r.promptId).filter(Boolean))) as string[];
-  return ids.map((id) => getPromptManifestEntry(id)).filter(Boolean) as PromptManifestEntry[];
+  const ids = new Set([
+    ...AUDIO_RECORDINGS.map((recording) => recording.promptId).filter(Boolean) as string[],
+    ...DYNAMIC_PROMPT_IDS,
+  ]);
+  return Array.from(ids).map((id) => getPromptManifestEntry(id)).filter(Boolean) as PromptManifestEntry[];
 }
 
 export function normalizeRecordingLanguage(language: string): "en" | "twi" | null {

@@ -5,6 +5,7 @@ import {
   getRecordingByPromptKey,
   PROMPT_KEY_TO_RECORDING_ID,
   getPromptManifestEntry,
+  getPromptManifestEntries,
 } from "../src/audio/recordingRegistry";
 import {
   resolvePrompt,
@@ -30,27 +31,27 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
   // AT-01: New session begins -> OP01 welcome-only prompt is requested first
   it("AT-01: New session begins with OP01 welcome-only prompt", () => {
     const enWelcome = resolvePrompt("welcome", "en");
-    expect(enWelcome).toBe("/api/audio/prompt-tts/en/welcome");
+    expect(enWelcome).toBe("/api/audio/prompt-tts/en/OP01");
 
     const twiWelcome = resolvePrompt("welcome", "twi");
-    expect(twiWelcome).toBe("/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Welcome%201%20(2).mp3");
+    expect(twiWelcome).toBe("/api/audio/prompt-tts/twi/OP01");
   });
 
   // AT-02: OP01 playback completes -> OP02 language options play separately; no combined welcome repeats
   it("AT-02: OP01 and OP02 play as distinct, decoupled prompts without duplicate combined playback", () => {
     expect(getRecordingByPromptId("OP01", "twi")).not.toBeNull();
     expect(getRecordingByPromptId("OP02", "twi")).not.toBeNull();
-    expect(resolvePrompt("OP01", "twi")).toBe("/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Welcome%201%20(2).mp3");
-    expect(resolvePrompt("OP02", "twi")).toBe("/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Language%20selection.mp3");
+    expect(resolvePrompt("OP01", "twi")).toBe("/api/audio/prompt-tts/twi/OP01");
+    expect(resolvePrompt("OP02", "twi")).toBe("/api/audio/prompt-tts/twi/OP02");
   });
 
   // AT-03: English session -> Resolver returns only an eligible English asset or an explicit safe missing result
   it("AT-03: English session returns only eligible English assets or safe null/TTS fallback", () => {
-    expect(getRecordingByPromptId("OP01", "en")).toBeNull();
+    expect(getRecordingByPromptId("OP01", "en")?.audioVerified).toBe(false);
 
     // English OP07 has no native English studio take in Audio_files, so getRecordingByPromptId returns null (not Twi)
     const enOp07Recording = getRecordingByPromptId("OP07", "en");
-    expect(enOp07Recording).toBeNull();
+    expect(enOp07Recording?.audioVerified).toBe(false);
 
     // The high-level resolver provides a typed safe dynamic TTS fallback URL, NEVER cross-playing Twi audio
     const enOp07Prompt = resolvePrompt("OP07", "en");
@@ -64,20 +65,21 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
     expect(twiOp07).not.toBeNull();
 
     const twiPrompt = resolvePrompt("OP07", "twi");
-    expect(twiPrompt).toMatch(/Service%20selection\.(?:mp3|m4a)/);
+    expect(twiPrompt).toBe("/api/audio/prompt-tts/twi/OP07");
   });
 
   // AT-05: Numeric-looking filename conflicts with content mapping -> Canonical prompt ID and reviewed mapping win
   it("AT-05: Canonical prompt ID and reviewed mapping win over numeric filename order", () => {
-    const op07 = AUDIO_RECORDINGS.find((recording) => recording.promptId === "OP07");
-    expect(op07?.state).toBe("SERVICE_SELECTION");
-    expect(op07?.relativePath).toContain("Service selection");
+    const op07 = AUDIO_RECORDINGS.find((recording) => recording.promptId === "OP07" && recording.language === "twi");
+    expect(op07?.category).toBe("navigation");
+    expect(op07?.relativePath).toContain("Service_selection");
     expect(op07?.mappingStatus).toBe("VERIFIED");
+    expect(op07?.audioVerified).toBe(false);
     expect(getRecordingByPromptId("OP07", "twi")).not.toBeNull();
 
-    const op08 = AUDIO_RECORDINGS.find((recording) => recording.promptId === "OP08");
-    expect(op08?.state).toBe("NETWORK_SELECTION");
-    expect(op08?.relativePath).toContain("Network selection");
+    const op08 = AUDIO_RECORDINGS.find((recording) => recording.promptId === "OP08" && recording.language === "twi");
+    expect(op08?.category).toBe("navigation");
+    expect(op08?.relativePath).toContain("Network_selection");
     expect(getRecordingByPromptId("OP08", "twi")).not.toBeNull();
   });
 
@@ -194,7 +196,7 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
 
     const op21Manifest = getPromptManifestEntry("OP21");
     expect(op21Manifest?.state).toBe("RECIPIENT_FULL_NUMBER");
-    expect(op21Manifest?.english).toContain("[ALL TEN DIGITS]");
+    expect(op21Manifest?.english).toContain("{recipient_phone_spaced}");
   });
 
   // AT-16: User confirms recipient -> Continue to amount entry only after explicit confirmation event
@@ -304,6 +306,9 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
     expect(op21?.type).toBe("DYNAMIC");
     expect(op29?.type).toBe("DYNAMIC");
     expect(op52?.type).toBe("DYNAMIC");
+    expect(getPromptManifestEntries().map((entry) => entry.id)).toEqual(expect.arrayContaining([
+      "OP20", "OP21", "OP29", "OP35", "OP52", "OP52B", "OP70",
+    ]));
   });
 
   // AT-26: Payment is pending/unknown -> No success prompt; route to status-check/pending recovery
@@ -321,7 +326,8 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
   it("AT-27: Confirmed success triggers OP52/OP53 with verified reference ID", () => {
     const verifiedReference = "OKP-TX-984712";
     expect(verifiedReference).toMatch(/^OKP-TX-\d+$/);
-    expect(PROMPT_KEY_TO_RECORDING_ID["success"]).toBe("OP53");
+    expect(PROMPT_KEY_TO_RECORDING_ID["success"]).toBe("OP52");
+    expect(PROMPT_KEY_TO_RECORDING_ID["success_sent"]).toBe("OP53");
   });
 
   // AT-28: User rejects transaction review -> No payment submission occurs
@@ -387,48 +393,26 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
     expect(twiStep.targetStep).toBe("service-select");
   });
 
-  // AT-36: Canonical 19-step progression: Audio 8 before 7, Pin Handoff included, Keep Reference before Dynamic TTS
-  it("AT-36: Unified 19-step sequence has audio 8 before 7, PIN handoff, and keep reference before dynamic TTS", () => {
+  // AT-36: Main path stops in pending status; success receipt remains conditional.
+  it("AT-36: Guided sequence separates dynamic review from confirmation and stops pending", () => {
     const steps = TWI_SEQUENTIAL_FLOW_STEPS;
-    expect(steps).toHaveLength(19);
+    expect(steps).toHaveLength(20);
+    expect(steps.map((step) => step.name.match(/\(OP\d{2}\)/)?.[0])).toEqual([
+      "(OP01)", "(OP07)", "(OP08)", "(OP09)", "(OP10)", "(OP16)", "(OP18)", "(OP19)",
+      "(OP20)", "(OP21)", "(OP23)", "(OP24)", "(OP28)", "(OP26)", "(OP29)", "(OP35)",
+      "(OP36)", "(OP40)", "(OP45)", "(OP46)",
+    ]);
 
-    // Audio 8 (Use Recipient 1) is Step 7; Audio 7 (Recipient Confirm Speech) is Step 8
-    const step7 = steps.find((s) => s.stepIndex === 7)!;
-    const step8 = steps.find((s) => s.stepIndex === 8)!;
-    expect(step7.id).toBe("use_recipient_1");
-    expect(step7.audioUrl).toMatch(/Use%20recipient%201\.(?:mp3|m4a)/);
-    expect(step8.id).toBe("recipient_confirm_speech");
-    expect(step8.audioUrl).toMatch(/Recipient%20confirm%20speech\.(?:mp3|m4a)/);
+    const review = steps.find((step) => step.name.includes("(OP35)"))!;
+    const confirmation = steps.find((step) => step.name.includes("(OP36)"))!;
+    expect(review.isDynamicReadback).toBe(true);
+    expect(review.audioUrl).toBe("");
+    expect(review.nextStepId).toBe(confirmation.id);
+    expect(confirmation.keypadPrompt).toContain("3: Change recipient");
 
-    // Step 12 (confirm_speech) leads to PIN handoff (Step 13)
-    const step12 = steps.find((s) => s.stepIndex === 12)!;
-    expect(step12.nextStepId).toBe("pin_handoff");
-    const step13 = steps.find((s) => s.stepIndex === 13)!;
-    expect(step13.id).toBe("pin_handoff");
-    expect(step13.audioUrl).toMatch(/Pin%20Handoff\.(?:mp3|m4a)/);
-    expect(step13.nextStepId).toBe("submitted");
-
-    const step14 = steps.find((s) => s.stepIndex === 14)!;
-    expect(step14.id).toBe("submitted");
-    expect(step14.audioUrl).toContain("Submitted.aac");
-
-    // Success audio: SUCCESS SENT (Step 16)
-    const step16 = steps.find((s) => s.stepIndex === 16)!;
-    expect(step16.id).toBe("success_audio");
-    expect(step16.audioUrl).toContain("SUCCESS%20SENT.aac");
-
-    // Keep reference is Step 17, and Dynamic TTS Reference is Step 18 (plays AFTER Audio 17)
-    const step17 = steps.find((s) => s.stepIndex === 17)!;
-    const step18 = steps.find((s) => s.stepIndex === 18)!;
-    expect(step17.id).toBe("keep_reference");
-    expect(step17.audioUrl).toContain("Keep%20reference.aac");
-    expect(step18.id).toBe("dynamic_tts_reference");
-    expect(step18.isDynamicReadback).toBe(true);
-    expect(step17.nextStepId).toBe("dynamic_tts_reference");
-
-    // Step 19 is completion / Anything Else
-    const step19 = steps.find((s) => s.stepIndex === 19)!;
-    expect(step19.id).toBe("anything_else");
+    const pending = steps.find((step) => step.name.includes("(OP46)"))!;
+    expect(pending.nextStepId).toBeUndefined();
+    expect(steps.some((step) => /OP(52|53|54|56)/.test(step.name))).toBe(false);
   });
 
   // AT-37: Phone number entry auto-advances or advances with # without stalling

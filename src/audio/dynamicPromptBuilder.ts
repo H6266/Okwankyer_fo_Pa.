@@ -148,8 +148,8 @@ export function renderDynamicPromptTemplate(
       const lastFour = phoneValidation.last4Spaced || phone.slice(-4).split("").join(" ");
       const amount = parsed.formatted || String(params.amount);
       return isTwi
-        ? `Wopɛ sɛ womane ${amount} kɔma ${name} wɔ ${network} so. Recipient phone nɔmba no awiei ne ${lastFour}. Sɛ wopene so a, mia 1. Sɛ wopɛ sɛ wosesa sika no a, mia 2. Sɛ wopɛ sɛ wosesa recipient no a, mia 3. Sɛ wogyae a, mia 0.`
-        : `You are about to send ${amount} to ${name} on ${network}. The recipient phone number ends in ${lastFour}. Press 1 to confirm, 2 to change the amount, 3 to change the recipient, or 0 to cancel.`;
+        ? `Wopɛ sɛ womane ${amount} kɔma ${name} wɔ ${network} so. Recipient phone nɔmba no awiei ne ${lastFour}.`
+        : `You are about to send ${amount} to ${name} on ${network}. The recipient phone number ends in ${lastFour}.`;
     }
     case "OP52": {
       const name = params.name?.trim() || params.recipientName?.trim();

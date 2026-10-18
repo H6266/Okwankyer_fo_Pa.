@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { AUDIO_RECORDINGS, getRecordingByPromptId } from "../src/audio/recordingRegistry";
 import {
   CANONICAL_PROMPTS,
   CANONICAL_PROMPT_LIST,
@@ -54,6 +55,20 @@ describe("Canonical Prompt Registry (OP01–OP94)", () => {
     expect(getCanonicalPromptByState("WELCOME")?.id).toBe("OP01");
     expect(getCanonicalPromptByState("LANGUAGE_SELECTION")?.id).toBe("OP02");
     expect(getCanonicalPromptByState("AMOUNT_READBACK")?.id).toBe("OP29");
+  });
+
+  it("prefers a reviewed recording over earlier unreviewed candidates", () => {
+    const candidates = AUDIO_RECORDINGS.filter((recording) => recording.promptId === "OP01" && recording.language === "twi");
+    const approved = candidates.find((recording) => recording.id.startsWith("supplied:Twi_library/"));
+    expect(approved).toBeDefined();
+    const previousApproval = approved!.audioVerified;
+
+    try {
+      approved!.audioVerified = true;
+      expect(getRecordingByPromptId("OP01", "twi")).toBe(approved);
+    } finally {
+      approved!.audioVerified = previousApproval;
+    }
   });
 
   describe("Dynamic Template Rendering (Zero Placeholder Guarantee)", () => {
@@ -117,6 +132,7 @@ describe("Canonical Prompt Registry (OP01–OP94)", () => {
       expect(text).toContain("MTN");
       expect(text).toContain("5 6 7");
       expect(text).not.toContain("0 2 4 1 2 3 4 5 6 7");
+      expect(text).not.toContain("Press 1 to confirm");
       expect(resolvePromptSpokenText("OP35", "en", { amount: 50 })).toContain("cannot continue");
     });
 

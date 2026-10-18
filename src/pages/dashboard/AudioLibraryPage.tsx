@@ -83,32 +83,17 @@ export const AudioLibraryPage: React.FC = () => {
   const handleAudioEnded = useCallback(() => {
     // 1. Advance sequential flow auto-play
     if (autoPlayFlowActiveRef.current) {
-      const nextIdx = autoPlayFlowIndexRef.current + 1;
+      let nextIdx = autoPlayFlowIndexRef.current + 1;
+      while (nextIdx < TWI_SEQUENTIAL_FLOW_STEPS.length && !TWI_SEQUENTIAL_FLOW_STEPS[nextIdx].audioUrl) {
+        setCurrentFlowStepIndex(nextIdx);
+        autoPlayFlowIndexRef.current = nextIdx;
+        nextIdx += 1;
+      }
       if (nextIdx < TWI_SEQUENTIAL_FLOW_STEPS.length) {
         setCurrentFlowStepIndex(nextIdx);
         autoPlayFlowIndexRef.current = nextIdx;
         const nextStep = TWI_SEQUENTIAL_FLOW_STEPS[nextIdx];
-        if (nextStep.audioUrl) {
-          playAudio(nextStep.audioUrl, nextStep.name);
-        } else {
-          // Dynamic readback delay then continue
-          setTimeout(() => {
-            if (autoPlayFlowActiveRef.current) {
-              const afterDynamicIdx = nextIdx + 1;
-              if (afterDynamicIdx < TWI_SEQUENTIAL_FLOW_STEPS.length) {
-                setCurrentFlowStepIndex(afterDynamicIdx);
-                autoPlayFlowIndexRef.current = afterDynamicIdx;
-                const afterStep = TWI_SEQUENTIAL_FLOW_STEPS[afterDynamicIdx];
-                if (afterStep.audioUrl) {
-                  playAudio(afterStep.audioUrl, afterStep.name);
-                }
-              } else {
-                setAutoPlayFlowActive(false);
-                autoPlayFlowActiveRef.current = false;
-              }
-            }
-          }, 2000);
-        }
+        playAudio(nextStep.audioUrl, nextStep.name);
       } else {
         setAutoPlayFlowActive(false);
         autoPlayFlowActiveRef.current = false;
@@ -181,9 +166,18 @@ export const AudioLibraryPage: React.FC = () => {
     setAutoPlayFlowActive(true);
     autoPlayFlowActiveRef.current = true;
 
-    const step = TWI_SEQUENTIAL_FLOW_STEPS[fromIndex];
-    if (step?.audioUrl) {
+    let playableIndex = fromIndex;
+    while (playableIndex < TWI_SEQUENTIAL_FLOW_STEPS.length && !TWI_SEQUENTIAL_FLOW_STEPS[playableIndex].audioUrl) {
+      playableIndex += 1;
+    }
+    const step = TWI_SEQUENTIAL_FLOW_STEPS[playableIndex];
+    if (step) {
+      setCurrentFlowStepIndex(playableIndex);
+      autoPlayFlowIndexRef.current = playableIndex;
       playAudio(step.audioUrl, step.name);
+    } else {
+      setAutoPlayFlowActive(false);
+      autoPlayFlowActiveRef.current = false;
     }
   };
 

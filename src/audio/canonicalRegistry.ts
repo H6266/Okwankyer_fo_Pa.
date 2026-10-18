@@ -20,7 +20,7 @@ import {
   formatRefForSpeech,
   DynamicPromptParams,
 } from "./dynamicPromptBuilder";
-import { AUDIO_RECORDINGS, AudioRecording, PROMPT_KEY_TO_RECORDING_ID } from "./recordingRegistry";
+import { AUDIO_RECORDINGS, PROMPT_KEY_TO_RECORDING_ID, getRecordingByPromptId } from "./recordingRegistry";
 
 export type PromptType = "FIXED" | "DYNAMIC";
 export type CanonicalPromptLanguage = "en" | "twi";
@@ -177,8 +177,8 @@ promptIds.add("OP52b");
 const loadedPrompts: CanonicalPrompt[] = Array.from(promptIds).map((id) => {
   const normId = id.toUpperCase();
   const isDynamic = DYNAMIC_PROMPT_IDS.has(normId);
-  const twiRec = AUDIO_RECORDINGS.find((r) => r.promptId?.toUpperCase() === normId && r.language === "twi");
-  const enRec = AUDIO_RECORDINGS.find((r) => r.promptId?.toUpperCase() === normId && r.language === "en");
+  const twiRec = getRecordingByPromptId(normId, "twi");
+  const enRec = getRecordingByPromptId(normId, "en");
   const approvedTwiRec = twiRec?.audioVerified ? twiRec : null;
   const approvedEnRec = enRec?.audioVerified ? enRec : null;
 
