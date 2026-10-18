@@ -138,9 +138,9 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .send({ sessionId, callerNumber: "+233543546010", isActive: "1", lang: "en" });
 
     const welcomePrompts = [...welcome.text.matchAll(/<Play[^>]*url="([^"]+)"/gi)].map((match) => match[1]);
-    expect(welcomePrompts).toHaveLength(2);
-    expect(welcomePrompts[0]).toContain("/audio/Twi_library/Opening_voice_welcome_to_okwankyerefopa.mp3");
-    expect(welcomePrompts[1]).toContain("/api/audio/prompt-tts/en/language_selection");
+    expect(welcomePrompts).toHaveLength(1);
+    expect(welcomePrompts[0]).toContain("/audio/Twi/Opening_voice_welcome_to_okwankyerefopa.mp3");
+    expect(welcome.text).toContain("For English, press 1. For Twi, press 2.");
     expect(welcome.text).toContain(`/language-selection?sessionId=${sessionId}`);
     expect(decodeURIComponent(welcome.headers["x-ai-reply-text"])).toContain("For English, press 1");
 

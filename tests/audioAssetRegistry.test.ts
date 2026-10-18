@@ -15,8 +15,8 @@ import path from "path";
 
 describe("canonical audio asset registry", () => {
   it("inventories exact recording paths from the current audio roots", () => {
-    expect(AUDIO_ASSET_INVENTORY).toHaveLength(91);
-    expect(AUDIO_ASSET_INVENTORY.filter((asset) => asset.assetRoot === "supplied")).toHaveLength(89);
+    expect(AUDIO_ASSET_INVENTORY).toHaveLength(94);
+    expect(AUDIO_ASSET_INVENTORY.filter((asset) => asset.assetRoot === "supplied")).toHaveLength(92);
     expect(AUDIO_ASSET_INVENTORY.filter((asset) => asset.assetRoot === "public")).toHaveLength(2);
     expect(AUDIO_ASSET_INVENTORY.filter((asset) => asset.assetRoot === "additional")).toHaveLength(0);
 
@@ -33,9 +33,9 @@ describe("canonical audio asset registry", () => {
 
   it("uses language-specific text fallback until audio is reviewed", () => {
     expect(resolvePrompt("welcome", "en")).toBe("/api/audio/prompt-tts/en/welcome");
-    expect(resolvePrompt("welcome", "twi")).toBe("/audio/Twi_library/Opening_voice_welcome_to_okwankyerefopa.mp3");
+    expect(resolvePrompt("welcome", "twi")).toBe("/audio/Twi/Opening_voice_welcome_to_okwankyerefopa.mp3");
     expect(resolvePrompt("OP07", "en")).toBe("/api/audio/prompt-tts/en/OP07");
-    expect(resolvePrompt("OP07", "twi")).toBe("/audio/Twi_library/Service_selection.mp3");
+    expect(resolvePrompt("OP07", "twi")).toBe("/audio/Twi/Service_selection.mp3");
 
     for (const recording of AUDIO_CATALOG) {
       expect(recording.url).not.toMatch(/(?:null|undefined|\/)$/);
@@ -52,7 +52,7 @@ describe("canonical audio asset registry", () => {
     expect(AUDIO_RECORDINGS.filter((recording) => recording.assetRoot === "additional")).toHaveLength(0);
     expect(AUDIO_RECORDINGS.filter((recording) => recording.recordingRole === "unmapped")
       .every((recording) => recording.promptId === null)).toBe(true);
-    expect(resolveSimulatorAudioUrl("/audio/Welcome_prompt_01.mp3", "en")).toBe("/audio/Welcome_prompt_01.mp3");
+    expect(resolveSimulatorAudioUrl("/audio/Welcome_prompt_01.mp3", "en")).toBeNull();
     expect(matchReplyToAudio("Completely unknown arbitrary prompt text that has no recording", "twi").match).toBe(false);
   });
 

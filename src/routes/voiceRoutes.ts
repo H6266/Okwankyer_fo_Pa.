@@ -1611,30 +1611,55 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
       momoReferenceId: session.referenceId,
     });
 
-    const handoffText = lang === "twi"
-      ? "Pene so wɔ wo handset so. Mfa wo PIN nka wɔ telefon frɛ yi mu."
-      : "Approve it on your handset. Do not enter or say your PIN on this call.";
+    auditLogger.log(
+      "info",
+      "MOMO",
+      `Confirmed transfer submitted for provider handset authorization (Session: ${sessionId}, Ref: ${session.referenceId})`,
+      sessionId
+    );
 
-    try {
-      const result = await paymentSaga.executeConfirmedTransferSaga({
-        sessionId,
-        senderPhone: session.callerPhone,
+    const sagaResult = await paymentSaga.executeConfirmedTransferSaga({
+      sessionId,
+      senderPhone: session.callerPhone,
+      recipientPhone: session.recipientPhone,
+      recipientName: session.recipientName || undefined,
+      amount: session.amount,
+      network: session.network,
+      confirmedDraftHash: session.idempotencyKey,
+    });
+
+    const authoritativeSuccess = financialPolicy.isAuthoritativeCompletion({
+      status: sagaResult.status,
+      source: sagaResult.mode === "MOCK_PROVIDER" ? "mock_sandbox" : "real_provider",
+      financialTransactionId: sagaResult.saga.providerFinancialTransactionId,
+    });
+
+    if (authoritativeSuccess) {
+      transactionStateMachine.transition(sessionId, "COMPLETED");
+      const receipt = buildReceiptPrompt({
+        language: lang,
+        amount: session.amount,
         recipientPhone: session.recipientPhone,
         recipientName: session.recipientName,
         referenceId: sagaResult.saga.collectionReference || session.referenceId,
         timestamp: new Date(),
         status: "SUCCESSFUL",
       });
-      return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(receipt.spokenText)}</Say>\n    <Reject/>`, {
+      const successPrompt = canonicalPromptElement(
+        "success_sent",
+        lang,
+        baseUrl,
+        lang === "twi" ? "Wo transfer no ayɛ yie." : "Your transfer is complete."
+      );
+      return xmlResponse(res, `    ${successPrompt}\n    <Say voice="female">${escapeVoiceXml(receipt.spokenText)}</Say>\n    <Reject/>`, {
         type: "transaction_success",
         stepId: "transfer-success",
         stepName: "transfer-success",
         replyText: receipt.spokenText,
         outcome: "SUCCESSFUL",
         amount: session.amount,
-        network: session.network,
-        confirmedDraftHash: session.idempotencyKey,
       });
+    }
 
     if (sagaResult.status === "FAILED") {
       transactionStateMachine.transition(sessionId, "FAILED", {
@@ -1643,12 +1668,9 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
       const failedText = lang === "twi"
         ? "Provider no antumi ammene wo transfer no. Hwɛ wo Mobile Money tebea ansa na wosan bɔ mmɔden."
         : "Your provider could not complete the transfer. Check your Mobile Money status before trying again.";
-      const failedAudio = resolvePrompt("OP58", lang);
-      const failedAction = failedAudio
-        ? `<Play url="${escapeVoiceXml(`${baseUrl}${failedAudio}`)}"/>`
-        : `<Say voice="female">${escapeVoiceXml(failedText)}</Say>`;
-      return xmlResponse(res, `    ${failedAction}\n    <Reject/>`, {
-        type: "transaction_pending",
+      const failurePrompt = canonicalPromptElement("OP58", lang, baseUrl, failedText);
+      return xmlResponse(res, `    ${failurePrompt}\n    <Reject/>`, {
+        type: "transaction_failed",
         stepId: "transfer-failed",
         outcome: "FAILED",
         replyText: failedText,
@@ -1656,18 +1678,28 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
       });
     }
 
-    const pendingText = lang === "twi"
-      ? "Wo adesrɛ no akɔma provider no. Hwɛ wo fon so na di provider no private akwankyerɛ so. Mfa wo PIN nka anaa nhyɛ wɔ assistant yi mu da. Yɛrentumi nka sɛ transfer no ayɛ yie kosi sɛ provider no bɛsi so dua."
-      : "Your request was sent to your Mobile Money provider. Check your handset and follow its private authorization prompt. Never speak or enter your PIN in this assistant. This transfer is not successful until your provider confirms it.";
-    const authorizationPrompt = canonicalPromptElement("OP40", lang, baseUrl, pendingText);
-    return xmlResponse(res, `    ${authorizationPrompt}\n    <Reject/>`, {
+    const isAwaitingAuthorization = sagaResult.status === "PENDING";
+    const pendingText = isAwaitingAuthorization
+      ? lang === "twi"
+        ? "Wo adesrɛ no akɔma provider no. Hwɛ wo fon so na pene so wɔ wo Mobile Money provider no private akwankyerɛ so. Mfa wo PIN nka anaa nhyɛ wɔ assistant yi mu da. Yɛrentumi nka sɛ transfer no ayɛ yie kosi sɛ provider no bɛsi so dua."
+        : "Your request was sent to your Mobile Money provider. Check your handset and follow its private authorization prompt. Never speak or enter your PIN in this assistant. This transfer is not successful until your provider confirms it."
+      : lang === "twi"
+        ? "Yɛretwɛn sɛ yɛbɛgye transaction no tebea a ɛyɛ nokware afi provider no hɔ. Yɛrentumi nsi so dua sɛ transfer no ayɛ yie seesei."
+        : "We are still verifying the transaction with your provider. We cannot confirm that the transfer succeeded yet.";
+    const pendingPrompt = canonicalPromptElement(
+      isAwaitingAuthorization ? "OP40" : "waiting_confirmation",
+      lang,
+      baseUrl,
+      pendingText
+    );
+    return xmlResponse(res, `    ${pendingPrompt}\n    <Reject/>`, {
       type: "transaction_pending",
-      stepId: "provider-authorization-pending",
+      stepId: isAwaitingAuthorization ? "provider-authorization-pending" : "provider-status-pending",
       outcome: sagaResult.status,
       providerMode: sagaResult.mode,
       referenceId: sagaResult.saga.collectionReference,
       replyText: pendingText,
-      replyKey: "OP40",
+      replyKey: isAwaitingAuthorization ? "OP40" : "OP46",
     });
   } catch (err: any) {
     auditLogger.log("error", "MOMO", `Handoff execution failed: ${err.message}`, sessionId);

@@ -206,6 +206,9 @@ const loadedPrompts: CanonicalPrompt[] = Array.from(promptIds).map((id) => {
   } else if (normId === "OP29") {
     enText = "I heard {amount} Ghana cedis. Is that amount correct?";
     twiText = "Mate sɛ ɛyɛ Ghana cedis {amount}. Saa sika dodow yi yɛ nokware anaa?";
+  } else if (normId === "OP35") {
+    enText = "You are about to send {amount} to {name} on {network}. The recipient phone number ends in {last_four}.";
+    twiText = "Wopɛ sɛ womane {amount} kɔma {name} wɔ {network} so. Recipient phone nɔmba no awiei ne {last_four}.";
   } else if (normId === "OP40") {
     enText = "Your transaction is ready. Follow your Mobile Money provider's private authorization prompt on your handset. Never tell us your PIN.";
     twiText = "Wo transaction no ayɛ krado. Di wo Mobile Money provider no private akwankyerɛ a ɛwɔ wo fon so no akyi. Mma nka wo PIN nkyerɛ yɛn.";

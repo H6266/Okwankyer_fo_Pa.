@@ -42,7 +42,6 @@ export interface AudioRecording {
   audioVerified: boolean;
 }
 
-
 // ── Canonical Prompt Definitions (OP01-OP94 & OP52b) ─────────────────────────
 export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
   welcome: "OP01",
@@ -73,7 +72,6 @@ export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
   recipient_found: "OP18",
   recipient_verify: "OP19",
   recipient_name: "OP20",
-  recipient_last4: "OP21",
   recipient_full_number: "OP21",
   recipient_last4: "OP21",
   recipient_confirm_speech: "OP23",
@@ -204,29 +202,6 @@ const ENGLISH_FIXED_PROMPT_TEXT: Readonly<Record<string, string>> = {
   OP41: "Never share or say your Mobile Money PIN on this call. Enter it only on the official secure provider handset prompt.",
 };
 
-for (const [filename, language] of [["welcome_en.mp3", "en"], ["welcome_twi.mp3", "twi"]] as const) {
-  recordings.push({
-    id: `public:${filename}`,
-    promptId: "OP01",
-    state: "WELCOME",
-    category: "session",
-    context: language === "en" ? "Approved English welcome recording." : "Audio candidate; transcript and recording require human review.",
-    language,
-    title: filename.replace(/\.[a-z0-9]+$/i, ""),
-    spokenText: language === "en"
-      ? "Welcome to Ɔkwankyerɛfo Pa. For English, press 1. For Twi, press 2."
-      : null,
-    relativePath: filename,
-    assetRoot: "public",
-    url: `/audio/${filename}`,
-    mimeType: "audio/mpeg",
-    isAlternate: false,
-    recordingRole: "fixed",
-    mappingStatus: language === "en" ? "VERIFIED" : "CANDIDATE_NOT_AUDIO_VERIFIED",
-    audioVerified: language === "en",
-  });
-}
-
 for (const item of [
   { filename: "2.m4a", promptId: "OP07", state: "SERVICE_SELECTION", category: "navigation" },
   { filename: "3.m4a", promptId: "OP08", state: "NETWORK_SELECTION", category: "navigation" },
@@ -268,7 +243,7 @@ for (const item of TWI_AUDIO_LIBRARY_ITEMS) {
     language: "twi",
     title: item.filename.replace(/\.[a-z0-9]+$/i, ""),
     spokenText: item.transcript,
-    relativePath: `Twi/${item.filename}`,
+    relativePath: `Twi_library/${item.filename}`,
     legacyRelativePath: `Twi_library/${item.filename}`,
     assetRoot: "supplied",
     url: item.audioUrl,
@@ -276,6 +251,7 @@ for (const item of TWI_AUDIO_LIBRARY_ITEMS) {
     isAlternate: false,
     recordingRole: "fixed",
     mappingStatus: "VERIFIED",
+    audioVerified,
   });
 }
 
@@ -312,47 +288,7 @@ for (const asset of unmappedAudioAssets) {
     isAlternate: false,
     recordingRole: "unmapped",
     mappingStatus: "UNMAPPED_CANDIDATE",
-  });
-}
-
-// 3. Transcript metadata may describe assets that are not present in this
-// checkout. Do not expose those paths as playable recordings.
-const availablePublicAssets = new Set(unmappedAudioAssets
-  .filter((asset) => asset.assetRoot === "public")
-  .map((asset) => asset.relativePath));
-
-for (const [pathKey, data] of Object.entries(transcriptLookup)) {
-  const relative = pathKey.replace(/^audio\//i, "");
-  if (!availablePublicAssets.has(relative)) continue;
-  const mimeType = relative.endsWith(".mp3") ? "audio/mpeg" : "audio/mp4";
-  const baseName = relative.split("/").pop() || relative;
-  let promptId: string | null = null;
-  if (/welcome_prompt_01/i.test(baseName)) promptId = "OP01";
-  else if (/prompt_02/i.test(baseName)) promptId = "OP06";
-  else if (/prompt_03|prompt_04/i.test(baseName)) promptId = "OP07";
-  else if (/prompt_05/i.test(baseName)) promptId = "OP08";
-  else if (/prompt_06/i.test(baseName)) promptId = "OP18";
-  else if (/prompt_07/i.test(baseName)) promptId = "OP25";
-  else if (/prompt_08/i.test(baseName)) promptId = "OP34";
-  else if (/prompt_09/i.test(baseName)) promptId = "OP48";
-  else if (/prompt_10/i.test(baseName)) promptId = "OP53";
-
-  recordings.push({
-    id: `public:${relative}`,
-    promptId,
-    state: (data.step || "GENERAL").toUpperCase(),
-    category: data.step || "general",
-    context: data.verbatim || "",
-    language: "en",
-    title: baseName.replace(/\.[a-z0-9]+$/i, ""),
-    spokenText: data.verbatim || null,
-    relativePath: relative,
-    assetRoot: "public",
-    url: `/audio/${relative}`,
-    mimeType,
-    isAlternate: false,
-    recordingRole: "fixed",
-    mappingStatus: "VERIFIED",
+    audioVerified: false,
   });
 }
 
@@ -388,6 +324,7 @@ export function getRecordingByPromptId(
       recording.promptId?.toUpperCase() === normalizedId &&
       recording.language === language &&
       recording.recordingRole === "fixed" &&
+      recording.audioVerified &&
       recording.url &&
       recordingFileExists(recording)
   ) || null;
@@ -402,6 +339,7 @@ export function getRecordingsByPromptId(
     (recording) =>
       recording.promptId?.toUpperCase() === normalizedId &&
       recording.recordingRole === "fixed" &&
+      recording.audioVerified &&
       recording.url &&
       recordingFileExists(recording) &&
       (!language || recording.language === language)
@@ -447,11 +385,14 @@ export function getRecordingByUrl(url: string, preferredLang?: "en" | "twi"): Au
   if (!url) return null;
   const cleanUrl = url.split("?")[0].trim();
   const decodedUrl = decodeURIComponent(cleanUrl);
+  const baseName = decodedUrl.split("/").pop()?.toLowerCase() || "";
 
   const exact = AUDIO_RECORDINGS.filter((r) => {
     if (!r.url || !recordingFileExists(r)) return false;
     const rClean = r.url.split("?")[0].toLowerCase();
-    return rClean === cleanUrl || rClean.endsWith(`/${baseName}`);
+    return rClean === cleanUrl.toLowerCase() ||
+      rClean === decodedUrl.toLowerCase() ||
+      rClean.endsWith(`/${baseName}`);
   });
 
   if (exact.length > 0) {

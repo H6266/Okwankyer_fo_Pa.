@@ -7,6 +7,8 @@ import {
   getFlowStepByIndex,
   getNextFlowStep,
 } from "../src/audio/twiSequentialAudioFlow";
+import { isDynamicPromptId } from "../src/audio/dynamicPromptBuilder";
+import { getRecordingByPromptId } from "../src/audio/recordingRegistry";
 import { resolveSafeAudioPath } from "../src/audio/streaming";
 
 describe("Ɔkwankyerɛfo Pa — Transaction Audio Flow", () => {
@@ -39,7 +41,7 @@ describe("Ɔkwankyerɛfo Pa — Transaction Audio Flow", () => {
 
     expect(TWI_SEQUENTIAL_FLOW_STEPS.map((step) => step.id)).toEqual(expectedIds);
     expect(getFlowStepByIndex(1)?.id).toBe("step_01_welcome");
-    expect(getFlowStepByIndex(18)?.audioUrl).toBe("/audio/Twi_library/Authorize_phone.mp3");
+    expect(getFlowStepByIndex(18)?.audioUrl).toBe("/audio/Twi/Authorize_phone.mp3");
     expect(getFlowStepByIndex(19)?.id).toBe("step_19_waiting_confirmation");
     expect(getFlowStepByIndex(20)?.id).toBe("step_20_success_sent");
     expect(getFlowStepById("step_09_tts_recipient_name")?.isDynamicReadback).toBe(true);
@@ -83,7 +85,7 @@ describe("Ɔkwankyerɛfo Pa — Transaction Audio Flow", () => {
 
   it("uses registered audio URLs for every canonical prompt and reserves dynamic prompts for TTS", () => {
     for (const prompt of getAllCanonicalPrompts()) {
-      if (isDynamicPrompt(prompt.promptId)) {
+      if (isDynamicPromptId(prompt.promptId)) {
         expect(prompt.audioUrl).toBe(`/api/audio/prompt-tts/twi/${prompt.promptId}`);
         expect(prompt.fallbackAudioUrl).toBeUndefined();
         continue;

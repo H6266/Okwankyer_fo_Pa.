@@ -54,7 +54,7 @@ describe("VoiceXML Telephony Snapshots & Pillar Invariants", () => {
   });
 
   it("plays the canonical opening recording first for both language tracks", () => {
-    const openingPath = "/audio/Twi_library/Opening_voice_welcome_to_okwankyerefopa.mp3";
+    const openingPath = "/audio/Twi/Opening_voice_welcome_to_okwankyerefopa.mp3";
     for (const language of ["en", "twi"] as const) {
       const step1 = generateVoiceXmlStep(1, language, baseUrl);
       expect(step1.promptAudioUrl).toBe(`${baseUrl}${openingPath}`);
