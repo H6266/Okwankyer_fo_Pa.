@@ -2048,11 +2048,16 @@ export class Brain {
       const kyc = await recipientResolver.resolve(normalizedPhone);
       const detectedNet = kyc.network || getNetworkFromPhone(normalizedPhone) || "MTN";
       draft.slots.network = detectedNet;
-      draft.slots.verifiedName = kyc.name || draft.slots.recipient?.name || (draft.slots as any).recipientName || (detectedNet === "Telecel" ? "Kofi Annan" : "Emmanuel Mensah");
+      if (kyc.verified && kyc.name?.trim()) {
+        draft.slots.verifiedName = kyc.name.trim();
+      } else {
+        delete draft.slots.verifiedName;
+        delete draft.slots.hasNameDiscrepancy;
+      }
 
       // Check for discrepancy between user's candidate name / label and the registered name
       const statedCandidateName = draft.slots.recipient?.name || (draft.slots as any).candidateName;
-      if (statedCandidateName && typeof statedCandidateName === 'string' && statedCandidateName.trim().length > 0) {
+      if (draft.slots.verifiedName && statedCandidateName && typeof statedCandidateName === 'string' && statedCandidateName.trim().length > 0) {
         const cand = statedCandidateName.toLowerCase().trim();
         const ver = (draft.slots.verifiedName || "").toLowerCase().trim();
         if (!['him', 'her', 'them', 'someone', 'recipient', 'cedis', 'ghs', 'money', 'sika', 'the', 'my'].includes(cand)) {
@@ -2082,6 +2087,8 @@ export class Brain {
     } catch (err: any) {
       console.warn('[Brain] KYC resolution notice:', err?.message || err);
       draft.slots.network = getNetworkFromPhone(normalizedPhone) || "MTN";
+      delete draft.slots.verifiedName;
+      delete draft.slots.hasNameDiscrepancy;
     }
   }
 

@@ -10,32 +10,12 @@
 import { formatSpokenNumbersAsDigits } from "./numberFormatter";
 
 export function isVoiceCaptureBlockedForStep(step?: string): boolean {
-  const norm = (step || "").toLowerCase();
-  if (
-    norm.includes("enter-pin") ||
-    norm.includes("verify-pin") ||
-    norm.includes("pin-handoff") ||
-    norm.includes("pin-authorization")
-  ) {
-    return false;
-  }
-  return false;
+  const norm = (step || "").toLowerCase().replace(/_/g, "-");
+  return /(?:enter-pin|verify-pin|pin-handoff|pin-authorization)/.test(norm);
 }
 
 export function shouldDiscardSensitiveSpeech(text: string, step?: string): boolean {
-  const norm = (step || "").toLowerCase();
-  if (
-    norm.includes("pin-handoff") ||
-    norm.includes("pin_handoff") ||
-    norm.includes("enter-pin") ||
-    norm.includes("verify-pin") ||
-    norm.includes("enter_pin") ||
-    norm.includes("verify_pin") ||
-    norm === "pin-authorization"
-  ) {
-    // In PIN entry / handoff steps, the caller is explicitly permitted to speak their 4-digit PIN
-    return false;
-  }
+  if (isVoiceCaptureBlockedForStep(step)) return true;
   return (
     isVoiceCaptureBlockedForStep(step) ||
     isSpokenPinPattern(text, step) ||
@@ -53,17 +33,11 @@ export function isSpokenPinPattern(text: string, step?: string): boolean {
   const lower = text.toLowerCase().trim();
   const normalizedStep = (step || "").toLowerCase();
 
-  // If we are at the designated PIN step, caller is authorized to say or punch PIN
-  if (
-    normalizedStep.includes("pin-handoff") ||
-    normalizedStep.includes("pin_handoff") ||
-    normalizedStep.includes("enter-pin") ||
-    normalizedStep.includes("verify-pin") ||
-    normalizedStep.includes("enter_pin") ||
-    normalizedStep.includes("verify_pin") ||
-    normalizedStep === "pin-authorization"
-  ) {
-    return false;
+  // PIN steps never accept voice; if a transcript leaks through, treat it as sensitive.
+  if (isVoiceCaptureBlockedForStep(normalizedStep)) {
+    const digitsOnly = text.replace(/[^0-9]/g, "");
+    return digitsOnly.length >= 4 && digitsOnly.length <= 6 ||
+      /\b(pin|momo\s*pin|password|secret|passcode|kokoam|ahintasɛm)\b/i.test(lower);
   }
 
   if (/\b(pin|momo\s*pin|password|secret|passcode|kokoam|ahintasɛm)\b/i.test(lower)) {

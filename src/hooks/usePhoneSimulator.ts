@@ -2401,7 +2401,9 @@ export function usePhoneSimulator() {
     correctedTranscript: string;
     reason: string;
     category?: "name" | "number" | "amount" | "word" | "language";
+    userConsent: boolean;
   }) => {
+    if (!correction.userConsent) return;
     try {
       await fetch("/api/ai/asr/feedback", {
         method: "POST",
@@ -2413,7 +2415,7 @@ export function usePhoneSimulator() {
           originalTranscript: correction.originalTranscript,
           correctedTranscript: correction.correctedTranscript,
           reason: correction.reason,
-          userConsent: true,
+          userConsent: correction.userConsent,
         }),
       });
       setShowCorrectionDialog(false);

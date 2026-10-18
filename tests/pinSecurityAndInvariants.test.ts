@@ -31,7 +31,12 @@ describe("Context-Aware PIN Security (Section 14 & 46)", () => {
 
   it("blocks speech capture during the secure handset handoff", () => {
     expect(isVoiceCaptureBlockedForStep("pin-authorization")).toBe(true);
+    expect(isVoiceCaptureBlockedForStep("enter-pin")).toBe(true);
+    expect(isVoiceCaptureBlockedForStep("verify_pin")).toBe(true);
+    expect(isVoiceCaptureBlockedForStep("pin-handoff")).toBe(true);
     expect(isVoiceCaptureBlockedForStep("safe-confirmation")).toBe(false);
+    expect(shouldDiscardSensitiveSpeech("1234", "enter-pin")).toBe(true);
+    expect(isSpokenPinPattern("1234", "verify-pin")).toBe(true);
   });
 
   it("discards spoken PIN-like digit words before simulator transcript handling", () => {

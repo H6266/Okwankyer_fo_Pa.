@@ -41,6 +41,8 @@ export interface TransactionSession {
   amount: number | null;
   state: TransactionState;
   referenceId: string;
+  confirmationReadbackFingerprint?: string;
+  confirmationReadbackAt?: number;
   momoReferenceId?: string;
   createdAt: number;
   updatedAt: number;
@@ -111,6 +113,15 @@ export class TransactionStateMachine {
 
   public getSessionByIdempotencyKey(key: string): TransactionSession | undefined {
     return this.store.getSessionByIdempotencyKey(key);
+  }
+
+  public recordConfirmationReadback(sessionId: string, fingerprint: string): void {
+    const session = this.store.getSession(sessionId);
+    if (!session) throw new Error(`Session ${sessionId} not found`);
+    session.confirmationReadbackFingerprint = fingerprint;
+    session.confirmationReadbackAt = Date.now();
+    session.updatedAt = Date.now();
+    this.store.saveSession(session);
   }
 
   public transition(

@@ -20,6 +20,7 @@ import { mtnMomoService } from "../modules/mtnMomoService";
 import { auditLogger } from "../services/auditLogger";
 import { verifyAtWebhook } from "../providers/telephony/webhookGuard";
 import { paymentSaga } from "../integrations/momo/paymentSaga";
+import { FINANCIAL_LIMITS, financialPolicy } from "../ai_system/core/financialPolicy";
 import { durableTransactionStore } from "../services/durableTransactionStore";
 import { telephonyRateLimiter, adminRateLimiter } from "../middleware/rateLimiter";
 import { requireAdminAuth } from "../middleware/adminAuth";
@@ -315,6 +316,7 @@ function xmlResponse(res: Response, content: string, decision?: (Partial<IvrDeci
   let xml = content;
   if (decision) {
     if (decision.type) res.set("X-AI-Decision-Type", toSafeHeaderValue(decision.type));
+    if (decision.outcome) res.set("X-Transaction-Outcome", toSafeHeaderValue(decision.outcome));
     res.set("X-AI-Decision-Reason", toSafeHeaderValue(decision.reason));
     res.set("X-AI-Reply-Text", toSafeHeaderValue(decision.replyText));
     res.set("X-AI-Reply-Key", toSafeHeaderValue(decision.replyKey));
@@ -1328,9 +1330,20 @@ ivrRouter.all("/safe-confirmation", (req: Request, res: Response) => {
   const recipientName = session.recipientName;
   const isVerified = session.isRecipientVerified;
 
+  const readbackFingerprint = financialPolicy.fingerprint({
+    operation: "TRANSFER",
+    sessionId,
+    senderPhone: session.callerPhone,
+    recipientPhone,
+    amount,
+    currency: "GHS",
+    network: session.network,
+  });
+  transactionStateMachine.recordConfirmationReadback(sessionId, readbackFingerprint);
+
   const callbackUrl = `${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}`;
 
-  const { spokenText, voiceXml } = buildSafeConfirmationPrompt({
+  const { voiceXml } = buildSafeConfirmationPrompt({
     language: lang,
     amount,
     recipientPhone,
@@ -1357,6 +1370,26 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getOrCreateSession(sessionId);
+
+  if (dtmf === "1") {
+    const currentFingerprint = financialPolicy.fingerprint({
+      operation: "TRANSFER",
+      sessionId,
+      senderPhone: session.callerPhone,
+      recipientPhone: session.recipientPhone || undefined,
+      amount: session.amount || undefined,
+      currency: "GHS",
+      network: session.network,
+    });
+    const readbackMatches =
+      Boolean(session.confirmationReadbackFingerprint) &&
+      session.confirmationReadbackFingerprint === currentFingerprint &&
+      typeof session.confirmationReadbackAt === "number" &&
+      Date.now() - session.confirmationReadbackAt <= FINANCIAL_LIMITS.CONFIRMATION_TTL_MS;
+    if (!readbackMatches) {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/safe-confirmation?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}</Redirect>`);
+    }
+  }
 
   if (dtmf === "2") {
     transactionStateMachine.transition(sessionId, "RECIPIENT_VERIFIED", { amount: null });
@@ -1668,7 +1701,13 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   const retry = parseInt((req.query?.retry || req.body?.retry || "0") as string, 10) || 0;
   const baseUrl = getBaseUrl(req);
 
-  if (["enter-pin", "verify-pin", "pin-handoff", "confirm-speech"].includes(step)) {
+  if (["enter-pin", "verify-pin", "pin-handoff"].includes(step)) {
+    auditLogger.log(
+      "warn",
+      "SECURITY",
+      "Speech callback ignored during provider PIN authorization.",
+      sessionId,
+    );
     return refuseVoicePin(res, sessionId, lang);
   }
 
@@ -1716,7 +1755,7 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
       confidence = stt.confidence;
       confidenceSource = stt.confidenceSource || "unavailable";
       pinDiscarded = step !== "enter-pin" && Boolean(stt.pinDiscarded);
-      asrProvider = stt.provider;
+      asrProvider = stt.provider || "unknown";
     } catch (err: any) {
       auditLogger.log("warn", "NLU", `STT error: ${err.message}`, sessionId);
       asrProvider = "error-fallback";

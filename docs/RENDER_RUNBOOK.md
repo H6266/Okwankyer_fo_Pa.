@@ -60,12 +60,14 @@ Configure the following variables in the Render Dashboard under **Service ➔ En
 2. Navigate to **Voice ➔ Phone Numbers**.
 3. In Render, set `AT_WEBHOOK_SECRET` to a private random value of at least 16 characters. Do not use the literal text `YOUR_WEBHOOK_SECRET`.
 4. Locate phone number **`+233 30 804 8097`**.
-5. Set the **Callback URL** to the following, replacing the placeholder with the URL-encoded value of Render's `AT_WEBHOOK_SECRET`:
+5. Set the **Callback URL** to the stable Render endpoint:
    ```
-   https://okwankyer-fo-pa.onrender.com/voice-menu?secret=<URL-encoded-AT_WEBHOOK_SECRET>
+   https://okwankyer-fo-pa.onrender.com/voice-menu
    ```
-   The angle-bracketed text is a placeholder; do not paste it literally. The app adds the same secret to each subsequent callback and redirect URL.
+   Do not put the webhook secret in the Africa's Talking dashboard URL. The initial inbound Africa's Talking payload is validated as a telephony request, and the app appends the configured `AT_WEBHOOK_SECRET` to subsequent callback and redirect URLs.
 6. Click **Save**, then redeploy the Render service after changing its environment variables.
+
+**Secret rotation:** If the repository's example/default webhook secret has ever been used in a deployed callback or shared in a call log, replace `AT_WEBHOOK_SECRET` in Render with a new random value of at least 32 characters and redeploy. Never paste that secret into source control, the Africa's Talking URL field, or chat logs.
 
 Use the stable Render URL for the Africa's Talking callback in production.
 GitHub Codespaces also starts the app on port 3000 and exposes a public

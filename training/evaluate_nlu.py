@@ -1,66 +1,81 @@
 #!/usr/bin/env python3
-"""
-Ɔkwankyerɛfo Pa - NLU Evaluation & Accuracy Benchmark (evaluate_nlu.py)
-
-Evaluates NLU intent classification accuracy, precision, recall, and F1
-across English, Akan Twi, and Code-switching test sets.
-"""
+"""Evaluate intent accuracy with the same scorer used by the NLU trainer."""
 
 import json
 import argparse
 from typing import List, Dict, Any
-from collections import defaultdict
+
+if __package__:
+    from .train_nlu import predict_nlu_artifact
+else:
+    from train_nlu import predict_nlu_artifact
+
+
+def summarize_intent_predictions(expected: List[str], predicted: List[str]) -> Dict[str, Any]:
+    if len(expected) != len(predicted):
+        raise ValueError("Expected and predicted intent lists must have the same length")
+
+    labels = sorted(set(expected) | set(predicted))
+    confusion = {actual: {guess: 0 for guess in labels} for actual in labels}
+    for actual, guess in zip(expected, predicted):
+        confusion[actual][guess] += 1
+
+    per_intent = {}
+    for label in labels:
+        true_positive = confusion[label][label]
+        support = sum(confusion[label].values())
+        predicted_count = sum(confusion[actual][label] for actual in labels)
+        false_negative = support - true_positive
+        false_positive = predicted_count - true_positive
+        precision = true_positive / predicted_count if predicted_count else 0.0
+        recall = true_positive / support if support else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+        per_intent[label] = {
+            "accuracy_percent": round(recall * 100, 2),
+            "precision_percent": round(precision * 100, 2),
+            "recall_percent": round(recall * 100, 2),
+            "f1_percent": round(f1 * 100, 2),
+            "count": support,
+            "false_positives": false_positive,
+            "false_negatives": false_negative,
+        }
+
+    total = len(expected)
+    correct = sum(confusion[label][label] for label in labels)
+    macro = {
+        metric: round(
+            sum(per_intent[label][f"{metric}_percent"] for label in labels) / len(labels), 2
+        ) if labels else 0.0
+        for metric in ("precision", "recall", "f1")
+    }
+
+    return {
+        "total_test_samples": total,
+        "correct_predictions": correct,
+        "overall_accuracy_percent": round(correct / total * 100, 2) if total else 0.0,
+        "macro_precision_percent": macro["precision"],
+        "macro_recall_percent": macro["recall"],
+        "macro_f1_percent": macro["f1"],
+        "per_intent_breakdown": per_intent,
+        "confusion_matrix": confusion,
+    }
+
 
 def evaluate(test_examples: List[Dict[str, Any]], model_artifact_path: str):
     with open(model_artifact_path, "r", encoding="utf-8") as f:
         model = json.load(f)
 
-    feature_table = model["feature_table"]
-    class_priors = model["class_priors"]
-    vocab_size = model["vocab_size"]
-
-    correct = 0
-    total = len(test_examples)
-    per_intent = defaultdict(lambda: {"correct": 0, "total": 0})
+    expected_intents = []
+    predicted_intents = []
 
     for ex in test_examples:
-        text = ex["text"].lower()
+        text = ex["text"]
         expected = ex["intent"]
-        tokens = text.split()
+        pred_intent, _ = predict_nlu_artifact(model, text)
+        expected_intents.append(expected)
+        predicted_intents.append(pred_intent)
 
-        # Score per class
-        scores = {}
-        for intent, prior in class_priors.items():
-            score = prior
-            for tok in tokens:
-                count = feature_table.get(intent, {}).get(tok, 0) + 1
-                score *= (count / (vocab_size + 100))
-            scores[intent] = score
-
-        pred_intent = max(scores, key=scores.get) if scores else "UNKNOWN"
-
-        is_match = (pred_intent == expected)
-        if is_match:
-            correct += 1
-            per_intent[expected]["correct"] += 1
-        per_intent[expected]["total"] += 1
-
-    accuracy = (correct / total) * 100 if total > 0 else 0.0
-
-    report = {
-        "total_test_samples": total,
-        "correct_predictions": correct,
-        "overall_accuracy_percent": round(accuracy, 2),
-        "per_intent_breakdown": {
-            k: {
-                "accuracy": round((v["correct"] / v["total"]) * 100, 2) if v["total"] > 0 else 0.0,
-                "count": v["total"]
-            }
-            for k, v in per_intent.items()
-        }
-    }
-
-    return report
+    return summarize_intent_predictions(expected_intents, predicted_intents)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate NLU model on holdout test set")
@@ -76,4 +91,8 @@ if __name__ == "__main__":
     with open(args.output_report, "w", encoding="utf-8") as f:
         json.dump(rep, f, indent=2)
 
-    print(f"📊 Evaluation Complete: Accuracy = {rep['overall_accuracy_percent']}% ({rep['correct_predictions']}/{rep['total_test_samples']})")
+    print(
+        f"Evaluation Complete: accuracy={rep['overall_accuracy_percent']}%, "
+        f"macro-F1={rep['macro_f1_percent']}% "
+        f"({rep['correct_predictions']}/{rep['total_test_samples']})"
+    )

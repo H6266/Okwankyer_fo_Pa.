@@ -19,11 +19,15 @@ import {
   containsPinPattern,
   redactPii,
 } from "../src/domain/validation";
-import { SandboxRecipientResolver } from "../src/providers/recipient/RecipientResolver";
+import {
+  SandboxRecipientResolver,
+  sandboxRecipientFixturesAllowed,
+} from "../src/providers/recipient/RecipientResolver";
 import {
   buildSafeConfirmationPrompt,
   buildReceiptPrompt,
   generateTransactionReference,
+  formatSlowReferenceForSpeech,
 } from "../src/audio/dynamicPromptBuilder";
 import { TransactionStateMachine } from "../src/domain/stateMachine";
 import { durableTransactionStore } from "../src/services/durableTransactionStore";
@@ -108,7 +112,7 @@ describe("Task 1: Safe Confirmation Must Read Back What Caller Entered", () => {
 
     expect(receipt.spokenText).toContain("42 Cedis");
     expect(receipt.spokenText).toContain("Kwame Boateng");
-    expect(receipt.spokenText).toContain(ref1.split("").join(" "));
+    expect(receipt.spokenText).toContain(formatSlowReferenceForSpeech(ref1, "en"));
     expect(receipt.spokenText).not.toContain("17 September 2026"); // Never hardcoded past date
   });
 });
@@ -152,6 +156,24 @@ describe("Task 2: Real Recipient Resolution & Input Validation", () => {
     expect(res.name).toBeNull();
     expect(res.source).toBe("UNRESOLVED");
     expect(res.warning).toContain("could not be verified");
+  });
+
+  it("never enables sandbox recipient fixtures in production", () => {
+    expect(sandboxRecipientFixturesAllowed({
+      nodeEnv: "production",
+      demoMode: false,
+      momo: { targetEnv: "sandbox" },
+    })).toBe(false);
+    expect(sandboxRecipientFixturesAllowed({
+      nodeEnv: "development",
+      demoMode: false,
+      momo: { targetEnv: "sandbox" },
+    })).toBe(true);
+    expect(sandboxRecipientFixturesAllowed({
+      nodeEnv: "production",
+      demoMode: true,
+      momo: { targetEnv: "sandbox" },
+    })).toBe(false);
   });
 
   it("strictly validates amounts and rejects malformed formats like '5*0*1'", () => {
