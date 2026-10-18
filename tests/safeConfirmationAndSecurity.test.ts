@@ -19,7 +19,10 @@ import {
   containsPinPattern,
   redactPii,
 } from "../src/domain/validation";
-import { SandboxRecipientResolver } from "../src/providers/recipient/RecipientResolver";
+import {
+  SandboxRecipientResolver,
+  sandboxRecipientFixturesAllowed,
+} from "../src/providers/recipient/RecipientResolver";
 import {
   buildSafeConfirmationPrompt,
   buildReceiptPrompt,
@@ -152,6 +155,24 @@ describe("Task 2: Real Recipient Resolution & Input Validation", () => {
     expect(res.name).toBeNull();
     expect(res.source).toBe("UNRESOLVED");
     expect(res.warning).toContain("could not be verified");
+  });
+
+  it("never enables sandbox recipient fixtures in production", () => {
+    expect(sandboxRecipientFixturesAllowed({
+      nodeEnv: "production",
+      demoMode: false,
+      momo: { targetEnv: "sandbox" },
+    })).toBe(false);
+    expect(sandboxRecipientFixturesAllowed({
+      nodeEnv: "development",
+      demoMode: false,
+      momo: { targetEnv: "sandbox" },
+    })).toBe(true);
+    expect(sandboxRecipientFixturesAllowed({
+      nodeEnv: "production",
+      demoMode: true,
+      momo: { targetEnv: "sandbox" },
+    })).toBe(false);
   });
 
   it("strictly validates amounts and rejects malformed formats like '5*0*1'", () => {

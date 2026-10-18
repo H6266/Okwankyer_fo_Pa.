@@ -178,6 +178,22 @@ describe('Review Follow-Up Verification Tests', () => {
         expect(result.decision.slot).toBe('recipient');
       }
     });
+
+    it('does not invent a verified recipient name when the sandbox lookup is unresolved', async () => {
+      const offlineBrain = new Brain({ mode: 'offline_only' });
+      const result = await offlineBrain.process({
+        transcript: 'Send 42 cedis to Ama at 0209998464',
+        language: 'en',
+        languageConfidence: 0.95,
+        sessionLanguage: 'en',
+        draft: { slots: {} },
+      });
+
+      expect(result.updatedDraft.slots.recipient?.phone).toBe('0209998464');
+      expect(result.updatedDraft.slots.recipient?.name).toBe('Ama');
+      expect(result.updatedDraft.slots.verifiedName).toBeUndefined();
+      expect(result.updatedDraft.slots.hasNameDiscrepancy).toBeUndefined();
+    });
   });
 
   // ── 8. Regression Tests for Eval Transcripts ─────────────────────────────────

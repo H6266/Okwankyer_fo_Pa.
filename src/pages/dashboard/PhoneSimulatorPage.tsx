@@ -73,10 +73,22 @@ export interface ChatTurnItem {
   confidence?: number;
 }
 
+type AsrFeedbackReason =
+  | "wrong_word"
+  | "wrong_name"
+  | "wrong_number"
+  | "wrong_language"
+  | "missed_speech"
+  | "noise"
+  | "code_switching"
+  | "accent"
+  | "other";
+
 interface ParsedVoiceXml {
   raw: string;
   redirectUrl?: string;
   isReject: boolean;
+  transactionOutcome?: string;
   httpStatus?: number;
   guardReason?: string;
   playUrl?: string;
@@ -231,6 +243,15 @@ export const PhoneSimulatorPage: React.FC = () => {
       options: "1=English, 2=Twi, 0=Exit",
     },
   ]);
+  const [correctionDraft, setCorrectionDraft] = useState<{
+    turn: ChatTurnItem;
+    correctedTranscript: string;
+    reason: AsrFeedbackReason;
+    consent: boolean;
+    error: string;
+    submitting: boolean;
+  } | null>(null);
+  const [correctionNotice, setCorrectionNotice] = useState<string>("");
   const [terminalLogs, setTerminalLogs] = useState<TerminalLog[]>([
     {
       id: "init",
@@ -488,11 +509,12 @@ export const PhoneSimulatorPage: React.FC = () => {
     async (
       xmlText: string,
       effectiveUrl: string,
-      meta?: { httpStatus?: number; guardReason?: string }
+      meta?: { httpStatus?: number; guardReason?: string; transactionOutcome?: string }
     ) => {
       const parsed = parseVoiceXml(xmlText);
       if (meta?.httpStatus) parsed.httpStatus = meta.httpStatus;
       if (meta?.guardReason) parsed.guardReason = meta.guardReason;
+      parsed.transactionOutcome = meta?.transactionOutcome;
       const requestedPlayUrl = parsed.playUrl;
 
       // Extract step name from URL
@@ -549,8 +571,43 @@ export const PhoneSimulatorPage: React.FC = () => {
           } catch {}
         }
 
+        if (parsed.transactionOutcome === "PENDING" || parsed.transactionOutcome === "RECONCILIATION_REQUIRED") {
+          activeStepNameRef.current = "pin-handoff";
+          activeCallbackUrlRef.current = null;
+          setActiveStepName("pin-handoff");
+          setActiveCallbackUrl(null);
+          setIsMicMuted(true);
+          isMicMutedRef.current = true;
+          continuousAudioEngine.setZeroPinMuted(true);
+          continuousAudioEngine.pauseForPlayback();
+          setCallStatus("Awaiting provider authorization");
+          const pendingText = parsed.sayText || "Check your handset for your Mobile Money provider's private authorization prompt.";
+          setCurrentPrompt(pendingText);
+          currentPromptRef.current = pendingText;
+          addLog("state", `Provider transaction status: ${parsed.transactionOutcome}. No success was reported.`);
+          addChatTurn({ sender: "ai", text: pendingText, audioSource: "synthesis", stepName: "pin-handoff" });
+          try {
+            const synthesis = await api.synthesizeSpeech({
+              text: pendingText,
+              language: responseLanguage === "twi" ? "tw" : "en",
+              sessionId: sessionIdRef.current || sessionId,
+            });
+            if (synthesis.result.audioBase64) {
+              await audioPlaybackController.play({
+                audioBase64: synthesis.result.audioBase64,
+                audioMimeType: synthesis.result.audioMimeType,
+                text: pendingText,
+              });
+            } else {
+              await audioPlaybackController.playToneIndicator();
+            }
+          } catch {
+            await audioPlaybackController.playToneIndicator();
+          }
+          return;
+        }
+
         const isPinHandoff =
-          effectiveUrl.includes("safe-outcome") ||
           (parsed.sayText && parsed.sayText.toLowerCase().includes("momo pin") && !effectiveUrl.includes("verify-pin")) ||
           (parsed.sayText && parsed.sayText.toLowerCase().includes("phone screen"));
 
@@ -562,17 +619,7 @@ export const PhoneSimulatorPage: React.FC = () => {
         }
 
         // Check if this is a completed transaction / success receipt
-        const isSuccessOutcome =
-          stepName === "transfer-success" ||
-          stepName === "verify-pin" ||
-          effectiveUrl.includes("verify-pin") ||
-          (parsed.sayText && (
-            parsed.sayText.toLowerCase().includes("successful") ||
-            parsed.sayText.toLowerCase().includes("sent") ||
-            parsed.sayText.toLowerCase().includes("akɔ pɛpɛɛpɛ") ||
-            parsed.sayText.toLowerCase().includes("transaction id") ||
-            parsed.sayText.toLowerCase().includes("wo sika no akɔ")
-          ));
+        const isSuccessOutcome = parsed.transactionOutcome === "SUCCESSFUL" || stepName === "transfer-success";
 
         if (isSuccessOutcome) {
           const successMsg = parsed.sayText || (responseLanguage === "twi" ? "Wo MoMo transfer no akɔ pɛpɛɛpɛ!" : "Transfer completed successfully!");
@@ -857,6 +904,7 @@ export const PhoneSimulatorPage: React.FC = () => {
         };
 
         const guardReason = decodeHeader(res.headers.get("x-telephony-guard-reason")) || undefined;
+        const transactionOutcome = decodeHeader(res.headers.get("x-transaction-outcome")) || undefined;
         setInteractionMode(res.headers.get("x-interaction-mode") || "UNSELECTED");
         setConversationState(res.headers.get("x-conversation-state") || "INITIATED");
         const aiDecisionType = decodeHeader(res.headers.get("x-ai-decision-type"));
@@ -889,7 +937,7 @@ export const PhoneSimulatorPage: React.FC = () => {
 
         const text = await res.text();
         if (text.includes("<Response>") || text.includes("<Reject")) {
-          await executeVoiceXml(text, targetUrl, { httpStatus: res.status, guardReason });
+          await executeVoiceXml(text, targetUrl, { httpStatus: res.status, guardReason, transactionOutcome });
         } else if (!res.ok) {
           addLog("system", `Telephony status ${res.status}: ${text.slice(0, 80)}`);
           setCallStatus("Ended");
@@ -897,7 +945,7 @@ export const PhoneSimulatorPage: React.FC = () => {
           setCallActive(false);
           audioPlaybackController.stop();
         } else {
-          await executeVoiceXml(text, targetUrl, { httpStatus: res.status, guardReason });
+          await executeVoiceXml(text, targetUrl, { httpStatus: res.status, guardReason, transactionOutcome });
         }
       } catch (err: any) {
         addLog("system", `Webhook transport error: ${err.message}`);
@@ -997,35 +1045,37 @@ export const PhoneSimulatorPage: React.FC = () => {
   );
 
   const startPinAuthorizationFlow = useCallback(async () => {
-    activeStepNameRef.current = "enter-pin";
-    setActiveStepName("enter-pin");
+    activeStepNameRef.current = "pin-handoff";
+    setActiveStepName("pin-handoff");
     setDigitsBuffer("");
     zeroPinOverlayRef.current = false;
     setZeroPinOverlay(false);
-    setIsMicMuted(false);
-    isMicMutedRef.current = false;
-    continuousAudioEngine.setZeroPinMuted(false);
+    setIsMicMuted(true);
+    isMicMutedRef.current = true;
+    continuousAudioEngine.setZeroPinMuted(true);
+    continuousAudioEngine.pauseForPlayback();
 
     const curLang = languageRef.current || language;
     const isTwi = curLang === "twi";
     const promptText = isTwi
-      ? "Yɛsrɛ wo, fa wo MoMo PIN nɔmba nnan no bɔ mu anaa ka kyerɛ me na yɛmfa nwie transfer no."
-      : "Please enter your 4-digit Mobile Money PIN on the keypad or say it to authorize this transfer.";
+      ? "Yɛde wo adesrɛ no rekɔma wo Mobile Money provider. Hwɛ wo fon na di provider no akwankyerɛ so. Mfa wo PIN nka anaa nhyɛ wɔ assistant yi mu da."
+      : "Your transfer request is being sent to your Mobile Money provider. Check your handset and follow the provider's private authorization prompt. Never speak or enter your PIN in this assistant.";
 
     const curSession = sessionIdRef.current || sessionId || `call_${Date.now()}`;
-    const targetCallback = `/api/simulator/verify-pin?sessionId=${encodeURIComponent(curSession)}&lang=${curLang}`;
-    activeCallbackUrlRef.current = targetCallback;
-    setActiveCallbackUrl(targetCallback);
-    setActiveNumDigits(4);
-    setActiveFinishOnKey("#");
+    activeCallbackUrlRef.current = null;
+    setActiveCallbackUrl(null);
+    setActiveNumDigits(0);
 
-    addLog("state", "Direct PIN entry active. Caller can enter 4-digit PIN on keypad or speak aloud.");
-    addChatTurn({ sender: "ai", text: promptText, audioSource: "synthesis", stepName: "enter-pin" });
+    addLog("state", "Secure provider handset authorization requested; microphone and simulator PIN entry are blocked.");
+    addChatTurn({ sender: "ai", text: promptText, audioSource: "synthesis", stepName: "pin-handoff" });
     setCurrentPrompt(promptText);
     currentPromptRef.current = promptText;
 
-    await audioPlaybackController.speakText(promptText);
-  }, [language, sessionId, addLog, addChatTurn]);
+    await dispatchVoiceWebhook(
+      `/api/simulator/safe-outcome?sessionId=${encodeURIComponent(curSession)}&lang=${curLang}`,
+      { dtmfDigits: "1" }
+    );
+  }, [language, sessionId, addLog, addChatTurn, dispatchVoiceWebhook]);
 
   useEffect(() => {
     startPinAuthorizationFlowRef.current = startPinAuthorizationFlow;
@@ -1071,7 +1121,7 @@ export const PhoneSimulatorPage: React.FC = () => {
                 "audio",
                 `Synthesizing dynamic TTS [${i + 1}/${plan.segments.length}]: "${seg.text}"`
               );
-              await audioPlaybackController.speakText(seg.text, langToUse);
+              await audioPlaybackController.speakText(seg.text, { language: langToUse });
             }
           }
           return;
@@ -1101,10 +1151,10 @@ export const PhoneSimulatorPage: React.FC = () => {
         }
 
         addLog("AI", `Dynamic response requires TTS: "${matchData?.matchReason || matchData?.reason || "Synthesizing"}"`);
-        await audioPlaybackController.speakText(textToPlay, langToUse);
+        await audioPlaybackController.speakText(textToPlay, { language: langToUse });
       } catch (err: any) {
         addLog("AI", `Audio assembly notice: playing TTS fallback (${err?.message || "Standard"})`);
-        await audioPlaybackController.speakText(textToPlay, langToUse);
+        await audioPlaybackController.speakText(textToPlay, { language: langToUse });
       }
     },
     [addLog, sessionId]
@@ -1682,14 +1732,9 @@ export const PhoneSimulatorPage: React.FC = () => {
         // Case 2: Gemini Tool Handoff (Recipient & Amount Gathered -> Safe Confirmation)
         if (brainOutput.decision.kind === "confirm") {
           addLog("state", `AI handed over gathered transaction details: amount=${amount ?? "provided"}, recipient=${recipientPhone || "provided"}. Starting safe readback.`);
-          activeStepNameRef.current = "safe-confirmation";
-          activeCallbackUrlRef.current = `/api/simulator/safe-confirmation?sessionId=${curSession}&lang=${curLang}`;
-          setActiveStepName("safe-confirmation");
-          setActiveCallbackUrl(`/api/simulator/safe-confirmation?sessionId=${curSession}&lang=${curLang}`);
-          setCurrentPrompt(replyText);
-          currentPromptRef.current = replyText;
-          await playAiAgentReply(replyText, curLang, isGeminiOrigin, curSession);
-          return;
+          return dispatchVoiceWebhook(
+            `/api/simulator/safe-confirmation?sessionId=${encodeURIComponent(curSession)}&lang=${curLang}`
+          );
         }
 
         // Case 3: Explicit Dispatch after Confirmation -> Start PIN Authorization
@@ -2051,31 +2096,8 @@ export const PhoneSimulatorPage: React.FC = () => {
         activeStepNameRef.current.includes("auth");
 
       if (isPinStep) {
-        const curSession = sessionIdRef.current || sessionId || `call_${Date.now()}`;
-        const curLang = languageRef.current || language || "twi";
-        const pinCallback = activeCallbackUrlRef.current?.includes("verify-pin")
-          ? activeCallbackUrlRef.current
-          : `/api/simulator/verify-pin?sessionId=${encodeURIComponent(curSession)}&lang=${curLang}`;
-
-        if (digit === "#") {
-          if (digitsBuffer.length >= 4) {
-            const pinVal = digitsBuffer.slice(0, 4);
-            setCallStatus("Verifying PIN");
-            addLog("caller", "Keypad PIN submitted: ● ● ● ● — Verifying MoMo PIN...");
-            dispatchVoiceWebhook(pinCallback, { dtmfDigits: pinVal });
-          }
-          return;
-        }
-        if (digitsBuffer.length >= 4) return;
-        const nextPin = digitsBuffer + digit;
-        setDigitsBuffer(nextPin);
-        if (nextPin.length === 4) {
-          setCallStatus("Verifying PIN");
-          addLog("caller", "Keypad PIN entered: ● ● ● ● — Verifying MoMo PIN with carrier gateway...");
-          setTimeout(() => {
-            dispatchVoiceWebhook(pinCallback, { dtmfDigits: nextPin });
-          }, 350);
-        }
+        setDigitsBuffer("");
+        addLog("system", "PIN entry is disabled here. Use only the private authorization prompt from your Mobile Money provider.");
         return;
       }
 
@@ -2865,6 +2887,11 @@ export const PhoneSimulatorPage: React.FC = () => {
             {/* TAB 1: Chat Conversation (Prompt vs Caller Voice Transcription) */}
             {activeTab === "chat" && (
               <div className="flex-1 p-4 overflow-y-auto space-y-3.5 bg-slate-950">
+                {correctionNotice && (
+                  <div role="status" className="text-xs text-emerald-300 bg-emerald-950/50 border border-emerald-800/60 rounded-lg px-3 py-2">
+                    {correctionNotice}
+                  </div>
+                )}
                 {chatTurns.length === 0 ? (
                   <div className="text-slate-500 italic py-16 text-center text-xs">
                     No conversation turns yet. Press Call or choose a prompt to begin.
@@ -2976,6 +3003,27 @@ export const PhoneSimulatorPage: React.FC = () => {
                             </div>
                           )}
                         </div>
+                        {isCaller && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCorrectionNotice("");
+                              setCorrectionDraft({
+                                turn,
+                                correctedTranscript: turn.text,
+                                reason: "wrong_word",
+                                consent: false,
+                                error: "",
+                                submitting: false,
+                              });
+                            }}
+                            className="inline-flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-cyan-200 px-2 py-1 rounded hover:bg-slate-800 transition-colors cursor-pointer"
+                            title="Submit a transcript correction for ASR evaluation"
+                          >
+                            <MessageSquare className="w-3 h-3" />
+                            <span>Correct transcript</span>
+                          </button>
+                        )}
                       </div>
                     );
                   })
@@ -3094,6 +3142,137 @@ export const PhoneSimulatorPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {correctionDraft && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !correctionDraft.submitting) setCorrectionDraft(null);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="asr-correction-title"
+            className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-5 space-y-4"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 id="asr-correction-title" className="text-base font-semibold text-slate-100">Correct transcript</h2>
+                <p className="text-xs text-slate-400 mt-1">The correction is separate from the active call and will not change this transaction.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCorrectionDraft(null)}
+                disabled={correctionDraft.submitting}
+                className="text-slate-400 hover:text-white px-2 py-1 rounded hover:bg-slate-800 disabled:opacity-50"
+                aria-label="Close transcript correction"
+              >
+                ×
+              </button>
+            </div>
+
+            <form
+              className="space-y-4"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                if (!correctionDraft.consent || !sessionId || !correctionDraft.correctedTranscript.trim()) return;
+
+                setCorrectionDraft((current) => current ? { ...current, submitting: true, error: "" } : current);
+                try {
+                  const response = await fetch("/api/ai/asr/feedback", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      sessionId,
+                      provider: "phone-simulator",
+                      language: language === "twi" ? "twi" : "eng",
+                      originalTranscript: correctionDraft.turn.rawTranscript || correctionDraft.turn.text,
+                      correctedTranscript: correctionDraft.correctedTranscript.trim(),
+                      reason: correctionDraft.reason,
+                      userConsent: true,
+                    }),
+                  });
+                  const result = await response.json().catch(() => ({}));
+                  if (!response.ok) throw new Error(result.error || "Correction could not be submitted.");
+                  setCorrectionDraft(null);
+                  setCorrectionNotice("Correction submitted for ASR evaluation. It does not update the live model automatically.");
+                } catch (error) {
+                  setCorrectionDraft((current) => current ? {
+                    ...current,
+                    submitting: false,
+                    error: error instanceof Error ? error.message : "Correction could not be submitted.",
+                  } : current);
+                }
+              }}
+            >
+              <div>
+                <label htmlFor="asr-correction-text" className="block text-xs font-medium text-slate-300 mb-1.5">Corrected words</label>
+                <textarea
+                  id="asr-correction-text"
+                  value={correctionDraft.correctedTranscript}
+                  onChange={(event) => setCorrectionDraft((current) => current ? { ...current, correctedTranscript: event.target.value } : current)}
+                  rows={3}
+                  maxLength={1000}
+                  required
+                  className="w-full resize-y bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="asr-correction-reason" className="block text-xs font-medium text-slate-300 mb-1.5">Correction type</label>
+                <select
+                  id="asr-correction-reason"
+                  value={correctionDraft.reason}
+                  onChange={(event) => setCorrectionDraft((current) => current ? { ...current, reason: event.target.value as AsrFeedbackReason } : current)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-cyan-500"
+                >
+                  <option value="wrong_word">Wrong word</option>
+                  <option value="wrong_name">Name</option>
+                  <option value="wrong_number">Number</option>
+                  <option value="wrong_language">Language</option>
+                  <option value="missed_speech">Missed speech</option>
+                  <option value="noise">Noise</option>
+                  <option value="code_switching">Code-switching</option>
+                  <option value="accent">Accent</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+
+              <label className="flex items-start gap-2.5 text-xs leading-relaxed text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={correctionDraft.consent}
+                  onChange={(event) => setCorrectionDraft((current) => current ? { ...current, consent: event.target.checked } : current)}
+                  className="mt-0.5 accent-cyan-500"
+                />
+                <span>I agree to store this transcript correction for ASR evaluation and possible future model improvement. Do not include a PIN, password, or other secret.</span>
+              </label>
+
+              {correctionDraft.error && <p role="alert" className="text-xs text-red-300">{correctionDraft.error}</p>}
+              {!sessionId && <p className="text-xs text-amber-300">Start a simulator session before submitting feedback.</p>}
+
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCorrectionDraft(null)}
+                  disabled={correctionDraft.submitting}
+                  className="px-3 py-2 text-xs text-slate-300 hover:text-white border border-slate-700 rounded-lg disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!correctionDraft.consent || !sessionId || !correctionDraft.correctedTranscript.trim() || correctionDraft.submitting}
+                  className="px-3 py-2 text-xs font-medium text-white bg-cyan-700 hover:bg-cyan-600 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {correctionDraft.submitting ? "Submitting…" : "Submit correction"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
 
       {/* ── Developer Diagnostics View (Collapsible) ── */}
       <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-900">

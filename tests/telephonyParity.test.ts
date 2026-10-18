@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import request from "supertest";
 import { app } from "../src/serverApp";
 import { transactionStateMachine } from "../src/domain/stateMachine";
-import { isDynamicPrompt, resolvePromptSpokenText } from "../src/audio/canonicalRegistry";
 
 describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
   const sessionId = `test_session_${Date.now()}`;
@@ -160,5 +159,212 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
     expect([200, 206]).toContain(res.status);
     expect(res.headers["content-type"]).toMatch(/audio/);
     expect(res.headers["accept-ranges"]).toBe("bytes");
+  });
+
+  it("never treats a client-supplied recipient name as identity verification", async () => {
+    const brainSessionId = `unverified_brain_${Date.now()}`;
+    const brainResponse = await request(app)
+      .post("/api/ai/brain/process")
+      .send({
+        sessionId: brainSessionId,
+        transcript: "Send 42 cedis to Ama at 0209998464",
+        language: "en",
+        draft: {
+          intent: "momo.transfer",
+          slots: {
+            recipient: { name: "Ama", phone: "0209998464" },
+            verifiedName: "Forged Verified Name",
+          },
+        },
+      });
+
+    expect(brainResponse.status).toBe(200);
+    expect(transactionStateMachine.getSession(brainSessionId)?.isRecipientVerified).toBe(false);
+    expect(brainResponse.body.brainOutput.updatedDraft.slots.verifiedName).toBeUndefined();
+
+    const syncSessionId = `unverified_sync_${Date.now()}`;
+    const syncResponse = await request(app)
+      .post("/api/ai/simulator/sync-session")
+      .send({
+        sessionId: syncSessionId,
+        recipientPhone: "0209998464",
+        recipientName: "Ama",
+      });
+
+    expect(syncResponse.status).toBe(200);
+    expect(transactionStateMachine.getSession(syncSessionId)?.isRecipientVerified).toBe(false);
+  });
+
+  it("reads back the exact 42 cedis and 0543546010 before asking for confirmation", async () => {
+    const flowSessionId = `exact_transfer_${Date.now()}`;
+    transactionStateMachine.getOrCreateSession(flowSessionId, "en", "VOICE");
+    transactionStateMachine.transition(flowSessionId, "INITIATED", {
+      callerPhone: "+233244123456",
+    });
+
+    const recipientResponse = await request(app)
+      .post(`/verify-recipient?sessionId=${flowSessionId}&lang=en`)
+      .send({ dtmfDigits: "0543546010#" });
+    expect(recipientResponse.status).toBe(200);
+
+    const recipientConfirmation = await request(app)
+      .post(`/recipient-verify-choice?sessionId=${flowSessionId}&lang=en`)
+      .send({ dtmfDigits: "1" });
+    expect(recipientConfirmation.status).toBe(200);
+
+    const amountResponse = await request(app)
+      .post(`/verify-amount?sessionId=${flowSessionId}&lang=en`)
+      .send({ dtmfDigits: "42#" });
+    expect(amountResponse.status).toBe(200);
+    expect(amountResponse.text).toContain("/safe-confirmation");
+
+    const readback = await request(app).get(`/safe-confirmation?sessionId=${flowSessionId}&lang=en`);
+    expect(readback.status).toBe(200);
+    expect(readback.text).toContain("42 Cedis");
+    expect(readback.text).toContain("0 5 4 3 5 4 6 0 1 0");
+    expect(readback.text).toContain("/safe-outcome");
+    expect(readback.text).not.toContain("numDigits=\"4\"");
+
+    const handoff = await request(app)
+      .post(`/safe-outcome?sessionId=${flowSessionId}&lang=en`)
+      .send({ dtmfDigits: "1" });
+
+    expect(handoff.status).toBe(200);
+    expect(handoff.headers["x-transaction-outcome"]).toBe("PENDING");
+    expect(handoff.text).toContain("private authorization prompt");
+    expect(handoff.text).not.toContain("transaction was successful");
+    expect(handoff.text).not.toContain("Success.m4a");
+    expect(transactionStateMachine.getSession(flowSessionId)?.state).toBe("PIN_PENDING");
+  });
+
+  it("advances a complete natural-language transfer to a readback-ready state, not straight to PIN", async () => {
+    const flowSessionId = `natural_transfer_${Date.now()}`;
+    transactionStateMachine.getOrCreateSession(flowSessionId, "en", "VOICE");
+    transactionStateMachine.transition(flowSessionId, "INITIATED", {
+      callerPhone: "+233244123456",
+    });
+    const response = await request(app)
+      .post("/api/ai/brain/process")
+      .send({
+        sessionId: flowSessionId,
+        transcript: "I want to send 42 cedis to 0543546010",
+        language: "en",
+        draft: { slots: {} },
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.brainOutput.decision.kind).toBe("confirm");
+    expect(response.body.brainOutput.reply.text).toContain("forty two Ghana cedis");
+    const session = transactionStateMachine.getSession(flowSessionId);
+    expect(session?.state).toBe("AMOUNT_ENTERED");
+    expect(session?.isRecipientVerified).toBe(true);
+    expect(session?.amount).toBe(42);
+
+    const readback = await request(app).get(`/safe-confirmation?sessionId=${flowSessionId}&lang=en`);
+    expect(readback.status).toBe(200);
+    expect(readback.text).toContain("42 Cedis");
+    expect(readback.text).toContain("0 5 4 3 5 4 6 0 1 0");
+
+    const pinWithoutConfirmation = await request(app)
+      .post(`/safe-outcome?sessionId=${flowSessionId}&lang=en`)
+      .send({ dtmfDigits: "1" });
+    expect(pinWithoutConfirmation.status).toBe(200);
+    expect(pinWithoutConfirmation.text).toContain("private authorization prompt");
+    expect(session?.state).toBe("PIN_PENDING");
+  });
+
+  it("synthesizes the exact personalized transaction readback as playable audio", async () => {
+    const response = await request(app)
+      .post("/api/ai/synthesize")
+      .send({
+        text: "You are about to send forty two Ghana cedis to Hannes Aboagye, whose phone number is zero five four three five four six zero one zero. Do you confirm?",
+        language: "en",
+        sessionId: `readback_audio_${Date.now()}`,
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.result.audioBase64).toMatch(/^[A-Za-z0-9+/]+=*$/);
+    expect(response.body.result.audioBase64.length).toBeGreaterThan(128);
+    expect(response.body.result.audioMimeType).toMatch(/^audio\//);
+    expect(response.body.result.providerUsed).toBeTruthy();
+  });
+
+  it("rejects legacy app-submitted PIN and direct completion endpoints", async () => {
+    const pinResponse = await request(app)
+      .post("/api/ai/simulator/submit-pin")
+      .send({ sessionId: `legacy_pin_${Date.now()}`, pin: "1234" });
+    expect(pinResponse.status).toBe(410);
+    expect(pinResponse.body.success).toBe(false);
+
+    const completionResponse = await request(app)
+      .post("/api/ai/simulator/complete-transfer")
+      .send({ sessionId: `legacy_completion_${Date.now()}` });
+    expect(completionResponse.status).toBe(410);
+    expect(completionResponse.body.success).toBe(false);
+  });
+
+  it("does not collect, transcribe, or accept PINs in legacy IVR routes", async () => {
+    const pinSessionId = `blocked_pin_${Date.now()}`;
+    transactionStateMachine.getOrCreateSession(pinSessionId, "en", "VOICE");
+    transactionStateMachine.transition(pinSessionId, "RECIPIENT_VERIFIED", {
+      recipientPhone: "0543546010",
+      recipientName: "Hannes Aboagye",
+      isRecipientVerified: true,
+      callerPhone: "+233244123456",
+    });
+    transactionStateMachine.transition(pinSessionId, "AMOUNT_ENTERED", { amount: 42 });
+    transactionStateMachine.transition(pinSessionId, "CONFIRMED");
+    transactionStateMachine.transition(pinSessionId, "PIN_PENDING");
+
+    const entry = await request(app).get(`/enter-pin?sessionId=${pinSessionId}&lang=en`);
+    expect(entry.status).toBe(200);
+    expect(entry.text).toContain("private authorization prompt");
+    expect(entry.text).not.toContain("<GetDigits");
+    expect(entry.text).not.toContain("<Record");
+
+    const verification = await request(app)
+      .post(`/verify-pin?sessionId=${pinSessionId}&lang=en`)
+      .send({ dtmfDigits: "1234" });
+    expect(verification.status).toBe(200);
+    expect(verification.text).not.toContain("successful");
+    expect(transactionStateMachine.getSession(pinSessionId)?.state).toBe("PIN_PENDING");
+
+    const speech = await request(app)
+      .post(`/speech-fallback?step=enter-pin&sessionId=${pinSessionId}&lang=en`)
+      .send({ speechText: "1234" });
+    expect(speech.status).toBe(200);
+    expect(speech.text).not.toContain("1234");
+    expect(speech.text).not.toContain("successful");
+    expect(transactionStateMachine.getSession(pinSessionId)?.state).toBe("PIN_PENDING");
+  });
+
+  it("requires a transaction readback before accepting safe-outcome confirmation", async () => {
+    const sessionId = `confirmation_without_readback_${Date.now()}`;
+    transactionStateMachine.getOrCreateSession(sessionId, "en", "VOICE");
+    transactionStateMachine.transition(sessionId, "RECIPIENT_VERIFIED", {
+      callerPhone: "+233244123456",
+      recipientPhone: "0543546010",
+      recipientName: "Hannes Aboagye",
+      isRecipientVerified: true,
+      network: "MTN",
+    });
+    transactionStateMachine.transition(sessionId, "AMOUNT_ENTERED", { amount: 42 });
+
+    const response = await request(app)
+      .post(`/safe-outcome?sessionId=${sessionId}&lang=en`)
+      .send({ dtmfDigits: "1" });
+
+    expect(response.status).toBe(200);
+    expect(response.text).toContain("/safe-confirmation");
+    expect(transactionStateMachine.getSession(sessionId)?.state).toBe("AMOUNT_ENTERED");
+
+    await request(app).get(`/safe-confirmation?sessionId=${sessionId}&lang=en`);
+    transactionStateMachine.transition(sessionId, "AMOUNT_ENTERED", { amount: 43 });
+    const changedAmountConfirmation = await request(app)
+      .post(`/safe-outcome?sessionId=${sessionId}&lang=en`)
+      .send({ dtmfDigits: "1" });
+    expect(changedAmountConfirmation.text).toContain("/safe-confirmation");
+    expect(transactionStateMachine.getSession(sessionId)?.state).toBe("AMOUNT_ENTERED");
   });
 });

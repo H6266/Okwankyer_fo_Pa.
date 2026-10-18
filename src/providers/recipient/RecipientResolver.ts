@@ -30,6 +30,18 @@ export interface RecipientResolver {
   resolve(rawPhoneNumber: string): Promise<RecipientResolutionResult>;
 }
 
+export function sandboxRecipientFixturesAllowed(environment: {
+  nodeEnv: string;
+  demoMode: boolean;
+  momo: { targetEnv: string };
+}): boolean {
+  return environment.nodeEnv !== "production" && (
+    environment.nodeEnv === "test" ||
+    environment.demoMode ||
+    environment.momo.targetEnv === "sandbox"
+  );
+}
+
 /**
  * Sandbox fallback implementation: uses clearly labeled test fixtures in src/demo/.
  */
@@ -151,7 +163,7 @@ export class MtnRecipientResolver implements RecipientResolver {
       console.warn(`[MtnRecipientResolver] Failed to resolve via MTN API for ${redactPii(val.normalized)}:`, err.message);
     }
 
-    if (config.momo.targetEnv === "sandbox" || process.env.NODE_ENV === "test" || config.demoMode) {
+    if (sandboxRecipientFixturesAllowed(config)) {
       const fixture = SANDBOX_RECIPIENT_FIXTURES[val.normalized];
       if (fixture) {
         return {
@@ -184,13 +196,13 @@ export class MtnRecipientResolver implements RecipientResolver {
  * Factory returning active resolver based on environment credentials
  */
 export function getRecipientResolver(): RecipientResolver {
-  if (config.nodeEnv === "test" || config.demoMode) {
+  if (sandboxRecipientFixturesAllowed(config)) {
     return new SandboxRecipientResolver();
   }
   if (config.momo.configured || config.momo.disbursementConfigured || config.momo.collectionConfigured) {
     return new MtnRecipientResolver();
   }
-  return new SandboxRecipientResolver();
+  return new MtnRecipientResolver();
 }
 
 export const recipientResolver = getRecipientResolver();

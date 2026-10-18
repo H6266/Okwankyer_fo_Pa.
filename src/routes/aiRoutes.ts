@@ -39,6 +39,7 @@ import {
 import { asrOrchestrator } from "../ai_system/speech/asr/asrOrchestrator";
 import { longConversationAsr } from "../ai_system/speech/asr/longConversationAsr";
 import { feedbackService } from "../ai_system/speech/asr/feedbackService";
+import { hasExplicitAsrFeedbackConsent } from "../ai_system/speech/asr/feedbackConsent";
 import {
   GHANAIAN_ACOUSTIC_TOKENS,
   GHANAIAN_DIALECT_PROFILES,
@@ -696,12 +697,22 @@ aiRouter.post("/api/ai/brain/process", publicApiRateLimiter, async (req: Request
       ? "twi-akuapem"
       : "en";
 
+    const suppliedDraft = draft && typeof draft === "object" ? draft : {};
+    const safeDraft = {
+      ...suppliedDraft,
+      slots: suppliedDraft.slots && typeof suppliedDraft.slots === "object"
+        ? { ...suppliedDraft.slots }
+        : {},
+    };
+    delete safeDraft.slots.verifiedName;
+    delete safeDraft.slots.hasNameDiscrepancy;
+
     const output = await brain.process({
       transcript: String(text),
       language: lang,
       languageConfidence: req.body.languageConfidence ?? 0.95,
       sessionLanguage: lang,
-      draft: draft || { slots: {} },
+      draft: safeDraft,
       callerNumber,
       sessionId,
       forceModel: forceModel === true,
@@ -723,18 +734,38 @@ aiRouter.post("/api/ai/brain/process", publicApiRateLimiter, async (req: Request
         if (typeof slots.amount === "number" && slots.amount > 0) {
           updates.amount = slots.amount;
         }
-        if (slots.recipient?.phone) {
-          updates.recipientPhone = normalizeGhanaPhoneNumber(String(slots.recipient.phone));
+        const normalizedRecipientPhone = slots.recipient?.phone
+          ? normalizeGhanaPhoneNumber(String(slots.recipient.phone))
+          : undefined;
+        if (normalizedRecipientPhone) {
+          updates.recipientPhone = normalizedRecipientPhone;
+          if (normalizedRecipientPhone !== session.recipientPhone) {
+            updates.isRecipientVerified = false;
+          }
         }
-        if (slots.verifiedName || slots.recipient?.name) {
-          updates.recipientName = slots.verifiedName || slots.recipient?.name;
+        if (slots.verifiedName && normalizedRecipientPhone) {
+          updates.recipientName = slots.verifiedName;
           updates.isRecipientVerified = true;
+        } else if (slots.recipient?.name) {
+          updates.recipientName = slots.recipient.name;
         }
         if (slots.network) {
           updates.network = slots.network;
         }
         if (Object.keys(updates).length > 0) {
           transactionStateMachine.transition(sessionId, session.state, updates);
+        }
+
+        const synchronizedSession = transactionStateMachine.getSession(sessionId);
+        if (synchronizedSession && synchronizedSession.state === "INITIATED" && normalizedRecipientPhone) {
+          transactionStateMachine.transition(sessionId, "RECIPIENT_VERIFIED");
+        }
+        const stateAfterRecipient = transactionStateMachine.getSession(sessionId);
+        if (
+          stateAfterRecipient?.state === "RECIPIENT_VERIFIED" &&
+          typeof slots.amount === "number" && slots.amount > 0
+        ) {
+          transactionStateMachine.transition(sessionId, "AMOUNT_ENTERED");
         }
       } catch (err: any) {
         console.warn("[Brain Process] Automatic session synchronization notice:", err?.message || err);
@@ -841,10 +872,13 @@ aiRouter.post("/api/ai/simulator/sync-session", publicApiRateLimiter, (req: Requ
     const session = transactionStateMachine.getOrCreateSession(sessionId, language === "twi" ? "twi" : "en");
     const updates: Record<string, any> = {};
     if (typeof amount === "number" && amount > 0) updates.amount = amount;
-    if (recipientPhone) updates.recipientPhone = normalizeGhanaPhoneNumber(String(recipientPhone));
+    if (recipientPhone) {
+      const normalizedPhone = normalizeGhanaPhoneNumber(String(recipientPhone));
+      updates.recipientPhone = normalizedPhone;
+      if (normalizedPhone !== session.recipientPhone) updates.isRecipientVerified = false;
+    }
     if (recipientName) {
       updates.recipientName = recipientName;
-      updates.isRecipientVerified = true;
     }
     if (network) updates.network = network;
 
@@ -858,76 +892,12 @@ aiRouter.post("/api/ai/simulator/sync-session", publicApiRateLimiter, (req: Requ
   }
 });
 
-// Direct PIN transfer completion with accurate receipt generation
-aiRouter.post("/api/ai/simulator/complete-transfer", publicApiRateLimiter, async (req: Request, res: Response) => {
-  try {
-    const { sessionId, pin, language, amount: reqAmount, recipientPhone: reqPhone, recipientName: reqName, network: reqNet } = req.body;
-    if (!sessionId) {
-      return res.status(400).json({ error: "Missing 'sessionId' field" });
-    }
-    const lang = (language === "tw" || language === "twi" || language === "twi-asante" || language === "ak") ? "twi" : "en";
-    const session = transactionStateMachine.getOrCreateSession(sessionId, lang);
-
-    const effectiveAmount = typeof reqAmount === "number" && reqAmount > 0 ? reqAmount : session.amount || 90;
-    const effectivePhone = reqPhone ? normalizeGhanaPhoneNumber(String(reqPhone)) : session.recipientPhone || "0554848756";
-    const effectiveName = reqName || session.recipientName || "Emmanuel Mensah";
-    const effectiveNetwork = reqNet || session.network || "MTN";
-
-    // Transition to CONFIRMED and PIN_PENDING
-    transactionStateMachine.transition(sessionId, "CONFIRMED");
-    transactionStateMachine.transition(sessionId, "PIN_PENDING", {
-      amount: effectiveAmount,
-      recipientPhone: effectivePhone,
-      recipientName: effectiveName,
-      network: effectiveNetwork,
-    });
-
-    // Execute Payment Saga
-    const sagaResult = await paymentSaga.executeConfirmedTransferSaga({
-      sessionId,
-      senderPhone: session.callerPhone || "+233244123456",
-      recipientPhone: effectivePhone,
-      recipientName: effectiveName,
-      amount: effectiveAmount,
-      network: effectiveNetwork as any,
-      confirmedDraftHash: session.idempotencyKey,
-    });
-
-    transactionStateMachine.transition(sessionId, "COMPLETED");
-
-    // Generate accurate dynamic receipt
-    const refId = sagaResult.saga.collectionReference || session.referenceId;
-    const receipt = buildReceiptPrompt({
-      language: lang,
-      amount: effectiveAmount,
-      recipientPhone: effectivePhone,
-      recipientName: effectiveName,
-      referenceId: refId,
-      timestamp: new Date(),
-      status: "SUCCESSFUL",
-    });
-
-    // Determine audio match or dynamic TTS
-    const studioSuccessAudio = lang === "twi"
-      ? "/audio/Twi_library/Success_sent.m4a"
-      : "/audio/Success.m4a";
-
-    res.json({
-      success: true,
-      status: "SUCCESSFUL",
-      amount: effectiveAmount,
-      recipientPhone: effectivePhone,
-      recipientName: effectiveName,
-      network: effectiveNetwork,
-      referenceId: refId,
-      receiptText: receipt.spokenText,
-      audioUrl: studioSuccessAudio,
-      requiresTts: true,
-      saga: sagaResult.saga,
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || "Transfer completion failed" });
-  }
+// Legacy browser PIN completion is disabled: authorization must happen in the provider handset flow.
+aiRouter.post("/api/ai/simulator/complete-transfer", publicApiRateLimiter, (_req: Request, res: Response) => {
+  res.status(410).json({
+    success: false,
+    error: "PIN entry and transfer completion are handled only through the provider's secure handset authorization flow.",
+  });
 });
 
 aiRouter.post("/api/ai/analyze", publicApiRateLimiter, async (req: Request, res: Response) => {
@@ -1159,7 +1129,7 @@ aiRouter.post("/api/ai/asr/acoustic-enhance", publicApiRateLimiter, (req: Reques
 });
 
 // ── User ASR Feedback & Ground-Truth Corrections (Item 15 & 16) ────────
-aiRouter.post("/api/ai/asr/feedback", publicApiRateLimiter, (req: Request, res: Response) => {
+aiRouter.post("/api/ai/asr/feedback", adminRateLimiter, requireAdminAuth, (req: Request, res: Response) => {
   try {
     const {
       sessionId,
@@ -1177,6 +1147,9 @@ aiRouter.post("/api/ai/asr/feedback", publicApiRateLimiter, (req: Request, res: 
       return res.status(400).json({
         error: "Missing required fields: sessionId, originalTranscript, correctedTranscript, and reason are required.",
       });
+    }
+    if (!hasExplicitAsrFeedbackConsent(userConsent)) {
+      return res.status(400).json({ error: "Explicit consent is required to submit ASR feedback." });
     }
 
     const entry = feedbackService.submitCorrection({
@@ -1197,7 +1170,7 @@ aiRouter.post("/api/ai/asr/feedback", publicApiRateLimiter, (req: Request, res: 
   }
 });
 
-aiRouter.get("/api/ai/asr/feedback/metrics", publicApiRateLimiter, (_req: Request, res: Response) => {
+aiRouter.get("/api/ai/asr/feedback/metrics", adminRateLimiter, requireAdminAuth, (_req: Request, res: Response) => {
   try {
     const metrics = feedbackService.getMetrics();
     res.json({ success: true, metrics });
@@ -1445,113 +1418,12 @@ aiRouter.post("/api/ai/simulator/validate-recipient", publicApiRateLimiter, asyn
   }
 });
 
-// ── Live PIN Entry & MoMo Sandbox Execution ──────────────────────────
-const sessionPinAttempts = new Map<string, number>();
-
-aiRouter.post("/api/ai/simulator/submit-pin", publicApiRateLimiter, async (req: Request, res: Response) => {
-  try {
-    const { sessionId, pin, amount, recipientPhone, recipientName, network, callerPhone, language } = req.body || {};
-    if (!sessionId || !pin) {
-      return res.status(400).json({ success: false, error: "Missing sessionId or PIN." });
-    }
-
-    const currentAttempts = sessionPinAttempts.get(sessionId) || 0;
-    const cleanPin = String(pin).replace(/\D/g, "");
-    const isTwi = language === "twi" || language === "tw" || language === "ak" || language === "twi-asante";
-
-    // Valid sandbox test PINs are 1234 or 0000
-    const isValidPin = cleanPin === "1234" || cleanPin === "0000";
-
-    if (!isValidPin) {
-      const newAttempts = currentAttempts + 1;
-      sessionPinAttempts.set(sessionId, newAttempts);
-      const remaining = Math.max(0, 3 - newAttempts);
-
-      if (remaining === 0) {
-        const lockMsg = isTwi
-          ? "Woabɔ PIN no mfomsoɔ mprɛnsa. Ahobammbɔ nti, yɛato wo MoMo wallet mu kakra. Nante yie."
-          : "Too many incorrect PIN attempts. For your security, your Mobile Money wallet is temporarily locked. Goodbye.";
-        return res.json({
-          success: false,
-          error: "WALLET_LOCKED",
-          remainingAttempts: 0,
-          message: lockMsg,
-          messageTw: lockMsg,
-        });
-      }
-
-      const warnMsg = isTwi
-        ? `PIN no nyɛ pɛpɛɛpɛ. Wodeɛ aka mprɛ ${remaining} pɛ ansa na yɛato wo wallet mu. Mesrɛ wo, fa wo keypad no bɔ mu sɛ worentumi nka a, na nka wo PIN nkyerɛ obiara da.`
-        : `That PIN is incorrect. You have ${remaining} attempt${remaining === 1 ? "" : "s"} remaining before your wallet is locked. Please take your time, or use your phone keypad if you prefer. For your safety, remember never to share your PIN with anyone.`;
-
-      return res.json({
-        success: false,
-        error: "INVALID_PIN",
-        remainingAttempts: remaining,
-        message: warnMsg,
-        messageTw: warnMsg,
-      });
-    }
-
-    // PIN is correct! Clear attempt counter
-    sessionPinAttempts.delete(sessionId);
-
-    const txAmount = Number(amount) || 0;
-    const sender = callerPhone || "0244123456";
-    const refPhone = recipientPhone || "0240000000";
-    const refName = recipientName || "Recipient";
-
-    // Execute sandbox saga/transaction
-    let referenceId = `MOMO-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
-    try {
-      const sagaRes = await paymentSaga.executeConfirmedTransferSaga({
-        sessionId,
-        senderPhone: sender,
-        recipientPhone: refPhone,
-        recipientName: refName,
-        amount: txAmount,
-        network: (network || "MTN") as any,
-        confirmedDraftHash: `pin_auth_${Date.now()}`,
-      });
-      if (sagaRes?.saga?.collectionReference) {
-        referenceId = sagaRes.saga.collectionReference;
-      }
-    } catch {
-      // Fallback sandbox transaction record
-      momoEngine.transfer({
-        amount: txAmount,
-        payeePhone: refPhone,
-        payeeName: refName,
-        payerMessage: `Transfer of GHS ${txAmount}`,
-        payeeNote: `Received from ${sender}`,
-      }).catch(() => {});
-    }
-
-    callSessionRepository.upsertSession({
-      sessionId,
-      outcome: "COMPLETED",
-      amountGHS: txAmount,
-      recipientName: refName,
-      recipientPhone: refPhone,
-    });
-
-    const successMsg = isTwi
-      ? `Wo sika transfer a ɛyɛ GHS ${txAmount} a woremane ${refName} (${refPhone}) no akɔ yie pɛpɛɛpɛ! Wo reference nɔmba ne ${referenceId}. Yɛda wo ase sɛ wode Ɔkwankyerɛfo Pa adi dwuma.`
-      : `Your transfer of ${txAmount} Ghana Cedis to ${refName} on ${refPhone} has been completed successfully! Your MoMo reference ID is ${referenceId}. Thank you for using Ɔkwankyerɛfo Pa.`;
-
-    res.json({
-      success: true,
-      reference: referenceId,
-      amount: txAmount,
-      recipientName: refName,
-      recipientPhone: refPhone,
-      network: network || "MTN",
-      message: successMsg,
-      messageTw: successMsg,
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message || "Failed to process PIN authorization." });
-  }
+// Legacy app-submitted PIN API is disabled. Never accept or validate a MoMo PIN here.
+aiRouter.post("/api/ai/simulator/submit-pin", publicApiRateLimiter, (_req: Request, res: Response) => {
+  res.status(410).json({
+    success: false,
+    error: "This service never accepts MoMo PINs. Authorize only in the private prompt from your Mobile Money provider.",
+  });
 });
 
 // ── MoMo Cash-Out & Voice Withdrawal Endpoints ────────────────────────

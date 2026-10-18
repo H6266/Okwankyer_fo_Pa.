@@ -18,7 +18,6 @@ import { ghanaNlpAsrService } from "../../../services/ghanaNlpAsrService";
 import { hciLabService } from "../../../services/hciLabService";
 import { geminiClient } from "../../../services/geminiClient";
 import { offlineSpeechRecognizer } from "./offlineAsrEngine";
-import { ghanaAsrProvider } from "./ghanaAsrProvider";
 import { formatSpokenNumbersAsDigits } from "../../../domain/numberFormatter";
 import { isAcousticSystemEcho, stripSystemEchoFromTranscript, isBackgroundNoiseOrStatic } from "../../../domain/echoFilter";
 import { isSpokenPinPattern } from "../../../modules/sttService";
@@ -120,31 +119,13 @@ export class AsrOrchestrator {
     let ghanaNlpQuotaFailed = false;
     let geminiQuotaFailed = false;
 
-    // When NO API key is configured:
-    // User is in typing/text testing mode. Do not trigger fatal errors for missing credentials.
-    if (!hasAnySpeechApiKey) {
-      return {
-        text: "",
-        rawTranscript: "",
-        normalizedTranscript: "",
-        numericNormalizedTranscript: "",
-        confidence: null,
-        confidenceSource: "unavailable",
-        languageDetected: options.languageHint || "eng",
-        providerUsed: "text-testing-mode",
-        fallbackUsed: false,
-        fallbackReason: "NO_VOICE_API_KEY: No voice speech API key configured. Switch to typing to test the system or provide an API key for voice testing.",
-        errorMessage: "No voice API key configured. You can type in the input box to test the system, or provide an API key for voice testing.",
-        latencyMs: Math.round(performance.now() - startTime),
-        audioQuality,
-      };
-    }
-
     let rawText = "";
     let providerUsed = "";
     let providerAttempted: string | undefined;
     let fallbackUsed = false;
-    let fallbackReason: string | undefined;
+    let fallbackReason: string | undefined = hasAnySpeechApiKey
+      ? undefined
+      : "NO_REMOTE_ASR_KEY: No hosted speech API key configured; attempting local recognition.";
     let confidence: number | null = null;
     let confidenceSource: AsrOrchestrationResult["confidenceSource"] = "unavailable";
 
@@ -213,35 +194,6 @@ export class AsrOrchestrator {
       }
     }
 
-    // ── STEP 4B: Local neural ASR fallback ──
-    // Use the real Faster-Whisper worker before cloud/deterministic fallbacks.
-    if (!rawText && allowFallback) {
-      fallbackUsed = true;
-      try {
-        const localLanguageHint: "auto" | "en" | "tw" =
-          resolvedLanguage === "eng" ? "en" : isMixed ? "auto" : "tw";
-
-        const localResult = await ghanaAsrProvider.transcribe(
-          normalized.wavBuffer,
-          "audio/wav",
-          localLanguageHint
-        );
-
-        if (localResult.text && localResult.text.trim()) {
-          rawText = localResult.text.trim();
-          providerUsed = localResult.provider || "faster-whisper-local-neural-asr";
-          // The worker's confidence value is a diagnostic heuristic, not calibrated.
-          confidence = null;
-          confidenceSource = "provider_unreported";
-          auditLogger.log("info", "ASR_ORCHESTRATOR", `Local neural ASR produced a transcript (${providerUsed}).`);
-        }
-      } catch (err: any) {
-        const msg = String(err?.message || "Local neural ASR unavailable");
-        fallbackReason = msg;
-        auditLogger.log("warn", "ASR_ORCHESTRATOR", `Local neural ASR fallback unavailable: ${msg.slice(0, 180)}`);
-      }
-    }
-
     // ── STEP 5: Explicit Fallback Provider (Local Neural / Gemini / Offline) ──
     if (!rawText && allowFallback) {
       fallbackUsed = true;
@@ -257,7 +209,7 @@ export class AsrOrchestrator {
           );
           if (neuralRes.text && neuralRes.text.trim().length > 0) {
             rawText = neuralRes.text;
-            providerUsed = `local_neural_${neuralHealth.model}`;
+            providerUsed = neuralRes.provider || `local_neural_${neuralHealth.model}`;
             confidence = null;
             confidenceSource = "provider_unreported";
           }
@@ -349,7 +301,7 @@ Output ONLY the transcription text without commentary.`;
     }
 
     if (!providerUsed) {
-      providerUsed = providerAttempted || "no-asr-available";
+      providerUsed = providerAttempted || (!hasAnySpeechApiKey ? "text-testing-mode" : "no-asr-available");
     }
 
     // ── STEP 6: Entity, Noise, and Number Post-Processing ──
@@ -406,6 +358,9 @@ Output ONLY the transcription text without commentary.`;
           ? "ASR token no aba awieeɛ. Yɛsrɛ wo sɔ hwɛ bio da foforɔ."
           : "ASR token has been maxed out. Please try again another time.")
       : undefined;
+    const noProviderErrorMessage = !rawText && !hasAnySpeechApiKey
+      ? "No voice API key is configured and no local ASR worker returned a transcript. Start the local ASR worker or switch to typing."
+      : undefined;
 
     return {
       text: finalText,
@@ -424,7 +379,7 @@ Output ONLY the transcription text without commentary.`;
       audioQuality,
       pinDiscarded,
       quotaExhausted,
-      errorMessage: quotaErrorMessage,
+      errorMessage: quotaErrorMessage || noProviderErrorMessage,
     };
   }
 }
