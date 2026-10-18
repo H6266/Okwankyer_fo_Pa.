@@ -15,9 +15,10 @@ import {
   getPromptManifestEntry,
   normalizeRecordingLanguage,
   PROMPT_KEY_TO_RECORDING_ID,
+  recordingFileExists,
 } from "../audio/recordingRegistry";
 import { getStepDefinition } from "../domain/stepRegistry";
-import { isDynamicPrompt, resolvePromptSpokenText } from "../audio/canonicalRegistry";
+import { getCanonicalPrompt, isDynamicPrompt, resolvePromptSpokenText } from "../audio/canonicalRegistry";
 import type { DynamicPromptParams } from "../audio/dynamicPromptBuilder";
 
 const TTS_SCRIPT_KEY_BY_PROMPT_KEY: Readonly<Record<string, string>> = {
@@ -99,21 +100,14 @@ export function resolvePrompt(key: string, lang: SupportedLanguage = "en"): stri
   const language = normalizeRecordingLanguage(lang);
   if (!language) return null;
 
-  // 1. Direct recording lookup by prompt key (respects language variants like Twi vs English)
-  const recordingUrl = getRecordingByPromptKey(key, language)?.url;
-  if (recordingUrl) return recordingUrl;
-
-  // 2. Dynamic prompts or text fallback: in test mode preserve snapshot routes, in runtime fallback to pre-recorded Processing audio
-  if (process.env.NODE_ENV === "test") {
-    if (isDynamicPrompt(key)) {
-      return `/api/audio/prompt-tts/${language}/${encodeURIComponent(key)}`;
-    }
-    return resolvePromptText(key, lang)
-      ? `/api/audio/prompt-tts/${lang}/${encodeURIComponent(key)}`
-      : null;
+  const recording = getRecordingByPromptKey(key, language);
+  if (recording?.url && recordingFileExists(recording)) {
+    return encodeURI(recording.url);
   }
 
-  return "/audio/Processing.mp3";
+  return resolvePromptText(key, language)
+    ? `/api/audio/prompt-tts/${language}/${encodeURIComponent(key.trim())}`
+    : null;
 }
 
 export function resolvePromptText(
@@ -125,24 +119,33 @@ export function resolvePromptText(
   if (!language) return null;
 
   const languageKey = language === "twi" ? "twi" : "en";
+  const normalizedKey = key.trim().toLowerCase();
+  const promptId = /^OP\d{2}b?$/i.test(key.trim())
+    ? key.trim().toUpperCase()
+    : PROMPT_KEY_TO_RECORDING_ID[normalizedKey];
 
   // Dynamic prompts strictly resolve via template pipeline
-  if (isDynamicPrompt(key)) {
-    return resolvePromptSpokenText(key, languageKey, params || {});
+  if (promptId && isDynamicPrompt(promptId)) {
+    return resolvePromptSpokenText(promptId, languageKey, params || {});
   }
 
-  const scriptKey = TTS_SCRIPT_KEY_BY_PROMPT_KEY[key] || key;
+  const scriptKey = TTS_SCRIPT_KEY_BY_PROMPT_KEY[normalizedKey] || normalizedKey;
   if (PROMPT_SCRIPTS[scriptKey]?.[languageKey]) {
     return PROMPT_SCRIPTS[scriptKey][languageKey];
   }
   const recording = getRecordingByPromptKey(key, language);
-  const promptId = key.match(/^OP\d{2}$/i)?.[0].toUpperCase() || PROMPT_KEY_TO_RECORDING_ID[key];
   const manifestPrompt = getPromptManifestEntry(promptId || "");
-  const stepPrompt = getStepDefinition(key.replace(/_/g, "-"))?.promptText[languageKey];
+  const stepPrompt = getStepDefinition(normalizedKey.replace(/_/g, "-"))?.promptText[languageKey];
   const manifestText = manifestPrompt
     ? language === "twi" ? manifestPrompt.twi : manifestPrompt.english
     : null;
-  return recording?.spokenText || manifestText || stepPrompt || null;
+  if (recording?.spokenText || manifestText || stepPrompt) {
+    return recording?.spokenText || manifestText || stepPrompt || null;
+  }
+
+  return promptId && getCanonicalPrompt(promptId)
+    ? resolvePromptSpokenText(promptId, languageKey, params || {})
+    : null;
 }
 
 export function resolveSimulatorPrompt(key: string, lang: SupportedLanguage): string | null {

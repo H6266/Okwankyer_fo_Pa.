@@ -20,7 +20,12 @@ import {
   formatRefForSpeech,
   DynamicPromptParams,
 } from "./dynamicPromptBuilder";
-import { AUDIO_RECORDINGS, AudioRecording, PROMPT_KEY_TO_RECORDING_ID } from "./recordingRegistry";
+import {
+  AUDIO_RECORDINGS,
+  AudioRecording,
+  getRecordingByPromptId,
+  PROMPT_KEY_TO_RECORDING_ID,
+} from "./recordingRegistry";
 
 export type PromptType = "FIXED" | "DYNAMIC";
 export type CanonicalPromptLanguage = "en" | "twi";
@@ -198,6 +203,9 @@ const loadedPrompts: CanonicalPrompt[] = Array.from(promptIds).map((id) => {
   } else if (normId === "OP29") {
     enText = "I heard {amount} Ghana cedis. Is that amount correct?";
     twiText = "Mate sɛ ɛyɛ Ghana cedis {amount}. Saa sika dodow yi yɛ nokware anaa?";
+  } else if (normId === "OP40") {
+    enText = "Your transaction is ready. Follow your Mobile Money provider's private authorization prompt on your handset. Never tell us your PIN.";
+    twiText = "Wo transaction no ayɛ krado. Di wo Mobile Money provider no private akwankyerɛ a ɛwɔ wo fon so no akyi. Mma nka wo PIN nkyerɛ yɛn.";
   } else if (normId === "OP67") {
     enText = "I did not get any response from you, please give us a response!";
     twiText = "Mante deɛ wofiri wo hɔ bae, yɛsrɛ wo ma yɛn mmuaeɛ!";
@@ -338,10 +346,11 @@ export function resolveCanonicalAudioUrl(
     };
   }
 
-  const recordingUrl = lang === "twi" ? prompt?.audio?.twi : prompt?.audio?.english;
+  const recordingUrl = getRecordingByPromptId(normId, lang)?.url || null;
 
   if (recordingUrl) {
-    const fullUrl = recordingUrl.startsWith("http") ? recordingUrl : `${cleanBase}${recordingUrl.startsWith("/") ? "" : "/"}${recordingUrl}`;
+    const encodedUrl = encodeURI(recordingUrl);
+    const fullUrl = encodedUrl.startsWith("http") ? encodedUrl : `${cleanBase}${encodedUrl.startsWith("/") ? "" : "/"}${encodedUrl}`;
     return {
       url: fullUrl,
       mode: "RECORDED",
@@ -359,4 +368,55 @@ export function resolveCanonicalAudioUrl(
     state,
     spokenText,
   };
+}
+
+export interface CanonicalVoiceXmlOptions {
+  promptId: string;
+  language: CanonicalPromptLanguage;
+  baseUrl?: string;
+  params?: DynamicPromptParams;
+  getDigits?: {
+    callbackUrl: string;
+    timeout: number;
+    numDigits?: number;
+    finishOnKey?: string;
+  };
+}
+
+function escapeVoiceXmlValue(value: string): string {
+  return value.replace(/[<>&'"]/g, (character) => {
+    switch (character) {
+      case "<": return "&lt;";
+      case ">": return "&gt;";
+      case "&": return "&amp;";
+      case "'": return "&apos;";
+      default: return "&quot;";
+    }
+  });
+}
+
+export function buildVoiceXmlForCanonicalPrompt(options: CanonicalVoiceXmlOptions): string | null {
+  const promptId = options.promptId.trim().toUpperCase();
+  if (!getCanonicalPrompt(promptId)) return null;
+
+  let promptAction: string;
+  if (isDynamicPrompt(promptId)) {
+    const voice = options.language === "twi" ? "woman" : "alice";
+    const spokenText = resolvePromptSpokenText(promptId, options.language, options.params || {});
+    promptAction = `<Say voice="${voice}">${escapeVoiceXmlValue(spokenText)}</Say>`;
+  } else {
+    const audio = resolveCanonicalAudioUrl(
+      promptId,
+      options.language,
+      options.baseUrl || "",
+      options.params || {}
+    );
+    promptAction = `<Play url="${escapeVoiceXmlValue(audio.url)}"/>`;
+  }
+
+  if (!options.getDigits) return promptAction;
+
+  const { callbackUrl, timeout, numDigits, finishOnKey = "#" } = options.getDigits;
+  const digitsAttribute = numDigits === undefined ? "" : ` numDigits="${numDigits}"`;
+  return `<GetDigits timeout="${timeout}" finishOnKey="${escapeVoiceXmlValue(finishOnKey)}"${digitsAttribute} callbackUrl="${escapeVoiceXmlValue(callbackUrl)}">${promptAction}</GetDigits>`;
 }

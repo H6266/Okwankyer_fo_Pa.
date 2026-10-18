@@ -1,0 +1,86 @@
+Audio_files/Twi_library/Acknowledge.mp3
+Audio_files/Twi_library/Amount prompt.mp3
+Audio_files/Twi_library/Amount readback.mp3
+Audio_files/Twi_library/Amount too high 3.mp3
+Audio_files/Twi_library/Amount too low.mp3
+Audio_files/Twi_library/Anything_else.mp3
+Audio_files/Twi_library/Authorize_phone.mp3
+Audio_files/Twi_library/Auth_received.mp3
+Audio_files/Twi_library/Back.mp3
+Audio_files/Twi_library/Balance_Unavailable.mp3
+Audio_files/Twi_library/Cancel.mp3
+Audio_files/Twi_library/Change_amount.mp3
+Audio_files/Twi_library/Change recipient.mp3
+Audio_files/Twi_library/Check_final_tatus.mp3
+Audio_files/Twi_library/Check_messages.mp3
+Audio_files/Twi_library/Check phone.mp3
+Audio_files/Twi_library/Choose instead.mp3
+Audio_files/Twi_library/Confirm_continue.mp3
+Audio_files/Twi_library/Confirm speech.mp3
+Audio_files/Twi_library/Confirm_understanding.mp3
+Audio_files/Twi_library/Continue.mp3
+Audio_files/Twi_library/Correct_prompt.mp3
+Audio_files/Twi_library/Customer_Declined.mp3
+Audio_files/Twi_library/Did_not_get.mp3
+Audio_files/Twi_library/Do_you_want_Another_transaction.mp3
+Audio_files/Twi_library/Do_you_want_to_send_money_to_another_person.mp3
+Audio_files/Twi_library/Enter amount.mp3
+Audio_files/Twi_library/Enter_recipient.mp3
+Audio_files/Twi_library/Exit.mp3
+Audio_files/Twi_library/Failed.mp3
+Audio_files/Twi_library/Failure_Retry.mp3
+Audio_files/Twi_library/Finish.mp3
+Audio_files/Twi_library/Greetings.mp3
+Audio_files/Twi_library/Help_command.mp3
+Audio_files/Twi_library/Help.mp3
+Audio_files/Twi_library/Input_not_recognized.mp3
+Audio_files/Twi_library/Invalid_amount.mp3
+Audio_files/Twi_library/Invalid_recipient.mp3
+Audio_files/Twi_library/Keep_reference.mp3
+Audio_files/Twi_library/Keypad_option.mp3
+Audio_files/Twi_library/Language_selection.mp3
+Audio_files/Twi_library/Main_menu.mp3
+Audio_files/Twi_library/MTN menu.mp3
+Audio_files/Twi_library/Network_selection.mp3
+Audio_files/Twi_library/No_transfer_confirmed.mp3
+Audio_files/Twi_library/Not understood.mp3
+Audio_files/Twi_library/Opening_voice_welcome_to_okwankyerefopa.mp3
+Audio_files/Twi_library/Pin Block.mp3
+Audio_files/Twi_library/Please_respond.mp3
+Audio_files/Twi_library/Post_success_Help.mp3
+Audio_files/Twi_library/Processing.mp3
+Audio_files/Twi_library/Ready submit.mp3
+Audio_files/Twi_library/Recipient_confirm_speech.mp3
+Audio_files/Twi_library/Recipient_found.mp3
+Audio_files/Twi_library/Recipient_verify.mp3
+Audio_files/Twi_library/Reject speech.mp3
+Audio_files/Twi_library/Repeat amount.mp3
+Audio_files/Twi_library/Repeat.mp3
+Audio_files/Twi_library/Repeat_Option.mp3
+Audio_files/Twi_library/Restart.mp3
+Audio_files/Twi_library/Review transaction.mp3
+Audio_files/Twi_library/Security_warning.mp3
+Audio_files/Twi_library/Send_money_selected.mp3
+Audio_files/Twi_library/Service_alternative.mp3
+Audio_files/Twi_library/service_description.mp3
+Audio_files/Twi_library/Service_notready.mp3
+Audio_files/Twi_library/Service_selection.mp3
+Audio_files/Twi_library/Service unavailable 1.mp3
+Audio_files/Twi_library/Service unavailable.mp3
+Audio_files/Twi_library/Session_End.mp3
+Audio_files/Twi_library/Session timeout.mp3
+Audio_files/Twi_library/Start_Again.mp3
+Audio_files/Twi_library/Submitted.mp3
+Audio_files/Twi_library/Success_close.mp3
+Audio_files/Twi_library/Success_sent.mp3
+Audio_files/Twi_library/System_Error.mp3
+Audio_files/Twi_library/Take_your_time.mp3
+Audio_files/Twi_library/Timeout.mp3
+Audio_files/Twi_library/Try_another_service.mp3
+Audio_files/Twi_library/Unsupported_service.mp3
+Audio_files/Twi_library/Use_recipient 1.mp3
+Audio_files/Twi_library/Voice_or_keypad.mp3
+Audio_files/Twi_library/Waiting_confirmation.mp3
+Audio_files/Twi_library/Welcome back.mp3
+Audio_files/Twi_library/Yes_no_keypad.mp3
+Audio_files/Twi_library/Yes_No.mp3

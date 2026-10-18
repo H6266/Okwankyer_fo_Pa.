@@ -28,6 +28,7 @@ import { durableIdempotencyLedger } from '../src/services/durableIdempotencyLedg
 import { durableTransactionStore } from '../src/services/durableTransactionStore';
 import { summarizeShadowDisagreements } from '../scripts/summarize_shadow_disagreements';
 import { voiceRouter } from '../src/routes/voiceRoutes';
+import * as sttService from '../src/modules/sttService';
 import { TWI_INTENT_KEYWORDS } from '../src/ai_system/linguistic/twiLexicon';
 import { formatAmountAsSpokenWords, numberConfig } from '../src/ai_system/linguistic/twiNumberWords';
 import { AUDIO_ASSET_INVENTORY, AUDIO_CATALOG } from '../src/audio/catalog';
@@ -329,6 +330,87 @@ describe('Phase 4: Readiness Hardening', () => {
     app.use(express.urlencoded({ extended: true }));
     app.use(voiceRouter);
 
+    it('passes the lowercase Africa\'s Talking recordingUrl field to ASR', async () => {
+      const recordingUrl = 'https://storage.mock.gh/caller-recording.wav';
+      const transcribe = vi.spyOn(sttService, 'speechToText').mockResolvedValue({
+        text: 'I want to send 500 cedis to 0241234567',
+        confidence: 0.95,
+        provider: 'test-asr',
+      });
+
+      try {
+        const res = await request(app)
+          .post('/speech-fallback?step=service-select&sessionId=sess_recording_url_test&lang=en')
+          .type('form')
+          .send({ recordingUrl });
+
+        expect(res.status).toBe(200);
+        expect(transcribe).toHaveBeenCalledWith(recordingUrl, undefined, 'service-select');
+      } finally {
+        transcribe.mockRestore();
+      }
+    });
+
+    it('normalizes an ASR-dictated international Ghana number before recipient verification', async () => {
+      const brainProcess = vi.spyOn(brain, 'process').mockRejectedValue(new Error('brain unavailable'));
+
+      try {
+        const res = await request(app)
+          .post('/speech-fallback?step=enter-recipient&sessionId=sess_intl_phone_test&lang=en')
+          .type('form')
+          .send({ speechText: 'two three three five four three five four six zero one zero' });
+
+        expect(res.status).toBe(200);
+        expect(res.text).toContain('/verify-recipient');
+        expect(res.text).toContain('dtmfDigits=0543546010');
+      } finally {
+        brainProcess.mockRestore();
+      }
+    });
+
+    it('passes a spoken recipient number through the brain into recipient verification', async () => {
+      const sessionId = `sess_spoken_recipient_${Date.now()}`;
+      const res = await request(app)
+        .post(`/speech-fallback?step=enter-recipient&sessionId=${sessionId}&lang=en`)
+        .type('form')
+        .send({ speechText: 'zero five four three five four six zero one zero' });
+
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('/verify-recipient');
+      expect(res.text).toContain('dtmfDigits=0543546010');
+      expect(res.text).not.toContain('1234');
+    });
+
+    it('does not extract or forward PIN digits from a voice callback', async () => {
+      const res = await request(app)
+        .post('/speech-fallback?step=enter-pin&sessionId=sess_pin_voice_test&lang=en')
+        .type('form')
+        .send({ speechText: '1234' });
+
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('Voice PIN input is disabled');
+      expect(res.text).not.toContain('dtmfDigits=1234');
+      expect(res.text).not.toContain('/verify-pin');
+    });
+
+    it('discards PIN-like speech before the brain processes a normal input step', async () => {
+      const processBrain = vi.spyOn(brain, 'process');
+
+      try {
+        const res = await request(app)
+          .post('/speech-fallback?step=enter-amount&sessionId=sess_pin_discard_test&lang=en')
+          .type('form')
+          .send({ speechText: 'my mobile money pin is 1234' });
+
+        expect(res.status).toBe(200);
+        expect(processBrain).not.toHaveBeenCalled();
+        expect(res.text).toContain('/enter-amount');
+        expect(res.text).not.toContain('1234');
+      } finally {
+        processBrain.mockRestore();
+      }
+    });
+
     it("Africa's Talking webhook invokes brain.process on speech callback", async () => {
       const processBrain = vi.spyOn(brain, 'process');
       const res = await request(app)
@@ -343,7 +425,8 @@ describe('Phase 4: Readiness Hardening', () => {
       expect(processBrain).toHaveBeenCalledWith(expect.objectContaining({
         transcript: 'I want to send 500 cedis to 0241234567',
         sessionId: 'sess_voice_test_01',
-        forceModel: true,
+        language: 'en',
+        sessionLanguage: 'en',
       }));
       expect(res.text).toContain('/verify-recipient');
       processBrain.mockRestore();

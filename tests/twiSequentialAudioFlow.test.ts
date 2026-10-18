@@ -6,117 +6,76 @@ import {
   getNextFlowStep,
 } from "../src/audio/twiSequentialAudioFlow";
 import { resolveSafeAudioPath } from "../src/audio/streaming";
-import { audioFileExists } from "../src/audio/catalog";
 
-describe("Ɔkwankyerɛfo Pa — Unified 18-Step Audio Flow & State Orchestration", () => {
-  it("defines the exact canonical steps in sequential order with PIN handoff", () => {
-    expect(TWI_SEQUENTIAL_FLOW_STEPS).toHaveLength(19);
+describe("Ɔkwankyerɛfo Pa — Transaction Audio Flow", () => {
+  it("defines the ordered 23-step journey with dynamic readbacks and handset authorization", () => {
+    const expectedIds = [
+      "step_01_welcome",
+      "step_02_service_selection",
+      "step_03_network_selection",
+      "step_04_mtn_menu",
+      "step_05_send_money_ack",
+      "step_06_enter_recipient",
+      "step_07_recipient_found",
+      "step_08_recipient_verify_intro",
+      "step_09_tts_recipient_name",
+      "step_10_tts_full_phone",
+      "step_11_recipient_confirm",
+      "step_12_use_recipient_ack",
+      "step_13_amount_prompt",
+      "step_14_enter_amount",
+      "step_15_amount_readback",
+      "step_16_review_transaction",
+      "step_17_full_transaction_review",
+      "step_18_pin_handoff",
+      "step_19_waiting_confirmation",
+      "step_20_success_sent",
+      "step_21_keep_reference",
+      "step_22_slow_reference_readback",
+      "step_23_anything_else",
+    ];
 
-    const step1 = getFlowStepByIndex(1);
-    expect(step1?.id).toBe("default_welcome");
-
-    const step2 = getFlowStepByIndex(2);
-    expect(step2?.id).toBe("welcome_1");
-
-    const step3 = getFlowStepByIndex(3);
-    expect(step3?.id).toBe("language_selection");
-
-    const step4 = getFlowStepByIndex(4);
-    expect(step4?.id).toBe("service_selection_2");
-
-    const step5 = getFlowStepByIndex(5);
-    expect(step5?.id).toBe("mtn_menu_1");
-
-    const step6 = getFlowStepByIndex(6);
-    expect(step6?.id).toBe("enter_recipient_2");
-    // Next step after entering recipient is use_recipient_1 (audio 8 before 7)
-    expect(step6?.nextStepId).toBe("use_recipient_1");
-
-    // Audio 8 before 7: Step 7 is use_recipient_1 (with dynamic TTS)
-    const step7 = getFlowStepByIndex(7);
-    expect(step7?.id).toBe("use_recipient_1");
-    expect(step7?.isDynamicReadback).toBe(true);
-    expect(step7?.nextStepId).toBe("recipient_confirm_speech");
-
-    // Step 8 is recipient_confirm_speech
-    const step8 = getFlowStepByIndex(8);
-    expect(step8?.id).toBe("recipient_confirm_speech");
-    expect(step8?.nextStepId).toBe("amount_prompt_3");
-
-    // Step 9: Amount prompt
-    const step9 = getFlowStepByIndex(9);
-    expect(step9?.id).toBe("amount_prompt_3");
-
-    // Step 10: Enter amount 4
-    const step10 = getFlowStepByIndex(10);
-    expect(step10?.id).toBe("enter_amount_4");
-
-    // Step 11: Dynamic TTS + Amount readback 2
-    const step11 = getFlowStepByIndex(11);
-    expect(step11?.id).toBe("amount_readback_2");
-    expect(step11?.isDynamicReadback).toBe(true);
-    expect(step11?.nextStepId).toBe("confirm_speech");
-
-    // Step 12: Confirm speech
-    const step12 = getFlowStepByIndex(12);
-    expect(step12?.id).toBe("confirm_speech");
-    expect(step12?.nextStepId).toBe("pin_handoff");
-
-    // Step 13: PIN Handoff (OP40)
-    const step13 = getFlowStepByIndex(13);
-    expect(step13?.id).toBe("pin_handoff");
-    expect(step13?.audioUrl).toMatch(/Pin%20Handoff\.(?:mp3|m4a)/);
-    expect(step13?.nextStepId).toBe("submitted");
-
-    // Step 14: Submitted
-    const step14 = getFlowStepByIndex(14);
-    expect(step14?.id).toBe("submitted");
-    expect(step14?.nextStepId).toBe("transaction_status");
-
-    // Step 15: Transaction Status
-    const step15 = getFlowStepByIndex(15);
-    expect(step15?.id).toBe("transaction_status");
-    expect(step15?.nextStepId).toBe("success_audio");
-
-    // Step 16: Success Audio
-    const step16 = getFlowStepByIndex(16);
-    expect(step16?.id).toBe("success_audio");
-    expect(step16?.nextStepId).toBe("keep_reference");
-
-    // Step 17: Keep Reference
-    const step17 = getFlowStepByIndex(17);
-    expect(step17?.id).toBe("keep_reference");
-    expect(step17?.nextStepId).toBe("dynamic_tts_reference");
-
-    // Step 18: Dynamic TTS — Transaction Reference
-    const step18 = getFlowStepByIndex(18);
-    expect(step18?.id).toBe("dynamic_tts_reference");
-    expect(step18?.isDynamicReadback).toBe(true);
-    expect(step18?.nextStepId).toBe("anything_else");
-
-    // Step 19: Anything Else
-    const step19 = getFlowStepByIndex(19);
-    expect(step19?.id).toBe("anything_else");
+    expect(TWI_SEQUENTIAL_FLOW_STEPS.map((step) => step.id)).toEqual(expectedIds);
+    expect(getFlowStepByIndex(1)?.id).toBe("step_01_welcome");
+    expect(getFlowStepByIndex(18)?.audioUrl).toBe("/audio/Twi_library/Authorize_phone.mp3");
+    expect(getFlowStepByIndex(19)?.id).toBe("step_19_waiting_confirmation");
+    expect(getFlowStepByIndex(20)?.id).toBe("step_20_success_sent");
+    expect(getFlowStepById("step_09_tts_recipient_name")?.isDynamicReadback).toBe(true);
+    expect(getFlowStepById("step_15_amount_readback")?.isDynamicReadback).toBe(true);
+    expect(getFlowStepById("step_22_slow_reference_readback")?.isDynamicReadback).toBe(true);
   });
 
-  it("chains sequential progression through getNextFlowStep", () => {
-    expect(getNextFlowStep("default_welcome")?.id).toBe("welcome_1");
-    expect(getNextFlowStep("enter_recipient_2")?.id).toBe("use_recipient_1");
-    expect(getNextFlowStep("use_recipient_1")?.id).toBe("recipient_confirm_speech");
-    expect(getNextFlowStep("amount_readback_2")?.id).toBe("confirm_speech");
-    expect(getNextFlowStep("confirm_speech")?.id).toBe("pin_handoff");
-    expect(getNextFlowStep("pin_handoff")?.id).toBe("submitted");
-    expect(getNextFlowStep("success_audio")?.id).toBe("keep_reference");
-    expect(getNextFlowStep("keep_reference")?.id).toBe("dynamic_tts_reference");
-    expect(getNextFlowStep("dynamic_tts_reference")?.id).toBe("anything_else");
+  it("requires the matching validation or provider outcome before advancing gated steps", () => {
+    expect(getNextFlowStep("step_01_welcome")).toBeUndefined();
+    expect(getNextFlowStep("step_01_welcome", "language-selected")?.id).toBe("step_02_service_selection");
+
+    expect(getNextFlowStep("step_06_enter_recipient")).toBeUndefined();
+    expect(getNextFlowStep("step_06_enter_recipient", "recipient-verified")?.id).toBe("step_07_recipient_found");
+    expect(getNextFlowStep("step_11_recipient_confirm", "amount-confirmed")).toBeUndefined();
+    expect(getNextFlowStep("step_11_recipient_confirm", "recipient-confirmed")?.id).toBe("step_12_use_recipient_ack");
+
+    expect(getNextFlowStep("step_14_enter_amount", "recipient-verified")).toBeUndefined();
+    expect(getNextFlowStep("step_14_enter_amount", "amount-validated")?.id).toBe("step_15_amount_readback");
+    expect(getNextFlowStep("step_17_full_transaction_review", "provider-submitted")).toBeUndefined();
+    expect(getNextFlowStep("step_17_full_transaction_review", "transaction-confirmed")?.id).toBe("step_18_pin_handoff");
+    expect(getNextFlowStep("step_18_pin_handoff", "transaction-confirmed")).toBeUndefined();
+    expect(getNextFlowStep("step_18_pin_handoff", "provider-submitted")?.id).toBe("step_19_waiting_confirmation");
+
+    expect(getNextFlowStep("step_19_waiting_confirmation")).toBeUndefined();
+    expect(getNextFlowStep("step_19_waiting_confirmation", "provider-confirmed-success")?.id)
+      .toBe("step_20_success_sent");
   });
 
-  it("verifies physical audio assets exist on disk for all steps with audioUrl", () => {
+  it("resolves every fixed flow recording to a real file and keeps dynamic prompts on TTS", () => {
     for (const step of TWI_SEQUENTIAL_FLOW_STEPS) {
-      if (step.audioUrl.startsWith("/audio/supplied/")) {
-        const decoded = decodeURIComponent(step.audioUrl.replace("/audio/supplied/", ""));
-        expect(audioFileExists(decoded, "supplied"), `File must exist: ${decoded}`).toBe(true);
+      if (step.audioUrl.startsWith("/api/audio/prompt-tts/")) {
+        expect(step.isDynamicReadback, step.id).toBe(true);
+        continue;
       }
+
+      const audioPath = decodeURIComponent(new URL(step.audioUrl, "http://localhost").pathname)
+        .replace(/^\/audio\//, "");
+      expect(resolveSafeAudioPath(audioPath), `File must exist: ${audioPath}`).not.toBeNull();
     }
   });
 });

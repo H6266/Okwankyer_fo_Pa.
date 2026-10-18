@@ -63,7 +63,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     const languageRes = await request(app)
       .post("/language-selection")
       .send({ sessionId, dtmfDigits: "2" });
-    expect(languageRes.text).toContain("/service-select?sessionId=AT-MODE-AND-MENU-001&amp;lang=twi");
+    expect(languageRes.text).toContain("/service-choice?sessionId=AT-MODE-AND-MENU-001&amp;lang=twi");
     expect(transactionStateMachine.getSession(sessionId)?.language).toBe("twi");
     expect(transactionStateMachine.getSession(sessionId)?.interactionMode).toBeUndefined();
 
@@ -137,7 +137,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
 
     const welcomePrompts = [...welcome.text.matchAll(/<Play[^>]*url="([^"]+)"/gi)].map((match) => match[1]);
     expect(welcomePrompts).toHaveLength(2);
-    expect(welcomePrompts[0]).toContain("/api/audio/prompt-tts/en/welcome");
+    expect(welcomePrompts[0]).toContain("/audio/Twi_library/Opening_voice_welcome_to_okwankyerefopa.mp3");
     expect(welcomePrompts[1]).toContain("/api/audio/prompt-tts/en/language_selection");
     expect(welcome.text).toContain(`/language-selection?sessionId=${sessionId}`);
     expect(decodeURIComponent(welcome.headers["x-ai-reply-text"])).toContain("For English, press 1");
@@ -228,7 +228,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     const langRes = await request(app)
       .post("/language-selection")
       .send({ sessionId, dtmfDigits: "1" });
-    expect(langRes.text).toContain("/service-select?sessionId=AT-TEST-EN-001&amp;lang=en");
+    expect(langRes.text).toContain("/service-choice?sessionId=AT-TEST-EN-001&amp;lang=en");
 
     // 3. Service Select -> Telecom MoMo (1)
     const serviceRes = await request(app)
@@ -300,7 +300,8 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       amount: 75,
       network: "MTN",
     }));
-    expect(outcomeRes.text).toContain("authorize the prompt on your handset");
+    expect(outcomeRes.text).toContain("/api/audio/prompt-tts/en/OP40");
+    expect(outcomeRes.headers["x-canonical-prompt-id"]).toBe("OP40");
     expect(outcomeRes.text).not.toContain("Congratulations");
     expect(outcomeRes.text).not.toContain("<Record");
     expect(outcomeRes.text).not.toContain("<GetDigits");
@@ -660,7 +661,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       network: "MTN",
     }));
     startSaga.mockRestore();
-    expect(handoffRes.text).toContain("authorize the prompt on your handset");
+    expect(handoffRes.headers["x-canonical-prompt-id"]).toBe("OP40");
     expect(handoffRes.text).toContain("<Reject/>"); // stops listening to speech; no PIN over audio!
 
     const stateAfterHandoff = transactionStateMachine.getSession(sessionId);

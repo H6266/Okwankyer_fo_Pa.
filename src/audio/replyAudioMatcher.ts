@@ -294,16 +294,18 @@ export function matchReplyToAudio(
 ): AudioMatchResult {
   const minConfidence = options?.minConfidence ?? DEFAULT_MATCH_CONFIDENCE_THRESHOLD;
   const isTwi = language.startsWith("tw") || language === "twi" || language === "mixed-twi-en";
-  const wantedLanguage = normalizeRecordingLanguage(language);
+  const wantedLanguage = normalizeRecordingLanguage(language)
+    || (language === "mixed-twi-en" ? "twi" : null);
 
   let bestResult: AudioMatchResult = {
     match: false,
     confidence: 0,
     isFallbackToTts: true,
   };
+  if (!wantedLanguage) return bestResult;
 
-  // 1. Check Sequential Flow Steps
-  for (const step of TWI_SEQUENTIAL_FLOW_STEPS) {
+  // The sequential flow contains Twi recordings only.
+  for (const step of isTwi ? TWI_SEQUENTIAL_FLOW_STEPS : []) {
     if (!step.audioUrl) continue;
     const targetScript = isTwi ? step.spokenTextTwi : step.spokenTextEn;
     const aliases = STEP_ALIASES[step.id] || [];
@@ -311,6 +313,8 @@ export function matchReplyToAudio(
     const { confidence, reason } = calculateMatchConfidence(text, targetScript, aliases);
     if (confidence > bestResult.confidence) {
       const diskPath = resolveDiskPath(step.audioUrl);
+      const { fs } = getNodeModules();
+      if (fs && !diskPath) continue;
       bestResult = {
         match: confidence >= minConfidence,
         confidence,
@@ -325,26 +329,23 @@ export function matchReplyToAudio(
     }
   }
 
-  // 2. Check full AUDIO_RECORDINGS library (with fallback to Twi recordings for English requests)
-  let catalogCandidates = AUDIO_RECORDINGS.filter((r) => {
-    if (wantedLanguage && r.language !== wantedLanguage) return false;
+  // 2. Check recordings in the requested language only.
+  const catalogCandidates = AUDIO_RECORDINGS.filter((recording) => {
+    if (recording.language !== wantedLanguage) return false;
     return Boolean(
-      r.spokenText &&
-      r.url &&
-      (r.mappingStatus === "VERIFIED" || r.assetRoot === "supplied" || r.assetRoot === "additional") &&
-      r.recordingRole === "fixed"
+      recording.spokenText &&
+      recording.url &&
+      recording.mappingStatus === "VERIFIED" &&
+      recording.recordingRole === "fixed"
     );
   });
 
-  if (catalogCandidates.length === 0 && wantedLanguage === "en") {
-    catalogCandidates = AUDIO_RECORDINGS.filter((r) =>
-      r.language === "twi" &&
-      Boolean(r.spokenText && r.url && r.recordingRole === "fixed")
-    );
-  }
-
   for (const recording of catalogCandidates) {
     if (!recording.spokenText || !recording.url) continue;
+    const diskPath = resolveDiskPath(recording.url);
+    const { fs } = getNodeModules();
+    if (fs && !diskPath) continue;
+
     let { confidence, reason } = calculateMatchConfidence(text, recording.spokenText, []);
 
     // Also check if prompt manifest has an English script matching the text
@@ -360,7 +361,6 @@ export function matchReplyToAudio(
     }
 
     if (confidence > bestResult.confidence) {
-      const diskPath = resolveDiskPath(recording.url);
       bestResult = {
         match: confidence >= minConfidence,
         confidence,
@@ -379,39 +379,22 @@ export function matchReplyToAudio(
   if (bestResult.match && bestResult.filePath) {
     const { fs } = getNodeModules();
     if (fs) {
-      let buf = audioBufferCache.get(bestResult.filePath);
-      if (!buf && fs.existsSync(bestResult.filePath)) {
-        buf = fs.readFileSync(bestResult.filePath);
-        audioBufferCache.set(bestResult.filePath, buf);
-      }
-      bestResult.audioBuffer = buf;
-    }
-  }
-
-  // 4. Safe Fallback: When no audio matched and TTS is unavailable, fallback to pre-recorded Processing audio
-  if (!bestResult.match) {
-    const processingUrl = "/audio/Processing.mp3";
-    const diskPath = resolveDiskPath(processingUrl);
-    const { fs } = getNodeModules();
-    let buf: Buffer | undefined;
-    if (fs && diskPath && fs.existsSync(diskPath)) {
-      buf = audioBufferCache.get(diskPath);
-      if (!buf) {
-        buf = fs.readFileSync(diskPath);
-        audioBufferCache.set(diskPath, buf);
+      try {
+        let buf = audioBufferCache.get(bestResult.filePath);
+        if (!buf) {
+          buf = fs.readFileSync(bestResult.filePath);
+          audioBufferCache.set(bestResult.filePath, buf);
+        }
+        bestResult.audioBuffer = buf;
+      } catch {
+        return {
+          match: false,
+          confidence: bestResult.confidence,
+          isFallbackToTts: true,
+          matchReason: "recording_unavailable",
+        };
       }
     }
-    return {
-      match: true,
-      confidence: 0.5,
-      audioUrl: processingUrl,
-      title: "Processing",
-      spokenText: "Yɛretwɛn... Yɛrebɔ mmɔden ahwɛ wo dwumadie no. Please wait as we process your request.",
-      filePath: diskPath || undefined,
-      audioBuffer: buf,
-      isFallbackToTts: false,
-      matchReason: "processing_audio_fallback",
-    };
   }
 
   return bestResult;

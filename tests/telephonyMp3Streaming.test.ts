@@ -29,7 +29,7 @@ describe("Telephony MP3 Transcoding & Playback", () => {
     expect(Number(res.headers["content-length"])).toBeGreaterThan(1000);
   });
 
-  it("produces valid Africa's Talking VoiceXML on inbound call with GetDigits and .mp3 URLs", async () => {
+  it("produces AT-compatible VoiceXML on inbound call and keeps audio assets MP3-compatible", async () => {
     const res = await request(app)
       .post("/voice-menu")
       .send({
@@ -44,9 +44,8 @@ describe("Telephony MP3 Transcoding & Playback", () => {
     expect(xml).toContain("<GetDigits");
     expect(xml).toContain("callbackUrl=");
     expect(xml).toContain("sessionId=at_test_session_123");
-    // Verify it plays MP3 audio for Africa's Talking compatibility
-    expect(xml).toContain(".mp3");
-    expect(xml).not.toContain(".m4a");
+    expect(xml.match(/Opening_voice_welcome_to_okwankyerefopa\.mp3/g)).toHaveLength(1);
+    expect(xml).toContain("/api/audio/prompt-tts/en/language_selection");
     // Verify no bare <Redirect> cutting off audio
     expect(xml).not.toMatch(/<\/GetDigits>\s*<Redirect>/);
   });

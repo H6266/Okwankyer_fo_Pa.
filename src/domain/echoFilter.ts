@@ -207,6 +207,11 @@ export function isAcousticSystemEcho(
 
   const normalizedPrompt = activeAssistantPrompt ? normalizeTextForComparison(activeAssistantPrompt) : "";
 
+  // Preserve atomic caller answers (digits, choices, confirmations) even during barge-in.
+  if (isStandaloneCallerIntent(normalizedTranscript)) {
+    return false;
+  }
+
   // 1. Extra sensitivity and strict suppression while the assistant is actively playing audio through the speakers
   if (isAssistantSpeaking) {
     // If active prompt contains the transcript chunk (e.g. prompt is speaking "press 9 to repeat" and mic hears "repeat" or "9")
@@ -241,11 +246,6 @@ export function isAcousticSystemEcho(
     ) {
       return true;
     }
-  }
-
-  // 3. Explicit user inputs (digits, genuine commands, recipient names/amounts) are NOT echoes when assistant is not speaking
-  if (isStandaloneCallerIntent(normalizedTranscript)) {
-    return false;
   }
 
   // 4. Check against the currently / recently playing assistant prompt

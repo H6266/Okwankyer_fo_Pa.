@@ -55,6 +55,8 @@ export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
   processing: "OP06",
   service_selection: "OP07",
   network_selection: "OP08",
+  provider_select: "OP08",
+  provider_choice: "OP08",
   mtn_menu: "OP09",
   send_money_selected: "OP10",
   service_unavailable: "OP11",
@@ -69,6 +71,7 @@ export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
   recipient_verify: "OP19",
   recipient_name: "OP20",
   recipient_full_number: "OP21",
+  recipient_last4: "OP21",
   recipient_confirm_speech: "OP23",
   use_recipient: "OP24",
   use_recipient_1: "OP24",
@@ -150,12 +153,46 @@ export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
   finish: "OP94",
 };
 
+const DYNAMIC_PROMPT_TEXT: Readonly<Record<string, { category: string; english: string; twi: string }>> = {
+  OP20: {
+    category: "recipient",
+    english: "The recipient's name is [DYNAMIC NAME].",
+    twi: "Obi a woremane no sika no din ne [DYNAMIC NAME].",
+  },
+  OP21: {
+    category: "recipient",
+    english: "The recipient's full phone number is [ALL TEN DIGITS].",
+    twi: "Ne phone nɔmba a ɛdi mũ ne [ALL TEN DIGITS].",
+  },
+  OP29: {
+    category: "amount",
+    english: "I heard [DYNAMIC AMOUNT] Ghana cedis. Is that amount correct?",
+    twi: "Mate sɛ ɛyɛ Ghana cedis [DYNAMIC AMOUNT]. Saa sika dodow yi yɛ nokware anaa?",
+  },
+  OP52: {
+    category: "completion",
+    english: "Your transaction reference is [DYNAMIC REFERENCE].",
+    twi: "Wo transaction reference ne [DYNAMIC REFERENCE].",
+  },
+  OP52B: {
+    category: "completion",
+    english: "Your complete transaction reference is [DYNAMIC REFERENCE].",
+    twi: "Wo transaction reference a ɛdi mũ ne [DYNAMIC REFERENCE].",
+  },
+  OP70: {
+    category: "clarification",
+    english: "I heard [DYNAMIC RESPONSE]. Is that correct?",
+    twi: "Mate sɛ [DYNAMIC RESPONSE]. Ɛyɛ nokware anaa?",
+  },
+};
+
 const PROMPT_ID_TO_KEY: Record<string, string> = {};
 for (const [key, id] of Object.entries(PROMPT_KEY_TO_RECORDING_ID)) {
-  if (!PROMPT_ID_TO_KEY[id]) PROMPT_ID_TO_KEY[id] = key;
+  const normalizedId = id.toUpperCase();
+  if (!PROMPT_ID_TO_KEY[normalizedId]) PROMPT_ID_TO_KEY[normalizedId] = key;
 }
 
-// ── Build AUDIO_RECORDINGS from twiLibraryManifest & audioTranscripts ───
+// ── Build AUDIO_RECORDINGS from reviewed manifests and current asset roots ───
 const recordings: AudioRecording[] = [];
 
 // 1. Twi Library Items
@@ -165,7 +202,7 @@ for (const item of TWI_AUDIO_LIBRARY_ITEMS) {
   recordings.push({
     id: `supplied:Twi_library/${item.filename}`,
     promptId,
-    state: item.category.toUpperCase(),
+    state: ((promptId && PROMPT_ID_TO_KEY[promptId]) || item.category).toUpperCase(),
     category: item.category,
     context: item.transcript,
     language: "twi",
@@ -181,9 +218,51 @@ for (const item of TWI_AUDIO_LIBRARY_ITEMS) {
   });
 }
 
-// 2. English Public Audio Items
+// 2. Public assets without reviewed transcripts remain unmapped and cannot be
+// selected as fixed prompts.
+const unmappedAudioAssets: Array<{
+  relativePath: string;
+  assetRoot: AudioAssetRoot;
+  language: RecordingLanguage;
+}> = [
+  { relativePath: "English_Library/2.m4a", assetRoot: "supplied", language: "en" },
+  { relativePath: "English_Library/3.m4a", assetRoot: "supplied", language: "en" },
+  { relativePath: "English_Library/4.m4a", assetRoot: "supplied", language: "en" },
+  { relativePath: "welcome_en.mp3", assetRoot: "public", language: "en" },
+  { relativePath: "welcome_twi.mp3", assetRoot: "public", language: "twi" },
+];
+
+for (const asset of unmappedAudioAssets) {
+  const title = asset.relativePath.split("/").pop()?.replace(/\.[a-z0-9]+$/i, "") || asset.relativePath;
+  const extension = asset.relativePath.split(".").pop()?.toLowerCase();
+  recordings.push({
+    id: `${asset.assetRoot}:${asset.relativePath}`,
+    promptId: null,
+    state: null,
+    category: "unmapped",
+    context: "",
+    language: asset.language,
+    title,
+    spokenText: null,
+    relativePath: asset.relativePath,
+    assetRoot: asset.assetRoot,
+    url: asset.assetRoot === "public" ? `/audio/${asset.relativePath}` : `/audio/supplied/${asset.relativePath}`,
+    mimeType: extension === "mp3" ? "audio/mpeg" : "audio/mp4",
+    isAlternate: false,
+    recordingRole: "unmapped",
+    mappingStatus: "UNMAPPED_CANDIDATE",
+  });
+}
+
+// 3. Transcript metadata may describe assets that are not present in this
+// checkout. Do not expose those paths as playable recordings.
+const availablePublicAssets = new Set(unmappedAudioAssets
+  .filter((asset) => asset.assetRoot === "public")
+  .map((asset) => asset.relativePath));
+
 for (const [pathKey, data] of Object.entries(transcriptLookup)) {
   const relative = pathKey.replace(/^audio\//i, "");
+  if (!availablePublicAssets.has(relative)) continue;
   const mimeType = relative.endsWith(".mp3") ? "audio/mpeg" : "audio/mp4";
   const baseName = relative.split("/").pop() || relative;
   let promptId: string | null = null;
@@ -219,25 +298,52 @@ for (const [pathKey, data] of Object.entries(transcriptLookup)) {
 export const AUDIO_RECORDINGS: AudioRecording[] = recordings;
 
 // ── Lookups and Accessors ─────────────────────────────────────────────
+export function recordingFileExists(recording: AudioRecording): boolean {
+  if (typeof window !== "undefined") return true;
+
+  try {
+    const fs = typeof require !== "undefined" ? require("fs") : null;
+    const path = typeof require !== "undefined" ? require("path") : null;
+    if (!fs || !path) return false;
+
+    const root = recording.assetRoot === "public"
+      ? path.resolve(process.cwd(), "public", "audio")
+      : path.resolve(process.cwd(), "Audio_files");
+    const resolved = path.resolve(root, recording.relativePath);
+    if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) return false;
+    return fs.existsSync(resolved) && fs.statSync(resolved).isFile();
+  } catch {
+    return false;
+  }
+}
+
 export function getRecordingByPromptId(
   promptId: string,
   language: "en" | "twi" = "twi"
 ): AudioRecording | null {
-  const match = AUDIO_RECORDINGS.find(
-    (r) => r.promptId === promptId && r.language === language && r.url
-  );
-  if (match) return match;
-  // Fallback to any recording with that promptId
-  const fallback = AUDIO_RECORDINGS.find((r) => r.promptId === promptId && r.url);
-  return fallback || null;
+  const normalizedId = promptId.trim().toUpperCase();
+  return AUDIO_RECORDINGS.find(
+    (recording) =>
+      recording.promptId?.toUpperCase() === normalizedId &&
+      recording.language === language &&
+      recording.recordingRole === "fixed" &&
+      recording.url &&
+      recordingFileExists(recording)
+  ) || null;
 }
 
 export function getRecordingsByPromptId(
   promptId: string,
   language?: "en" | "twi"
 ): AudioRecording[] {
+  const normalizedId = promptId.trim().toUpperCase();
   return AUDIO_RECORDINGS.filter(
-    (r) => r.promptId === promptId && r.url && (!language || r.language === language)
+    (recording) =>
+      recording.promptId?.toUpperCase() === normalizedId &&
+      recording.recordingRole === "fixed" &&
+      recording.url &&
+      recordingFileExists(recording) &&
+      (!language || recording.language === language)
   );
 }
 
@@ -245,24 +351,34 @@ export function getRecordingByPromptKey(
   key: string,
   language: "en" | "twi" = "twi"
 ): AudioRecording | null {
-  const promptId = PROMPT_KEY_TO_RECORDING_ID[key] || (/^OP\d{2}$/i.test(key) ? key.toUpperCase() : undefined);
+  const normalizedKey = key.trim().toLowerCase();
+  const promptId = PROMPT_KEY_TO_RECORDING_ID[normalizedKey]
+    || (/^OP\d{2}b?$/i.test(key.trim()) ? key.trim().toUpperCase() : undefined);
   if (promptId) {
     const rec = getRecordingByPromptId(promptId, language);
     if (rec) return rec;
   }
-  // Try direct filename or item key match in Twi items
+  if (language !== "twi") return null;
+
+  // Try direct filename or item key match in Twi items.
   const directItem = TWI_AUDIO_LIBRARY_ITEMS.find(
-    (item) => item.key === key || item.filename.toLowerCase().includes(key.toLowerCase())
+    (item) =>
+      item.key.toLowerCase() === normalizedKey ||
+      item.filename.toLowerCase().includes(normalizedKey)
   );
   if (directItem) {
-    return AUDIO_RECORDINGS.find((r) => r.url === directItem.audioUrl) || null;
+    return AUDIO_RECORDINGS.find(
+      (recording) => recording.url === directItem.audioUrl && recordingFileExists(recording)
+    ) || null;
   }
   return null;
 }
 
 export function getRecordingByPath(relativePath: string): AudioRecording | null {
   const norm = relativePath.replace(/^audio\//i, "").toLowerCase();
-  return AUDIO_RECORDINGS.find((r) => r.relativePath.toLowerCase() === norm) || null;
+  return AUDIO_RECORDINGS.find(
+    (recording) => recording.relativePath.toLowerCase() === norm && recordingFileExists(recording)
+  ) || null;
 }
 
 export function getRecordingByUrl(url: string, preferredLang?: "en" | "twi"): AudioRecording | null {
@@ -271,7 +387,7 @@ export function getRecordingByUrl(url: string, preferredLang?: "en" | "twi"): Au
   const baseName = cleanUrl.split("/").pop() || "";
 
   const exact = AUDIO_RECORDINGS.filter((r) => {
-    if (!r.url) return false;
+    if (!r.url || !recordingFileExists(r)) return false;
     const rClean = r.url.split("?")[0].toLowerCase();
     return rClean === cleanUrl || rClean.endsWith(`/${baseName}`);
   });
@@ -302,11 +418,28 @@ export function getAudioAssetInventory(): AudioRecording[] {
 }
 
 export function getPromptManifestEntry(promptId: string): PromptManifestEntry | null {
-  const rec = getRecordingByPromptId(promptId, "twi");
-  const enRec = getRecordingByPromptId(promptId, "en");
+  const normalizedId = promptId.trim().toUpperCase();
+  const dynamic = DYNAMIC_PROMPT_TEXT[normalizedId];
+  const rec = getRecordingByPromptId(normalizedId, "twi");
+  const enRec = getRecordingByPromptId(normalizedId, "en");
+  if (dynamic) {
+    return {
+      id: normalizedId,
+      category: dynamic.category,
+      state: (PROMPT_ID_TO_KEY[normalizedId] || "GENERAL").toUpperCase(),
+      type: "DYNAMIC",
+      english: dynamic.english,
+      twi: dynamic.twi,
+      audio: {
+        english: `/api/audio/prompt-tts/en/${normalizedId}`,
+        twi: `/api/audio/prompt-tts/twi/${normalizedId}`,
+      },
+      mappingStatus: "VERIFIED",
+    };
+  }
   if (!rec && !enRec) return null;
   return {
-    id: promptId,
+    id: normalizedId,
     category: rec?.category || enRec?.category || "general",
     state: rec?.state || enRec?.state || "GENERAL",
     type: "FIXED",
@@ -321,8 +454,11 @@ export function getPromptManifestEntry(promptId: string): PromptManifestEntry | 
 }
 
 export function getPromptManifestEntries(): PromptManifestEntry[] {
-  const ids = Array.from(new Set(AUDIO_RECORDINGS.map((r) => r.promptId).filter(Boolean))) as string[];
-  return ids.map((id) => getPromptManifestEntry(id)).filter(Boolean) as PromptManifestEntry[];
+  const ids = new Set(AUDIO_RECORDINGS.map((recording) => recording.promptId).filter(Boolean) as string[]);
+  for (const id of Object.keys(DYNAMIC_PROMPT_TEXT)) {
+    ids.add(id);
+  }
+  return Array.from(ids).map((id) => getPromptManifestEntry(id)).filter(Boolean) as PromptManifestEntry[];
 }
 
 export function normalizeRecordingLanguage(language: string): "en" | "twi" | null {

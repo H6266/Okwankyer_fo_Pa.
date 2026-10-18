@@ -33,15 +33,15 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
     expect(enWelcome).toBe("/api/audio/prompt-tts/en/welcome");
 
     const twiWelcome = resolvePrompt("welcome", "twi");
-    expect(twiWelcome).toBe("/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Welcome%201%20(2).mp3");
+    expect(twiWelcome).toBe("/audio/Twi_library/Opening_voice_welcome_to_okwankyerefopa.mp3");
   });
 
   // AT-02: OP01 playback completes -> OP02 language options play separately; no combined welcome repeats
   it("AT-02: OP01 and OP02 play as distinct, decoupled prompts without duplicate combined playback", () => {
     expect(getRecordingByPromptId("OP01", "twi")).not.toBeNull();
     expect(getRecordingByPromptId("OP02", "twi")).not.toBeNull();
-    expect(resolvePrompt("OP01", "twi")).toBe("/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Welcome%201%20(2).mp3");
-    expect(resolvePrompt("OP02", "twi")).toBe("/audio/supplied/Twi/1.Welcome%20%26%20Session%20Start/Language%20selection.mp3");
+    expect(resolvePrompt("OP01", "twi")).toBe("/audio/Twi_library/Opening_voice_welcome_to_okwankyerefopa.mp3");
+    expect(resolvePrompt("OP02", "twi")).toBe("/audio/Twi_library/Language_selection.mp3");
   });
 
   // AT-03: English session -> Resolver returns only an eligible English asset or an explicit safe missing result
@@ -64,20 +64,20 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
     expect(twiOp07).not.toBeNull();
 
     const twiPrompt = resolvePrompt("OP07", "twi");
-    expect(twiPrompt).toMatch(/Service%20selection\.(?:mp3|m4a)/);
+    expect(twiPrompt).toBe("/audio/Twi_library/Service_selection.mp3");
   });
 
   // AT-05: Numeric-looking filename conflicts with content mapping -> Canonical prompt ID and reviewed mapping win
   it("AT-05: Canonical prompt ID and reviewed mapping win over numeric filename order", () => {
     const op07 = AUDIO_RECORDINGS.find((recording) => recording.promptId === "OP07");
     expect(op07?.state).toBe("SERVICE_SELECTION");
-    expect(op07?.relativePath).toContain("Service selection");
+    expect(op07?.relativePath).toContain("Service_selection");
     expect(op07?.mappingStatus).toBe("VERIFIED");
     expect(getRecordingByPromptId("OP07", "twi")).not.toBeNull();
 
     const op08 = AUDIO_RECORDINGS.find((recording) => recording.promptId === "OP08");
     expect(op08?.state).toBe("NETWORK_SELECTION");
-    expect(op08?.relativePath).toContain("Network selection");
+    expect(op08?.relativePath).toContain("Network_selection");
     expect(getRecordingByPromptId("OP08", "twi")).not.toBeNull();
   });
 
@@ -321,7 +321,8 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
   it("AT-27: Confirmed success triggers OP52/OP53 with verified reference ID", () => {
     const verifiedReference = "OKP-TX-984712";
     expect(verifiedReference).toMatch(/^OKP-TX-\d+$/);
-    expect(PROMPT_KEY_TO_RECORDING_ID["success"]).toBe("OP53");
+    expect(PROMPT_KEY_TO_RECORDING_ID["success"]).toBe("OP52");
+    expect(PROMPT_KEY_TO_RECORDING_ID["success_sent"]).toBe("OP53");
   });
 
   // AT-28: User rejects transaction review -> No payment submission occurs
@@ -387,48 +388,21 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
     expect(twiStep.targetStep).toBe("service-select");
   });
 
-  // AT-36: Canonical 19-step progression: Audio 8 before 7, Pin Handoff included, Keep Reference before Dynamic TTS
-  it("AT-36: Unified 19-step sequence has audio 8 before 7, PIN handoff, and keep reference before dynamic TTS", () => {
+  // AT-36: Conditional canonical flow; provider confirmation gates success.
+  it("AT-36: Unified 23-step sequence gates progression on validated inputs and provider outcomes", () => {
     const steps = TWI_SEQUENTIAL_FLOW_STEPS;
-    expect(steps).toHaveLength(19);
+    expect(steps).toHaveLength(23);
+    expect(steps.find((step) => step.stepIndex === 6)?.advanceCondition).toBe("recipient-verified");
+    expect(steps.find((step) => step.stepIndex === 11)?.advanceCondition).toBe("recipient-confirmed");
+    expect(steps.find((step) => step.stepIndex === 14)?.advanceCondition).toBe("amount-validated");
+    expect(steps.find((step) => step.stepIndex === 17)?.advanceCondition).toBe("transaction-confirmed");
 
-    // Audio 8 (Use Recipient 1) is Step 7; Audio 7 (Recipient Confirm Speech) is Step 8
-    const step7 = steps.find((s) => s.stepIndex === 7)!;
-    const step8 = steps.find((s) => s.stepIndex === 8)!;
-    expect(step7.id).toBe("use_recipient_1");
-    expect(step7.audioUrl).toMatch(/Use%20recipient%201\.(?:mp3|m4a)/);
-    expect(step8.id).toBe("recipient_confirm_speech");
-    expect(step8.audioUrl).toMatch(/Recipient%20confirm%20speech\.(?:mp3|m4a)/);
+    const authorization = steps.find((step) => step.stepIndex === 18)!;
+    expect(authorization.audioUrl).toBe("/audio/Twi_library/Authorize_phone.mp3");
+    expect(authorization.advanceCondition).toBe("provider-submitted");
 
-    // Step 12 (confirm_speech) leads to PIN handoff (Step 13)
-    const step12 = steps.find((s) => s.stepIndex === 12)!;
-    expect(step12.nextStepId).toBe("pin_handoff");
-    const step13 = steps.find((s) => s.stepIndex === 13)!;
-    expect(step13.id).toBe("pin_handoff");
-    expect(step13.audioUrl).toMatch(/Pin%20Handoff\.(?:mp3|m4a)/);
-    expect(step13.nextStepId).toBe("submitted");
-
-    const step14 = steps.find((s) => s.stepIndex === 14)!;
-    expect(step14.id).toBe("submitted");
-    expect(step14.audioUrl).toContain("Submitted.aac");
-
-    // Success audio: SUCCESS SENT (Step 16)
-    const step16 = steps.find((s) => s.stepIndex === 16)!;
-    expect(step16.id).toBe("success_audio");
-    expect(step16.audioUrl).toContain("SUCCESS%20SENT.aac");
-
-    // Keep reference is Step 17, and Dynamic TTS Reference is Step 18 (plays AFTER Audio 17)
-    const step17 = steps.find((s) => s.stepIndex === 17)!;
-    const step18 = steps.find((s) => s.stepIndex === 18)!;
-    expect(step17.id).toBe("keep_reference");
-    expect(step17.audioUrl).toContain("Keep%20reference.aac");
-    expect(step18.id).toBe("dynamic_tts_reference");
-    expect(step18.isDynamicReadback).toBe(true);
-    expect(step17.nextStepId).toBe("dynamic_tts_reference");
-
-    // Step 19 is completion / Anything Else
-    const step19 = steps.find((s) => s.stepIndex === 19)!;
-    expect(step19.id).toBe("anything_else");
+    const waiting = steps.find((step) => step.stepIndex === 19)!;
+    expect(waiting.advanceCondition).toBe("provider-confirmed-success");
   });
 
   // AT-37: Phone number entry auto-advances or advances with # without stalling

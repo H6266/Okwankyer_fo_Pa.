@@ -21,11 +21,9 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
     expect(res.headers["content-type"]).toContain("application/xml");
     const body = res.text;
 
-    // Play the welcome and service selection recordings sequentially
     expect(body).toContain("<Response>");
-    const prompts = [...body.matchAll(/<Play[^>]*url="([^"]+)"/gi)].map((match) => match[1]);
-    expect(prompts.length).toBeGreaterThanOrEqual(2);
-    expect(prompts[0]).toMatch(/(?:Welcome%201%20\(2\)|Opening_voice_welcome_to_okwankyerefopa)\.mp3/);
+    expect(body.match(/Opening_voice_welcome_to_okwankyerefopa\.mp3/g)).toHaveLength(1);
+    expect(body).toContain("/api/audio/prompt-tts/en/language_selection");
     expect(body).toMatch(/\/(?:language-selection|service-choice)\?sessionId=/);
     expect(body).not.toContain("Welcome back");
   });
@@ -37,20 +35,150 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
       .send({ dtmfDigits: "1" });
 
     expect(resEn.status).toBe(200);
-    expect(resEn.text).toContain("/service-select?sessionId=");
+    expect(resEn.text).toContain("/service-choice?sessionId=");
     expect(resEn.text).toContain("lang=en");
     // The language selection response advances without replaying the opening.
     expect(resEn.text).not.toContain("Welcome back");
     expect(resEn.text).not.toContain("Welcome%201%20(2).mp3");
 
-    // Check service-select menu prompt
     const resService = await request(app)
-      .get(`/service-select?sessionId=${sessionId}&lang=en`);
+      .post(`/service-choice?sessionId=${sessionId}&lang=en`)
+      .send({ dtmfDigits: "1" });
+    expect(resService.text).toContain("/provider-select");
 
-    expect(resService.status).toBe(200);
-    expect(resService.text).toContain("<GetDigits");
-    expect(resService.text).toContain("/service-choice");
-    expect(resService.text).not.toContain("Welcome back");
+    await request(app)
+      .post(`/provider-select?sessionId=${sessionId}&lang=en`);
+    const resProvider = await request(app)
+      .post(`/provider-choice?sessionId=${sessionId}&lang=en`)
+      .send({ dtmfDigits: "1" });
+
+    expect(resProvider.status).toBe(200);
+    expect(resProvider.text).toContain("/action-select?sessionId=");
+    expect(resProvider.text).not.toContain("Welcome back");
+  });
+
+  it("follows the production callback URL and accepts DTMF 2 with its generated secret", async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalWebhookSecret = process.env.AT_WEBHOOK_SECRET;
+    const webhookSecret = "test-at-webhook-secret-32-characters";
+    const productionSessionId = `production_dtmf_${Date.now()}`;
+
+    process.env.NODE_ENV = "production";
+    process.env.AT_WEBHOOK_SECRET = webhookSecret;
+
+    try {
+      const welcome = await request(app)
+        .post("/voice-menu")
+        .type("form")
+        .send({
+          sessionId: productionSessionId,
+          callerNumber: testCallerNumber,
+          direction: "Inbound",
+          isActive: "1",
+        });
+
+      expect(welcome.status).toBe(200);
+      const callbackValue = welcome.text.match(/callbackUrl="([^"]+)"/)?.[1];
+      expect(callbackValue).toBeDefined();
+      const callback = new URL(callbackValue!.replace(/&amp;/g, "&"));
+      expect(callback.searchParams.get("secret")).toBe(webhookSecret);
+
+      const twiSelection = await request(app)
+        .post(`${callback.pathname}${callback.search}`)
+        .type("form")
+        .send({ dtmfDigits: "2" });
+
+      expect(twiSelection.status).toBe(200);
+      expect(twiSelection.text).toContain("<GetDigits");
+      expect(twiSelection.text).not.toContain("<Reject/>");
+      const getDigitsBody = twiSelection.text.match(/<GetDigits\b[^>]*>([\s\S]*?)<\/GetDigits>/)?.[1] || "";
+      expect([...getDigitsBody.matchAll(/<(?:Say|Play)\b/gi)]).toHaveLength(1);
+      const nextCallbackValue = twiSelection.text.match(/callbackUrl="([^"]+)"/)?.[1];
+      expect(nextCallbackValue).toBeDefined();
+      const nextCallback = new URL(nextCallbackValue!.replace(/&amp;/g, "&"));
+      expect(nextCallback.searchParams.get("lang")).toBe("twi");
+      expect(nextCallback.searchParams.get("secret")).toBe(webhookSecret);
+
+      const providerSelection = await request(app)
+        .post(`${nextCallback.pathname}${nextCallback.search}`)
+        .type("form")
+        .send({ dtmfDigits: "1" });
+
+      expect(providerSelection.status).toBe(200);
+      expect(providerSelection.text).not.toContain("<Reject/>");
+      const providerSelectRedirect = providerSelection.text.match(/<Redirect[^>]*>([^<]+)<\/Redirect>/)?.[1];
+      expect(providerSelectRedirect).toBeDefined();
+      const providerSelectUrl = new URL(providerSelectRedirect!.replace(/&amp;/g, "&"));
+      expect(providerSelectUrl.pathname).toBe("/provider-select");
+      const providerSelectMenu = await request(app)
+        .post(`${providerSelectUrl.pathname}${providerSelectUrl.search}`)
+        .type("form")
+        .send({});
+      const providerCallbackValue = providerSelectMenu.text.match(/callbackUrl="([^"]+)"/)?.[1];
+      expect(providerCallbackValue).toBeDefined();
+      const providerCallback = new URL(providerCallbackValue!.replace(/&amp;/g, "&"));
+      const selectedProvider = await request(app)
+        .post(`${providerCallback.pathname}${providerCallback.search}`)
+        .type("form")
+        .send({ dtmfDigits: "1" });
+      const redirectValue = selectedProvider.text.match(/<Redirect[^>]*>([^<]+)<\/Redirect>/)?.[1];
+      expect(redirectValue).toBeDefined();
+      const actionCallback = new URL(redirectValue!.replace(/&amp;/g, "&"));
+      expect(actionCallback.pathname).toBe("/action-select");
+      expect(actionCallback.searchParams.get("secret")).toBe(webhookSecret);
+
+      const actionMenu = await request(app)
+        .post(`${actionCallback.pathname}${actionCallback.search}`)
+        .type("form")
+        .send({});
+
+      expect(actionMenu.status).toBe(200);
+      expect(actionMenu.text).toContain("<GetDigits");
+      expect(actionMenu.text).not.toContain("<Reject/>");
+
+      const inactiveCallback = await request(app)
+        .post(`/language-selection?sessionId=${productionSessionId}&secret=${encodeURIComponent(webhookSecret)}`)
+        .type("form")
+        .send({ isActive: "0", errorMessage: "GetDigits action failed" });
+
+      expect(inactiveCallback.status).toBe(200);
+      expect(inactiveCallback.text).not.toContain("<GetDigits");
+      expect(inactiveCallback.text).not.toContain("<Record");
+    } finally {
+      if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = originalNodeEnv;
+      if (originalWebhookSecret === undefined) delete process.env.AT_WEBHOOK_SECRET;
+      else process.env.AT_WEBHOOK_SECRET = originalWebhookSecret;
+    }
+  });
+
+  it("emits exactly one nonempty Say or Play inside every tested GetDigits prompt", async () => {
+    const xmlResponses = await Promise.all([
+      request(app).post("/voice-menu").send({
+        sessionId: `xml_welcome_${Date.now()}`,
+        callerNumber: testCallerNumber,
+        isActive: "1",
+      }),
+      request(app).post("/action-select?sessionId=xml_action_en&lang=en"),
+      request(app).post("/enter-amount?sessionId=xml_amount_twi&lang=twi"),
+      request(app).post("/confirm-speech?sessionId=xml_confirm_twi&lang=twi"),
+    ]);
+
+    for (const response of xmlResponses) {
+      expect(response.status).toBe(200);
+      const matches = [...response.text.matchAll(/<GetDigits\b[^>]*>([\s\S]*?)<\/GetDigits>/gi)];
+      expect(matches.length).toBeGreaterThan(0);
+
+      for (const match of matches) {
+        const actions = [...match[1].matchAll(/<(Say|Play)\b([^>]*?)(?:\/>|>([\s\S]*?)<\/\1\s*>)/gi)];
+        expect(actions).toHaveLength(1);
+        if (actions[0][1].toLowerCase() === "play") {
+          expect(actions[0][2].match(/\burl=["']([^"']+)["']/i)?.[1]).toBeTruthy();
+        } else {
+          expect(actions[0][3]?.trim()).toBeTruthy();
+        }
+      }
+    }
   });
 
   it("3. Send Money: Recipient input resolves and triggers dynamic name & number readback (OP20 & OP21)", async () => {
@@ -128,7 +256,8 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
     // PIN handoff instructions given to caller; PIN is never captured in VoiceXML GetDigits
     expect(body).not.toContain('numDigits="4"');
     expect(body).not.toContain('numDigits="6"');
-    expect(body).toMatch(/PIN|screen|transfer|authorization|handset/i);
+    expect(body).toContain("/api/audio/prompt-tts/en/OP40");
+    expect(resOutcome.headers["x-ai-reply-text"]).toContain("Never say or enter your PIN");
   });
 
   it("6. Adaptive acoustic clarification triggers OP70 on noisy speech input before keypad fallback", async () => {
@@ -231,7 +360,8 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
 
     expect(handoff.status).toBe(200);
     expect(handoff.headers["x-transaction-outcome"]).toBe("PENDING");
-    expect(handoff.text).toContain("private authorization prompt");
+    expect(handoff.text).toContain("/api/audio/prompt-tts/en/OP40");
+    expect(handoff.headers["x-ai-reply-text"]).toContain("private authorization prompt");
     expect(handoff.text).not.toContain("transaction was successful");
     expect(handoff.text).not.toContain("Success.m4a");
     expect(transactionStateMachine.getSession(flowSessionId)?.state).toBe("PIN_PENDING");
@@ -269,7 +399,8 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
       .post(`/safe-outcome?sessionId=${flowSessionId}&lang=en`)
       .send({ dtmfDigits: "1" });
     expect(pinWithoutConfirmation.status).toBe(200);
-    expect(pinWithoutConfirmation.text).toContain("private authorization prompt");
+    expect(pinWithoutConfirmation.text).toContain("/api/audio/prompt-tts/en/OP40");
+    expect(pinWithoutConfirmation.headers["x-ai-reply-text"]).toContain("private authorization prompt");
     expect(session?.state).toBe("PIN_PENDING");
   });
 
