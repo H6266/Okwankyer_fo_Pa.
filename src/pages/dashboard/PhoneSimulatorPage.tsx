@@ -338,12 +338,6 @@ export const PhoneSimulatorPage: React.FC = () => {
     audioPlaybackController.setVolumeMultiplier(volumeMultiplier);
   }, [volumeMultiplier]);
 
-  const handleSetVolume = useCallback((mult: number) => {
-    setVolumeMultiplier(mult);
-    audioPlaybackController.setVolumeMultiplier(mult);
-    addLog("audio", `🔊 Master voice volume set to ${mult.toFixed(1)}x (+${((mult - 1) * 5.4).toFixed(1)} dB boost)`);
-  }, [addLog]);
-
   // Helper to resolve callback URL if none set
   const getFallbackCallbackUrl = useCallback((stepName: string, sessId: string): string => {
     if (stepName === "voice-menu" || stepName === "language-selection") {
@@ -386,6 +380,12 @@ export const PhoneSimulatorPage: React.FC = () => {
       },
     ]);
   }, []);
+
+  const handleSetVolume = useCallback((mult: number) => {
+    setVolumeMultiplier(mult);
+    audioPlaybackController.setVolumeMultiplier(mult);
+    addLog("audio", `🔊 Master voice volume set to ${mult.toFixed(1)}x (+${((mult - 1) * 5.4).toFixed(1)} dB boost)`);
+  }, [addLog]);
 
   const addChatTurn = useCallback((turn: Omit<ChatTurnItem, "id" | "time">) => {
     const time = new Date().toTimeString().slice(0, 5);
