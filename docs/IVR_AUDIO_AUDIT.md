@@ -4,6 +4,8 @@ Generated from the checked-out repository by `scripts/generate_audio_inventory_a
 
 The current checkout contains **92 audio files**. Extension counts: .m4a 3, .mp3 89.
 
+6 Twi recordings contain M4A/MP4 data despite their .mp3 filenames. Browser streaming serves the detected audio/mp4 type; telephony requests transcode them to MP3 with the bundled FFmpeg binary.
+
 | Current root | Audio files |
 |---|---:|
 | Canonical `Audio_files/audio/Twi/` | 0 |
@@ -13,10 +15,10 @@ The current checkout contains **92 audio files**. Extension counts: .m4a 3, .mp3
 | `audio/` | 0 |
 | Repository root | 1 |
 
-The runtime registry contains 91 selected entries, and 90 are approved fixed recordings. Physical files without an exact registry path remain unmapped candidates.
+The runtime registry contains 91 selected entries, and 88 are approved fixed recordings. Physical files without an exact registry path remain unmapped candidates.
 
-90 approved fixed recordings are enabled for runtime playback. Unapproved candidate and ambiguous recordings stay blocked; dynamic prompts use validated live values and the dynamic speech path.
+88 approved fixed recordings are enabled for runtime playback. Unapproved candidate and ambiguous recordings stay blocked; dynamic prompts use validated live values and the dynamic speech path.
 
 The per-prompt English/Twi statuses and exact registered asset paths are in `docs/IVR_AUDIO_MAPPING.md`. The complete physical inventory, including exact paths, sizes, durations when `ffprobe` is installed, and SHA-256 hashes, is in `docs/IVR_AUDIO_INVENTORY.csv`.
 
-The approved library contains 86 Twi and 4 English fixed recordings. Review new or changed assets against the canonical script and obtain qualified language review where needed before enabling them.
+The approved library contains 84 Twi and 4 English fixed recordings. Review new or changed assets against the canonical script and obtain qualified language review where needed before enabling them.

@@ -8,6 +8,9 @@
  *    pre-recorded studio audio assets across both Twi and English.
  */
 
+import { getRecordingByPromptId } from "./recordingRegistry";
+import { isDynamicPrompt } from "./canonicalRegistry";
+
 export interface FlowStepDefinition {
   id: string;
   stepIndex: number;
@@ -241,7 +244,7 @@ export const TWI_SEQUENTIAL_FLOW_STEPS: FlowStepDefinition[] = [
 /**
  * 14 Canonical IVR Categories synchronized with all prompt recordings
  */
-export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
+const CANONICAL_IVR_CATEGORY_DEFINITIONS: IvrCategoryDefinition[] = [
   {
     categoryNumber: 1,
     id: "welcome_session_start",
@@ -1318,6 +1321,26 @@ export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = [
     ],
   },
 ];
+
+export const CANONICAL_IVR_CATEGORIES: IvrCategoryDefinition[] = CANONICAL_IVR_CATEGORY_DEFINITIONS.map((category) => ({
+  ...category,
+  prompts: category.prompts.map((prompt) => {
+    if (isDynamicPrompt(prompt.promptId)) {
+      return {
+        ...prompt,
+        audioUrl: `/api/audio/prompt-tts/twi/${prompt.promptId}`,
+        fallbackAudioUrl: undefined,
+      };
+    }
+
+    const recording = getRecordingByPromptId(prompt.promptId, "twi");
+    return {
+      ...prompt,
+      audioUrl: recording?.url || "",
+      fallbackAudioUrl: undefined,
+    };
+  }),
+}));
 
 export function getFlowStepById(stepId: string): FlowStepDefinition | undefined {
   return TWI_SEQUENTIAL_FLOW_STEPS.find((s) => s.id === stepId);

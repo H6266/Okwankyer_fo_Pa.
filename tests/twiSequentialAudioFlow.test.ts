@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  CANONICAL_IVR_CATEGORIES,
   TWI_SEQUENTIAL_FLOW_STEPS,
+  getAllCanonicalPrompts,
   getFlowStepById,
   getFlowStepByIndex,
   getNextFlowStep,
 } from "../src/audio/twiSequentialAudioFlow";
 import { audioFileExists } from "../src/audio/catalog";
+import { getRecordingByPromptId } from "../src/audio/recordingRegistry";
+import { isDynamicPrompt } from "../src/audio/canonicalRegistry";
 
 describe("Guided IVR Audio Preview", () => {
   it("follows the canonical happy path and stops at provider-pending status", () => {
@@ -46,6 +50,25 @@ describe("Guided IVR Audio Preview", () => {
         expect(audioFileExists(decoded, "supplied"), `Audio file must resolve: ${decoded}`).toBe(true);
       }
     }
+  });
+
+  it("uses registered audio URLs for every canonical prompt and reserves dynamic prompts for TTS", () => {
+    for (const prompt of getAllCanonicalPrompts()) {
+      if (isDynamicPrompt(prompt.promptId)) {
+        expect(prompt.audioUrl).toBe(`/api/audio/prompt-tts/twi/${prompt.promptId}`);
+        expect(prompt.fallbackAudioUrl).toBeUndefined();
+        continue;
+      }
+
+      const recording = getRecordingByPromptId(prompt.promptId, "twi");
+      expect(prompt.audioUrl).toBe(recording?.url || "");
+      expect(prompt.fallbackAudioUrl).toBeUndefined();
+      if (recording) expect(recording.audioVerified).toBe(true);
+    }
+
+    expect(CANONICAL_IVR_CATEGORIES.flatMap((category) => category.prompts)).toHaveLength(
+      getAllCanonicalPrompts().length
+    );
   });
 
   it("retains the existing transaction safety sequence and has no PIN collection step", () => {

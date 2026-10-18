@@ -100,7 +100,7 @@ export function formatSlowReferenceForSpeech(ref: string, language: "en" | "twi"
 }
 
 /**
- * Renders canonical dynamic prompt templates (OP20, OP21, OP29, OP52, OP52B, OP70)
+ * Renders canonical dynamic prompt templates (OP20, OP21, OP29, OP35, OP52, OP52B, OP70)
  * with real variable values rather than placeholder strings.
  */
 export function renderDynamicPromptTemplate(
@@ -145,11 +145,11 @@ export function renderDynamicPromptTemplate(
       const phoneValidation = validateGhanaPhoneNumber(phone);
       const parsed = parseAndValidateAmount(String(params.amount));
       if (!phoneValidation.valid || !parsed.valid || parsed.amount === undefined) return null;
-      const fullPhone = formatFullPhoneNumberForSpeech(phone, language);
+      const lastFour = phone.replace(/\D/g, "").slice(-4).split("").join(" ");
       const amount = parsed.formatted || String(params.amount);
       return isTwi
-        ? `Wopɛ sɛ womane ${amount} kɔma ${name} wɔ ${network} so. Recipient phone nɔmba a ɛdi mũ no ne ${fullPhone}.`
-        : `You are about to send ${amount} to ${name} on ${network}. The full recipient phone number is ${fullPhone}.`;
+        ? `Wopɛ sɛ womane ${amount} kɔma ${name} wɔ ${network} so. Recipient phone nɔmba no awiei ne ${lastFour}.`
+        : `You are about to send ${amount} to ${name} on ${network}. The recipient phone number ends in ${lastFour}.`;
     }
     case "OP52": {
       const name = params.name?.trim() || params.recipientName?.trim();

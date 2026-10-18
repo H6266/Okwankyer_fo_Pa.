@@ -104,7 +104,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     const serviceMenu = await request(app)
       .post("/service-select")
       .query({ sessionId, lang: "en" });
-    expect(serviceMenu.text).toContain("For a supported Mobile Money transfer, press 1.");
+    expect(serviceMenu.text).toContain("/audio/English_Library/2.m4a?format=mp3");
     expect(resolvePromptText("supported_service_select", "en")).toContain("supported Mobile Money transfer");
     expect(resolvePromptText("supported_service_select", "en")).not.toMatch(/banking/i);
 
@@ -259,7 +259,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(finalReview.text).toContain("Ama Mensah");
     expect(finalReview.text).toContain("MTN");
     expect(finalReview.text).toContain("4 5 6 7");
-    expect(finalReview.text).toContain("0 2 4 1 2 3 4 5 6 7");
+    expect(finalReview.text).not.toContain("0 2 4 1 2 3 4 5 6 7");
     expect(finalReview.text).toContain("Press 1 to confirm");
     expect(finalReview.text).toContain("To change the amount, press 2");
     expect(finalReview.text).toContain("To change the recipient, press 3");
@@ -429,7 +429,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(safeConfRes.text).toContain("75");
     expect(safeConfRes.text.includes("Sand Box") || safeConfRes.text.includes("Kwame Boateng")).toBe(true);
     expect(safeConfRes.text).toContain("8 4 6 4");
-    expect(safeConfRes.text).toContain("0 5 5 3 8 3 8 4 6 4");
+    expect(safeConfRes.text).not.toContain("0 5 5 3 8 3 8 4 6 4");
 
     // 10. Confirm Transfer (1) -> Handoff to USSD Prompt & Zero-PIN Safety Gate (Item 1.1)
     const startSaga = vi.spyOn(paymentSaga, "executeConfirmedTransferSaga").mockResolvedValue({
@@ -650,7 +650,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
         .get("/service-select")
         .query({ sessionId, lang: "en", secret });
       expect(serviceMenuRes.status).toBe(200);
-      expect(serviceMenuRes.text).toContain("For a supported Mobile Money transfer, press 1.");
+      expect(serviceMenuRes.text).toContain("/audio/English_Library/2.m4a?format=mp3");
       expect(serviceMenuRes.text).toContain(`callbackUrl="http://`);
       expect(serviceMenuRes.text).toContain(`secret=${secret}`);
 
@@ -728,7 +728,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     const menuRes = await request(app)
       .post("/service-select")
       .query({ sessionId, lang: "en" });
-    expect(menuRes.text).toContain("For a supported Mobile Money transfer, press 1.");
+    expect(menuRes.text).toContain("/audio/English_Library/2.m4a?format=mp3");
 
     const unavailableBankingChoice = await request(app)
       .post("/service-choice")

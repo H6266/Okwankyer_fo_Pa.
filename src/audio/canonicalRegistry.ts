@@ -202,8 +202,8 @@ const loadedPrompts: CanonicalPrompt[] = Array.from(promptIds).map((id) => {
     enText = "I heard {amount} Ghana cedis. Is that amount correct?";
     twiText = "Mate sɛ ɛyɛ Ghana cedis {amount}. Saa sika dodow yi yɛ nokware anaa?";
   } else if (normId === "OP35") {
-    enText = "You are about to send {amount} to {name} on {network}. The full recipient phone number is {recipient_phone_spaced}.";
-    twiText = "Wopɛ sɛ womane {amount} kɔma {name} wɔ {network} so. Recipient phone nɔmba a ɛdi mũ no ne {recipient_phone_spaced}.";
+    enText = "You are about to send {amount} to {name} on {network}. The recipient phone number ends in {last_four}.";
+    twiText = "Wopɛ sɛ womane {amount} kɔma {name} wɔ {network} so. Recipient phone nɔmba no awiei ne {last_four}.";
   } else if (normId === "OP67") {
     enText = "I did not get any response from you, please give us a response!";
     twiText = "Mante deɛ wofiri wo hɔ bae, yɛsrɛ wo ma yɛn mmuaeɛ!";

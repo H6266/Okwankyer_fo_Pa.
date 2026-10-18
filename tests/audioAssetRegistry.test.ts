@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   AUDIO_RECORDINGS,
   getRecordingByPromptId,
+  getRecordingByPromptKey,
   getRecordingsByPromptId,
 } from "../src/audio/recordingRegistry";
 import { AUDIO_ASSET_INVENTORY, AUDIO_CATALOG, audioFileExists } from "../src/audio/catalog";
-import { resolvePrompt, resolveSimulatorAudioUrl } from "../src/modules/ttsService";
+import { resolvePrompt, resolvePromptXml, resolveSimulatorAudioUrl } from "../src/modules/ttsService";
 import { matchReplyToAudio } from "../src/audio/replyAudioMatcher";
 import { resolveSafeAudioPath } from "../src/audio/streaming";
 import { getRecordingFilePath } from "../src/audio/recordingRegistry";
@@ -16,8 +17,11 @@ describe("canonical audio asset registry", () => {
   it("inventories exact recording paths from the current audio roots", () => {
     expect(AUDIO_ASSET_INVENTORY).toHaveLength(AUDIO_RECORDINGS.length);
     expect(AUDIO_ASSET_INVENTORY.length).toBeGreaterThan(0);
-    expect(AUDIO_RECORDINGS.filter((recording) => recording.id.startsWith("supplied:Twi_library/"))
-      .every((recording) => recording.audioVerified)).toBe(true);
+    expect(AUDIO_RECORDINGS.filter((recording) =>
+      recording.id.startsWith("supplied:Twi_library/") && recording.recordingRole === "fixed"
+    ).every((recording) => recording.audioVerified)).toBe(true);
+    expect(AUDIO_RECORDINGS.filter((recording) => recording.recordingRole === "dynamic")
+      .every((recording) => !recording.audioVerified)).toBe(true);
     expect(AUDIO_RECORDINGS.filter((recording) => recording.language === "en")
       .every((recording) => recording.audioVerified)).toBe(true);
 
@@ -36,6 +40,9 @@ describe("canonical audio asset registry", () => {
     expect(resolvePrompt("welcome", "twi")).toBe("/audio/Twi/Opening_voice_welcome_to_okwankyerefopa.mp3");
     expect(resolvePrompt("OP07", "en")).toBe("/audio/English_Library/2.m4a");
     expect(resolvePrompt("OP07", "twi")).toBe("/audio/Twi/Service_selection.mp3");
+    expect(resolvePrompt("supported_service_select", "twi")).toBe("/audio/Twi/Service_selection.mp3");
+    expect(resolvePromptXml("supported_service_select", "twi", "https://example.test"))
+      .toContain('<Play url="https://example.test/audio/Twi/Service_selection.mp3?format=mp3"/>');
 
     for (const recording of AUDIO_CATALOG) {
       expect(recording.url).not.toMatch(/(?:null|undefined|\/)$/);
@@ -45,7 +52,20 @@ describe("canonical audio asset registry", () => {
 
   it("keeps unreviewed and dynamic recordings out of fixed prompt playback", () => {
     expect(getRecordingByPromptId("OP20", "twi")).toBeNull();
+    expect(getRecordingByPromptId("OP29", "twi")).toBeNull();
+    expect(getRecordingByPromptId("OP35", "twi")).toBeNull();
+    expect(getRecordingByPromptId("OP70", "twi")).toBeNull();
+    expect(getRecordingByPromptKey("amount_readback", "twi")).toBeNull();
+    expect(resolvePrompt("amount_readback", "twi")).toBe("/api/audio/prompt-tts/twi/OP29");
     expect(getRecordingByPromptId("OP07", "twi")?.audioVerified).toBe(true);
+    expect(getRecordingByPromptId("OP22", "twi")?.title).toBe("Recipient_confirm_speech");
+    expect(getRecordingByPromptId("OP34", "twi")?.title).toBe("Review transaction");
+    expect(getRecordingByPromptId("OP44", "twi")?.title).toBe("Security_warning");
+    expect(getRecordingByPromptId("OP48", "twi")?.title).toBe("Authorize_phone");
+    expect(getRecordingByPromptId("OP51", "twi")?.title).toBe("Processing");
+    expect(getRecordingByPromptId("OP62", "twi")?.title).toBe("Check_messages");
+    expect(getRecordingByPromptId("OP66", "twi")?.title).toBe("Please_respond");
+    expect(getRecordingByPromptId("OP47", "twi")?.title).toBe("Check phone");
     expect(getRecordingsByPromptId("OP19", "twi").map((recording) => recording.relativePath))
       .toContain("Twi/Recipient_verify.mp3");
     expect(resolveSimulatorAudioUrl("/audio/welcome_en.mp3", "en")).toBe("/audio/welcome_en.mp3");

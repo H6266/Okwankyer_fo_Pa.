@@ -90,5 +90,5 @@ export function assertTtsResponse(
   if (!response.audioMimeType || !response.audioBuffer || !isAudioContainerValid(response.audioBuffer, response.audioMimeType)) {
     throw new Error("TTS_AUDIO_INVALID: provider MIME type does not match a supported audio container.");
   }
-  return { ...response, language, model: response.model };
+  return { ...response, audioBuffer: response.audioBuffer, language, model: response.model };
 }

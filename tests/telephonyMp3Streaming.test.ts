@@ -24,7 +24,7 @@ describe("Telephony MP3 Transcoding & Playback", () => {
 
   it("streams .mp3 audio with audio/mpeg content type over HTTP", async () => {
     const res = await request(app)
-      .get("/audio/English_Library/2.mp3")
+      .get("/audio/English_Library/2.mp3?format=mp3")
       .expect(200);
 
     expect(res.headers["content-type"]).toBe("audio/mpeg");
@@ -50,9 +50,50 @@ describe("Telephony MP3 Transcoding & Playback", () => {
     expect(Number(res.headers["content-length"])).toBeGreaterThan(1000);
   });
 
+  it("streams Twi recordings with their actual M4A container type when named .mp3", async () => {
+    const filenames = [
+      "Network_selection.mp3",
+      "Service_notready.mp3",
+      "MTN menu.mp3",
+      "Choose instead.mp3",
+      "Service_selection.mp3",
+      "Service_alternative.mp3",
+    ];
+
+    for (const filename of filenames) {
+      const res = await request(app)
+        .get(`/audio/Twi/${encodeURIComponent(filename)}`)
+        .expect(200);
+
+      expect(res.headers["content-type"]).toBe("audio/mp4");
+      expect(Number(res.headers["content-length"])).toBeGreaterThan(1000);
+      expect(res.body.toString("ascii", 4, 8)).toBe("ftyp");
+    }
+  });
+
+  it("transcodes the mislabeled Twi recordings to MP3 for telephony", async () => {
+    const filenames = [
+      "Network_selection.mp3",
+      "Service_notready.mp3",
+      "MTN menu.mp3",
+      "Choose instead.mp3",
+      "Service_selection.mp3",
+      "Service_alternative.mp3",
+    ];
+
+    for (const filename of filenames) {
+      const res = await request(app)
+        .get(`/audio/Twi/${encodeURIComponent(filename)}?format=mp3`)
+        .expect(200);
+
+      expect(res.headers["content-type"]).toBe("audio/mpeg");
+      expect(res.body.toString("ascii", 0, 3) === "ID3" || (res.body[0] === 0xff && (res.body[1] & 0xe0) === 0xe0)).toBe(true);
+    }
+  });
+
   it("returns valid byte-range headers and payload for transcoded MP3", async () => {
     const res = await request(app)
-      .get("/audio/English_Library/2.mp3")
+      .get("/audio/English_Library/2.mp3?format=mp3")
       .set("Range", "bytes=0-99")
       .expect(206);
 

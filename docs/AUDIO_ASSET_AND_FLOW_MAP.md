@@ -6,6 +6,8 @@ Generated from the current runtime audio policy and IVR integration.
 
 The checkout contains 92 audio files across canonical `Audio_files/audio/Twi/` (0), legacy `Audio_files/Twi_library/` (86), other `Audio_files/` paths (3), `public/audio/` (2), `audio/` (0), and the repository root (1).
 
+6 Twi files have M4A/MP4 bytes behind .mp3 names. Browser playback uses the detected media type; telephony URLs are converted to MP3 with the bundled FFmpeg binary.
+
 The runtime registry contains 91 selected assets. The resolver accepts only approved, language-matched recordings with audioVerified=true. Fixed prompts without an approved recording use text recovery; only dynamic prompts may request language-matched TTS.
 
 Full path-by-path inventory: `docs/IVR_AUDIO_INVENTORY.csv`. Per-prompt language coverage: `docs/IVR_AUDIO_MAPPING.md`.
@@ -26,4 +28,4 @@ All legacy PIN URLs refuse keypad and speech input. Authorization belongs on the
 
 ## Review and release limits
 
-The approved library contains 86 Twi and 4 English fixed recordings. Review Twi pronunciation and scripts for any newly added assets before enabling them. Dynamic speech and real provider callbacks require their approved provider configuration. Run `npx tsx scripts/generate_audio_inventory_and_mapping.ts` after asset changes; only approved assets should have `audioVerified=true`.
+The approved library contains 84 Twi and 4 English fixed recordings. Review Twi pronunciation and scripts for any newly added assets before enabling them. Dynamic speech and real provider callbacks require their approved provider configuration. Run `npx tsx scripts/generate_audio_inventory_and_mapping.ts` after asset changes; only approved assets should have `audioVerified=true`.

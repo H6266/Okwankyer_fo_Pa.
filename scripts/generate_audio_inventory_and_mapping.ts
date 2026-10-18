@@ -113,6 +113,10 @@ function scanDir(dir: string) {
         ".ogg": "audio/ogg",
         ".wav": "audio/wav",
       };
+      const header = fs.readFileSync(full).subarray(0, 12);
+      const actualFormat = header.length >= 8 && header.toString("ascii", 4, 8) === "ftyp"
+        ? "audio/mp4"
+        : formatByExtension[ext] || "unknown";
       const recording = recordingForPath(rel);
       const lang = recording?.language === "unresolved" ? languageForPath(rel) : recording?.language || languageForPath(rel);
       const promptId = recording?.promptId || "";
@@ -120,7 +124,7 @@ function scanDir(dir: string) {
         ? recording.audioVerified ? "AUDIO_VERIFIED" : "CANDIDATE_NOT_AUDIO_VERIFIED"
         : "UNMAPPED_CANDIDATE";
       const notes = recording
-        ? `Registry mapping; role=${recording.recordingRole}; audioVerified=${recording.audioVerified}.`
+        ? `Registry mapping; role=${recording.recordingRole}; audioVerified=${recording.audioVerified}.${actualFormat !== formatByExtension[ext] ? ` Detected container=${actualFormat}; filename extension=${ext}.` : ""}`
         : "No exact canonical registry mapping; requires human review.";
 
       entries.push({
@@ -131,7 +135,7 @@ function scanDir(dir: string) {
         language: lang,
         probablePromptId: promptId,
         durationSeconds: dur,
-        audioFormat: formatByExtension[ext] || "unknown",
+        audioFormat: actualFormat,
         fileSizeBytes: size,
         transcription: recording?.spokenText
           ? `UNVERIFIED SCRIPT: ${recording.spokenText}`
@@ -188,7 +192,7 @@ function coverage(promptId: string, language: "en" | "twi", type: string, script
   if (type.toUpperCase() === "DYNAMIC") return { status: "DYNAMIC_TTS_REQUIRED", paths: "" };
   const recordings = getRecordingsByPromptId(promptId, language);
   const eligible = recordings.filter((recording) => recording.audioVerified && recording.recordingRole === "fixed");
-  const paths = recordings.map(physicalPathForRecording).join("<br>");
+  const paths = (eligible.length > 0 ? eligible : recordings).map(physicalPathForRecording).join("<br>");
 
   if (eligible.length === 1) return { status: "VERIFIED_FIXED_ASSET", paths };
   if (recordings.some((recording) => recording.mappingStatus.startsWith("AMBIGUOUS")) || recordings.length > 1) {
@@ -260,12 +264,15 @@ const extensionCounts = Object.fromEntries(
     entries.filter((entry) => entry.extension === extension).length,
   ])
 );
+const mislabeledMp4Count = entries.filter((entry) => entry.extension === ".mp3" && entry.audioFormat === "audio/mp4").length;
 const auditMarkdown = [
   "# IVR Audio Asset Audit",
   "",
   "Generated from the checked-out repository by `scripts/generate_audio_inventory_and_mapping.ts`.",
   "",
   `The current checkout contains **${entries.length} audio files**. Extension counts: ${Object.entries(extensionCounts).map(([extension, count]) => `${extension} ${count}`).join(", ")}.`,
+  "",
+  `${mislabeledMp4Count} Twi recordings contain M4A/MP4 data despite their .mp3 filenames. Browser streaming serves the detected audio/mp4 type; telephony requests transcode them to MP3 with the bundled FFmpeg binary.`,
   "",
   "| Current root | Audio files |\n|---|---:|\n| Canonical `Audio_files/audio/Twi/` | " + rootCounts.canonicalTwi + " |\n| Legacy `Audio_files/Twi_library/` | " + rootCounts.legacyTwi + " |\n| Other files under `Audio_files/` | " + rootCounts.audioFilesOther + " |\n| `public/audio/` | " + rootCounts.publicAudio + " |\n| `audio/` | " + rootCounts.audioDirectory + " |\n| Repository root | " + rootCounts.repositoryRoot + " |",
   "",
@@ -289,6 +296,8 @@ const flowMapMarkdown = [
   "## Current inventory",
   "",
   "The checkout contains " + entries.length + " audio files across canonical `Audio_files/audio/Twi/` (" + rootCounts.canonicalTwi + "), legacy `Audio_files/Twi_library/` (" + rootCounts.legacyTwi + "), other `Audio_files/` paths (" + rootCounts.audioFilesOther + "), `public/audio/` (" + rootCounts.publicAudio + "), `audio/` (" + rootCounts.audioDirectory + "), and the repository root (" + rootCounts.repositoryRoot + ").",
+  "",
+  `${mislabeledMp4Count} Twi files have M4A/MP4 bytes behind .mp3 names. Browser playback uses the detected media type; telephony URLs are converted to MP3 with the bundled FFmpeg binary.`,
   "",
   `The runtime registry contains ${AUDIO_RECORDINGS.length} selected assets. The resolver accepts only approved, language-matched recordings with audioVerified=true. Fixed prompts without an approved recording use text recovery; only dynamic prompts may request language-matched TTS.`,
   "",

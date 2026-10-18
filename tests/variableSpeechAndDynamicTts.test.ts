@@ -32,7 +32,7 @@ describe("Professional Dynamic TTS & Variable Speech Layer", () => {
     audioPlaybackController.stop();
   });
 
-  it("1. Does not invoke TTS for fixed prompts whose studio recording is unavailable", async () => {
+  it("1. Uses the studio recording for fixed welcome and rejects unavailable fixed audio", async () => {
     const decisionEn = variableSpeechService.evaluate({
       mode: "RECORDED",
       language: "en",
@@ -41,7 +41,16 @@ describe("Professional Dynamic TTS & Variable Speech Layer", () => {
     });
 
     expect(decisionEn.mode).toBe("RECORDED");
-    expect(decisionEn.audioUrl).toBeUndefined();
+    expect(decisionEn.audioUrl).toContain("/audio/");
+    await expect(variableSpeechService.generateSpeech({
+      mode: "RECORDED",
+      language: "en",
+      promptKey: "welcome",
+      purpose: "FIXED_INSTRUCTION",
+    })).resolves.toMatchObject({
+      providerUsed: "STUDIO_PROMPT_CATALOG",
+      audioUrl: expect.stringContaining("/audio/"),
+    });
 
     const decisionTwi = variableSpeechService.evaluate({
       mode: "RECORDED",
@@ -60,7 +69,7 @@ describe("Professional Dynamic TTS & Variable Speech Layer", () => {
     })).rejects.toThrow(/FIXED_PROMPT_AUDIO_UNAVAILABLE/);
   });
 
-  it("2. Changing recipient phone number changes the full spoken number", () => {
+  it("2. Changing recipient phone number changes the spoken last four digits", () => {
     const p1 = buildSafeConfirmationPrompt({
       language: "en",
       amount: 20,
@@ -81,8 +90,10 @@ describe("Professional Dynamic TTS & Variable Speech Layer", () => {
       callbackUrl: "/callback",
     });
 
-    expect(p1.spokenText).toContain("0 5 5 3 8 3 8 4 6 4");
-    expect(p2.spokenText).toContain("0 2 4 1 2 3 4 5 6 7");
+    expect(p1.spokenText).toContain("8 4 6 4");
+    expect(p2.spokenText).toContain("4 5 6 7");
+    expect(p1.spokenText).not.toContain("0 5 5 3 8 3");
+    expect(p2.spokenText).not.toContain("0 2 4 1 2 3");
     expect(p1.spokenText).not.toEqual(p2.spokenText);
   });
 

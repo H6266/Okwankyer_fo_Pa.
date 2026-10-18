@@ -55,6 +55,8 @@ export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
   acknowledge: "OP05",
   processing: "OP06",
   service_selection: "OP07",
+  supported_service_select: "OP07",
+  service_select: "OP07",
   network_selection: "OP08",
   mtn_menu: "OP09",
   send_money_selected: "OP10",
@@ -83,7 +85,7 @@ export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
   amount_too_high: "OP31",
   amount_too_low: "OP32",
   change_amount: "OP33",
-  review_transaction: "OP35",
+  review_transaction: "OP34",
   confirm_continue: "OP36",
   confirm_speech: "OP37",
   reject_speech: "OP38",
@@ -97,7 +99,7 @@ export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
   submitted: "OP45",
   waiting_confirmation: "OP46",
   check_phone: "OP47",
-  check_messages: "OP47",
+  check_messages: "OP62",
   auth_received: "OP49",
   check_final_status: "OP50",
   check_final_tatus: "OP50",
@@ -150,6 +152,14 @@ export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
   another_recipient: "OP93",
   do_you_want_to_send_money_to_another_person: "OP93",
   finish: "OP94",
+};
+
+const CANONICAL_PROMPT_RECORDING_ALIASES: Readonly<Record<string, string>> = {
+  OP22: "OP23",
+  OP44: "OP41",
+  OP48: "OP40",
+  OP51: "OP06",
+  OP66: "OP67",
 };
 
 const PROMPT_ID_TO_KEY: Record<string, string> = {};
@@ -215,8 +225,10 @@ for (const item of [
 
 // 1. Twi Library Items
 for (const item of TWI_AUDIO_LIBRARY_ITEMS) {
-  const promptId = PROMPT_KEY_TO_RECORDING_ID[item.key] || null;
-  const mimeType = "audio/mpeg";
+  const mappedPromptId = PROMPT_KEY_TO_RECORDING_ID[item.key] || null;
+  const isDynamicRecording = mappedPromptId !== null && DYNAMIC_PROMPT_IDS.has(mappedPromptId.toUpperCase());
+  const promptId = isDynamicRecording ? null : mappedPromptId;
+  const mimeType = item.filename.endsWith(".mp3") ? "audio/mpeg" : "audio/mp4";
   recordings.push({
     id: `supplied:Twi_library/${item.filename}`,
     promptId,
@@ -232,9 +244,9 @@ for (const item of TWI_AUDIO_LIBRARY_ITEMS) {
     url: item.audioUrl,
     mimeType,
     isAlternate: false,
-    recordingRole: "fixed",
-    mappingStatus: "VERIFIED",
-    audioVerified: true,
+    recordingRole: isDynamicRecording ? "dynamic" : "fixed",
+    mappingStatus: isDynamicRecording ? "DYNAMIC_SAMPLE_NOT_FOR_PLAYBACK" : "VERIFIED",
+    audioVerified: !isDynamicRecording,
   });
 }
 
@@ -246,8 +258,9 @@ export function getRecordingByPromptId(
   language: "en" | "twi" = "twi"
 ): AudioRecording | null {
   const normalizedPromptId = promptId.toUpperCase();
+  const lookupPromptId = CANONICAL_PROMPT_RECORDING_ALIASES[normalizedPromptId] || normalizedPromptId;
   const matches = AUDIO_RECORDINGS.filter(
-    (r) => r.promptId?.toUpperCase() === normalizedPromptId && r.language === language && r.url
+    (r) => r.promptId?.toUpperCase() === lookupPromptId && r.language === language && r.url
   );
   return matches.find((recording) => recording.audioVerified) || null;
 }
@@ -256,8 +269,10 @@ export function getRecordingsByPromptId(
   promptId: string,
   language?: "en" | "twi"
 ): AudioRecording[] {
+  const normalizedPromptId = promptId.toUpperCase();
+  const lookupPromptId = CANONICAL_PROMPT_RECORDING_ALIASES[normalizedPromptId] || normalizedPromptId;
   return AUDIO_RECORDINGS.filter(
-    (r) => r.promptId === promptId && r.url && (!language || r.language === language)
+    (r) => r.promptId?.toUpperCase() === lookupPromptId && r.url && (!language || r.language === language)
   );
 }
 
@@ -265,8 +280,12 @@ export function getRecordingByPromptKey(
   key: string,
   language: "en" | "twi" = "twi"
 ): AudioRecording | null {
-  const promptId = PROMPT_KEY_TO_RECORDING_ID[key] || (/^OP\d{2}$/i.test(key) ? key.toUpperCase() : undefined);
+  const normalizedKey = key.toLowerCase();
+  const promptId = PROMPT_KEY_TO_RECORDING_ID[key]
+    || PROMPT_KEY_TO_RECORDING_ID[normalizedKey]
+    || (/^OP\d{2}(?:B)?$/i.test(key) ? key.toUpperCase() : undefined);
   if (promptId) {
+    if (DYNAMIC_PROMPT_IDS.has(promptId.toUpperCase())) return null;
     const rec = getRecordingByPromptId(promptId, language);
     if (rec) return rec;
   }
@@ -275,7 +294,8 @@ export function getRecordingByPromptKey(
     (item) => item.key === key || item.filename.toLowerCase() === key.toLowerCase()
   );
   if (directItem && language === "twi") {
-    return AUDIO_RECORDINGS.find((r) => r.url === directItem.audioUrl) || null;
+    const recording = AUDIO_RECORDINGS.find((r) => r.url === directItem.audioUrl);
+    return recording?.audioVerified && recording.recordingRole === "fixed" ? recording : null;
   }
   return null;
 }

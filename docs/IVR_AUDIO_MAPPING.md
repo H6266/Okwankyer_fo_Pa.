@@ -2,13 +2,13 @@
 
 Generated from the prompt manifest, runtime registry, and current checkout by `scripts/generate_audio_inventory_and_mapping.ts`.
 
-The inventory contains 92 physical audio files. The approved library contains 86 Twi and 4 English fixed recordings. Canonical audio URLs are served from their registered asset roots. Other candidate and ambiguous files remain blocked from automatic playback. Dynamic prompts must use validated live values and approved TTS; no static sample audio is eligible for them.
+The inventory contains 92 physical audio files. The approved library contains 84 Twi and 4 English fixed recordings. Canonical audio URLs are served from their registered asset roots. Other candidate and ambiguous files remain blocked from automatic playback. Dynamic prompts must use validated live values and approved TTS; no static sample audio is eligible for them.
 
-Coverage totals (English and Twi combined): VERIFIED_FIXED_ASSET 83, CANDIDATE_NOT_AUDIO_VERIFIED 0, AMBIGUOUS_REVIEW_REQUIRED 1, DYNAMIC_TTS_REQUIRED 14, SAFE_FALLBACK_ONLY 92, MISSING_ASSET 0.
+Coverage totals (English and Twi combined): VERIFIED_FIXED_ASSET 92, CANDIDATE_NOT_AUDIO_VERIFIED 0, AMBIGUOUS_REVIEW_REQUIRED 0, DYNAMIC_TTS_REQUIRED 14, SAFE_FALLBACK_ONLY 84, MISSING_ASSET 0.
 
 | Prompt ID | State | Type | English status | English asset path(s) | Twi status | Twi asset path(s) |
 |---|---|---|---|---|---|---|
-| OP01 | WELCOME | FIXED | VERIFIED_FIXED_ASSET | public/audio/welcome_en.mp3 | VERIFIED_FIXED_ASSET | public/audio/welcome_twi.mp3<br>Audio_files/Twi_library/Opening_voice_welcome_to_okwankyerefopa.mp3 |
+| OP01 | WELCOME | FIXED | VERIFIED_FIXED_ASSET | public/audio/welcome_en.mp3 | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Opening_voice_welcome_to_okwankyerefopa.mp3 |
 | OP02 | LANGUAGE_SELECTION | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Language_selection.mp3 |
 | OP03 | GREETING | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Greetings.mp3 |
 | OP04 | WELCOME_BACK | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Welcome back.mp3 |
@@ -29,7 +29,7 @@ Coverage totals (English and Twi combined): VERIFIED_FIXED_ASSET 83, CANDIDATE_N
 | OP19 | RECIPIENT_VERIFY | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Recipient_verify.mp3 |
 | OP20 | RECIPIENT_NAME | DYNAMIC | DYNAMIC_TTS_REQUIRED | — | DYNAMIC_TTS_REQUIRED | — |
 | OP21 | RECIPIENT_FULL_NUMBER | DYNAMIC | DYNAMIC_TTS_REQUIRED | — | DYNAMIC_TTS_REQUIRED | — |
-| OP22 | RECIPIENT_CONFIRM | FIXED | SAFE_FALLBACK_ONLY | — | SAFE_FALLBACK_ONLY | — |
+| OP22 | RECIPIENT_CONFIRM | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Recipient_confirm_speech.mp3 |
 | OP23 | RECIPIENT_CONFIRM_SPEECH | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Recipient_confirm_speech.mp3 |
 | OP24 | USE_RECIPIENT | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Use_recipient 1.mp3 |
 | OP25 | CHANGE_RECIPIENT | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Change recipient.mp3 |
@@ -41,7 +41,7 @@ Coverage totals (English and Twi combined): VERIFIED_FIXED_ASSET 83, CANDIDATE_N
 | OP31 | AMOUNT_TOO_HIGH | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Amount too high 3.mp3 |
 | OP32 | AMOUNT_TOO_LOW | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Amount too low.mp3 |
 | OP33 | CHANGE_AMOUNT | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Change_amount.mp3 |
-| OP34 | CONFIRMATION_INTRO | FIXED | SAFE_FALLBACK_ONLY | — | SAFE_FALLBACK_ONLY | — |
+| OP34 | CONFIRMATION_INTRO | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Review transaction.mp3 |
 | OP35 | REVIEW_TRANSACTION | DYNAMIC | DYNAMIC_TTS_REQUIRED | — | DYNAMIC_TTS_REQUIRED | — |
 | OP36 | CONFIRM_CONTINUE | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Confirm_continue.mp3 |
 | OP37 | CONFIRM_SPEECH | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Confirm speech.mp3 |
@@ -51,14 +51,14 @@ Coverage totals (English and Twi combined): VERIFIED_FIXED_ASSET 83, CANDIDATE_N
 | OP41 | SECURITY_WARNING | FIXED | VERIFIED_FIXED_ASSET | Audio_files/English_Library/4.m4a | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Security_warning.mp3 |
 | OP42 | SECURE_PIN | FIXED | SAFE_FALLBACK_ONLY | — | SAFE_FALLBACK_ONLY | — |
 | OP43 | PIN_BLOCK | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Pin Block.mp3 |
-| OP44 | SENSITIVE_BLOCK | FIXED | SAFE_FALLBACK_ONLY | — | SAFE_FALLBACK_ONLY | — |
+| OP44 | SENSITIVE_BLOCK | FIXED | VERIFIED_FIXED_ASSET | Audio_files/English_Library/4.m4a | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Security_warning.mp3 |
 | OP45 | SUBMITTED | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Submitted.mp3 |
 | OP46 | WAITING_CONFIRMATION | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Waiting_confirmation.mp3 |
-| OP47 | CHECK_PHONE | FIXED | SAFE_FALLBACK_ONLY | — | AMBIGUOUS_REVIEW_REQUIRED | Audio_files/Twi_library/Check phone.mp3<br>Audio_files/Twi_library/Check_messages.mp3 |
-| OP48 | GENERAL | FIXED | SAFE_FALLBACK_ONLY | — | SAFE_FALLBACK_ONLY | — |
+| OP47 | CHECK_PHONE | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Check phone.mp3 |
+| OP48 | AUTH | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Authorize_phone.mp3 |
 | OP49 | AUTH_RECEIVED | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Auth_received.mp3 |
 | OP50 | CHECK_FINAL_STATUS | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Check_final_tatus.mp3 |
-| OP51 | GENERAL | FIXED | SAFE_FALLBACK_ONLY | — | SAFE_FALLBACK_ONLY | — |
+| OP51 | AUTH | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Processing.mp3 |
 | OP52 | SUCCESS | DYNAMIC | DYNAMIC_TTS_REQUIRED | — | DYNAMIC_TTS_REQUIRED | — |
 | OP53 | SUCCESS_SENT | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Success_sent.mp3 |
 | OP54 | KEEP_REFERENCE | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Keep_reference.mp3 |
@@ -69,11 +69,11 @@ Coverage totals (English and Twi combined): VERIFIED_FIXED_ASSET 83, CANDIDATE_N
 | OP59 | TIMEOUT | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Timeout.mp3 |
 | OP60 | FAILURE_RETRY | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Failure_Retry.mp3 |
 | OP61 | NO_TRANSFER_CONFIRMED | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/No_transfer_confirmed.mp3 |
-| OP62 | CHECK_MESSAGES | FIXED | SAFE_FALLBACK_ONLY | — | SAFE_FALLBACK_ONLY | — |
+| OP62 | CHECK_MESSAGES | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Check_messages.mp3 |
 | OP63 | START_AGAIN | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Start_Again.mp3 |
 | OP64 | NOT_UNDERSTOOD | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Not understood.mp3 |
 | OP65 | DID_NOT_GET | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Did_not_get.mp3 |
-| OP66 | NO_RESPONSE | FIXED | SAFE_FALLBACK_ONLY | — | SAFE_FALLBACK_ONLY | — |
+| OP66 | NO_RESPONSE | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Please_respond.mp3 |
 | OP67 | PLEASE_RESPOND | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Please_respond.mp3 |
 | OP68 | INPUT_NOT_RECOGNIZED | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Input_not_recognized.mp3 |
 | OP69 | REPEAT | FIXED | SAFE_FALLBACK_ONLY | — | VERIFIED_FIXED_ASSET | Audio_files/Twi_library/Repeat.mp3 |

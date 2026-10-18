@@ -37,7 +37,8 @@ const activeTranscodePromises = new Map<string, Promise<string>>();
 export async function getOrTranscodeMp3(sourceFilePath: string): Promise<string> {
   const ext = path.extname(sourceFilePath).toLowerCase();
   if (ext === ".mp3") {
-    return sourceFilePath;
+    const source = fs.readFileSync(sourceFilePath);
+    if (isMp3Buffer(source)) return sourceFilePath;
   }
 
   let stat: fs.Stats;
@@ -68,8 +69,9 @@ export async function getOrTranscodeMp3(sourceFilePath: string): Promise<string>
   const transcodePromise = (async () => {
     const tempPath = `${cachedMp3Path}.tmp.${Date.now()}`;
     try {
+      const { default: ffmpegPath } = await import("ffmpeg-static");
       // Cache versioning above prevents previously clipped transcodes from being reused.
-      await execFileAsync("ffmpeg", [
+      await execFileAsync(ffmpegPath || "ffmpeg", [
         "-y",
         "-i", sourceFilePath,
         "-af", "loudnorm=I=-20:TP=-2:LRA=7:linear=true,alimiter=limit=0.95:level=disabled",
@@ -239,24 +241,30 @@ export function resolveSafeAudioPath(requestedSubpath: string): string | null {
 function isMp3Buffer(buffer: Buffer): boolean {
   if (buffer.length < 4) return false;
   if (buffer.toString("ascii", 0, 3) === "ID3") return true;
+  if (buffer.length >= 8 && buffer.toString("ascii", 4, 8) === "ftyp") return false;
   for (let offset = 0; offset < Math.min(buffer.length - 1, 4096); offset++) {
-    if (buffer[offset] === 0xff && (buffer[offset + 1] & 0xe0) === 0xe0) return true;
+    if (buffer[offset] !== 0xff || (buffer[offset + 1] & 0xe0) !== 0xe0) continue;
+    const version = (buffer[offset + 1] >> 3) & 0x03;
+    const layer = (buffer[offset + 1] >> 1) & 0x03;
+    const bitrate = (buffer[offset + 2] >> 4) & 0x0f;
+    const sampleRate = (buffer[offset + 2] >> 2) & 0x03;
+    if (version !== 0x01 && layer !== 0 && bitrate !== 0 && bitrate !== 0x0f && sampleRate !== 0x03) {
+      return true;
+    }
   }
   return false;
 }
 
-function getAudioContentType(buffer: Buffer, extension: string): string | null {
+function getAudioContentType(buffer: Buffer): string | null {
   if (buffer.length >= 12 && buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WAVE") {
-    return extension === ".wav" ? "audio/wav" : null;
+    return "audio/wav";
   }
-  if (isMp3Buffer(buffer)) return extension === ".mp3" ? "audio/mpeg" : null;
-  if (buffer.length >= 8 && buffer.toString("ascii", 4, 8) === "ftyp") {
-    return extension === ".m4a" ? "audio/mp4" : null;
-  }
+  if (buffer.length >= 8 && buffer.toString("ascii", 4, 8) === "ftyp") return "audio/mp4";
+  if (buffer.toString("ascii", 0, 4) === "OggS") return "audio/ogg";
   if (buffer.length >= 2 && buffer[0] === 0xff && (buffer[1] & 0xf6) === 0xf0) {
-    return extension === ".aac" ? "audio/aac" : null;
+    return "audio/aac";
   }
-  if (buffer.toString("ascii", 0, 4) === "OggS") return extension === ".ogg" ? "audio/ogg" : null;
+  if (isMp3Buffer(buffer)) return "audio/mpeg";
   return null;
 }
 
@@ -265,12 +273,10 @@ function getAudioContentType(buffer: Buffer, extension: string): string | null {
  * full Content-Length support, and RFC 7233 byte-range handling.
  */
 export async function streamAudioFile(req: Request, res: Response, filePath: string): Promise<void> {
-  const reqPath = req.path || "";
   const formatQuery = String(req.query?.format || "").toLowerCase();
   const userAgent = String(req.headers["user-agent"] || "").toLowerCase();
 
   const isTelephonyClient =
-    reqPath.endsWith(".mp3") ||
     formatQuery === "mp3" ||
     userAgent.includes("africastalking") ||
     userAgent.includes("asterisk") ||
@@ -279,7 +285,7 @@ export async function streamAudioFile(req: Request, res: Response, filePath: str
     userAgent.includes("telephony");
 
   let activePath = filePath;
-  if (isTelephonyClient && path.extname(filePath).toLowerCase() !== ".mp3") {
+  if (isTelephonyClient) {
     try {
       activePath = await getOrTranscodeMp3(filePath);
     } catch (error) {
@@ -304,8 +310,7 @@ export async function streamAudioFile(req: Request, res: Response, filePath: str
   }
 
   const size = buffer.length;
-  const extension = path.extname(activePath).toLowerCase();
-  const contentType = getAudioContentType(buffer, extension);
+  const contentType = getAudioContentType(buffer);
   if (!contentType) {
     res.status(415).json({ error: "Audio file content does not match a supported audio format." });
     return;
