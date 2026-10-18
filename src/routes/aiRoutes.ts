@@ -51,6 +51,7 @@ import { parseLongDiscussion } from "../ai_system/brain/longDiscussionParser";
 import { acousticNoiseFilterModel } from "../ai_system/speech/acousticModels/noiseFilterModel";
 import { getFullAiHealthReport } from "../services/healthService";
 import { transactionStateMachine } from "../domain/stateMachine";
+import { ChecklistStageManager } from "../domain/checklistPipeline";
 import { buildReceiptPrompt } from "../audio/dynamicPromptBuilder";
 import { matchReplyToAudio } from "../audio/replyAudioMatcher";
 
@@ -342,13 +343,39 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
     const draftSlots = (brainOutput.updatedDraft?.slots || {}) as any;
     const rawRecipientPhone = draftSlots.recipient?.phone || draftSlots.recipientPhone || "";
 
+    const amount = Number(draftSlots.amount || 0);
+    const recipientName = draftSlots.recipient?.name || draftSlots.recipientName || "Recipient";
+
+    // Synchronize session checklist state
+    const currentSession = transactionStateMachine.getOrCreateSession(sessionKey);
+    if (selectedLang) {
+      currentSession.language = selectedLang.startsWith("tw") || selectedLang.startsWith("ak") ? "twi" : "en";
+    }
+    currentSession.serviceSelected = true;
+    if (draftSlots.network) {
+      currentSession.network = draftSlots.network;
+    }
+    if (rawRecipientPhone && rawRecipientPhone.replace(/\D/g, "").length === 10) {
+      currentSession.recipientPhone = rawRecipientPhone.replace(/\D/g, "");
+    }
+    if (recipientName && recipientName !== "Recipient" && recipientName !== "Unverified") {
+      currentSession.recipientName = recipientName;
+      currentSession.isRecipientVerified = true;
+    }
+    if (amount > 0) {
+      currentSession.amount = amount;
+    }
+    if (brainOutput.decision.kind === "dispatch" || targetStep.includes("pin") || targetStep.includes("auth")) {
+      currentSession.pinGatePassed = true;
+    }
+    const checklistVerification = ChecklistStageManager.verifySession(currentSession);
+
     // Fetch authoritative saga state or execute on dispatch
     let activeSaga = paymentSaga.getLatestSagaForSession(sessionKey);
     if ((!activeSaga || activeSaga.state === "DRAFT") && brainOutput.decision.kind === "dispatch") {
-      const amount = Number(draftSlots.amount || 0);
-      const recipientName = draftSlots.recipient?.name || draftSlots.recipientName || "Recipient";
-      if (rawRecipientPhone && amount > 0) {
+      if (checklistVerification.isReadyForInitiation) {
         try {
+          currentSession.transactionInitiated = true;
           const sagaResult = await paymentSaga.executeConfirmedTransferSaga({
             sessionId: sessionKey,
             senderPhone: typeof req.body.callerPhone === "string" ? req.body.callerPhone : "0244123456",
@@ -359,9 +386,24 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
             confirmedDraftHash: brainOutput.updatedDraft.confirmedDraftHash,
           });
           activeSaga = sagaResult.saga;
+          if (activeSaga?.state === "COMPLETED") {
+            currentSession.stateReported = true;
+          }
         } catch (e: any) {
           console.warn("Saga dispatch error:", e);
         }
+      } else {
+        console.warn(`[POST /api/ai/simulator/turn] Checklist gate blocked dispatch: missing ${checklistVerification.currentStage}`);
+        const langCode = brainLanguage.startsWith("tw") ? "twi" : "en";
+        const missingName = checklistVerification.stages[checklistVerification.currentStage]?.name || "Required Details";
+        const blockageNotice = checklistVerification.errorFeedback?.[langCode] ||
+          (langCode === "twi"
+            ? `Nhyehyɛeɛ no nwiei. Deɛ ɛka ne: ${missingName}. Yɛrentumi nkɔ so kɔsi sɛ wode ma.`
+            : `Checklist incomplete. Missing requirement: ${missingName}. Cannot initiate transaction until this stage is complete.`);
+
+        brainOutput.reply.text = blockageNotice;
+        brainOutput.decision.kind = "ask_slot";
+        targetStep = ChecklistStageManager.getStepRouteForStage(checklistVerification.currentStage);
       }
     }
 
@@ -471,6 +513,7 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       latency: result.performance,
       saga: sagaInfo,
       turnDiagnostic,
+      checklist: checklistVerification,
       provider: undefined,
       truth: undefined,
     });
@@ -478,6 +521,21 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
     console.error("[POST /api/ai/simulator/turn] Error:", err);
     res.status(500).json({ error: err.message || "Failed to process simulator turn" });
   }
+});
+
+// ── 9-Stage Transaction Flow Checklist Status Endpoint ───────────────
+aiRouter.get("/api/ai/checklist/status", (req: Request, res: Response) => {
+  const sessionId = String(req.query.sessionId || "").trim();
+  if (!sessionId) {
+    return res.status(400).json({ error: "sessionId query parameter is required." });
+  }
+  const session = transactionStateMachine.getSession(sessionId);
+  const checklist = ChecklistStageManager.verifySession(session);
+  return res.json({
+    success: true,
+    sessionId,
+    checklist,
+  });
 });
 
 // ── Call Termination Synchronization ──────────────────────────────────

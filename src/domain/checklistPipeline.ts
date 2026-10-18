@@ -404,6 +404,35 @@ export class AiHandshakePipeline {
 
 // ── 7. Checklist Stage Manager (Enforces 9-Stage Flow Gate) ─────────────────
 export class ChecklistStageManager {
+  private static cache = new Map<string, ChecklistVerification>();
+
+  public static getStepRouteForStage(stage: ChecklistStageId): string {
+    const routeMap: Record<ChecklistStageId, string> = {
+      STAGE_1_LANGUAGE: "language-selection",
+      STAGE_2_SERVICE: "service-select",
+      STAGE_3_NETWORKS: "provider-select",
+      STAGE_4_RECIPIENT: "enter-recipient",
+      STAGE_5_AMOUNT: "enter-amount",
+      STAGE_6_REFERENCE_KYC: "verify-recipient",
+      STAGE_7_PIN_GATE: "safe-confirmation",
+      STAGE_8_INITIATE_TRANSACTION: "safe-outcome",
+      STAGE_9_REPORT_STATE: "check-status",
+    };
+    return routeMap[stage] || "voice-menu";
+  }
+
+  public static getCachedVerification(sessionId: string): ChecklistVerification | undefined {
+    return this.cache.get(sessionId);
+  }
+
+  public static clearCache(sessionId?: string): void {
+    if (sessionId) {
+      this.cache.delete(sessionId);
+    } else {
+      this.cache.clear();
+    }
+  }
+
   /**
    * Evaluates the current state of a transaction against the 9 stages.
    * Until all prerequisites in stages 1 to 7 are satisfied, transactions are strictly blocked.
@@ -449,7 +478,7 @@ export class ChecklistStageManager {
         name: "Language Selection",
         order: 1,
         completed: s1Lang,
-        valueDescription: session.language ? (session.language === "twi" ? "Twi" : "English") : undefined,
+        valueDescription: session.language ? (session.language === "twi" ? "Akan Twi" : "English") : undefined,
       },
       STAGE_2_SERVICE: {
         id: "STAGE_2_SERVICE",
@@ -477,7 +506,7 @@ export class ChecklistStageManager {
         name: "Amount Entry",
         order: 5,
         completed: s5Amount,
-        valueDescription: session.amount ? `GHS ${session.amount}` : undefined,
+        valueDescription: session.amount ? `GHS ${session.amount.toFixed(2)}` : undefined,
       },
       STAGE_6_REFERENCE_KYC: {
         id: "STAGE_6_REFERENCE_KYC",
@@ -538,7 +567,7 @@ export class ChecklistStageManager {
 
     const isReadyForInitiation = s1Lang && s2Service && s3Network && s4Recipient && s5Amount && s6ReferenceKyc && s7PinGate;
 
-    return {
+    const result: ChecklistVerification = {
       isReadyForInitiation,
       currentStage,
       stages,
@@ -552,6 +581,11 @@ export class ChecklistStageManager {
             },
           }),
     };
+
+    if (session.sessionId) {
+      this.cache.set(session.sessionId, result);
+    }
+    return result;
   }
 
   /**

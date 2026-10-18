@@ -1259,6 +1259,20 @@ export const api = {
     return data;
   },
 
+  async getChecklistStatus(sessionId: string): Promise<any> {
+    const res = await fetch(`/api/ai/checklist/status?sessionId=${encodeURIComponent(sessionId)}`, {
+      method: "GET",
+      headers: {
+        ...(activeAdminToken ? { Authorization: `Bearer ${activeAdminToken}` } : {}),
+      },
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || "Failed to fetch checklist status.");
+    }
+    return data;
+  },
+
   async synthesizeSpeech(payload: {
     text: string;
     language?: string;

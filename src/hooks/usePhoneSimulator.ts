@@ -523,6 +523,7 @@ export function usePhoneSimulator() {
   // Chunk 3 Turn Diagnostic Panel & Saga State
   const [turnDiagnostic, setTurnDiagnostic] = useState<any>(null);
   const [sagaState, setSagaState] = useState<any>(null);
+  const [checklist, setChecklist] = useState<any>(null);
 
   // Chunk 3 Panel Toggles
   const [offlineMode, setOfflineMode] = useState<boolean>(false);
@@ -1721,6 +1722,9 @@ export function usePhoneSimulator() {
       if (resp.saga) {
         setSagaState(resp.saga);
       }
+      if (resp.checklist) {
+        setChecklist(resp.checklist);
+      }
 
       const res = resp.result;
 
@@ -1913,6 +1917,8 @@ export function usePhoneSimulator() {
     setProviderResult(null);
     setAccuracyResult(null);
     setLastTurnDiagnostic(null);
+    setChecklist(null);
+    setSagaState(null);
 
     const welcomeGreeting = initialLang === "tw"
       ? "Akwaaba! Ɔkwankyerɛfo Pa, yɛyɛ dwumadie a ɛboa obiara ma sika ho nkitahodie yɛ mmerɛw. Sɛ wopɛ mobile money services a, mia 1. Sɛ wopɛ banking services a, mia 2."
@@ -3037,6 +3043,8 @@ export function usePhoneSimulator() {
     // Chunk 3 Panel & Diagnostic States
     turnDiagnostic,
     sagaState,
+    checklist,
+    setChecklist,
     offlineMode,
     setOfflineMode,
     modelEnabled,

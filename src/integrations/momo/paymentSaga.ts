@@ -27,6 +27,8 @@ import { truthEngine } from "../../ai_system/core/truthEngine";
 import { financialPolicy } from "../../ai_system/core/financialPolicy";
 import { momoEngine } from "./momoEngine";
 import { telecelEngine } from "../telecel";
+import { ChecklistStageManager } from "../../domain/checklistPipeline";
+import { transactionStateMachine } from "../../domain/stateMachine";
 
 export type SagaState =
   | "DRAFT"
@@ -483,6 +485,13 @@ export class PaymentSagaOrchestrator {
       );
     }
 
+    if (saga.sessionId) {
+      const session = transactionStateMachine.getSession(saga.sessionId);
+      if (session) {
+        ChecklistStageManager.assertCanInitiate(session);
+      }
+    }
+
     saga.state =
       "CONFIRMED";
 
@@ -507,6 +516,13 @@ export class PaymentSagaOrchestrator {
       throw new Error(
         `Invalid saga transition from ${saga.state}.`
       );
+    }
+
+    if (saga.sessionId) {
+      const session = transactionStateMachine.getSession(saga.sessionId);
+      if (session) {
+        ChecklistStageManager.assertCanInitiate(session);
+      }
     }
 
     if (
@@ -1072,7 +1088,15 @@ export class PaymentSagaOrchestrator {
       };
     }
 
-    // 2. Create and transition saga through authoritative pre-provider gates
+    // 2. Enforce 9-Stage Checklist Gate: verify prerequisites before initiating saga
+    if (params.sessionId) {
+      const session = transactionStateMachine.getSession(params.sessionId);
+      if (session) {
+        ChecklistStageManager.assertCanInitiate(session);
+      }
+    }
+
+    // Create and transition saga through authoritative pre-provider gates
     const draft = existing || this.createDraft({
       sessionId: params.sessionId,
       senderPhone,

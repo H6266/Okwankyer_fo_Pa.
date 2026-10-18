@@ -41,6 +41,7 @@ import { ivrDecisionEngine, IvrDecision } from "../ai_system/brain/ivrDecisionEn
 import { geminiClient } from "../services/geminiClient";
 import { speechNormalizer } from "../ai_system/speech/speechNormalizer";
 import { matchReplyToAudio } from "../audio/replyAudioMatcher";
+import { ChecklistStageManager, ChecklistStageId } from "../domain/checklistPipeline";
 
 export const voiceRouter = Router();
 export const ivrRouter = Router();
@@ -351,10 +352,15 @@ function xmlResponse(res: Response, content: string, decision?: (Partial<IvrDeci
     if (!res.getHeader("X-Canonical-Prompt-Id") && session?.state && STATE_TO_CANONICAL_PROMPT_ID[session.state]) {
       res.set("X-Canonical-Prompt-Id", STATE_TO_CANONICAL_PROMPT_ID[session.state]);
     }
+    if (session) {
+      const checklist = ChecklistStageManager.verifySession(session);
+      res.set("X-Checklist-Stage", checklist.currentStage);
+      res.set("X-Checklist-Ready", checklist.isReadyForInitiation ? "true" : "false");
+    }
   }
   res.set(
     "Access-Control-Expose-Headers",
-    "X-AI-Decision-Type, X-AI-Decision-Reason, X-AI-Reply-Text, X-AI-Reply-Key, X-Canonical-Prompt-Id, X-Conversation-State, X-Interaction-Mode, x-telephony-guard-reason, X-Recipient-Name, X-Recipient-Phone"
+    "X-AI-Decision-Type, X-AI-Decision-Reason, X-AI-Reply-Text, X-AI-Reply-Key, X-Canonical-Prompt-Id, X-Conversation-State, X-Interaction-Mode, x-telephony-guard-reason, X-Recipient-Name, X-Recipient-Phone, X-Checklist-Stage, X-Checklist-Ready"
   );
   const isSimulator = Boolean(
     res.locals?.isSimulator ||
@@ -1375,6 +1381,7 @@ ivrRouter.all("/safe-confirmation", (req: Request, res: Response) => {
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getOrCreateSession(sessionId);
 
+  const checklistVerification = ChecklistStageManager.verifySession(session);
   if (
     !session.amount ||
     !session.recipientPhone ||
@@ -1382,10 +1389,11 @@ ivrRouter.all("/safe-confirmation", (req: Request, res: Response) => {
     !session.isRecipientVerified ||
     !SUPPORTED_TRANSFER_NETWORKS.includes(session.network)
   ) {
-    const promptText = lang === "twi"
-      ? "Sika no ano anaa nipa no fon nɔma nni hɔ yie. Mepa wo kyɛw, san hyɛ aseɛ bio."
-      : "Transfer amount or recipient number is missing. Please restart.";
-    return xmlResponse(res, `<Say>${promptText}</Say><Redirect>${baseUrl}/voice-menu?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+    const promptText = checklistVerification.errorFeedback?.[lang] || (lang === "twi"
+      ? "Sika no ano anaa nipa no fon nɔma nni hɔ yie. Yɛresan akɔ baabi a ɛkae no so."
+      : "Some required transfer details are missing. Redirecting to complete them.");
+    const targetRoute = ChecklistStageManager.getStepRouteForStage(checklistVerification.currentStage);
+    return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(promptText)}</Say>\n    <Redirect>${baseUrl}/${targetRoute}?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}</Redirect>`);
   }
 
   const amount = session.amount;
@@ -1537,17 +1545,18 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
 
   // 1 = CONFIRMED: initiate real Zero-PIN handoff to handset
   paymentInitiations.add(session);
-  try {
     session.pinGatePassed = true;
-    const checklistStatus = transactionStateMachine.canInitiateTransaction(sessionId);
-    if (!checklistStatus.allowed) {
-      transactionStateMachine.transition(sessionId, "FAILED", {
-        failureReason: `Checklist incomplete: missing ${checklistStatus.missingStage}`,
-      });
-      const errorMsg = lang === "twi"
-        ? `Nhyehyɛeɛ no nwiei pɛpɛɛpɛ: ${checklistStatus.missingStage}. Yɛrentumi nkɔ so.`
-        : `Transaction checklist incomplete: missing ${checklistStatus.missingStage}. Cannot proceed.`;
-      return xmlResponse(res, `    <Say voice="female">${errorMsg}</Say>\n    <Reject/>`);
+    const checklistVerification = ChecklistStageManager.verifySession(session);
+    if (!checklistVerification.isReadyForInitiation) {
+      paymentInitiations.delete(session);
+      const errorMsg = checklistVerification.errorFeedback?.[lang] || (lang === "twi"
+        ? `Nhyehyɛeɛ no nwiei pɛpɛɛpɛ: ${checklistVerification.stages[checklistVerification.currentStage].name}. Yɛrentumi nkɔ so.`
+        : `Transaction checklist incomplete: missing ${checklistVerification.stages[checklistVerification.currentStage].name}. Cannot proceed.`);
+      const redirectTarget = ChecklistStageManager.getStepRouteForStage(checklistVerification.currentStage);
+      return xmlResponse(
+        res,
+        `    <Say voice="female">${escapeVoiceXml(errorMsg)}</Say>\n    <Redirect>${baseUrl}/${redirectTarget}?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}</Redirect>`
+      );
     }
 
     if (!session.amount || session.amount <= 0) {

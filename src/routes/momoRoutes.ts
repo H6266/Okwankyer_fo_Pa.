@@ -16,8 +16,8 @@ import { evidenceStore } from "../integrations/momo/evidenceStore";
 import { paymentSaga } from "../integrations/momo/paymentSaga";
 import { serviceOrchestrator } from "../modules/serviceOrchestrator";
 import { momoCallbackService } from "../integrations/momo/momoCallbackService";
-import { resolveMomoAudioFeed } from "../audio/momoAudioFeedResolver";
 import { transactionStateMachine } from "../domain/stateMachine";
+import { ChecklistStageManager } from "../domain/checklistPipeline";
 import { auditLogger } from "../services/auditLogger";
 import { config } from "../config/env";
 import { initialize as initAtClient } from "../../africastalking";
@@ -846,6 +846,16 @@ momoRouter.post("/api/momo/saga/execute", async (req: Request, res: Response) =>
     const { sessionId, senderPhone, recipientPhone, recipientName, amount, network, confirmedDraftHash, timeoutMs, simulateOutcome } = req.body;
     if (!sessionId || !recipientPhone || !amount) {
       return res.status(400).json({ error: "sessionId, recipientPhone, and amount are required." });
+    }
+    const session = transactionStateMachine.getSession(sessionId);
+    if (session) {
+      const checklist = ChecklistStageManager.verifySession(session);
+      if (!checklist.isReadyForInitiation) {
+        return res.status(400).json({
+          error: `Checklist Gate blocked execution: Missing ${checklist.stages[checklist.currentStage].name} (Stage ${checklist.stages[checklist.currentStage].order}).`,
+          checklist,
+        });
+      }
     }
     const result = await paymentSaga.executeConfirmedTransferSaga({
       sessionId,

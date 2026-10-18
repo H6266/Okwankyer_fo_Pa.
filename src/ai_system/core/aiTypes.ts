@@ -629,6 +629,7 @@ export interface SimulatorTurnResponse {
   tts?: any;
   saga?: any;
   turnDiagnostic?: any;
+  checklist?: any;
 }
 
 export interface TelephonyTurnRequest {
