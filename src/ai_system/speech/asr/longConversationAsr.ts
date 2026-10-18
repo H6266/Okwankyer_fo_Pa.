@@ -178,7 +178,7 @@ export class LongConversationAsrEngine {
         {
           languageHint: session!.language,
           step,
-          timeoutMs: config.ghanaNlp?.timeoutMs || 15000,
+          timeoutMs: 15000,
         }
       );
       const processingLatencyMs = Math.round(performance.now() - startTime);

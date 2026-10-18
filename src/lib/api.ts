@@ -1029,7 +1029,7 @@ export const api = {
     hasPending: boolean;
     request?: any;
   }> {
-    const res = await fetch(`/api/ai/cashout/get-pending?callerPhone=${encodeURIComponent(callerPhone || "0543546010")}`);
+    const res = await fetch(`/api/ai/cashout/get-pending?callerPhone=${encodeURIComponent(callerPhone || "")}`);
     return res.json();
   },
 
@@ -1448,26 +1448,6 @@ export const api = {
     } catch {
       return null;
     }
-  },
-
-  async getGhanaNlpHealth(): Promise<any> {
-    try {
-      const res = await fetch("/api/ai/ghananlp/health");
-      if (!res.ok) return { configured: false };
-      return res.json();
-    } catch {
-      return { configured: false };
-    }
-  },
-
-  async getGhanaNlpLanguages(): Promise<any> {
-    const res = await fetch("/api/ai/ghananlp/languages");
-    return res.json();
-  },
-
-  async getGhanaNlpSpeakers(): Promise<any> {
-    const res = await fetch("/api/ai/ghananlp/speakers");
-    return res.json();
   },
 
   async getBrainTelemetry(): Promise<any> {

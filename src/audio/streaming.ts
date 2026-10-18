@@ -69,7 +69,9 @@ export async function getOrTranscodeMp3(sourceFilePath: string): Promise<string>
   const transcodePromise = (async () => {
     const tempPath = `${cachedMp3Path}.tmp.${Date.now()}`;
     try {
-      const { default: ffmpegPath } = await import("ffmpeg-static");
+      const ffmpegPkg = "ffmpeg-static";
+      const ffmpegModule: any = await import(/* @vite-ignore */ ffmpegPkg).catch(() => null);
+      const ffmpegPath = ffmpegModule?.default || ffmpegModule;
       // Cache versioning above prevents previously clipped transcodes from being reused.
       await execFileAsync(ffmpegPath || "ffmpeg", [
         "-y",

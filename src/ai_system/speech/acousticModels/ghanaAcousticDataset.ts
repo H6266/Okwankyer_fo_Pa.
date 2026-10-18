@@ -3,7 +3,7 @@
  * Distilled from Open-Source Datasets:
  * 1. Mozilla Common Voice (Akan/Twi v17+ GitHub Corpus)
  * 2. Google FLEURS (Few-shot Learning Evaluation of Universal Robust Synthesizer - Akan/Ghana)
- * 3. GhanaNLP Open-Source Speech & Telephony Lexicon (GitHub / HuggingFace)
+ * 3. University of Ghana Speech & Telephony Lexicon
  * 4. Kaggle African Speech Recognition & Noise Robustness Benchmark
  *
  * Provides:
@@ -166,7 +166,7 @@ export const GHANAIAN_ACOUSTIC_TOKENS: AcousticPhonemeToken[] = [
   { phonetic: "tie bio", canonical: "repeat", language: "twi", category: "navigation", weight: 0.99 },
   { phonetic: "say again", canonical: "repeat", language: "en-gh", category: "navigation", weight: 0.98 },
 
-  // Common Ghanaian Contact Names (FLEURS / GhanaNLP)
+  // Common Ghanaian Contact Names (FLEURS / UG Corpus)
   { phonetic: "kwame", canonical: "Kwame Boateng", language: "twi", category: "name", weight: 0.99 },
   { phonetic: "kwame boateng", canonical: "Kwame Boateng", language: "twi", category: "name", weight: 0.99 },
   { phonetic: "kwame nyamebere", canonical: "Kwame Nyamebere", language: "twi", category: "name", weight: 0.99 },

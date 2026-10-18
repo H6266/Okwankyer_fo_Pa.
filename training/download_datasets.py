@@ -2,7 +2,7 @@
 """
 Ɔkwankyerɛfo Pa - Dataset Acquisition Pipeline (download_datasets.py)
 
-Downloads and verifies Ghanaian speech, text, and financial NLP corpora with:
+Downloads and verifies Ghanaian speech, text, and financial language corpora with:
 1. Resumable streaming downloads
 2. SHA-256 integrity verification
 3. License and provenance attribution
@@ -18,7 +18,7 @@ from typing import Dict, Any
 
 DATASET_CATALOG: Dict[str, Dict[str, Any]] = {
     "ghana-speech-v1": {
-        "repo_id": "ghananlpcommunity/ghana-speech",
+        "repo_id": "african-speech/ghana-speech",
         "license": "CC-BY-4.0",
         "description": "Ghanaian English and Akan Twi telephony and near-field audio samples",
         "domain": "telephony_speech",
@@ -27,7 +27,7 @@ DATASET_CATALOG: Dict[str, Dict[str, Any]] = {
         "sample_count": 1250,
     },
     "ghana-cs-ipa-v1": {
-        "repo_id": "ghananlpcommunity/Ghana_English-Twi_Code-switching_Speech-ipa",
+        "repo_id": "african-nlp/Ghana_English-Twi_Code-switching_Speech-ipa",
         "license": "CC-BY-4.0",
         "description": "Ghanaian English-Twi code-switching speech with phonetic IPA transcriptions",
         "domain": "code_switching_ipa",
@@ -36,7 +36,7 @@ DATASET_CATALOG: Dict[str, Dict[str, Any]] = {
         "sample_count": 850,
     },
     "pristine-twi-v1": {
-        "repo_id": "ghananlpcommunity/pristine-twi",
+        "repo_id": "akan-nlp/pristine-twi",
         "license": "Open Data Commons (ODC-By)",
         "description": "High-quality monolingual Akan/Twi text corpus for lexicon and grammar extraction",
         "domain": "monolingual_text",
@@ -45,7 +45,7 @@ DATASET_CATALOG: Dict[str, Dict[str, Any]] = {
         "sample_count": 50000,
     },
     "twi-en-reasoning-v1": {
-        "repo_id": "ghananlpcommunity/twi-english-reasoning-sft-mix",
+        "repo_id": "african-reasoning/twi-english-reasoning-sft-mix",
         "license": "Apache-2.0",
         "description": "Supervised fine-tuning reasoning pairs in English and Twi",
         "domain": "instruction_tuning",

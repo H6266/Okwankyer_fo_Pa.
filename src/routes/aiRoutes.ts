@@ -231,7 +231,7 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
     });
 
     // ── Live Synchronization 1: Call Session Repository ──────────────────
-    const targetStep = result.navigation?.targetStep || currentStep || "welcome";
+    let targetStep = result.navigation?.targetStep || currentStep || "welcome";
     const outcome = result.intent === "CANCEL" ? "CANCELLED" : "IN_PROGRESS";
 
     // ── Canonical Brain Reasoning & Reply Composition ───────────────────
@@ -272,6 +272,19 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       };
     } catch {
       // safe fallback if TTS engine is unavailable
+    }
+
+    // ── Independent AI Audio Reasoning Brain ─────────────────────────────
+    // Independent from conversation reasoning: evaluates reply text against
+    // the audio library catalog and isolates dynamic variables for TTS.
+    let audioPlan: any = null;
+    try {
+      const audioLang = brainLanguage.startsWith("tw") || brainLanguage.startsWith("ak") ? "twi" : "en";
+      audioPlan = await crossReferenceReplyAudioWithAi(brainOutput.reply.text, audioLang, {
+        sessionId: sessionKey,
+      });
+    } catch (e: any) {
+      console.warn("[Turn] AI Audio Matcher error:", e?.message || e);
     }
 
     // Use Simulator Telephony Adapter to build clean, escaped VoiceXML
@@ -402,7 +415,7 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
             : `Checklist incomplete. Missing requirement: ${missingName}. Cannot initiate transaction until this stage is complete.`);
 
         brainOutput.reply.text = blockageNotice;
-        brainOutput.decision.kind = "ask_slot";
+        (brainOutput.decision as any).kind = "ask_slot";
         targetStep = ChecklistStageManager.getStepRouteForStage(checklistVerification.currentStage);
       }
     }
@@ -488,6 +501,7 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
         circuitBreakerState: geminiClient.getCircuitBreakerState(),
       },
       sagaState: sagaInfo,
+      audioPlan,
     };
 
     res.json({
@@ -505,6 +519,7 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       },
       brain: brainOutput,
       tts: ttsAudioMeta,
+      audioPlan,
       voiceXml: {
         step: targetStep,
         xml: generatedVoiceXml,
@@ -1143,8 +1158,8 @@ aiRouter.get("/api/ai/asr/datasets", (_req: Request, res: Response) => {
         dialects: Object.keys(GHANAIAN_DIALECT_PROFILES),
         profiles: GHANAIAN_DIALECT_PROFILES,
       },
-      ghanaNlp: {
-        name: "GhanaNLP Speech & Telephony Lexicon",
+      ugHciLab: {
+        name: "University of Ghana HCI Lab Speech & Telephony Lexicon",
         domain: "West African Mobile Money & Banking",
         networks: ["MTN MoMo", "Telecel Cash", "AT Money"],
       },
@@ -1407,48 +1422,6 @@ aiRouter.post("/api/ai/intent-to-momo", publicApiRateLimiter, async (req: Reques
   }
 });
 
-// ── Ghana NLP Discovery & Health Endpoints ────────────────────────────
-aiRouter.get("/api/ai/ghananlp/health", async (_req: Request, res: Response) => {
-  const { ghanaNlpAsrService } = await import("../services/ghanaNlpAsrService");
-  const { ghanaNlpTtsService } = await import("../services/ghanaNlpTtsService");
-
-  const [asrHealth, ttsHealth] = await Promise.all([
-    ghanaNlpAsrService.healthCheck(),
-    ghanaNlpTtsService.healthCheck(),
-  ]);
-
-  res.json({
-    configured: config.ghanaNlp?.configured || false,
-    asr: asrHealth,
-    tts: ttsHealth,
-  });
-});
-
-aiRouter.get("/api/ai/ghananlp/languages", async (_req: Request, res: Response) => {
-  try {
-    const { ghanaNlpAsrService } = await import("../services/ghanaNlpAsrService");
-    if (!ghanaNlpAsrService.isConfigured()) {
-      return res.status(503).json({ error: "Ghana NLP API is not configured. Set GHANANLP_API_KEY in environment." });
-    }
-    const data = await ghanaNlpAsrService.getLanguages();
-    res.json(data);
-  } catch (err: any) {
-    res.status(502).json({ error: err.message });
-  }
-});
-
-aiRouter.get("/api/ai/ghananlp/speakers", async (_req: Request, res: Response) => {
-  try {
-    const { ghanaNlpTtsService } = await import("../services/ghanaNlpTtsService");
-    if (!ghanaNlpTtsService.isConfigured()) {
-      return res.status(503).json({ error: "Ghana NLP API is not configured. Set GHANANLP_API_KEY in environment." });
-    }
-    const data = await ghanaNlpTtsService.getSpeakers();
-    res.json(data);
-  } catch (err: any) {
-    res.status(502).json({ error: err.message });
-  }
-});
 
 // ── Pre-Transaction Telco KYC & Recipient Lookup ─────────────────────
 aiRouter.post("/api/ai/simulator/validate-recipient", publicApiRateLimiter, async (req: Request, res: Response) => {
@@ -1512,7 +1485,10 @@ import { cashOutService } from "../services/cashOutService";
 aiRouter.post("/api/ai/cashout/enable", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {
     const { callerPhone, language } = req.body || {};
-    const phone = callerPhone || "0543546010";
+    const phone = String(callerPhone || "").trim();
+    if (!phone) {
+      return res.status(400).json({ success: false, error: "callerPhone is required." });
+    }
     const state = cashOutService.enableCashOut(phone, 15);
     const isTwi = language === "twi" || language === "tw" || language === "ak" || language === "twi-asante";
 
@@ -1549,7 +1525,10 @@ aiRouter.post("/api/ai/cashout/check-balance", publicApiRateLimiter, async (_req
 aiRouter.post("/api/ai/cashout/agent-request", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {
     const { callerPhone, agentCode, agentName, amount } = req.body || {};
-    const phone = callerPhone || "0543546010";
+    const phone = String(callerPhone || "").trim();
+    if (!phone) {
+      return res.status(400).json({ success: false, error: "callerPhone is required." });
+    }
     const request = cashOutService.createAgentWithdrawalRequest(
       phone,
       agentCode || "284910",
@@ -1570,7 +1549,10 @@ aiRouter.post("/api/ai/cashout/agent-request", publicApiRateLimiter, async (req:
 // 4. Retrieve Pending Agent Request for Caller
 aiRouter.get("/api/ai/cashout/get-pending", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {
-    const phone = String(req.query.callerPhone || "0543546010");
+    const phone = String(req.query.callerPhone || "").trim();
+    if (!phone) {
+      return res.status(400).json({ success: false, error: "callerPhone is required." });
+    }
     const pending = cashOutService.getPendingWithdrawalRequest(phone);
     res.json({
       success: true,
@@ -1587,7 +1569,10 @@ aiRouter.get("/api/ai/cashout/get-pending", publicApiRateLimiter, async (req: Re
 aiRouter.post("/api/ai/cashout/approve", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {
     const { callerPhone, pin, language } = req.body || {};
-    const phone = callerPhone || "0543546010";
+    const phone = String(callerPhone || "").trim();
+    if (!phone) {
+      return res.status(400).json({ success: false, error: "callerPhone is required." });
+    }
     const isTwi = language === "twi" || language === "tw" || language === "ak" || language === "twi-asante";
 
     const approvalResult = cashOutService.approveWithdrawal(phone, String(pin || ""));
@@ -1707,7 +1692,7 @@ aiRouter.post("/api/ai/cashout/understand-intent", publicApiRateLimiter, async (
         const prompt = `You are the natural language understanding agent for Ɔkwankyerɛfo Pa (Ghanaian Mobile Money Voice Layer).
 The user is performing a Cash-Out / agent withdrawal.
 Current step: "${curState}".
-Caller Phone: "${callerPhone || "0543546010"}".
+Caller Phone: "${callerPhone || "Unspecified"}".
 Amount: "${requestedAmount || 30}".
 Language: ${isTwi ? "Akan Twi" : "English"}.
 
@@ -1849,7 +1834,10 @@ Guidelines:
 aiRouter.post("/api/ai/cashout/reset-attempts", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {
     const { callerPhone } = req.body || {};
-    const phone = callerPhone || "0543546010";
+    const phone = String(callerPhone || "").trim();
+    if (!phone) {
+      return res.status(400).json({ success: false, error: "callerPhone is required." });
+    }
     cashOutService.resetPinAttempts(phone);
     res.json({ success: true, message: `PIN attempts reset and wallet unlocked for ${phone}.` });
   } catch (err: any) {
@@ -1861,7 +1849,10 @@ aiRouter.post("/api/ai/cashout/reset-attempts", publicApiRateLimiter, async (req
 aiRouter.post("/api/ai/cashout/set-balance", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {
     const { callerPhone, balance } = req.body || {};
-    const phone = callerPhone || "0543546010";
+    const phone = String(callerPhone || "").trim();
+    if (!phone) {
+      return res.status(400).json({ success: false, error: "callerPhone is required." });
+    }
     const bal = Number(balance);
     cashOutService.setWalletBalance(phone, isNaN(bal) ? 30.0 : bal);
     res.json({

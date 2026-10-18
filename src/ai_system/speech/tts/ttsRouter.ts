@@ -97,6 +97,7 @@ export class TtsRouter implements TTSProvider {
     }
 
     if (language === "twi") {
+      // 1. Try HCI Lab Reviewed Twi TTS (Primary Ghanaian speech provider)
       if (hciLabService.isConfigured()) {
         try {
           const result = await hciLabService.synthesize(text);
@@ -113,9 +114,34 @@ export class TtsRouter implements TTSProvider {
             }, "twi");
           }
         } catch (err: any) {
-          console.warn("[TtsRouter] HCI Lab synthesis failed, using dynamic speech fallback:", err?.message || err);
+          console.warn("[TtsRouter] HCI Lab synthesis failed, using apology fallback:", err?.message || err);
         }
       }
+
+      // 3. Fallback to pre-recorded polite apology/system studio audio only if specifically requested
+      if ((request as any).allowApologyFallback) {
+        const apologyRecording = getRecordingByPromptKey("failed", "twi") || getRecordingByPromptKey("cancel", "twi");
+        if (apologyRecording) {
+          const relativePath = getRecordingFilePath(apologyRecording.relativePath);
+          if (relativePath) {
+            const absolutePath = path.resolve(process.cwd(), relativePath);
+            if (fs.existsSync(absolutePath)) {
+              const audioBuffer = fs.readFileSync(absolutePath);
+              const audioMimeType = mimeTypeForPath(absolutePath) || "audio/mp4";
+              return assertTtsResponse(request, {
+                audioBuffer,
+                audioBase64: audioBuffer.toString("base64"),
+                audioMimeType,
+                mimeType: audioMimeType,
+                providerUsed: `studio-apology-fallback:${apologyRecording.id}`,
+                language: "twi",
+                model: "studio-recording",
+              }, "twi");
+            }
+          }
+        }
+      }
+
       throw new Error("TWI_TTS_UNAVAILABLE: No approved Twi speech provider is configured.");
     }
 

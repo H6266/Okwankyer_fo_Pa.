@@ -1,7 +1,7 @@
 /**
  * Ɔkwankyerɛfo Pa - OpenAI Audio Transcriber (openaiTranscriber.ts)
  * 
- * High-accuracy ASR fallback using OpenAI Whisper when Ghana NLP or local ASR is unavailable.
+ * High-accuracy ASR fallback using OpenAI Whisper when UG HCI Lab or local ASR is unavailable.
  * Supports Ghanaian accents, Akan phrases, and mixed English-Twi audio.
  */
 

@@ -37,9 +37,9 @@ export interface DatasetLicenseRecord {
 export const REGISTERED_DATASETS: Record<string, DatasetLicenseRecord> = {
   "ghana-speech": {
     id: "ghana-speech",
-    name: "Ghana Speech (GhanaNLP Community)",
-    source: "huggingface.co/datasets/ghananlpcommunity/ghana-speech",
-    url: "https://huggingface.co/datasets/ghananlpcommunity/ghana-speech",
+    name: "Ghana Speech (Open Speech Community)",
+    source: "huggingface.co/datasets/african-speech/ghana-speech",
+    url: "https://huggingface.co/datasets/african-speech/ghana-speech",
     license: "CC-BY-NC-4.0",
     commercialUseAllowed: false,
     tier: "SILVER", // 2,200+ hours across 40+ Ghanaian languages; great coverage, community reviewed
@@ -52,8 +52,8 @@ export const REGISTERED_DATASETS: Record<string, DatasetLicenseRecord> = {
   "ghana-codeswitch-ipa": {
     id: "ghana-codeswitch-ipa",
     name: "Ghana English-Twi Code-Switching Speech IPA",
-    source: "huggingface.co/datasets/ghananlpcommunity/Ghana_English-Twi_Code-switching_Speech-ipa",
-    url: "https://huggingface.co/datasets/ghananlpcommunity/Ghana_English-Twi_Code-switching_Speech-ipa",
+    source: "huggingface.co/datasets/african-nlp/Ghana_English-Twi_Code-switching_Speech-ipa",
+    url: "https://huggingface.co/datasets/african-nlp/Ghana_English-Twi_Code-switching_Speech-ipa",
     license: "Apache-2.0",
     commercialUseAllowed: true,
     tier: "GOLD", // Human verified, phonetically transcribed with IPA alignments and explicit speaker splits
@@ -66,8 +66,8 @@ export const REGISTERED_DATASETS: Record<string, DatasetLicenseRecord> = {
   "pristine-twi": {
     id: "pristine-twi",
     name: "Pristine Twi Text Corpus",
-    source: "huggingface.co/datasets/ghananlpcommunity/pristine-twi",
-    url: "https://huggingface.co/datasets/ghananlpcommunity/pristine-twi",
+    source: "huggingface.co/datasets/akan-nlp/pristine-twi",
+    url: "https://huggingface.co/datasets/akan-nlp/pristine-twi",
     license: "CC-BY-NC-4.0", // HARD GATE: Non-commercial only
     commercialUseAllowed: false,
     tier: "SILVER",
@@ -80,8 +80,8 @@ export const REGISTERED_DATASETS: Record<string, DatasetLicenseRecord> = {
   "twi-english-reasoning-sft-mix": {
     id: "twi-english-reasoning-sft-mix",
     name: "Twi-English Reasoning SFT Mix",
-    source: "huggingface.co/datasets/ghananlpcommunity/twi-english-reasoning-sft-mix",
-    url: "https://huggingface.co/datasets/ghananlpcommunity/twi-english-reasoning-sft-mix",
+    source: "huggingface.co/datasets/african-reasoning/twi-english-reasoning-sft-mix",
+    url: "https://huggingface.co/datasets/african-reasoning/twi-english-reasoning-sft-mix",
     license: "CC-BY-NC-4.0",
     commercialUseAllowed: false,
     tier: "BRONZE",
@@ -94,8 +94,8 @@ export const REGISTERED_DATASETS: Record<string, DatasetLicenseRecord> = {
   "ghana-farmer-qa-twi": {
     id: "ghana-farmer-qa-twi",
     name: "Ghana Farmer QA Twi",
-    source: "huggingface.co/datasets/ghananlpcommunity/ghana-farmer-qa-twi",
-    url: "https://huggingface.co/datasets/ghananlpcommunity/ghana-farmer-qa-twi",
+    source: "huggingface.co/datasets/african-agriculture/ghana-farmer-qa-twi",
+    url: "https://huggingface.co/datasets/african-agriculture/ghana-farmer-qa-twi",
     license: "CC-BY-SA-4.0",
     commercialUseAllowed: true,
     tier: "BRONZE", // Machine translated Twi; strictly weak supervision, NOT gold linguistic benchmark
@@ -108,8 +108,8 @@ export const REGISTERED_DATASETS: Record<string, DatasetLicenseRecord> = {
   "ghok-chat": {
     id: "ghok-chat",
     name: "Ghanaian Conversational Chat Mix",
-    source: "huggingface.co/datasets/ghananlpcommunity/ghok-chat",
-    url: "https://huggingface.co/datasets/ghananlpcommunity/ghok-chat",
+    source: "huggingface.co/datasets/african-dialogue/ghok-chat",
+    url: "https://huggingface.co/datasets/african-dialogue/ghok-chat",
     license: "Apache-2.0",
     commercialUseAllowed: true,
     tier: "BRONZE", // Synthetic dialogue data

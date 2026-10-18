@@ -2,11 +2,11 @@
  * Ɔkwankyerɛfo Pa - Authoritative ASR Orchestrator (asrOrchestrator.ts)
  * 
  * The single authoritative orchestration path for speech recognition:
- * AudioInput -> AudioNormalizer -> AudioQuality/VAD -> GhanaNLP ASR -> Fallback (Gemini/Offline) -> NumberDecoder -> Zero-PIN Safety
+ * AudioInput -> AudioNormalizer -> AudioQuality/VAD -> UG HCI Lab ASR -> Fallback (Gemini/Offline) -> NumberDecoder -> Zero-PIN Safety
  * 
  * Rules:
- * - GhanaNLP ASR is the primary Ghanaian-language ASR provider.
- * - Gemini and local models are explicit fallbacks (never falsely claiming GhanaNLP was used).
+ * - University of Ghana HCI Lab is the primary native Ghanaian-language ASR provider.
+ * - Gemini and local models are explicit fallbacks (never falsely claiming HCI Lab was used).
  * - Real confidence numbers only (null with "provider_unreported" if provider does not report it).
  * - Acoustic quality scores are reported separately from model confidence.
  * - Spoken PINs are intercepted and discarded to enforce Zero-PIN security.
@@ -14,7 +14,6 @@
 
 import { audioNormalizer } from "./audioNormalizer";
 import { audioQualityAnalyzer, AudioQualityReport } from "./audioQuality";
-import { ghanaNlpAsrService } from "../../../services/ghanaNlpAsrService";
 import { hciLabService } from "../../../services/hciLabService";
 import { geminiClient } from "../../../services/geminiClient";
 import { offlineSpeechRecognizer } from "./offlineAsrEngine";
@@ -104,19 +103,17 @@ export class AsrOrchestrator {
       resolvedLanguage = "fat";
     } else if (languageHint === "mixed" || languageHint === "mixed-twi-en" || languageHint === "bilingual") {
       isMixed = true;
-      resolvedLanguage = "twi"; // GhanaNLP Twi handles Akan-English code-switching
+      resolvedLanguage = "twi"; // HCI Lab Twi handles Akan-English code-switching
     } else {
       resolvedLanguage = "twi";
     }
 
     // ── STEP 3: API Key Configuration & Speech Strategy ──
     const hasHciKey = hciLabService.isConfigured();
-    const hasGhanaNlpKey = ghanaNlpAsrService.isConfigured();
     const hasGeminiKey = geminiClient.isAvailable();
-    const hasAnySpeechApiKey = hasHciKey || hasGhanaNlpKey || hasGeminiKey;
+    const hasAnySpeechApiKey = hasHciKey || hasGeminiKey;
 
     let hciQuotaFailed = false;
-    let ghanaNlpQuotaFailed = false;
     let geminiQuotaFailed = false;
 
     let rawText = "";
@@ -160,40 +157,6 @@ export class AsrOrchestrator {
         auditLogger.log("warn", "ASR_ORCHESTRATOR", `HCI Lab primary ASR attempt notice: ${fallbackReason}. Proceeding to fallback.`);
       }
     }
-
-    // ── STEP 4B: Primary Provider: GhanaNLP ASR v3 ──
-    if (!rawText && hasGhanaNlpKey) {
-      providerAttempted = "GhanaNLP_ASR_v3";
-      try {
-        const timeoutMs = options.timeoutMs || ghanaNlpAsrService.defaultTimeoutMs;
-        const ghaResult = await ghanaNlpAsrService.transcribe(
-          normalized.wavBuffer,
-          resolvedLanguage,
-          "audio/wav",
-          timeoutMs
-        );
-
-        if (ghaResult.text && ghaResult.text.trim().length > 0) {
-          rawText = ghaResult.text;
-          providerUsed = "GhanaNLP_ASR_v3";
-          confidence = ghaResult.confidence;
-          confidenceSource = ghaResult.confidenceSource;
-        }
-      } catch (err: any) {
-        if (
-          err?.code === "GHANANLP_RATE_LIMIT" ||
-          err?.statusCode === 429 ||
-          String(err?.message || "").toLowerCase().includes("quota") ||
-          String(err?.message || "").toLowerCase().includes("token") ||
-          String(err?.message || "").toLowerCase().includes("rate limit")
-        ) {
-          ghanaNlpQuotaFailed = true;
-        }
-        fallbackReason = err.message || "GhanaNLP transcription failure";
-        auditLogger.log("warn", "ASR_ORCHESTRATOR", `GhanaNLP primary attempt notice: ${fallbackReason}. Proceeding to fallback.`);
-      }
-    }
-
     // ── STEP 5: Explicit Fallback Provider (Local Neural / Gemini / Offline) ──
     if (!rawText && allowFallback) {
       fallbackUsed = true;
@@ -351,7 +314,7 @@ Output ONLY the transcription text without commentary.`;
       qualityStatus: audioQuality.status,
     });
 
-    const anyQuotaFailed = hciQuotaFailed || ghanaNlpQuotaFailed || geminiQuotaFailed;
+    const anyQuotaFailed = hciQuotaFailed || geminiQuotaFailed;
     const quotaExhausted = !rawText && anyQuotaFailed;
     const quotaErrorMessage = quotaExhausted
       ? (resolvedLanguage.includes("tw")

@@ -4,7 +4,6 @@ const mocks = vi.hoisted(() => ({
   normalize: vi.fn(),
   analyze: vi.fn(),
   hciConfigured: vi.fn(),
-  ghanaNlpConfigured: vi.fn(),
   geminiAvailable: vi.fn(),
   localCheckHealth: vi.fn(),
   localTranscribe: vi.fn(),
@@ -19,9 +18,6 @@ vi.mock("../src/ai_system/speech/asr/audioQuality", () => ({
 }));
 vi.mock("../src/services/hciLabService", () => ({
   hciLabService: { isConfigured: mocks.hciConfigured },
-}));
-vi.mock("../src/services/ghanaNlpAsrService", () => ({
-  ghanaNlpAsrService: { isConfigured: mocks.ghanaNlpConfigured },
 }));
 vi.mock("../src/services/geminiClient", () => ({
   geminiClient: { isAvailable: mocks.geminiAvailable },
@@ -52,7 +48,6 @@ describe("ASR local fallback", () => {
       rmsEnergy: 0.2,
     });
     mocks.hciConfigured.mockReturnValue(false);
-    mocks.ghanaNlpConfigured.mockReturnValue(false);
     mocks.geminiAvailable.mockReturnValue(false);
     mocks.localCheckHealth.mockResolvedValue({ ready: true, model: "test-local-model" });
     mocks.localTranscribe.mockResolvedValue({

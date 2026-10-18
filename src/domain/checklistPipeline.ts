@@ -19,6 +19,7 @@
  * 6. Telco KYC Reference Service: Calls KYC API and formats bilingual verification readback.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { GhanaianNetwork, validateGhanaPhoneNumber, parseAndValidateAmount } from "./validation";
 import { TransactionSession, transactionStateMachine } from "./stateMachine";
 import { recipientResolver, RecipientResolutionResult } from "../providers/recipient/RecipientResolver";
@@ -64,20 +65,30 @@ export class SequentialResourceQueue {
   private queue: Array<() => Promise<any>> = [];
   private isProcessing: boolean = false;
   private readonly queueName: string;
+  private static activeQueues = new AsyncLocalStorage<Set<string>>();
 
   constructor(queueName: string = "ResourceQueue") {
     this.queueName = queueName;
   }
 
   public enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const currentSet = SequentialResourceQueue.activeQueues.getStore();
+    if (currentSet?.has(this.queueName)) {
+      // Re-entrant call from within an already active task on this queue: execute directly to avoid deadlock
+      return task();
+    }
     return new Promise<T>((resolve, reject) => {
       this.queue.push(async () => {
-        try {
-          const res = await task();
-          resolve(res);
-        } catch (err) {
-          reject(err);
-        }
+        const nextSet = new Set(currentSet || []);
+        nextSet.add(this.queueName);
+        await SequentialResourceQueue.activeQueues.run(nextSet, async () => {
+          try {
+            const res = await task();
+            resolve(res);
+          } catch (err) {
+            reject(err);
+          }
+        });
       });
       void this.process();
     });
@@ -170,8 +181,9 @@ export class KeypadBufferManager {
     }
 
     // 2. Multi-digit fields (phone number, amount, PIN): Buffer until '#'
-    if (cleanKey === "#") {
-      const finalValue = currentBuf.trim();
+    if (cleanKey.includes("#")) {
+      const parts = cleanKey.split("#");
+      const finalValue = (currentBuf + parts[0]).trim();
       this.clearBuffer(sessionId);
       return {
         isComplete: true,
@@ -181,8 +193,8 @@ export class KeypadBufferManager {
       };
     }
 
-    // Accumulate digits (support digits 0-9 and * for pesewas)
-    if (/^[0-9*]$/.test(cleanKey)) {
+    // Accumulate digits (support digits 0-9 and * for pesewas/wildcards)
+    if (/^[0-9*]+$/.test(cleanKey)) {
       const updated = currentBuf + cleanKey;
       this.buffers.set(sessionId, updated);
       return {

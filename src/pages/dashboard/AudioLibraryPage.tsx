@@ -911,7 +911,7 @@ export const AudioLibraryPage: React.FC = () => {
                     <p className="text-xs text-[#111A15] dark:text-[#F8FAF8] font-semibold mt-1">
                       {matchResult.match
                         ? `Matched: "${matchResult.spokenText || matchResult.title}"`
-                        : "Confidence below 50% threshold. Sent to GhanaNLP / Piper neural speech synthesis."}
+                        : "Confidence below 50% threshold. Sent to UG HCI Lab / Piper neural speech synthesis."}
                     </p>
 
                     <div className="text-[11px] font-mono text-[#5E7265] mt-1">

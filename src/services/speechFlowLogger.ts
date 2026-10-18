@@ -2,7 +2,7 @@
  * Ɔkwankyerɛfo Pa - Authoritative Speech Flow & Bug Diagnostic Logger
  * 
  * Tracks every ASR and TTS request, response, circuit breaker activation,
- * and error flow across all providers (HCI Lab, GhanaNLP, Gemini Multimodal,
+ * and error flow across all providers (HCI Lab, Gemini Multimodal,
  * Local Neural / Piper, Studio Catalog, and Offline synthesis).
  * 
  * Features:

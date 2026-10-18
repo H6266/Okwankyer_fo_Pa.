@@ -49,7 +49,10 @@ export class ServiceRegistry {
       status: 'ready',
       requiredSlots: [],
       handler: async (context: any) => {
-        const callerPhone = context?.callerNumber || '0543546010';
+        const callerPhone = String(context?.callerNumber || "").trim();
+        if (!callerPhone) {
+          throw new Error("Missing caller phone number to enable Cash-Out.");
+        }
         const { cashOutService } = await import('../../services/cashOutService');
         const state = cashOutService.enableCashOut(callerPhone);
         return {

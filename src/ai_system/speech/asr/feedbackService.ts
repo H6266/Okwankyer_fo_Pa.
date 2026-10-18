@@ -53,8 +53,8 @@ export interface AsrTurnTelemetry {
 
 export interface AsrFeedbackMetrics {
   totalTurns: number;
-  ghanaNlpUsageCount: number;
-  ghanaNlpUsageRate: number;
+  hciLabUsageCount: number;
+  hciLabUsageRate: number;
   fallbackUsageCount: number;
   fallbackUsageRate: number;
   timeoutCount: number;
@@ -198,7 +198,7 @@ export class FeedbackService {
     const turns = this.turnTelemetries;
     const totalTurns = turns.length;
 
-    let ghanaNlpCount = 0;
+    let hciLabCount = 0;
     let fallbackCount = 0;
     let timeoutCount = 0;
     let emptyResultCount = 0;
@@ -208,8 +208,8 @@ export class FeedbackService {
     const languageDist: Record<string, number> = {};
 
     for (const t of turns) {
-      if (t.provider.toLowerCase().includes("ghananlp")) {
-        ghanaNlpCount++;
+      if (t.provider.toLowerCase().includes("hci")) {
+        hciLabCount++;
       }
       if (t.fallbackUsed) fallbackCount++;
       if (t.timeoutOccurred) timeoutCount++;
@@ -243,8 +243,8 @@ export class FeedbackService {
 
     return {
       totalTurns,
-      ghanaNlpUsageCount: ghanaNlpCount,
-      ghanaNlpUsageRate: totalTurns > 0 ? Number((ghanaNlpCount / totalTurns).toFixed(3)) : 0,
+      hciLabUsageCount: hciLabCount,
+      hciLabUsageRate: totalTurns > 0 ? Number((hciLabCount / totalTurns).toFixed(3)) : 0,
       fallbackUsageCount: fallbackCount,
       fallbackUsageRate: totalTurns > 0 ? Number((fallbackCount / totalTurns).toFixed(3)) : 0,
       timeoutCount,

@@ -19,6 +19,9 @@ import {
   Radio,
   Brain,
   Lock,
+  ShieldCheck,
+  ListOrdered,
+  AlertCircle,
 } from "lucide-react";
 import { audioPlaybackController } from "../../audio/audioPlaybackController";
 import { isAcousticSystemEcho } from "../../domain/echoFilter";
@@ -219,7 +222,26 @@ export const PhoneSimulatorPage: React.FC = () => {
   const [rawVoiceXml, setRawVoiceXml] = useState<string>("");
 
   // ── Terminal & Chat Timeline State ───────────────────────────────────
-  const [activeTab, setActiveTab] = useState<"chat" | "terminal" | "asr_diag">("chat");
+  const [activeTab, setActiveTab] = useState<"chat" | "terminal" | "asr_diag" | "checklist">("chat");
+  const [checklistData, setChecklistData] = useState<any>(null);
+  const [isSyncingChecklist, setIsSyncingChecklist] = useState<boolean>(false);
+
+  const syncChecklist = useCallback(async (sid?: string) => {
+    const targetId = sid || sessionIdRef.current || sessionId;
+    if (!targetId) return;
+    setIsSyncingChecklist(true);
+    try {
+      const data = await api.getChecklistStatus(targetId);
+      if (data?.checklist) {
+        setChecklistData(data.checklist);
+      }
+    } catch {
+      // Session may not yet be initialized
+    } finally {
+      setIsSyncingChecklist(false);
+    }
+  }, [sessionId]);
+
   const [activeKeypadPulse, setActiveKeypadPulse] = useState<string | null>(null);
   const [chatTurns, setChatTurns] = useState<ChatTurnItem[]>([
     {
@@ -1062,6 +1084,11 @@ export const PhoneSimulatorPage: React.FC = () => {
           audioPlaybackController.stop();
         } else {
           await executeVoiceXml(text, targetUrl, { httpStatus: res.status, guardReason, transactionOutcome });
+        }
+
+        const currentSid = sessionIdRef.current || sessionId;
+        if (currentSid) {
+          void syncChecklist(currentSid);
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -3037,6 +3064,35 @@ export const PhoneSimulatorPage: React.FC = () => {
                   <Activity className="w-3.5 h-3.5" />
                   <span>ASR &amp; Phonetics</span>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab("checklist");
+                    void syncChecklist();
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                    activeTab === "checklist"
+                      ? "bg-amber-950 text-amber-300 border border-amber-600/40 shadow-sm"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>9-Stage Checklist Gate</span>
+                  {checklistData && (
+                    <span
+                      className={`ml-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                        checklistData.isReadyForInitiation
+                          ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                          : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                      }`}
+                    >
+                      {checklistData.isReadyForInitiation
+                        ? "READY"
+                        : `${checklistData.stages?.[checklistData.currentStage]?.order || 1}/9`}
+                    </span>
+                  )}
+                </button>
               </div>
 
               <div className="flex items-center gap-2">
@@ -3259,7 +3315,7 @@ export const PhoneSimulatorPage: React.FC = () => {
                     <span>Active Ghanaian ASR Configuration</span>
                   </h3>
                   <div className="grid grid-cols-2 gap-2 text-[11px] font-mono text-slate-300">
-                    <div>Primary ASR: <span className="text-emerald-400">GhanaNLP v3 + Open Vosk</span></div>
+                    <div>Primary ASR: <span className="text-emerald-400">UG HCI Lab + Open Vosk</span></div>
                     <div>Phonetic Matcher: <span className="text-emerald-400">ghanaianPhoneticMatcher.ts</span></div>
                     <div>Dialect Coverage: <span className="text-emerald-400">Asante Twi, Akuapem, Fante</span></div>
                     <div>Echo Filter: <span className="text-emerald-400">Active (isAcousticSystemEcho)</span></div>
@@ -3293,6 +3349,233 @@ export const PhoneSimulatorPage: React.FC = () => {
                       ))}
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* TAB 4: 9-Stage Transaction Flow Checklist Gate */}
+            {activeTab === "checklist" && (
+              <div className="flex-1 p-4 overflow-y-auto bg-slate-950 text-xs space-y-4">
+                {/* Gate Security Banner */}
+                <div
+                  className={`rounded-xl p-4 border transition-all ${
+                    checklistData?.isReadyForInitiation
+                      ? "bg-emerald-950/40 border-emerald-600/50 text-emerald-200"
+                      : "bg-slate-900 border-slate-800 text-slate-300"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <div
+                        className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                          checklistData?.isReadyForInitiation
+                            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
+                            : "bg-amber-500/10 text-amber-400 border border-amber-500/30"
+                        }`}
+                      >
+                        {checklistData?.isReadyForInitiation ? (
+                          <CheckCircle2 className="w-5 h-5" />
+                        ) : (
+                          <ShieldCheck className="w-5 h-5" />
+                        )}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-bold text-sm text-slate-100">
+                            {checklistData?.isReadyForInitiation
+                              ? "Checklist Gate Cleared: Ready for Initiation"
+                              : "9-Stage Transaction Prerequisite Gate Active"}
+                          </h3>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase ${
+                              checklistData?.isReadyForInitiation
+                                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                                : "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                            }`}
+                          >
+                            {checklistData?.isReadyForInitiation ? "STAGE 8 UNLOCKED" : "STAGE 8 LOCKED"}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          Authoritative invariant: Until all prerequisites (Stages 1 through 7) are satisfied, financial
+                          saga execution is blocked. No transactions can trigger on missing or unverified KYC data.
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => void syncChecklist()}
+                      disabled={isSyncingChecklist}
+                      className="px-2.5 py-1.5 rounded-lg text-[11px] font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                      title="Refresh live checklist status from state cache"
+                    >
+                      <RotateCcw className={`w-3.5 h-3.5 ${isSyncingChecklist ? "animate-spin" : ""}`} />
+                      <span>{isSyncingChecklist ? "Checking..." : "Sync State"}</span>
+                    </button>
+                  </div>
+
+                  {/* Bilingual Error / Guidance Alert */}
+                  {checklistData?.errorFeedback && (
+                    <div className="mt-3.5 p-3 rounded-lg bg-amber-950/40 border border-amber-700/50 text-amber-200 text-xs space-y-1">
+                      <div className="flex items-center gap-1.5 font-semibold text-amber-300">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        <span>Active Telephony Gate Guidance:</span>
+                      </div>
+                      <p className="text-[11px]">
+                        <strong className="text-amber-100">EN:</strong> {checklistData.errorFeedback.en}
+                      </p>
+                      <p className="text-[11px]">
+                        <strong className="text-amber-100">TWI:</strong> {checklistData.errorFeedback.twi}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Canonical 9 Stages Ordered Pipeline */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+                    <span className="font-semibold uppercase tracking-wider text-slate-300">The 9 Pipeline Stages</span>
+                    <span>
+                      Active Session ID:{" "}
+                      <span className="font-mono text-cyan-400">{sessionId || "No Session (Dial to Begin)"}</span>
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    {[
+                      {
+                        id: "STAGE_1_LANGUAGE",
+                        num: 1,
+                        name: "Language Selection",
+                        spec: "English or Akan Twi (Asante / Akuapem / Fante)",
+                        type: "Prerequisite",
+                      },
+                      {
+                        id: "STAGE_2_SERVICE",
+                        num: 2,
+                        name: "Supported Service",
+                        spec: "Mobile Money Transfer verified",
+                        type: "Prerequisite",
+                      },
+                      {
+                        id: "STAGE_3_NETWORKS",
+                        num: 3,
+                        name: "Network Provider",
+                        spec: "MTN, Telecel, or AirtelTigo selected",
+                        type: "Prerequisite",
+                      },
+                      {
+                        id: "STAGE_4_RECIPIENT",
+                        num: 4,
+                        name: "Recipient Mobile Number",
+                        spec: "Validated 10-digit Ghana mobile number",
+                        type: "Prerequisite",
+                      },
+                      {
+                        id: "STAGE_5_AMOUNT",
+                        num: 5,
+                        name: "Amount Entry",
+                        spec: "Validated transaction amount (GHS 1.00 – 5,000.00)",
+                        type: "Prerequisite",
+                      },
+                      {
+                        id: "STAGE_6_REFERENCE_KYC",
+                        num: 6,
+                        name: "Check for Reference (Telco KYC)",
+                        spec: "Telco subscriber name lookup & audio verification readback",
+                        type: "Prerequisite",
+                      },
+                      {
+                        id: "STAGE_7_PIN_GATE",
+                        num: 7,
+                        name: "PIN Gate Security",
+                        spec: "Zero-PIN handset prompt gate (Buffered until #)",
+                        type: "Prerequisite",
+                      },
+                      {
+                        id: "STAGE_8_INITIATE_TRANSACTION",
+                        num: 8,
+                        name: "Initiate Transaction",
+                        spec: "Dispatches Authoritative MoMo Payment Saga",
+                        type: "Gated Action",
+                      },
+                      {
+                        id: "STAGE_9_REPORT_STATE",
+                        num: 9,
+                        name: "Report Back State",
+                        spec: "Final transaction receipt & telco reference delivery",
+                        type: "Outcome",
+                      },
+                    ].map((step) => {
+                      const stageInfo = checklistData?.stages?.[step.id];
+                      const isCompleted = Boolean(stageInfo?.completed);
+                      const isCurrent = checklistData?.currentStage === step.id;
+                      const valDesc = stageInfo?.valueDescription;
+
+                      return (
+                        <div
+                          key={step.id}
+                          className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
+                            isCompleted
+                              ? "bg-slate-900/90 border-emerald-500/40 text-slate-200"
+                              : isCurrent
+                              ? "bg-cyan-950/40 border-cyan-500/50 text-cyan-100 shadow-sm shadow-cyan-900/20"
+                              : "bg-slate-900/40 border-slate-800/70 text-slate-400 opacity-75"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={`w-7 h-7 rounded-lg flex items-center justify-center font-mono text-xs font-bold shrink-0 transition-colors ${
+                                isCompleted
+                                  ? "bg-emerald-500 text-slate-950 shadow-sm"
+                                  : isCurrent
+                                  ? "bg-cyan-500 text-slate-950 animate-pulse"
+                                  : "bg-slate-800 text-slate-400 border border-slate-700"
+                              }`}
+                            >
+                              {isCompleted ? "✓" : step.num}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className={`font-semibold text-xs ${isCompleted ? "text-slate-100" : isCurrent ? "text-cyan-200" : "text-slate-300"}`}>
+                                  {step.name}
+                                </span>
+                                <span
+                                  className={`text-[9px] px-1.5 py-0.2 rounded font-mono uppercase tracking-wider ${
+                                    step.type === "Prerequisite"
+                                      ? "bg-slate-800 text-slate-400 border border-slate-700"
+                                      : step.type === "Gated Action"
+                                      ? "bg-amber-950 text-amber-300 border border-amber-800/60"
+                                      : "bg-indigo-950 text-indigo-300 border border-indigo-800/60"
+                                  }`}
+                                >
+                                  {step.type}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-400 mt-0.5">{step.spec}</p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            {valDesc ? (
+                              <span className="px-2 py-0.5 rounded-md text-[11px] font-mono font-medium bg-emerald-950/80 text-emerald-300 border border-emerald-600/40">
+                                {valDesc}
+                              </span>
+                            ) : isCurrent ? (
+                              <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-cyan-950/80 text-cyan-300 border border-cyan-500/40 animate-pulse">
+                                Current Stage
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-md text-[10px] text-slate-400 bg-slate-800 border border-slate-700">
+                                Pending
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             )}

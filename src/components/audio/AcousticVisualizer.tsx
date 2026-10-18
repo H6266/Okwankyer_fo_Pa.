@@ -36,7 +36,7 @@ export const AcousticVisualizer: React.FC<AcousticVisualizerProps> = ({
     currentInterimTranscript: "",
     finalizedTranscript: "",
     lastParsedDiscussion: null,
-    datasetModel: "Mozilla Common Voice + FLEURS + GhanaNLP",
+    datasetModel: "Mozilla Common Voice + FLEURS + UG HCI Lab",
   });
 
   const [showDatasetInfo, setShowDatasetInfo] = useState<boolean>(false);
@@ -201,7 +201,7 @@ export const AcousticVisualizer: React.FC<AcousticVisualizerProps> = ({
               <strong className="text-emerald-200">Google FLEURS Benchmark</strong>: Multi-dialect Ghanaian English, Asante Twi, Akuapem Twi, and Fante acoustic phoneme models.
             </li>
             <li>
-              <strong className="text-emerald-200">GhanaNLP Telephony Lexicon</strong>: Domain-specific vocabulary for MTN MoMo, Telecel Cash, AT Money, and Ghanaian currency slang.
+              <strong className="text-emerald-200">UG HCI Lab Telephony Lexicon</strong>: Domain-specific vocabulary for MTN MoMo, Telecel Cash, AT Money, and Ghanaian currency slang.
             </li>
             <li>
               <strong className="text-emerald-200">Kaggle African Speech Challenge</strong>: Noise robustness models, adaptive SNR gating, and spectral Wiener echo suppression.

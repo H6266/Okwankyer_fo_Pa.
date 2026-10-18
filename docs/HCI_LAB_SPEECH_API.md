@@ -162,4 +162,4 @@ A thorough scan of the current repository confirmed:
 1. **No background timers or interval pollers:** Neither `server.ts` nor frontend components poll external speech APIs on loops.
 2. **Health checks are passive:** `/api/ai/health` only inspects environment variables and circuit breaker states (0 live API calls).
 3. **No automatic ASR/TTS execution on page load:** `AsrLabPage.tsx` and `TtsLabPage.tsx` load local metadata and only execute tests when a user manually clicks an individual "Run Test" button.
-4. **Vosk / GhanaNLP fallbacks are safe:** Existing fallback chains are gated behind explicit configuration flags and remain dormant when unconfigured.
+4. **Vosk / Local model fallbacks are safe:** Existing fallback chains are gated behind explicit configuration flags and remain dormant when unconfigured.

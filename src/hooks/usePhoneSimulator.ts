@@ -555,7 +555,7 @@ export function usePhoneSimulator() {
     speechDurationMs: 0,
     noiseDurationMs: 0,
     currentVADState: "SILENCE",
-    currentASRProvider: "GhanaNLP_ASR_v3",
+    currentASRProvider: "HCI_LAB_ASR",
     chunksCreated: 0,
     chunksCompleted: 0,
     chunksFailed: 0,
@@ -2180,7 +2180,7 @@ export function usePhoneSimulator() {
             const hasServerTranscript = serverText.length > 0 && serverText.toLowerCase() !== "empty";
             rawText = hasServerTranscript ? serverText : browserFinalTranscript;
             provider = hasServerTranscript
-              ? asrRes.result.provider || "GhanaNLP_ASR_v3"
+              ? asrRes.result.provider || "HCI_LAB_ASR"
               : browserFinalTranscript ? "browser-final-fallback" : "";
 
             voiceCaptureRef.current?.updateTelemetry({
@@ -2516,7 +2516,7 @@ export function usePhoneSimulator() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sessionId,
-          provider: voiceTelemetry.currentASRProvider || "GhanaNLP_ASR_v3",
+          provider: voiceTelemetry.currentASRProvider || "HCI_LAB_ASR",
           language: language === "tw" ? "twi" : "eng",
           originalTranscript: correction.originalTranscript,
           correctedTranscript: correction.correctedTranscript,

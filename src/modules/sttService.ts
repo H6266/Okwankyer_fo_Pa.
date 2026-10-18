@@ -14,7 +14,6 @@ import { AI_CONFIG } from "../ai_system/core/aiConfig";
 import { geminiClient } from "../services/geminiClient";
 import { auditLogger } from "../services/auditLogger";
 import { offlineSpeechRecognizer } from "../ai_system/speech/asr/offlineAsrEngine";
-import { ghanaNlpAsrService } from "../services/ghanaNlpAsrService";
 import { formatSpokenNumbersAsDigits } from "../domain/numberFormatter";
 import {
   isAcousticSystemEcho,
@@ -278,7 +277,7 @@ Instructions:
 
 /**
  * Authoritative unified ASR transcription delegating to asrOrchestrator:
- * Primary: Ghana NLP ASR v3
+ * Primary: University of Ghana HCI Lab ASR
  * Fallback: Hedged Gemini STT / Offline Speech Recognizer
  */
 async function transcribeAudioBufferUnified(

@@ -20,6 +20,7 @@
  */
 
 import crypto from 'crypto';
+import { aiResourceQueue } from '../../domain/checklistPipeline';
 import {
   BrainDecision,
   BrainInput,
@@ -278,8 +279,15 @@ export class Brain {
 
   /**
    * Main entry point: Processes caller utterance and returns settled decision with validated reply.
+   * Serialized via aiResourceQueue to eliminate resource competition between concurrent turns.
    */
   public async process(input: BrainInput): Promise<BrainOutput> {
+    return aiResourceQueue.enqueue(async () => {
+      return this.executeProcess(input);
+    });
+  }
+
+  private async executeProcess(input: BrainInput): Promise<BrainOutput> {
     const currentTurn = ++this.currentTurnId;
     const rawTranscript = (input.transcript || '').trim();
     const effectiveBrainMode = pilotControls.getEffectiveBrainMode(input.callerNumber, this.config.mode);

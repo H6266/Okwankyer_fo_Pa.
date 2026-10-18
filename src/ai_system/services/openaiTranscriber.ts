@@ -4,23 +4,23 @@
  * OpenAI 2 — ASR Layer:
  * Responsible for:
  * - Converting spoken caller audio into high-fidelity text.
- * - Ghana NLP is the PRIMARY Ghanaian-language ASR (authentic Akan Twi / Ghanaian English acoustic models).
+ * - University of Ghana HCI Lab is the PRIMARY Ghanaian-language ASR (authentic Akan Twi acoustic models).
  * - OpenAI provides secondary verification and fallback transcription (using dedicated models
  *   e.g. gpt-4o-mini-transcribe, gpt-4o-transcribe, or whisper-1).
  * 
  * Critical Slot Dual-Verification:
  * For financial parameters (phone numbers, amounts, account numbers):
- * - If Ghana NLP and OpenAI transcriptions agree: ACCEPT
+ * - If HCI Lab and OpenAI transcriptions agree: ACCEPT
  * - If they disagree (e.g., 0241234567 vs 0241234561): REJECT and prompt DTMF keypad fallback:
  *   "I heard two different numbers. Please enter the number using the keypad."
  */
 
-import { GhanaNlpAsrService } from "../../services/ghanaNlpAsrService";
+import { hciLabService } from "../../services/hciLabService";
 
 export interface TranscribeResult {
   text: string;
   confidence: number;
-  provider: "ghana_nlp" | "openai" | "browser_web_speech" | "mock_fallback";
+  provider: "hci_lab" | "openai" | "browser_web_speech" | "mock_fallback";
   languageDetected?: string;
 }
 
@@ -36,11 +36,7 @@ export interface DualAsrVerificationResult {
 }
 
 export class OpenAiTranscriber {
-  private ghanaNlp: GhanaNlpAsrService;
-
-  constructor() {
-    this.ghanaNlp = new GhanaNlpAsrService();
-  }
+  constructor() {}
 
   private get apiKey(): string {
     const raw = (process.env.OPENAI_API_KEY || "").trim();
@@ -65,28 +61,28 @@ export class OpenAiTranscriber {
 
   /**
    * Primary transcription pipeline:
-   * Uses Ghana NLP as primary for Ghanaian languages, with OpenAI fallback.
+   * Uses University of Ghana HCI Lab as primary for Ghanaian languages, with OpenAI fallback.
    */
   public async transcribeAudio(
     audioBuffer: Buffer | string,
     languageHint: "en" | "twi" | string = "en",
     mimeType: string = "audio/wav"
   ): Promise<TranscribeResult> {
-    // 1. Try Ghana NLP for Ghanaian speech
-    if (this.ghanaNlp.isConfigured()) {
+    // 1. Try University of Ghana HCI Lab for Ghanaian speech
+    if (hciLabService.isConfigured()) {
       try {
         const buf = Buffer.isBuffer(audioBuffer) ? audioBuffer : Buffer.from(audioBuffer, "base64");
-        const ghanaRes = await this.ghanaNlp.transcribe(buf, languageHint, mimeType);
-        if (ghanaRes && ghanaRes.text && ghanaRes.text.trim().length > 0) {
+        const hciRes = await hciLabService.transcribe(buf, mimeType, { timeoutMs: 15000 });
+        if (hciRes && hciRes.transcript && hciRes.transcript.trim().length > 0) {
           return {
-            text: ghanaRes.text.trim(),
-            confidence: ghanaRes.confidence || 0.9,
-            provider: "ghana_nlp",
-            languageDetected: ghanaRes.languageDetected || languageHint,
+            text: hciRes.transcript.trim(),
+            confidence: hciRes.confidence || 0.9,
+            provider: "hci_lab",
+            languageDetected: languageHint,
           };
         }
       } catch (err: any) {
-        console.warn("[OpenAiTranscriber] Ghana NLP ASR notice:", err.message);
+        console.warn("[OpenAiTranscriber] HCI Lab ASR notice:", err.message);
       }
     }
 
@@ -174,7 +170,7 @@ export class OpenAiTranscriber {
 
   /**
    * Dual Transcription Verification:
-   * Compares Ghana NLP primary against OpenAI verification for critical numerical fields (phone, amount).
+   * Compares University of Ghana HCI Lab primary against OpenAI verification for critical numerical fields (phone, amount).
    * Prevents acoustic misrecognition toll errors.
    */
   public async dualTranscribeAndVerify(
@@ -186,7 +182,7 @@ export class OpenAiTranscriber {
     const primary = await this.transcribeAudio(audioBuffer, languageHint, mimeType);
 
     // If general slot or only one provider is configured, verify format directly
-    if (slotType === "general" || (!this.ghanaNlp.isConfigured() && !this.isConfigured())) {
+    if (slotType === "general" || (!hciLabService.isConfigured() && !this.isConfigured())) {
       return {
         accepted: Boolean(primary.text),
         verifiedText: primary.text,
@@ -200,7 +196,7 @@ export class OpenAiTranscriber {
     const primaryDigits = primary.text.replace(/[^0-9]/g, "");
 
     // If critical slot and both providers are active, invoke secondary verification
-    if (this.ghanaNlp.isConfigured() && this.isConfigured() && (slotType === "phone" || slotType === "amount")) {
+    if (hciLabService.isConfigured() && this.isConfigured() && (slotType === "phone" || slotType === "amount")) {
       try {
         const secondary = await this.callOpenAiAsr(audioBuffer, languageHint, mimeType);
         const secondaryDigits = secondary.text.replace(/[^0-9]/g, "");

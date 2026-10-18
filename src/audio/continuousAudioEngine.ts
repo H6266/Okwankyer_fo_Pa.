@@ -80,7 +80,7 @@ export class ContinuousAudioEngine {
     currentInterimTranscript: "",
     finalizedTranscript: "",
     lastParsedDiscussion: null,
-    datasetModel: "Mozilla Common Voice + FLEURS + GhanaNLP",
+    datasetModel: "Mozilla Common Voice + FLEURS + UG HCI Lab",
   };
 
   private stateListeners: Set<AudioStateListener> = new Set();
