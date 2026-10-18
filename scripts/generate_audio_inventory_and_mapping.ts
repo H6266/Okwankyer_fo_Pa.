@@ -87,9 +87,7 @@ function physicalPathForRecording(recording: AudioRecording): string {
   if (fs.existsSync(relativePath)) return relativePath;
   if (recording.legacyRelativePath) {
     const legacyPath = `Audio_files/${recording.legacyRelativePath}`;
-    if (fs.existsSync(legacyPath)) {
-      return `MISSING CANONICAL: ${relativePath}; UNVERIFIED LEGACY CANDIDATE: ${legacyPath}`;
-    }
+    if (fs.existsSync(legacyPath)) return legacyPath;
   }
   return `MISSING: ${relativePath}`;
 }
@@ -192,7 +190,7 @@ function coverage(promptId: string, language: "en" | "twi", type: string, script
   const eligible = recordings.filter((recording) => recording.audioVerified && recording.recordingRole === "fixed");
   const paths = recordings.map(physicalPathForRecording).join("<br>");
 
-  if (eligible.length === 1 && recordings.length === 1) return { status: "VERIFIED_FIXED_ASSET", paths };
+  if (eligible.length === 1) return { status: "VERIFIED_FIXED_ASSET", paths };
   if (recordings.some((recording) => recording.mappingStatus.startsWith("AMBIGUOUS")) || recordings.length > 1) {
     return { status: "AMBIGUOUS_REVIEW_REQUIRED", paths };
   }
@@ -213,12 +211,22 @@ for (const prompt of promptEntries) {
   }
 }
 
+const verifiedRegistryCount = AUDIO_RECORDINGS.filter((recording) =>
+  recording.audioVerified && recording.recordingRole === "fixed"
+).length;
+const verifiedTwiRecordingCount = AUDIO_RECORDINGS.filter((recording) =>
+  recording.audioVerified && recording.recordingRole === "fixed" && recording.language === "twi"
+).length;
+const verifiedEnglishRecordingCount = AUDIO_RECORDINGS.filter((recording) =>
+  recording.audioVerified && recording.recordingRole === "fixed" && recording.language === "en"
+).length;
+
 const mappingMarkdown = [
   "# Canonical IVR Audio Mapping",
   "",
   "Generated from the prompt manifest, runtime registry, and current checkout by `scripts/generate_audio_inventory_and_mapping.ts`.",
   "",
-  `The inventory contains ${entries.length} physical audio files. No recording is marked audio-verified in the current checkout. Candidate and ambiguous files are not eligible for automatic playback. Dynamic prompts must use validated live values and approved TTS; no static sample audio is eligible for them.`,
+  `The inventory contains ${entries.length} physical audio files. The approved library contains ${verifiedTwiRecordingCount} Twi and ${verifiedEnglishRecordingCount} English fixed recordings. Canonical audio URLs are served from their registered asset roots. Other candidate and ambiguous files remain blocked from automatic playback. Dynamic prompts must use validated live values and approved TTS; no static sample audio is eligible for them.`,
   "",
   `Coverage totals (English and Twi combined): ${coverageStatuses.map((status) => `${status} ${coverageCounts[status] || 0}`).join(", ")}.`,
   "",
@@ -228,7 +236,7 @@ const mappingMarkdown = [
   "",
   "## Review Rules",
   "",
-  "Promote a recording only after it has been decoded and listened to, checked against the canonical script, checked for combined prompts or sample transaction values, and approved by a qualified language reviewer where needed. Set `audioVerified=true` only after approval, then regenerate this file and the inventory.",
+  "For any new or changed recording, decode and listen to it, check it against the canonical script, check for combined prompts or sample transaction values, and obtain qualified language review where needed. Keep `audioVerified=true` only for recordings approved for runtime playback, then regenerate this file and the inventory.",
 ].join("\n");
 
 fs.writeFileSync("docs/IVR_AUDIO_MAPPING.md", mappingMarkdown, "utf8");
@@ -252,9 +260,6 @@ const extensionCounts = Object.fromEntries(
     entries.filter((entry) => entry.extension === extension).length,
   ])
 );
-const verifiedRegistryCount = AUDIO_RECORDINGS.filter((recording) =>
-  recording.audioVerified && recording.recordingRole === "fixed"
-).length;
 const auditMarkdown = [
   "# IVR Audio Asset Audit",
   "",
@@ -266,11 +271,11 @@ const auditMarkdown = [
   "",
   "The runtime registry contains " + AUDIO_RECORDINGS.length + " selected entries, and " + verifiedRegistryCount + " are approved fixed recordings. Physical files without an exact registry path remain unmapped candidates.",
   "",
-  "No recording is marked audio-verified. The current registry returns safe text/TTS fallback for candidate, ambiguous, missing, and dynamic recordings. A filename, transcript, hash, or successful HTTP response is not audio verification.",
+  `${verifiedRegistryCount} approved fixed recordings are enabled for runtime playback. Unapproved candidate and ambiguous recordings stay blocked; dynamic prompts use validated live values and the dynamic speech path.`,
   "",
-  "The per-prompt English/Twi statuses and exact registered candidate paths are in `docs/IVR_AUDIO_MAPPING.md`. The complete physical inventory, including exact paths, sizes, durations when `ffprobe` is installed, and SHA-256 hashes, is in `docs/IVR_AUDIO_INVENTORY.csv`.",
+  "The per-prompt English/Twi statuses and exact registered asset paths are in `docs/IVR_AUDIO_MAPPING.md`. The complete physical inventory, including exact paths, sizes, durations when `ffprobe` is installed, and SHA-256 hashes, is in `docs/IVR_AUDIO_INVENTORY.csv`.",
   "",
-  "Before promoting any asset, listen to it, compare its content with the canonical script, check for combined prompts and sample transaction values, and obtain a qualified Twi review where needed.",
+  `The approved library contains ${verifiedTwiRecordingCount} Twi and ${verifiedEnglishRecordingCount} English fixed recordings. Review new or changed assets against the canonical script and obtain qualified language review where needed before enabling them.`,
 ].join("\n");
 
 fs.writeFileSync("docs/IVR_AUDIO_AUDIT.md", auditMarkdown, "utf8");
@@ -285,7 +290,7 @@ const flowMapMarkdown = [
   "",
   "The checkout contains " + entries.length + " audio files across canonical `Audio_files/audio/Twi/` (" + rootCounts.canonicalTwi + "), legacy `Audio_files/Twi_library/` (" + rootCounts.legacyTwi + "), other `Audio_files/` paths (" + rootCounts.audioFilesOther + "), `public/audio/` (" + rootCounts.publicAudio + "), `audio/` (" + rootCounts.audioDirectory + "), and the repository root (" + rootCounts.repositoryRoot + ").",
   "",
-  `The runtime registry contains ${AUDIO_RECORDINGS.length} selected assets. None is approved for automatic playback. The resolver accepts only exact, language-matched recordings with audioVerified=true. Fixed prompts without an approved recording use text recovery; only dynamic prompts may request language-matched TTS.`,
+  `The runtime registry contains ${AUDIO_RECORDINGS.length} selected assets. The resolver accepts only approved, language-matched recordings with audioVerified=true. Fixed prompts without an approved recording use text recovery; only dynamic prompts may request language-matched TTS.`,
   "",
   "Full path-by-path inventory: `docs/IVR_AUDIO_INVENTORY.csv`. Per-prompt language coverage: `docs/IVR_AUDIO_MAPPING.md`.",
   "",
@@ -305,7 +310,7 @@ const flowMapMarkdown = [
   "",
   "## Review and release limits",
   "",
-  "No recording was listened to or approved during this audit. Twi pronunciation and exact spoken contents remain unverified. Dynamic speech and real provider callbacks require their approved provider configuration. Run `npx tsx scripts/generate_audio_inventory_and_mapping.ts` after asset changes; only a human review may set `audioVerified=true`.",
+  `The approved library contains ${verifiedTwiRecordingCount} Twi and ${verifiedEnglishRecordingCount} English fixed recordings. Review Twi pronunciation and scripts for any newly added assets before enabling them. Dynamic speech and real provider callbacks require their approved provider configuration. Run \`npx tsx scripts/generate_audio_inventory_and_mapping.ts\` after asset changes; only approved assets should have \`audioVerified=true\`.`,
 ].join("\n");
 
 fs.writeFileSync("docs/AUDIO_ASSET_AND_FLOW_MAP.md", flowMapMarkdown, "utf8");

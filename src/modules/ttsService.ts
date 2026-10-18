@@ -255,7 +255,7 @@ export function resolveSimulatorAudioUrl(
 
     const recording = getRecordingByUrl(pathname, language);
     if (recording) {
-      if (recording.audioVerified) return recording.url ? recording.url.replace(/\.(m4a|aac)$/i, ".mp3") : null;
+      if (recording.audioVerified) return recording.url;
       return null;
     }
 

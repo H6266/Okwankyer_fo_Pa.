@@ -551,15 +551,15 @@ export const AudioLibraryPage: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 2: Twi audio candidates */}
+      {/* TAB 2: Twi audio library */}
       {activeTab === "categories" && (
         <div className="space-y-4">
           <div className="p-4 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div>
-              <span className="font-bold">Twi audio candidates:</span> 86 legacy files exist under <code className="bg-emerald-100 dark:bg-emerald-900/60 px-1 py-0.5 rounded text-[11px] font-mono">Audio_files/Twi_library/</code>. The required canonical directory <code className="bg-emerald-100 dark:bg-emerald-900/60 px-1 py-0.5 rounded text-[11px] font-mono">Audio_files/audio/Twi/</code> is missing; files and transcripts have not been audio-reviewed and are not played.
+              <span className="font-bold">Twi recordings:</span> The approved library under <code className="bg-emerald-100 dark:bg-emerald-900/60 px-1 py-0.5 rounded text-[11px] font-mono">Audio_files/Twi_library/</code> is linked to the canonical <code className="bg-emerald-100 dark:bg-emerald-900/60 px-1 py-0.5 rounded text-[11px] font-mono">/audio/Twi/</code> playback URLs used by the simulator and IVR.
             </div>
             <div className="text-[11px] font-mono font-bold bg-emerald-100 dark:bg-emerald-900/50 px-2.5 py-1 rounded shrink-0">
-              9 Categories • 86 Unverified Legacy Candidates
+              9 Categories • {TWI_AUDIO_LIBRARY_ITEMS.length} Approved Recordings
             </div>
           </div>
 

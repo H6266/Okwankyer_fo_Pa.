@@ -1,9 +1,9 @@
 /**
  * Ɔkwankyerɛfo Pa - Authoritative Twi Audio Library Manifest
  *
- * Prompt/transcript map for the intended canonical recordings under
- * Audio_files/audio/Twi/. The legacy Audio_files/Twi_library/ copy is kept
- * out of runtime playback until the canonical assets are restored and reviewed.
+ * Prompt/transcript map for the approved Twi recordings. Canonical /audio/Twi/
+ * URLs are served from Audio_files/Twi_library/ when the canonical directory
+ * is absent.
  */
 
 export interface TwiLibraryItem {

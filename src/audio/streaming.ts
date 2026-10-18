@@ -154,75 +154,83 @@ export function resolveSafeAudioPath(requestedSubpath: string): string | null {
     throw new PathTraversalError(`Path traversal attempt blocked: ${requestedSubpath}`);
   }
 
-  let rootDir: string;
+  let rootDirs: string[];
   let relativePath: string;
 
-  if (/^(?:supplied\/)?Twi_library\//i.test(normalized)) {
-    rootDir = path.resolve(process.cwd(), "Audio_files", "Twi_library");
+  if (/^Twi\//i.test(normalized)) {
+    rootDirs = [
+      path.resolve(process.cwd(), "Audio_files", "audio", "Twi"),
+      path.resolve(process.cwd(), "Audio_files", "Twi_library"),
+    ];
+    relativePath = normalized.slice("Twi/".length);
+  } else if (/^supplied\/Twi\//i.test(normalized)) {
+    rootDirs = [
+      path.resolve(process.cwd(), "Audio_files", "audio", "Twi"),
+      path.resolve(process.cwd(), "Audio_files", "Twi_library"),
+    ];
+    relativePath = normalized.replace(/^supplied\/Twi\//i, "");
+  } else if (/^(?:supplied\/)?Twi_library(?:\/|$)/i.test(normalized)) {
+    rootDirs = [path.resolve(process.cwd(), "Audio_files", "Twi_library")];
     relativePath = normalized.replace(/^(?:supplied\/)?Twi_library\//i, "");
-  } else if (/^(?:supplied\/)?Twi\//i.test(normalized)) {
-    rootDir = path.resolve(process.cwd(), "Audio_files", "Twi_library");
-    relativePath = normalized.replace(/^(?:supplied\/)?Twi\//i, "");
-  } else if (/^(?:supplied\/)?English_Library\//i.test(normalized)) {
-    rootDir = path.resolve(process.cwd(), "Audio_files", "English_Library");
-    relativePath = normalized.replace(/^(?:supplied\/)?English_Library\//i, "");
+  } else if (/^English_Library\//i.test(normalized)) {
+    rootDirs = [path.resolve(process.cwd(), "Audio_files", "English_Library")];
+    relativePath = normalized.slice("English_Library/".length);
+  } else if (/^supplied\/English_Library\//i.test(normalized)) {
+    rootDirs = [path.resolve(process.cwd(), "Audio_files", "English_Library")];
+    relativePath = normalized.replace(/^supplied\/English_Library\//i, "");
   } else if (/^additional\//i.test(normalized)) {
-    rootDir = path.resolve(process.cwd(), "Audio_files", "additional");
+    rootDirs = [path.resolve(process.cwd(), "Audio_files", "additional")];
     relativePath = normalized.slice("additional/".length);
   } else {
-    rootDir = path.resolve(process.cwd(), "public", "audio");
+    rootDirs = [path.resolve(process.cwd(), "public", "audio")];
     relativePath = normalized.replace(/^public\//i, "");
   }
 
-  const resolved = path.resolve(rootDir, relativePath);
-  if (resolved === rootDir || !resolved.startsWith(`${rootDir}${path.sep}`)) {
-    throw new PathTraversalError(`Path traversal attempt blocked: ${requestedSubpath}`);
-  }
-
-  const resolveInsideRoot = (candidate: string): string | null => {
-    if (fs.existsSync(candidate) && !fs.statSync(candidate).isDirectory()) {
-      const realPath = fs.realpathSync(candidate);
-      const realRoot = fs.realpathSync(rootDir);
-      return realPath.startsWith(`${realRoot}${path.sep}`) ? realPath : null;
+  const resolveInsideRoot = (rootDir: string, candidate: string): string | null => {
+    const resolved = path.resolve(rootDir, candidate);
+    if (resolved === rootDir || !resolved.startsWith(`${rootDir}${path.sep}`)) {
+      throw new PathTraversalError(`Path traversal attempt blocked: ${requestedSubpath}`);
     }
+    const realRoot = fs.realpathSync(rootDir);
+    const safeRealPath = (fullPath: string): string | null => {
+      if (!fs.existsSync(fullPath) || fs.statSync(fullPath).isDirectory()) return null;
+      const realPath = fs.realpathSync(fullPath);
+      return realPath.startsWith(`${realRoot}${path.sep}`) ? realPath : null;
+    };
+    const exact = safeRealPath(resolved);
+    if (exact) return exact;
 
-    // Try finding matching filename in same directory (case-insensitive, space/underscore agnostic)
-    const targetDir = path.dirname(candidate);
+    const targetDir = path.dirname(resolved);
     if (!fs.existsSync(targetDir) || !fs.statSync(targetDir).isDirectory()) return null;
-
-    const targetExt = path.extname(candidate).toLowerCase();
-    const targetStem = path.basename(candidate, targetExt).toLowerCase().replace(/[-_]/g, " ").trim();
-
-    try {
-      const files = fs.readdirSync(targetDir);
-      // First try matching stem with any audio extension (.mp3, .m4a, .wav)
-      for (const file of files) {
-        const fileExt = path.extname(file).toLowerCase();
-        const fileStem = path.basename(file, fileExt).toLowerCase().replace(/[-_]/g, " ").trim();
-        if (fileStem === targetStem && [".mp3", ".m4a", ".aac", ".wav"].includes(fileExt)) {
-          const fullPath = path.join(targetDir, file);
-          const realPath = fs.realpathSync(fullPath);
-          const realRoot = fs.realpathSync(rootDir);
-          if (realPath.startsWith(`${realRoot}${path.sep}`)) return realPath;
-        }
+    const targetExt = path.extname(resolved).toLowerCase();
+    const targetStem = path.basename(resolved, targetExt).toLowerCase().replace(/[-_]/g, " ").trim();
+    for (const file of fs.readdirSync(targetDir)) {
+      const fileExt = path.extname(file).toLowerCase();
+      const fileStem = path.basename(file, fileExt).toLowerCase().replace(/[-_]/g, " ").trim();
+      if (fileStem === targetStem && [".mp3", ".m4a", ".aac", ".wav"].includes(fileExt)) {
+        const matched = safeRealPath(path.join(targetDir, file));
+        if (matched) return matched;
       }
-    } catch {}
-
+    }
     return null;
   };
 
-  const exact = resolveInsideRoot(resolved);
-  if (exact) return exact;
+  for (const rootDir of rootDirs) {
+    const exact = resolveInsideRoot(rootDir, path.resolve(rootDir, relativePath));
+    if (exact) return exact;
 
-  // If candidate had .m4a/.aac, look for .mp3 alternative
-  const ext = path.extname(resolved).toLowerCase();
-  const stem = resolved.slice(0, -ext.length);
-  if (ext === ".m4a" || ext === ".aac") {
-    const mp3Candidate = resolveInsideRoot(`${stem}.mp3`);
-    if (mp3Candidate) return mp3Candidate;
-  } else if (ext === ".mp3") {
-    const m4aCandidate = resolveInsideRoot(`${stem}.m4a`) || resolveInsideRoot(`${stem}.aac`);
-    if (m4aCandidate) return m4aCandidate;
+    const resolved = path.resolve(rootDir, relativePath);
+    const extension = path.extname(resolved).toLowerCase();
+    const stem = resolved.slice(0, -extension.length);
+    if (extension === ".mp3") {
+      const m4a = resolveInsideRoot(rootDir, `${stem}.m4a`);
+      if (m4a) return m4a;
+      const aac = resolveInsideRoot(rootDir, `${stem}.aac`);
+      if (aac) return aac;
+    } else if (extension === ".m4a" || extension === ".aac") {
+      const mp3 = resolveInsideRoot(rootDir, `${stem}.mp3`);
+      if (mp3) return mp3;
+    }
   }
 
   return null;

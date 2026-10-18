@@ -138,8 +138,9 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .send({ sessionId, callerNumber: "+233543546010", isActive: "1", lang: "en" });
 
     const welcomePrompts = [...welcome.text.matchAll(/<Play[^>]*url="([^"]+)"/gi)].map((match) => match[1]);
-    expect(welcomePrompts).toHaveLength(0);
-    expect(welcome.text).toContain("For English, press 1. For Twi, press 2.");
+    expect(welcomePrompts).toHaveLength(1);
+    expect(welcomePrompts[0]).toContain("/audio/welcome_en.mp3");
+    expect(welcome.text).not.toContain("<Say");
     expect(welcome.text).toContain(`/language-selection?sessionId=${sessionId}&amp;lang=en`);
     expect(decodeURIComponent(welcome.headers["x-ai-reply-text"])).toContain("For English press 1");
 
@@ -356,8 +357,9 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .send({ sessionId, callerNumber: "+233543546010", isActive: "1", lang: "en" });
     expect(callRes.status).toBe(200);
     expect(callRes.text).toContain("<Response>");
-    expect(callRes.text.match(/<Play\b/gi) || []).toHaveLength(0);
-    expect(callRes.text).toContain("For English, press 1. For Twi, press 2.");
+    expect(callRes.text.match(/<Play\b/gi) || []).toHaveLength(1);
+    expect(callRes.text).toContain("/audio/welcome_en.mp3");
+    expect(callRes.text).not.toContain("<Say");
     expect(decodeURIComponent(callRes.headers["x-ai-reply-text"])).toContain("For English press 1");
 
     const languagePrompt = await request(app)
@@ -755,8 +757,8 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .post("/voice-menu")
       .send({ sessionId, callerNumber: "+233543546010", isActive: "1" });
     expect(welcomeRes.status).toBe(200);
-    expect(welcomeRes.text.match(/<Play\b/gi) || []).toHaveLength(0);
-    expect(welcomeRes.text).toContain("Twi audio is unavailable. Press 1 for English");
+    expect(welcomeRes.text.match(/<Play\b/gi) || []).toHaveLength(1);
+    expect(welcomeRes.text).toContain("/audio/Twi/Opening_voice_welcome_to_okwankyerefopa.mp3");
     expect(welcomeRes.text).not.toContain("Sɛ wopɛ Borɔfo");
 
     // User selects English (1)

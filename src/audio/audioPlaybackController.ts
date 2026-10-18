@@ -166,24 +166,7 @@ export class AudioPlaybackController {
           silentSource.start(0);
         } catch {}
       }
-      if (!this.audioElement) {
-        this.initAudioElement();
-      }
-      if (this.audioElement) {
-        // Unlock HTML5 media element within the synchronous click gesture
-        this.audioElement.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
-        const playPromise = this.audioElement.play();
-        if (playPromise !== undefined) {
-          playPromise
-            .then(() => {
-              if (this.audioElement && !this.state.isPlaying) {
-                this.audioElement.pause();
-                this.audioElement.currentTime = 0;
-              }
-            })
-            .catch(() => {});
-        }
-      }
+      this.initAudioElement();
     } catch {}
   }
 

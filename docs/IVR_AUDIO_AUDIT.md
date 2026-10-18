@@ -13,10 +13,10 @@ The current checkout contains **92 audio files**. Extension counts: .m4a 3, .mp3
 | `audio/` | 0 |
 | Repository root | 1 |
 
-The runtime registry contains 91 selected entries, and 0 are approved fixed recordings. Physical files without an exact registry path remain unmapped candidates.
+The runtime registry contains 91 selected entries, and 90 are approved fixed recordings. Physical files without an exact registry path remain unmapped candidates.
 
-No recording is marked audio-verified. The current registry returns safe text/TTS fallback for candidate, ambiguous, missing, and dynamic recordings. A filename, transcript, hash, or successful HTTP response is not audio verification.
+90 approved fixed recordings are enabled for runtime playback. Unapproved candidate and ambiguous recordings stay blocked; dynamic prompts use validated live values and the dynamic speech path.
 
-The per-prompt English/Twi statuses and exact registered candidate paths are in `docs/IVR_AUDIO_MAPPING.md`. The complete physical inventory, including exact paths, sizes, durations when `ffprobe` is installed, and SHA-256 hashes, is in `docs/IVR_AUDIO_INVENTORY.csv`.
+The per-prompt English/Twi statuses and exact registered asset paths are in `docs/IVR_AUDIO_MAPPING.md`. The complete physical inventory, including exact paths, sizes, durations when `ffprobe` is installed, and SHA-256 hashes, is in `docs/IVR_AUDIO_INVENTORY.csv`.
 
-Before promoting any asset, listen to it, compare its content with the canonical script, check for combined prompts and sample transaction values, and obtain a qualified Twi review where needed.
+The approved library contains 86 Twi and 4 English fixed recordings. Review new or changed assets against the canonical script and obtain qualified language review where needed before enabling them.

@@ -32,6 +32,24 @@ describe("Telephony MP3 Transcoding & Playback", () => {
     expect(res.body[0] === 0xff || res.body.toString("ascii", 0, 3) === "ID3").toBe(true);
   });
 
+  it("streams the approved Twi recordings from the canonical playback URL", async () => {
+    const res = await request(app)
+      .get("/audio/Twi/Recipient_verify.mp3")
+      .expect(200);
+
+    expect(res.headers["content-type"]).toBe("audio/mpeg");
+    expect(Number(res.headers["content-length"])).toBeGreaterThan(1000);
+  });
+
+  it("streams approved English M4A recordings without relabeling them as MP3", async () => {
+    const res = await request(app)
+      .get("/audio/English_Library/2.m4a")
+      .expect(200);
+
+    expect(res.headers["content-type"]).toBe("audio/mp4");
+    expect(Number(res.headers["content-length"])).toBeGreaterThan(1000);
+  });
+
   it("returns valid byte-range headers and payload for transcoded MP3", async () => {
     const res = await request(app)
       .get("/audio/English_Library/2.mp3")
@@ -45,12 +63,12 @@ describe("Telephony MP3 Transcoding & Playback", () => {
     expect(res.body).toHaveLength(100);
   });
 
-  it("does not resolve legacy Twi files as runtime audio", () => {
-    expect(resolveSafeAudioPath("Twi/Recipient_verify.mp3")).toBeNull();
-    expect(resolveSafeAudioPath("Twi_library/Recipient_verify.mp3")).toBeNull();
+  it("resolves canonical Twi URLs to the approved Twi library files", () => {
+    expect(resolveSafeAudioPath("Twi/Recipient_verify.mp3")).toMatch(/Audio_files\/Twi_library\/Recipient_verify\.mp3$/);
+    expect(resolveSafeAudioPath("Twi_library/Recipient_verify.mp3")).toMatch(/Audio_files\/Twi_library\/Recipient_verify\.mp3$/);
   });
 
-  it("uses a clear recovery when the requested Twi welcome recording is unavailable", async () => {
+  it("plays the approved Twi welcome recording in the inbound IVR flow", async () => {
     const res = await request(app)
       .post("/voice-menu")
       .send({
@@ -65,9 +83,10 @@ describe("Telephony MP3 Transcoding & Playback", () => {
     expect(xml).toContain("<GetDigits");
     expect(xml).toContain("callbackUrl=");
     expect(xml).toContain("sessionId=at_test_session_123");
-    expect(xml).toContain("Twi audio is unavailable");
-    expect(xml).not.toContain("<Play");
-    expect(xml).not.toContain("Twi_library");
+    expect(xml).toContain("<Play");
+    expect(xml).toContain("/audio/Twi/Opening_voice_welcome_to_okwankyerefopa.mp3");
+    expect(xml).not.toContain("Twi audio is unavailable");
+    expect(xml).not.toContain("<Say");
     expect(xml).not.toContain(".m4a");
   });
 });

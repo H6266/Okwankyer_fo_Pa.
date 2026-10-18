@@ -57,18 +57,12 @@ describe("Canonical Prompt Registry (OP01–OP94)", () => {
     expect(getCanonicalPromptByState("AMOUNT_READBACK")?.id).toBe("OP29");
   });
 
-  it("prefers a reviewed recording over earlier unreviewed candidates", () => {
+  it("selects the approved Twi library recording for prompts that have one", () => {
     const candidates = AUDIO_RECORDINGS.filter((recording) => recording.promptId === "OP01" && recording.language === "twi");
     const approved = candidates.find((recording) => recording.id.startsWith("supplied:Twi_library/"));
     expect(approved).toBeDefined();
-    const previousApproval = approved!.audioVerified;
-
-    try {
-      approved!.audioVerified = true;
-      expect(getRecordingByPromptId("OP01", "twi")).toBe(approved);
-    } finally {
-      approved!.audioVerified = previousApproval;
-    }
+    expect(approved?.audioVerified).toBe(true);
+    expect(getRecordingByPromptId("OP01", "twi")).toBe(approved);
   });
 
   describe("Dynamic Template Rendering (Zero Placeholder Guarantee)", () => {

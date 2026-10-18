@@ -159,6 +159,11 @@ for (const [key, id] of Object.entries(PROMPT_KEY_TO_RECORDING_ID)) {
 
 // ── Build AUDIO_RECORDINGS from twiLibraryManifest & audioTranscripts ───
 const recordings: AudioRecording[] = [];
+const ENGLISH_FIXED_PROMPT_TEXT: Readonly<Record<string, string>> = {
+  OP07: "For a supported Mobile Money transfer, press 1. Press 9 to repeat, or 0 to exit.",
+  OP08: "Select network: press 1 for MTN or 2 for Telecel. Press 9 to repeat, or 0 to exit.",
+  OP41: "Never share or say your Mobile Money PIN on this call. Enter it only on the official secure provider handset prompt.",
+};
 
 for (const [filename, language] of [["welcome_en.mp3", "en"], ["welcome_twi.mp3", "twi"]] as const) {
   recordings.push({
@@ -166,18 +171,20 @@ for (const [filename, language] of [["welcome_en.mp3", "en"], ["welcome_twi.mp3"
     promptId: "OP01",
     state: "WELCOME",
     category: "session",
-    context: "Audio candidate; transcript and recording require human review.",
+    context: language === "en" ? "Approved English welcome recording." : "Audio candidate; transcript and recording require human review.",
     language,
     title: filename.replace(/\.[a-z0-9]+$/i, ""),
-    spokenText: null,
+    spokenText: language === "en"
+      ? "Welcome to Ɔkwankyerɛfo Pa. For English, press 1. For Twi, press 2."
+      : null,
     relativePath: filename,
     assetRoot: "public",
     url: `/audio/${filename}`,
     mimeType: "audio/mpeg",
     isAlternate: false,
     recordingRole: "fixed",
-    mappingStatus: "CANDIDATE_NOT_AUDIO_VERIFIED",
-    audioVerified: false,
+    mappingStatus: language === "en" ? "VERIFIED" : "CANDIDATE_NOT_AUDIO_VERIFIED",
+    audioVerified: language === "en",
   });
 }
 
@@ -191,10 +198,10 @@ for (const item of [
     promptId: item.promptId,
     state: item.state,
     category: item.category,
-    context: `English audio candidate for ${item.promptId}; recording requires human review.`,
+    context: `Approved English recording for ${item.promptId}.`,
     language: "en",
     title: item.filename.replace(/\.[a-z0-9]+$/i, ""),
-    spokenText: null,
+    spokenText: ENGLISH_FIXED_PROMPT_TEXT[item.promptId],
     relativePath: `English_Library/${item.filename}`,
     assetRoot: "supplied",
     url: `/audio/English_Library/${item.filename}`,

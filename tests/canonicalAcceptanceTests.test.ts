@@ -31,32 +31,31 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
   // AT-01: New session begins -> OP01 welcome-only prompt is requested first
   it("AT-01: New session begins with OP01 welcome-only prompt", () => {
     const enWelcome = resolvePrompt("welcome", "en");
-    expect(enWelcome).toBe("/api/audio/prompt-tts/en/OP01");
+    expect(enWelcome).toBe("/audio/welcome_en.mp3");
 
     const twiWelcome = resolvePrompt("welcome", "twi");
-    expect(twiWelcome).toBe("/api/audio/prompt-tts/twi/OP01");
+    expect(twiWelcome).toBe("/audio/Twi/Opening_voice_welcome_to_okwankyerefopa.mp3");
   });
 
   // AT-02: OP01 playback completes -> OP02 language options play separately; no combined welcome repeats
   it("AT-02: OP01 and OP02 play as distinct, decoupled prompts without duplicate combined playback", () => {
     expect(getRecordingByPromptId("OP01", "twi")).not.toBeNull();
     expect(getRecordingByPromptId("OP02", "twi")).not.toBeNull();
-    expect(resolvePrompt("OP01", "twi")).toBe("/api/audio/prompt-tts/twi/OP01");
-    expect(resolvePrompt("OP02", "twi")).toBe("/api/audio/prompt-tts/twi/OP02");
+    expect(resolvePrompt("OP01", "twi")).toBe("/audio/Twi/Opening_voice_welcome_to_okwankyerefopa.mp3");
+    expect(resolvePrompt("OP02", "twi")).toBe("/audio/Twi/Language_selection.mp3");
   });
 
   // AT-03: English session -> Resolver returns only an eligible English asset or an explicit safe missing result
   it("AT-03: English session returns only eligible English assets or safe null/TTS fallback", () => {
-    expect(getRecordingByPromptId("OP01", "en")?.audioVerified).toBe(false);
+    expect(getRecordingByPromptId("OP01", "en")?.audioVerified).toBe(true);
 
-    // English OP07 has no native English studio take in Audio_files, so getRecordingByPromptId returns null (not Twi)
+    // English OP07 resolves to its approved English recording, never a Twi clip.
     const enOp07Recording = getRecordingByPromptId("OP07", "en");
-    expect(enOp07Recording?.audioVerified).toBe(false);
+    expect(enOp07Recording?.audioVerified).toBe(true);
 
-    // The high-level resolver provides a typed safe dynamic TTS fallback URL, NEVER cross-playing Twi audio
+    // Approved recordings are selected in English without cross-playing Twi audio.
     const enOp07Prompt = resolvePrompt("OP07", "en");
-    expect(enOp07Prompt).not.toContain("Twi");
-    expect(enOp07Prompt).toContain("/api/audio/prompt-tts/en/OP07");
+    expect(enOp07Prompt).toBe("/audio/English_Library/2.m4a");
   });
 
   // AT-04: Twi session -> Resolver returns only an eligible Twi asset or explicit safe missing result
@@ -65,7 +64,7 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
     expect(twiOp07).not.toBeNull();
 
     const twiPrompt = resolvePrompt("OP07", "twi");
-    expect(twiPrompt).toBe("/api/audio/prompt-tts/twi/OP07");
+    expect(twiPrompt).toBe("/audio/Twi/Service_selection.mp3");
   });
 
   // AT-05: Numeric-looking filename conflicts with content mapping -> Canonical prompt ID and reviewed mapping win
@@ -74,7 +73,7 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
     expect(op07?.category).toBe("navigation");
     expect(op07?.relativePath).toContain("Service_selection");
     expect(op07?.mappingStatus).toBe("VERIFIED");
-    expect(op07?.audioVerified).toBe(false);
+    expect(op07?.audioVerified).toBe(true);
     expect(getRecordingByPromptId("OP07", "twi")).not.toBeNull();
 
     const op08 = AUDIO_RECORDINGS.find((recording) => recording.promptId === "OP08" && recording.language === "twi");

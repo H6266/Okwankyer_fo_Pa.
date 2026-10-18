@@ -39,11 +39,11 @@ describe("Guided IVR Audio Preview", () => {
     expect(getNextFlowStep("step_20_waiting_confirmation")).toBeUndefined();
   });
 
-  it("verifies physical audio assets exist on disk for all steps with audioUrl", () => {
+  it("verifies mapped Twi recordings resolve to audio files for the simulator and IVR", () => {
     for (const step of TWI_SEQUENTIAL_FLOW_STEPS) {
       if (step.audioUrl.startsWith("/audio/Twi/")) {
         const decoded = decodeURIComponent(step.audioUrl.replace("/audio/", ""));
-        expect(audioFileExists(decoded, "supplied"), `Canonical file must exist: ${decoded}`).toBe(false);
+        expect(audioFileExists(decoded, "supplied"), `Audio file must resolve: ${decoded}`).toBe(true);
       }
     }
   });
