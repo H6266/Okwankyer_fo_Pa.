@@ -25,6 +25,16 @@ import {
 } from "../../audio/twiSequentialAudioFlow";
 import { TWI_AUDIO_LIBRARY_ITEMS, TwiLibraryItem } from "../../audio/twiLibraryManifest";
 import { matchReplyToAudio, AudioMatchResult } from "../../audio/replyAudioMatcher";
+import { getRecordingByUrl } from "../../audio/recordingRegistry";
+
+function isApprovedRecording(url: string | null | undefined): boolean {
+  if (!url) return false;
+  return getRecordingByUrl(url, "twi")?.audioVerified === true;
+}
+
+const HAS_APPROVED_TWI_AUDIO =
+  TWI_SEQUENTIAL_FLOW_STEPS.some((step) => isApprovedRecording(step.audioUrl))
+  || TWI_AUDIO_LIBRARY_ITEMS.some((item) => isApprovedRecording(item.audioUrl));
 
 const TWI_CATEGORIES = [
   { id: "session", title: "1. Session & Welcome", description: "Inbound greetings, welcome introductions, language selection, and service accessibility." },
@@ -83,32 +93,17 @@ export const AudioLibraryPage: React.FC = () => {
   const handleAudioEnded = useCallback(() => {
     // 1. Advance sequential flow auto-play
     if (autoPlayFlowActiveRef.current) {
-      const nextIdx = autoPlayFlowIndexRef.current + 1;
+      let nextIdx = autoPlayFlowIndexRef.current + 1;
+      while (nextIdx < TWI_SEQUENTIAL_FLOW_STEPS.length && !TWI_SEQUENTIAL_FLOW_STEPS[nextIdx].audioUrl) {
+        setCurrentFlowStepIndex(nextIdx);
+        autoPlayFlowIndexRef.current = nextIdx;
+        nextIdx += 1;
+      }
       if (nextIdx < TWI_SEQUENTIAL_FLOW_STEPS.length) {
         setCurrentFlowStepIndex(nextIdx);
         autoPlayFlowIndexRef.current = nextIdx;
         const nextStep = TWI_SEQUENTIAL_FLOW_STEPS[nextIdx];
-        if (nextStep.audioUrl) {
-          playAudio(nextStep.audioUrl, nextStep.name);
-        } else {
-          // Dynamic readback delay then continue
-          setTimeout(() => {
-            if (autoPlayFlowActiveRef.current) {
-              const afterDynamicIdx = nextIdx + 1;
-              if (afterDynamicIdx < TWI_SEQUENTIAL_FLOW_STEPS.length) {
-                setCurrentFlowStepIndex(afterDynamicIdx);
-                autoPlayFlowIndexRef.current = afterDynamicIdx;
-                const afterStep = TWI_SEQUENTIAL_FLOW_STEPS[afterDynamicIdx];
-                if (afterStep.audioUrl) {
-                  playAudio(afterStep.audioUrl, afterStep.name);
-                }
-              } else {
-                setAutoPlayFlowActive(false);
-                autoPlayFlowActiveRef.current = false;
-              }
-            }
-          }, 2000);
-        }
+        playAudio(nextStep.audioUrl, nextStep.name);
       } else {
         setAutoPlayFlowActive(false);
         autoPlayFlowActiveRef.current = false;
@@ -181,9 +176,18 @@ export const AudioLibraryPage: React.FC = () => {
     setAutoPlayFlowActive(true);
     autoPlayFlowActiveRef.current = true;
 
-    const step = TWI_SEQUENTIAL_FLOW_STEPS[fromIndex];
-    if (step?.audioUrl) {
+    let playableIndex = fromIndex;
+    while (playableIndex < TWI_SEQUENTIAL_FLOW_STEPS.length && !TWI_SEQUENTIAL_FLOW_STEPS[playableIndex].audioUrl) {
+      playableIndex += 1;
+    }
+    const step = TWI_SEQUENTIAL_FLOW_STEPS[playableIndex];
+    if (step) {
+      setCurrentFlowStepIndex(playableIndex);
+      autoPlayFlowIndexRef.current = playableIndex;
       playAudio(step.audioUrl, step.name);
+    } else {
+      setAutoPlayFlowActive(false);
+      autoPlayFlowActiveRef.current = false;
     }
   };
 
@@ -399,7 +403,7 @@ export const AudioLibraryPage: React.FC = () => {
                 )}
               </div>
               <p className="text-xs text-emerald-100 max-w-2xl">
-                Automatically plays through all 14 sequential Twi studio audio prompts in chronological transaction order without stopping.
+                Shows the expected Twi prompt order. Playback is disabled until a studio recording has been reviewed and approved.
               </p>
             </div>
 
@@ -415,6 +419,8 @@ export const AudioLibraryPage: React.FC = () => {
               ) : (
                 <button
                   onClick={() => startAutoPlayFlow(0)}
+                  disabled={!HAS_APPROVED_TWI_AUDIO}
+                  title="No verified Twi studio recordings are available."
                   className="px-4 py-2 text-xs font-bold bg-[#D4AF37] hover:bg-amber-400 text-[#111A15] rounded-xl flex items-center gap-1.5 transition-colors shadow-sm"
                 >
                   <Play className="w-3.5 h-3.5 fill-current" />
@@ -448,6 +454,7 @@ export const AudioLibraryPage: React.FC = () => {
             {TWI_SEQUENTIAL_FLOW_STEPS.map((step, idx) => {
               const isThisPlaying = isPlaying && currentUrl === step.audioUrl;
               const isCurrentAutoStep = autoPlayFlowActive && currentFlowStepIndex === idx;
+              const isVerified = isApprovedRecording(step.audioUrl);
 
               return (
                 <div
@@ -493,6 +500,8 @@ export const AudioLibraryPage: React.FC = () => {
                       {step.audioUrl ? (
                         <button
                           onClick={() => handleTogglePlay(step.audioUrl, step.name)}
+                          disabled={!isVerified}
+                          title={isVerified ? "Play approved studio recording" : "No verified recording is available"}
                           className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-colors ${
                             isThisPlaying
                               ? "bg-[#A32828] text-white"
@@ -515,6 +524,7 @@ export const AudioLibraryPage: React.FC = () => {
                       {!autoPlayFlowActive && (
                         <button
                           onClick={() => startAutoPlayFlow(idx)}
+                          disabled={!HAS_APPROVED_TWI_AUDIO}
                           className="text-[10px] text-[#0F382A] dark:text-[#D4AF37] hover:underline font-bold"
                           title="Start automatic playback from this step onward"
                         >
@@ -541,15 +551,15 @@ export const AudioLibraryPage: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 2: CONSOLIDATED TWI AUDIO LIBRARY (Audio_files/Twi_library/) */}
+      {/* TAB 2: Twi audio library */}
       {activeTab === "categories" && (
         <div className="space-y-4">
           <div className="p-4 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div>
-              <span className="font-bold">Consolidated Akan Twi Audio Library:</span> 86 authentic studio human recordings in <code className="bg-emerald-100 dark:bg-emerald-900/60 px-1 py-0.5 rounded text-[11px] font-mono">Audio_files/Twi_library/</code> with ground-truth transcripts from <code className="bg-emerald-100 dark:bg-emerald-900/60 px-1 py-0.5 rounded text-[11px] font-mono">transcriped_twi_audio_library.txt</code>.
+              <span className="font-bold">Twi recordings:</span> The approved library under <code className="bg-emerald-100 dark:bg-emerald-900/60 px-1 py-0.5 rounded text-[11px] font-mono">Audio_files/Twi_library/</code> is linked to the canonical <code className="bg-emerald-100 dark:bg-emerald-900/60 px-1 py-0.5 rounded text-[11px] font-mono">/audio/Twi/</code> playback URLs used by the simulator and IVR.
             </div>
             <div className="text-[11px] font-mono font-bold bg-emerald-100 dark:bg-emerald-900/50 px-2.5 py-1 rounded shrink-0">
-              9 Categories • 86 Physical Recordings
+              9 Categories • {TWI_AUDIO_LIBRARY_ITEMS.length} Approved Recordings
             </div>
           </div>
 
@@ -632,6 +642,8 @@ export const AudioLibraryPage: React.FC = () => {
                       ) : (
                         <button
                           onClick={() => startAutoPlayCategory(cat.id, 0)}
+                          disabled={!categoryItems.some((item) => isApprovedRecording(item.audioUrl))}
+                          title="No verified recording is available in this category."
                           className="px-3 py-1.5 text-xs font-bold bg-[#0F382A] hover:bg-[#1A543F] text-white rounded-lg flex items-center gap-1.5 cursor-pointer"
                         >
                           <Play className="w-3 h-3 fill-current" />
@@ -647,6 +659,7 @@ export const AudioLibraryPage: React.FC = () => {
                       {filteredItems.map((item, itemIdx) => {
                         const isThisPlaying = isPlaying && currentUrl === item.audioUrl;
                         const isThisAutoStep = isCatAutoPlaying && autoPlayCategoryPromptIndex === itemIdx;
+                        const isVerified = isApprovedRecording(item.audioUrl);
 
                         return (
                           <div
@@ -688,6 +701,8 @@ export const AudioLibraryPage: React.FC = () => {
 
                               <button
                                 onClick={() => handleTogglePlay(item.audioUrl, item.filename)}
+                                disabled={!isVerified}
+                                title={isVerified ? "Play approved studio recording" : "Unverified candidate; runtime playback is disabled"}
                                 className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
                                   isThisPlaying
                                     ? "bg-[#A32828] text-white"
@@ -706,7 +721,7 @@ export const AudioLibraryPage: React.FC = () => {
                             <div className="mt-2.5 pt-2 border-t border-[#0F382A]/5 flex items-center justify-between text-[10px] font-mono text-[#5E7265]">
                               <span className="truncate max-w-[260px]">{item.audioUrl}</span>
                               <span className="uppercase text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
-                                Studio Audio
+                                {isVerified ? "Verified studio audio" : "Unverified legacy candidate"}
                               </span>
                             </div>
                           </div>

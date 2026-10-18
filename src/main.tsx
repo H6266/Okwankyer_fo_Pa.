@@ -1,3 +1,11 @@
+// Ensure process shim exists in browser environment before any imports execute
+if (typeof window !== 'undefined') {
+  (window as any).process = (window as any).process || { env: {}, cwd: () => '/' };
+  if (typeof (window as any).process.cwd !== 'function') {
+    (window as any).process.cwd = () => '/';
+  }
+}
+
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';

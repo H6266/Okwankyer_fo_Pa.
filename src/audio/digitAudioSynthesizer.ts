@@ -73,17 +73,10 @@ export function buildDigitPronunciations(
     const wordEn = isDigit ? (EN_DIGIT_MAP[ch] || ch) : upper;
     const wordTwi = isDigit ? (TWI_DIGIT_MAP[ch] || ch) : upper;
 
-    // Check for pre-recorded studio clips if available
-    let audioClipUrl: string | undefined;
-    if (ch === "2") audioClipUrl = "/audio/English_Library/2.m4a";
-    else if (ch === "3") audioClipUrl = "/audio/English_Library/3.m4a";
-    else if (ch === "4") audioClipUrl = "/audio/English_Library/4.m4a";
-
     results.push({
       char: ch,
       wordEn,
       wordTwi,
-      audioClipUrl,
       pauseMsAfter: isLast ? 0 : interDigitPause,
     });
   }

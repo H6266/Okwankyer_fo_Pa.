@@ -3,17 +3,28 @@
  * Loads, normalizes, and validates environment variables on application startup.
  */
 
-const initialPort = process.env.PORT;
-const initialNodeEnv = process.env.NODE_ENV;
+const isNode = typeof process !== "undefined" && typeof process.versions?.node !== "undefined" && typeof process.cwd === "function";
+
+const initialPort = isNode && process.env ? process.env.PORT : undefined;
+const initialNodeEnv = isNode && process.env ? process.env.NODE_ENV : undefined;
+
 import dotenv from "dotenv";
-dotenv.config();
+if (isNode) {
+  try {
+    dotenv.config();
+  } catch {
+    // Ignore in non-Node or restricted environments
+  }
+}
 
 // Ensure Cloud Run / container-injected variables take precedence over local .env defaults
-if (initialPort) {
-  process.env.PORT = initialPort;
-}
-if (initialNodeEnv) {
-  process.env.NODE_ENV = initialNodeEnv;
+if (isNode && typeof process !== "undefined" && process.env) {
+  if (initialPort) {
+    process.env.PORT = initialPort;
+  }
+  if (initialNodeEnv) {
+    process.env.NODE_ENV = initialNodeEnv;
+  }
 }
 
 export interface AppConfig {
@@ -71,32 +82,33 @@ export interface AppConfig {
 }
 
 export function loadConfig(): AppConfig {
-  const nodeEnv = (process.env.NODE_ENV || "development") as AppConfig["nodeEnv"];
-  const isDev = nodeEnv === "development" || nodeEnv === "test" || process.env.npm_lifecycle_event === "dev";
+  const env: Record<string, string | undefined> = (typeof process !== "undefined" && process.env) ? process.env : {};
+  const nodeEnv = (env.NODE_ENV || "development") as AppConfig["nodeEnv"];
+  const isDev = nodeEnv === "development" || nodeEnv === "test" || env.npm_lifecycle_event === "dev";
   // Dev server must always run on port 3000 per AI Studio environment constraints
-  const port = isDev ? 3000 : (process.env.PORT ? Number(process.env.PORT) : 3000);
+  const port = isDev ? 3000 : (env.PORT ? Number(env.PORT) : 3000);
   
   let baseUrl = (
-    process.env.BASE_URL ||
-    process.env.APP_URL ||
-    process.env.RENDER_EXTERNAL_URL ||
+    env.BASE_URL ||
+    env.APP_URL ||
+    env.RENDER_EXTERNAL_URL ||
     ""
   ).replace(/\/+$/, "");
 
-  if (!baseUrl && nodeEnv === "production") {
+  if (!baseUrl && nodeEnv === "production" && isNode) {
     console.warn("⚠️ BASE_URL is not set in production. Telephony webhooks may fail to generate absolute URLs.");
   }
   if (!baseUrl) {
     baseUrl = `http://localhost:${port}`;
   }
 
-  const demoMode = process.env.DEMO_MODE === "true" && nodeEnv !== "production";
-  const adminToken = (process.env.ADMIN_TOKEN || "okwankyer_secure_admin_token_default_1234567890_prod").trim();
-  const sessionSecret = (process.env.SESSION_SECRET || "okwankyer_secure_session_secret_default_1234567890_prod").trim();
+  const demoMode = env.DEMO_MODE === "true" && nodeEnv !== "production";
+  const adminToken = (env.ADMIN_TOKEN || "okwankyer_secure_admin_token_default_1234567890_prod").trim();
+  const sessionSecret = (env.SESSION_SECRET || "okwankyer_secure_session_secret_default_1234567890_prod").trim();
 
-  if (nodeEnv === "production") {
-    if (!process.env.GEMINI_MODEL || process.env.GEMINI_MODEL.trim() === "") {
-      process.env.GEMINI_MODEL = "gemini-3.8-flash";
+  if (nodeEnv === "production" && isNode && env) {
+    if (!env.GEMINI_MODEL || env.GEMINI_MODEL.trim() === "") {
+      env.GEMINI_MODEL = "gemini-3.8-flash";
     }
     if (adminToken.length < 32) {
       console.warn("⚠️ Production notice: ADMIN_TOKEN is short. Using secure fallback.");
@@ -106,47 +118,47 @@ export function loadConfig(): AppConfig {
     }
   }
 
-  const corsRaw = (process.env.CORS_ORIGINS || "*").trim();
+  const corsRaw = (env.CORS_ORIGINS || "*").trim();
   const corsOrigins = corsRaw === "*" ? ["*"] : corsRaw.split(",").map((s) => s.trim()).filter(Boolean);
 
-  const atApiKey = (process.env.AT_API_KEY || "").trim();
-  let atUsername = (process.env.AT_USERNAME || "sandbox").trim();
+  const atApiKey = (env.AT_API_KEY || "").trim();
+  let atUsername = (env.AT_USERNAME || "sandbox").trim();
   if (atApiKey.startsWith("atsk_") && atUsername.toLowerCase() !== "sandbox") {
     atUsername = "sandbox";
   }
 
   const collSubKey = (
-    process.env.MOMO_COLLECTION_SUBSCRIPTION_KEY ||
-    process.env.MTN_COLLECTION_SUBSCRIPTION_KEY ||
+    env.MOMO_COLLECTION_SUBSCRIPTION_KEY ||
+    env.MTN_COLLECTION_SUBSCRIPTION_KEY ||
     ""
   ).trim();
 
   const disbSubKey = (
-    process.env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY ||
-    process.env.MTN_DISBURSEMENT_SUBSCRIPTION_KEY ||
+    env.MOMO_DISBURSEMENT_SUBSCRIPTION_KEY ||
+    env.MTN_DISBURSEMENT_SUBSCRIPTION_KEY ||
     ""
   ).trim();
 
   const collUserId = (
-    process.env.MOMO_COLLECTION_API_USER_ID ||
-    process.env.MTN_COLLECTION_API_USER_ID ||
-    process.env.MTN_COLLECTION_X_REFERENCE_ID ||
+    env.MOMO_COLLECTION_API_USER_ID ||
+    env.MTN_COLLECTION_API_USER_ID ||
+    env.MTN_COLLECTION_X_REFERENCE_ID ||
     ""
   ).trim();
   const collApiKey = (
-    process.env.MOMO_COLLECTION_API_KEY ||
-    process.env.MTN_COLLECTION_API_KEY ||
+    env.MOMO_COLLECTION_API_KEY ||
+    env.MTN_COLLECTION_API_KEY ||
     ""
   ).trim();
 
   const disbUserId = (
-    process.env.MOMO_DISBURSEMENT_API_USER_ID ||
-    process.env.MTN_DISBURSEMENT_API_USER_ID ||
+    env.MOMO_DISBURSEMENT_API_USER_ID ||
+    env.MTN_DISBURSEMENT_API_USER_ID ||
     ""
   ).trim();
   const disbApiKey = (
-    process.env.MOMO_DISBURSEMENT_API_KEY ||
-    process.env.MTN_DISBURSEMENT_API_KEY ||
+    env.MOMO_DISBURSEMENT_API_KEY ||
+    env.MTN_DISBURSEMENT_API_KEY ||
     ""
   ).trim();
 
@@ -159,46 +171,46 @@ export function loadConfig(): AppConfig {
     port,
     baseUrl,
     demoMode,
-    enableSimulator: process.env.ENABLE_SIMULATOR !== "false",
+    enableSimulator: env.ENABLE_SIMULATOR !== "false",
     adminToken,
     sessionSecret,
     corsOrigins,
     ghanaNlp: {
-      apiKey: (process.env.GHANANLP_API_KEY || "").trim(),
-      baseUrl: (process.env.GHANANLP_BASE_URL || "https://translation-api.ghananlp.org").trim().replace(/\/+$/, ""),
-      configured: Boolean((process.env.GHANANLP_API_KEY || "").trim()),
-      timeoutMs: Math.max(2000, parseInt(process.env.GHANANLP_ASR_TIMEOUT_MS || "15000", 10)),
-      retries: Math.max(0, Math.min(5, parseInt(process.env.GHANANLP_ASR_RETRIES || "2", 10))),
+      apiKey: (env.GHANANLP_API_KEY || "").trim(),
+      baseUrl: (env.GHANANLP_BASE_URL || "https://translation-api.ghananlp.org").trim().replace(/\/+$/, ""),
+      configured: Boolean((env.GHANANLP_API_KEY || "").trim()),
+      timeoutMs: Math.max(2000, parseInt(env.GHANANLP_ASR_TIMEOUT_MS || "15000", 10)),
+      retries: Math.max(0, Math.min(5, parseInt(env.GHANANLP_ASR_RETRIES || "2", 10))),
     },
     asr: {
-      chunkMs: Math.max(3000, parseInt(process.env.ASR_CHUNK_MS || "12000", 10)),
-      overlapMs: Math.max(200, parseInt(process.env.ASR_OVERLAP_MS || "1000", 10)),
-      minSpeechMs: Math.max(300, parseInt(process.env.ASR_MIN_SPEECH_MS || "1200", 10)),
-      silenceSplitMs: Math.max(200, parseInt(process.env.ASR_SILENCE_SPLIT_MS || "650", 10)),
-      maxConcurrentChunks: Math.max(1, Math.min(5, parseInt(process.env.ASR_MAX_CONCURRENT_CHUNKS || "2", 10))),
-      feedbackEnabled: process.env.ASR_FEEDBACK_ENABLED !== "false",
-      feedbackRetentionDays: Math.max(1, parseInt(process.env.ASR_FEEDBACK_RETENTION_DAYS || "90", 10)),
-      languageIdEnabled: process.env.ASR_LANGUAGE_ID_ENABLED !== "false",
+      chunkMs: Math.max(3000, parseInt(env.ASR_CHUNK_MS || "12000", 10)),
+      overlapMs: Math.max(200, parseInt(env.ASR_OVERLAP_MS || "1000", 10)),
+      minSpeechMs: Math.max(300, parseInt(env.ASR_MIN_SPEECH_MS || "1200", 10)),
+      silenceSplitMs: Math.max(200, parseInt(env.ASR_SILENCE_SPLIT_MS || "650", 10)),
+      maxConcurrentChunks: Math.max(1, Math.min(5, parseInt(env.ASR_MAX_CONCURRENT_CHUNKS || "2", 10))),
+      feedbackEnabled: env.ASR_FEEDBACK_ENABLED !== "false",
+      feedbackRetentionDays: Math.max(1, parseInt(env.ASR_FEEDBACK_RETENTION_DAYS || "90", 10)),
+      languageIdEnabled: env.ASR_LANGUAGE_ID_ENABLED !== "false",
     },
     at: {
       username: atUsername,
       apiKey: atApiKey,
-      voiceNumber: (process.env.AT_VOICE_NUMBER || "").trim(),
+      voiceNumber: (env.AT_VOICE_NUMBER || "").trim(),
       configured: Boolean(atApiKey && atUsername),
     },
     gemini: {
-      apiKey: process.env.GEMINI_API_KEY || "",
-      configured: Boolean(process.env.GEMINI_API_KEY),
+      apiKey: env.GEMINI_API_KEY || "",
+      configured: Boolean(env.GEMINI_API_KEY),
     },
     hciLab: {
-      apiKey: (process.env.UG_HCI_LAB_API_KEY || "").trim(),
-      baseUrl: (process.env.UG_HCI_LAB_URL || "https://lab-subscription-platform.vercel.app").trim().replace(/\/+$/, ""),
-      configured: Boolean((process.env.UG_HCI_LAB_API_KEY || "").trim()),
+      apiKey: (env.UG_HCI_LAB_API_KEY || "").trim(),
+      baseUrl: (env.UG_HCI_LAB_URL || "https://lab-subscription-platform.vercel.app").trim().replace(/\/+$/, ""),
+      configured: Boolean((env.UG_HCI_LAB_API_KEY || "").trim()),
     },
     momo: {
-      baseUrl: process.env.MOMO_BASE_URL || "https://sandbox.momodeveloper.mtn.com",
-      targetEnv: process.env.MOMO_TARGET_ENV || "sandbox",
-      currency: process.env.MOMO_CURRENCY || "GHS",
+      baseUrl: env.MOMO_BASE_URL || "https://sandbox.momodeveloper.mtn.com",
+      targetEnv: env.MOMO_TARGET_ENV || "sandbox",
+      currency: env.MOMO_CURRENCY || "GHS",
       subscriptionKey: momoSubKey,
       apiUserId: momoUserId,
       apiKey: momoApiKey,

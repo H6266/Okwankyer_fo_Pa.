@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { AUDIO_RECORDINGS, getRecordingByPromptId } from "../src/audio/recordingRegistry";
 import {
   CANONICAL_PROMPTS,
   CANONICAL_PROMPT_LIST,
@@ -25,8 +26,8 @@ describe("Canonical Prompt Registry (OP01–OP94)", () => {
     }
   });
 
-  it("strictly classifies OP20, OP21, OP29, OP52, OP70 as DYNAMIC", () => {
-    const expectedDynamic = ["OP20", "OP21", "OP29", "OP52", "OP70"];
+  it("strictly classifies OP20, OP21, OP29, OP35, OP52, OP70 as DYNAMIC", () => {
+    const expectedDynamic = ["OP20", "OP21", "OP29", "OP35", "OP52", "OP52b", "OP70"];
     for (const id of expectedDynamic) {
       expect(isDynamicPrompt(id)).toBe(true);
       const prompt = getCanonicalPrompt(id);
@@ -56,7 +57,26 @@ describe("Canonical Prompt Registry (OP01–OP94)", () => {
     expect(getCanonicalPromptByState("AMOUNT_READBACK")?.id).toBe("OP29");
   });
 
+  it("selects the approved Twi library recording for prompts that have one", () => {
+    const candidates = AUDIO_RECORDINGS.filter((recording) => recording.promptId === "OP01" && recording.language === "twi");
+    const approved = candidates.find((recording) => recording.id.startsWith("supplied:Twi_library/"));
+    expect(approved).toBeDefined();
+    expect(approved?.audioVerified).toBe(true);
+    expect(getRecordingByPromptId("OP01", "twi")).toBe(approved);
+  });
+
   describe("Dynamic Template Rendering (Zero Placeholder Guarantee)", () => {
+    it("recognizes OP52b as a dynamic reference read-back using the current transaction reference", () => {
+      expect(isDynamicPrompt("OP52b")).toBe(true);
+      expect(isDynamicPrompt("OP52B")).toBe(true);
+      expect(getCanonicalPrompt("OP52b")?.type).toBe("DYNAMIC");
+
+      const text = resolvePromptSpokenText("OP52b", "en", { referenceId: "OKP-654321" });
+      expect(text).toContain("six ... five ... four ... three ... two ... one");
+      expect(text).not.toContain("OKP-272");
+      expect(text).not.toContain("OKP-782914");
+    });
+
     it("renders OP20 (Recipient Name) with real KYC name in English and Twi without [DYNAMIC NAME]", () => {
       const enText = resolvePromptSpokenText("OP20", "en", { name: "Kofi Mensah" });
       expect(enText).toContain("Kofi Mensah");
@@ -94,16 +114,43 @@ describe("Canonical Prompt Registry (OP01–OP94)", () => {
       expect(twiText).not.toContain("{AMOUNT}");
     });
 
+    it("renders OP35 from current transaction fields and limits phone readback to the last four digits", () => {
+      const text = resolvePromptSpokenText("OP35", "en", {
+        amount: 50,
+        recipientName: "Ama Mensah",
+        recipientPhone: "0241234567",
+        network: "MTN",
+      });
+      expect(text).toContain("50");
+      expect(text).toContain("Ama Mensah");
+      expect(text).toContain("MTN");
+      expect(text).toContain("5 6 7");
+      expect(text).not.toContain("0 2 4 1 2 3 4 5 6 7");
+      expect(text).not.toContain("Press 1 to confirm");
+      expect(resolvePromptSpokenText("OP35", "en", { amount: 50 })).toContain("cannot continue");
+    });
+
     it("renders OP52 (Success Reference) with formatted reference ID", () => {
-      const enText = resolvePromptSpokenText("OP52", "en", { ref: "OKP-847291" });
+      const enText = resolvePromptSpokenText("OP52", "en", {
+        ref: "OKP-847291",
+        amount: 50,
+        recipientName: "Ama Mensah",
+      });
       expect(enText).toContain("O K P - 8 4 7 2 9 1");
+      expect(enText).toContain("50");
+      expect(enText).toContain("Ama Mensah");
       expect(enText).not.toContain("[DYNAMIC REFERENCE]");
       expect(enText).not.toContain("{REF}");
 
-      const twiText = resolvePromptSpokenText("OP52", "twi", { ref: "OKP-123456" });
+      const twiText = resolvePromptSpokenText("OP52", "twi", {
+        ref: "OKP-123456",
+        amount: 120,
+        recipientName: "Ama Mensah",
+      });
       expect(twiText).toContain("O K P - 1 2 3 4 5 6");
       expect(twiText).not.toContain("[DYNAMIC REFERENCE]");
       expect(twiText).not.toContain("{REF}");
+      expect(resolvePromptSpokenText("OP52", "en", { ref: "OKP-123456" })).toContain("cannot continue");
     });
 
     it("renders OP70 (Acoustic Confirmation) with caller utterance", () => {

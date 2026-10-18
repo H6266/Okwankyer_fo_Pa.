@@ -1,5 +1,5 @@
-import audioTranscripts from "../../audio_transcripts.json";
 import { TWI_AUDIO_LIBRARY_ITEMS, TwiLibraryItem } from "./twiLibraryManifest";
+import { DYNAMIC_PROMPT_IDS } from "./dynamicPromptBuilder";
 
 export type RecordingLanguage = "en" | "twi" | "unresolved";
 export type AudioAssetRoot = "supplied" | "public" | "additional";
@@ -32,15 +32,16 @@ export interface AudioRecording {
   title: string;
   spokenText: string | null;
   relativePath: string;
+  legacyRelativePath?: string;
   assetRoot: AudioAssetRoot;
   url: string | null;
   mimeType: string;
   isAlternate: boolean;
   recordingRole: RecordingRole;
   mappingStatus: string;
+  audioVerified: boolean;
 }
 
-const transcriptLookup = audioTranscripts as Record<string, { verbatim?: string; language?: string; step?: string; options?: unknown }>;
 
 // ── Canonical Prompt Definitions (OP01-OP94 & OP52b) ─────────────────────────
 export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
@@ -54,6 +55,8 @@ export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
   acknowledge: "OP05",
   processing: "OP06",
   service_selection: "OP07",
+  supported_service_select: "OP07",
+  service_select: "OP07",
   network_selection: "OP08",
   provider_select: "OP08",
   provider_choice: "OP08",
@@ -70,6 +73,7 @@ export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
   recipient_found: "OP18",
   recipient_verify: "OP19",
   recipient_name: "OP20",
+  recipient_last4: "OP21",
   recipient_full_number: "OP21",
   recipient_last4: "OP21",
   recipient_confirm_speech: "OP23",
@@ -84,7 +88,7 @@ export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
   amount_too_high: "OP31",
   amount_too_low: "OP32",
   change_amount: "OP33",
-  review_transaction: "OP35",
+  review_transaction: "OP34",
   confirm_continue: "OP36",
   confirm_speech: "OP37",
   reject_speech: "OP38",
@@ -98,7 +102,7 @@ export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
   submitted: "OP45",
   waiting_confirmation: "OP46",
   check_phone: "OP47",
-  check_messages: "OP47",
+  check_messages: "OP62",
   auth_received: "OP49",
   check_final_status: "OP50",
   check_final_tatus: "OP50",
@@ -194,10 +198,66 @@ for (const [key, id] of Object.entries(PROMPT_KEY_TO_RECORDING_ID)) {
 
 // ── Build AUDIO_RECORDINGS from reviewed manifests and current asset roots ───
 const recordings: AudioRecording[] = [];
+const ENGLISH_FIXED_PROMPT_TEXT: Readonly<Record<string, string>> = {
+  OP07: "For a supported Mobile Money transfer, press 1. Press 9 to repeat, or 0 to exit.",
+  OP08: "Select network: press 1 for MTN or 2 for Telecel. Press 9 to repeat, or 0 to exit.",
+  OP41: "Never share or say your Mobile Money PIN on this call. Enter it only on the official secure provider handset prompt.",
+};
+
+for (const [filename, language] of [["welcome_en.mp3", "en"], ["welcome_twi.mp3", "twi"]] as const) {
+  recordings.push({
+    id: `public:${filename}`,
+    promptId: "OP01",
+    state: "WELCOME",
+    category: "session",
+    context: language === "en" ? "Approved English welcome recording." : "Audio candidate; transcript and recording require human review.",
+    language,
+    title: filename.replace(/\.[a-z0-9]+$/i, ""),
+    spokenText: language === "en"
+      ? "Welcome to Ɔkwankyerɛfo Pa. For English, press 1. For Twi, press 2."
+      : null,
+    relativePath: filename,
+    assetRoot: "public",
+    url: `/audio/${filename}`,
+    mimeType: "audio/mpeg",
+    isAlternate: false,
+    recordingRole: "fixed",
+    mappingStatus: language === "en" ? "VERIFIED" : "CANDIDATE_NOT_AUDIO_VERIFIED",
+    audioVerified: language === "en",
+  });
+}
+
+for (const item of [
+  { filename: "2.m4a", promptId: "OP07", state: "SERVICE_SELECTION", category: "navigation" },
+  { filename: "3.m4a", promptId: "OP08", state: "NETWORK_SELECTION", category: "navigation" },
+  { filename: "4.m4a", promptId: "OP41", state: "SECURITY_WARNING", category: "auth" },
+]) {
+  recordings.push({
+    id: `supplied:English_Library/${item.filename}`,
+    promptId: item.promptId,
+    state: item.state,
+    category: item.category,
+    context: `Approved English recording for ${item.promptId}.`,
+    language: "en",
+    title: item.filename.replace(/\.[a-z0-9]+$/i, ""),
+    spokenText: ENGLISH_FIXED_PROMPT_TEXT[item.promptId],
+    relativePath: `English_Library/${item.filename}`,
+    assetRoot: "supplied",
+    url: `/audio/English_Library/${item.filename}`,
+    mimeType: "audio/mp4",
+    isAlternate: false,
+    recordingRole: "fixed",
+    mappingStatus: "VERIFIED",
+    audioVerified: true,
+  });
+}
 
 // 1. Twi Library Items
 for (const item of TWI_AUDIO_LIBRARY_ITEMS) {
-  const promptId = PROMPT_KEY_TO_RECORDING_ID[item.key] || null;
+  const mappedPromptId = PROMPT_KEY_TO_RECORDING_ID[item.key] || null;
+  const isDynamicRecording = mappedPromptId !== null && DYNAMIC_PROMPT_IDS.has(mappedPromptId.toUpperCase());
+  const promptId = isDynamicRecording ? null : mappedPromptId;
+  const audioVerified = !isDynamicRecording && item.audioVerified !== false;
   const mimeType = item.filename.endsWith(".mp3") ? "audio/mpeg" : "audio/mp4";
   recordings.push({
     id: `supplied:Twi_library/${item.filename}`,
@@ -208,7 +268,8 @@ for (const item of TWI_AUDIO_LIBRARY_ITEMS) {
     language: "twi",
     title: item.filename.replace(/\.[a-z0-9]+$/i, ""),
     spokenText: item.transcript,
-    relativePath: `Twi_library/${item.filename}`,
+    relativePath: `Twi/${item.filename}`,
+    legacyRelativePath: `Twi_library/${item.filename}`,
     assetRoot: "supplied",
     url: item.audioUrl,
     mimeType,
@@ -355,6 +416,7 @@ export function getRecordingByPromptKey(
   const promptId = PROMPT_KEY_TO_RECORDING_ID[normalizedKey]
     || (/^OP\d{2}b?$/i.test(key.trim()) ? key.trim().toUpperCase() : undefined);
   if (promptId) {
+    if (DYNAMIC_PROMPT_IDS.has(promptId.toUpperCase())) return null;
     const rec = getRecordingByPromptId(promptId, language);
     if (rec) return rec;
   }
@@ -383,8 +445,8 @@ export function getRecordingByPath(relativePath: string): AudioRecording | null 
 
 export function getRecordingByUrl(url: string, preferredLang?: "en" | "twi"): AudioRecording | null {
   if (!url) return null;
-  const cleanUrl = url.split("?")[0].trim().toLowerCase();
-  const baseName = cleanUrl.split("/").pop() || "";
+  const cleanUrl = url.split("?")[0].trim();
+  const decodedUrl = decodeURIComponent(cleanUrl);
 
   const exact = AUDIO_RECORDINGS.filter((r) => {
     if (!r.url || !recordingFileExists(r)) return false;
@@ -395,7 +457,7 @@ export function getRecordingByUrl(url: string, preferredLang?: "en" | "twi"): Au
   if (exact.length > 0) {
     if (preferredLang) {
       const match = exact.find((r) => r.language === preferredLang);
-      if (match) return match;
+      return match || null;
     }
     return exact[0];
   }
@@ -403,19 +465,83 @@ export function getRecordingByUrl(url: string, preferredLang?: "en" | "twi"): Au
 }
 
 export function getRecordingFilePath(relativePath: string): string | null {
-  const norm = relativePath.replace(/^audio\//i, "");
-  if (norm.startsWith("Twi_library/")) {
-    return `Audio_files/${norm}`;
+  const norm = relativePath.replace(/^audio\//i, "").replace(/\\/g, "/");
+  if (/^(?:audio\/)?Twi\//i.test(norm)) {
+    const filename = norm.replace(/^(?:audio\/)?Twi\//i, "");
+    return `Audio_files/Twi_library/${filename}`;
   }
-  if (norm.startsWith("supplied/")) {
-    return `Audio_files/${norm.replace(/^supplied\//i, "")}`;
-  }
-  return `public/audio/${norm}`;
+  if (/^Twi_library\//i.test(norm)) return `Audio_files/${norm}`;
+  if (/^English_Library\//i.test(norm)) return `Audio_files/${norm}`;
+  if (/^additional\//i.test(norm)) return `Audio_files/${norm}`;
+  if (/^[^/]+\.(?:mp3|m4a|aac|wav|ogg)$/i.test(norm)) return `public/audio/${norm}`;
+  return null;
+}
+
+export function getVerifiedRecordingBySpokenText(
+  text: string,
+  language: "en" | "twi"
+): AudioRecording | null {
+  const normalize = (value: string) => value.trim().toLocaleLowerCase().replace(/\s+/g, " ");
+  const normalizedText = normalize(text);
+  if (!normalizedText) return null;
+  return AUDIO_RECORDINGS.find((recording) =>
+    recording.audioVerified
+      && recording.recordingRole === "fixed"
+      && recording.language === language
+      && Boolean(recording.url)
+      && Boolean(recording.spokenText)
+      && normalize(recording.spokenText!) === normalizedText
+  ) || null;
 }
 
 export function getAudioAssetInventory(): AudioRecording[] {
   return [...AUDIO_RECORDINGS];
 }
+
+const DYNAMIC_PROMPT_COPY: Readonly<Record<string, Omit<PromptManifestEntry, "id" | "audio" | "type" | "mappingStatus">>> = {
+  OP20: {
+    category: "recipient",
+    state: "RECIPIENT_NAME",
+    english: "The recipient's name is {recipient_name}.",
+    twi: "Recipient no din ne {recipient_name}.",
+  },
+  OP21: {
+    category: "recipient",
+    state: "RECIPIENT_FULL_NUMBER",
+    english: "The full recipient phone number is {recipient_phone_spaced}.",
+    twi: "Ne phone nɔmba a ɛdi mũ no ne {recipient_phone_spaced}.",
+  },
+  OP29: {
+    category: "amount",
+    state: "AMOUNT_READBACK",
+    english: "I heard {amount}. Is that amount correct?",
+    twi: "Mate sɛ ɛyɛ {amount}. Saa sika dodow yi yɛ nokware anaa?",
+  },
+  OP35: {
+    category: "confirmation",
+    state: "REVIEW_TRANSACTION",
+    english: "You are about to send {amount} to {recipient_name} on {network}. The recipient phone number ends in {last_four}.",
+    twi: "Wopɛ sɛ womane {amount} kɔma {recipient_name} wɔ {network} so. Recipient phone nɔmba no awiei ne {last_four}.",
+  },
+  OP52: {
+    category: "outcome",
+    state: "SUCCESS",
+    english: "Your transfer of {amount} to {recipient_name} is complete. Your application reference is {reference_id}.",
+    twi: "Wo transfer a ɛyɛ {amount} kɔma {recipient_name} no awie. Application reference no ne {reference_id}.",
+  },
+  OP52B: {
+    category: "outcome",
+    state: "REFERENCE_READBACK",
+    english: "Your complete transaction reference is {slow_reference}.",
+    twi: "Wo transaction reference nɔmba a ɛdi mũ no ne {slow_reference}.",
+  },
+  OP70: {
+    category: "recovery",
+    state: "CONFIRM_UNDERSTANDING",
+    english: "I heard you say {response}. Is that correct?",
+    twi: "Mate sɛ wokae {response}. Ɛyɛ nokware anaa?",
+  },
+};
 
 export function getPromptManifestEntry(promptId: string): PromptManifestEntry | null {
   const normalizedId = promptId.trim().toUpperCase();
@@ -450,6 +576,9 @@ export function getPromptManifestEntry(promptId: string): PromptManifestEntry | 
       twi: rec?.url || null,
     },
     mappingStatus: "VERIFIED",
+    usePolicy: rec?.audioVerified || enRec?.audioVerified
+      ? "Approved audio may play for this prompt."
+      : "Candidate audio is not approved for live playback; use the canonical text fallback.",
   };
 }
 

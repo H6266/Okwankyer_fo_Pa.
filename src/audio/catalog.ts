@@ -63,9 +63,8 @@ export function getAudioFilePath(filename: string, assetRoot?: AudioAssetRoot): 
     }
   }
 
-  // Fallback to resolveSafeAudioPath for restructured files in Audio_files/Twi_library
+  // Resolve extension and case differences through the same guarded audio path used by streaming.
   try {
-    const { resolveSafeAudioPath } = require("./streaming");
     const safe = resolveSafeAudioPath(filename);
     if (safe && fs.existsSync(safe) && !fs.statSync(safe).isDirectory()) {
       return safe;

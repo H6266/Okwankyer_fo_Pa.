@@ -10,17 +10,15 @@
 
 import { TTSProvider, TtsSynthesisRequest, TtsSynthesisResponse } from "./ttsProvider";
 import { localGhanaianTtsProvider } from "./localGhanaianTts";
-import { pronunciationEngine } from "../pronunciation/pronunciationEngine";
+import { normalizeTtsLanguage } from "./ttsProvider";
 
 export class GhanaianTtsProvider implements TTSProvider {
   public async synthesize(request: TtsSynthesisRequest): Promise<TtsSynthesisResponse> {
-    // Enrich with Ghanaian pronunciation hints
-    const { enrichedText } = pronunciationEngine.prepareTextForTts(request.text);
-
-    // Delegate to local Ghanaian TTS provider
+    const language = normalizeTtsLanguage(String(request.language || ""));
+    if (!language) throw new Error("GHANAIAN_TTS_LANGUAGE_UNSUPPORTED: select English or Twi.");
     const response = await localGhanaianTtsProvider.synthesize({
       ...request,
-      text: enrichedText,
+      language: language === "twi" ? "tw" : "en",
     });
 
     return {

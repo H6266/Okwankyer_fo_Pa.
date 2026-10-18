@@ -11,6 +11,7 @@
 
 import fs from "fs";
 import { TTSProvider, TtsSynthesisRequest, TtsSynthesisResponse } from "./ttsProvider";
+import { isAudioContainerValid, normalizeTtsLanguage } from "./ttsProvider";
 import { localGhanaianTtsProvider } from "./localGhanaianTts";
 
 export class StudioCatalogProvider implements TTSProvider {
@@ -25,14 +26,19 @@ export class StudioCatalogProvider implements TTSProvider {
    * Retrieves the authentic audio file for a catalog prompt.
    */
   public async synthesize(request: TtsSynthesisRequest): Promise<TtsSynthesisResponse> {
+    const language = normalizeTtsLanguage(String(request.language || ""));
+    if (!language) throw new Error("TTS_LANGUAGE_UNSUPPORTED: select English or Twi.");
     const filePath = localGhanaianTtsProvider.findPromptMatch(request.text, request.language);
 
     if (!filePath || !fs.existsSync(filePath)) {
-      throw new Error(`STUDIO_CATALOG_MISS: No pre-recorded studio audio for: "${request.text}"`);
+      throw new Error("STUDIO_CATALOG_MISS: No verified pre-recorded studio audio is available.");
     }
 
     const buffer = fs.readFileSync(filePath);
     const mimeType = filePath.endsWith(".m4a") ? "audio/mp4" : filePath.endsWith(".mp3") ? "audio/mpeg" : "audio/wav";
+    if (!isAudioContainerValid(buffer, mimeType)) {
+      throw new Error("STUDIO_CATALOG_INVALID: recording bytes do not match their declared container.");
+    }
 
     return {
       audioBuffer: buffer,
@@ -40,6 +46,8 @@ export class StudioCatalogProvider implements TTSProvider {
       audioMimeType: mimeType,
       durationEstimateSec: filePath.endsWith(".m4a") ? 3.5 : Math.max(1, Math.round(buffer.length / 16000)),
       providerUsed: "authentic-studio-catalog-recording",
+      language,
+      model: "studio-recording",
     };
   }
 }

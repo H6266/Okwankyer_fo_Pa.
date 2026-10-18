@@ -9,55 +9,7 @@ export interface AudioPlayerState {
   currentTime: number;
   duration: number;
   error: string | null;
-  isToneFallback: boolean;
-  playbackStatus: "idle" | "loading" | "playing" | "completed" | "error" | "tone_fallback";
-}
-
-/**
- * Generates a gentle dual-frequency IVR guidance tone using the Web Audio API.
- * Frequency: 440Hz (A4) / 880Hz (A5) with smooth sine envelope.
- * Duration: ~350ms.
- */
-function playGuidanceTone(onComplete?: () => void): void {
-  try {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContextClass) {
-      if (onComplete) setTimeout(onComplete, 350);
-      return;
-    }
-    const ctx = new AudioContextClass();
-    const osc1 = ctx.createOscillator();
-    const osc2 = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    osc1.type = "sine";
-    osc2.type = "sine";
-    osc1.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
-    osc2.frequency.setValueAtTime(659.25, ctx.currentTime); // E5
-
-    gain.gain.setValueAtTime(0.001, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.35, ctx.currentTime + 0.05);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
-
-    osc1.connect(gain);
-    osc2.connect(gain);
-    gain.connect(ctx.destination);
-
-    osc1.start(ctx.currentTime);
-    osc2.start(ctx.currentTime);
-    osc1.stop(ctx.currentTime + 0.35);
-    osc2.stop(ctx.currentTime + 0.35);
-
-    setTimeout(() => {
-      try {
-        ctx.close();
-      } catch {}
-      if (onComplete) onComplete();
-    }, 380);
-  } catch (err) {
-    console.warn("[useAudioPlayer] Web Audio API tone synthesis notice:", err);
-    if (onComplete) setTimeout(onComplete, 350);
-  }
+  playbackStatus: "idle" | "loading" | "playing" | "completed" | "error";
 }
 
 export function useAudioPlayer(onEnded?: () => void) {
@@ -75,7 +27,6 @@ export function useAudioPlayer(onEnded?: () => void) {
     currentTime: 0,
     duration: 0,
     error: null,
-    isToneFallback: false,
     playbackStatus: "idle",
   });
 
@@ -131,19 +82,16 @@ export function useAudioPlayer(onEnded?: () => void) {
     };
 
     const handleError = () => {
-      console.warn("[useAudioPlayer] HTML5 audio load/decode error for:", audio.src);
-      // On error, invoke tone fallback so the session does not freeze
+      console.error("[useAudioPlayer] HTML5 audio playback failed.", {
+        url: audio.src.replace(/[?#].*$/, ""),
+      });
       setState((s) => ({
         ...s,
         isPlaying: false,
         isBuffering: false,
-        error: "Audio playback unavailable; tone indicator emitted.",
-        isToneFallback: true,
-        playbackStatus: "tone_fallback",
+        error: "Audio playback is unavailable.",
+        playbackStatus: "error",
       }));
-      playGuidanceTone(() => {
-        if (onEndedRef.current) onEndedRef.current();
-      });
     };
 
     audio.addEventListener("play", handlePlay);
@@ -170,27 +118,20 @@ export function useAudioPlayer(onEnded?: () => void) {
     const currentPlaybackId = playbackIdRef.current;
 
     if (!audioRef.current || !url) {
-      // Missing audio URL -> Play gentle tone fallback and complete safely
       setState((s) => ({
         ...s,
         isPlaying: false,
         currentUrl: null,
         currentPromptId: promptId || null,
-        resolvedFilename: filename || "Tone Indicator (Missing Recording)",
-        isToneFallback: true,
-        playbackStatus: "tone_fallback",
-        error: null,
+        resolvedFilename: filename || null,
+        playbackStatus: "error",
+        error: "No approved audio URL is available for this prompt.",
       }));
-      playGuidanceTone(() => {
-        if (playbackIdRef.current === currentPlaybackId && onEndedRef.current) {
-          onEndedRef.current();
-        }
-      });
       return;
     }
 
     try {
-      const normalizedUrl =
+      let normalizedUrl =
         url.startsWith("http") || url.startsWith("/") || url.startsWith("data:") ? url : `/${url}`;
 
       audioRef.current.pause();
@@ -203,7 +144,6 @@ export function useAudioPlayer(onEnded?: () => void) {
         currentPromptId: promptId || null,
         resolvedFilename: filename || normalizedUrl.split("/").pop() || null,
         error: null,
-        isToneFallback: false,
         playbackStatus: "loading",
       }));
 
@@ -218,24 +158,25 @@ export function useAudioPlayer(onEnded?: () => void) {
             setState((s) => ({
               ...s,
               isPlaying: false,
-              isToneFallback: true,
-              playbackStatus: "tone_fallback",
+              error: "Audio playback is unavailable.",
+              playbackStatus: "error",
             }));
-            playGuidanceTone(() => {
-              if (playbackIdRef.current === currentPlaybackId && onEndedRef.current) {
-                onEndedRef.current();
-              }
-            });
           }
         });
       }
     } catch (err: any) {
-      console.warn("[useAudioPlayer] playAudio exception:", err);
-      playGuidanceTone(() => {
-        if (playbackIdRef.current === currentPlaybackId && onEndedRef.current) {
-          onEndedRef.current();
-        }
+      console.error("[useAudioPlayer] Audio playback failed.", {
+        promptId: promptId || "unknown",
+        url: url.replace(/[?#].*$/, ""),
+        error: err instanceof Error ? err.message : String(err),
       });
+      setState((s) => ({
+        ...s,
+        isPlaying: false,
+        isBuffering: false,
+        error: "Audio playback is unavailable.",
+        playbackStatus: "error",
+      }));
     }
   }, []);
 
@@ -257,33 +198,10 @@ export function useAudioPlayer(onEnded?: () => void) {
     } catch {}
   }, []);
 
-  const triggerToneFallback = useCallback((onComplete?: () => void) => {
-    playbackIdRef.current += 1;
-    const currentPlaybackId = playbackIdRef.current;
-    if (audioRef.current) {
-      try {
-        audioRef.current.pause();
-      } catch {}
-    }
-    setState((s) => ({
-      ...s,
-      isPlaying: false,
-      isToneFallback: true,
-      playbackStatus: "tone_fallback",
-    }));
-    playGuidanceTone(() => {
-      if (playbackIdRef.current === currentPlaybackId) {
-        if (onComplete) onComplete();
-        else if (onEndedRef.current) onEndedRef.current();
-      }
-    });
-  }, []);
-
   return {
     ...state,
     playAudio,
     stopAudio,
     pauseAudio,
-    triggerToneFallback,
   };
 }

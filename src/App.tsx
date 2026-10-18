@@ -23,6 +23,7 @@ import { DocsPage } from "./pages/dashboard/DocsPage";
 import { ShippingPage } from "./pages/dashboard/ShippingPage";
 import { TasksPage } from "./pages/dashboard/TasksPage";
 import { PhoneSimulatorPage } from "./pages/dashboard/PhoneSimulatorPage";
+import { AudioFlowPage } from "./pages/dashboard/AudioFlowPage";
 
 export default function App() {
   return (
@@ -48,6 +49,8 @@ export default function App() {
             <Route path="tasks" element={<TasksPage />} />
             <Route path="phone" element={<PhoneSimulatorPage />} />
             <Route path="simulator" element={<PhoneSimulatorPage />} />
+            <Route path="audio-flow" element={<AudioFlowPage />} />
+            <Route path="flow" element={<AudioFlowPage />} />
             <Route path="settings" element={<SettingsPage />} />
 
             {/* Backwards-compatible Secondary Routes */}

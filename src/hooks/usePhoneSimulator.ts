@@ -18,6 +18,7 @@ import {
 } from "../domain/echoFilter";
 import { getRecordingByPromptKey, getRecordingByUrl } from "../audio/recordingRegistry";
 import { resolvePromptText } from "../modules/ttsService";
+import { audioFlowStore } from "../audio/audioFlowStore";
 import { matchReplyToAudio } from "../audio/replyAudioMatcher";
 import {
   ContinuousVoiceCapture,
@@ -31,6 +32,35 @@ import type {
   DialogueOutput,
   EntitySlotMap,
 } from "../ai_system/core/aiTypes";
+
+function isValidAudioPayload(base64: string, mimeType: string): boolean {
+  const mime = mimeType.split(";")[0].trim().toLowerCase();
+  if (!["audio/wav", "audio/x-wav", "audio/mpeg", "audio/mp3", "audio/mp4", "audio/m4a", "audio/aac"].includes(mime)) return false;
+  try {
+    const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+    if (["audio/wav", "audio/x-wav"].includes(mime)) {
+      return bytes.length >= 44
+        && String.fromCharCode(...bytes.slice(0, 4)) === "RIFF"
+        && String.fromCharCode(...bytes.slice(8, 12)) === "WAVE"
+        && new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4, true) + 8 <= bytes.length;
+    }
+    if (["audio/mpeg", "audio/mp3"].includes(mime)) {
+      return String.fromCharCode(...bytes.slice(0, 3)) === "ID3"
+        || (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0);
+    }
+    if (["audio/mp4", "audio/m4a"].includes(mime)) {
+      return bytes.length >= 8 && String.fromCharCode(...bytes.slice(4, 8)) === "ftyp";
+    }
+    return bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xf6) === 0xf0;
+  } catch {
+    return false;
+  }
+}
+
+function safeAudioErrorCode(error: unknown): string {
+  if (!(error instanceof Error)) return "UNKNOWN_ERROR";
+  return error.message.match(/^\s*([A-Z][A-Z0-9_]*)(?::|$)/)?.[1] || error.name;
+}
 
 export interface SimulatorTranscriptItem {
   id: string;
@@ -759,14 +789,17 @@ export function usePhoneSimulator() {
   }, []);
 
   const triggerInactivityPleaseRespond = useCallback(() => {
-    const pleaseRespondAudioUrl = "/audio/Twi_library/Please_respond.mp3";
-    const transcriptText = "I did not get any response from you, please give us a response!";
+    const ttsLanguage = language === "tw" ? "twi" : language;
+    const pleaseRespondAudioUrl = `/api/audio/prompt-tts/${ttsLanguage}/OP67`;
+    const transcriptText = ttsLanguage === "twi"
+      ? "Yɛsrɛ wo, bua anaa mia nɔmba bi wɔ wo keypad so."
+      : "Please respond or press a key on your phone keypad.";
     setTranscript((prev) => [
       ...prev,
       {
         id: `sys_silence_${Date.now()}`,
         role: "system",
-        text: `⏳ [60s Inactivity Watchdog] OP67 — Please Respond: "${transcriptText}"`,
+        text: `⏳ [90s Inactivity Watchdog] OP67 — Please Respond: "${transcriptText}"`,
         timestamp: Date.now(),
       },
     ]);
@@ -779,13 +812,13 @@ export function usePhoneSimulator() {
         setIsAiSpeaking(false);
         isAiSpeakingRef.current = false;
         setActiveAudioClip(null);
-        // Restart 60s timer after repeating instruction
+        // Keep the caller on the same step and wait another 90 seconds.
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         silenceTimerRef.current = setTimeout(() => {
           if (!isAiSpeakingRef.current && voiceListeningEnabledRef.current) {
             triggerInactivityPleaseRespond();
           }
-        }, 60000);
+        }, 90000);
       };
       audioRef.current.onerror = () => {
         setIsAiSpeaking(false);
@@ -797,7 +830,7 @@ export function usePhoneSimulator() {
         isAiSpeakingRef.current = false;
       });
     }
-  }, []);
+  }, [language]);
 
   const updateAiSpeaking = useCallback((speaking: boolean, promptText?: string) => {
     setIsAiSpeaking(speaking);
@@ -823,13 +856,13 @@ export function usePhoneSimulator() {
         startContinuousVoiceRef.current?.();
       }
 
-      // Start 60-second inactivity watchdog (1 minute wait before OP67 Please Respond)
+      // Wait 90 seconds before the next OP67 silence reminder.
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = setTimeout(() => {
         if (!isAiSpeakingRef.current && voiceListeningEnabledRef.current) {
           triggerInactivityPleaseRespond();
         }
-      }, 60000);
+      }, 90000);
     }
     if (voiceListeningEnabledRef.current) {
       setTranscriptionStatus(speaking ? "PAUSED" : "LISTENING");
@@ -943,15 +976,6 @@ export function usePhoneSimulator() {
     return recording?.spokenText ||
       (key ? resolvePromptText(key, language) : null) ||
       "Please listen to the prompt.";
-  }
-
-  function playBrowserSpeechFallback(_text: string): void {
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      try {
-        window.speechSynthesis.cancel();
-      } catch {}
-    }
-    updateAiSpeaking(false);
   }
 
   /**
@@ -1141,13 +1165,8 @@ export function usePhoneSimulator() {
           setUssdPushPrompt({
             active: true,
             title: "MTN MoMo USSD Authorization",
-            message:
-              "Authorize transfer on your mobile screen. Enter your secret Mobile Money PIN (Zero-PIN: Never spoken on voice call):",
-            amount: 20,
+            message: "If your provider requests authorization, approve it on your handset. Enter your PIN only on the provider's secure screen, never on this call.",
             currency: "GHS",
-            recipientName: "Kwame Boateng",
-            recipientPhone: "0553838464",
-            referenceId: `OKP-${Date.now().toString().slice(-6)}`,
           });
         }
 
@@ -1412,7 +1431,7 @@ export function usePhoneSimulator() {
 
     if (!isTwi) {
       if ((step?.includes("welcome") || text?.toLowerCase().includes("welcome")) && !hasDynamicEntities) {
-        return "/audio/Welcome_prompt_01.mp3";
+        return "/audio/welcome_en.mp3";
       }
       return null;
     }
@@ -1427,28 +1446,81 @@ export function usePhoneSimulator() {
       } catch {}
     }
 
-    // 2. Step and intent heuristics for static prompt menus
+    const targetLang = isTwi ? "twi" : "en";
+
+    // 0. Check custom audio assignment from Audio Flow Studio first
+    const customOverride = audioFlowStore.resolvePromptOverride(step || text, targetLang);
+    if (customOverride) return customOverride;
+
+    // 1. Try fuzzy audio matcher for conversational turns
+    if (isTwi) {
+      try {
+        const audioMatch = matchReplyToAudio(text, "tw", { minConfidence: 0.65 });
+        if (audioMatch.match && audioMatch.audioUrl) {
+          return audioMatch.audioUrl;
+        }
+      } catch {}
+    }
+
+    // 2. Step and intent heuristics for money transfer flows
     const lower = (text || "").toLowerCase().replace(/[-_]/g, " ");
     const currentCheck = (step || "").toLowerCase();
 
     let key: string | null = null;
-    if (currentCheck.includes("service") || lower.includes("service selection") || lower.includes("paw dwumadie")) {
+    if (currentCheck.includes("welcome") || currentCheck.includes("language") || lower.includes("akwaaba") || lower.includes("welcome")) {
+      key = "welcome";
+    } else if (currentCheck.includes("service") || lower.includes("service selection") || lower.includes("paw dwumadie")) {
       key = "service_select";
     } else if (currentCheck.includes("network") || currentCheck.includes("provider") || lower.includes("paw wo network")) {
       key = "provider_select";
     } else if (currentCheck.includes("action") || lower.includes("send money selected") || lower.includes("woremane sika")) {
       key = "action_select";
+    } else if (currentCheck.includes("recipient") || currentCheck.includes("phone") || lower.includes("recipient") || lower.includes("fon nɔmba")) {
+      if (lower.includes("invalid") || lower.includes("problem") || lower.includes("nyɛ pɛ")) {
+        key = "invalid_recipient";
+      } else if (lower.includes("verify") || lower.includes("found") || lower.includes("yɛahu")) {
+        key = "recipient_verify";
+      } else {
+        key = "enter_recipient";
+      }
+    } else if (currentCheck.includes("amount") || lower.includes("amount") || lower.includes("sika dodoɔ") || lower.includes("sika dodow")) {
+      if (lower.includes("high") || lower.includes("exceed") || lower.includes("boro")) {
+        key = "amount_too_high";
+      } else if (lower.includes("low") || lower.includes("sua")) {
+        key = "amount_too_low";
+      } else if (lower.includes("readback") || lower.includes("heard") || lower.includes("mate")) {
+        key = "amount_readback";
+      } else {
+        key = "enter_amount";
+      }
+    } else if (currentCheck.includes("confirm") || currentCheck.includes("review") || lower.includes("confirm") || lower.includes("pene so")) {
+      key = "confirm_continue";
+    } else if (currentCheck.includes("pin") || currentCheck.includes("handoff") || currentCheck.includes("auth") || lower.includes("authorize") || lower.includes("kokoam")) {
+      key = "authorize_phone";
+    } else if (currentCheck.includes("processing") || lower.includes("processing") || lower.includes("twɛn kakra")) {
+      key = "processing";
+    } else if (currentCheck.includes("submitted") || lower.includes("submitted") || lower.includes("yɛasoma")) {
+      key = "submitted";
+    } else if (currentCheck.includes("success") || lower.includes("success") || lower.includes("nkunimdie") || lower.includes("awie")) {
+      key = "success_sent";
     } else if (lower.includes("timeout") || lower.includes("berɛ atwa mu")) {
       key = "timeout";
     } else if (lower.includes("repeat") || lower.includes("tie bio")) {
       key = "repeat";
     } else if (lower.includes("help") || lower.includes("mboa")) {
       key = "help";
-    } else if (currentCheck.includes("welcome") || currentCheck.includes("language") || lower.includes("akwaaba")) {
-      key = "welcome";
+    } else if (lower.includes("respond") || lower.includes("reply") || lower.includes("mmuaeɛ")) {
+      key = "please_respond";
     }
 
-    return key ? getRecordingByPromptKey(key)?.url || null : null;
+    if (!key) return null;
+
+    // Check custom override for this key
+    const keyOverride = audioFlowStore.resolvePromptOverride(key, targetLang);
+    if (keyOverride) return keyOverride;
+
+    const recording = getRecordingByPromptKey(key, targetLang);
+    return recording?.audioVerified ? recording.url : null;
   }, []);
 
   /**
@@ -1462,7 +1534,7 @@ export function usePhoneSimulator() {
 
       // 1. Studio Pre-Recorded Prompts Mode (Priority 1 for known fixed menu steps)
       const rawMatchedPrompt = resolveStudioPrompt(text, lang, step || currentStep);
-      const matchedPrompt = rawMatchedPrompt ? rawMatchedPrompt.replace(/\.m4a$/i, ".mp3") : null;
+      const matchedPrompt = rawMatchedPrompt;
       if (matchedPrompt && voiceMode !== "BROWSER") {
         if (audioRef.current) {
           audioRef.current.src = matchedPrompt;
@@ -1500,31 +1572,49 @@ export function usePhoneSimulator() {
           sessionId,
         });
 
-        if (synth?.result?.audioBase64 && audioRef.current) {
-          const mime = synth.result.audioMimeType || "audio/mp3";
+        if (synth?.success && synth.result?.audioBase64 && audioRef.current) {
+          const mime = synth.result.audioMimeType;
+          if (synth.result.language !== (isTwi ? "twi" : "en") || !synth.result.model?.trim()) throw new Error("TTS_RESPONSE_METADATA_INVALID");
+          if (!mime || !isValidAudioPayload(synth.result.audioBase64, mime)) throw new Error("TTS_AUDIO_INVALID");
           audioRef.current.src = `data:${mime};base64,${synth.result.audioBase64}`;
           audioRef.current.onended = () => {
             updateAiSpeaking(false);
             setActiveAudioClip(null);
           };
           audioRef.current.onerror = () => {
+            console.error("[PhoneSimulator] Synthesized audio playback failed.", {
+              language: isTwi ? "twi" : "en",
+              sourceType: "SYNTHESIZED_TTS",
+              provider: synth.result.providerUsed || "server TTS router",
+              error: "AUDIO_PLAYBACK_FAILED",
+            });
             updateAiSpeaking(false);
             setActiveAudioClip(null);
           };
           const playPromise = audioRef.current.play();
           if (playPromise) {
-            await playPromise.catch(() => {
-              if (typeof window !== "undefined" && "speechSynthesis" in window) {
-                try {
-                  window.speechSynthesis.cancel();
-                } catch {}
-              }
+            await playPromise.catch((error) => {
+              console.error("[PhoneSimulator] Synthesized audio playback failed.", {
+                language: isTwi ? "twi" : "en",
+                sourceType: "SYNTHESIZED_TTS",
+                provider: synth.result.providerUsed || "server TTS router",
+                error: safeAudioErrorCode(error),
+              });
               updateAiSpeaking(false);
+              setActiveAudioClip(null);
             });
           }
           return;
         }
-      } catch {}
+        throw new Error("TTS_AUDIO_UNAVAILABLE");
+      } catch (error) {
+        console.error("[PhoneSimulator] Dynamic speech synthesis failed.", {
+          language: isTwi ? "twi" : "en",
+          sourceType: "SYNTHESIZED_TTS",
+          provider: "server TTS router",
+          error: safeAudioErrorCode(error),
+        });
+      }
 
       // 3. Fallback: complete turn cleanly without robotic TTS interference
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
@@ -2475,69 +2565,28 @@ export function usePhoneSimulator() {
     }
   }, [aiResponse, language, currentStep, playAudioSynthesis]);
 
-  // PIN Entry Inactivity & Multi-Stage Reassurance Timer
+  // A pending handset authorization may take time; never collect a PIN on the call.
   useEffect(() => {
     const isPinStep = isActive && (currentStep?.includes("pin") || currentStep === "enter-pin" || currentStep === "pin-handoff");
     if (!isPinStep) return;
 
-    let inactivityStage = 0;
     const interval = setInterval(async () => {
-      inactivityStage++;
-      if (inactivityStage === 1) {
-        // Reassure user: "We are waiting for you to enter your PIN"
-        const reassureText = language === "tw"
-          ? "Yɛretwɛn wo PIN, fa wo bere bɔ wo PIN nɔmba nnan no."
-          : "We are waiting for you to enter your PIN. Please take your time and enter your 4-digit PIN.";
-        setAiResponse(reassureText);
-        setTranscript((prev) => [
-          ...prev,
-          {
-            id: `ai_reassure_1_${Date.now()}`,
-            role: "ai",
-            text: reassureText,
-            timestamp: Date.now(),
-            stage: "enter-pin",
-          },
-        ]);
-        playAudioSynthesis(reassureText, language, "enter-pin");
-      } else if (inactivityStage === 2) {
-        // Second reminder: "Please enter your 4-digit PIN"
-        const remindText = language === "tw"
-          ? "Yɛsrɛ wo, yɛda so retwɛn wo PIN nɔmba nnan no na yɛatumi amane sika no."
-          : "Please enter your 4-digit PIN on the keypad or say it to authorize the transfer.";
-        setAiResponse(remindText);
-        setTranscript((prev) => [
-          ...prev,
-          {
-            id: `ai_reassure_2_${Date.now()}`,
-            role: "ai",
-            text: remindText,
-            timestamp: Date.now(),
-            stage: "enter-pin",
-          },
-        ]);
-        playAudioSynthesis(remindText, language, "enter-pin");
-      } else if (inactivityStage >= 3) {
-        // Final timeout: Terminate call gracefully
-        clearInterval(interval);
-        const timeoutText = language === "tw"
-          ? "Yɛante wo nkyɛn nti, yɛretwa frɛ yi mu. Meda wo ase, nante yie."
-          : "We did not receive any input, so this call is now ending for your security. Thank you, goodbye.";
-        setAiResponse(timeoutText);
-        setTranscript((prev) => [
-          ...prev,
-          {
-            id: `ai_timeout_${Date.now()}`,
-            role: "ai",
-            text: timeoutText,
-            timestamp: Date.now(),
-            stage: "call-ended",
-          },
-        ]);
-        await playAudioSynthesis(timeoutText, language, "call-ended");
-        endCall("PIN inactivity timeout");
-      }
-    }, 12000);
+      const remindText = language === "tw"
+        ? "Yɛda so retwɛn provider no mmuae. Yɛsrɛ wo hwɛ wo handset. Mfa wo PIN nka wɔ frɛ yi mu."
+        : "We are still waiting for your provider. Please check your handset. Do not enter or say your PIN on this call.";
+      setAiResponse(remindText);
+      setTranscript((prev) => [
+        ...prev,
+        {
+          id: `ai_pending_reminder_${Date.now()}`,
+          role: "ai",
+          text: remindText,
+          timestamp: Date.now(),
+          stage: "waiting-confirmation",
+        },
+      ]);
+      await playAudioSynthesis(remindText, language, "waiting-confirmation");
+    }, 90000);
 
     return () => clearInterval(interval);
   }, [isActive, currentStep, language, playAudioSynthesis, endCall]);
@@ -2604,9 +2653,11 @@ export function usePhoneSimulator() {
     if (!enableTts) return;
     if (!target) return;
     try {
-      const cleanTarget = target.replace(/\.m4a$/i, ".mp3");
+      const cleanTarget = target;
       const isAudioFile =
         cleanTarget.endsWith(".mp3") ||
+        cleanTarget.endsWith(".m4a") ||
+        cleanTarget.endsWith(".aac") ||
         cleanTarget.endsWith(".wav") ||
         cleanTarget.startsWith("/audio/") ||
         cleanTarget.startsWith("/api/audio/prompt/") ||
@@ -2630,17 +2681,31 @@ export function usePhoneSimulator() {
             setActiveAudioClip(null);
           };
           audioRef.current.onerror = () => {
-            playBrowserSpeechFallback(promptTranscript);
+            console.error("[PhoneSimulator] Recording playback failed.", {
+              language,
+              sourceType: "STUDIO_RECORDING",
+              url,
+              error: "AUDIO_PLAYBACK_FAILED",
+            });
+            updateAiSpeaking(false);
             setActiveAudioClip(null);
           };
           const playPromise = audioRef.current.play();
           if (playPromise) {
-            await playPromise.catch((e) => {
-              console.warn("Audio file play notice:", e);
-              playBrowserSpeechFallback(promptTranscript);
+            await playPromise.catch((error) => {
+              console.error("[PhoneSimulator] Recording playback failed.", {
+                language,
+                sourceType: "STUDIO_RECORDING",
+                url,
+                error: safeAudioErrorCode(error),
+              });
+              updateAiSpeaking(false);
               setActiveAudioClip(null);
             });
           }
+        } else {
+          updateAiSpeaking(false);
+          setActiveAudioClip(null);
         }
         return;
       }
@@ -2656,63 +2721,85 @@ export function usePhoneSimulator() {
           setActiveAudioClip(null);
         };
         audioRef.current.onerror = () => {
+          console.error("[PhoneSimulator] Matched recording playback failed.", {
+            language,
+            sourceType: "STUDIO_RECORDING",
+            url: matched,
+            error: "AUDIO_PLAYBACK_FAILED",
+          });
           updateAiSpeaking(false);
           setActiveAudioClip(null);
         };
         const playPromise = audioRef.current.play();
+        if (playPromise) {
+          await playPromise.catch((error) => {
+            console.error("[PhoneSimulator] Matched recording playback failed.", {
+              language,
+              sourceType: "STUDIO_RECORDING",
+              url: matched,
+              error: safeAudioErrorCode(error),
+            });
+            updateAiSpeaking(false);
+            setActiveAudioClip(null);
+          });
+        }
+        return;
+      }
+
+      // Dynamic text: synthesize speech
+      try {
+        const synth = await api.synthesizeSpeech({
+          text: target,
+          language: language === "tw" ? "tw" : "en",
+          style: "ghanaian-warm",
+        });
+
+        if (synth?.success && synth.result?.audioBase64 && audioRef.current) {
+          const mime = synth.result.audioMimeType;
+          const expectedLanguage = language === "tw" ? "twi" : "en";
+          if (synth.result.language !== expectedLanguage || !synth.result.model?.trim()) throw new Error("TTS_RESPONSE_METADATA_INVALID");
+          if (!mime || !isValidAudioPayload(synth.result.audioBase64, mime)) throw new Error("TTS_AUDIO_INVALID");
+          audioRef.current.src = `data:${mime};base64,${synth.result.audioBase64}`;
+          audioRef.current.onended = () => {
+            updateAiSpeaking(false);
+            setActiveAudioClip(null);
+          };
+          audioRef.current.onerror = () => {
+            console.error("[PhoneSimulator] Synthesized audio playback failed.", {
+              language: expectedLanguage,
+              sourceType: "SYNTHESIZED_TTS",
+              provider: synth.result.providerUsed || "server TTS router",
+              error: "AUDIO_PLAYBACK_FAILED",
+            });
+            updateAiSpeaking(false);
+            setActiveAudioClip(null);
+          };
+          const playPromise = audioRef.current.play();
           if (playPromise) {
-            await playPromise.catch((e) => {
-              console.warn("Studio audio play notice:", e);
-              if (typeof window !== "undefined" && "speechSynthesis" in window) {
-                try {
-                  window.speechSynthesis.cancel();
-                } catch {}
-              }
+            await playPromise.catch((error) => {
+              console.error("[PhoneSimulator] Synthesized audio playback failed.", {
+                language: expectedLanguage,
+                sourceType: "SYNTHESIZED_TTS",
+                provider: synth.result.providerUsed || "server TTS router",
+                error: safeAudioErrorCode(error),
+              });
               updateAiSpeaking(false);
+              setActiveAudioClip(null);
             });
           }
           return;
         }
-
-        // Dynamic text: synthesize speech
-        try {
-          const synth = await api.synthesizeSpeech({
-            text: target,
-            language: language === "tw" ? "tw" : "en",
-            style: "ghanaian-warm",
+        throw new Error("TTS_AUDIO_UNAVAILABLE");
+      } catch (error) {
+          console.error("[PhoneSimulator] Dynamic speech synthesis failed.", {
+            language: language === "tw" ? "twi" : "en",
+            sourceType: "SYNTHESIZED_TTS",
+            provider: "server TTS router",
+            error: safeAudioErrorCode(error),
           });
+      }
 
-          if (synth?.result?.audioBase64 && audioRef.current) {
-            audioRef.current.src = `data:${synth.result.audioMimeType || "audio/mp3"};base64,${synth.result.audioBase64}`;
-            audioRef.current.onended = () => {
-              updateAiSpeaking(false);
-              setActiveAudioClip(null);
-            };
-            audioRef.current.onerror = () => {
-              updateAiSpeaking(false);
-              setActiveAudioClip(null);
-            };
-            const playPromise = audioRef.current.play();
-            if (playPromise) {
-              await playPromise.catch(() => {
-                if (typeof window !== "undefined" && "speechSynthesis" in window) {
-                  try {
-                    window.speechSynthesis.cancel();
-                  } catch {}
-                }
-                updateAiSpeaking(false);
-              });
-            }
-            return;
-          }
-        } catch {}
-
-        if (typeof window !== "undefined" && "speechSynthesis" in window) {
-          try {
-            window.speechSynthesis.cancel();
-          } catch {}
-        }
-        updateAiSpeaking(false);
+      updateAiSpeaking(false);
     } catch (err) {
       console.warn("Studio clip play notice:", err);
       updateAiSpeaking(false);

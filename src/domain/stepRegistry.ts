@@ -106,14 +106,14 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
     name: "Service Selection",
     promptKey: "supported_service_select",
     promptText: {
-      en: "For Mobile Money services, press 1. For banking services, press 2. Press 9 to hear this again, or press 0 to exit.",
-      twi: "Sɛ wopɛ mobile money services a, mia 1. Sɛ wopɛ banking services a, mia 2. Mia 9 na mate bio, anaasɛ mia 0 na woapue.",
+      en: "For a supported Mobile Money transfer, press 1. Press 9 to repeat, or 0 to exit.",
+      twi: "Sɛ wopɛ Mobile Money transfer a yɛboa a, mia 1. Mia 9 na tie bio, anaasɛ mia 0 na woapue.",
     },
     inputType: "single_digit",
     acceptedDigits: ["1", "2"],
     optionsDescription: {
-      en: "1 for Mobile Money, 2 for Banking (Unavailable), 9 to repeat, 0 to exit",
-      twi: "1 ma Mobile Money, 2 ma Sikakorabea (Banking), 9 na tie bio, 0 na woapue",
+      en: "1 for Mobile Money transfer, 9 to repeat, 0 to exit",
+      twi: "1 ma Mobile Money transfer, 9 na tie bio, 0 na woapue",
     },
     navigation: {
       allowBack: true,

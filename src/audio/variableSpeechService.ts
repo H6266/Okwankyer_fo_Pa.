@@ -125,9 +125,9 @@ export class VariableSpeechService {
       const recording = getRecordingByPromptKey(instruction.promptKey, lang);
       const audioUrl = recording ? resolvePrompt(instruction.promptKey, lang) : null;
       if (!audioUrl) {
-        auditLogger.log("warn", "VARIABLE_SPEECH", `Missing recorded prompt asset for key: ${instruction.promptKey} [${lang}]. Falling back to explicit TTS.`);
+        auditLogger.log("warn", "VARIABLE_SPEECH", `Fixed prompt audio unavailable for key: ${instruction.promptKey} [${lang}].`);
         return {
-          mode: "SYNTHESIZE",
+          mode: "RECORDED",
           purpose: instruction.purpose,
           language: lang,
           textToSpeak: instruction.text || resolvePromptText(instruction.promptKey, lang) || instruction.promptKey,
@@ -172,6 +172,9 @@ export class VariableSpeechService {
         providerUsed: "STUDIO_PROMPT_CATALOG",
         durationEstimateSec: 3.0,
       };
+    }
+    if (decision.mode === "RECORDED") {
+      throw new Error("FIXED_PROMPT_AUDIO_UNAVAILABLE: no reviewed recording is available for this prompt.");
     }
 
     // Dynamic Synthesis through authoritative ttsRouter

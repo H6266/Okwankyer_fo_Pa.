@@ -49,21 +49,17 @@ describe("TTS Studio Prompt Registry & Fallback Chain Invariants", () => {
     expect(studioPromptRegistry.getPrompt("enter_amount", "en")).toBeNull();
   });
 
-  it("synthesizes Twi amount speech with a valid WAV payload", () => {
+  it("does not synthesize Twi amount tones without reviewed speech assets", () => {
     expect(twiAmountSynthesizer.numberToTwi(1)).toBe("baako");
     expect(twiAmountSynthesizer.numberToTwi(2)).toBe("mmienu");
     expect(twiAmountSynthesizer.numberToTwi(50)).toBe("aduonum");
     expect(twiAmountSynthesizer.numberToTwi(500)).toBe("ahanum");
 
-    const result = twiAmountSynthesizer.synthesizeTwiAmount(500);
-    expect(result.twiText).toBe("Sidi ahanum");
-    expect(result.mimeType).toBe("audio/wav");
-    expect(result.audioBuffer.subarray(0, 12).toString("ascii").endsWith("WAVE")).toBe(true);
+    expect(() => twiAmountSynthesizer.synthesizeTwiAmount(500)).toThrow(/TWI_AMOUNT_TTS_UNAVAILABLE/);
   });
 
-  it("routes Twi amount requests through the configured synthesis provider", async () => {
-    const result = await ttsRouter.synthesize({ text: "50 cedis", language: "tw" });
-    expect(result.audioMimeType).toBe("audio/wav");
-    expect(result.audioBuffer.subarray(0, 4).toString("ascii")).toBe("RIFF");
+  it("does not route Twi requests through an English-only speech engine", async () => {
+    await expect(ttsRouter.synthesize({ text: "50 cedis", language: "tw" }))
+      .rejects.toThrow(/TWI_TTS_UNAVAILABLE/);
   });
 });

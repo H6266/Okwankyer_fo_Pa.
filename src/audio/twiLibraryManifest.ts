@@ -1,9 +1,9 @@
 /**
  * Ɔkwankyerɛfo Pa - Authoritative Twi Audio Library Manifest
  *
- * Ground-truth catalog parsed and synchronized from:
- * Audio_files/Twi_library/transcriped_twi_audio_library.txt
- * All audio files reside physically in Audio_files/Twi_library/
+ * Prompt/transcript map for the approved Twi recordings. Canonical /audio/Twi/
+ * URLs are served from Audio_files/Twi_library/ when the canonical directory
+ * is absent.
  */
 
 export interface TwiLibraryItem {
@@ -11,11 +11,12 @@ export interface TwiLibraryItem {
   filename: string;
   audioUrl: string;
   transcript: string;
+  audioVerified?: boolean;
   category: "session" | "navigation" | "recipient" | "amount" | "confirmation" | "auth" | "outcome" | "help" | "general";
   keywords: string[];
 }
 
-export const TWI_AUDIO_LIBRARY_ITEMS: TwiLibraryItem[] = [
+const MANIFEST_TWI_AUDIO_LIBRARY_ITEMS: TwiLibraryItem[] = [
   {
     key: "opening_voice_welcome_to_okwankyerefopa",
     filename: "Opening_voice_welcome_to_okwankyerefopa.mp3",
@@ -213,6 +214,7 @@ export const TWI_AUDIO_LIBRARY_ITEMS: TwiLibraryItem[] = [
     filename: "Invalid_amount.mp3",
     audioUrl: "/audio/Twi_library/Invalid_amount.mp3",
     transcript: "please the amount you mentioned is invalid, please give us a different amount to continue with this transaction",
+    audioVerified: false,
     category: "amount",
     keywords: ["invalid amount", "different amount", "sika nyɛ pɛpɛɛpɛ"]
   },
@@ -705,6 +707,15 @@ export const TWI_AUDIO_LIBRARY_ITEMS: TwiLibraryItem[] = [
     keywords: ["acknowledge", "understand you", "continue", "mate aseɛ"]
   }
 ];
+
+export const TWI_AUDIO_LIBRARY_ITEMS: TwiLibraryItem[] = MANIFEST_TWI_AUDIO_LIBRARY_ITEMS.map((item) => {
+  const filename = item.filename.replace(/\.(?:m4a|aac)$/i, ".mp3");
+  return {
+    ...item,
+    filename,
+    audioUrl: `/audio/Twi/${encodeURIComponent(filename)}`,
+  };
+});
 
 export const TWI_AUDIO_KEY_LOOKUP = new Map<string, TwiLibraryItem>(
   TWI_AUDIO_LIBRARY_ITEMS.map((item) => [item.key, item])

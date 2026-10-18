@@ -59,7 +59,7 @@ export class StudioPromptRegistry {
 
     // Sort so supplied recordings take precedence over legacy public recordings
     const twiRecordings = AUDIO_RECORDINGS
-      .filter((rec) => rec.promptId && rec.spokenText && rec.recordingRole === "fixed")
+      .filter((rec) => rec.audioVerified && rec.promptId && rec.spokenText && rec.recordingRole === "fixed")
       .sort((a, b) => {
         const rankA = a.assetRoot === "supplied" && !a.isAlternate ? 0 : a.assetRoot === "supplied" ? 1 : 2;
         const rankB = b.assetRoot === "supplied" && !b.isAlternate ? 0 : b.assetRoot === "supplied" ? 1 : 2;

@@ -5,7 +5,7 @@
  * across both the Phone Simulator and Africa's Talking telephony gateway.
  *
  * Invariants:
- * 1. Fixed prompts (OP01-OP19, OP22-OP28, OP30-OP51, OP53-OP69, OP71-OP94) resolve to studio recordings
+ * 1. Fixed prompts (OP01-OP19, OP22-OP28, OP30-OP34, OP36-OP51, OP53-OP69, OP71-OP94) resolve to studio recordings
  *    or canonical script texts.
  * 2. Dynamic prompts (OP20, OP21, OP29, OP52, OP70) resolve strictly to approved TTS template rendering
  *    with real variables (recipient name, full spaced phone number, amount in Cedis/Pesewas, reference ID,
@@ -49,8 +49,9 @@ export const DYNAMIC_PROMPT_IDS: ReadonlySet<string> = new Set([
   "OP20",
   "OP21",
   "OP29",
+  "OP35",
   "OP52",
-  "OP52b",
+  "OP52B",
   "OP70",
 ]);
 
@@ -181,15 +182,17 @@ promptIds.add("OP52b");
 const loadedPrompts: CanonicalPrompt[] = Array.from(promptIds).map((id) => {
   const normId = id.toUpperCase();
   const isDynamic = DYNAMIC_PROMPT_IDS.has(normId);
-  const twiRec = AUDIO_RECORDINGS.find((r) => r.promptId?.toUpperCase() === normId && r.language === "twi");
-  const enRec = AUDIO_RECORDINGS.find((r) => r.promptId?.toUpperCase() === normId && r.language === "en");
+  const twiRec = getRecordingByPromptId(normId, "twi");
+  const enRec = getRecordingByPromptId(normId, "en");
+  const approvedTwiRec = twiRec?.audioVerified ? twiRec : null;
+  const approvedEnRec = enRec?.audioVerified ? enRec : null;
 
   // Determine state
   const stateEntry = Object.entries(STATE_TO_CANONICAL_PROMPT_ID).find(([, pId]) => pId.toUpperCase() === normId);
   const state = stateEntry ? stateEntry[0] : (twiRec?.state || (normId === "OP52B" ? "REFERENCE_READBACK" : "GENERAL"));
 
-  let enText = enRec?.spokenText || enRec?.context;
-  let twiText = twiRec?.spokenText || twiRec?.context;
+  let enText = approvedEnRec?.spokenText || approvedEnRec?.context;
+  let twiText = approvedTwiRec?.spokenText || approvedTwiRec?.context;
 
   if (normId === "OP52B") {
     enText = "Your complete transaction reference is: {slow_reference}.";
@@ -219,8 +222,8 @@ const loadedPrompts: CanonicalPrompt[] = Array.from(promptIds).map((id) => {
     english: enText || "Financial service option",
     twi: twiText || "Sika ho dwumadie",
     audio: {
-      english: enRec?.url || (isDynamic ? `/api/audio/prompt-tts/en/${normId}` : null),
-      twi: twiRec?.url || (isDynamic ? `/api/audio/prompt-tts/twi/${normId}` : null),
+      english: approvedEnRec?.url || (isDynamic ? `/api/audio/prompt-tts/en/${normId}` : null),
+      twi: approvedTwiRec?.url || (isDynamic ? `/api/audio/prompt-tts/twi/${normId}` : null),
       twi_other_takes: [],
     },
   };
@@ -256,7 +259,7 @@ export function getCanonicalPromptByState(state: string): CanonicalPrompt | unde
   const normalizedState = state.toUpperCase().trim();
   const promptId = STATE_TO_CANONICAL_PROMPT_ID[normalizedState];
   if (promptId) {
-    return CANONICAL_PROMPTS[promptId];
+    return CANONICAL_PROMPTS[promptId.toUpperCase()];
   }
   return loadedPrompts.find((p) => p.state.toUpperCase() === normalizedState);
 }
@@ -278,6 +281,9 @@ export function resolvePromptSpokenText(
     if (dynamicRendered) {
       return dynamicRendered;
     }
+    return isTwi
+      ? "Yɛrentumi nnhwɛ saa nsɛm yi mu seesei. Yɛrentumi nkɔ so."
+      : "We cannot verify the current transaction details, so we cannot continue.";
   }
 
   const prompt = CANONICAL_PROMPTS[normId];
@@ -291,16 +297,16 @@ export function resolvePromptSpokenText(
 
   if (text.includes("[") || text.includes("{")) {
     return text
-      .replace(/\[DYNAMIC NAME\]/gi, params.name || params.recipientName || (isTwi ? "obi a woremane no sika" : "the recipient"))
-      .replace(/\[ALL TEN DIGITS\]/gi, formatFullPhoneNumberForSpeech(params.phone || params.recipientPhone || "0543546010", lang))
-      .replace(/\[DYNAMIC AMOUNT\]/gi, String(params.amount || (isTwi ? "Ghana Cedis aduonum" : "fifty Ghana Cedis")))
-      .replace(/\[DYNAMIC REFERENCE\]/gi, formatRefForSpeech(params.referenceId || params.ref || "OKP-782914"))
-      .replace(/\[DYNAMIC RESPONSE\]/gi, params.response || params.utterance || (isTwi ? "wo nkaebɔ" : "your response"))
-      .replace(/\{NAME\}/gi, params.name || params.recipientName || (isTwi ? "obi a woremane no sika" : "the recipient"))
-      .replace(/\{PHONE\}/gi, formatFullPhoneNumberForSpeech(params.phone || params.recipientPhone || "0543546010", lang))
-      .replace(/\{AMOUNT\}/gi, String(params.amount || (isTwi ? "Ghana Cedis aduonum" : "fifty Ghana Cedis")))
-      .replace(/\{REF\}/gi, formatRefForSpeech(params.referenceId || params.ref || "OKP-782914"))
-      .replace(/\{RESPONSE\}/gi, params.response || params.utterance || (isTwi ? "wo nkaebɔ" : "your response"));
+      .replace(/\[DYNAMIC NAME\]/gi, params.name || params.recipientName || "")
+      .replace(/\[ALL TEN DIGITS\]/gi, params.phone || params.recipientPhone ? formatFullPhoneNumberForSpeech(params.phone || params.recipientPhone || "", lang) : "")
+      .replace(/\[DYNAMIC AMOUNT\]/gi, params.amount === undefined ? "" : String(params.amount))
+      .replace(/\[DYNAMIC REFERENCE\]/gi, params.referenceId || params.ref ? formatRefForSpeech(params.referenceId || params.ref || "") : "")
+      .replace(/\[DYNAMIC RESPONSE\]/gi, params.response || params.utterance || "")
+      .replace(/\{NAME\}/gi, params.name || params.recipientName || "")
+      .replace(/\{PHONE\}/gi, params.phone || params.recipientPhone ? formatFullPhoneNumberForSpeech(params.phone || params.recipientPhone || "", lang) : "")
+      .replace(/\{AMOUNT\}/gi, params.amount === undefined ? "" : String(params.amount))
+      .replace(/\{REF\}/gi, params.referenceId || params.ref ? formatRefForSpeech(params.referenceId || params.ref || "") : "")
+      .replace(/\{RESPONSE\}/gi, params.response || params.utterance || "");
   }
 
   return text;
@@ -333,6 +339,7 @@ export function resolveCanonicalAudioUrl(
     if (params.name || params.recipientName) q.set("name", params.name || params.recipientName || "");
     if (params.phone || params.recipientPhone) q.set("phone", params.phone || params.recipientPhone || "");
     if (params.amount !== undefined) q.set("amount", String(params.amount));
+    if (params.network) q.set("network", params.network);
     if (params.referenceId || params.ref) q.set("referenceId", params.referenceId || params.ref || "");
     if (params.response || params.utterance) q.set("response", params.response || params.utterance || "");
 
@@ -360,9 +367,8 @@ export function resolveCanonicalAudioUrl(
     };
   }
 
-  const encodedText = encodeURIComponent(spokenText);
   return {
-    url: `${cleanBase}/api/audio/prompt-tts/${lang}/${normId}?text=${encodedText}`,
+    url: `${cleanBase}/api/audio/prompt-tts/${lang}/${normId}`,
     mode: "DYNAMIC_TTS",
     promptId: normId,
     state,

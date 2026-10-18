@@ -7,7 +7,16 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
   const sessionId = `test_session_${Date.now()}`;
   const testCallerNumber = "+233543546010";
 
-  it("1. Welcome plays once at session start and directs to language selection", async () => {
+  it("serves the three English Library candidates from their registered paths", async () => {
+    for (const filename of ["2.m4a", "3.m4a", "4.m4a"]) {
+      const response = await request(app).get(`/audio/English_Library/${filename}`);
+      expect(response.status).toBe(200);
+      expect(response.headers["content-type"]).toMatch(/audio\/mp4/);
+      expect(response.body.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("1. OP01 plays once with language choices and directs to the selector", async () => {
     const res = await request(app)
       .post("/voice-menu")
       .send({
@@ -225,13 +234,20 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
       .send({ dtmfDigits: "50#" });
 
     expect(resAmount.status).toBe(200);
-    expect(resAmount.text).toContain("/safe-confirmation");
+    expect(resAmount.text).toContain("/amount-readback-choice");
 
     const session = transactionStateMachine.getSession(sessionId);
     expect(session?.state).toBe("AMOUNT_ENTERED");
     expect(session?.amount).toBe(50);
 
-    // Fetch safe-confirmation
+    // Accept the amount before final transaction confirmation.
+    const resAmountAccepted = await request(app)
+      .post(`/amount-readback-choice?sessionId=${sessionId}&lang=en`)
+      .send({ dtmfDigits: "1" });
+    expect(resAmountAccepted.status).toBe(200);
+    expect(resAmountAccepted.text).toContain("/safe-confirmation");
+
+    // Fetch safe-confirmation after amount acceptance.
     const resSafe = await request(app)
       .get(`/safe-confirmation?sessionId=${sessionId}&lang=en`);
 

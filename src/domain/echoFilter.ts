@@ -206,6 +206,7 @@ export function isAcousticSystemEcho(
   if (normalizedTranscript.length < 1) return false;
 
   const normalizedPrompt = activeAssistantPrompt ? normalizeTextForComparison(activeAssistantPrompt) : "";
+  if (isStandaloneCallerIntent(normalizedTranscript)) return false;
 
   // Preserve atomic caller answers (digits, choices, confirmations) even during barge-in.
   if (isStandaloneCallerIntent(normalizedTranscript)) {

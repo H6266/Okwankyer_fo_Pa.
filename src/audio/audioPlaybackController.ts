@@ -12,7 +12,8 @@
  * 8. Zero browser speechSynthesis or other browser TTS.
  */
 
-import { matchReplyToAudio } from "./replyAudioMatcher";
+import { getVerifiedRecordingBySpokenText, getRecordingByPromptId, getRecordingByPromptKey } from "./recordingRegistry";
+import { audioFlowStore, MONEY_TRANSFER_FLOW_STEPS } from "./audioFlowStore";
 
 export type PlaybackSourceType = "STUDIO_PROMPT" | "SYNTHESIZED_TTS" | "REMOTE_URL";
 
@@ -39,14 +40,15 @@ export interface PlayOptions {
   onError?: (err: any) => void;
   skipStudioMatch?: boolean;
   language?: string;
+  promptId?: string;
+  sourceType?: PlaybackSourceType;
+  provider?: string;
 }
 
 type StateListener = (state: PlaybackState) => void;
 
 /**
  * Checks whether the current browser environment supports native playback of MPEG-4 AAC (.m4a).
- * If the browser lacks AAC support (or is in a sandboxed iframe without codecs), returns false
- * so the playback controller immediately routes to universal MP3.
  */
 export function canBrowserPlayM4a(): boolean {
   if (typeof document === "undefined" || typeof Audio === "undefined") return true;
@@ -61,15 +63,17 @@ export function canBrowserPlayM4a(): boolean {
 
 export function resolveSafePlayableUrl(url: string): string {
   if (!url) return url;
-  // Always use universally compatible .mp3 for both .m4a and .aac files
-  // so every browser, iframe, and telephony server plays audio with 0 errors
-  return url.replace(/\.(m4a|aac)$/i, ".mp3");
+  try {
+    const decoded = decodeURI(url);
+    return encodeURI(decoded);
+  } catch {
+    return url;
+  }
 }
 
 export class AudioPlaybackController {
-  private playbackVolume: number = 1.0;
-  private volumeMultiplier: number = 1.0; // Crystal-clear, unclipped master volume (100% natural studio fidelity)
   private audioElement: HTMLAudioElement | null = null;
+  private mediaElementSource: MediaElementAudioSourceNode | null = null;
   private currentToken: number = 0;
   private state: PlaybackState = {
     isPlaying: false,
@@ -85,6 +89,8 @@ export class AudioPlaybackController {
 
   private audioContext: AudioContext | null = null;
   private masterGainNode: GainNode | null = null;
+  private volumeMultiplier: number = 2.0; // High volume boost with dynamics compression for accessibility
+  private playbackVolume: number = 1.0;
   private compressorNode: DynamicsCompressorNode | null = null;
 
   constructor() {
@@ -94,14 +100,16 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Sets custom audio amplification multiplier (1.0 = clear studio default)
+   * Sets the master volume multiplier with clean limiter protection.
    */
   public setVolumeMultiplier(multiplier: number): void {
-    this.volumeMultiplier = Math.max(0.5, Math.min(2.0, multiplier));
+    this.volumeMultiplier = Math.max(0.5, Math.min(3.0, multiplier));
     if (this.masterGainNode && this.audioContext) {
       try {
         this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
-      } catch {}
+        } catch (error) {
+          console.warn("[AudioController] Could not update the audio gain.", error);
+        }
     }
   }
 
@@ -110,7 +118,7 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Configures Web Audio signal chain for synthesized tones and DTMF beeps
+   * Configures the Web Audio signal chain with high-clarity speech compression and volume boost.
    */
   private setupAudioGraph(): void {
     if (typeof window === "undefined") return;
@@ -120,9 +128,18 @@ export class AudioPlaybackController {
         this.audioContext = new AudioCtx();
       }
       if (this.audioContext && !this.masterGainNode) {
+        this.compressorNode = this.audioContext.createDynamicsCompressor();
+        this.compressorNode.threshold.setValueAtTime(-18, this.audioContext.currentTime);
+        this.compressorNode.knee.setValueAtTime(6, this.audioContext.currentTime);
+        this.compressorNode.ratio.setValueAtTime(4, this.audioContext.currentTime);
+        this.compressorNode.attack.setValueAtTime(0.003, this.audioContext.currentTime);
+        this.compressorNode.release.setValueAtTime(0.2, this.audioContext.currentTime);
+
         this.masterGainNode = this.audioContext.createGain();
         this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
-        this.masterGainNode.connect(this.audioContext.destination);
+
+        this.masterGainNode.connect(this.compressorNode);
+        this.compressorNode.connect(this.audioContext.destination);
       }
     } catch (err) {
       console.warn("[AudioController] Audio graph setup notice:", err);
@@ -144,7 +161,9 @@ export class AudioPlaybackController {
     try {
       this.setupAudioGraph();
       if (this.audioContext && this.audioContext.state === "suspended") {
-        this.audioContext.resume().catch(() => {});
+        this.audioContext.resume().catch((error) => {
+          console.warn("[AudioController] Could not resume the audio context.", error);
+        });
       }
       // Play silent 1-sample buffer to unlock AudioContext permanently in iframes
       if (this.audioContext) {
@@ -154,27 +173,14 @@ export class AudioPlaybackController {
           silentSource.buffer = silentBuffer;
           silentSource.connect(this.masterGainNode || this.audioContext.destination);
           silentSource.start(0);
-        } catch {}
-      }
-      if (!this.audioElement) {
-        this.initAudioElement();
-      }
-      if (this.audioElement) {
-        // Unlock HTML5 media element within the synchronous click gesture
-        this.audioElement.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
-        const playPromise = this.audioElement.play();
-        if (playPromise !== undefined) {
-          playPromise
-            .then(() => {
-              if (this.audioElement && !this.state.isPlaying) {
-                this.audioElement.pause();
-                this.audioElement.currentTime = 0;
-              }
-            })
-            .catch(() => {});
+        } catch (error) {
+          console.warn("[AudioController] Could not unlock the audio context.", error);
         }
       }
-    } catch {}
+      this.initAudioElement();
+    } catch (error) {
+      console.warn("[AudioController] Could not unlock audio playback.", error);
+    }
   }
 
   /**
@@ -223,154 +229,112 @@ export class AudioPlaybackController {
       osc2.start(now);
       osc1.stop(now + durationMs / 1000);
       osc2.stop(now + durationMs / 1000);
-    } catch {}
+    } catch (error) {
+      console.warn("[AudioController] Could not play the keypad tone.", error);
+    }
   }
 
   /**
-   * Generates a gentle dual-frequency IVR guidance tone indicator using Web Audio API.
-   * Frequency: 523.25Hz (C5) / 659.25Hz (E5) smooth sine envelope (~350ms).
-   * Emitted as an acoustic notification whenever a specific prompt recording is unavailable,
-   * enabling the IVR session to advance without freezing.
-   */
-  public playToneIndicator(durationMs: number = 350): Promise<void> {
-    if (typeof window === "undefined") return Promise.resolve();
-    return new Promise((resolve) => {
-      try {
-        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-        if (!AudioCtx) {
-          setTimeout(resolve, durationMs);
-          return;
-        }
-        if (!this.audioContext) {
-          this.audioContext = new AudioCtx();
-        }
-        if (this.audioContext.state === "suspended") {
-          this.audioContext.resume().catch(() => {});
-        }
-        const now = this.audioContext.currentTime;
-        const osc1 = this.audioContext.createOscillator();
-        const osc2 = this.audioContext.createOscillator();
-        const gain = this.audioContext.createGain();
-
-        osc1.type = "sine";
-        osc2.type = "sine";
-        osc1.frequency.setValueAtTime(523.25, now);
-        osc2.frequency.setValueAtTime(659.25, now);
-
-        gain.gain.setValueAtTime(0.001, now);
-        gain.gain.exponentialRampToValueAtTime(0.24, now + 0.04);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + durationMs / 1000);
-
-        osc1.connect(gain);
-        osc2.connect(gain);
-        gain.connect(this.masterGainNode || this.audioContext.destination);
-
-        osc1.start(now);
-        osc2.start(now);
-        osc1.stop(now + durationMs / 1000);
-        osc2.stop(now + durationMs / 1000);
-
-        setTimeout(resolve, durationMs + 20);
-      } catch {
-        setTimeout(resolve, durationMs);
-      }
-    });
-  }
-
-  /**
-   * Prioritizes ready Akan Twi studio audio recordings via matchReplyToAudio & keyword matcher.
-   * Absolutely zero synthetic TTS after user input: never invokes browser SpeechSynthesis or robotic TTS.
+   * Uses an exact approved recording when available, otherwise requests real server-side synthesis.
    */
   public async speakText(text: string, options?: PlayOptions): Promise<boolean> {
     if (!text || !text.trim()) return false;
-    const token = ++this.currentToken;
     const cleanText = text.trim();
-
-    // 1. High-priority match to native studio audio recording (Akan Twi ready files)
+    const inferredTwi = /[ɛɔƐƆ]/.test(cleanText)
+      || /\b(akwaaba|yɛsrɛ|wopɛ|sika|mia|nɔmba|fon|ne din|womane|ɔha|aduonu|baako|mmienu)\b/i.test(cleanText);
+    const language = options?.language === "twi" || options?.language === "tw" || options?.language === "ak"
+      ? "twi"
+      : options?.language === "en"
+        ? "en"
+        : inferredTwi ? "twi" : "en";
+    const promptId = options?.promptId || "unknown";
+    let exactRecording = null;
     if (!options?.skipStudioMatch) {
-      try {
-        const match = matchReplyToAudio(cleanText, "twi", { minConfidence: 0.30 });
-        if (match.match && match.audioUrl) {
-          return this.play(match.audioUrl, {
-            ...options,
-            onStart: () => {
-              this.setState({ activeText: cleanText });
-              options?.onStart?.();
-            },
-            onEnd: options?.onEnd,
-            onError: options?.onError,
-          });
+      if (promptId && promptId !== "unknown") {
+        exactRecording = getRecordingByPromptId(promptId, language)
+          || getRecordingByPromptKey(promptId, language);
+        if (!exactRecording) {
+          const stepMatch = MONEY_TRANSFER_FLOW_STEPS.find(
+            (s) => s.promptId.toUpperCase() === promptId.toUpperCase()
+          );
+          if (stepMatch) {
+            const stepUrl = audioFlowStore.resolveStepAudio(stepMatch, language);
+            if (stepUrl && !stepUrl.includes("/prompt-tts/")) {
+              exactRecording = { url: stepUrl, id: promptId } as any;
+            }
+          }
         }
-      } catch (matchErr) {
-        console.warn("[AudioController] Studio audio matching notice:", matchErr);
       }
-
-      // 2. Intelligent keyword match to authentic Akan Twi studio recordings
-      const lower = cleanText.toLowerCase();
-      let fallbackStudioUrl: string | null = null;
-      if (lower.includes("sika") && (lower.includes("dodow") || lower.includes("amount") || lower.includes("cedis") || lower.includes("bɔ"))) {
-        fallbackStudioUrl = "/audio/Twi_library/Enter amount.m4a";
-      } else if (lower.includes("nɔmba") || lower.includes("fon") || lower.includes("recipient") || lower.includes("phone")) {
-        fallbackStudioUrl = "/audio/Twi_library/Enter_recipient.m4a";
-      } else if (lower.includes("pene") || lower.includes("confirm") || lower.includes("approval") || lower.includes("review") || lower.includes("aane")) {
-        fallbackStudioUrl = "/audio/Twi_library/Review transaction.m4a";
-      } else if (lower.includes("pin") || lower.includes("handoff") || lower.includes("ahobammɔ")) {
-        fallbackStudioUrl = "/audio/Twi_library/Pin Block.m4a";
-      } else if (lower.includes("balance") || lower.includes("star") || lower.includes("170")) {
-        fallbackStudioUrl = "/audio/Twi_library/Balance_Unavailable.m4a";
-      } else if (lower.includes("mane") || lower.includes("send")) {
-        fallbackStudioUrl = "/audio/Twi_library/Send_money_selected.m4a";
-      } else if (lower.includes("paw") || lower.includes("menyu") || lower.includes("menu")) {
-        fallbackStudioUrl = "/audio/Twi_library/MTN menu.mp3";
-      } else if (lower.includes("twa") || lower.includes("cancel") || lower.includes("dabi")) {
-        fallbackStudioUrl = "/audio/Twi_library/Cancel.m4a";
-      } else if (lower.includes("wie") || lower.includes("success") || lower.includes("medaase") || lower.includes("nante yie")) {
-        fallbackStudioUrl = "/audio/Twi_library/Finish.m4a";
-      }
-
-      if (fallbackStudioUrl) {
-        return this.play(fallbackStudioUrl, {
-          ...options,
-          onStart: () => {
-            this.setState({ activeText: cleanText });
-            options?.onStart?.();
-          },
-          onEnd: options?.onEnd,
-          onError: options?.onError,
-        });
+      if (!exactRecording) {
+        exactRecording = getVerifiedRecordingBySpokenText(cleanText, language)
+          || getRecordingByPromptKey(cleanText, language);
       }
     }
-
-    // 3. Pre-recorded Processing audio fallback (No TTS API dependency)
-    const processingUrl = "/audio/Processing.mp3";
-    return this.play(processingUrl, {
-      ...options,
-      onStart: () => {
-        this.setState({ activeText: cleanText });
-        options?.onStart?.();
-      },
-      onEnd: options?.onEnd,
-      onError: options?.onError,
-    });
-
-    // 4. Acoustic guidance tone indicator as clear fail-safe (Zero robotic SpeechSynthesis interference)
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      try {
-        window.speechSynthesis.cancel();
-      } catch {}
+    if (exactRecording?.url) {
+      return this.play(exactRecording.url, {
+        ...options,
+        language,
+        promptId,
+        sourceType: "STUDIO_PROMPT",
+        provider: "verified studio recording",
+        onStart: () => {
+          this.setState({ activeText: cleanText });
+          options?.onStart?.();
+        },
+      });
     }
 
+    const endpoint = "/api/audio/synthesize";
+    this.stop();
+    const token = ++this.currentToken;
+    this.setState({ isPlaying: true, activeClip: endpoint, activeText: cleanText, token });
     try {
-      await this.playToneIndicator(300);
+      options?.onStart?.();
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "audio/wav, audio/mpeg, audio/mp4" },
+        body: JSON.stringify({ text: cleanText, language, promptId }),
+        signal: AbortSignal.timeout(25_000),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText || "speech synthesis failed"}`);
+      }
+      const mimeType = response.headers.get("content-type")?.split(";")[0].trim().toLowerCase();
+      if (!mimeType || !["audio/wav", "audio/mpeg"].includes(mimeType)) {
+        throw new Error(`Unexpected synthesized audio MIME type: ${mimeType || "missing"}`);
+      }
+      const audioBlob = await response.blob();
+      if (audioBlob.size < 44) throw new Error("Synthesized audio response is empty or incomplete.");
+      if (this.currentToken !== token) return false;
+
+      const objectUrl = URL.createObjectURL(audioBlob);
+      try {
+        return await this.play(objectUrl, {
+          ...options,
+          language,
+          sourceType: "SYNTHESIZED_TTS",
+          provider: response.headers.get("x-audio-provider") || "server TTS router",
+          onStart: undefined,
+        });
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
+    } catch (error) {
+      const actualError = error instanceof Error ? error : new Error(String(error));
       if (this.currentToken === token) {
         this.setState({ isPlaying: false, activeClip: null, activeText: null, token });
-        options?.onEnd?.();
-        return true;
       }
-    } catch {}
-
-    this.setState({ isPlaying: false, activeClip: null, activeText: null, token });
-    return false;
+      console.error("[AudioController] Speech request failed.", {
+        promptId,
+        language,
+        sourceType: "SYNTHESIZED_TTS",
+        url: endpoint,
+        provider: "server TTS router",
+        error: actualError,
+      });
+      options?.onError?.(actualError);
+      return false;
+    }
   }
 
   /**
@@ -387,7 +351,9 @@ export class AudioPlaybackController {
           audio.preload = "auto";
           audio.src = clean;
           this.preloadElements.set(clean, audio);
-        } catch {}
+        } catch (error) {
+          console.warn("[AudioController] Could not preload the audio element.", error);
+        }
       }
       if (!this.audioBufferCache.has(clean) && this.audioContext) {
         fetch(clean)
@@ -469,7 +435,9 @@ export class AudioPlaybackController {
         this.activeBufferSource.onended = null;
         this.activeBufferSource.stop();
         this.activeBufferSource.disconnect();
-      } catch {}
+      } catch (error) {
+        console.debug("[AudioController] Audio buffer source was already stopped.", error);
+      }
       this.activeBufferSource = null;
     }
 
@@ -479,13 +447,17 @@ export class AudioPlaybackController {
         this.audioElement.onerror = null;
         this.audioElement.pause();
         this.audioElement.currentTime = 0;
-      } catch {}
+      } catch (error) {
+        console.debug("[AudioController] Audio element was already stopped.", error);
+      }
     }
 
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       try {
         window.speechSynthesis.cancel();
-      } catch {}
+      } catch (error) {
+        console.warn("[AudioController] Could not cancel speech synthesis.", error);
+      }
     }
 
     if (this.activeResolver) {
@@ -525,18 +497,9 @@ export class AudioPlaybackController {
 
       let buffer = this.audioBufferCache.get(url);
       if (!buffer) {
-        let res = await fetch(url).catch(() => null);
-        if (!res?.ok && url.endsWith(".mp3")) {
-          // If transcode not yet in cache, fetch source format (.m4a or .aac)
-          const m4a = url.replace(/\.mp3$/i, ".m4a");
-          const aac = url.replace(/\.mp3$/i, ".aac");
-          res = await fetch(m4a).catch(() => null);
-          if (!res?.ok) {
-            res = await fetch(aac).catch(() => null);
-          }
-        }
-        if (!res?.ok) return false;
-        const ab = await res.arrayBuffer();
+        const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+        if (!response.ok) return false;
+        const ab = await response.arrayBuffer();
         buffer = await this.audioContext.decodeAudioData(ab);
         if (buffer) {
           this.audioBufferCache.set(url, buffer);
@@ -551,11 +514,26 @@ export class AudioPlaybackController {
       this.activeBufferSource = source;
 
       return new Promise<boolean>((resolve) => {
+        const timeout = setTimeout(() => {
+          if (this.currentToken !== token) return;
+          try {
+            source.stop();
+          } catch (error) {
+            console.debug("[AudioController] Timed-out audio source was already stopped.", error);
+          }
+          this.activeBufferSource = null;
+          this.activeResolver = null;
+          options?.onError?.(new Error("Audio playback timed out."));
+          this.setState({ isPlaying: false, activeClip: null, activeText: null, token });
+          resolve(false);
+        }, 60_000);
         this.activeResolver = () => {
+          clearTimeout(timeout);
           resolve(false);
         };
         source.onended = () => {
           if (this.currentToken !== token) return;
+          clearTimeout(timeout);
           this.activeBufferSource = null;
           this.activeResolver = null;
           if (!options?.keepPlayingOnEnd) {
@@ -630,9 +608,6 @@ export class AudioPlaybackController {
         activeText: promptText,
         token,
       });
-      if (promptText && promptText.trim()) {
-        return this.speakText(promptText, options);
-      }
       return Promise.resolve(false);
     }
 
@@ -656,62 +631,61 @@ export class AudioPlaybackController {
     const audio = this.initAudioElement();
     if (!audio) {
       const ok = await this.playViaWebAudio(url, token, options);
-      if (ok) return true;
-      if (promptText && promptText.trim()) {
-        return this.speakText(promptText, options);
-      }
-      return false;
+      return ok;
     }
 
     audio.volume = this.playbackVolume;
 
     return new Promise<boolean>((resolve) => {
-      this.activeResolver = () => {
-        resolve(false);
+      let settled = false;
+      const settle = (played: boolean, error?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        audio.onended = null;
+        audio.onerror = null;
+        if (this.activeResolver === cancelPlayback) this.activeResolver = null;
+        if (this.currentToken === token) {
+          this.setState({
+            isPlaying: false,
+            activeClip: null,
+            activeText: null,
+            token,
+          });
+        }
+        if (error) options?.onError?.(error);
+        if (error) {
+          console.error("[AudioController] Audio playback failed.", {
+            promptId: options?.promptId || "unknown",
+            language: options?.language || "unknown",
+            sourceType: options?.sourceType || "REMOTE_URL",
+            url: url.replace(/[?#].*$/, ""),
+            provider: options?.provider || "recording server",
+            error,
+          });
+        }
+        if (played) options?.onEnd?.();
+        resolve(played);
       };
+      const cancelPlayback = () => settle(false);
+      const timeout = setTimeout(() => settle(false, new Error("Audio playback timed out.")), 60_000);
+      this.activeResolver = cancelPlayback;
 
       const handleEnded = () => {
         if (this.currentToken !== token) return;
-        this.activeResolver = null;
-        this.setState({
-          isPlaying: false,
-          activeClip: null,
-          activeText: null,
-          token,
-        });
-        options?.onEnd?.();
-        resolve(true);
-      };
-
-      const fallbackToText = () => {
-        this.activeResolver = null;
-        if (promptText && promptText.trim()) {
-          this.speakText(promptText, options).then(resolve);
-          return;
-        }
-        this.setState({
-          isPlaying: false,
-          activeClip: null,
-          activeText: null,
-          token,
-        });
-        resolve(false);
+        settle(true);
       };
 
       const tryWebAudioFallback = async () => {
         const ok = await this.playViaWebAudio(url, token, options);
-        if (ok) {
-          resolve(true);
-        } else {
-          fallbackToText();
-        }
+        settle(ok, ok ? undefined : new Error("Audio could not be decoded or played."));
       };
 
       audio.onended = handleEnded;
 
       audio.onerror = () => {
         if (this.currentToken !== token) return;
-        tryWebAudioFallback();
+        void tryWebAudioFallback();
       };
 
       try {
@@ -721,17 +695,18 @@ export class AudioPlaybackController {
         const playPromise = audio.play();
         if (playPromise !== undefined) {
           playPromise.catch((err: any) => {
-            if (err?.name === "AbortError" || err?.message?.includes("interrupted")) {
-              return;
-            }
             if (this.currentToken === token) {
-              tryWebAudioFallback();
+              if (err?.name === "AbortError" || err?.message?.includes("interrupted")) {
+                settle(false, new Error("Audio playback was interrupted."));
+              } else {
+                void tryWebAudioFallback();
+              }
             }
           });
         }
-      } catch {
+      } catch (error) {
         if (this.currentToken === token) {
-          tryWebAudioFallback();
+          void tryWebAudioFallback().catch(() => settle(false, error instanceof Error ? error : new Error(String(error))));
         }
       }
     });
@@ -743,99 +718,15 @@ export class AudioPlaybackController {
    */
   public async playSequence(urls: string[], promptText?: string): Promise<boolean> {
     this.stop();
-    const sequenceToken = ++this.currentToken;
-    const safeUrls = urls
-      .filter(Boolean)
-      .map((u) => resolveSafePlayableUrl(u.replace(/^https?:\/\/[^/]+(\/audio\/.*)$/i, "$1")));
+    const safeUrls = urls.filter(Boolean).map((url) => resolveSafePlayableUrl(url));
+    if (safeUrls.length === 0) return false;
 
-    this.setState({
-      isPlaying: true,
-      activeClip: safeUrls[0] || null,
-      activeText: promptText || null,
-      token: sequenceToken,
-    });
-
-    for (let i = 0; i < safeUrls.length; i++) {
-      const url = safeUrls[i];
-      if (this.currentToken !== sequenceToken) {
-        return false;
-      }
-
-      this.setState({
-        isPlaying: true,
-        activeClip: url,
-        activeText: promptText || this.state.activeText,
-        token: sequenceToken,
-      });
-
-      const isLast = i === safeUrls.length - 1;
-      const ended = await (async () => {
-        if (this.audioContext && this.audioBufferCache.has(url)) {
-          return this.playViaWebAudio(url, sequenceToken, { keepPlayingOnEnd: !isLast });
-        }
-
-        const audio = this.initAudioElement();
-        if (!audio) {
-          return this.playViaWebAudio(url, sequenceToken, { keepPlayingOnEnd: !isLast });
-        }
-
-        audio.volume = this.playbackVolume;
-
-        return new Promise<boolean>((resolve) => {
-          this.activeResolver = () => resolve(false);
-
-          audio.onended = () => {
-            if (this.currentToken !== sequenceToken) return;
-            this.activeResolver = null;
-            resolve(true);
-          };
-
-          audio.onerror = () => {
-            if (this.currentToken !== sequenceToken) return;
-            this.playViaWebAudio(url, sequenceToken, { keepPlayingOnEnd: !isLast }).then(resolve);
-          };
-
-          audio.src = url;
-          audio.currentTime = 0;
-          const p = audio.play();
-          if (p !== undefined) {
-            p.catch((err: any) => {
-              if (err?.name === "AbortError" || err?.message?.includes("interrupted")) {
-                if (this.currentToken === sequenceToken) {
-                  this.playViaWebAudio(url, sequenceToken, { keepPlayingOnEnd: !isLast }).then(resolve);
-                } else {
-                  resolve(false);
-                }
-                return;
-              }
-              if (this.currentToken !== sequenceToken) {
-                resolve(false);
-                return;
-              }
-              this.playViaWebAudio(url, sequenceToken, { keepPlayingOnEnd: !isLast }).then(resolve);
-            });
-          }
-        });
-      })();
-
-      if (!ended && this.currentToken !== sequenceToken) {
-        return false;
-      }
+    for (const url of safeUrls) {
+      const played = await this.play(url, promptText || undefined);
+      if (!played) return false;
     }
-
-    if (this.currentToken === sequenceToken) {
-      this.setState({
-        isPlaying: false,
-        activeClip: null,
-        activeText: null,
-        token: sequenceToken,
-      });
-      return true;
-    }
-    return false;
+    return true;
   }
 }
 
 export const audioPlaybackController = new AudioPlaybackController();
-
-

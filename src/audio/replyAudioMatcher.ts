@@ -1,4 +1,4 @@
-import { AUDIO_RECORDINGS, AudioRecording, normalizeRecordingLanguage, getPromptManifestEntry } from "./recordingRegistry";
+import { AUDIO_RECORDINGS, AudioRecording, normalizeRecordingLanguage, getPromptManifestEntry, getRecordingByUrl } from "./recordingRegistry";
 import { TWI_SEQUENTIAL_FLOW_STEPS, FlowStepDefinition } from "./twiSequentialAudioFlow";
 
 function getNodeModules() {
@@ -56,27 +56,12 @@ function resolveDiskPath(audioUrlOrRelative: string, _assetRoot: "supplied" | "p
     if (safe && fs.existsSync(safe) && !fs.statSync(safe).isDirectory()) {
       return safe;
     }
-  } catch {}
-
-  const clean = audioUrlOrRelative.replace(/^\/audio\//, "").replace(/^\/+/, "");
-  const decoded = decodeURIComponent(clean);
-
-  const candidates = [
-    path.resolve(process.cwd(), "Audio_files", decoded),
-    path.resolve(process.cwd(), "Audio_files", "Twi", decoded),
-    path.resolve(process.cwd(), "Audio_files", "Twi_library", decoded),
-    path.resolve(process.cwd(), "Audio_files", "Twi_library", path.basename(decoded)),
-    path.resolve(process.cwd(), "public", "audio", decoded),
-    path.resolve(process.cwd(), "audio", decoded),
-    path.resolve(process.cwd(), "Audio_files", path.basename(decoded)),
-  ];
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate) && !fs.statSync(candidate).isDirectory()) {
-      return candidate;
-    }
+  } catch (error) {
+    console.error("[ReplyAudioMatcher] Audio path resolution failed.", {
+      url: audioUrlOrRelative.split("?")[0],
+      error,
+    });
   }
-
   return null;
 }
 
@@ -307,6 +292,8 @@ export function matchReplyToAudio(
   // The sequential flow contains Twi recordings only.
   for (const step of isTwi ? TWI_SEQUENTIAL_FLOW_STEPS : []) {
     if (!step.audioUrl) continue;
+    const flowRecording = getRecordingByUrl(step.audioUrl, wantedLanguage || undefined);
+    if (!flowRecording?.audioVerified) continue;
     const targetScript = isTwi ? step.spokenTextTwi : step.spokenTextEn;
     const aliases = STEP_ALIASES[step.id] || [];
 
