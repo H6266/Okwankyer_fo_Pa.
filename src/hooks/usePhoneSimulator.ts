@@ -1410,7 +1410,7 @@ export function usePhoneSimulator() {
 
     if (!isTwi) {
       if ((step?.includes("welcome") || text?.toLowerCase().includes("welcome")) && !hasDynamicEntities) {
-        return "/audio/Welcome_prompt_01.mp3";
+        return "/audio/welcome_en.mp3";
       }
       return null;
     }
@@ -1430,7 +1430,9 @@ export function usePhoneSimulator() {
     const currentCheck = (step || "").toLowerCase();
 
     let key: string | null = null;
-    if (currentCheck.includes("service") || lower.includes("service selection") || lower.includes("paw dwumadie")) {
+    if (currentCheck.includes("welcome") || currentCheck.includes("language") || lower.includes("akwaaba") || lower.includes("welcome")) {
+      key = "welcome";
+    } else if (currentCheck.includes("service") || lower.includes("service selection") || lower.includes("paw dwumadie")) {
       key = "service_select";
     } else if (currentCheck.includes("network") || currentCheck.includes("provider") || lower.includes("paw wo network")) {
       key = "provider_select";
@@ -1442,8 +1444,12 @@ export function usePhoneSimulator() {
       key = "repeat";
     } else if (lower.includes("help") || lower.includes("mboa")) {
       key = "help";
-    } else if (currentCheck.includes("welcome") || currentCheck.includes("language") || lower.includes("akwaaba")) {
-      key = "welcome";
+    }
+
+    if (key === "welcome") {
+      return isTwi
+        ? "/audio/Twi_library/Opening_voice_welcome_to_okwankyerefopa.mp3"
+        : "/audio/welcome_en.mp3";
     }
 
     return key ? getRecordingByPromptKey(key)?.url || null : null;

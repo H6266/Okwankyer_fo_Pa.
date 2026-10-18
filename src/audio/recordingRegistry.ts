@@ -1,6 +1,3 @@
-import fs from "fs";
-import path from "path";
-import audioTranscripts from "../../audio_transcripts.json";
 import { TWI_AUDIO_LIBRARY_ITEMS, TwiLibraryItem } from "./twiLibraryManifest";
 
 export type RecordingLanguage = "en" | "twi" | "unresolved";
@@ -43,7 +40,6 @@ export interface AudioRecording {
   audioVerified: boolean;
 }
 
-const transcriptLookup = audioTranscripts as Record<string, { verbatim?: string; language?: string; step?: string; options?: unknown }>;
 
 // ── Canonical Prompt Definitions (OP01-OP94 & OP52b) ─────────────────────────
 export const PROMPT_KEY_TO_RECORDING_ID: Readonly<Record<string, string>> = {
@@ -231,44 +227,6 @@ for (const item of TWI_AUDIO_LIBRARY_ITEMS) {
   });
 }
 
-// 2. English Public Audio Items
-for (const [pathKey, data] of Object.entries(transcriptLookup)) {
-  const relative = pathKey.replace(/^audio\//i, "");
-  const publicAudioRoot = path.resolve(process.cwd(), "public", "audio");
-  const publicAudioPath = path.resolve(publicAudioRoot, relative);
-  if (!publicAudioPath.startsWith(`${publicAudioRoot}${path.sep}`) || !fs.existsSync(publicAudioPath)) continue;
-  const mimeType = relative.endsWith(".mp3") ? "audio/mpeg" : "audio/mp4";
-  const baseName = relative.split("/").pop() || relative;
-  let promptId: string | null = null;
-  if (/welcome_prompt_01/i.test(baseName)) promptId = "OP01";
-  else if (/prompt_02/i.test(baseName)) promptId = "OP06";
-  else if (/prompt_03|prompt_04/i.test(baseName)) promptId = "OP07";
-  else if (/prompt_05/i.test(baseName)) promptId = "OP08";
-  else if (/prompt_06/i.test(baseName)) promptId = "OP18";
-  else if (/prompt_07/i.test(baseName)) promptId = "OP25";
-  else if (/prompt_08/i.test(baseName)) promptId = "OP34";
-  else if (/prompt_09/i.test(baseName)) promptId = "OP48";
-  else if (/prompt_10/i.test(baseName)) promptId = "OP53";
-
-  recordings.push({
-    id: `public:${relative}`,
-    promptId,
-    state: (data.step || "GENERAL").toUpperCase(),
-    category: data.step || "general",
-    context: data.verbatim || "",
-    language: "en",
-    title: baseName.replace(/\.[a-z0-9]+$/i, ""),
-    spokenText: data.verbatim || null,
-    relativePath: relative,
-    assetRoot: "public",
-    url: `/audio/${relative}`,
-    mimeType,
-    isAlternate: false,
-    recordingRole: "fixed",
-    mappingStatus: "VERIFIED",
-    audioVerified: false,
-  });
-}
 
 export const AUDIO_RECORDINGS: AudioRecording[] = recordings;
 

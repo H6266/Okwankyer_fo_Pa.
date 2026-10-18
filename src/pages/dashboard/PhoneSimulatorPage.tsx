@@ -179,10 +179,22 @@ function resolvePlayableSimulatorAudioUrl(
   audioUrl: string | null | undefined,
   language: "en" | "twi"
 ): string | null {
+  if (!audioUrl) return null;
+  const clean = audioUrl.trim();
+  if (clean.startsWith("/audio/") && !clean.includes("/prompt-tts/")) {
+    if (language === "en" && (clean.includes("/Twi_library/") || /\b(twi)\b/i.test(clean))) {
+      return null;
+    }
+    if (language === "twi" && (clean.includes("/English_Library/") || clean.endsWith("welcome_en.mp3"))) {
+      return null;
+    }
+    return clean.replace(/\.(m4a|aac)$/i, ".mp3");
+  }
+
   const suppliedUrl = resolveSimulatorAudioUrl(audioUrl, language);
   if (!suppliedUrl) return null;
 
-  return suppliedUrl.replace(/\.m4a$/i, ".mp3");
+  return suppliedUrl.replace(/\.(m4a|aac)$/i, ".mp3");
 }
 
 export const PhoneSimulatorPage: React.FC = () => {
@@ -207,6 +219,7 @@ export const PhoneSimulatorPage: React.FC = () => {
   const [isAudioSpeaking, setIsAudioSpeaking] = useState<boolean>(false);
   const [isAiReasoning, setIsAiReasoning] = useState<boolean>(false);
   const [reasoningSec, setReasoningSec] = useState<number>(0);
+  const [volumeMultiplier, setVolumeMultiplier] = useState<number>(2.4);
 
   // ── Cash-Out & Voice Withdrawal State ────────────────────────────────
   const [cashOutActive, setCashOutActive] = useState<boolean>(false);
@@ -320,6 +333,16 @@ export const PhoneSimulatorPage: React.FC = () => {
       window.removeEventListener("keydown", handleInitialUserGesture);
     };
   }, []);
+
+  useEffect(() => {
+    audioPlaybackController.setVolumeMultiplier(volumeMultiplier);
+  }, [volumeMultiplier]);
+
+  const handleSetVolume = useCallback((mult: number) => {
+    setVolumeMultiplier(mult);
+    audioPlaybackController.setVolumeMultiplier(mult);
+    addLog("audio", `🔊 Master voice volume set to ${mult.toFixed(1)}x (+${((mult - 1) * 5.4).toFixed(1)} dB boost)`);
+  }, [addLog]);
 
   // Helper to resolve callback URL if none set
   const getFallbackCallbackUrl = useCallback((stepName: string, sessId: string): string => {
@@ -783,6 +806,39 @@ export const PhoneSimulatorPage: React.FC = () => {
         if (autoAudio) {
           playbackUrl = resolvePlayableSimulatorAudioUrl(autoAudio, responseLanguage);
         }
+        if (!playbackUrl) {
+          if (stepName === "voice-menu" || stepName === "welcome" || stepName === "language-selection") {
+            playbackUrl = responseLanguage === "twi"
+              ? "/audio/Twi_library/Opening_voice_welcome_to_okwankyerefopa.mp3"
+              : "/audio/welcome_en.mp3";
+          } else if (stepName === "service-select" || stepName === "service-choice") {
+            playbackUrl = responseLanguage === "twi"
+              ? "/audio/Twi_library/Service_selection.mp3"
+              : "/audio/English_Library/2.mp3";
+          } else if (stepName === "provider-select" || stepName === "provider-choice") {
+            playbackUrl = responseLanguage === "twi"
+              ? "/audio/Twi_library/Network_selection.mp3"
+              : "/audio/English_Library/3.mp3";
+          } else if (stepName === "action-select" || stepName === "action-choice" || stepName === "mtn-menu") {
+            playbackUrl = "/audio/Twi_library/MTN menu.mp3";
+          } else if (stepName === "enter-recipient") {
+            playbackUrl = "/audio/Twi_library/Enter_recipient.mp3";
+          } else if (stepName === "verify-recipient" || stepName === "recipient-verify-choice") {
+            playbackUrl = "/audio/Twi_library/Recipient_verify.mp3";
+          } else if (stepName === "enter-amount") {
+            playbackUrl = "/audio/Twi_library/Enter amount.mp3";
+          } else if (stepName === "safe-confirmation" || stepName === "review-transaction") {
+            playbackUrl = "/audio/Twi_library/Review transaction.mp3";
+          } else if (stepName === "pin-handoff" || stepName === "authorize-phone") {
+            playbackUrl = responseLanguage === "twi"
+              ? "/audio/Twi_library/Authorize_phone.mp3"
+              : "/audio/English_Library/4.mp3";
+          } else if (stepName === "safe-outcome" || stepName === "success") {
+            playbackUrl = "/audio/Twi_library/Success_sent.mp3";
+          } else if (stepName === "post-success-choice") {
+            playbackUrl = "/audio/Twi_library/Keep_reference.mp3";
+          }
+        }
       }
 
       let matchSource: "studio" | "synthesis" | "matched-studio" = playbackUrl ? "studio" : "synthesis";
@@ -1017,8 +1073,13 @@ export const PhoneSimulatorPage: React.FC = () => {
     const initialWelcomeText = initialLang === "twi"
       ? "Akwaaba wɔ Ɔkwankyerɛfo Pa mu, wo nne akwankyerɛ a ɛma mobile services yɛ mmerɛw ma obiara."
       : "Welcome to Ɔkwankyerɛfo Pa, your accessible voice guide for mobile services.";
+    const initialWelcomeAudio = initialLang === "twi"
+      ? "/audio/Twi_library/Opening_voice_welcome_to_okwankyerefopa.mp3"
+      : "/audio/welcome_en.mp3";
+
     currentPromptRef.current = initialWelcomeText;
     setCurrentPrompt(initialWelcomeText);
+    setActivePlayUrl(initialWelcomeAudio);
 
     setSessionId(newSession);
     setInteractionMode("UNSELECTED");
@@ -1033,6 +1094,12 @@ export const PhoneSimulatorPage: React.FC = () => {
 
     addLog("system", `Call initiated. Session ID: ${newSession}`);
     addLog("state", "Connecting to phone simulator (/api/simulator/voice-menu)...");
+    addLog("audio", `🔊 Playing welcome audio: ${initialWelcomeAudio}`);
+
+    // Immediately play the authentic studio welcome recording
+    audioPlaybackController.play(initialWelcomeAudio, initialWelcomeText).catch((err) => {
+      console.warn("[PhoneSimulator] Immediate welcome audio play notice:", err);
+    });
 
     // Keep microphone OFF during initial welcome prompt playback; it will automatically turn ON when the prompt finishes playing
     setIsMicMuted(true);
@@ -2536,6 +2603,34 @@ export const PhoneSimulatorPage: React.FC = () => {
                     <RotateCcw className="w-3.5 h-3.5" />
                   </button>
                 )}
+              </div>
+
+              {/* Amplified Audio Volume Indicator & Booster */}
+              <div className="bg-slate-950/70 rounded-lg px-2.5 py-1.5 border border-slate-800/90 flex items-center justify-between text-[10px] mt-1.5">
+                <div className="flex items-center gap-1.5">
+                  <Volume2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span className="text-slate-300 font-medium">Amplified Volume:</span>
+                  <span className="font-mono text-amber-300 font-bold bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/40">
+                    {volumeMultiplier.toFixed(1)}x
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
+                  {[1.0, 1.8, 2.4, 3.0].map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => handleSetVolume(v)}
+                      className={`px-1.5 py-0.5 rounded font-mono text-[9px] border cursor-pointer transition-all ${
+                        Math.abs(volumeMultiplier - v) < 0.1
+                          ? "bg-amber-500 text-slate-950 font-bold border-amber-400 shadow-sm"
+                          : "bg-slate-900 text-slate-400 border-slate-700/80 hover:text-slate-200"
+                      }`}
+                      title={`Set voice volume to ${v}x`}
+                    >
+                      {v}x
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 

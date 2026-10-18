@@ -62,6 +62,9 @@ function playGuidanceTone(onComplete?: () => void): void {
 
 export function useAudioPlayer(onEnded?: () => void) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
+  const mediaSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const playbackIdRef = useRef<number>(0);
   const onEndedRef = useRef(onEnded);
   onEndedRef.current = onEnded;
@@ -190,8 +193,43 @@ export function useAudioPlayer(onEnded?: () => void) {
     }
 
     try {
-      const normalizedUrl =
+      let normalizedUrl =
         url.startsWith("http") || url.startsWith("/") || url.startsWith("data:") ? url : `/${url}`;
+      normalizedUrl = normalizedUrl.replace(/\.(m4a|aac)$/i, ".mp3");
+
+      if (typeof window !== "undefined") {
+        try {
+          const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+          if (!audioContextRef.current && AudioCtx) {
+            audioContextRef.current = new AudioCtx();
+          }
+          if (audioContextRef.current && audioContextRef.current.state === "suspended") {
+            audioContextRef.current.resume().catch(() => {});
+          }
+          if (audioContextRef.current && !gainNodeRef.current) {
+            const comp = audioContextRef.current.createDynamicsCompressor();
+            comp.threshold.setValueAtTime(-12, audioContextRef.current.currentTime);
+            comp.knee.setValueAtTime(30, audioContextRef.current.currentTime);
+            comp.ratio.setValueAtTime(12, audioContextRef.current.currentTime);
+
+            const gain = audioContextRef.current.createGain();
+            gain.gain.setValueAtTime(2.4, audioContextRef.current.currentTime); // 2.4x amplified volume
+
+            comp.connect(gain);
+            gain.connect(audioContextRef.current.destination);
+            gainNodeRef.current = gain;
+
+            if (audioRef.current && !mediaSourceRef.current) {
+              try {
+                mediaSourceRef.current = audioContextRef.current.createMediaElementSource(audioRef.current);
+                mediaSourceRef.current.connect(comp);
+              } catch {}
+            }
+          }
+        } catch (e) {
+          console.warn("[useAudioPlayer] Audio amplification setup notice:", e);
+        }
+      }
 
       audioRef.current.pause();
       audioRef.current.currentTime = 0;

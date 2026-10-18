@@ -68,8 +68,9 @@ export function resolveSafePlayableUrl(url: string): string {
 
 export class AudioPlaybackController {
   private playbackVolume: number = 1.0;
-  private volumeMultiplier: number = 1.0; // Crystal-clear, unclipped master volume (100% natural studio fidelity)
+  private volumeMultiplier: number = 2.4; // High-gain amplified volume (+7.6dB boost with compression)
   private audioElement: HTMLAudioElement | null = null;
+  private mediaElementSource: MediaElementAudioSourceNode | null = null;
   private currentToken: number = 0;
   private state: PlaybackState = {
     isPlaying: false,
@@ -94,10 +95,10 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Sets custom audio amplification multiplier (1.0 = clear studio default)
+   * Sets custom audio amplification multiplier (2.4 = loud, clear default; up to 3.5x boost)
    */
   public setVolumeMultiplier(multiplier: number): void {
-    this.volumeMultiplier = Math.max(0.5, Math.min(2.0, multiplier));
+    this.volumeMultiplier = Math.max(0.5, Math.min(3.5, multiplier));
     if (this.masterGainNode && this.audioContext) {
       try {
         this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
@@ -110,7 +111,7 @@ export class AudioPlaybackController {
   }
 
   /**
-   * Configures Web Audio signal chain for synthesized tones and DTMF beeps
+   * Configures Web Audio signal chain with dynamics compressor and high-gain master amplifier
    */
   private setupAudioGraph(): void {
     if (typeof window === "undefined") return;
@@ -120,9 +121,29 @@ export class AudioPlaybackController {
         this.audioContext = new AudioCtx();
       }
       if (this.audioContext && !this.masterGainNode) {
+        // Dynamics compressor prevents distortion and clipping when audio volume is amplified
+        this.compressorNode = this.audioContext.createDynamicsCompressor();
+        this.compressorNode.threshold.setValueAtTime(-12, this.audioContext.currentTime);
+        this.compressorNode.knee.setValueAtTime(30, this.audioContext.currentTime);
+        this.compressorNode.ratio.setValueAtTime(12, this.audioContext.currentTime);
+        this.compressorNode.attack.setValueAtTime(0.003, this.audioContext.currentTime);
+        this.compressorNode.release.setValueAtTime(0.25, this.audioContext.currentTime);
+
         this.masterGainNode = this.audioContext.createGain();
         this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
+
+        this.compressorNode.connect(this.masterGainNode);
         this.masterGainNode.connect(this.audioContext.destination);
+      }
+
+      // Route HTML5 AudioElement through Web Audio amplifier for boosted volume
+      if (this.audioContext && this.audioElement && !this.mediaElementSource) {
+        try {
+          this.mediaElementSource = this.audioContext.createMediaElementSource(this.audioElement);
+          this.mediaElementSource.connect(this.compressorNode || this.masterGainNode || this.audioContext.destination);
+        } catch {
+          // Fallback if media element already hooked or restricted
+        }
       }
     } catch (err) {
       console.warn("[AudioController] Audio graph setup notice:", err);
@@ -305,27 +326,49 @@ export class AudioPlaybackController {
         console.warn("[AudioController] Studio audio matching notice:", matchErr);
       }
 
-      // 2. Intelligent keyword match to authentic Akan Twi studio recordings
+      // 2. Intelligent keyword match to authentic studio recordings
       const lower = cleanText.toLowerCase();
+      const isEnglish = options?.language === "en" || lower.includes("for english press 1") || lower.includes("welcome to okwankyerɛfo");
       let fallbackStudioUrl: string | null = null;
-      if (lower.includes("sika") && (lower.includes("dodow") || lower.includes("amount") || lower.includes("cedis") || lower.includes("bɔ"))) {
-        fallbackStudioUrl = "/audio/Twi_library/Enter amount.m4a";
+
+      if (lower.includes("akwaaba") || lower.includes("welcome") || lower.includes("borɔfo") || lower.includes("okwankyerɛfo") || lower.includes("greetings")) {
+        fallbackStudioUrl = isEnglish
+          ? "/audio/welcome_en.mp3"
+          : "/audio/Twi_library/Opening_voice_welcome_to_okwankyerefopa.mp3";
+      } else if (lower.includes("language") || (lower.includes("borɔfo") && lower.includes("twi"))) {
+        fallbackStudioUrl = isEnglish
+          ? "/audio/welcome_en.mp3"
+          : "/audio/Twi_library/Language_selection.mp3";
+      } else if (lower.includes("service") || lower.includes("dwumadie") || lower.includes("telecom mobile money")) {
+        fallbackStudioUrl = isEnglish
+          ? "/audio/English_Library/2.m4a"
+          : "/audio/Twi_library/Service_selection.mp3";
+      } else if (lower.includes("network") || lower.includes("mtn") || lower.includes("telecel") || lower.includes("airteltigo")) {
+        fallbackStudioUrl = isEnglish
+          ? "/audio/English_Library/3.m4a"
+          : "/audio/Twi_library/Network_selection.mp3";
+      } else if (lower.includes("sika") && (lower.includes("dodow") || lower.includes("amount") || lower.includes("cedis") || lower.includes("bɔ"))) {
+        fallbackStudioUrl = "/audio/Twi_library/Enter amount.mp3";
       } else if (lower.includes("nɔmba") || lower.includes("fon") || lower.includes("recipient") || lower.includes("phone")) {
-        fallbackStudioUrl = "/audio/Twi_library/Enter_recipient.m4a";
+        fallbackStudioUrl = "/audio/Twi_library/Enter_recipient.mp3";
       } else if (lower.includes("pene") || lower.includes("confirm") || lower.includes("approval") || lower.includes("review") || lower.includes("aane")) {
-        fallbackStudioUrl = "/audio/Twi_library/Review transaction.m4a";
-      } else if (lower.includes("pin") || lower.includes("handoff") || lower.includes("ahobammɔ")) {
-        fallbackStudioUrl = "/audio/Twi_library/Pin Block.m4a";
+        fallbackStudioUrl = "/audio/Twi_library/Review transaction.mp3";
+      } else if (lower.includes("pin") || lower.includes("handoff") || lower.includes("ahobammɔ") || lower.includes("security")) {
+        fallbackStudioUrl = isEnglish
+          ? "/audio/English_Library/4.m4a"
+          : "/audio/Twi_library/Authorize_phone.mp3";
       } else if (lower.includes("balance") || lower.includes("star") || lower.includes("170")) {
-        fallbackStudioUrl = "/audio/Twi_library/Balance_Unavailable.m4a";
+        fallbackStudioUrl = "/audio/Twi_library/Balance_Unavailable.mp3";
       } else if (lower.includes("mane") || lower.includes("send")) {
-        fallbackStudioUrl = "/audio/Twi_library/Send_money_selected.m4a";
+        fallbackStudioUrl = "/audio/Twi_library/Send_money_selected.mp3";
       } else if (lower.includes("paw") || lower.includes("menyu") || lower.includes("menu")) {
         fallbackStudioUrl = "/audio/Twi_library/MTN menu.mp3";
       } else if (lower.includes("twa") || lower.includes("cancel") || lower.includes("dabi")) {
-        fallbackStudioUrl = "/audio/Twi_library/Cancel.m4a";
+        fallbackStudioUrl = "/audio/Twi_library/Cancel.mp3";
       } else if (lower.includes("wie") || lower.includes("success") || lower.includes("medaase") || lower.includes("nante yie")) {
-        fallbackStudioUrl = "/audio/Twi_library/Finish.m4a";
+        fallbackStudioUrl = "/audio/Twi_library/Success_sent.mp3";
+      } else if (lower.includes("finish") || lower.includes("thank you")) {
+        fallbackStudioUrl = "/audio/Twi_library/Finish.mp3";
       }
 
       if (fallbackStudioUrl) {
@@ -547,7 +590,7 @@ export class AudioPlaybackController {
 
       const source = this.audioContext.createBufferSource();
       source.buffer = buffer;
-      source.connect(this.masterGainNode || this.audioContext.destination);
+      source.connect(this.compressorNode || this.masterGainNode || this.audioContext.destination);
       this.activeBufferSource = source;
 
       return new Promise<boolean>((resolve) => {
