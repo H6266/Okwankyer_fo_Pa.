@@ -12,11 +12,11 @@ import { twiAmountSynthesizer } from "../src/ai_system/speech/tts/twiAmountSynth
 import { ttsRouter } from "../src/ai_system/speech/tts/ttsRouter";
 
 describe("TTS Studio Prompt Registry & Fallback Chain Invariants", () => {
-  it("uses a matching-language TTS route while audio candidates are unreviewed", () => {
-    expect(resolvePrompt("unknown_input", "twi")).toBe("/api/audio/prompt-tts/twi/unknown_input");
-    expect(resolvePrompt("unknown_input", "en")).toBe("/api/audio/prompt-tts/en/unknown_input");
-    expect(resolvePrompt("provider_select", "twi")).toBe("/api/audio/prompt-tts/twi/provider_select");
-    expect(resolveSimulatorPrompt("unknown_input", "twi")).toBe("/api/audio/prompt-tts/twi/unknown_input");
+  it("does not route fixed or unknown prompts into TTS", () => {
+    expect(resolvePrompt("unknown_input", "twi")).toBeNull();
+    expect(resolvePrompt("unknown_input", "en")).toBeNull();
+    expect(resolvePrompt("provider_select", "twi")).toBeNull();
+    expect(resolveSimulatorPrompt("unknown_input", "twi")).toBeNull();
     const twiAudioUrl = "/audio/supplied/Twi/2.Main%20Service%20Navigation/Network%20selection.mp3";
     expect(resolveSimulatorAudioUrl(twiAudioUrl, "en")).toBeNull();
     const enAudioUrl = "/audio/supplied/English/Welcome.m4a";
@@ -49,21 +49,17 @@ describe("TTS Studio Prompt Registry & Fallback Chain Invariants", () => {
     expect(studioPromptRegistry.getPrompt("enter_amount", "en")).toBeNull();
   });
 
-  it("synthesizes Twi amount speech with a valid WAV payload", () => {
+  it("does not synthesize Twi amount tones without reviewed speech assets", () => {
     expect(twiAmountSynthesizer.numberToTwi(1)).toBe("baako");
     expect(twiAmountSynthesizer.numberToTwi(2)).toBe("mmienu");
     expect(twiAmountSynthesizer.numberToTwi(50)).toBe("aduonum");
     expect(twiAmountSynthesizer.numberToTwi(500)).toBe("ahanum");
 
-    const result = twiAmountSynthesizer.synthesizeTwiAmount(500);
-    expect(result.twiText).toBe("Sidi ahanum");
-    expect(result.mimeType).toBe("audio/wav");
-    expect(result.audioBuffer.subarray(0, 12).toString("ascii").endsWith("WAVE")).toBe(true);
+    expect(() => twiAmountSynthesizer.synthesizeTwiAmount(500)).toThrow(/TWI_AMOUNT_TTS_UNAVAILABLE/);
   });
 
-  it("routes Twi amount requests through the configured synthesis provider", async () => {
-    const result = await ttsRouter.synthesize({ text: "50 cedis", language: "tw" });
-    expect(result.audioMimeType).toBe("audio/wav");
-    expect(result.audioBuffer.subarray(0, 4).toString("ascii")).toBe("RIFF");
+  it("does not route Twi requests through an English-only speech engine", async () => {
+    await expect(ttsRouter.synthesize({ text: "50 cedis", language: "tw" }))
+      .rejects.toThrow(/TWI_TTS_UNAVAILABLE/);
   });
 });

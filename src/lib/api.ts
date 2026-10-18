@@ -1264,7 +1264,16 @@ export const api = {
     language?: string;
     style?: string;
     sessionId?: string;
-  }): Promise<{ success: boolean; result: { audioBase64?: string; audioMimeType?: string; providerUsed?: string } }> {
+  }): Promise<{
+    success: boolean;
+    result: {
+      audioBase64?: string;
+      audioMimeType?: string;
+      providerUsed?: string;
+      language?: string;
+      model?: string;
+    };
+  }> {
     const res = await fetch("/api/ai/synthesize", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -32,6 +32,7 @@ export interface AudioRecording {
   title: string;
   spokenText: string | null;
   relativePath: string;
+  legacyRelativePath?: string;
   assetRoot: AudioAssetRoot;
   url: string | null;
   mimeType: string;
@@ -175,7 +176,7 @@ for (const [filename, language] of [["welcome_en.mp3", "en"], ["welcome_twi.mp3"
     mimeType: "audio/mpeg",
     isAlternate: false,
     recordingRole: "fixed",
-    mappingStatus: "VERIFIED",
+    mappingStatus: "CANDIDATE_NOT_AUDIO_VERIFIED",
     audioVerified: false,
   });
 }
@@ -200,7 +201,7 @@ for (const item of [
     mimeType: "audio/mp4",
     isAlternate: false,
     recordingRole: "fixed",
-    mappingStatus: "VERIFIED",
+    mappingStatus: "CANDIDATE_NOT_AUDIO_VERIFIED",
     audioVerified: false,
   });
 }
@@ -218,13 +219,14 @@ for (const item of TWI_AUDIO_LIBRARY_ITEMS) {
     language: "twi",
     title: item.filename.replace(/\.[a-z0-9]+$/i, ""),
     spokenText: item.transcript,
-    relativePath: `Twi_library/${item.filename}`,
+    relativePath: `Twi/${item.filename}`,
+    legacyRelativePath: `Twi_library/${item.filename}`,
     assetRoot: "supplied",
     url: item.audioUrl,
     mimeType,
     isAlternate: false,
     recordingRole: "fixed",
-    mappingStatus: "VERIFIED",
+    mappingStatus: "CANDIDATE_NOT_AUDIO_VERIFIED",
     audioVerified: false,
   });
 }
@@ -240,7 +242,7 @@ export function getRecordingByPromptId(
   const matches = AUDIO_RECORDINGS.filter(
     (r) => r.promptId?.toUpperCase() === normalizedPromptId && r.language === language && r.url
   );
-  return matches.find((recording) => recording.audioVerified) || matches[0] || null;
+  return matches.find((recording) => recording.audioVerified) || null;
 }
 
 export function getRecordingsByPromptId(
@@ -263,7 +265,7 @@ export function getRecordingByPromptKey(
   }
   // Try direct filename or item key match in Twi items
   const directItem = TWI_AUDIO_LIBRARY_ITEMS.find(
-    (item) => item.key === key || item.filename.toLowerCase().includes(key.toLowerCase())
+    (item) => item.key === key || item.filename.toLowerCase() === key.toLowerCase()
   );
   if (directItem && language === "twi") {
     return AUDIO_RECORDINGS.find((r) => r.url === directItem.audioUrl) || null;
@@ -272,19 +274,19 @@ export function getRecordingByPromptKey(
 }
 
 export function getRecordingByPath(relativePath: string): AudioRecording | null {
-  const norm = relativePath.replace(/^audio\//i, "").toLowerCase();
-  return AUDIO_RECORDINGS.find((r) => r.relativePath.toLowerCase() === norm) || null;
+  const norm = relativePath.replace(/^audio\//i, "").replace(/\\/g, "/");
+  return AUDIO_RECORDINGS.find((r) => r.relativePath === norm) || null;
 }
 
 export function getRecordingByUrl(url: string, preferredLang?: "en" | "twi"): AudioRecording | null {
   if (!url) return null;
-  const cleanUrl = url.split("?")[0].trim().toLowerCase();
-  const baseName = cleanUrl.split("/").pop() || "";
+  const cleanUrl = url.split("?")[0].trim();
+  const decodedUrl = decodeURIComponent(cleanUrl);
 
   const exact = AUDIO_RECORDINGS.filter((r) => {
     if (!r.url) return false;
-    const rClean = r.url.split("?")[0].toLowerCase();
-    return rClean === cleanUrl || rClean.endsWith(`/${baseName}`);
+    const recordingUrl = decodeURIComponent(r.url.split("?")[0]);
+    return recordingUrl === decodedUrl;
   });
 
   if (exact.length > 0) {
@@ -298,14 +300,29 @@ export function getRecordingByUrl(url: string, preferredLang?: "en" | "twi"): Au
 }
 
 export function getRecordingFilePath(relativePath: string): string | null {
-  const norm = relativePath.replace(/^audio\//i, "");
-  if (norm.startsWith("Twi_library/") || norm.startsWith("English_Library/")) {
-    return `Audio_files/${norm}`;
-  }
-  if (norm.startsWith("supplied/")) {
-    return `Audio_files/${norm.replace(/^supplied\//i, "")}`;
-  }
-  return `public/audio/${norm}`;
+  const norm = relativePath.replace(/^audio\//i, "").replace(/\\/g, "/");
+  if (/^Twi\//i.test(norm)) return `Audio_files/audio/${norm}`;
+  if (/^English_Library\//i.test(norm)) return `Audio_files/${norm}`;
+  if (/^additional\//i.test(norm)) return `Audio_files/${norm}`;
+  if (/^[^/]+\.(?:mp3|m4a|aac|wav|ogg)$/i.test(norm)) return `public/audio/${norm}`;
+  return null;
+}
+
+export function getVerifiedRecordingBySpokenText(
+  text: string,
+  language: "en" | "twi"
+): AudioRecording | null {
+  const normalize = (value: string) => value.trim().toLocaleLowerCase().replace(/\s+/g, " ");
+  const normalizedText = normalize(text);
+  if (!normalizedText) return null;
+  return AUDIO_RECORDINGS.find((recording) =>
+    recording.audioVerified
+      && recording.recordingRole === "fixed"
+      && recording.language === language
+      && Boolean(recording.url)
+      && Boolean(recording.spokenText)
+      && normalize(recording.spokenText!) === normalizedText
+  ) || null;
 }
 
 export function getAudioAssetInventory(): AudioRecording[] {

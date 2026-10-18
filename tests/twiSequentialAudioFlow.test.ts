@@ -41,10 +41,16 @@ describe("Guided IVR Audio Preview", () => {
 
   it("verifies physical audio assets exist on disk for all steps with audioUrl", () => {
     for (const step of TWI_SEQUENTIAL_FLOW_STEPS) {
-      if (step.audioUrl.startsWith("/audio/Twi_library/")) {
+      if (step.audioUrl.startsWith("/audio/Twi/")) {
         const decoded = decodeURIComponent(step.audioUrl.replace("/audio/", ""));
-        expect(audioFileExists(decoded, "supplied"), `File must exist: ${decoded}`).toBe(true);
+        expect(audioFileExists(decoded, "supplied"), `Canonical file must exist: ${decoded}`).toBe(false);
       }
     }
+  });
+
+  it("retains the existing transaction safety sequence and has no PIN collection step", () => {
+    expect(TWI_SEQUENTIAL_FLOW_STEPS.some((step) => /PIN/i.test(step.name))).toBe(false);
+    expect(TWI_SEQUENTIAL_FLOW_STEPS.some((step) => step.name.includes("Dynamic Amount Read-back (OP29)"))).toBe(true);
+    expect(TWI_SEQUENTIAL_FLOW_STEPS.some((step) => step.name.includes("Confirm Recipient (OP23)"))).toBe(true);
   });
 });

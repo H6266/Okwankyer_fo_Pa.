@@ -206,6 +206,7 @@ export function isAcousticSystemEcho(
   if (normalizedTranscript.length < 1) return false;
 
   const normalizedPrompt = activeAssistantPrompt ? normalizeTextForComparison(activeAssistantPrompt) : "";
+  if (isStandaloneCallerIntent(normalizedTranscript)) return false;
 
   // 1. Extra sensitivity and strict suppression while the assistant is actively playing audio through the speakers
   if (isAssistantSpeaking) {
@@ -241,11 +242,6 @@ export function isAcousticSystemEcho(
     ) {
       return true;
     }
-  }
-
-  // 3. Explicit user inputs (digits, genuine commands, recipient names/amounts) are NOT echoes when assistant is not speaking
-  if (isStandaloneCallerIntent(normalizedTranscript)) {
-    return false;
   }
 
   // 4. Check against the currently / recently playing assistant prompt

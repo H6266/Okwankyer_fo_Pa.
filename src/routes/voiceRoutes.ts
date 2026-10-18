@@ -212,8 +212,11 @@ function canonicalPromptElement(
   baseUrl: string,
   fallbackText: string
 ): string {
-  return resolvePromptXml(promptKey, language, baseUrl, fallbackText)
-    || `<Say voice="female">${escapeVoiceXml(fallbackText)}</Say>`;
+  const element = resolvePromptXml(promptKey, language, baseUrl, fallbackText);
+  if (element) return element;
+  return language === "twi"
+    ? `<Say voice="female">Twi audio is unavailable. Press 1 for English, or try again later.</Say>`
+    : `<Say voice="female">${escapeVoiceXml(fallbackText)}</Say>`;
 }
 
 function speechCollectionXml(params: {

@@ -54,8 +54,8 @@ describe("AudioPlaybackController & Phone Simulator Audio Gating", () => {
     expect(audioPlaybackController.isSpeaking()).toBe(false);
   });
 
-  it("maps audio recordings to universally compatible .mp3 format", () => {
-    expect(resolveSafePlayableUrl("/audio/sample.m4a")).toBe("/audio/sample.mp3");
+  it("preserves source audio URLs instead of relabeling AAC/M4A as MP3", () => {
+    expect(resolveSafePlayableUrl("/audio/sample.m4a")).toBe("/audio/sample.m4a");
   });
 
   it("reports a failed sequence instead of marking it as played", async () => {
@@ -64,10 +64,10 @@ describe("AudioPlaybackController & Phone Simulator Audio Gating", () => {
 
   it("clamps the master volume to its supported range", () => {
     audioPlaybackController.setVolumeMultiplier(5);
-    expect(audioPlaybackController.getVolumeMultiplier()).toBe(3.5);
+    expect(audioPlaybackController.getVolumeMultiplier()).toBe(1);
     audioPlaybackController.setVolumeMultiplier(0.1);
     expect(audioPlaybackController.getVolumeMultiplier()).toBe(0.5);
     audioPlaybackController.setVolumeMultiplier(1.5);
-    expect(audioPlaybackController.getVolumeMultiplier()).toBe(1.5);
+    expect(audioPlaybackController.getVolumeMultiplier()).toBe(1);
   });
 });

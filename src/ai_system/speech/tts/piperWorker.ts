@@ -10,7 +10,10 @@
  */
 
 import http from "http";
-import url from "url";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { spawn, spawnSync } from "child_process";
 
 export interface PiperSynthesisOptions {
   speed?: number;
@@ -29,94 +32,103 @@ export interface PiperHealthStatus {
 const DEFAULT_PORT = 8766;
 const DEFAULT_MODEL = "en_US-lessac-medium";
 
-/**
- * Synthesizes 16-bit Mono 16000Hz PCM WAV audio in the warm, natural tone
- * characteristic of the Piper en_US-lessac-medium neural acoustic model.
- */
-export function synthesizePiperAudio(text: string, options?: PiperSynthesisOptions): Buffer {
-  const cleanText = (text || "").trim();
-  const speed = options?.speed && options.speed > 0 ? options.speed : 1.0;
-  const pitchMultiplier = options?.pitch && options.pitch > 0 ? options.pitch : 1.0;
+function normalizeLanguage(language: string): string {
+  const normalized = language.trim().toLowerCase().split(/[-_]/)[0];
+  return ["tw", "ak", "akan"].includes(normalized) ? "twi" : normalized;
+}
 
-  const sampleRate = 16000;
-  const words = cleanText.split(/\s+/).filter(Boolean);
-  const wordCount = Math.max(1, words.length);
+interface PiperConfiguration {
+  executable: string;
+  model: string;
+  modelPath: string;
+  modelConfigPath: string;
+  languages: string[];
+  available: boolean;
+  details: string;
+}
 
-  // Lessac natural conversational pacing (~240ms per word + phrase boundary pauses)
-  const punctuationCount = (cleanText.match(/[,;:.!?]/g) || []).length;
-  const pauseDuration = punctuationCount * 0.15;
-  const durationSec = Math.max(0.8, (wordCount * 0.24) / speed + pauseDuration);
-  const numSamples = Math.floor(sampleRate * durationSec);
-  const pcmDataSize = numSamples * 2;
+function getPiperConfiguration(): PiperConfiguration {
+  const model = process.env.PIPER_MODEL || DEFAULT_MODEL;
+  const modelPath = path.resolve(process.env.PIPER_MODEL_PATH || path.join(process.cwd(), "models", `${model}.onnx`));
+  const modelConfigPath = path.resolve(process.env.PIPER_MODEL_CONFIG_PATH || `${modelPath}.json`);
+  const executable = process.env.PIPER_EXECUTABLE || "piper";
+  let languages: string[] = [];
 
-  // Build standard 44-byte RIFF/WAVE header
-  const header = Buffer.alloc(44);
-  header.write("RIFF", 0);
-  header.writeUInt32LE(36 + pcmDataSize, 4);
-  header.write("WAVE", 8);
-
-  header.write("fmt ", 12);
-  header.writeUInt32LE(16, 16); // Subchunk1Size (16 for PCM)
-  header.writeUInt16LE(1, 20); // AudioFormat (1 = PCM)
-  header.writeUInt16LE(1, 22); // NumChannels (1 = Mono)
-  header.writeUInt32LE(sampleRate, 24); // SampleRate (16000)
-  header.writeUInt32LE(sampleRate * 2, 28); // ByteRate (SampleRate * NumChannels * BitsPerSample/8)
-  header.writeUInt16LE(2, 32); // BlockAlign (NumChannels * BitsPerSample/8)
-  header.writeUInt16LE(16, 34); // BitsPerSample (16)
-
-  header.write("data", 36);
-  header.writeUInt32LE(pcmDataSize, 40);
-
-  const samples = Buffer.alloc(pcmDataSize);
-
-  // Lessac voice acoustic parameters:
-  // Fundamental frequency F0 ~ 145Hz (warm baritone/tenor resonance)
-  const baseF0 = 145.0 * pitchMultiplier;
-  const f1 = 650.0;  // Vowel formant 1
-  const f2 = 1750.0; // Vowel formant 2
-  const f3 = 2600.0; // Resonant formant 3
-
-  const samplesPerWord = Math.floor((sampleRate * durationSec) / wordCount);
-
-  for (let i = 0; i < numSamples; i++) {
-    const t = i / sampleRate;
-
-    // Word-syllable micro-envelope with smooth attack and decay
-    const wordIndex = Math.min(wordCount - 1, Math.floor(i / samplesPerWord));
-    const wordProgress = (i % samplesPerWord) / samplesPerWord;
-
-    // Smooth sinusoidal syllable envelope (attack 0.15, sustain 0.65, release 0.20)
-    let wordEnv = 0.0;
-    if (wordProgress < 0.15) {
-      wordEnv = Math.sin((wordProgress / 0.15) * (Math.PI / 2));
-    } else if (wordProgress < 0.8) {
-      wordEnv = 1.0;
-    } else {
-      wordEnv = Math.cos(((wordProgress - 0.8) / 0.2) * (Math.PI / 2));
-    }
-
-    // Natural sentence pitch contour (gentle declination toward sentence end)
-    const sentenceProgress = i / numSamples;
-    const pitchDrift = 1.0 - 0.08 * sentenceProgress + 0.04 * Math.sin(sentenceProgress * Math.PI * 3);
-    const instF0 = baseF0 * pitchDrift;
-
-    // Harmonic sum with Lessac formant weighting (warm, natural acoustic timbre)
-    const h1 = Math.sin(2 * Math.PI * instF0 * t) * 0.45;
-    const h2 = Math.sin(2 * Math.PI * instF0 * 2 * t) * 0.25;
-    const h3 = Math.sin(2 * Math.PI * instF0 * 3 * t) * 0.12;
-    const formantRes1 = Math.sin(2 * Math.PI * f1 * t) * 0.10;
-    const formantRes2 = Math.sin(2 * Math.PI * f2 * t) * 0.05;
-    const formantRes3 = Math.sin(2 * Math.PI * f3 * t) * 0.03;
-
-    const rawSignal = (h1 + h2 + h3 + formantRes1 + formantRes2 + formantRes3) * wordEnv;
-
-    // Scale to comfortable conversational listening amplitude (~12000 max int16)
-    const sampleVal = Math.round(rawSignal * 11500);
-    const clamped = Math.max(-32768, Math.min(32767, sampleVal));
-    samples.writeInt16LE(clamped, i * 2);
+  try {
+    const config = JSON.parse(fs.readFileSync(modelConfigPath, "utf8"));
+    const code = config?.language?.code;
+    if (typeof code === "string") languages = [normalizeLanguage(code)];
+  } catch {}
+  if (languages.length === 0) {
+    const languagePrefix = path.basename(modelPath).match(/^([a-z]{2,3})[_-]/i)?.[1];
+    if (languagePrefix) languages = [normalizeLanguage(languagePrefix)];
   }
 
-  return Buffer.concat([header, samples]);
+  const executableCheck = spawnSync(executable, ["--help"], { stdio: "ignore", timeout: 2000 });
+  const executableReady = !executableCheck.error;
+  const modelReady = fs.existsSync(modelPath) && fs.statSync(modelPath).isFile()
+    && fs.existsSync(modelConfigPath) && fs.statSync(modelConfigPath).isFile();
+  const available = executableReady && modelReady && languages.length > 0;
+  const details = !executableReady
+    ? "Piper executable is unavailable."
+    : !modelReady
+      ? "Piper voice model or model configuration is unavailable."
+      : languages.length === 0
+        ? "Piper voice model language could not be determined."
+        : "Piper executable and voice model are available.";
+
+  return { executable, model, modelPath, modelConfigPath, languages, available, details };
+}
+
+function isWavBuffer(buffer: Buffer): boolean {
+  return buffer.length >= 44
+    && buffer.toString("ascii", 0, 4) === "RIFF"
+    && buffer.toString("ascii", 8, 12) === "WAVE"
+    && buffer.readUInt32LE(4) + 8 <= buffer.length;
+}
+
+export async function synthesizePiperAudio(text: string, language: string): Promise<Buffer> {
+  const cleanText = text.trim();
+  const configuration = getPiperConfiguration();
+  const requestedLanguage = normalizeLanguage(language);
+  if (!cleanText) throw new Error("PIPER_EMPTY_TEXT: text is required.");
+  if (!configuration.available) throw new Error(`PIPER_UNAVAILABLE: ${configuration.details}`);
+  if (!configuration.languages.includes(requestedLanguage)) {
+    throw new Error(`PIPER_LANGUAGE_UNAVAILABLE: model ${configuration.model} does not support ${language}.`);
+  }
+
+  const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "okw-piper-"));
+  const outputPath = path.join(temporaryDirectory, "speech.wav");
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(configuration.executable, [
+        "--model", configuration.modelPath,
+        "--output_file", outputPath,
+      ], { stdio: ["pipe", "ignore", "pipe"] });
+      let stderr = "";
+      const timeout = setTimeout(() => {
+        child.kill("SIGKILL");
+        reject(new Error("PIPER_TIMEOUT: synthesis exceeded 20 seconds."));
+      }, 20_000);
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (chunk: string) => { stderr += chunk; });
+      child.once("error", (error) => {
+        clearTimeout(timeout);
+        reject(new Error("PIPER_EXECUTION_FAILED: could not start Piper.", { cause: error }));
+      });
+      child.once("close", (code) => {
+        clearTimeout(timeout);
+        if (code === 0) resolve();
+        else reject(new Error(`PIPER_EXECUTION_FAILED: Piper exited with ${code}: ${stderr.slice(-500)}`));
+      });
+      child.stdin.end(`${cleanText}\n`);
+    });
+    const audio = fs.readFileSync(outputPath);
+    if (!isWavBuffer(audio)) throw new Error("PIPER_INVALID_AUDIO: Piper did not produce a valid WAV container.");
+    return audio;
+  } finally {
+    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
 }
 
 let activeWorkerServer: http.Server | null = null;
@@ -143,16 +155,17 @@ export async function startPiperWorker(customPort?: number): Promise<http.Server
       const pathname = parsedUrl.pathname || "/";
       const method = (req.method || "GET").toUpperCase();
 
-      // Health endpoint
+      // Health endpoint reports actual executable and model availability.
       if (pathname === "/health" && method === "GET") {
+        const configuration = getPiperConfiguration();
         const health: PiperHealthStatus = {
-          ready: true,
-          provider: "piper-local-neural-tts",
-          model: process.env.PIPER_MODEL || DEFAULT_MODEL,
-          languages: ["en"],
-          details: "Piper local neural worker active and ready",
+          ready: configuration.available,
+          provider: "piper-cli",
+          model: configuration.model,
+          languages: configuration.languages,
+          details: configuration.details,
         };
-        res.writeHead(200, { "Content-Type": "application/json" });
+        res.writeHead(configuration.available ? 200 : 503, { "Content-Type": "application/json" });
         res.end(JSON.stringify(health));
         return;
       }
@@ -164,34 +177,41 @@ export async function startPiperWorker(customPort?: number): Promise<http.Server
           body += chunk;
         });
 
-        req.on("end", () => {
+        req.on("end", async () => {
           try {
             const payload = JSON.parse(body || "{}");
-            const text = (payload.text || "").trim();
+            const text = typeof payload.text === "string" ? payload.text.trim() : "";
             if (!text) {
               res.writeHead(400, { "Content-Type": "application/json" });
               res.end(JSON.stringify({ error: "No text provided for synthesis" }));
               return;
             }
 
-            const model = payload.model || process.env.PIPER_MODEL || DEFAULT_MODEL;
-            const speed = payload.speed || 1.0;
-            const pitch = payload.pitch || 1.0;
-
-            const audioBuf = synthesizePiperAudio(text, { speed, pitch });
-            const durationSec = Math.max(0.8, (text.split(/\s+/).length * 0.24) / speed);
+            const configuration = getPiperConfiguration();
+            if (!configuration.available) {
+              res.writeHead(503, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ error: configuration.details }));
+              return;
+            }
+            if (payload.model && payload.model !== configuration.model) {
+              res.writeHead(400, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ error: "Requested voice model is not installed." }));
+              return;
+            }
+            const language = typeof payload.language === "string" ? payload.language : "";
+            const audioBuf = await synthesizePiperAudio(text, language);
 
             res.writeHead(200, {
               "Content-Type": "audio/wav",
               "Content-Length": audioBuf.length,
-              "X-Piper-Model": model,
-              "X-Piper-Duration-Seconds": durationSec.toFixed(2),
-              "X-Piper-Provider": "piper-local-neural-tts",
+              "X-Piper-Model": configuration.model,
+              "X-Piper-Language": normalizeLanguage(language),
+              "X-Piper-Provider": "piper-cli",
             });
             res.end(audioBuf);
-          } catch (err: any) {
+          } catch (err) {
             res.writeHead(500, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: `Synthesis failed: ${err.message}` }));
+            res.end(JSON.stringify({ error: err instanceof Error ? err.message : "Synthesis failed." }));
           }
         });
         return;

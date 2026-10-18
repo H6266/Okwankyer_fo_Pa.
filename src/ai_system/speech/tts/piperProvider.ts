@@ -1,23 +1,17 @@
-/**
- * Ɔkwankyerɛfo Pa - Genuine Local Piper Neural TTS Provider (piperProvider.ts)
- * 
- * Communicates with the local Piper neural voice server (running on localhost:8766).
- * 
- * Guarantees:
- * - 100% offline, local neural speech synthesis.
- * - Does NOT generate formant or sine-wave placeholders.
- * - Validates generated audio response headers and WAV byte streams.
- */
-
 import { TTSProvider, TtsSynthesisRequest, TtsSynthesisResponse } from "./ttsProvider";
-import { synthesizePiperAudio } from "./piperWorker";
 
 export interface PiperHealth {
   ready: boolean;
   provider: string;
   model: string;
-  dataDir?: string;
-  details?: string;
+  languages: string[];
+  details: string;
+}
+
+function normalizeLanguage(language: string): string {
+  const normalized = language.trim().toLowerCase().split(/[-_]/)[0];
+  if (["tw", "ak", "akan"].includes(normalized)) return "twi";
+  return normalized;
 }
 
 export class PiperTtsProvider implements TTSProvider {
@@ -25,129 +19,104 @@ export class PiperTtsProvider implements TTSProvider {
     return (process.env.PIPER_TTS_URL || "http://127.0.0.1:8766").replace(/\/$/, "");
   }
 
-  private getTimeoutMs(): number {
-    return parseInt(process.env.PIPER_TTS_TIMEOUT_MS || "3500", 10);
-  }
-
-  private validateWavHeader(buf: Buffer): boolean {
-    if (!buf || buf.length < 128) return false;
-    return buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WAVE";
+  private getModel(): string {
+    return process.env.PIPER_MODEL || "en_US-lessac-medium";
   }
 
   private getAuthHeaders(): Record<string, string> {
-    const headers: Record<string, string> = {};
     const token = process.env.PIPER_TTS_TOKEN;
-    if (token) {
-      headers["Authorization"] = `Bearer ${token.trim()}`;
-    }
-    return headers;
+    return token ? { Authorization: `Bearer ${token}` } : {};
   }
 
-  /**
-   * Health-checks the local Piper neural TTS worker.
-   */
-  public async checkHealth(): Promise<PiperHealth> {
-    const url = `${this.getBaseUrl()}/health`;
+  public async checkHealth(language = "en"): Promise<PiperHealth> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 2000);
-
-      const res = await fetch(url, {
+      const response = await fetch(`${this.getBaseUrl()}/health`, {
         headers: this.getAuthHeaders(),
         signal: controller.signal,
       });
+      const data = await response.json() as Partial<PiperHealth>;
+      const requestedLanguage = normalizeLanguage(language);
+      const languages = Array.isArray(data.languages) ? data.languages : [];
+      const ready = response.ok
+        && data.ready === true
+        && data.model === this.getModel()
+        && languages.some((item) => normalizeLanguage(item) === requestedLanguage);
+      return {
+        ready,
+        provider: typeof data.provider === "string" ? data.provider : "piper-cli",
+        model: typeof data.model === "string" ? data.model : "",
+        languages,
+        details: ready
+          ? data.details || "Piper voice is available."
+          : data.details || `Piper voice is unavailable for ${language}.`,
+      };
+    } catch (error) {
+      return {
+        ready: false,
+        provider: "piper-cli",
+        model: this.getModel(),
+        languages: [],
+        details: error instanceof Error ? error.message : "Piper health check failed.",
+      };
+    } finally {
       clearTimeout(timeout);
-
-      if (res.ok) {
-        const data = (await res.json()) as any;
-        return {
-          ready: Boolean(data.ready),
-          provider: data.provider || "piper-local-neural-tts",
-          model: data.model || process.env.PIPER_MODEL || "en_US-lessac-medium",
-          dataDir: data.dataDir,
-          details: data.details || "Ready for local neural TTS synthesis",
-        };
-      }
-    } catch {
-      // In-process worker is always ready as embedded fallback
     }
-
-    return {
-      ready: true,
-      provider: "piper-local-neural-tts",
-      model: process.env.PIPER_MODEL || "en_US-lessac-medium",
-      details: "Ready via internal Piper neural synthesizer",
-    };
   }
 
   public async synthesize(request: TtsSynthesisRequest): Promise<TtsSynthesisResponse> {
-    const url = `${this.getBaseUrl()}/synthesize`;
+    const requestedLanguage = normalizeLanguage(String(request.language || ""));
+    const health = await this.checkHealth(requestedLanguage);
+    if (!health.ready) {
+      throw new Error(`PIPER_UNAVAILABLE: ${health.details}`);
+    }
+
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.getTimeoutMs());
-
+    const timeout = setTimeout(() => controller.abort(), Number(process.env.PIPER_TTS_TIMEOUT_MS || 20_000));
     try {
-      const headers: Record<string, string> = {
-        ...this.getAuthHeaders(),
-        "Content-Type": "application/json",
-      };
-
-      const body = {
-        text: request.text,
-        language: request.language || "en",
-        voiceProfile: request.voiceProfile || "ghanaian-clear",
-        speed: request.speed || 1.0,
-        pitch: request.pitch,
-        model: process.env.PIPER_MODEL || "en_US-lessac-medium",
-      };
-
-      const res = await fetch(url, {
+      const response = await fetch(`${this.getBaseUrl()}/synthesize`, {
         method: "POST",
-        headers,
-        body: JSON.stringify(body),
+        headers: {
+          ...this.getAuthHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text: request.text,
+          language: requestedLanguage,
+          model: health.model,
+        }),
         signal: controller.signal,
       });
-      clearTimeout(timeout);
-
-      if (res.ok) {
-        const arrayBuffer = await res.arrayBuffer();
-        const audioBuffer = Buffer.from(arrayBuffer);
-
-        if (this.validateWavHeader(audioBuffer)) {
-          const durationSec = parseFloat(res.headers.get("X-Piper-Duration-Seconds") || "1.0");
-          return {
-            audioBuffer,
-            audioBase64: audioBuffer.toString("base64"),
-            audioMimeType: "audio/wav",
-            durationEstimateSec: Math.round(durationSec),
-            providerUsed: `piper-local-neural-tts:${res.headers.get("X-Piper-Model") || "en_US-lessac-medium"}`,
-          };
-        }
+      if (!response.ok) {
+        throw new Error(`PIPER_SYNTHESIS_FAILED: worker returned HTTP ${response.status}.`);
       }
-    } catch {
+
+      const mimeType = response.headers.get("content-type")?.split(";")[0].trim().toLowerCase();
+      const returnedModel = response.headers.get("x-piper-model");
+      const returnedLanguage = normalizeLanguage(response.headers.get("x-piper-language") || "");
+      const audioBuffer = Buffer.from(await response.arrayBuffer());
+      const validWav = audioBuffer.length >= 44
+        && audioBuffer.toString("ascii", 0, 4) === "RIFF"
+        && audioBuffer.toString("ascii", 8, 12) === "WAVE"
+        && audioBuffer.readUInt32LE(4) + 8 <= audioBuffer.length;
+      if (mimeType !== "audio/wav" || !validWav || returnedModel !== health.model || returnedLanguage !== requestedLanguage) {
+        throw new Error("PIPER_INVALID_RESPONSE: model, language, MIME type, or WAV container did not match the request.");
+      }
+
+      return {
+        audioBuffer,
+        audioBase64: audioBuffer.toString("base64"),
+        audioMimeType: mimeType,
+        mimeType,
+        durationEstimateSec: Math.max(1, Math.round(audioBuffer.length / 32000)),
+        providerUsed: `piper-cli:${health.model}`,
+        language: requestedLanguage,
+        model: health.model,
+      };
+    } finally {
       clearTimeout(timeout);
-      // Fallback seamlessly to in-process synthesis if HTTP worker connection fails
     }
-
-    // In-process local Piper en_US-lessac-medium synthesis
-    const directBuf = synthesizePiperAudio(request.text, {
-      speed: request.speed,
-      pitch: request.pitch,
-      voiceProfile: request.voiceProfile,
-    });
-
-    if (!this.validateWavHeader(directBuf)) {
-      throw new Error("Piper worker returned invalid WAV header or undersized payload (<128 bytes)");
-    }
-
-    const durationSec = Math.max(0.8, (request.text.split(/\s+/).length * 0.24) / (request.speed || 1.0));
-
-    return {
-      audioBuffer: directBuf,
-      audioBase64: directBuf.toString("base64"),
-      audioMimeType: "audio/wav",
-      durationEstimateSec: Math.round(durationSec),
-      providerUsed: `piper-local-neural-tts:${process.env.PIPER_MODEL || "en_US-lessac-medium"}`,
-    };
   }
 }
 

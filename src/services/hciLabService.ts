@@ -299,8 +299,15 @@ export class HciLabService {
       id: `hci_log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       timestamp: new Date().toISOString(),
       ...entry,
-      inputSummary: redactPiiForSpeechLogs(entry.inputSummary),
-      outputSummary: redactPiiForSpeechLogs(entry.outputSummary),
+      inputSummary: entry.type === "TTS"
+        ? `Speech request (${entry.inputSummary.length} characters)`
+        : redactPiiForSpeechLogs(entry.inputSummary),
+      outputSummary: entry.type === "TTS"
+        ? entry.status === "success" || entry.status === "cached"
+          ? `Audio generated (${entry.audioSizeBytes || 0} bytes)`
+          : `Speech synthesis ${entry.status} (${entry.errorCode || "provider error"})`
+        : `Speech recognition ${entry.status}`,
+      errorMessage: entry.errorCode,
       quotaAfter: {
         dailyAsr: this.dailyAsrCount,
         dailyTts: this.dailyTtsCount,

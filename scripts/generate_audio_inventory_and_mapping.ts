@@ -69,7 +69,12 @@ function recordingForPath(relativePath: string): AudioRecording | undefined {
       return normalizedAudioPath(`public/audio/${recording.relativePath}`) === normalizedAudioPath(relativePath);
     }
     if (recording.assetRoot === "supplied" || recording.assetRoot === "additional") {
-      return normalizedAudioPath(`Audio_files/${recording.relativePath}`) === normalizedAudioPath(relativePath);
+      const canonicalPath = normalizedAudioPath(`Audio_files/${recording.relativePath}`);
+      const legacyPath = recording.legacyRelativePath
+        ? normalizedAudioPath(`Audio_files/${recording.legacyRelativePath}`)
+        : null;
+      return canonicalPath === normalizedAudioPath(relativePath)
+        || legacyPath === normalizedAudioPath(relativePath);
     }
     return false;
   });
@@ -80,14 +85,13 @@ function physicalPathForRecording(recording: AudioRecording): string {
     ? `public/audio/${recording.relativePath}`
     : `Audio_files/${recording.relativePath}`;
   if (fs.existsSync(relativePath)) return relativePath;
-
-  const extension = path.extname(relativePath);
-  const stem = relativePath.slice(0, -extension.length);
-  for (const candidateExtension of [".mp3", ".m4a", ".wav", ".ogg", ".aac", ".flac"]) {
-    const candidate = `${stem}${candidateExtension}`;
-    if (fs.existsSync(candidate)) return candidate;
+  if (recording.legacyRelativePath) {
+    const legacyPath = `Audio_files/${recording.legacyRelativePath}`;
+    if (fs.existsSync(legacyPath)) {
+      return `MISSING CANONICAL: ${relativePath}; UNVERIFIED LEGACY CANDIDATE: ${legacyPath}`;
+    }
   }
-  return relativePath;
+  return `MISSING: ${relativePath}`;
 }
 
 function scanDir(dir: string) {
@@ -118,7 +122,7 @@ function scanDir(dir: string) {
         ? recording.audioVerified ? "AUDIO_VERIFIED" : "CANDIDATE_NOT_AUDIO_VERIFIED"
         : "UNMAPPED_CANDIDATE";
       const notes = recording
-        ? `Exact registry mapping; role=${recording.recordingRole}; audioVerified=${recording.audioVerified}.`
+        ? `Registry mapping; role=${recording.recordingRole}; audioVerified=${recording.audioVerified}.`
         : "No exact canonical registry mapping; requires human review.";
 
       entries.push({
@@ -131,7 +135,9 @@ function scanDir(dir: string) {
         durationSeconds: dur,
         audioFormat: formatByExtension[ext] || "unknown",
         fileSizeBytes: size,
-        transcription: "NOT_AUDIO_VERIFIED",
+        transcription: recording?.spokenText
+          ? `UNVERIFIED SCRIPT: ${recording.spokenText}`
+          : "NOT_AUDIO_VERIFIED",
         mappedPromptId: promptId,
         mappingStatus: status,
         playbackTestStatus: "UNTESTED",
@@ -229,9 +235,13 @@ fs.writeFileSync("docs/IVR_AUDIO_MAPPING.md", mappingMarkdown, "utf8");
 console.log(`✓ Wrote docs/IVR_AUDIO_MAPPING.md (${promptEntries.length} prompts)`);
 
 const rootCounts = {
-  audioFilesTwi: entries.filter((entry) => entry.relativePath.toLowerCase().startsWith("audio_files/twi")).length,
-  audioFilesLegacyTree: entries.filter((entry) => entry.relativePath.startsWith("Audio_files/audio/")).length,
-  audioFilesFlat: entries.filter((entry) => entry.relativePath.startsWith("Audio_files/") && !entry.relativePath.toLowerCase().startsWith("audio_files/twi") && !entry.relativePath.startsWith("Audio_files/audio/")).length,
+  canonicalTwi: entries.filter((entry) => entry.relativePath.startsWith("Audio_files/audio/Twi/")).length,
+  legacyTwi: entries.filter((entry) => entry.relativePath.startsWith("Audio_files/Twi_library/")).length,
+  audioFilesOther: entries.filter((entry) =>
+    entry.relativePath.startsWith("Audio_files/")
+    && !entry.relativePath.startsWith("Audio_files/audio/Twi/")
+    && !entry.relativePath.startsWith("Audio_files/Twi_library/")
+  ).length,
   publicAudio: entries.filter((entry) => entry.relativePath.startsWith("public/audio/")).length,
   audioDirectory: entries.filter((entry) => entry.relativePath.startsWith("audio/")).length,
   repositoryRoot: entries.filter((entry) => !entry.relativePath.includes("/")).length,
@@ -252,7 +262,7 @@ const auditMarkdown = [
   "",
   `The current checkout contains **${entries.length} audio files**. Extension counts: ${Object.entries(extensionCounts).map(([extension, count]) => `${extension} ${count}`).join(", ")}.`,
   "",
-  "| Current root | Audio files |\n|---|---:|\n| `Audio_files/Twi_library/` | " + rootCounts.audioFilesTwi + " |\n| `Audio_files/audio/` | " + rootCounts.audioFilesLegacyTree + " |\n| Other files under `Audio_files/` | " + rootCounts.audioFilesFlat + " |\n| `public/audio/` | " + rootCounts.publicAudio + " |\n| `audio/` | " + rootCounts.audioDirectory + " |\n| Repository root | " + rootCounts.repositoryRoot + " |",
+  "| Current root | Audio files |\n|---|---:|\n| Canonical `Audio_files/audio/Twi/` | " + rootCounts.canonicalTwi + " |\n| Legacy `Audio_files/Twi_library/` | " + rootCounts.legacyTwi + " |\n| Other files under `Audio_files/` | " + rootCounts.audioFilesOther + " |\n| `public/audio/` | " + rootCounts.publicAudio + " |\n| `audio/` | " + rootCounts.audioDirectory + " |\n| Repository root | " + rootCounts.repositoryRoot + " |",
   "",
   "The runtime registry contains " + AUDIO_RECORDINGS.length + " selected entries, and " + verifiedRegistryCount + " are approved fixed recordings. Physical files without an exact registry path remain unmapped candidates.",
   "",
@@ -273,9 +283,9 @@ const flowMapMarkdown = [
   "",
   "## Current inventory",
   "",
-  "The checkout contains " + entries.length + " audio files across `Audio_files/Twi_library/` (" + rootCounts.audioFilesTwi + "), `Audio_files/audio/` (" + rootCounts.audioFilesLegacyTree + "), other `Audio_files/` paths (" + rootCounts.audioFilesFlat + "), `public/audio/` (" + rootCounts.publicAudio + "), `audio/` (" + rootCounts.audioDirectory + "), and the repository root (" + rootCounts.repositoryRoot + ").",
+  "The checkout contains " + entries.length + " audio files across canonical `Audio_files/audio/Twi/` (" + rootCounts.canonicalTwi + "), legacy `Audio_files/Twi_library/` (" + rootCounts.legacyTwi + "), other `Audio_files/` paths (" + rootCounts.audioFilesOther + "), `public/audio/` (" + rootCounts.publicAudio + "), `audio/` (" + rootCounts.audioDirectory + "), and the repository root (" + rootCounts.repositoryRoot + ").",
   "",
-  `The runtime registry contains ${AUDIO_RECORDINGS.length} selected assets. None is approved for automatic playback. The resolver accepts only exact, language-matched recordings with audioVerified=true; mapped candidates and dynamic prompts use TTS until reviewed.`,
+  `The runtime registry contains ${AUDIO_RECORDINGS.length} selected assets. None is approved for automatic playback. The resolver accepts only exact, language-matched recordings with audioVerified=true. Fixed prompts without an approved recording use text recovery; only dynamic prompts may request language-matched TTS.`,
   "",
   "Full path-by-path inventory: `docs/IVR_AUDIO_INVENTORY.csv`. Per-prompt language coverage: `docs/IVR_AUDIO_MAPPING.md`.",
   "",

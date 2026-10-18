@@ -8,8 +8,8 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
-import * as googleTTS from "google-tts-api";
 import { TTSProvider, TtsSynthesisRequest, TtsSynthesisResponse } from "./ttsProvider";
+import { assertTtsResponse, getTtsErrorCode, isAudioContainerValid, normalizeTtsLanguage } from "./ttsProvider";
 import { AI_CONFIG } from "../../core/aiConfig";
 import { GHANA_VOICE_PROFILES } from "../voiceProfiles/ghanaProfile";
 import { geminiClient } from "../../../services/geminiClient";
@@ -30,22 +30,6 @@ export class GeminiTtsAdapter implements TTSProvider {
   private renderCount = 0;
   private quotaExhaustedUntil = 0;
 
-  private validateAudioHeader(buf: Buffer): { valid: boolean; format: "wav" | "mp3" | "unknown" } {
-    if (!buf || buf.length < 128) {
-      return { valid: false, format: "unknown" };
-    }
-
-    if (buf.length >= 12 && buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WAVE") {
-      return { valid: true, format: "wav" };
-    }
-
-    if (buf.toString("ascii", 0, 3) === "ID3" || (buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0)) {
-      return { valid: true, format: "mp3" };
-    }
-
-    return { valid: true, format: "wav" };
-  }
-
   public getCacheStats(): TtsCacheStats {
     const total = this.cacheHits + this.cacheMisses;
     return {
@@ -57,16 +41,23 @@ export class GeminiTtsAdapter implements TTSProvider {
   }
 
   public async synthesize(request: TtsSynthesisRequest): Promise<TtsSynthesisResponse> {
-    const cacheKey = `${request.voiceProfile || "default"}_${request.text.trim().toLowerCase()}`;
+    const language = normalizeTtsLanguage(String(request.language || ""));
+    if (!language) throw new Error("TTS_LANGUAGE_UNSUPPORTED: select English or Twi.");
+    if (language !== "en") {
+      throw new Error("TTS_LANGUAGE_UNAVAILABLE: Gemini English voice is not approved for Twi speech.");
+    }
+    const cacheKey = `${language}:${AI_CONFIG.ttsModel}:${request.voiceProfile || "default"}:${request.text.trim().toLowerCase()}`;
     const cached = this.cache.get(cacheKey);
     if (cached) {
       this.cacheHits++;
-      return {
+      return assertTtsResponse(request, {
         audioBase64: cached.base64,
         audioBuffer: cached.buffer,
         audioMimeType: cached.mimeType,
         providerUsed: "cache-hit",
-      };
+        language: "en",
+        model: AI_CONFIG.ttsModel,
+      });
     }
     this.cacheMisses++;
 
@@ -104,7 +95,8 @@ export class GeminiTtsAdapter implements TTSProvider {
             },
           });
 
-          return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || "";
+          const inlineData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+          return { data: inlineData?.data || "", mimeType: inlineData?.mimeType || "" };
         },
         3500,
         1
@@ -114,31 +106,35 @@ export class GeminiTtsAdapter implements TTSProvider {
       this.totalRenderLatencyMs += renderLatency;
       this.renderCount++;
 
-      if (!audioBase64) {
+      if (!audioBase64.data) {
         return this.synthesizeFallback(request, "gemini-empty");
       }
 
-      const audioBuffer = Buffer.from(audioBase64, "base64");
-      const headerCheck = this.validateAudioHeader(audioBuffer);
-
-      if (!headerCheck.valid) {
-        console.warn("[GeminiTtsAdapter] Generated audio failed header validation.");
-        return this.synthesizeFallback(request, "invalid-header");
+      let audioBuffer = Buffer.from(audioBase64.data, "base64");
+      let mime = audioBase64.mimeType.split(";")[0].toLowerCase();
+      if (mime === "audio/l16" || mime === "audio/pcm") {
+        const pcm = convertPcmToWav(audioBuffer, audioBase64.mimeType);
+        if (!pcm) throw new Error("TTS_PCM_FORMAT_UNSUPPORTED: sample rate, channel count, bit depth, or byte order is missing.");
+        audioBuffer = pcm;
+        mime = "audio/wav";
+      }
+      if (!isAudioContainerValid(audioBuffer, mime)) {
+        throw new Error(`TTS_AUDIO_INVALID: Gemini returned ${audioBase64.mimeType || "unknown MIME type"} without a matching supported container.`);
       }
 
-      const mime = headerCheck.format === "mp3" ? "audio/mp3" : "audio/wav";
-
-      if (this.cache.size < 100) {
-        this.cache.set(cacheKey, { buffer: audioBuffer, base64: audioBase64, mimeType: mime });
-      }
-
-      return {
-        audioBase64,
+      const response: TtsSynthesisResponse = {
+        audioBase64: audioBuffer.toString("base64"),
         audioBuffer,
         mimeType: mime,
         audioMimeType: mime,
         providerUsed: "gemini-tts",
+        language,
+        model: AI_CONFIG.ttsModel,
       };
+      if (this.cache.size < 100) {
+        this.cache.set(cacheKey, { buffer: audioBuffer, base64: response.audioBase64!, mimeType: mime });
+      }
+      return assertTtsResponse(request, response, "en");
     } catch (err: any) {
       const msg = String(err?.message || "");
 
@@ -165,16 +161,55 @@ export class GeminiTtsAdapter implements TTSProvider {
         this.quotaExhaustedUntil = Date.now() + 60 * 1000;
         console.info("[GeminiTtsAdapter] Gemini TTS provider busy; using local fallback.");
       } else {
-        console.info("[GeminiTtsAdapter] TTS note:", msg.slice(0, 80));
+        console.info("[GeminiTtsAdapter] TTS provider error code:", getTtsErrorCode(err));
       }
 
-      return this.synthesizeFallback(request, isForbidden ? "forbidden-fallback" : "error-fallback");
+      return this.synthesizeFallback(request, isForbidden ? "forbidden" : "provider-error");
     }
   }
 
   private async synthesizeFallback(request: TtsSynthesisRequest, reason: string): Promise<TtsSynthesisResponse> {
-    return await localGhanaianTtsProvider.synthesize(request);
+    const recording = await localGhanaianTtsProvider.synthesize(request);
+    return assertTtsResponse(request, { ...recording, providerUsed: `verified-recording:${reason}` }, "en");
   }
+}
+
+function convertPcmToWav(audio: Buffer, mimeType: string): Buffer | null {
+  const parameters = Object.fromEntries(
+    [...mimeType.matchAll(/(?:^|;)\s*([\w-]+)=([\w-]+)/g)].map((match) => [match[1].toLowerCase(), match[2].toLowerCase()])
+  );
+  const sampleRate = Number(parameters.rate || parameters.samplerate);
+  const channels = Number(parameters.channels || parameters.channel);
+  const bitsPerSample = Number(parameters.bits || (mimeType.toLowerCase().startsWith("audio/l16") ? 16 : 0));
+  const byteOrder = parameters.endian || parameters.endianness
+    || (mimeType.toLowerCase().startsWith("audio/l16") ? "big" : "");
+  if (!Number.isInteger(sampleRate) || sampleRate < 8000 || sampleRate > 192000
+    || !Number.isInteger(channels) || channels < 1 || channels > 8
+    || bitsPerSample !== 16 || !["big", "little", "be", "le"].includes(byteOrder)
+    || audio.length === 0 || audio.length % (channels * 2) !== 0) return null;
+
+  const pcm = Buffer.from(audio);
+  if (["big", "be"].includes(byteOrder)) {
+    for (let offset = 0; offset < pcm.length; offset += 2) {
+      const first = pcm[offset];
+      pcm[offset] = pcm[offset + 1];
+      pcm[offset + 1] = first;
+    }
+  }
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + pcm.length, 4);
+  header.write("WAVEfmt ", 8);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * channels * 2, 28);
+  header.writeUInt16LE(channels * 2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([header, pcm]);
 }
 
 export const geminiTtsAdapter = new GeminiTtsAdapter();

@@ -1,9 +1,7 @@
 /**
  * Ɔkwankyerɛfo Pa - TTS Adapter Seam (ttsService.ts)
  * 
- * Central registry mapping prompt keys and languages to pre-recorded audio assets.
- * When the UG HCI Lab TTS API is integrated, speak() will synthesize dynamic speech,
- * replacing the stub without changing server routes.
+ * Central registry mapping fixed prompts to approved recordings and dynamic text to real TTS.
  */
 
 export type SupportedLanguage = "en" | "twi";
@@ -19,6 +17,7 @@ import {
 import { getStepDefinition } from "../domain/stepRegistry";
 import { getCanonicalPrompt, isDynamicPrompt, resolvePromptSpokenText } from "../audio/canonicalRegistry";
 import type { DynamicPromptParams } from "../audio/dynamicPromptBuilder";
+import { ttsRouter } from "../ai_system/speech/tts/ttsRouter";
 
 const TTS_SCRIPT_KEY_BY_PROMPT_KEY: Readonly<Record<string, string>> = {
   invalid_recipient: "number_invalid",
@@ -184,10 +183,10 @@ export function resolvePrompt(key: string, lang: SupportedLanguage = "en"): stri
   const recording = getRecordingByPromptKey(key, language);
   if (recording?.audioVerified && recording.url) return recording.url;
 
-  const normalizedKey = key.toLowerCase();
-  const canonicalId = PROMPT_KEY_TO_RECORDING_ID[normalizedKey]
+  const canonicalId = PROMPT_KEY_TO_RECORDING_ID[key.toLowerCase()]
     || (/^OP\d{2}(?:B)?$/i.test(key) ? key.toUpperCase() : key);
-  return resolvePromptText(key, lang)
+  if (!isDynamicPrompt(canonicalId)) return null;
+  return resolvePromptText(canonicalId, lang)
     ? `/api/audio/prompt-tts/${lang}/${encodeURIComponent(canonicalId)}`
     : null;
 }
@@ -238,7 +237,8 @@ export function resolveSimulatorAudioUrl(
     const ttsMatch = pathname.match(/^\/(?:api\/)?audio\/prompt-tts\/(en|twi)\//);
     if (ttsMatch) {
       if (ttsMatch[1] !== language) return null;
-      return pathname;
+      const parsedUrl = new URL(audioUrl, "http://localhost");
+      return `${pathname}${parsedUrl.search}`;
     }
 
     // Cross-language prevention: strictly reject Twi assets during English sessions and vice versa
@@ -252,14 +252,12 @@ export function resolveSimulatorAudioUrl(
     const recording = getRecordingByUrl(pathname, language);
     if (recording) {
       if (recording.audioVerified) return recording.url ? recording.url.replace(/\.(m4a|aac)$/i, ".mp3") : null;
-      return recording.promptId
-        ? `/api/audio/prompt-tts/${language}/${encodeURIComponent(recording.promptId)}`
-        : null;
+      return null;
     }
 
     return null;
   } catch {
-    return (audioUrl || "").replace(/\.(m4a|aac)$/i, ".mp3");
+    return null;
   }
 }
 
@@ -277,8 +275,9 @@ function escapeXmlText(text: string): string {
 }
 
 export function toTelephonyAudioUrl(audioUrl: string): string {
-  // Replace .m4a or .aac with .mp3 extension so telephony media servers receive MP3 audio
-  return audioUrl.replace(/\.(m4a|aac)$/i, ".mp3");
+  const url = new URL(audioUrl, "http://localhost");
+  url.searchParams.set("format", "mp3");
+  return `${url.pathname}${url.search}`;
 }
 
 export function resolvePromptXml(
@@ -293,7 +292,7 @@ export function resolvePromptXml(
     return `<Play url="${baseUrl}${telephonyUrl}"/>`;
   }
   if (fallbackText) {
-    return `<Say voice="female">${escapeXmlText(fallbackText)}</Say>`;
+    return lang === "en" ? `<Say voice="female">${escapeXmlText(fallbackText)}</Say>` : null;
   }
   const audioUrl = resolvePrompt(key, lang);
   if (audioUrl) {
@@ -301,13 +300,26 @@ export function resolvePromptXml(
     return `<Play url="${baseUrl}${telephonyUrl}"/>`;
   }
   const text = resolvePromptText(key, lang);
-  return text ? `<Say voice="female">${escapeXmlText(text)}</Say>` : null;
+  if (lang === "en" && text) return `<Say voice="female">${escapeXmlText(text)}</Say>`;
+  if (lang === "twi") {
+    const recovery = /^(?:welcome|language_selection|OP01|OP02)$/i.test(key)
+      ? "Twi audio is unavailable. Press 1 for English, or try again later."
+      : "Twi audio is unavailable right now. Please use the keypad or try again later.";
+    return `<Say voice="female">${escapeXmlText(recovery)}</Say>`;
+  }
+  return null;
 }
 
 /**
  * Resolves prompt key and language into the canonical audio URL.
  */
-export async function speak(_text: string, _lang: SupportedLanguage = "en"): Promise<Buffer> {
-  // TODO(ug-hci-tts): Replace stub with UG HCI Lab TTS API when credentials are provided
-  throw new Error("UG HCI Lab TTS not connected");
+export async function speak(text: string, lang: SupportedLanguage = "en"): Promise<Buffer> {
+  const normalizedLanguage = normalizeRecordingLanguage(lang);
+  if (!normalizedLanguage) throw new Error(`TTS_LANGUAGE_UNSUPPORTED: ${lang}`);
+  const result = await ttsRouter.synthesize({
+    text,
+    language: normalizedLanguage === "twi" ? "tw" : "en",
+  });
+  if (!result.audioBuffer) throw new Error("TTS_AUDIO_MISSING: speech provider returned no audio.");
+  return result.audioBuffer;
 }

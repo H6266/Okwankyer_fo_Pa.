@@ -21,15 +21,59 @@ import { kycLookupRateLimiter, adminRateLimiter, publicApiRateLimiter } from "..
 import { validateGhanaPhoneNumber } from "../domain/validation";
 import { modelRouter } from "../ai_system/providers/modelRouter";
 import { ttsRouter as speechSynthesisRouter } from "../ai_system/speech/tts/ttsRouter";
-import { resolvePrompt, resolvePromptText } from "../modules/ttsService";
-import { isDynamicPrompt, resolvePromptSpokenText } from "../audio/canonicalRegistry";
+import { resolvePrompt } from "../modules/ttsService";
+import { isDynamicPrompt } from "../audio/canonicalRegistry";
 import { renderDynamicPromptTemplate } from "../audio/dynamicPromptBuilder";
 import { aiBootstrap } from "../ai_system/core/aiBootstrap";
 import { crossReferenceReplyAudioWithAi } from "../audio/geminiAudioMatcher";
 import { TWI_AUDIO_LIBRARY_ITEMS } from "../audio/twiLibraryManifest";
 import { buildDigitPronunciations, formatFullPhoneNumberSpaced, formatSlowReferenceSpoken } from "../audio/digitAudioSynthesizer";
+import { assertTtsResponse, getTtsErrorCode, normalizeTtsLanguage } from "../ai_system/speech/tts/ttsProvider";
 
 export const apiRouter = Router();
+
+apiRouter.post("/api/audio/synthesize", publicApiRateLimiter, async (req: Request, res: Response) => {
+  const { text, language, promptId } = req.body || {};
+  const normalizedLanguage = typeof language === "string" ? normalizeTtsLanguage(language) : null;
+  if (typeof text !== "string" || !text.trim() || text.length > 4000 || !normalizedLanguage) {
+    return res.status(400).json({ error: "Valid text and language ('en' or 'twi') are required." });
+  }
+  if (/\b(?:mobile\s*money|momo|wallet)?\s*pin\b.{0,32}\b\d{4,}\b/i.test(text)) {
+    return res.status(400).json({ error: "Credential values cannot be sent to speech synthesis." });
+  }
+
+  try {
+    const requestLanguage = normalizedLanguage === "twi" ? "tw" : "en";
+    const result = await speechSynthesisRouter.synthesize({
+      text: text.trim(),
+      language: requestLanguage,
+      skipCatalogCheck: false,
+    });
+    const validated = assertTtsResponse({
+      text: text.trim(),
+      language: requestLanguage,
+    }, result, normalizedLanguage);
+    const audioBuffer = validated.audioBuffer!;
+    res.setHeader("Content-Type", validated.audioMimeType);
+    res.setHeader("Content-Length", audioBuffer.length);
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Audio-Provider", validated.providerUsed);
+    res.setHeader("X-Audio-Language", normalizedLanguage);
+    res.setHeader("X-Audio-Source-Type", validated.providerUsed.includes("studio-recording") ? "STUDIO_PROMPT" : "SYNTHESIZED_TTS");
+    if (typeof promptId === "string") res.setHeader("X-Audio-Prompt-Id", promptId.slice(0, 40));
+    return res.status(200).end(audioBuffer);
+  } catch (error) {
+    console.error("[AudioSynthesis] Request failed.", {
+      promptId: typeof promptId === "string" ? promptId.slice(0, 40) : "unknown",
+      language: normalizedLanguage,
+      sourceType: "SYNTHESIZED_TTS",
+      url: "/api/audio/synthesize",
+      provider: "TTS router",
+      error: getTtsErrorCode(error),
+    });
+    return res.status(502).json({ error: "Speech synthesis is unavailable. Use the keypad or try again later." });
+  }
+});
 
 apiRouter.get("/api/audio/digit-pronunciations", publicApiRateLimiter, (req: Request, res: Response) => {
   const text = (req.query.text || "").toString();
@@ -69,6 +113,9 @@ apiRouter.get(
     if (lang !== "en" && lang !== "twi") {
       return res.status(400).json({ error: "Unsupported prompt language." });
     }
+    if (!isDynamicPrompt(req.params.key)) {
+      return res.status(404).json({ error: "Fixed prompts require an approved studio recording and are not synthesized." });
+    }
 
     const {
       name,
@@ -83,44 +130,21 @@ apiRouter.get(
       utterance,
     } = req.query as Record<string, string>;
 
-    let promptText: string | null = null;
-    if (isDynamicPrompt(req.params.key)) {
-      promptText = renderDynamicPromptTemplate(req.params.key, lang as "en" | "twi", {
-        name,
-        recipientName,
-        phone,
-        recipientPhone,
-        amount,
-        network,
-        ref,
-        referenceId,
-        response: userResponse,
-        utterance,
-      });
-      if (!promptText) {
-        return res.status(400).json({ error: "Required live transaction data is missing or invalid." });
-      }
-    } else if (Object.keys(req.query).length > 0) {
-      promptText = resolvePromptSpokenText(req.params.key, lang as "en" | "twi", {
-        name,
-        recipientName,
-        phone,
-        recipientPhone,
-        amount,
-        network,
-        ref,
-        referenceId,
-        response: userResponse,
-        utterance,
-      });
-    }
+    const promptText = renderDynamicPromptTemplate(req.params.key, lang, {
+      name,
+      recipientName,
+      phone,
+      recipientPhone,
+      amount,
+      network,
+      ref,
+      referenceId,
+      response: userResponse,
+      utterance,
+    });
 
     if (!promptText) {
-      promptText = resolvePromptText(req.params.key, lang);
-    }
-
-    if (!promptText) {
-      return res.status(404).json({ error: "No registered prompt text or recording exists for this key." });
+      return res.status(400).json({ error: "Required live transaction data is missing or invalid." });
     }
 
     try {
@@ -128,33 +152,54 @@ apiRouter.get(
         text: promptText,
         language: lang === "twi" ? "tw" : "en",
       });
-
-      const buffer = result.audioBuffer;
+      const validated = assertTtsResponse({
+        text: promptText,
+        language: lang === "twi" ? "tw" : "en",
+      }, result, lang);
+      const buffer = validated.audioBuffer;
       const range = req.headers.range;
 
       if (range) {
-        const parts = range.replace(/bytes=/, "").split("-");
-        const start = parseInt(parts[0], 10) || 0;
-        const end = parts[1] ? parseInt(parts[1], 10) : buffer.length - 1;
+        const match = range.match(/^bytes=(\d*)-(\d*)$/);
+        if (!match || (!match[1] && !match[2])) {
+          return res.status(416).setHeader("Content-Range", `bytes */${buffer.length}`).end();
+        }
+        let start = match[1] ? Number.parseInt(match[1], 10) : 0;
+        let end = match[2] ? Number.parseInt(match[2], 10) : buffer.length - 1;
+        if (!match[1]) {
+          start = Math.max(buffer.length - end, 0);
+          end = buffer.length - 1;
+        }
+        end = Math.min(end, buffer.length - 1);
+        if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || start >= buffer.length || start > end) {
+          return res.status(416).setHeader("Content-Range", `bytes */${buffer.length}`).end();
+        }
         const chunk = buffer.subarray(start, end + 1);
 
-        res.status(206);
-        res.setHeader("Content-Range", `bytes ${start}-${end}/${buffer.length}`);
-        res.setHeader("Accept-Ranges", "bytes");
-        res.setHeader("Content-Length", chunk.length);
-        res.setHeader("Content-Type", result.audioMimeType);
-        res.setHeader("Cache-Control", "public, max-age=3600");
-        return res.end(chunk);
+        return res.writeHead(206, {
+          "Content-Range": `bytes ${start}-${end}/${buffer.length}`,
+          "Accept-Ranges": "bytes",
+          "Content-Length": chunk.length,
+          "Content-Type": validated.audioMimeType,
+          "Cache-Control": "no-store",
+        }).end(chunk);
       }
 
-      res.status(200);
-      res.setHeader("Accept-Ranges", "bytes");
-      res.setHeader("Content-Type", result.audioMimeType);
-      res.setHeader("Content-Length", buffer.length);
-      res.setHeader("Cache-Control", "public, max-age=3600");
-      return res.end(buffer);
+      return res.writeHead(200, {
+        "Accept-Ranges": "bytes",
+        "Content-Type": validated.audioMimeType,
+        "Content-Length": buffer.length,
+        "Cache-Control": "no-store",
+      }).end(buffer);
     } catch (error) {
-      console.error("[AudioPromptTTS] Prompt synthesis failed.", error);
+      console.error("[AudioPromptTTS] Prompt synthesis failed.", {
+        promptId: req.params.key,
+        language: lang,
+        sourceType: "SYNTHESIZED_TTS",
+        url: req.originalUrl.split("?")[0],
+        provider: "TTS router",
+        error: getTtsErrorCode(error),
+      });
       return res.status(502).json({ error: "Prompt speech synthesis is temporarily unavailable." });
     }
   }

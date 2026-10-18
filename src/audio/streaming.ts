@@ -9,7 +9,6 @@ import path from "path";
 import crypto from "crypto";
 import { execFile } from "child_process";
 import util from "util";
-import { AudioAssetRoot, getRecordingByPath } from "./recordingRegistry";
 
 const execFileAsync = util.promisify(execFile);
 
@@ -44,13 +43,13 @@ export async function getOrTranscodeMp3(sourceFilePath: string): Promise<string>
   let stat: fs.Stats;
   try {
     stat = fs.statSync(sourceFilePath);
-  } catch {
-    return sourceFilePath;
+  } catch (error) {
+    throw new Error(`AUDIO_SOURCE_NOT_FOUND: ${sourceFilePath}`, { cause: error });
   }
 
   const hash = crypto
     .createHash("sha256")
-    .update(`${sourceFilePath}:${stat.size}:${stat.mtimeMs}`)
+    .update(`audio-transcode-v2-loudnorm-limiter:${sourceFilePath}:${stat.size}:${stat.mtimeMs}`)
     .digest("hex")
     .slice(0, 20);
 
@@ -69,11 +68,11 @@ export async function getOrTranscodeMp3(sourceFilePath: string): Promise<string>
   const transcodePromise = (async () => {
     const tempPath = `${cachedMp3Path}.tmp.${Date.now()}`;
     try {
-      // 16kHz mono 64kbps MP3 with 2.8x (+9.0dB) volume boost filter for loud and clear telephony & web playback
+      // Cache versioning above prevents previously clipped transcodes from being reused.
       await execFileAsync("ffmpeg", [
         "-y",
         "-i", sourceFilePath,
-        "-filter:a", "volume=2.8",
+        "-af", "loudnorm=I=-20:TP=-2:LRA=7:linear=true,alimiter=limit=0.95:level=disabled",
         "-codec:a", "libmp3lame",
         "-b:a", "64k",
         "-ar", "16000",
@@ -81,14 +80,18 @@ export async function getOrTranscodeMp3(sourceFilePath: string): Promise<string>
         "-f", "mp3",
         tempPath,
       ]);
+      const transcoded = fs.readFileSync(tempPath);
+      if (!isMp3Buffer(transcoded)) {
+        throw new Error("Transcoder output did not contain MP3 frames.");
+      }
       fs.renameSync(tempPath, cachedMp3Path);
       return cachedMp3Path;
-    } catch (err: any) {
+    } catch (err) {
       if (fs.existsSync(tempPath)) {
         try { fs.unlinkSync(tempPath); } catch {}
       }
-      console.warn(`[Streaming] On-the-fly MP3 transcode notice for ${path.basename(sourceFilePath)}:`, err?.message || err);
-      return sourceFilePath;
+      console.error(`[Streaming] MP3 transcoding failed for ${path.basename(sourceFilePath)}:`, err);
+      throw new Error(`AUDIO_TRANSCODE_FAILED: ${path.basename(sourceFilePath)}`, { cause: err });
     } finally {
       activeTranscodePromises.delete(cachedMp3Path);
     }
@@ -147,114 +150,81 @@ export function resolveSafeAudioPath(requestedSubpath: string): string | null {
     .replace(/\\/g, "/")
     .replace(/^\/+/, "")
     .replace(/^audio\//i, "");
-  if (!normalized || normalized.split("/").some((segment) => segment === "..")) {
+  if (!normalized || normalized.includes("\0") || normalized.split("/").some((segment) => segment === ".." || segment === ".")) {
     throw new PathTraversalError(`Path traversal attempt blocked: ${requestedSubpath}`);
   }
 
-  let assetRoot: AudioAssetRoot;
-  let relativePath: string;
   let rootDir: string;
-  if (normalized.startsWith("supplied/")) {
-    assetRoot = "supplied";
-    relativePath = normalized.slice("supplied/".length);
-    rootDir = path.resolve(process.cwd(), "Audio_files");
-  } else if (/^twi_library\//i.test(normalized)) {
-    assetRoot = "supplied";
-    relativePath = normalized;
-    rootDir = path.resolve(process.cwd(), "Audio_files");
-  } else if (/^english_library\//i.test(normalized)) {
-    assetRoot = "supplied";
-    relativePath = normalized;
-    rootDir = path.resolve(process.cwd(), "Audio_files");
-  } else if (normalized.startsWith("additional/")) {
-    assetRoot = "additional";
+  let relativePath: string;
+
+  if (/^Twi\//i.test(normalized)) {
+    rootDir = path.resolve(process.cwd(), "Audio_files", "audio", "Twi");
+    relativePath = normalized.slice("Twi/".length);
+  } else if (/^supplied\/Twi\//i.test(normalized)) {
+    rootDir = path.resolve(process.cwd(), "Audio_files", "audio", "Twi");
+    relativePath = normalized.replace(/^supplied\/Twi\//i, "");
+  } else if (/^English_Library\//i.test(normalized)) {
+    rootDir = path.resolve(process.cwd(), "Audio_files", "English_Library");
+    relativePath = normalized.slice("English_Library/".length);
+  } else if (/^supplied\/English_Library\//i.test(normalized)) {
+    rootDir = path.resolve(process.cwd(), "Audio_files", "English_Library");
+    relativePath = normalized.replace(/^supplied\/English_Library\//i, "");
+  } else if (/^additional\//i.test(normalized)) {
+    rootDir = path.resolve(process.cwd(), "Audio_files", "additional");
     relativePath = normalized.slice("additional/".length);
-    rootDir = path.resolve(process.cwd(), "Audio_files");
-  } else if (/^twi\//i.test(normalized)) {
-    assetRoot = "supplied";
-    relativePath = normalized;
-    rootDir = path.resolve(process.cwd(), "Audio_files");
+  } else if (/^(?:supplied\/)?Twi_library(?:\/|$)/i.test(normalized)) {
+    return null;
   } else {
-    assetRoot = "public";
-    relativePath = normalized;
     rootDir = path.resolve(process.cwd(), "public", "audio");
+    relativePath = normalized.replace(/^public\//i, "");
   }
 
   const resolved = path.resolve(rootDir, relativePath);
-  if (resolved !== rootDir && !resolved.startsWith(`${rootDir}${path.sep}`)) {
+  if (resolved === rootDir || !resolved.startsWith(`${rootDir}${path.sep}`)) {
     throw new PathTraversalError(`Path traversal attempt blocked: ${requestedSubpath}`);
   }
 
-  // 1. Direct check for exact resolved path under rootDir
-  if (fs.existsSync(resolved) && !fs.statSync(resolved).isDirectory()) {
-    const realPath = fs.realpathSync(resolved);
+  const resolveInsideRoot = (candidate: string): string | null => {
+    if (!fs.existsSync(candidate) || fs.statSync(candidate).isDirectory()) return null;
+    const realPath = fs.realpathSync(candidate);
     const realRoot = fs.realpathSync(rootDir);
-    if (realPath.startsWith(`${realRoot}${path.sep}`)) {
-      return realPath;
-    }
+    return realPath.startsWith(`${realRoot}${path.sep}`) ? realPath : null;
+  };
+
+  const exact = resolveInsideRoot(resolved);
+  if (exact) return exact;
+
+  // A .mp3 URL may name an M4A/AAC source only at the identical path and stem;
+  // streamAudioFile() must transcode that source before returning it.
+  if (path.extname(resolved).toLowerCase() === ".mp3") {
+    const stem = resolved.slice(0, -path.extname(resolved).length);
+    return resolveInsideRoot(`${stem}.m4a`) || resolveInsideRoot(`${stem}.aac`);
   }
 
-  // 2. Extension swap check on the resolved path (.m4a, .aac, .mp3, .wav)
-  const candidateDir = path.dirname(resolved);
-  const baseNameWithoutExt = path.basename(resolved, path.extname(resolved));
-  const audioExtensions = [".mp3", ".wav", ".m4a", ".aac"];
+  return null;
+}
 
-  for (const ext of audioExtensions) {
-    const candidate = path.join(candidateDir, `${baseNameWithoutExt}${ext}`);
-    if (fs.existsSync(candidate) && !fs.statSync(candidate).isDirectory()) {
-      return fs.realpathSync(candidate);
-    }
+function isMp3Buffer(buffer: Buffer): boolean {
+  if (buffer.length < 4) return false;
+  if (buffer.toString("ascii", 0, 3) === "ID3") return true;
+  for (let offset = 0; offset < Math.min(buffer.length - 1, 4096); offset++) {
+    if (buffer[offset] === 0xff && (buffer[offset + 1] & 0xe0) === 0xe0) return true;
   }
+  return false;
+}
 
-  // 3. Check Audio_files/Twi_library directly
-  const twiLibraryDir = path.resolve(process.cwd(), "Audio_files", "Twi_library");
-  if (fs.existsSync(twiLibraryDir)) {
-    // Check direct file
-    const directInTwiLib = path.join(twiLibraryDir, path.basename(resolved));
-    if (fs.existsSync(directInTwiLib) && !fs.statSync(directInTwiLib).isDirectory()) {
-      return fs.realpathSync(directInTwiLib);
-    }
-    // Check with extension swap
-    for (const ext of audioExtensions) {
-      const extCandidate = path.join(twiLibraryDir, `${baseNameWithoutExt}${ext}`);
-      if (fs.existsSync(extCandidate) && !fs.statSync(extCandidate).isDirectory()) {
-        return fs.realpathSync(extCandidate);
-      }
-    }
-    // Check case-insensitive match
-    try {
-      const targetLower = baseNameWithoutExt.toLowerCase().replace(/[^a-z0-9]/g, "");
-      const twiFiles = fs.readdirSync(twiLibraryDir);
-      for (const f of twiFiles) {
-        const fBase = path.basename(f, path.extname(f)).toLowerCase().replace(/[^a-z0-9]/g, "");
-        if (fBase === targetLower) {
-          const matchPath = path.join(twiLibraryDir, f);
-          if (fs.existsSync(matchPath) && !fs.statSync(matchPath).isDirectory()) {
-            return fs.realpathSync(matchPath);
-          }
-        }
-      }
-    } catch {}
+function getAudioContentType(buffer: Buffer, extension: string): string | null {
+  if (buffer.length >= 12 && buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WAVE") {
+    return extension === ".wav" ? "audio/wav" : null;
   }
-
-  // 4. Fallback: check flat Audio_files directory for matching filename with any audio extension
-  const audioFilesDir = path.resolve(process.cwd(), "Audio_files");
-  for (const ext of audioExtensions) {
-    const flatCandidate = path.resolve(audioFilesDir, `${baseNameWithoutExt}${ext}`);
-    if (fs.existsSync(flatCandidate) && !fs.statSync(flatCandidate).isDirectory()) {
-      return fs.realpathSync(flatCandidate);
-    }
+  if (isMp3Buffer(buffer)) return extension === ".mp3" ? "audio/mpeg" : null;
+  if (buffer.length >= 8 && buffer.toString("ascii", 4, 8) === "ftyp") {
+    return extension === ".m4a" ? "audio/mp4" : null;
   }
-
-  // 5. Fallback: check public/audio
-  const publicAudioDir = path.resolve(process.cwd(), "public", "audio");
-  for (const ext of audioExtensions) {
-    const publicCandidate = path.resolve(publicAudioDir, `${baseNameWithoutExt}${ext}`);
-    if (fs.existsSync(publicCandidate) && !fs.statSync(publicCandidate).isDirectory()) {
-      return fs.realpathSync(publicCandidate);
-    }
+  if (buffer.length >= 2 && buffer[0] === 0xff && (buffer[1] & 0xf6) === 0xf0) {
+    return extension === ".aac" ? "audio/aac" : null;
   }
-
+  if (buffer.toString("ascii", 0, 4) === "OggS") return extension === ".ogg" ? "audio/ogg" : null;
   return null;
 }
 
@@ -277,8 +247,14 @@ export async function streamAudioFile(req: Request, res: Response, filePath: str
     userAgent.includes("telephony");
 
   let activePath = filePath;
-  if (isTelephonyClient && !filePath.endsWith(".mp3")) {
-    activePath = await getOrTranscodeMp3(filePath);
+  if (isTelephonyClient && path.extname(filePath).toLowerCase() !== ".mp3") {
+    try {
+      activePath = await getOrTranscodeMp3(filePath);
+    } catch (error) {
+      console.error("[Streaming] Requested MP3 could not be produced:", error);
+      res.status(502).json({ error: "MP3 audio transcoding is unavailable." });
+      return;
+    }
   }
 
   let buffer = AUDIO_BUFFER_CACHE.get(activePath);
@@ -297,15 +273,11 @@ export async function streamAudioFile(req: Request, res: Response, filePath: str
 
   const size = buffer.length;
   const extension = path.extname(activePath).toLowerCase();
-  const contentType = extension === ".wav"
-    ? "audio/wav"
-    : extension === ".ogg"
-      ? "audio/ogg"
-      : extension === ".aac"
-        ? "audio/aac"
-        : extension === ".m4a"
-          ? "audio/mp4"
-          : "audio/mpeg";
+  const contentType = getAudioContentType(buffer, extension);
+  if (!contentType) {
+    res.status(415).json({ error: "Audio file content does not match a supported audio format." });
+    return;
+  }
 
   const range = req.headers.range;
 

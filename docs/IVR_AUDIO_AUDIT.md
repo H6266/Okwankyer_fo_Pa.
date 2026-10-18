@@ -6,8 +6,8 @@ The current checkout contains **92 audio files**. Extension counts: .m4a 3, .mp3
 
 | Current root | Audio files |
 |---|---:|
-| `Audio_files/Twi_library/` | 86 |
-| `Audio_files/audio/` | 0 |
+| Canonical `Audio_files/audio/Twi/` | 0 |
+| Legacy `Audio_files/Twi_library/` | 86 |
 | Other files under `Audio_files/` | 3 |
 | `public/audio/` | 2 |
 | `audio/` | 0 |

@@ -4,9 +4,9 @@ Generated from the current runtime audio policy and IVR integration.
 
 ## Current inventory
 
-The checkout contains 92 audio files across `Audio_files/Twi_library/` (86), `Audio_files/audio/` (0), other `Audio_files/` paths (3), `public/audio/` (2), `audio/` (0), and the repository root (1).
+The checkout contains 92 audio files across canonical `Audio_files/audio/Twi/` (0), legacy `Audio_files/Twi_library/` (86), other `Audio_files/` paths (3), `public/audio/` (2), `audio/` (0), and the repository root (1).
 
-The runtime registry contains 91 selected assets. None is approved for automatic playback. The resolver accepts only exact, language-matched recordings with audioVerified=true; mapped candidates and dynamic prompts use TTS until reviewed.
+The runtime registry contains 91 selected assets. None is approved for automatic playback. The resolver accepts only exact, language-matched recordings with audioVerified=true. Fixed prompts without an approved recording use text recovery; only dynamic prompts may request language-matched TTS.
 
 Full path-by-path inventory: `docs/IVR_AUDIO_INVENTORY.csv`. Per-prompt language coverage: `docs/IVR_AUDIO_MAPPING.md`.
 

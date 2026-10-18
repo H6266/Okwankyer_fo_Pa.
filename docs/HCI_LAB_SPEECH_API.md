@@ -127,18 +127,13 @@ When errors occur (quota exhaustion, invalid parameters, upstream failure), the 
 To survive until October 24 and ensure 100% reliability during live presentation, we enforce 7 strict architectural rules:
 
 ### Pillar 1: 100% Studio Human Audio for Static Prompts (0 Quota)
-The repository contains **126 authentic Akan Twi human studio recordings** (`/Audio_files/Twi/`):
-* Welcome, greetings, network selection, invalid recipient warnings, PIN security handoff, patience reassurance (`TAKE YOUR TIME.aac`), session timeout, and success receipts.
-* **Invariant:** Standard IVR prompts will **NEVER** call the HCI Lab TTS API. They are served directly from local static audio files (`< 5ms` latency, 0 quota used).
+The current checkout has **86 legacy Twi MP3 candidates** under `Audio_files/Twi_library/`. The intended canonical directory, `Audio_files/audio/Twi/`, is absent, and no recording has been listened to or approved in this audit. These files are excluded from runtime playback until the canonical assets are restored and each recording is reviewed against its language, prompt, MIME type, and intended content.
 
 ### Pillar 2: Permanent Local Disk Caching for Dynamic TTS
-* When HCI Lab TTS synthesizes a dynamic readback (e.g. *"Wo de sika aduonum rekɔma Kwame Mensah wɔ 0543546010"*), the returned WAV buffer is immediately hashed (`SHA-256`) and saved to persistent disk storage (`.cache/hci_tts/<hash>.wav`).
-* Subsequent calls with the same text serve directly from disk cache.
-* **Quota cost on cache hit:** 0 requests, 0 characters.
+No Twi TTS model is installed or enabled by default. HCI Lab Twi synthesis requires a configured service and `TWI_TTS_SAMPLE_AUDIO_REVIEWED=true`, set only after a real output sample is reviewed. Missing providers return an explicit unavailable result; they do not generate tone audio.
 
 ### Pillar 3: Pre-Synthesized Demo Scenarios (Zero-Burn Rehearsals)
-* Common demo scenarios (e.g., *Hannes Aboagye*, *Kwame Nyamebere*, *Ama Mensah*; amounts *5 GHS*, *20 GHS*, *50 GHS*) will be pre-cached into the dynamic audio store before rehearsals.
-* Testing and rehearsals will run using pre-synthesized audio with zero live token burn.
+Dynamic names, complete phone numbers, amounts, and references must use the values supplied for the current transaction. Static example values are not approved for dynamic readback.
 
 ### Pillar 4: Dual-Mode DTMF Keypad Entry (0 ASR Quota)
 * For phone numbers (e.g. `0543546010`), amounts (`50`), and confirmation choices (`1` or `2`), Africa's Talking captures dual-tone multi-frequency (DTMF) keypad presses via `<GetDigits>`.

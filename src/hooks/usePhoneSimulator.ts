@@ -32,6 +32,35 @@ import type {
   EntitySlotMap,
 } from "../ai_system/core/aiTypes";
 
+function isValidAudioPayload(base64: string, mimeType: string): boolean {
+  const mime = mimeType.split(";")[0].trim().toLowerCase();
+  if (!["audio/wav", "audio/x-wav", "audio/mpeg", "audio/mp3", "audio/mp4", "audio/m4a", "audio/aac"].includes(mime)) return false;
+  try {
+    const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+    if (["audio/wav", "audio/x-wav"].includes(mime)) {
+      return bytes.length >= 44
+        && String.fromCharCode(...bytes.slice(0, 4)) === "RIFF"
+        && String.fromCharCode(...bytes.slice(8, 12)) === "WAVE"
+        && new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4, true) + 8 <= bytes.length;
+    }
+    if (["audio/mpeg", "audio/mp3"].includes(mime)) {
+      return String.fromCharCode(...bytes.slice(0, 3)) === "ID3"
+        || (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0);
+    }
+    if (["audio/mp4", "audio/m4a"].includes(mime)) {
+      return bytes.length >= 8 && String.fromCharCode(...bytes.slice(4, 8)) === "ftyp";
+    }
+    return bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xf6) === 0xf0;
+  } catch {
+    return false;
+  }
+}
+
+function safeAudioErrorCode(error: unknown): string {
+  if (!(error instanceof Error)) return "UNKNOWN_ERROR";
+  return error.message.match(/^\s*([A-Z][A-Z0-9_]*)(?::|$)/)?.[1] || error.name;
+}
+
 export interface SimulatorTranscriptItem {
   id: string;
   role: "caller" | "ai" | "system";
@@ -948,15 +977,6 @@ export function usePhoneSimulator() {
       "Please listen to the prompt.";
   }
 
-  function playBrowserSpeechFallback(_text: string): void {
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      try {
-        window.speechSynthesis.cancel();
-      } catch {}
-    }
-    updateAiSpeaking(false);
-  }
-
   /**
    * Process Africa's Talking VoiceXML Response recursively (following <Redirect> & setting DTMF expectations)
    */
@@ -1447,12 +1467,13 @@ export function usePhoneSimulator() {
     }
 
     if (key === "welcome") {
-      return isTwi
-        ? "/audio/Twi_library/Opening_voice_welcome_to_okwankyerefopa.mp3"
-        : "/audio/welcome_en.mp3";
+      const recording = getRecordingByPromptKey(key, isTwi ? "twi" : "en");
+      return recording?.audioVerified ? recording.url : null;
     }
 
-    return key ? getRecordingByPromptKey(key)?.url || null : null;
+    if (!key) return null;
+    const recording = getRecordingByPromptKey(key, isTwi ? "twi" : "en");
+    return recording?.audioVerified ? recording.url : null;
   }, []);
 
   /**
@@ -1466,7 +1487,7 @@ export function usePhoneSimulator() {
 
       // 1. Studio Pre-Recorded Prompts Mode (Priority 1 for known fixed menu steps)
       const rawMatchedPrompt = resolveStudioPrompt(text, lang, step || currentStep);
-      const matchedPrompt = rawMatchedPrompt ? rawMatchedPrompt.replace(/\.m4a$/i, ".mp3") : null;
+      const matchedPrompt = rawMatchedPrompt;
       if (matchedPrompt && voiceMode !== "BROWSER") {
         if (audioRef.current) {
           audioRef.current.src = matchedPrompt;
@@ -1504,31 +1525,49 @@ export function usePhoneSimulator() {
           sessionId,
         });
 
-        if (synth?.result?.audioBase64 && audioRef.current) {
-          const mime = synth.result.audioMimeType || "audio/mp3";
+        if (synth?.success && synth.result?.audioBase64 && audioRef.current) {
+          const mime = synth.result.audioMimeType;
+          if (synth.result.language !== (isTwi ? "twi" : "en") || !synth.result.model?.trim()) throw new Error("TTS_RESPONSE_METADATA_INVALID");
+          if (!mime || !isValidAudioPayload(synth.result.audioBase64, mime)) throw new Error("TTS_AUDIO_INVALID");
           audioRef.current.src = `data:${mime};base64,${synth.result.audioBase64}`;
           audioRef.current.onended = () => {
             updateAiSpeaking(false);
             setActiveAudioClip(null);
           };
           audioRef.current.onerror = () => {
+            console.error("[PhoneSimulator] Synthesized audio playback failed.", {
+              language: isTwi ? "twi" : "en",
+              sourceType: "SYNTHESIZED_TTS",
+              provider: synth.result.providerUsed || "server TTS router",
+              error: "AUDIO_PLAYBACK_FAILED",
+            });
             updateAiSpeaking(false);
             setActiveAudioClip(null);
           };
           const playPromise = audioRef.current.play();
           if (playPromise) {
-            await playPromise.catch(() => {
-              if (typeof window !== "undefined" && "speechSynthesis" in window) {
-                try {
-                  window.speechSynthesis.cancel();
-                } catch {}
-              }
+            await playPromise.catch((error) => {
+              console.error("[PhoneSimulator] Synthesized audio playback failed.", {
+                language: isTwi ? "twi" : "en",
+                sourceType: "SYNTHESIZED_TTS",
+                provider: synth.result.providerUsed || "server TTS router",
+                error: safeAudioErrorCode(error),
+              });
               updateAiSpeaking(false);
+              setActiveAudioClip(null);
             });
           }
           return;
         }
-      } catch {}
+        throw new Error("TTS_AUDIO_UNAVAILABLE");
+      } catch (error) {
+        console.error("[PhoneSimulator] Dynamic speech synthesis failed.", {
+          language: isTwi ? "twi" : "en",
+          sourceType: "SYNTHESIZED_TTS",
+          provider: "server TTS router",
+          error: safeAudioErrorCode(error),
+        });
+      }
 
       // 3. Fallback: complete turn cleanly without robotic TTS interference
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
@@ -2567,9 +2606,11 @@ export function usePhoneSimulator() {
     if (!enableTts) return;
     if (!target) return;
     try {
-      const cleanTarget = target.replace(/\.m4a$/i, ".mp3");
+      const cleanTarget = target;
       const isAudioFile =
         cleanTarget.endsWith(".mp3") ||
+        cleanTarget.endsWith(".m4a") ||
+        cleanTarget.endsWith(".aac") ||
         cleanTarget.endsWith(".wav") ||
         cleanTarget.startsWith("/audio/") ||
         cleanTarget.startsWith("/api/audio/prompt/") ||
@@ -2593,17 +2634,31 @@ export function usePhoneSimulator() {
             setActiveAudioClip(null);
           };
           audioRef.current.onerror = () => {
-            playBrowserSpeechFallback(promptTranscript);
+            console.error("[PhoneSimulator] Recording playback failed.", {
+              language,
+              sourceType: "STUDIO_RECORDING",
+              url,
+              error: "AUDIO_PLAYBACK_FAILED",
+            });
+            updateAiSpeaking(false);
             setActiveAudioClip(null);
           };
           const playPromise = audioRef.current.play();
           if (playPromise) {
-            await playPromise.catch((e) => {
-              console.warn("Audio file play notice:", e);
-              playBrowserSpeechFallback(promptTranscript);
+            await playPromise.catch((error) => {
+              console.error("[PhoneSimulator] Recording playback failed.", {
+                language,
+                sourceType: "STUDIO_RECORDING",
+                url,
+                error: safeAudioErrorCode(error),
+              });
+              updateAiSpeaking(false);
               setActiveAudioClip(null);
             });
           }
+        } else {
+          updateAiSpeaking(false);
+          setActiveAudioClip(null);
         }
         return;
       }
@@ -2619,63 +2674,85 @@ export function usePhoneSimulator() {
           setActiveAudioClip(null);
         };
         audioRef.current.onerror = () => {
+          console.error("[PhoneSimulator] Matched recording playback failed.", {
+            language,
+            sourceType: "STUDIO_RECORDING",
+            url: matched,
+            error: "AUDIO_PLAYBACK_FAILED",
+          });
           updateAiSpeaking(false);
           setActiveAudioClip(null);
         };
         const playPromise = audioRef.current.play();
+        if (playPromise) {
+          await playPromise.catch((error) => {
+            console.error("[PhoneSimulator] Matched recording playback failed.", {
+              language,
+              sourceType: "STUDIO_RECORDING",
+              url: matched,
+              error: safeAudioErrorCode(error),
+            });
+            updateAiSpeaking(false);
+            setActiveAudioClip(null);
+          });
+        }
+        return;
+      }
+
+      // Dynamic text: synthesize speech
+      try {
+        const synth = await api.synthesizeSpeech({
+          text: target,
+          language: language === "tw" ? "tw" : "en",
+          style: "ghanaian-warm",
+        });
+
+        if (synth?.success && synth.result?.audioBase64 && audioRef.current) {
+          const mime = synth.result.audioMimeType;
+          const expectedLanguage = language === "tw" ? "twi" : "en";
+          if (synth.result.language !== expectedLanguage || !synth.result.model?.trim()) throw new Error("TTS_RESPONSE_METADATA_INVALID");
+          if (!mime || !isValidAudioPayload(synth.result.audioBase64, mime)) throw new Error("TTS_AUDIO_INVALID");
+          audioRef.current.src = `data:${mime};base64,${synth.result.audioBase64}`;
+          audioRef.current.onended = () => {
+            updateAiSpeaking(false);
+            setActiveAudioClip(null);
+          };
+          audioRef.current.onerror = () => {
+            console.error("[PhoneSimulator] Synthesized audio playback failed.", {
+              language: expectedLanguage,
+              sourceType: "SYNTHESIZED_TTS",
+              provider: synth.result.providerUsed || "server TTS router",
+              error: "AUDIO_PLAYBACK_FAILED",
+            });
+            updateAiSpeaking(false);
+            setActiveAudioClip(null);
+          };
+          const playPromise = audioRef.current.play();
           if (playPromise) {
-            await playPromise.catch((e) => {
-              console.warn("Studio audio play notice:", e);
-              if (typeof window !== "undefined" && "speechSynthesis" in window) {
-                try {
-                  window.speechSynthesis.cancel();
-                } catch {}
-              }
+            await playPromise.catch((error) => {
+              console.error("[PhoneSimulator] Synthesized audio playback failed.", {
+                language: expectedLanguage,
+                sourceType: "SYNTHESIZED_TTS",
+                provider: synth.result.providerUsed || "server TTS router",
+                error: safeAudioErrorCode(error),
+              });
               updateAiSpeaking(false);
+              setActiveAudioClip(null);
             });
           }
           return;
         }
-
-        // Dynamic text: synthesize speech
-        try {
-          const synth = await api.synthesizeSpeech({
-            text: target,
-            language: language === "tw" ? "tw" : "en",
-            style: "ghanaian-warm",
+        throw new Error("TTS_AUDIO_UNAVAILABLE");
+      } catch (error) {
+          console.error("[PhoneSimulator] Dynamic speech synthesis failed.", {
+            language: language === "tw" ? "twi" : "en",
+            sourceType: "SYNTHESIZED_TTS",
+            provider: "server TTS router",
+            error: safeAudioErrorCode(error),
           });
+      }
 
-          if (synth?.result?.audioBase64 && audioRef.current) {
-            audioRef.current.src = `data:${synth.result.audioMimeType || "audio/mp3"};base64,${synth.result.audioBase64}`;
-            audioRef.current.onended = () => {
-              updateAiSpeaking(false);
-              setActiveAudioClip(null);
-            };
-            audioRef.current.onerror = () => {
-              updateAiSpeaking(false);
-              setActiveAudioClip(null);
-            };
-            const playPromise = audioRef.current.play();
-            if (playPromise) {
-              await playPromise.catch(() => {
-                if (typeof window !== "undefined" && "speechSynthesis" in window) {
-                  try {
-                    window.speechSynthesis.cancel();
-                  } catch {}
-                }
-                updateAiSpeaking(false);
-              });
-            }
-            return;
-          }
-        } catch {}
-
-        if (typeof window !== "undefined" && "speechSynthesis" in window) {
-          try {
-            window.speechSynthesis.cancel();
-          } catch {}
-        }
-        updateAiSpeaking(false);
+      updateAiSpeaking(false);
     } catch (err) {
       console.warn("Studio clip play notice:", err);
       updateAiSpeaking(false);

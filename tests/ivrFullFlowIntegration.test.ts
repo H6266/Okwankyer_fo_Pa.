@@ -258,7 +258,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(finalReview.text).toContain("Ama Mensah");
     expect(finalReview.text).toContain("MTN");
     expect(finalReview.text).toContain("4 5 6 7");
-    expect(finalReview.text).not.toContain("0 2 4 1 2 3 4 5 6 7");
+    expect(finalReview.text).toContain("0 2 4 1 2 3 4 5 6 7");
     expect(finalReview.text).toContain("Press 1 to confirm");
     expect(finalReview.text).toContain("To change the amount, press 2");
     expect(finalReview.text).toContain("To change the recipient, press 3");
@@ -427,7 +427,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(safeConfRes.text).toContain("75");
     expect(safeConfRes.text.includes("Sand Box") || safeConfRes.text.includes("Kwame Boateng")).toBe(true);
     expect(safeConfRes.text).toContain("8 4 6 4");
-    expect(safeConfRes.text).not.toContain("0 5 5 3 8 3 8 4 6 4");
+    expect(safeConfRes.text).toContain("0 5 5 3 8 3 8 4 6 4");
 
     // 10. Confirm Transfer (1) -> Handoff to USSD Prompt & Zero-PIN Safety Gate (Item 1.1)
     const startSaga = vi.spyOn(paymentSaga, "executeConfirmedTransferSaga").mockResolvedValue({
@@ -594,7 +594,8 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       },
     }));
     expect(res.text).toContain(`/verify-recipient?sessionId=${sessionId}`);
-    expect(res.text).toContain("/api/audio/prompt-tts/en/OP16");
+    expect(res.text).toContain("Please enter the recipient&apos;s ten-digit phone number");
+    expect(res.text).not.toContain("/api/audio/prompt-tts/en/OP16");
     expect(transactionStateMachine.getSession(sessionId)?.interactionMode).toBe("NATURAL_CONVERSATION");
     processBrain.mockRestore();
   });
@@ -755,7 +756,8 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .send({ sessionId, callerNumber: "+233543546010", isActive: "1" });
     expect(welcomeRes.status).toBe(200);
     expect(welcomeRes.text.match(/<Play\b/gi) || []).toHaveLength(0);
-    expect(welcomeRes.text).toContain("Sɛ wopɛ Borɔfo a, mia 1. Sɛ wopɛ Twi a, mia 2.");
+    expect(welcomeRes.text).toContain("Twi audio is unavailable. Press 1 for English");
+    expect(welcomeRes.text).not.toContain("Sɛ wopɛ Borɔfo");
 
     // User selects English (1)
     const langRes = await request(app)

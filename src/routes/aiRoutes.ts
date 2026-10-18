@@ -26,6 +26,7 @@ import {
   crossReferenceReplyAudioWithAi,
 } from "../audio/geminiAudioMatcher";
 import { ttsRouter } from "../ai_system/speech/tts/ttsRouter";
+import { assertTtsResponse, getTtsErrorCode, normalizeTtsLanguage } from "../ai_system/speech/tts/ttsProvider";
 import { formatSpokenNumbersAsDigits } from "../domain/numberFormatter";
 import { paymentSaga } from "../integrations/momo/paymentSaga";
 import { geminiClient } from "../services/geminiClient";
@@ -982,7 +983,7 @@ aiRouter.post("/api/ai/transcribe", publicApiRateLimiter, async (req: Request, r
         method: "POST",
         provider: "ASR_ORCHESTRATOR",
         latencyMs,
-        httpStatus: 500,
+        httpStatus: 502,
         requestSummary: `Audio upload failed`,
         responseSummary: err.message || "Failed to transcribe",
         status: "ERROR",
@@ -1199,17 +1200,26 @@ aiRouter.post("/api/ai/synthesize", publicApiRateLimiter, async (req: Request, r
   try {
     const { text, language, sessionId } = req.body || {};
     const rawText = String(text || "").trim();
-    if (!rawText) {
-      return res.status(400).json({ success: false, error: "Text is required for speech synthesis." });
+    const requestedLanguage = language === undefined ? "en" : normalizeTtsLanguage(String(language));
+    if (!rawText || rawText.length > 4000 || !requestedLanguage) {
+      return res.status(400).json({ success: false, error: "Valid text and language are required for speech synthesis." });
     }
-    const isTwi = language === "twi" || language === "tw" || language === "ak" || language === "twi-asante";
-    const synthResult = await ttsRouter.synthesize({
+    if (/\b(?:mobile\s*money|momo|wallet)?\s*pin\b.{0,32}\b\d{4,}\b/i.test(rawText)) {
+      return res.status(400).json({ success: false, error: "Credential values cannot be sent to speech synthesis." });
+    }
+    const isTwi = requestedLanguage === "twi";
+    const requestLanguage = isTwi ? "tw" : "en";
+    const providerResult = await ttsRouter.synthesize({
       text: rawText,
-      language: isTwi ? "tw" : "en",
+      language: requestLanguage,
     });
+    const synthResult = assertTtsResponse({
+      text: rawText,
+      language: requestLanguage,
+    }, providerResult, requestedLanguage);
 
     const latencyMs = Math.round(performance.now() - startTs);
-    const base64 = synthResult.audioBuffer ? synthResult.audioBuffer.toString("base64") : null;
+    const base64 = synthResult.audioBuffer!.toString("base64");
 
     if (sessionId) {
       callSessionRepository.addApiTrace(sessionId, {
@@ -1220,7 +1230,7 @@ aiRouter.post("/api/ai/synthesize", publicApiRateLimiter, async (req: Request, r
         provider: synthResult.providerUsed || "TTS_ROUTER",
         latencyMs,
         httpStatus: 200,
-        requestSummary: `Text (${rawText.length} chars) [${isTwi ? "tw" : "en"}]: "${rawText.slice(0, 45)}"`,
+        requestSummary: `Speech request (${rawText.length} chars) [${requestedLanguage}]`,
         responseSummary: `Provider: ${synthResult.providerUsed}, Audio size: ${synthResult.audioBuffer?.length || 0} bytes`,
         status: "SUCCESS",
       });
@@ -1232,11 +1242,22 @@ aiRouter.post("/api/ai/synthesize", publicApiRateLimiter, async (req: Request, r
         audioBase64: base64,
         audioMimeType: synthResult.audioMimeType || "audio/wav",
         providerUsed: synthResult.providerUsed,
+        language: synthResult.language,
+        model: synthResult.model,
         durationEstimateSec: synthResult.durationEstimateSec,
       },
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     const latencyMs = Math.round(performance.now() - startTs);
+    const errorCode = getTtsErrorCode(err);
+    console.error("[AiTts] Speech synthesis failed.", {
+      promptId: "unknown",
+      language: normalizeTtsLanguage(String(req.body?.language || "en")) || "unknown",
+      sourceType: "SYNTHESIZED_TTS",
+      url: "/api/ai/synthesize",
+      provider: "TTS router",
+      error: errorCode,
+    });
     if (req.body?.sessionId) {
       callSessionRepository.addApiTrace(req.body.sessionId, {
         id: `tts_err_${Date.now()}`,
@@ -1246,13 +1267,13 @@ aiRouter.post("/api/ai/synthesize", publicApiRateLimiter, async (req: Request, r
         provider: "TTS_ROUTER",
         latencyMs,
         httpStatus: 500,
-        requestSummary: `Text: "${String(req.body?.text || '').slice(0, 40)}"`,
-        responseSummary: err.message || "Failed to synthesize",
+        requestSummary: `Speech request [${normalizeTtsLanguage(String(req.body?.language || "en")) || "unknown"}]`,
+        responseSummary: errorCode,
         status: "ERROR",
-        errorMessage: err.message,
+        errorMessage: errorCode,
       });
     }
-    res.status(500).json({ success: false, error: err.message || "Failed to synthesize speech." });
+    res.status(502).json({ success: false, error: "Speech synthesis is unavailable. Use the keypad or try again later." });
   }
 });
 
@@ -1811,4 +1832,3 @@ aiRouter.post("/api/ai/brain/telemetry/reset", (_req: Request, res: Response) =>
     telemetry: brainTelemetry.getSummary(),
   });
 });
-

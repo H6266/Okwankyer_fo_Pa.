@@ -12,6 +12,7 @@ import fs from "fs";
 import path from "path";
 import audioTranscripts from "../../../../audio_transcripts.json";
 import { TTSProvider, TtsSynthesisRequest, TtsSynthesisResponse } from "./ttsProvider";
+import { isAudioContainerValid, normalizeTtsLanguage } from "./ttsProvider";
 import {
   AUDIO_RECORDINGS,
   getRecordingByPromptKey,
@@ -58,54 +59,10 @@ export class LocalGhanaianTtsProvider implements TTSProvider {
     return null;
   }
 
-  /**
-   * Generates clean 16-bit Mono 16000Hz PCM WAV audio.
-   */
-  public generatePcmWav(text: string, speedMultiplier: number = 1.0, isElderly: boolean = false): Buffer {
-    const sampleRate = 16000;
-    const effectiveSpeed = isElderly ? 0.82 : speedMultiplier;
-    const words = text.trim().split(/\s+/).filter(Boolean);
-    const durationSec = Math.max(0.6, (words.length * 0.28) / effectiveSpeed);
-    const numSamples = Math.floor(sampleRate * durationSec);
-    const pcmDataSize = numSamples * 2;
-
-    const header = Buffer.alloc(44);
-    header.write("RIFF", 0);
-    header.writeUInt32LE(36 + pcmDataSize, 4);
-    header.write("WAVE", 8);
-
-    header.write("fmt ", 12);
-    header.writeUInt32LE(16, 16);
-    header.writeUInt16LE(1, 20); // PCM format
-    header.writeUInt16LE(1, 22); // Mono channel
-    header.writeUInt32LE(sampleRate, 24);
-    header.writeUInt32LE(sampleRate * 2, 28);
-    header.writeUInt16LE(2, 32);
-    header.writeUInt16LE(16, 34);
-
-    header.write("data", 36);
-    header.writeUInt32LE(pcmDataSize, 40);
-
-    const samples = Buffer.alloc(pcmDataSize);
-
-    // Warm, gentle acoustic harmonic synthesis (soft amplitude, gentle decay, zero harsh noise)
-    const baseFreq = isElderly ? 220 : 261.63; // C4 musical note
-    for (let i = 0; i < numSamples; i++) {
-      const t = i / sampleRate;
-      // Gentle exponential decay envelope for a clean, pleasant chime
-      const env = Math.exp(-3.0 * (t % 0.5));
-      // Pure harmonic sine wave at low, non-clipping amplitude (600 max)
-      const tone = Math.sin(2 * Math.PI * baseFreq * t) * 0.7 + Math.sin(2 * Math.PI * (baseFreq * 2) * t) * 0.3;
-      const sampleVal = Math.round(env * tone * 600);
-      const clamped = Math.max(-32768, Math.min(32767, sampleVal));
-      samples.writeInt16LE(clamped, i * 2);
-    }
-
-    return Buffer.concat([header, samples]);
-  }
-
   public async synthesize(request: TtsSynthesisRequest): Promise<TtsSynthesisResponse> {
     const cleanText = request.text.trim();
+    const language = normalizeTtsLanguage(String(request.language || ""));
+    if (!language) throw new Error("LOCAL_TTS_LANGUAGE_UNSUPPORTED: select English or Twi.");
 
     // 1. Check studio recorded catalog for exact or semantic prompt match
     const studioMatch = this.findPromptMatch(cleanText, request.language);
@@ -113,15 +70,22 @@ export class LocalGhanaianTtsProvider implements TTSProvider {
       try {
         const fileBuf = fs.readFileSync(studioMatch);
         const ext = path.extname(studioMatch).toLowerCase();
-        const mime = ext === ".m4a" ? "audio/mp4" : ext === ".mp3" ? "audio/mpeg" : "audio/wav";
+        const mime = ext === ".m4a" ? "audio/mp4" : ext === ".mp3" ? "audio/mpeg" : ext === ".wav" ? "audio/wav" : "";
+        if (!mime || !isAudioContainerValid(fileBuf, mime)) {
+          throw new Error(`LOCAL_STUDIO_AUDIO_INVALID: file does not match its declared format (${path.basename(studioMatch)}).`);
+        }
         return {
           audioBuffer: fileBuf,
           audioBase64: fileBuf.toString("base64"),
           audioMimeType: mime,
           durationEstimateSec: 3.5,
           providerUsed: "local-ghanaian-studio-catalog",
+          language,
+          model: "studio-recording",
         };
-      } catch {}
+      } catch (error) {
+        throw error;
+      }
     }
 
     throw new Error("LOCAL_GHANAIAN_DYNAMIC_TTS_UNAVAILABLE: No verified local studio or dynamic provider is configured for this text.");
