@@ -27,6 +27,7 @@ import {
   buildSafeConfirmationPrompt,
   buildReceiptPrompt,
   generateTransactionReference,
+  formatSlowReferenceForSpeech,
 } from "../src/audio/dynamicPromptBuilder";
 import { TransactionStateMachine } from "../src/domain/stateMachine";
 import { durableTransactionStore } from "../src/services/durableTransactionStore";
@@ -111,7 +112,7 @@ describe("Task 1: Safe Confirmation Must Read Back What Caller Entered", () => {
 
     expect(receipt.spokenText).toContain("42 Cedis");
     expect(receipt.spokenText).toContain("Kwame Boateng");
-    expect(receipt.spokenText).toContain(ref1.split("").join(" "));
+    expect(receipt.spokenText).toContain(formatSlowReferenceForSpeech(ref1, "en"));
     expect(receipt.spokenText).not.toContain("17 September 2026"); // Never hardcoded past date
   });
 });
