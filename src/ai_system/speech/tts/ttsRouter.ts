@@ -1,7 +1,9 @@
 import fs from "fs";
 import path from "path";
 import { TTSProvider, TtsSynthesisRequest, TtsSynthesisResponse, assertTtsResponse, isAudioContainerValid, normalizeTtsLanguage } from "./ttsProvider";
-import { getRecordingFilePath, getVerifiedRecordingBySpokenText, getRecordingByPromptKey } from "../../../audio/recordingRegistry";
+import { getRecordingFilePath, getVerifiedRecordingBySpokenText, getRecordingByPromptKey, getRecordingByPromptId, getRecordingByPath } from "../../../audio/recordingRegistry";
+import { MONEY_TRANSFER_FLOW_STEPS, audioFlowStore } from "../../../audio/audioFlowStore";
+import { isMp3Buffer, getOrTranscodeMp3 } from "../../../audio/streaming";
 import { piperProvider } from "./localTtsProvider";
 import { geminiTtsAdapter } from "./ttsAdapter";
 import { hciLabService } from "../../../services/hciLabService";
@@ -36,24 +38,61 @@ export class TtsRouter implements TTSProvider {
     const language = normalizeTtsLanguage(String(request.language || ""));
     if (!language) throw new Error("TTS_LANGUAGE_UNSUPPORTED: select English or Twi.");
 
-    const recording = getVerifiedRecordingBySpokenText(text, language)
-      || getRecordingByPromptKey(text, language);
+    let recording = null;
+    if (!request.skipCatalogCheck) {
+      const candidatePromptId = (request.promptId || request.voiceProfile || "").trim();
+      if (candidatePromptId) {
+        recording = getRecordingByPromptId(candidatePromptId, language)
+          || getRecordingByPromptKey(candidatePromptId, language);
+        if (!recording) {
+          const stepMatch = MONEY_TRANSFER_FLOW_STEPS.find(
+            (s) => s.promptId.toUpperCase() === candidatePromptId.toUpperCase()
+          );
+          if (stepMatch) {
+            const stepAudio = audioFlowStore.resolveStepAudio(stepMatch, language);
+            if (stepAudio && !stepAudio.includes("/prompt-tts/")) {
+              const relPath = stepAudio.replace(/^\/audio\//i, "");
+              recording = getRecordingByPath(relPath) || {
+                id: `flow-step:${candidatePromptId}`,
+                relativePath: relPath.startsWith("Twi_library/") ? `Twi/${relPath.slice("Twi_library/".length)}` : relPath,
+              } as any;
+            }
+          }
+        }
+      }
+
+      if (!recording) {
+        recording = getVerifiedRecordingBySpokenText(text, language)
+          || getRecordingByPromptKey(text, language);
+      }
+    }
+
     if (recording) {
       const relativePath = getRecordingFilePath(recording.relativePath);
-      if (!relativePath) throw new Error(`STUDIO_RECORDING_PATH_INVALID: ${recording.id}`);
-      const absolutePath = path.resolve(process.cwd(), relativePath);
-      if (fs.existsSync(absolutePath) && !fs.statSync(absolutePath).isDirectory()) {
-        const audioBuffer = fs.readFileSync(absolutePath);
-        const audioMimeType = mimeTypeForPath(absolutePath) || "audio/mpeg";
-        return assertTtsResponse(request, {
-          audioBuffer,
-          audioBase64: audioBuffer.toString("base64"),
-          audioMimeType,
-          mimeType: audioMimeType,
-          providerUsed: `verified-studio-recording:${recording.id}`,
-          language,
-          model: "studio-recording",
-        }, language);
+      if (relativePath) {
+        const absolutePath = path.resolve(process.cwd(), relativePath);
+        if (fs.existsSync(absolutePath) && !fs.statSync(absolutePath).isDirectory()) {
+          let servePath = absolutePath;
+          if (path.extname(absolutePath).toLowerCase() === ".mp3") {
+            try {
+              const raw = fs.readFileSync(absolutePath);
+              if (!isMp3Buffer(raw)) {
+                servePath = await getOrTranscodeMp3(absolutePath);
+              }
+            } catch {}
+          }
+          const audioBuffer = fs.readFileSync(servePath);
+          const audioMimeType = mimeTypeForPath(servePath) || "audio/mpeg";
+          return assertTtsResponse(request, {
+            audioBuffer,
+            audioBase64: audioBuffer.toString("base64"),
+            audioMimeType,
+            mimeType: audioMimeType,
+            providerUsed: `verified-studio-recording:${recording.id}`,
+            language,
+            model: "studio-recording",
+          }, language);
+        }
       }
     }
 

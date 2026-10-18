@@ -47,11 +47,13 @@ apiRouter.post("/api/audio/synthesize", publicApiRateLimiter, async (req: Reques
     const result = await speechSynthesisRouter.synthesize({
       text: text.trim(),
       language: requestLanguage,
+      promptId: typeof promptId === "string" ? promptId.trim() : undefined,
       skipCatalogCheck: false,
     });
     const validated = assertTtsResponse({
       text: text.trim(),
       language: requestLanguage,
+      promptId: typeof promptId === "string" ? promptId.trim() : undefined,
     }, result, normalizedLanguage);
     const audioBuffer = validated.audioBuffer!;
     res.setHeader("Content-Type", validated.audioMimeType);

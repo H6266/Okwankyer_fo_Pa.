@@ -12,7 +12,8 @@
  * 8. Zero browser speechSynthesis or other browser TTS.
  */
 
-import { getVerifiedRecordingBySpokenText } from "./recordingRegistry";
+import { getVerifiedRecordingBySpokenText, getRecordingByPromptId, getRecordingByPromptKey } from "./recordingRegistry";
+import { audioFlowStore, MONEY_TRANSFER_FLOW_STEPS } from "./audioFlowStore";
 
 export type PlaybackSourceType = "STUDIO_PROMPT" | "SYNTHESIZED_TTS" | "REMOTE_URL";
 
@@ -61,7 +62,13 @@ export function canBrowserPlayM4a(): boolean {
 }
 
 export function resolveSafePlayableUrl(url: string): string {
-  return url;
+  if (!url) return url;
+  try {
+    const decoded = decodeURI(url);
+    return encodeURI(decoded);
+  } catch {
+    return url;
+  }
 }
 
 export class AudioPlaybackController {
@@ -241,9 +248,28 @@ export class AudioPlaybackController {
         ? "en"
         : inferredTwi ? "twi" : "en";
     const promptId = options?.promptId || "unknown";
-    const exactRecording = options?.skipStudioMatch
-      ? null
-      : getVerifiedRecordingBySpokenText(cleanText, language);
+    let exactRecording = null;
+    if (!options?.skipStudioMatch) {
+      if (promptId && promptId !== "unknown") {
+        exactRecording = getRecordingByPromptId(promptId, language)
+          || getRecordingByPromptKey(promptId, language);
+        if (!exactRecording) {
+          const stepMatch = MONEY_TRANSFER_FLOW_STEPS.find(
+            (s) => s.promptId.toUpperCase() === promptId.toUpperCase()
+          );
+          if (stepMatch) {
+            const stepUrl = audioFlowStore.resolveStepAudio(stepMatch, language);
+            if (stepUrl && !stepUrl.includes("/prompt-tts/")) {
+              exactRecording = { url: stepUrl, id: promptId } as any;
+            }
+          }
+        }
+      }
+      if (!exactRecording) {
+        exactRecording = getVerifiedRecordingBySpokenText(cleanText, language)
+          || getRecordingByPromptKey(cleanText, language);
+      }
+    }
     if (exactRecording?.url) {
       return this.play(exactRecording.url, {
         ...options,

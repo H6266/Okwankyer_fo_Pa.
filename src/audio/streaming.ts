@@ -124,6 +124,16 @@ export async function warmupTelephonyMp3Cache(): Promise<void> {
           collectAudioFiles(fullPath);
         } else if (/\.(m4a|aac)$/i.test(entry.name)) {
           filesToTranscode.push(fullPath);
+        } else if (/\.mp3$/i.test(entry.name)) {
+          try {
+            const head = Buffer.alloc(16);
+            const fd = fs.openSync(fullPath, "r");
+            fs.readSync(fd, head, 0, 16, 0);
+            fs.closeSync(fd);
+            if (!isMp3Buffer(head)) {
+              filesToTranscode.push(fullPath);
+            }
+          } catch {}
         }
       }
     } catch {}
@@ -239,7 +249,7 @@ export function resolveSafeAudioPath(requestedSubpath: string): string | null {
   return null;
 }
 
-function isMp3Buffer(buffer: Buffer): boolean {
+export function isMp3Buffer(buffer: Buffer): boolean {
   if (buffer.length < 4) return false;
   if (buffer.toString("ascii", 0, 3) === "ID3") return true;
   if (buffer.length >= 8 && buffer.toString("ascii", 4, 8) === "ftyp") return false;
@@ -285,14 +295,34 @@ export async function streamAudioFile(req: Request, res: Response, filePath: str
     userAgent.includes("dialogic") ||
     userAgent.includes("telephony");
 
+  const wantsMp3 =
+    isTelephonyClient ||
+    formatQuery === "mp3" ||
+    req.path.toLowerCase().endsWith(".mp3") ||
+    filePath.toLowerCase().endsWith(".mp3");
+
   let activePath = filePath;
-  if (isTelephonyClient) {
+  if (wantsMp3) {
     try {
-      activePath = await getOrTranscodeMp3(filePath);
+      let isTrueMp3 = false;
+      try {
+        const head = Buffer.alloc(16);
+        const fd = fs.openSync(filePath, "r");
+        fs.readSync(fd, head, 0, 16, 0);
+        fs.closeSync(fd);
+        isTrueMp3 = isMp3Buffer(head);
+      } catch {}
+
+      if (!isTrueMp3 || isTelephonyClient) {
+        activePath = await getOrTranscodeMp3(filePath);
+      }
     } catch (error) {
-      console.error("[Streaming] Requested MP3 could not be produced:", error);
-      res.status(502).json({ error: "MP3 audio transcoding is unavailable." });
-      return;
+      if (isTelephonyClient) {
+        console.error("[Streaming] Requested MP3 could not be produced:", error);
+        res.status(502).json({ error: "MP3 audio transcoding is unavailable." });
+        return;
+      }
+      console.warn("[Streaming] Audio transcode notice:", error);
     }
   }
 

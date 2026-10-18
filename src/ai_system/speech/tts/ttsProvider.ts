@@ -7,6 +7,7 @@ import { AiLanguage } from "../../core/aiTypes";
 export interface TtsSynthesisRequest {
   text: string;
   language: AiLanguage;
+  promptId?: string;
   voiceProfile?: string;
   pronunciationHints?: Record<string, string>;
   speed?: number;
