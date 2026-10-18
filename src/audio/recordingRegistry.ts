@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import audioTranscripts from "../../audio_transcripts.json";
 import { TWI_AUDIO_LIBRARY_ITEMS, TwiLibraryItem } from "./twiLibraryManifest";
 
@@ -38,6 +40,7 @@ export interface AudioRecording {
   isAlternate: boolean;
   recordingRole: RecordingRole;
   mappingStatus: string;
+  audioVerified: boolean;
 }
 
 const transcriptLookup = audioTranscripts as Record<string, { verbatim?: string; language?: string; step?: string; options?: unknown }>;
@@ -158,6 +161,52 @@ for (const [key, id] of Object.entries(PROMPT_KEY_TO_RECORDING_ID)) {
 // ── Build AUDIO_RECORDINGS from twiLibraryManifest & audioTranscripts ───
 const recordings: AudioRecording[] = [];
 
+for (const [filename, language] of [["welcome_en.mp3", "en"], ["welcome_twi.mp3", "twi"]] as const) {
+  recordings.push({
+    id: `public:${filename}`,
+    promptId: "OP01",
+    state: "WELCOME",
+    category: "session",
+    context: "Audio candidate; transcript and recording require human review.",
+    language,
+    title: filename.replace(/\.[a-z0-9]+$/i, ""),
+    spokenText: null,
+    relativePath: filename,
+    assetRoot: "public",
+    url: `/audio/${filename}`,
+    mimeType: "audio/mpeg",
+    isAlternate: false,
+    recordingRole: "fixed",
+    mappingStatus: "VERIFIED",
+    audioVerified: false,
+  });
+}
+
+for (const item of [
+  { filename: "2.m4a", promptId: "OP07", state: "SERVICE_SELECTION", category: "navigation" },
+  { filename: "3.m4a", promptId: "OP08", state: "NETWORK_SELECTION", category: "navigation" },
+  { filename: "4.m4a", promptId: "OP41", state: "SECURITY_WARNING", category: "auth" },
+]) {
+  recordings.push({
+    id: `supplied:English_Library/${item.filename}`,
+    promptId: item.promptId,
+    state: item.state,
+    category: item.category,
+    context: `English audio candidate for ${item.promptId}; recording requires human review.`,
+    language: "en",
+    title: item.filename.replace(/\.[a-z0-9]+$/i, ""),
+    spokenText: null,
+    relativePath: `English_Library/${item.filename}`,
+    assetRoot: "supplied",
+    url: `/audio/English_Library/${item.filename}`,
+    mimeType: "audio/mp4",
+    isAlternate: false,
+    recordingRole: "fixed",
+    mappingStatus: "VERIFIED",
+    audioVerified: false,
+  });
+}
+
 // 1. Twi Library Items
 for (const item of TWI_AUDIO_LIBRARY_ITEMS) {
   const promptId = PROMPT_KEY_TO_RECORDING_ID[item.key] || null;
@@ -178,12 +227,16 @@ for (const item of TWI_AUDIO_LIBRARY_ITEMS) {
     isAlternate: false,
     recordingRole: "fixed",
     mappingStatus: "VERIFIED",
+    audioVerified: false,
   });
 }
 
 // 2. English Public Audio Items
 for (const [pathKey, data] of Object.entries(transcriptLookup)) {
   const relative = pathKey.replace(/^audio\//i, "");
+  const publicAudioRoot = path.resolve(process.cwd(), "public", "audio");
+  const publicAudioPath = path.resolve(publicAudioRoot, relative);
+  if (!publicAudioPath.startsWith(`${publicAudioRoot}${path.sep}`) || !fs.existsSync(publicAudioPath)) continue;
   const mimeType = relative.endsWith(".mp3") ? "audio/mpeg" : "audio/mp4";
   const baseName = relative.split("/").pop() || relative;
   let promptId: string | null = null;
@@ -213,6 +266,7 @@ for (const [pathKey, data] of Object.entries(transcriptLookup)) {
     isAlternate: false,
     recordingRole: "fixed",
     mappingStatus: "VERIFIED",
+    audioVerified: false,
   });
 }
 
@@ -226,10 +280,7 @@ export function getRecordingByPromptId(
   const match = AUDIO_RECORDINGS.find(
     (r) => r.promptId === promptId && r.language === language && r.url
   );
-  if (match) return match;
-  // Fallback to any recording with that promptId
-  const fallback = AUDIO_RECORDINGS.find((r) => r.promptId === promptId && r.url);
-  return fallback || null;
+  return match || null;
 }
 
 export function getRecordingsByPromptId(
@@ -254,7 +305,7 @@ export function getRecordingByPromptKey(
   const directItem = TWI_AUDIO_LIBRARY_ITEMS.find(
     (item) => item.key === key || item.filename.toLowerCase().includes(key.toLowerCase())
   );
-  if (directItem) {
+  if (directItem && language === "twi") {
     return AUDIO_RECORDINGS.find((r) => r.url === directItem.audioUrl) || null;
   }
   return null;
@@ -279,7 +330,7 @@ export function getRecordingByUrl(url: string, preferredLang?: "en" | "twi"): Au
   if (exact.length > 0) {
     if (preferredLang) {
       const match = exact.find((r) => r.language === preferredLang);
-      if (match) return match;
+      return match || null;
     }
     return exact[0];
   }
@@ -288,7 +339,7 @@ export function getRecordingByUrl(url: string, preferredLang?: "en" | "twi"): Au
 
 export function getRecordingFilePath(relativePath: string): string | null {
   const norm = relativePath.replace(/^audio\//i, "");
-  if (norm.startsWith("Twi_library/")) {
+  if (norm.startsWith("Twi_library/") || norm.startsWith("English_Library/")) {
     return `Audio_files/${norm}`;
   }
   if (norm.startsWith("supplied/")) {

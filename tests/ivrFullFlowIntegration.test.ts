@@ -105,14 +105,15 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .post("/service-select")
       .query({ sessionId, lang: "en" });
     expect(serviceMenu.text).toContain("/prompt-tts/en/supported_service_select");
-    expect(resolvePromptText("supported_service_select", "en")).toContain("Banking is not supported");
+    expect(resolvePromptText("supported_service_select", "en")).toContain("supported Mobile Money transfer");
+    expect(resolvePromptText("supported_service_select", "en")).not.toMatch(/banking/i);
 
     const networkMenu = await request(app)
       .post("/provider-select")
       .query({ sessionId, lang: "en" });
     expect(networkMenu.text).toContain("/prompt-tts/en/mtn_network_select");
-    expect(resolvePromptText("mtn_network_select", "en")).toContain("Only MTN Mobile Money transfers are currently supported");
-    expect(resolvePromptText("mtn_network_select", "en")).not.toContain("Telecel");
+    expect(resolvePromptText("mtn_network_select", "en")).toContain("For MTN Mobile Money, press 1");
+    expect(resolvePromptText("mtn_network_select", "en")).toContain("For Telecel Cash, press 2");
     expect(resolvePromptText("mtn_network_select", "en")).not.toContain("AirtelTigo");
 
     const actionMenu = await request(app)
@@ -129,23 +130,22 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(balanceAttempt.text).not.toContain("/enter-recipient");
   });
 
-  it("plays the welcome before the language-selection prompt", async () => {
+  it("plays one welcome with language choices and reserves OP02 for replay", async () => {
     const sessionId = "AT-OPENING-SEPARATE-001";
     const welcome = await request(app)
       .post("/voice-menu")
       .send({ sessionId, callerNumber: "+233543546010", isActive: "1", lang: "en" });
 
     const welcomePrompts = [...welcome.text.matchAll(/<Play[^>]*url="([^"]+)"/gi)].map((match) => match[1]);
-    expect(welcomePrompts).toHaveLength(2);
-    expect(welcomePrompts[0]).toContain("/api/audio/prompt-tts/en/welcome");
-    expect(welcomePrompts[1]).toContain("/api/audio/prompt-tts/en/language_selection");
-    expect(welcome.text).toContain(`/language-selection?sessionId=${sessionId}`);
-    expect(decodeURIComponent(welcome.headers["x-ai-reply-text"])).toContain("For English, press 1");
+    expect(welcomePrompts).toHaveLength(0);
+    expect(welcome.text).toContain("For English, press 1. For Twi, press 2.");
+    expect(welcome.text).toContain(`/language-selection?sessionId=${sessionId}&amp;lang=en`);
+    expect(decodeURIComponent(welcome.headers["x-ai-reply-text"])).toContain("For English press 1");
 
     const languagePrompt = await request(app)
       .post("/language-selection")
-      .query({ sessionId });
-    expect(languagePrompt.text).toContain("/api/audio/prompt-tts/en/language_selection");
+      .query({ sessionId, lang: "en" });
+    expect(languagePrompt.text).toContain("/api/audio/prompt-tts/en/OP02");
     expect(languagePrompt.text).not.toContain("Welcome to Ɔkwankyerɛfo Pa");
   });
 
@@ -162,6 +162,95 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(recipientPrompt.text).not.toContain('numDigits="10"');
     expect(amountPrompt.text).toContain('finishOnKey="#"');
     expect(amountPrompt.text).not.toMatch(/numDigits="(?:6|8)"/);
+  });
+
+  it("waits 90 seconds before reminding silent callers and keeps the current step", async () => {
+    const sessionId = "AT-SILENCE-REMINDER-001";
+    transactionStateMachine.getOrCreateSession(sessionId, "en");
+
+    const prompt = await request(app)
+      .post("/provider-select")
+      .query({ sessionId, lang: "en" });
+    expect(prompt.text).toContain('timeout="90"');
+
+    const noInput = await request(app)
+      .post("/provider-choice")
+      .query({ sessionId, lang: "en", dtmfDigits: "" });
+    expect(noInput.headers["x-canonical-prompt-id"]).toBe("OP67");
+    expect(noInput.text).toContain(`/provider-select?sessionId=${sessionId}&amp;lang=en`);
+    expect(transactionStateMachine.getSession(sessionId)?.retryCount).toBe(0);
+  });
+
+  it("requires OP29 amount acceptance before OP35 final transaction review", async () => {
+    const sessionId = "AT-TWO-STAGE-READBACK-001";
+    transactionStateMachine.getOrCreateSession(sessionId, "en");
+    transactionStateMachine.transition(sessionId, "RECIPIENT_VERIFIED", {
+      recipientPhone: "0241234567",
+      recipientName: "Ama Mensah",
+      isRecipientVerified: true,
+      network: "MTN",
+    });
+
+    const amountReadback = await request(app)
+      .post("/verify-amount")
+      .send({ sessionId, lang: "en", dtmfDigits: "50" });
+    expect(amountReadback.text).toContain("50");
+    expect(amountReadback.text).toContain("/amount-readback-choice");
+    expect(amountReadback.text).not.toContain("/safe-confirmation");
+
+    const acceptedAmount = await request(app)
+      .post("/amount-readback-choice")
+      .send({ sessionId, lang: "en", dtmfDigits: "1" });
+    expect(acceptedAmount.text).toContain("/safe-confirmation");
+
+    const finalReview = await request(app)
+      .post("/safe-confirmation")
+      .query({ sessionId, lang: "en" });
+    expect(finalReview.text).toContain("50");
+    expect(finalReview.text).toContain("Ama Mensah");
+    expect(finalReview.text).toContain("MTN");
+    expect(finalReview.text).toContain("4 5 6 7");
+    expect(finalReview.text).not.toContain("0 2 4 1 2 3 4 5 6 7");
+  });
+
+  it("keeps pending provider status on the call and receipts only trusted completion", async () => {
+    const sessionId = "AT-STATUS-CHECK-LOOP-001";
+    transactionStateMachine.getOrCreateSession(sessionId, "en");
+    transactionStateMachine.transition(sessionId, "RECIPIENT_VERIFIED", {
+      recipientPhone: "0241234567",
+      recipientName: "Ama Mensah",
+      isRecipientVerified: true,
+      network: "MTN",
+    });
+    transactionStateMachine.transition(sessionId, "AMOUNT_ENTERED", { amount: 10 });
+    transactionStateMachine.transition(sessionId, "CONFIRMED");
+    transactionStateMachine.transition(sessionId, "PIN_PENDING");
+
+    const pendingSaga = vi.spyOn(paymentSaga, "getLatestSagaForSession").mockReturnValue({
+      sagaId: "saga-pending",
+      sessionId,
+      state: "WAITING_FOR_CUSTOMER_AUTHORIZATION",
+    } as any);
+    const pending = await request(app).post("/check-status").query({ sessionId, lang: "en" });
+    expect(pending.headers["x-payment-status"]).toBe("PENDING");
+    expect(pending.text).toContain('timeout="90"');
+    expect(pending.text).toContain("still pending provider confirmation");
+    expect(transactionStateMachine.getSession(sessionId)?.state).toBe("PIN_PENDING");
+
+    pendingSaga.mockReturnValue({
+      sagaId: "saga-complete",
+      sessionId,
+      state: "COMPLETED",
+      providerFinancialTransactionId: "provider-financial-id",
+      disbursementReference: "provider-disbursement-ref",
+    } as any);
+    const completed = await request(app).post("/check-status").query({ sessionId, lang: "en" });
+    expect(completed.headers["x-payment-status"]).toBe("SUCCESSFUL");
+    expect(completed.text).toContain("Your transfer of");
+    expect(completed.text).toContain("Ama Mensah");
+    expect(completed.text).toContain("application reference");
+    expect(transactionStateMachine.getSession(sessionId)?.state).toBe("COMPLETED");
+    pendingSaga.mockRestore();
   });
 
   it("routes amount submissions back to recipient verification rather than throwing on an unverified session", async () => {
@@ -216,13 +305,14 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .send({ sessionId, callerNumber: "+233543546010", isActive: "1", lang: "en" });
     expect(callRes.status).toBe(200);
     expect(callRes.text).toContain("<Response>");
-    expect(callRes.text.match(/<Play\b/gi) || []).toHaveLength(2);
-    expect(decodeURIComponent(callRes.headers["x-ai-reply-text"])).toContain("For English, press 1");
+    expect(callRes.text.match(/<Play\b/gi) || []).toHaveLength(0);
+    expect(callRes.text).toContain("For English, press 1. For Twi, press 2.");
+    expect(decodeURIComponent(callRes.headers["x-ai-reply-text"])).toContain("For English press 1");
 
     const languagePrompt = await request(app)
       .post("/language-selection")
-      .query({ sessionId });
-    expect(languagePrompt.text).toContain("/api/audio/prompt-tts/en/language_selection");
+      .query({ sessionId, lang: "en" });
+    expect(languagePrompt.text).toContain("/api/audio/prompt-tts/en/OP02");
 
     // 2. Language Selection -> English (1)
     const langRes = await request(app)
@@ -270,16 +360,22 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     const amountRes = await request(app)
       .post("/verify-amount")
       .send({ sessionId, lang: "en", dtmfDigits: "75" });
-    expect(amountRes.text).toContain("/safe-confirmation");
+    expect(amountRes.text).toContain("/amount-readback-choice");
+    expect(amountRes.text).toContain("75");
 
-    // 9. Safe Confirmation Readback -> MUST BE DYNAMIC (75 Cedis, Sand Box)
+    const amountAccepted = await request(app)
+      .post("/amount-readback-choice")
+      .send({ sessionId, lang: "en", dtmfDigits: "1" });
+    expect(amountAccepted.text).toContain("/safe-confirmation");
+
+    // 9. Final OP35 transaction review is distinct from the OP29 amount check.
     const safeConfRes = await request(app)
       .post("/safe-confirmation")
       .query({ sessionId, lang: "en" });
-    expect(safeConfRes.text).toContain("75 Cedis");
+    expect(safeConfRes.text).toContain("75");
     expect(safeConfRes.text.includes("Sand Box") || safeConfRes.text.includes("Kwame Boateng")).toBe(true);
     expect(safeConfRes.text).toContain("8 4 6 4");
-    expect(safeConfRes.text).not.toContain("500 Ghana cedis"); // Mismatch check!
+    expect(safeConfRes.text).not.toContain("0 5 5 3 8 3 8 4 6 4");
 
     // 10. Confirm Transfer (1) -> Handoff to USSD Prompt & Zero-PIN Safety Gate (Item 1.1)
     const startSaga = vi.spyOn(paymentSaga, "executeConfirmedTransferSaga").mockResolvedValue({
@@ -300,11 +396,12 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       amount: 75,
       network: "MTN",
     }));
-    expect(outcomeRes.text).toContain("authorize the prompt on your handset");
+    expect(outcomeRes.text).toContain("Approve it on your handset.");
     expect(outcomeRes.text).not.toContain("Congratulations");
     expect(outcomeRes.text).not.toContain("<Record");
-    expect(outcomeRes.text).not.toContain("<GetDigits");
-    expect(outcomeRes.text).toContain("<Reject/>");
+    expect(outcomeRes.text).toContain("/check-status");
+    expect(outcomeRes.text).toContain('timeout="90"');
+    expect(outcomeRes.text).not.toContain("<Reject/>");
 
     const duplicateOutcome = await request(app)
       .post("/safe-outcome")
@@ -376,6 +473,23 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(response.headers["x-payment-status"]).toBe("PENDING");
     expect(response.text).toContain("Do not enter or say your Mobile Money PIN here");
     expect(response.text).not.toContain("successful");
+    expect(transactionStateMachine.getSession(sessionId)?.state).toBe("PIN_PENDING");
+
+    for (const route of ["enter-pin", "pin-handoff", "confirm-speech"]) {
+      const legacyPinRoute = await request(app)
+        .post(`/${route}`)
+        .query({ sessionId, lang: "en" })
+        .send({ dtmfDigits: "1234", speechText: "1234" });
+      expect(legacyPinRoute.text).toContain("Do not enter or say your Mobile Money PIN here");
+      expect(legacyPinRoute.text).not.toContain("<GetDigits");
+      expect(legacyPinRoute.text).not.toContain("<Record");
+      expect(transactionStateMachine.getSession(sessionId)?.state).toBe("PIN_PENDING");
+    }
+
+    const pinSpeechFallback = await request(app)
+      .post(`/speech-fallback?step=pin-handoff&sessionId=${sessionId}&lang=en`)
+      .send({ speechText: "1234" });
+    expect(pinSpeechFallback.text).toContain("Do not enter or say your Mobile Money PIN here");
     expect(transactionStateMachine.getSession(sessionId)?.state).toBe("PIN_PENDING");
 
     const status = await request(app)
@@ -576,7 +690,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
 
     const unadvertisedChoice = await request(app)
       .post("/service-choice")
-      .send({ sessionId, lang: "en", dtmfDigits: "3" });
+      .send({ sessionId, lang: "en", dtmfDigits: "4" });
     expect(unadvertisedChoice.text).toContain("not a valid choice");
   });
 
@@ -588,7 +702,8 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .post("/voice-menu")
       .send({ sessionId, callerNumber: "+233543546010", isActive: "1" });
     expect(welcomeRes.status).toBe(200);
-    expect(welcomeRes.text.match(/<Play\b/gi) || []).toHaveLength(2);
+    expect(welcomeRes.text.match(/<Play\b/gi) || []).toHaveLength(0);
+    expect(welcomeRes.text).toContain("Sɛ wopɛ Borɔfo a, mia 1. Sɛ wopɛ Twi a, mia 2.");
 
     // User selects English (1)
     const langRes = await request(app)
@@ -631,7 +746,12 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     const amountRes = await request(app)
       .post("/verify-amount")
       .send({ sessionId, lang: "en", dtmfDigits: "500#" });
-    expect(amountRes.text).toContain("/safe-confirmation");
+    expect(amountRes.text).toContain("/amount-readback-choice");
+
+    const amountAccepted = await request(app)
+      .post("/amount-readback-choice")
+      .send({ sessionId, lang: "en", dtmfDigits: "1" });
+    expect(amountAccepted.text).toContain("/safe-confirmation");
 
     // Step 5: Safe Confirmation (Dynamic Readback)
     const safeConfRes = await request(app)
@@ -660,16 +780,28 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       network: "MTN",
     }));
     startSaga.mockRestore();
-    expect(handoffRes.text).toContain("authorize the prompt on your handset");
-    expect(handoffRes.text).toContain("<Reject/>"); // stops listening to speech; no PIN over audio!
+    expect(handoffRes.text).toContain("Approve it on your handset.");
+    expect(handoffRes.text).toContain("/check-status");
+    expect(handoffRes.text).toContain('timeout="90"');
+    expect(handoffRes.text).not.toContain("<Reject/>");
 
     const stateAfterHandoff = transactionStateMachine.getSession(sessionId);
     expect(stateAfterHandoff?.state).toBe("PIN_PENDING");
     expect(stateAfterHandoff?.amount).toBe(500);
     expect(stateAfterHandoff?.recipientName).toBe("Ama Mensah");
 
-    // Step 7: Receipt & Exit (MoMo Out-of-band completion)
-    const completedSession = transactionStateMachine.transition(sessionId, "COMPLETED");
+    // Step 7: Only trusted provider evidence can produce the receipt.
+    const providerStatus = vi.spyOn(paymentSaga, "getLatestSagaForSession").mockReturnValue({
+      sagaId: "MOMO-CANONICAL-COMPLETE",
+      sessionId,
+      state: "COMPLETED",
+      providerFinancialTransactionId: "provider-financial-id",
+    } as any);
+    const receipt = await request(app).post("/check-status").query({ sessionId, lang: "en" });
+    providerStatus.mockRestore();
+    expect(receipt.headers["x-payment-status"]).toBe("SUCCESSFUL");
+    expect(receipt.text).toContain("Your transfer of");
+    const completedSession = transactionStateMachine.getSession(sessionId)!;
     expect(completedSession.state).toBe("COMPLETED");
     expect(completedSession.referenceId).toMatch(/^OKP-\d+$/);
     expect(completedSession.amount).toBe(500);

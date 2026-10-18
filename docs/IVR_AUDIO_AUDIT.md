@@ -2,18 +2,18 @@
 
 Generated from the checked-out repository by `scripts/generate_audio_inventory_and_mapping.ts`.
 
-The current checkout contains **170 audio files**. Extension counts: .aac 54, .m4a 100, .mp3 16.
+The current checkout contains **92 audio files**. Extension counts: .m4a 3, .mp3 89.
 
 | Current root | Audio files |
 |---|---:|
-| `Audio_files/Twi/` | 110 |
-| `Audio_files/audio/` | 1 |
-| Other files under `Audio_files/` | 54 |
+| `Audio_files/Twi_library/` | 86 |
+| `Audio_files/audio/` | 0 |
+| Other files under `Audio_files/` | 3 |
 | `public/audio/` | 2 |
-| `audio/` | 2 |
+| `audio/` | 0 |
 | Repository root | 1 |
 
-There is no `Audio_files_2/` directory in this checkout. The 54 flat terminal/recovery recordings are under `Audio_files/`. The runtime registry contains 92 selected entries, and 0 are approved fixed recordings.
+The runtime registry contains 91 selected entries, and 0 are approved fixed recordings. Physical files without an exact registry path remain unmapped candidates.
 
 No recording is marked audio-verified. The current registry returns safe text/TTS fallback for candidate, ambiguous, missing, and dynamic recordings. A filename, transcript, hash, or successful HTTP response is not audio verification.
 

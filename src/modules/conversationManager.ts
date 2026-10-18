@@ -63,7 +63,6 @@ export interface ConversationTurnResult {
 
 class ConversationManager {
   private sessions = new Map<string, ConversationState>();
-  private readonly SESSION_TIMEOUT_MS = 90 * 1000; // 90 seconds timeout
 
   /**
    * Initializes or returns existing session
@@ -72,7 +71,7 @@ class ConversationManager {
     const now = Date.now();
     const existing = this.sessions.get(sessionId);
 
-    if (existing && now - existing.lastUpdated < this.SESSION_TIMEOUT_MS) {
+    if (existing) {
       existing.lastUpdated = now;
       return existing;
     }

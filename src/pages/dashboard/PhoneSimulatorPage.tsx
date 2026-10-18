@@ -355,7 +355,7 @@ export const PhoneSimulatorPage: React.FC = () => {
     ]);
   }, []);
 
-  // ── 60-Second Caller Silence Watchdog (OP67) ──────────────────────────
+  // ── 90-Second Caller Silence Watchdog (OP67) ──────────────────────────
   const silenceWatchdogTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const clearSilenceWatchdog = useCallback(() => {
@@ -372,31 +372,24 @@ export const PhoneSimulatorPage: React.FC = () => {
     const op67Text = isTwi
       ? "Mante deɛ wofiri wo hɔ bae, yɛsrɛ wo ma yɛn mmuaeɛ!"
       : "I did not get any response from you, please give us a response!";
-    const op67AudioUrl = "/audio/Twi_library/Please_respond.m4a";
-
-    addLog("system", "⏱️ [60s Silence Watchdog] 1 minute elapsed with no caller response. Triggering OP67 (Please Respond). Step retained without skipping.");
+    addLog("system", "⏱️ [90s Silence Watchdog] No caller response; triggering OP67 and retaining the current step.");
     addChatTurn({
       sender: "system",
       text: `⏱️ OP67: "${op67Text}"`,
       promptId: "OP67",
-      audioUrl: op67AudioUrl,
-      audioSource: "studio",
+      audioSource: "synthesis",
     });
 
-    try {
-      await audioPlaybackController.play(op67AudioUrl, op67Text);
-    } catch {
-      await audioPlaybackController.speakText(op67Text, { language: curLang });
-    }
+    await audioPlaybackController.speakText(op67Text, { language: curLang });
   }, [addLog, addChatTurn]);
 
   const armSilenceWatchdog = useCallback(() => {
     clearSilenceWatchdog();
     if (!callActiveRef.current) return;
-    // Exactly 1 minute (60,000 ms) of silence before playing OP67
+    // Wait 90 seconds before reminding the caller, then keep the same step active.
     silenceWatchdogTimerRef.current = setTimeout(() => {
       triggerSilenceTimeout();
-    }, 60000);
+    }, 90000);
   }, [clearSilenceWatchdog, triggerSilenceTimeout]);
 
   // ── Clock & Auto-Login ───────────────────────────────────────────────
@@ -1124,7 +1117,7 @@ export const PhoneSimulatorPage: React.FC = () => {
                 "audio",
                 `Synthesizing dynamic TTS [${i + 1}/${plan.segments.length}]: "${seg.text}"`
               );
-              await audioPlaybackController.speakText(seg.text, langToUse);
+              await audioPlaybackController.speakText(seg.text, { language: langToUse });
             }
           }
           return;
@@ -1154,10 +1147,10 @@ export const PhoneSimulatorPage: React.FC = () => {
         }
 
         addLog("AI", `Dynamic response requires TTS: "${matchData?.matchReason || matchData?.reason || "Synthesizing"}"`);
-        await audioPlaybackController.speakText(textToPlay, langToUse);
+        await audioPlaybackController.speakText(textToPlay, { language: langToUse });
       } catch (err: any) {
         addLog("AI", `Audio assembly notice: playing TTS fallback (${err?.message || "Standard"})`);
-        await audioPlaybackController.speakText(textToPlay, langToUse);
+        await audioPlaybackController.speakText(textToPlay, { language: langToUse });
       }
     },
     [addLog, sessionId]

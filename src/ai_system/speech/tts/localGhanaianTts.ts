@@ -40,7 +40,7 @@ export class LocalGhanaianTtsProvider implements TTSProvider {
       if (
         recording.url === null ||
         recording.language !== selectedLanguage ||
-        recording.mappingStatus !== "VERIFIED" ||
+        !recording.audioVerified ||
         recording.recordingRole !== "fixed"
       ) continue;
       const candidates = [recording.spokenText || "", recording.title, recording.state || ""].filter(Boolean);

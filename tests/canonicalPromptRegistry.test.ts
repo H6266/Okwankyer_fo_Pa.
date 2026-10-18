@@ -25,8 +25,8 @@ describe("Canonical Prompt Registry (OP01–OP94)", () => {
     }
   });
 
-  it("strictly classifies OP20, OP21, OP29, OP52, OP70 as DYNAMIC", () => {
-    const expectedDynamic = ["OP20", "OP21", "OP29", "OP52", "OP70"];
+  it("strictly classifies OP20, OP21, OP29, OP35, OP52, OP70 as DYNAMIC", () => {
+    const expectedDynamic = ["OP20", "OP21", "OP29", "OP35", "OP52", "OP52b", "OP70"];
     for (const id of expectedDynamic) {
       expect(isDynamicPrompt(id)).toBe(true);
       const prompt = getCanonicalPrompt(id);
@@ -57,6 +57,17 @@ describe("Canonical Prompt Registry (OP01–OP94)", () => {
   });
 
   describe("Dynamic Template Rendering (Zero Placeholder Guarantee)", () => {
+    it("recognizes OP52b as a dynamic reference read-back using the current transaction reference", () => {
+      expect(isDynamicPrompt("OP52b")).toBe(true);
+      expect(isDynamicPrompt("OP52B")).toBe(true);
+      expect(getCanonicalPrompt("OP52b")?.type).toBe("DYNAMIC");
+
+      const text = resolvePromptSpokenText("OP52b", "en", { referenceId: "OKP-654321" });
+      expect(text).toContain("six ... five ... four ... three ... two ... one");
+      expect(text).not.toContain("OKP-272");
+      expect(text).not.toContain("OKP-782914");
+    });
+
     it("renders OP20 (Recipient Name) with real KYC name in English and Twi without [DYNAMIC NAME]", () => {
       const enText = resolvePromptSpokenText("OP20", "en", { name: "Kofi Mensah" });
       expect(enText).toContain("Kofi Mensah");
@@ -94,16 +105,42 @@ describe("Canonical Prompt Registry (OP01–OP94)", () => {
       expect(twiText).not.toContain("{AMOUNT}");
     });
 
+    it("renders OP35 from current transaction fields and limits phone readback to the last four digits", () => {
+      const text = resolvePromptSpokenText("OP35", "en", {
+        amount: 50,
+        recipientName: "Ama Mensah",
+        recipientPhone: "0241234567",
+        network: "MTN",
+      });
+      expect(text).toContain("50");
+      expect(text).toContain("Ama Mensah");
+      expect(text).toContain("MTN");
+      expect(text).toContain("5 6 7");
+      expect(text).not.toContain("0 2 4 1 2 3 4 5 6 7");
+      expect(resolvePromptSpokenText("OP35", "en", { amount: 50 })).toContain("cannot continue");
+    });
+
     it("renders OP52 (Success Reference) with formatted reference ID", () => {
-      const enText = resolvePromptSpokenText("OP52", "en", { ref: "OKP-847291" });
+      const enText = resolvePromptSpokenText("OP52", "en", {
+        ref: "OKP-847291",
+        amount: 50,
+        recipientName: "Ama Mensah",
+      });
       expect(enText).toContain("O K P - 8 4 7 2 9 1");
+      expect(enText).toContain("50");
+      expect(enText).toContain("Ama Mensah");
       expect(enText).not.toContain("[DYNAMIC REFERENCE]");
       expect(enText).not.toContain("{REF}");
 
-      const twiText = resolvePromptSpokenText("OP52", "twi", { ref: "OKP-123456" });
+      const twiText = resolvePromptSpokenText("OP52", "twi", {
+        ref: "OKP-123456",
+        amount: 120,
+        recipientName: "Ama Mensah",
+      });
       expect(twiText).toContain("O K P - 1 2 3 4 5 6");
       expect(twiText).not.toContain("[DYNAMIC REFERENCE]");
       expect(twiText).not.toContain("{REF}");
+      expect(resolvePromptSpokenText("OP52", "en", { ref: "OKP-123456" })).toContain("cannot continue");
     });
 
     it("renders OP70 (Acoustic Confirmation) with caller utterance", () => {
@@ -131,10 +168,10 @@ describe("Canonical Prompt Registry (OP01–OP94)", () => {
       expect(audioResult.url).not.toContain(".mp3");
     });
 
-    it("routes fixed prompts (OP01) to studio recording when available", () => {
+    it("routes unreviewed fixed prompts (OP01) through canonical TTS", () => {
       const audioResult = resolveCanonicalAudioUrl("OP01", "en", "https://api.example.com");
-      expect(audioResult.mode).toBe("RECORDED");
-      expect(audioResult.url).toContain("Welcome_prompt_01.mp3");
+      expect(audioResult.mode).toBe("DYNAMIC_TTS");
+      expect(audioResult.url).toBe("https://api.example.com/api/audio/prompt-tts/en/OP01");
     });
 
     it("builds valid VoiceXML with GetDigits and dynamic Say for OP20", () => {

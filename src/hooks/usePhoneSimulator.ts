@@ -759,14 +759,17 @@ export function usePhoneSimulator() {
   }, []);
 
   const triggerInactivityPleaseRespond = useCallback(() => {
-    const pleaseRespondAudioUrl = "/audio/Twi_library/Please_respond.mp3";
-    const transcriptText = "I did not get any response from you, please give us a response!";
+    const ttsLanguage = language === "tw" ? "twi" : language;
+    const pleaseRespondAudioUrl = `/api/audio/prompt-tts/${ttsLanguage}/OP67`;
+    const transcriptText = ttsLanguage === "twi"
+      ? "Yɛsrɛ wo, bua anaa mia nɔmba bi wɔ wo keypad so."
+      : "Please respond or press a key on your phone keypad.";
     setTranscript((prev) => [
       ...prev,
       {
         id: `sys_silence_${Date.now()}`,
         role: "system",
-        text: `⏳ [60s Inactivity Watchdog] OP67 — Please Respond: "${transcriptText}"`,
+        text: `⏳ [90s Inactivity Watchdog] OP67 — Please Respond: "${transcriptText}"`,
         timestamp: Date.now(),
       },
     ]);
@@ -779,13 +782,13 @@ export function usePhoneSimulator() {
         setIsAiSpeaking(false);
         isAiSpeakingRef.current = false;
         setActiveAudioClip(null);
-        // Restart 60s timer after repeating instruction
+        // Keep the caller on the same step and wait another 90 seconds.
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         silenceTimerRef.current = setTimeout(() => {
           if (!isAiSpeakingRef.current && voiceListeningEnabledRef.current) {
             triggerInactivityPleaseRespond();
           }
-        }, 60000);
+        }, 90000);
       };
       audioRef.current.onerror = () => {
         setIsAiSpeaking(false);
@@ -797,7 +800,7 @@ export function usePhoneSimulator() {
         isAiSpeakingRef.current = false;
       });
     }
-  }, []);
+  }, [language]);
 
   const updateAiSpeaking = useCallback((speaking: boolean, promptText?: string) => {
     setIsAiSpeaking(speaking);
@@ -823,13 +826,13 @@ export function usePhoneSimulator() {
         startContinuousVoiceRef.current?.();
       }
 
-      // Start 60-second inactivity watchdog (1 minute wait before OP67 Please Respond)
+      // Wait 90 seconds before the next OP67 silence reminder.
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = setTimeout(() => {
         if (!isAiSpeakingRef.current && voiceListeningEnabledRef.current) {
           triggerInactivityPleaseRespond();
         }
-      }, 60000);
+      }, 90000);
     }
     if (voiceListeningEnabledRef.current) {
       setTranscriptionStatus(speaking ? "PAUSED" : "LISTENING");
@@ -1141,13 +1144,8 @@ export function usePhoneSimulator() {
           setUssdPushPrompt({
             active: true,
             title: "MTN MoMo USSD Authorization",
-            message:
-              "Authorize transfer on your mobile screen. Enter your secret Mobile Money PIN (Zero-PIN: Never spoken on voice call):",
-            amount: 20,
+            message: "If your provider requests authorization, approve it on your handset. Enter your PIN only on the provider's secure screen, never on this call.",
             currency: "GHS",
-            recipientName: "Kwame Boateng",
-            recipientPhone: "0553838464",
-            referenceId: `OKP-${Date.now().toString().slice(-6)}`,
           });
         }
 
@@ -2473,69 +2471,28 @@ export function usePhoneSimulator() {
     }
   }, [aiResponse, language, currentStep, playAudioSynthesis]);
 
-  // PIN Entry Inactivity & Multi-Stage Reassurance Timer
+  // A pending handset authorization may take time; never collect a PIN on the call.
   useEffect(() => {
     const isPinStep = isActive && (currentStep?.includes("pin") || currentStep === "enter-pin" || currentStep === "pin-handoff");
     if (!isPinStep) return;
 
-    let inactivityStage = 0;
     const interval = setInterval(async () => {
-      inactivityStage++;
-      if (inactivityStage === 1) {
-        // Reassure user: "We are waiting for you to enter your PIN"
-        const reassureText = language === "tw"
-          ? "Yɛretwɛn wo PIN, fa wo bere bɔ wo PIN nɔmba nnan no."
-          : "We are waiting for you to enter your PIN. Please take your time and enter your 4-digit PIN.";
-        setAiResponse(reassureText);
-        setTranscript((prev) => [
-          ...prev,
-          {
-            id: `ai_reassure_1_${Date.now()}`,
-            role: "ai",
-            text: reassureText,
-            timestamp: Date.now(),
-            stage: "enter-pin",
-          },
-        ]);
-        playAudioSynthesis(reassureText, language, "enter-pin");
-      } else if (inactivityStage === 2) {
-        // Second reminder: "Please enter your 4-digit PIN"
-        const remindText = language === "tw"
-          ? "Yɛsrɛ wo, yɛda so retwɛn wo PIN nɔmba nnan no na yɛatumi amane sika no."
-          : "Please enter your 4-digit PIN on the keypad or say it to authorize the transfer.";
-        setAiResponse(remindText);
-        setTranscript((prev) => [
-          ...prev,
-          {
-            id: `ai_reassure_2_${Date.now()}`,
-            role: "ai",
-            text: remindText,
-            timestamp: Date.now(),
-            stage: "enter-pin",
-          },
-        ]);
-        playAudioSynthesis(remindText, language, "enter-pin");
-      } else if (inactivityStage >= 3) {
-        // Final timeout: Terminate call gracefully
-        clearInterval(interval);
-        const timeoutText = language === "tw"
-          ? "Yɛante wo nkyɛn nti, yɛretwa frɛ yi mu. Meda wo ase, nante yie."
-          : "We did not receive any input, so this call is now ending for your security. Thank you, goodbye.";
-        setAiResponse(timeoutText);
-        setTranscript((prev) => [
-          ...prev,
-          {
-            id: `ai_timeout_${Date.now()}`,
-            role: "ai",
-            text: timeoutText,
-            timestamp: Date.now(),
-            stage: "call-ended",
-          },
-        ]);
-        await playAudioSynthesis(timeoutText, language, "call-ended");
-        endCall("PIN inactivity timeout");
-      }
-    }, 12000);
+      const remindText = language === "tw"
+        ? "Yɛda so retwɛn provider no mmuae. Yɛsrɛ wo hwɛ wo handset. Mfa wo PIN nka wɔ frɛ yi mu."
+        : "We are still waiting for your provider. Please check your handset. Do not enter or say your PIN on this call.";
+      setAiResponse(remindText);
+      setTranscript((prev) => [
+        ...prev,
+        {
+          id: `ai_pending_reminder_${Date.now()}`,
+          role: "ai",
+          text: remindText,
+          timestamp: Date.now(),
+          stage: "waiting-confirmation",
+        },
+      ]);
+      await playAudioSynthesis(remindText, language, "waiting-confirmation");
+    }, 90000);
 
     return () => clearInterval(interval);
   }, [isActive, currentStep, language, playAudioSynthesis, endCall]);

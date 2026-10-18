@@ -1,14 +1,61 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import request from "supertest";
 import { app } from "../src/serverApp";
 import { transactionStateMachine } from "../src/domain/stateMachine";
+import { paymentSaga } from "../src/integrations/momo/paymentSaga";
 import { isDynamicPrompt, resolvePromptSpokenText } from "../src/audio/canonicalRegistry";
 
 describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
   const sessionId = `test_session_${Date.now()}`;
   const testCallerNumber = "+233543546010";
 
-  it("1. Welcome plays once at session start and directs to language selection", async () => {
+  it("serves the three English Library candidates from their registered paths", async () => {
+    for (const filename of ["2.m4a", "3.m4a", "4.m4a"]) {
+      const response = await request(app).get(`/audio/English_Library/${filename}`);
+      expect(response.status).toBe(200);
+      expect(response.headers["content-type"]).toMatch(/audio\/mp4/);
+      expect(response.body.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("rejects PIN fields and preserves pending simulator payment status", async () => {
+    const pinAttempt = await request(app)
+      .post("/api/ai/simulator/complete-transfer")
+      .send({ sessionId: "SIM-PIN-REJECT-001", pin: "1234" });
+    expect(pinAttempt.status).toBe(400);
+    expect(transactionStateMachine.getSession("SIM-PIN-REJECT-001")).toBeUndefined();
+
+    const sessionId = "SIM-PENDING-EVIDENCE-001";
+    transactionStateMachine.getOrCreateSession(sessionId, "en");
+    transactionStateMachine.transition(sessionId, "RECIPIENT_VERIFIED", {
+      callerPhone: "0244123456",
+      recipientPhone: "0241234567",
+      recipientName: "Ama Mensah",
+      isRecipientVerified: true,
+      network: "MTN",
+    });
+    transactionStateMachine.transition(sessionId, "AMOUNT_ENTERED", { amount: 25 });
+
+    const executeSaga = vi.spyOn(paymentSaga, "executeConfirmedTransferSaga").mockResolvedValue({
+      saga: {
+        sagaId: "SIM-PENDING-SAGA",
+        sessionId,
+        state: "WAITING_FOR_CUSTOMER_AUTHORIZATION",
+      } as any,
+      status: "PENDING",
+      mode: "MOCK_PROVIDER",
+    });
+    const pending = await request(app)
+      .post("/api/ai/simulator/complete-transfer")
+      .send({ sessionId });
+    expect(pending.status).toBe(202);
+    expect(pending.body.status).toBe("PENDING");
+    expect(pending.body.receiptText).toContain("pending provider confirmation");
+    expect(transactionStateMachine.getSession(sessionId)?.state).toBe("PIN_PENDING");
+    executeSaga.mockRestore();
+  });
+
+  it("1. OP01 plays once with language choices and directs to the selector", async () => {
     const res = await request(app)
       .post("/voice-menu")
       .send({
@@ -22,11 +69,10 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
     expect(res.headers["content-type"]).toContain("application/xml");
     const body = res.text;
 
-    // Play the welcome and service selection recordings sequentially
     expect(body).toContain("<Response>");
     const prompts = [...body.matchAll(/<Play[^>]*url="([^"]+)"/gi)].map((match) => match[1]);
-    expect(prompts.length).toBeGreaterThanOrEqual(2);
-    expect(prompts[0]).toMatch(/(?:Welcome%201%20\(2\)|Opening_voice_welcome_to_okwankyerefopa)\.mp3/);
+    expect(prompts).toHaveLength(0);
+    expect(body).toContain("Sɛ wopɛ Borɔfo a, mia 1. Sɛ wopɛ Twi a, mia 2.");
     expect(body).toMatch(/\/(?:language-selection|service-choice)\?sessionId=/);
     expect(body).not.toContain("Welcome back");
   });
@@ -98,13 +144,20 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
       .send({ dtmfDigits: "50#" });
 
     expect(resAmount.status).toBe(200);
-    expect(resAmount.text).toContain("/safe-confirmation");
+    expect(resAmount.text).toContain("/amount-readback-choice");
 
     const session = transactionStateMachine.getSession(sessionId);
     expect(session?.state).toBe("AMOUNT_ENTERED");
     expect(session?.amount).toBe(50);
 
-    // Fetch safe-confirmation
+    // Accept the amount before final transaction confirmation.
+    const resAmountAccepted = await request(app)
+      .post(`/amount-readback-choice?sessionId=${sessionId}&lang=en`)
+      .send({ dtmfDigits: "1" });
+    expect(resAmountAccepted.status).toBe(200);
+    expect(resAmountAccepted.text).toContain("/safe-confirmation");
+
+    // Fetch safe-confirmation after amount acceptance.
     const resSafe = await request(app)
       .get(`/safe-confirmation?sessionId=${sessionId}&lang=en`);
 

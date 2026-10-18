@@ -58,7 +58,7 @@ export async function runRealSmokeTests(): Promise<SmokeTestReport> {
 
   const allAudioFound = welcomeExists && networkExists && amountExists;
   const allAudioReviewed = [welcome, network, amount].every((recording) =>
-    recording?.mappingStatus === "VERIFIED" && recording.recordingRole === "fixed"
+    recording?.audioVerified === true && recording.recordingRole === "fixed"
   );
   checks.push({
     id: "check_audio",
@@ -382,7 +382,7 @@ export function checkAudioFilesHealth(): AudioCatalogHealth {
       if (fs.existsSync(abs)) {
         fs.accessSync(abs, fs.constants.R_OK);
         const stat = fs.statSync(abs);
-        if (recording.mappingStatus === "VERIFIED" && recording.recordingRole === "fixed") reviewedFiles += 1;
+        if (recording.audioVerified && recording.recordingRole === "fixed") reviewedFiles += 1;
         sampleFiles.push({
           path: sourcePath,
           sizeBytes: stat.size,

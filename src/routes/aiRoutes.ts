@@ -30,7 +30,7 @@ import { formatSpokenNumbersAsDigits } from "../domain/numberFormatter";
 import { paymentSaga } from "../integrations/momo/paymentSaga";
 import { geminiClient } from "../services/geminiClient";
 import { recipientResolver } from "../providers/recipient/RecipientResolver";
-import { normalizeGhanaPhoneNumber } from "../domain/validation";
+import { normalizeGhanaPhoneNumber, parseAndValidateAmount, validateGhanaPhoneNumber } from "../domain/validation";
 import {
   isAcousticSystemEcho,
   stripSystemEchoFromTranscript,
@@ -858,22 +858,49 @@ aiRouter.post("/api/ai/simulator/sync-session", publicApiRateLimiter, (req: Requ
   }
 });
 
-// Direct PIN transfer completion with accurate receipt generation
+// Simulator submission is confirmed by the caller; provider handset authorization remains out of band.
 aiRouter.post("/api/ai/simulator/complete-transfer", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {
     const { sessionId, pin, language, amount: reqAmount, recipientPhone: reqPhone, recipientName: reqName, network: reqNet } = req.body;
     if (!sessionId) {
       return res.status(400).json({ error: "Missing 'sessionId' field" });
     }
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, "pin")) {
+      return res.status(400).json({ error: "Do not submit a Mobile Money PIN to this service. Authorize only on the provider's secure handset prompt." });
+    }
     const lang = (language === "tw" || language === "twi" || language === "twi-asante" || language === "ak") ? "twi" : "en";
-    const session = transactionStateMachine.getOrCreateSession(sessionId, lang);
+    const session = transactionStateMachine.getSession(sessionId);
+    if (!session) return res.status(404).json({ error: "Transaction session not found" });
+    if (session.state !== "AMOUNT_ENTERED") {
+      return res.status(409).json({ status: session.state, error: "The transaction is not ready for final confirmation." });
+    }
 
-    const effectiveAmount = typeof reqAmount === "number" && reqAmount > 0 ? reqAmount : session.amount || 90;
-    const effectivePhone = reqPhone ? normalizeGhanaPhoneNumber(String(reqPhone)) : session.recipientPhone || "0554848756";
-    const effectiveName = reqName || session.recipientName || "Emmanuel Mensah";
-    const effectiveNetwork = reqNet || session.network || "MTN";
+    const validatedAmount = session.amount === null ? null : parseAndValidateAmount(String(session.amount));
+    const validatedRecipient = session.recipientPhone ? validateGhanaPhoneNumber(session.recipientPhone) : null;
+    const validatedCaller = session.callerPhone ? validateGhanaPhoneNumber(session.callerPhone) : null;
+    if (
+      !validatedAmount?.valid || validatedAmount.amount === undefined ||
+      !validatedRecipient?.valid || !validatedRecipient.normalized ||
+      !validatedCaller?.valid || !validatedCaller.normalized ||
+      !session.isRecipientVerified || !session.recipientName?.trim() ||
+      !["MTN", "Telecel"].includes(session.network)
+    ) {
+      return res.status(409).json({ error: "Verified caller, recipient, amount, and supported network are required." });
+    }
 
-    // Transition to CONFIRMED and PIN_PENDING
+    const effectiveAmount = validatedAmount.amount;
+    const effectivePhone = validatedRecipient.normalized;
+    const effectiveName = session.recipientName;
+    const effectiveNetwork = session.network;
+    if (
+      (reqAmount !== undefined && Number(reqAmount) !== effectiveAmount) ||
+      (reqPhone !== undefined && normalizeGhanaPhoneNumber(String(reqPhone)) !== effectivePhone) ||
+      (reqName !== undefined && String(reqName) !== effectiveName) ||
+      (reqNet !== undefined && String(reqNet) !== effectiveNetwork)
+    ) {
+      return res.status(409).json({ error: "Submitted values do not match the verified transaction session." });
+    }
+
     transactionStateMachine.transition(sessionId, "CONFIRMED");
     transactionStateMachine.transition(sessionId, "PIN_PENDING", {
       amount: effectiveAmount,
@@ -885,7 +912,7 @@ aiRouter.post("/api/ai/simulator/complete-transfer", publicApiRateLimiter, async
     // Execute Payment Saga
     const sagaResult = await paymentSaga.executeConfirmedTransferSaga({
       sessionId,
-      senderPhone: session.callerPhone || "+233244123456",
+      senderPhone: validatedCaller.normalized,
       recipientPhone: effectivePhone,
       recipientName: effectiveName,
       amount: effectiveAmount,
@@ -893,10 +920,18 @@ aiRouter.post("/api/ai/simulator/complete-transfer", publicApiRateLimiter, async
       confirmedDraftHash: session.idempotencyKey,
     });
 
-    transactionStateMachine.transition(sessionId, "COMPLETED");
+    const providerConfirmed = sagaResult.status === "COMPLETED"
+      && Boolean(sagaResult.saga.providerFinancialTransactionId);
+    const providerFailed = sagaResult.status === "FAILED";
+    if (providerConfirmed) {
+      transactionStateMachine.transition(sessionId, "COMPLETED");
+    } else if (providerFailed) {
+      transactionStateMachine.transition(sessionId, "FAILED", {
+        failureReason: sagaResult.saga.failureReason || "Provider reported transaction failure.",
+      });
+    }
 
-    // Generate accurate dynamic receipt
-    const refId = sagaResult.saga.collectionReference || session.referenceId;
+    const refId = session.referenceId;
     const receipt = buildReceiptPrompt({
       language: lang,
       amount: effectiveAmount,
@@ -904,24 +939,19 @@ aiRouter.post("/api/ai/simulator/complete-transfer", publicApiRateLimiter, async
       recipientName: effectiveName,
       referenceId: refId,
       timestamp: new Date(),
-      status: "SUCCESSFUL",
+      status: providerConfirmed ? "SUCCESSFUL" : providerFailed ? "FAILED" : "PENDING",
     });
 
-    // Determine audio match or dynamic TTS
-    const studioSuccessAudio = lang === "twi"
-      ? "/audio/Twi_library/Success_sent.m4a"
-      : "/audio/Success.m4a";
-
-    res.json({
-      success: true,
-      status: "SUCCESSFUL",
+    return res.status(providerFailed ? 200 : 202).json({
+      success: providerConfirmed,
+      status: providerConfirmed ? "SUCCESSFUL" : providerFailed ? "FAILED" : "PENDING",
       amount: effectiveAmount,
       recipientPhone: effectivePhone,
       recipientName: effectiveName,
       network: effectiveNetwork,
       referenceId: refId,
       receiptText: receipt.spokenText,
-      audioUrl: studioSuccessAudio,
+      audioUrl: null,
       requiresTts: true,
       saga: sagaResult.saga,
     });

@@ -23,6 +23,7 @@ import { modelRouter } from "../ai_system/providers/modelRouter";
 import { ttsRouter as speechSynthesisRouter } from "../ai_system/speech/tts/ttsRouter";
 import { resolvePrompt, resolvePromptText } from "../modules/ttsService";
 import { isDynamicPrompt, resolvePromptSpokenText } from "../audio/canonicalRegistry";
+import { renderDynamicPromptTemplate } from "../audio/dynamicPromptBuilder";
 import { aiBootstrap } from "../ai_system/core/aiBootstrap";
 import { crossReferenceReplyAudioWithAi } from "../audio/geminiAudioMatcher";
 import { TWI_AUDIO_LIBRARY_ITEMS } from "../audio/twiLibraryManifest";
@@ -75,6 +76,7 @@ apiRouter.get(
       phone,
       recipientPhone,
       amount,
+      network,
       ref,
       referenceId,
       response: userResponse,
@@ -82,13 +84,30 @@ apiRouter.get(
     } = req.query as Record<string, string>;
 
     let promptText: string | null = null;
-    if (isDynamicPrompt(req.params.key) || Object.keys(req.query).length > 0) {
+    if (isDynamicPrompt(req.params.key)) {
+      promptText = renderDynamicPromptTemplate(req.params.key, lang as "en" | "twi", {
+        name,
+        recipientName,
+        phone,
+        recipientPhone,
+        amount,
+        network,
+        ref,
+        referenceId,
+        response: userResponse,
+        utterance,
+      });
+      if (!promptText) {
+        return res.status(400).json({ error: "Required live transaction data is missing or invalid." });
+      }
+    } else if (Object.keys(req.query).length > 0) {
       promptText = resolvePromptSpokenText(req.params.key, lang as "en" | "twi", {
         name,
         recipientName,
         phone,
         recipientPhone,
         amount,
+        network,
         ref,
         referenceId,
         response: userResponse,

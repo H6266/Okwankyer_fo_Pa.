@@ -162,6 +162,10 @@ export function resolveSafeAudioPath(requestedSubpath: string): string | null {
     assetRoot = "supplied";
     relativePath = normalized;
     rootDir = path.resolve(process.cwd(), "Audio_files");
+  } else if (/^english_library\//i.test(normalized)) {
+    assetRoot = "supplied";
+    relativePath = normalized;
+    rootDir = path.resolve(process.cwd(), "Audio_files");
   } else if (normalized.startsWith("additional/")) {
     assetRoot = "additional";
     relativePath = normalized.slice("additional/".length);

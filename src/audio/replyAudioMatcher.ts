@@ -1,4 +1,4 @@
-import { AUDIO_RECORDINGS, AudioRecording, normalizeRecordingLanguage, getPromptManifestEntry } from "./recordingRegistry";
+import { AUDIO_RECORDINGS, AudioRecording, normalizeRecordingLanguage, getPromptManifestEntry, getRecordingByUrl } from "./recordingRegistry";
 import { TWI_SEQUENTIAL_FLOW_STEPS, FlowStepDefinition } from "./twiSequentialAudioFlow";
 
 function getNodeModules() {
@@ -305,6 +305,8 @@ export function matchReplyToAudio(
   // 1. Check Sequential Flow Steps
   for (const step of TWI_SEQUENTIAL_FLOW_STEPS) {
     if (!step.audioUrl) continue;
+    const flowRecording = getRecordingByUrl(step.audioUrl, wantedLanguage || undefined);
+    if (!flowRecording?.audioVerified) continue;
     const targetScript = isTwi ? step.spokenTextTwi : step.spokenTextEn;
     const aliases = STEP_ALIASES[step.id] || [];
 
@@ -325,23 +327,16 @@ export function matchReplyToAudio(
     }
   }
 
-  // 2. Check full AUDIO_RECORDINGS library (with fallback to Twi recordings for English requests)
+  // 2. Check only recordings explicitly approved for playback in this language.
   let catalogCandidates = AUDIO_RECORDINGS.filter((r) => {
     if (wantedLanguage && r.language !== wantedLanguage) return false;
     return Boolean(
       r.spokenText &&
       r.url &&
-      (r.mappingStatus === "VERIFIED" || r.assetRoot === "supplied" || r.assetRoot === "additional") &&
+      r.audioVerified &&
       r.recordingRole === "fixed"
     );
   });
-
-  if (catalogCandidates.length === 0 && wantedLanguage === "en") {
-    catalogCandidates = AUDIO_RECORDINGS.filter((r) =>
-      r.language === "twi" &&
-      Boolean(r.spokenText && r.url && r.recordingRole === "fixed")
-    );
-  }
 
   for (const recording of catalogCandidates) {
     if (!recording.spokenText || !recording.url) continue;
@@ -388,29 +383,13 @@ export function matchReplyToAudio(
     }
   }
 
-  // 4. Safe Fallback: When no audio matched and TTS is unavailable, fallback to pre-recorded Processing audio
+  // Never substitute an unrelated recording when no approved reply clip matches.
   if (!bestResult.match) {
-    const processingUrl = "/audio/Processing.mp3";
-    const diskPath = resolveDiskPath(processingUrl);
-    const { fs } = getNodeModules();
-    let buf: Buffer | undefined;
-    if (fs && diskPath && fs.existsSync(diskPath)) {
-      buf = audioBufferCache.get(diskPath);
-      if (!buf) {
-        buf = fs.readFileSync(diskPath);
-        audioBufferCache.set(diskPath, buf);
-      }
-    }
     return {
-      match: true,
-      confidence: 0.5,
-      audioUrl: processingUrl,
-      title: "Processing",
-      spokenText: "Yɛretwɛn... Yɛrebɔ mmɔden ahwɛ wo dwumadie no. Please wait as we process your request.",
-      filePath: diskPath || undefined,
-      audioBuffer: buf,
-      isFallbackToTts: false,
-      matchReason: "processing_audio_fallback",
+      ...bestResult,
+      match: false,
+      isFallbackToTts: true,
+      matchReason: "no_approved_audio_match_use_tts",
     };
   }
 

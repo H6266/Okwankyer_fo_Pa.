@@ -5,9 +5,9 @@ import { execFileSync } from "child_process";
 import {
   AUDIO_RECORDINGS,
   AudioRecording,
-  getPromptManifestEntries,
   getRecordingsByPromptId,
 } from "../src/audio/recordingRegistry";
+import { CANONICAL_PROMPT_LIST } from "../src/audio/canonicalRegistry";
 
 interface AudioEntry {
   assetId: string;
@@ -54,19 +54,40 @@ const audioExtensions = new Set([".mp3", ".m4a", ".wav", ".ogg", ".aac", ".flac"
 
 function languageForPath(relativePath: string): string {
   const normalized = relativePath.toLowerCase();
-  if (normalized.includes("/twi/") || normalized.startsWith("audio_files/twi/")) return "twi";
-  if (normalized.includes("/english/")) return "en";
+  if (normalized.includes("/twi/") || normalized.startsWith("audio_files/twi_library/") || normalized.startsWith("audio_files/twi/")) return "twi";
+  if (normalized.includes("/english/") || normalized.startsWith("audio_files/english_library/")) return "en";
   return "unresolved";
+}
+
+function normalizedAudioPath(value: string): string {
+  return value.toLowerCase().replace(/\.(?:mp3|m4a|wav|ogg|aac|flac)$/i, "");
 }
 
 function recordingForPath(relativePath: string): AudioRecording | undefined {
   return AUDIO_RECORDINGS.find((recording) => {
-    if (recording.assetRoot === "public") return `public/audio/${recording.relativePath}` === relativePath;
+    if (recording.assetRoot === "public") {
+      return normalizedAudioPath(`public/audio/${recording.relativePath}`) === normalizedAudioPath(relativePath);
+    }
     if (recording.assetRoot === "supplied" || recording.assetRoot === "additional") {
-      return `Audio_files/${recording.relativePath}` === relativePath;
+      return normalizedAudioPath(`Audio_files/${recording.relativePath}`) === normalizedAudioPath(relativePath);
     }
     return false;
   });
+}
+
+function physicalPathForRecording(recording: AudioRecording): string {
+  const relativePath = recording.assetRoot === "public"
+    ? `public/audio/${recording.relativePath}`
+    : `Audio_files/${recording.relativePath}`;
+  if (fs.existsSync(relativePath)) return relativePath;
+
+  const extension = path.extname(relativePath);
+  const stem = relativePath.slice(0, -extension.length);
+  for (const candidateExtension of [".mp3", ".m4a", ".wav", ".ogg", ".aac", ".flac"]) {
+    const candidate = `${stem}${candidateExtension}`;
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return relativePath;
 }
 
 function scanDir(dir: string) {
@@ -93,9 +114,11 @@ function scanDir(dir: string) {
       const recording = recordingForPath(rel);
       const lang = recording?.language === "unresolved" ? languageForPath(rel) : recording?.language || languageForPath(rel);
       const promptId = recording?.promptId || "";
-      const status = recording?.mappingStatus || "UNMAPPED_CANDIDATE";
+      const status = recording
+        ? recording.audioVerified ? "AUDIO_VERIFIED" : "CANDIDATE_NOT_AUDIO_VERIFIED"
+        : "UNMAPPED_CANDIDATE";
       const notes = recording
-        ? `Exact registry mapping; role=${recording.recordingRole}; playback requires VERIFIED status.`
+        ? `Exact registry mapping; role=${recording.recordingRole}; audioVerified=${recording.audioVerified}.`
         : "No exact canonical registry mapping; requires human review.";
 
       entries.push({
@@ -154,17 +177,14 @@ const csvRows = [
 fs.writeFileSync("docs/IVR_AUDIO_INVENTORY.csv", csvRows.join("\n"), "utf8");
 console.log(`✓ Wrote docs/IVR_AUDIO_INVENTORY.csv (${entries.length} items)`);
 
-const promptEntries = getPromptManifestEntries();
+const promptEntries = CANONICAL_PROMPT_LIST;
 const coverageStatuses = ["VERIFIED_FIXED_ASSET", "CANDIDATE_NOT_AUDIO_VERIFIED", "AMBIGUOUS_REVIEW_REQUIRED", "DYNAMIC_TTS_REQUIRED", "SAFE_FALLBACK_ONLY", "MISSING_ASSET"] as const;
 
 function coverage(promptId: string, language: "en" | "twi", type: string, script: string): { status: string; paths: string } {
   if (type.toUpperCase() === "DYNAMIC") return { status: "DYNAMIC_TTS_REQUIRED", paths: "" };
   const recordings = getRecordingsByPromptId(promptId, language);
-  const eligible = recordings.filter((recording) => recording.mappingStatus === "VERIFIED" && recording.recordingRole === "fixed");
-  const paths = recordings.map((recording) => recording.assetRoot === "public"
-    ? `public/audio/${recording.relativePath}`
-    : `Audio_files/${recording.relativePath}`
-  ).join("<br>");
+  const eligible = recordings.filter((recording) => recording.audioVerified && recording.recordingRole === "fixed");
+  const paths = recordings.map(physicalPathForRecording).join("<br>");
 
   if (eligible.length === 1 && recordings.length === 1) return { status: "VERIFIED_FIXED_ASSET", paths };
   if (recordings.some((recording) => recording.mappingStatus.startsWith("AMBIGUOUS")) || recordings.length > 1) {
@@ -202,16 +222,16 @@ const mappingMarkdown = [
   "",
   "## Review Rules",
   "",
-  "Promote a recording only after it has been decoded and listened to, checked against the canonical script, checked for combined prompts or sample transaction values, and approved by a qualified language reviewer where needed. Update the manifest status and regenerate this file and the inventory after approval.",
+  "Promote a recording only after it has been decoded and listened to, checked against the canonical script, checked for combined prompts or sample transaction values, and approved by a qualified language reviewer where needed. Set `audioVerified=true` only after approval, then regenerate this file and the inventory.",
 ].join("\n");
 
 fs.writeFileSync("docs/IVR_AUDIO_MAPPING.md", mappingMarkdown, "utf8");
 console.log(`✓ Wrote docs/IVR_AUDIO_MAPPING.md (${promptEntries.length} prompts)`);
 
 const rootCounts = {
-  audioFilesTwi: entries.filter((entry) => entry.relativePath.startsWith("Audio_files/Twi/")).length,
+  audioFilesTwi: entries.filter((entry) => entry.relativePath.toLowerCase().startsWith("audio_files/twi")).length,
   audioFilesLegacyTree: entries.filter((entry) => entry.relativePath.startsWith("Audio_files/audio/")).length,
-  audioFilesFlat: entries.filter((entry) => entry.relativePath.startsWith("Audio_files/") && !entry.relativePath.startsWith("Audio_files/Twi/") && !entry.relativePath.startsWith("Audio_files/audio/")).length,
+  audioFilesFlat: entries.filter((entry) => entry.relativePath.startsWith("Audio_files/") && !entry.relativePath.toLowerCase().startsWith("audio_files/twi") && !entry.relativePath.startsWith("Audio_files/audio/")).length,
   publicAudio: entries.filter((entry) => entry.relativePath.startsWith("public/audio/")).length,
   audioDirectory: entries.filter((entry) => entry.relativePath.startsWith("audio/")).length,
   repositoryRoot: entries.filter((entry) => !entry.relativePath.includes("/")).length,
@@ -223,7 +243,7 @@ const extensionCounts = Object.fromEntries(
   ])
 );
 const verifiedRegistryCount = AUDIO_RECORDINGS.filter((recording) =>
-  recording.mappingStatus === "VERIFIED" && recording.recordingRole === "fixed"
+  recording.audioVerified && recording.recordingRole === "fixed"
 ).length;
 const auditMarkdown = [
   "# IVR Audio Asset Audit",
@@ -232,9 +252,9 @@ const auditMarkdown = [
   "",
   `The current checkout contains **${entries.length} audio files**. Extension counts: ${Object.entries(extensionCounts).map(([extension, count]) => `${extension} ${count}`).join(", ")}.`,
   "",
-  "| Current root | Audio files |\n|---|---:|\n| `Audio_files/Twi/` | " + rootCounts.audioFilesTwi + " |\n| `Audio_files/audio/` | " + rootCounts.audioFilesLegacyTree + " |\n| Other files under `Audio_files/` | " + rootCounts.audioFilesFlat + " |\n| `public/audio/` | " + rootCounts.publicAudio + " |\n| `audio/` | " + rootCounts.audioDirectory + " |\n| Repository root | " + rootCounts.repositoryRoot + " |",
+  "| Current root | Audio files |\n|---|---:|\n| `Audio_files/Twi_library/` | " + rootCounts.audioFilesTwi + " |\n| `Audio_files/audio/` | " + rootCounts.audioFilesLegacyTree + " |\n| Other files under `Audio_files/` | " + rootCounts.audioFilesFlat + " |\n| `public/audio/` | " + rootCounts.publicAudio + " |\n| `audio/` | " + rootCounts.audioDirectory + " |\n| Repository root | " + rootCounts.repositoryRoot + " |",
   "",
-  "There is no `Audio_files_2/` directory in this checkout. The 54 flat terminal/recovery recordings are under `Audio_files/`. The runtime registry contains " + AUDIO_RECORDINGS.length + " selected entries, and " + verifiedRegistryCount + " are approved fixed recordings.",
+  "The runtime registry contains " + AUDIO_RECORDINGS.length + " selected entries, and " + verifiedRegistryCount + " are approved fixed recordings. Physical files without an exact registry path remain unmapped candidates.",
   "",
   "No recording is marked audio-verified. The current registry returns safe text/TTS fallback for candidate, ambiguous, missing, and dynamic recordings. A filename, transcript, hash, or successful HTTP response is not audio verification.",
   "",
@@ -253,30 +273,29 @@ const flowMapMarkdown = [
   "",
   "## Current inventory",
   "",
-  "The checkout contains " + entries.length + " audio files across `Audio_files/Twi/` (" + rootCounts.audioFilesTwi + "), `Audio_files/audio/` (" + rootCounts.audioFilesLegacyTree + "), flat `Audio_files/` (" + rootCounts.audioFilesFlat + "), `public/audio/` (" + rootCounts.publicAudio + "), `audio/` (" + rootCounts.audioDirectory + "), and the repository root (" + rootCounts.repositoryRoot + "). `Audio_files_2/` is absent.",
+  "The checkout contains " + entries.length + " audio files across `Audio_files/Twi_library/` (" + rootCounts.audioFilesTwi + "), `Audio_files/audio/` (" + rootCounts.audioFilesLegacyTree + "), other `Audio_files/` paths (" + rootCounts.audioFilesFlat + "), `public/audio/` (" + rootCounts.publicAudio + "), `audio/` (" + rootCounts.audioDirectory + "), and the repository root (" + rootCounts.repositoryRoot + ").",
   "",
-  `The runtime registry contains ${AUDIO_RECORDINGS.length} selected assets. None is approved for automatic playback. The resolver accepts only one exact, language-matched, VERIFIED fixed asset; candidates, ambiguous mappings, and dynamic recordings use a safe text/TTS path instead.`,
+  `The runtime registry contains ${AUDIO_RECORDINGS.length} selected assets. None is approved for automatic playback. The resolver accepts only exact, language-matched recordings with audioVerified=true; mapped candidates and dynamic prompts use TTS until reviewed.`,
   "",
   "Full path-by-path inventory: `docs/IVR_AUDIO_INVENTORY.csv`. Per-prompt language coverage: `docs/IVR_AUDIO_MAPPING.md`.",
   "",
   "## Call narrative",
   "",
-  "1. Inbound call requests OP01 in English, then redirects to the language-selection route.",
-  "2. The language-selection route requests OP02 separately. A selection locks the session language and proceeds to service selection.",
-  "3. Service and network menus advertise only the currently supported service paths. The Twi service menu does not replay the welcome.",
-  "4. Recipient digits and amount keys are collected until the caller presses #. The server validates only the completed value. Invalid recipient lengths do not trigger lookup.",
-  "5. A valid recipient lookup is deduplicated per session and submitted number. The caller must explicitly confirm before continuing.",
-  "6. Amount entry is validated and stored before the review. OP20 uses the live recipient name; OP21 reads all ten validated phone digits in order; OP29 reads the normalized amount.",
-  "7. Payment submission requires the AMOUNT_ENTERED state and explicit confirmation. Duplicate confirmation is rejected while a submission is pending.",
-  "8. Live provider requests hand off authorization to the official handset prompt. Pending or unknown status is not announced as success. OP52 receipt text uses the provider reference only after confirmed completion.",
+  "1. OP01 plays once with language choices. OP02 is reserved for replay and recovery so the choices are not duplicated.",
+  "2. Language selection locks the session language, then routes through service, network, and send-money menus in order.",
+  "3. Recipient verification reads the OP19 introduction, live OP20 name, live OP21 full phone digits, then OP23 keypad confirmation.",
+  "4. Amount entry uses OP28/OP26, validates the completed # input, and asks OP29 accept/change/cancel before final review.",
+  "5. OP35 reviews the live amount, recipient, network, and last four phone digits. Editing recipient or amount clears stale fields and requires new read-back.",
+  "6. Final confirmation submits through the payment saga and hands authorization to the provider's secure handset prompt. Pending or unknown status remains in a repeated status-check branch; only trusted completion receives OP52.",
+  "7. OP52 uses the current transaction record and labels an OKP reference as an application reference. Post-success navigation offers another supported transfer or exit.",
   "",
   "## Zero-PIN boundary",
   "",
-  "The simulator shows an external handset handoff, mutes its microphone, ignores keypad input in that state, and drops PIN-like speech before adding it to the transcript or logs. The simulator does not fabricate provider approval. Live VoiceXML directs callers to the official secure handset prompt; the application does not collect a PIN.",
+  "All legacy PIN URLs refuse keypad and speech input. Authorization belongs on the provider's secure handset prompt. Pending remains pending; no PIN, sample transaction, or locally generated reference can substitute for provider evidence.",
   "",
   "## Review and release limits",
   "",
-  "No recording was listened to or approved during this audit. Twi pronunciation and exact spoken contents remain unverified. Dynamic speech and real provider callbacks require their approved provider configuration. Run `npx tsx scripts/generate_audio_inventory_and_mapping.ts` after asset changes; only a human review may promote an asset to VERIFIED.",
+  "No recording was listened to or approved during this audit. Twi pronunciation and exact spoken contents remain unverified. Dynamic speech and real provider callbacks require their approved provider configuration. Run `npx tsx scripts/generate_audio_inventory_and_mapping.ts` after asset changes; only a human review may set `audioVerified=true`.",
 ].join("\n");
 
 fs.writeFileSync("docs/AUDIO_ASSET_AND_FLOW_MAP.md", flowMapMarkdown, "utf8");

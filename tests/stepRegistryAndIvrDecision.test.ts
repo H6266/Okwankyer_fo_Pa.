@@ -348,7 +348,7 @@ describe("IVR Telephony Route Integration (Real Express XML Responses)", () => {
     expect(res.headers["x-ai-decision-type"]).toBe("understood_intent");
     expect(res.headers["x-ai-reply-key"]).toBe("intent_understood_ask_number");
     expect(res.text).toMatch(/\/api\/audio\/prompt-tts\/en\/(?:OP16|intent_understood_ask_number)/);
-    expect(res.text).toContain("<GetDigits timeout=\"40\" finishOnKey=\"#\"");
+    expect(res.text).toContain("<GetDigits timeout=\"90\" finishOnKey=\"#\"");
     expect(res.text).not.toContain('numDigits="10"');
     expect(res.text).toContain("callbackUrl=\"http://localhost:3000/verify-recipient?sessionId=TEST_SESS_B&amp;lang=en");
   });
@@ -361,10 +361,10 @@ describe("IVR Telephony Route Integration (Real Express XML Responses)", () => {
     expect(res.status).toBe(200);
     expect(res.headers["x-ai-decision-type"]).toBe("invalid_choice");
     expect(res.headers["x-ai-decision-reason"]).toContain("prefix '666'");
-    expect(res.text).toContain("/api/audio/prompt-tts/en/invalid_recipient");
-    expect(res.text).toContain("<GetDigits timeout=\"40\" finishOnKey=\"#\"");
+    expect(res.text).toContain("/api/audio/prompt-tts/en/OP17");
+    expect(res.text).toContain("<GetDigits timeout=\"90\" finishOnKey=\"#\"");
     expect(res.text).not.toContain('numDigits="10"');
-    expect(res.text).toContain("/api/audio/prompt-tts/en/enter_recipient");
+    expect(res.text).toContain("/api/audio/prompt-tts/en/OP16");
   });
 
   it("Scenario c (valid phone): At enter-recipient enter '0553838464#': resolves MTN recipient and asks for confirmation", async () => {
@@ -373,7 +373,7 @@ describe("IVR Telephony Route Integration (Real Express XML Responses)", () => {
       .send({ dtmfDigits: "0553838464#" });
 
     expect(res.status).toBe(200);
-    expect(res.text).toContain("<GetDigits timeout=\"12\" finishOnKey=\"#\" numDigits=\"1\"");
+    expect(res.text).toContain("<GetDigits timeout=\"90\" finishOnKey=\"#\" numDigits=\"1\"");
     expect(res.text).toContain("callbackUrl=\"http://localhost:3000/recipient-verify-choice?sessionId=TEST_SESS_C_VALID&amp;lang=en");
   });
 
