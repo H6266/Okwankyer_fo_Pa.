@@ -26,8 +26,22 @@ import { isDynamicPrompt, resolvePromptSpokenText } from "../audio/canonicalRegi
 import { aiBootstrap } from "../ai_system/core/aiBootstrap";
 import { crossReferenceReplyAudioWithAi } from "../audio/geminiAudioMatcher";
 import { TWI_AUDIO_LIBRARY_ITEMS } from "../audio/twiLibraryManifest";
+import { buildDigitPronunciations, formatFullPhoneNumberSpaced, formatSlowReferenceSpoken } from "../audio/digitAudioSynthesizer";
 
 export const apiRouter = Router();
+
+apiRouter.get("/api/audio/digit-pronunciations", publicApiRateLimiter, (req: Request, res: Response) => {
+  const text = (req.query.text || "").toString();
+  const lang = (req.query.lang === "en" ? "en" : "twi") as "en" | "twi";
+  const pronunciations = buildDigitPronunciations(text, lang, { interDigitPauseMs: 400, blockPauseMs: 700 });
+  return res.json({
+    text,
+    language: lang,
+    interDigitPauseMs: 400,
+    pronunciations,
+    formattedSpoken: /\b[A-Za-z]+-\d+\b/.test(text) ? formatSlowReferenceSpoken(text, lang) : formatFullPhoneNumberSpaced(text, lang),
+  });
+});
 
 apiRouter.get(
   "/api/audio/prompt/:lang/:key",

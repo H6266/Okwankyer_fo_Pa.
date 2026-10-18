@@ -57,14 +57,48 @@ export interface DynamicPromptParams {
   utterance?: string;
 }
 
-export const DYNAMIC_PROMPT_IDS = new Set(["OP20", "OP21", "OP29", "OP52", "OP70"]);
+export const DYNAMIC_PROMPT_IDS = new Set(["OP20", "OP21", "OP29", "OP52", "OP52B", "OP70"]);
 
 export function isDynamicPromptId(promptId: string): boolean {
   return DYNAMIC_PROMPT_IDS.has(promptId.toUpperCase().trim());
 }
 
 /**
- * Renders canonical dynamic prompt templates (OP20, OP21, OP29, OP52, OP70)
+ * Formats a transaction reference for slow, deliberate digit-by-digit spoken readback (OP52b)
+ * e.g. "OKP-272" -> "O ... K ... P ... two ... seven ... two"
+ */
+export function formatSlowReferenceForSpeech(ref: string, language: "en" | "twi" = "en"): string {
+  if (!ref || !ref.trim()) {
+    return language === "twi"
+      ? "Reference nɔmba no nni hɔ seesei."
+      : "The transaction reference is not currently available.";
+  }
+  const twiDigits: Record<string, string> = {
+    "0": "hwee", "1": "baako", "2": "mmienu", "3": "mmiɛnsa", "4": "nnan",
+    "5": "nnum", "6": "nsia", "7": "nson", "8": "nwɔtwe", "9": "nkron"
+  };
+  const enDigits: Record<string, string> = {
+    "0": "zero", "1": "one", "2": "two", "3": "three", "4": "four",
+    "5": "five", "6": "six", "7": "seven", "8": "eight", "9": "nine"
+  };
+
+  const parts = ref.trim().split("-");
+  const spokenParts = parts.map((part) =>
+    part
+      .split("")
+      .map((ch) => {
+        if (/\d/.test(ch)) {
+          return language === "twi" ? (twiDigits[ch] || ch) : (enDigits[ch] || ch);
+        }
+        return ch.toUpperCase();
+      })
+      .join(" ... ")
+  );
+  return spokenParts.join(" ... , ... ");
+}
+
+/**
+ * Renders canonical dynamic prompt templates (OP20, OP21, OP29, OP52, OP52B, OP70)
  * with real variable values rather than placeholder strings.
  */
 export function renderDynamicPromptTemplate(
@@ -103,6 +137,13 @@ export function renderDynamicPromptTemplate(
       return isTwi
         ? `Wo transaction no dii nkonim. Transaction reference no ne ${spokenRef}.`
         : `Your transaction was successful. The transaction reference is ${spokenRef}.`;
+    }
+    case "OP52B": {
+      const reference = params.referenceId || params.ref || "OKP-272";
+      const slowRef = formatSlowReferenceForSpeech(reference, language);
+      return isTwi
+        ? `Wo transaction reference nɔmba a ɛdi mũ no ne: ${slowRef}.`
+        : `Your complete transaction reference is: ${slowRef}.`;
     }
     case "OP70": {
       const utterance = params.response || params.utterance || (isTwi ? "wo nkaebɔ" : "your response");
@@ -270,24 +311,25 @@ export function buildReceiptPrompt(options: DynamicReceiptOptions): {
     const voiceXml = `    <Say voice="female">${escapeXml(spokenText)}</Say>\n    <Reject/>`;
     return { spokenText, voiceXml };
   } else {
-    // 15. Success Audio (SUCCESS SENT) -> 16. Keep Reference -> 17. Dynamic TTS Reference -> Anything Else -> Exit
+    // Audio OP53 (Success) -> Audio OP54 (Keep reference) -> Dynamic TTS OP52b (Slow Reference) -> OP56 (Anything else) -> OP77 (Exit)
     const successAudioUrl = language === "twi"
-      ? `/audio/Twi_library/Success_sent.m4a`
-      : `/audio/Success%20sent.m4a`;
+      ? `/audio/Twi_library/Success_sent.mp3`
+      : `/audio/Success%20sent.mp3`;
     const keepRefAudioUrl = language === "twi"
-      ? `/audio/Twi_library/Keep_reference.m4a`
-      : `/audio/Keep%20reference.m4a`;
+      ? `/audio/Twi_library/Keep_reference.mp3`
+      : `/audio/Keep%20reference.mp3`;
     const anythingElseAudioUrl = language === "twi"
-      ? `/audio/Twi_library/Anything_else.m4a`
-      : `/audio/Anything%20else.m4a`;
+      ? `/audio/Twi_library/Anything_else.mp3`
+      : `/audio/Anything%20else.mp3`;
     const exitAudioUrl = language === "twi"
-      ? `/audio/Twi_library/Exit.m4a`
-      : `/audio/Exit.m4a`;
+      ? `/audio/Twi_library/Exit.mp3`
+      : `/audio/Exit.mp3`;
 
+    const slowRef = referenceId ? formatSlowReferenceForSpeech(referenceId, language) : "";
     const refText = referenceId && referenceId.trim()
       ? (language === "twi"
-          ? `Wo transaction reference nɔmba ne ${spacedRef}. Fa sie yie.`
-          : `Your transaction reference number is ${spacedRef}. Please keep it for your records.`)
+          ? `Wo transaction reference nɔmba a ɛdi mũ no ne: ${slowRef}. Fa sie yie.`
+          : `Your complete transaction reference is: ${slowRef}. Please keep it for your records.`)
       : (language === "twi"
           ? `Wo transaction reference nɔmba no nni hɔ seesei.`
           : `Your transaction reference number is currently unavailable.`);
@@ -298,7 +340,6 @@ export function buildReceiptPrompt(options: DynamicReceiptOptions): {
       spokenText = `Congratulations! You have successfully sent ${amountFormatted} to ${displayName} on ${dateStr} at ${timeStr}. ${refText} Thank you for using Ɔkwankyerɛfo Pa. Goodbye.`;
     }
 
-    // Audio 16 (Success) -> Audio 18 (Keep reference) -> Dynamic TTS (Reference) -> Anything else -> Exit
     const voiceXml = `    <Play url="${successAudioUrl}"/>
     <Play url="${keepRefAudioUrl}"/>
     <Say voice="female">${escapeXml(refText)}</Say>

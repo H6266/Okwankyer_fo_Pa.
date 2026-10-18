@@ -45,6 +45,7 @@ export const DYNAMIC_PROMPT_IDS: ReadonlySet<string> = new Set([
   "OP21",
   "OP29",
   "OP52",
+  "OP52b",
   "OP70",
 ]);
 
@@ -102,6 +103,7 @@ export const STATE_TO_CANONICAL_PROMPT_ID: Readonly<Record<string, string>> = {
   REJECT_SPEECH: "OP38",
   READY_SUBMIT: "OP39",
   PIN_HANDOFF: "OP40",
+  AUTHORIZE_PHONE: "OP40",
   SECURITY_WARNING: "OP41",
   SECURE_PIN: "OP42",
   PIN_BLOCK: "OP43",
@@ -109,13 +111,13 @@ export const STATE_TO_CANONICAL_PROMPT_ID: Readonly<Record<string, string>> = {
   SUBMITTED: "OP45",
   WAITING_CONFIRMATION: "OP46",
   CHECK_PHONE: "OP47",
-  AUTHORIZE_PHONE: "OP48",
   AUTH_RECEIVED: "OP49",
   CHECK_FINAL_STATUS: "OP50",
 
   // Completion & results
   SUCCESS: "OP52", // DYNAMIC
   TRANSACTION_SUCCESS: "OP52", // DYNAMIC
+  REFERENCE_READBACK: "OP52b", // DYNAMIC
   SUCCESS_SENT: "OP53",
   KEEP_REFERENCE: "OP54",
   SUCCESS_CLOSE: "OP55",
@@ -169,26 +171,48 @@ const promptIds = new Set<string>();
 for (let i = 1; i <= 94; i++) {
   promptIds.add(`OP${i < 10 ? "0" + i : i}`);
 }
+promptIds.add("OP52b");
 
 const loadedPrompts: CanonicalPrompt[] = Array.from(promptIds).map((id) => {
-  const isDynamic = DYNAMIC_PROMPT_IDS.has(id);
-  const twiRec = AUDIO_RECORDINGS.find((r) => r.promptId === id && r.language === "twi");
-  const enRec = AUDIO_RECORDINGS.find((r) => r.promptId === id && r.language === "en");
+  const normId = id.toUpperCase();
+  const isDynamic = DYNAMIC_PROMPT_IDS.has(normId);
+  const twiRec = AUDIO_RECORDINGS.find((r) => r.promptId?.toUpperCase() === normId && r.language === "twi");
+  const enRec = AUDIO_RECORDINGS.find((r) => r.promptId?.toUpperCase() === normId && r.language === "en");
 
   // Determine state
-  const stateEntry = Object.entries(STATE_TO_CANONICAL_PROMPT_ID).find(([, pId]) => pId === id);
-  const state = stateEntry ? stateEntry[0] : (twiRec?.state || "GENERAL");
+  const stateEntry = Object.entries(STATE_TO_CANONICAL_PROMPT_ID).find(([, pId]) => pId.toUpperCase() === normId);
+  const state = stateEntry ? stateEntry[0] : (twiRec?.state || (normId === "OP52B" ? "REFERENCE_READBACK" : "GENERAL"));
+
+  let enText = enRec?.spokenText || enRec?.context;
+  let twiText = twiRec?.spokenText || twiRec?.context;
+
+  if (normId === "OP52B") {
+    enText = "Your complete transaction reference is: {slow_reference}.";
+    twiText = "Wo transaction reference nɔmba a ɛdi mũ no ne: {slow_reference}.";
+  } else if (normId === "OP21") {
+    enText = "The full recipient phone number is {recipient_phone_spaced}.";
+    twiText = "Ne phone nɔmba a ɛdi mũ no ne {recipient_phone_spaced}.";
+  } else if (normId === "OP20") {
+    enText = "The recipient's name is {recipient_name}.";
+    twiText = "Obi a woremane no sika no din ne {recipient_name}.";
+  } else if (normId === "OP29") {
+    enText = "I heard {amount} Ghana cedis. Is that amount correct?";
+    twiText = "Mate sɛ ɛyɛ Ghana cedis {amount}. Saa sika dodow yi yɛ nokware anaa?";
+  } else if (normId === "OP67") {
+    enText = "I did not get any response from you, please give us a response!";
+    twiText = "Mante deɛ wofiri wo hɔ bae, yɛsrɛ wo ma yɛn mmuaeɛ!";
+  }
 
   return {
     id,
-    category: twiRec?.category || enRec?.category || "general",
+    category: twiRec?.category || enRec?.category || (normId === "OP52B" ? "completion" : "general"),
     state,
     type: isDynamic ? "DYNAMIC" : "FIXED",
-    english: enRec?.spokenText || enRec?.context || "Financial service option",
-    twi: twiRec?.spokenText || twiRec?.context || "Sika ho dwumadie",
+    english: enText || "Financial service option",
+    twi: twiText || "Sika ho dwumadie",
     audio: {
-      english: enRec?.url || null,
-      twi: twiRec?.url || null,
+      english: enRec?.url || (isDynamic ? `/api/audio/prompt-tts/en/${normId}` : null),
+      twi: twiRec?.url || (isDynamic ? `/api/audio/prompt-tts/twi/${normId}` : null),
       twi_other_takes: [],
     },
   };
