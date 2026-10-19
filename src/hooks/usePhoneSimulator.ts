@@ -2257,6 +2257,9 @@ export function usePhoneSimulator() {
           setIsMicActive(false);
           isMicActiveRef.current = false;
           const browserFinalTranscript = await finalizeInterimRecognition();
+          const captureStep = gatewayMode === "AFRICASTALKING_IVR" ? atStepRef.current : currentStep;
+          const captureLanguage = gatewayMode === "AFRICASTALKING_IVR" ? atLanguageRef.current : language;
+          const captureSessionId = gatewayMode === "AFRICASTALKING_IVR" ? atSessionIdRef.current : sessionId;
           setTranscriptionStatus("PROCESSING");
           setAiProcessingPhase("SPEECH_IN");
           setAiProcessingDetail("✅ Sentence complete — Microphone turned OFF · Recognizing your speech...");
@@ -2264,11 +2267,11 @@ export function usePhoneSimulator() {
           const startTime = performance.now();
           let rawText = "";
           let provider = "";
-          const languageHint = /^(welcome|language-selection|voice-menu)$/i.test(currentStep)
+          const languageHint = /^(welcome|language-selection|voice-menu)$/i.test(captureStep)
             ? "bilingual"
-            : language;
+            : captureLanguage;
           try {
-            const asrRes = await api.transcribeAudio(wavBase64, "audio/wav", languageHint, currentStep, undefined, sessionId);
+            const asrRes = await api.transcribeAudio(wavBase64, "audio/wav", languageHint, captureStep, undefined, captureSessionId);
             const latency = Math.round(performance.now() - startTime);
             const serverText = typeof asrRes?.result?.text === "string"
               ? asrRes.result.text.trim()
@@ -2318,7 +2321,7 @@ export function usePhoneSimulator() {
               setLastTranscription({
                 text: textToSend,
                 confidence: provider === "browser-final-fallback" ? 0 : asrRes?.result?.confidence ?? 0,
-                language: language,
+                language: captureLanguage,
                 timestamp: Date.now(),
                 channel: "VOICE",
                 source: provider,
@@ -2404,7 +2407,7 @@ export function usePhoneSimulator() {
               setLastTranscription({
                 text: fallbackText,
                 confidence: 0,
-                language,
+                language: captureLanguage,
                 timestamp: Date.now(),
                 channel: "VOICE",
                 source: "browser-final-fallback",
@@ -2420,6 +2423,18 @@ export function usePhoneSimulator() {
             }
           } finally {
             if (voiceListeningEnabledRef.current && !isAiSpeakingRef.current) {
+              startInterimRecognition();
+            } else if (
+              gatewayMode === "AFRICASTALKING_IVR" &&
+              atCallbackUrlRef.current &&
+              !isAiSpeakingRef.current
+            ) {
+              voiceListeningEnabledRef.current = true;
+              voiceCaptureRef.current?.unmute();
+              setIsMicActive(true);
+              isMicActiveRef.current = true;
+              setTranscriptionStatus("LISTENING");
+              setAiProcessingDetail("No speech was recognized; microphone reopened for another attempt.");
               startInterimRecognition();
             }
           }
@@ -2449,7 +2464,7 @@ export function usePhoneSimulator() {
       setAiProcessingDetail("🎙️ Smart Voice Mode Active · Choose a Ghanaian voice phrase or upload audio");
     }
     return success;
-  }, [isActive, language, currentStep, startCall, submitRecognizedSpeech, startInterimRecognition, finalizeInterimRecognition]);
+  }, [isActive, language, currentStep, gatewayMode, startCall, submitRecognizedSpeech, startInterimRecognition, finalizeInterimRecognition]);
 
   const startContinuousVoiceRef = useRef(startContinuousVoice);
   useEffect(() => {
