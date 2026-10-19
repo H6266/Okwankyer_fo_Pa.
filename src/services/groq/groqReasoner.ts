@@ -8,6 +8,7 @@
  */
 
 import { groqClient } from "./groqClient";
+import { BRAIN_TRAINING_SYSTEM_INSTRUCTIONS } from "../../ai_system/brain/trainingInstructions";
 import { ModelOutputContract } from "../../ai_system/brain/types";
 import { COMPACT_MOMO_SYSTEM_INSTRUCTION } from "../../ai_system/understanding/reasoningEngine";
 import {
@@ -183,6 +184,7 @@ export class GroqReasoner {
               {
                 role: "system" as const,
                 content: `${COMPACT_MOMO_SYSTEM_INSTRUCTION}
+${BRAIN_TRAINING_SYSTEM_INSTRUCTIONS}
 For this central-brain task, never reconstruct or generate a masked phone number. Preserve the selected target language and return only the requested ModelOutputContract JSON. The application exclusively determines transaction stages and audio prompts.`,
               },
               {
@@ -311,7 +313,7 @@ Rules:
               {
                 role: "system",
                 content:
-                  "You are an expert Ghanaian mobile financial voice cognitive reasoning engine. Always respond with raw valid JSON only.",
+                  `You are an expert Ghanaian mobile financial voice cognitive reasoning engine. Always respond with raw valid JSON only.\n\n${BRAIN_TRAINING_SYSTEM_INSTRUCTIONS}`,
               },
               { role: "user", content: prompt },
             ],

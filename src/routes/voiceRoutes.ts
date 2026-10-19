@@ -55,6 +55,25 @@ export const ivrRouter = Router();
 export const simulatorRouter = Router();
 const CALLER_RESPONSE_TIMEOUT_SECONDS = 90;
 const VOICE_INPUT_KEYPAD_GRACE_SECONDS = 8;
+const DEFAULT_AT_ASR_CALLBACK_TIMEOUT_MS = 8000;
+const DEFAULT_AT_BRAIN_CALLBACK_TIMEOUT_MS = 6000;
+
+function telephonyTimeoutMs(name: string, fallback: number): number {
+  const configured = Number(process.env[name]);
+  return Number.isFinite(configured) && configured > 0 ? configured : fallback;
+}
+
+function withTelephonyTimeout<T>(operation: Promise<T>, timeoutMs: number, stage: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  return Promise.race([
+    operation,
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${stage} exceeded ${timeoutMs}ms telephony deadline.`)), timeoutMs);
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
 
 export function getCollectionStagePromptId(slot: "recipient" | "amount" | string, fallbackPromptId: string): string {
   if (slot === "recipient") return "OP16";
@@ -204,11 +223,22 @@ function redactSpeechForDiagnostics(text: string): string {
 function brainPromptElement(promptId: string | undefined, replyText: string, baseUrl: string, language: "en" | "twi"): string {
   const promptPath = promptId ? resolvePrompt(promptId, language) : null;
   if (promptPath) {
-    return `<Play url="${escapeVoiceXml(`${baseUrl}${promptPath}`)}"/>`;
+    if (language !== "twi" || !promptPath.toLowerCase().includes("prompt-tts/") || isDynamicPrompt(promptId || "")) {
+      return `<Play url="${escapeVoiceXml(`${baseUrl}${promptPath}`)}"/>`;
+    }
   }
   const match = matchReplyToAudio(replyText, language);
   if (match.match && match.audioUrl) {
-    return `<Play url="${escapeVoiceXml(`${baseUrl}${match.audioUrl}`)}"/>`;
+    if (language !== "twi" || !match.audioUrl.toLowerCase().includes("prompt-tts/") || isDynamicPrompt(promptId || "")) {
+      return `<Play url="${escapeVoiceXml(`${baseUrl}${match.audioUrl}`)}"/>`;
+    }
+  }
+  if (language === "twi") {
+    const recoveryPath = resolvePrompt("please_respond", "twi");
+    if (recoveryPath && !recoveryPath.toLowerCase().includes("prompt-tts/")) {
+      return `<Play url="${escapeVoiceXml(`${baseUrl}${recoveryPath}`)}"/>`;
+    }
+    return '<Pause length="1"/>';
   }
   const scriptText = promptId ? resolvePromptText(promptId, language) : null;
   if (scriptText) {
@@ -224,10 +254,16 @@ function canonicalPromptElement(
   fallbackText: string
 ): string {
   const element = resolvePromptXml(promptKey, language, baseUrl, fallbackText);
+  if (language === "twi") {
+    if (element && !/<Say\b/i.test(element) && (!element.toLowerCase().includes("prompt-tts/") || isDynamicPrompt(promptKey))) return element;
+    const recoveryPath = resolvePrompt("please_respond", "twi");
+    if (recoveryPath && !recoveryPath.toLowerCase().includes("prompt-tts/")) {
+      return `<Play url="${baseUrl}${recoveryPath}?format=mp3"/>`;
+    }
+    return '<Pause length="1"/>';
+  }
   if (element) return element;
-  return language === "twi"
-    ? `<Say voice="female">Twi audio is unavailable. Press 1 for English, or try again later.</Say>`
-    : `<Say voice="female">${escapeVoiceXml(fallbackText)}</Say>`;
+  return `<Say voice="female">${escapeVoiceXml(fallbackText)}</Say>`;
 }
 
 function speechCollectionXml(params: {
@@ -267,7 +303,9 @@ ivrRouter.use((req: Request, res: Response, next: NextFunction) => {
   if (inputToCheck && ConversationTakeoverDetector.isConversationalInput(inputToCheck, step)) {
     if (!["enter-pin", "verify-pin", "pin-handoff"].includes(step)) {
       auditLogger.log("info", "TAKEOVER", `Keypad-to-conversational transition detected: "${inputToCheck.slice(0, 50)}"`, sessionId);
-      return res.redirect(`${baseUrl}/speech-fallback?step=${encodeURIComponent(step)}&sessionId=${encodeURIComponent(sessionId)}&lang=${lang}&speechText=${encodeURIComponent(inputToCheck)}`);
+      const query = new URLSearchParams({ step, sessionId, lang, speechText: inputToCheck });
+      req.url = `/speech-fallback?${query.toString()}`;
+      return next();
     }
   }
 
@@ -281,9 +319,11 @@ ivrRouter.use((req: Request, res: Response, next: NextFunction) => {
     && !req.body?.RecordingUrl
     && !req.body?.recordingURL
     && !req.body?.recordingUrl
+    && !req.body?.recording_url
     && !req.query?.RecordingUrl
     && !req.query?.recordingURL
-    && !req.query?.recordingUrl;
+    && !req.query?.recordingUrl
+    && !req.query?.recording_url;
 
   if ((!hasDtmf || dtmf) && !emptySpeechCallback) return next();
   if (["/enter-pin", "/verify-pin", "/pin-handoff", "/confirm-speech"].includes(req.path)
@@ -784,7 +824,7 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
     const replayPromptText = resolvePromptText("supported_service_select", lang) || "For a supported Mobile Money transfer, press 1. Press 9 to repeat, or 0 to exit.";
     return xmlResponse(
       res,
-      `    <Say voice="female">${escapeVoiceXml(mismatchText)}</Say>\n    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("supported_service_select", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
+      `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("supported_service_select", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
       {
         type: "invalid_choice",
         reason: "Keypad input does not match expected parameters (1, 2, 9, 0).",
@@ -1964,7 +2004,8 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   const name = (req.query?.name || req.body?.name || "") as string;
   const recordingUrl = (
     req.body?.RecordingUrl || req.body?.recordingURL || req.body?.recordingUrl ||
-    req.query?.RecordingUrl || req.query?.recordingURL || req.query?.recordingUrl || ""
+    req.body?.recording_url || req.query?.RecordingUrl || req.query?.recordingURL ||
+    req.query?.recordingUrl || req.query?.recording_url || ""
   ) as string;
   const directDtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const speechText = (req.body?.speechText || req.query?.speechText || "").trim() as string;
@@ -2020,7 +2061,15 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   } else if (recordingUrl) {
     const asrStartedAt = Date.now();
     try {
-      const stt = await speechToText(recordingUrl, undefined, step, lang);
+      const asrTimeoutMs = Math.min(
+        5000,
+        telephonyTimeoutMs("AT_ASR_CALLBACK_TIMEOUT_MS", DEFAULT_AT_ASR_CALLBACK_TIMEOUT_MS) - 1000
+      );
+      const stt = await withTelephonyTimeout(
+        speechToText(recordingUrl, undefined, step, lang, asrTimeoutMs),
+        telephonyTimeoutMs("AT_ASR_CALLBACK_TIMEOUT_MS", DEFAULT_AT_ASR_CALLBACK_TIMEOUT_MS),
+        "Africa's Talking ASR callback"
+      );
       transcript = stt.text;
       confidence = stt.confidence;
       confidenceSource = stt.confidenceSource || "unavailable";
@@ -2135,7 +2184,7 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
     );
     const brainStartedAt = Date.now();
     try {
-      const brainOutput = await brain.process({
+      const brainOutput = await withTelephonyTimeout(brain.process({
         transcript,
         language: lang === "twi" ? "twi-asante" : "en",
         languageConfidence: confidence ?? 0.75,
@@ -2151,7 +2200,8 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
         },
         callerNumber: session.callerPhone,
         sessionId,
-      });
+        forceModel: true,
+      }), telephonyTimeoutMs("AT_BRAIN_CALLBACK_TIMEOUT_MS", DEFAULT_AT_BRAIN_CALLBACK_TIMEOUT_MS), "Africa's Talking Brain turn");
 
       const updatedSlots = brainOutput.updatedDraft.slots as Record<string, any>;
       const amountValue = typeof updatedSlots.amount === "number" ? updatedSlots.amount : undefined;

@@ -11,6 +11,7 @@
  */
 
 import { openaiClient } from "./openaiClient";
+import { BRAIN_TRAINING_SYSTEM_INSTRUCTIONS } from "../../ai_system/brain/trainingInstructions";
 import {
   AiLanguage,
   EntitySlotMap,
@@ -104,7 +105,7 @@ Never return prompt IDs, audio paths, phone numbers absent from the transcript, 
               messages: [
                 {
                   role: "system",
-                  content: `${COMPACT_MOMO_SYSTEM_INSTRUCTION}\n${buildTelephonyBrainKnowledge(context)}`,
+                  content: `${COMPACT_MOMO_SYSTEM_INSTRUCTION}\n\n${BRAIN_TRAINING_SYSTEM_INSTRUCTIONS}\n${buildTelephonyBrainKnowledge(context)}`,
                 },
                 {
                   role: "user",
@@ -220,7 +221,7 @@ Rules:
               {
                 role: "system",
                 content:
-                  "You are an expert Ghanaian mobile financial voice cognitive reasoning engine. Always respond with raw valid JSON only.",
+                  `You are an expert Ghanaian mobile financial voice cognitive reasoning engine. Always respond with raw valid JSON only.\n\n${BRAIN_TRAINING_SYSTEM_INSTRUCTIONS}`,
               },
               { role: "user", content: prompt },
             ],

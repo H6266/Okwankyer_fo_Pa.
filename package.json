@@ -19,6 +19,7 @@
     "security:audit": "tsx scripts/security_audit.ts",
     "ai:security-audit": "tsx scripts/security_audit.ts",
     "ai:eval": "tsx scripts/run_ai_eval.ts",
+    "ai:brain-training-eval": "tsx scripts/run_brain_training_eval.ts",
     "ai:benchmark": "tsx scripts/run_ai_benchmark.ts",
     "ai:offline-test": "vitest run tests/offlineAIEngine.test.ts",
     "ai:data:validate": "tsx scripts/validate_datasets.ts",

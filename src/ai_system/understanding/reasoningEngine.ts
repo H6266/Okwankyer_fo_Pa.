@@ -20,6 +20,7 @@ import { geminiClient } from "../../services/geminiClient";
 import { openAiReasoner } from "../../services/openai/openaiReasoner";
 import { groqReasoner } from "../../services/groq/groqReasoner";
 import { qwenReasoner } from "../../services/qwen/qwenReasoner";
+import { BRAIN_TRAINING_SYSTEM_INSTRUCTIONS } from "../brain/trainingInstructions";
 
 export const COMPACT_MOMO_SYSTEM_INSTRUCTION = `You are Ɔkwankyerɛfo Pa, a low-latency voice assistant for MTN Mobile Money (MoMo) in Ghana.
 Capabilities:
@@ -253,7 +254,7 @@ export class ReasoningEngine {
     const chat = ai.chats.create({
       model: modelName,
       config: {
-        systemInstruction: MOMO_SYSTEM_INSTRUCTION,
+        systemInstruction: `${MOMO_SYSTEM_INSTRUCTION}\n\n${BRAIN_TRAINING_SYSTEM_INSTRUCTIONS}`,
         tools: [{ functionDeclarations: [SEND_MONEY_TOOL, CASH_OUT_TOOL, ALLOW_CASH_OUT_TOOL] }],
         temperature: 0.2,
       },

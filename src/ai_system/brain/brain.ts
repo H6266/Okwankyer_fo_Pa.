@@ -75,6 +75,7 @@ import { openAiReasoner } from '../../services/openai/openaiReasoner';
 import { groqReasoner } from '../../services/groq/groqReasoner';
 import { qwenReasoner } from '../../services/qwen/qwenReasoner';
 import { buildTelephonyBrainKnowledge, maskDraftForModel } from './telephonyBrainKnowledge';
+import { BRAIN_TRAINING_SYSTEM_INSTRUCTIONS } from './trainingInstructions';
 
 export interface BrainConfig {
   mode: BrainMode;
@@ -360,7 +361,7 @@ export class Brain {
       if (rawTranscript) {
         output.updatedDraft.recentTurns = [
           ...(output.updatedDraft.recentTurns || []),
-          { role: 'user' as const, text: rawTranscript },
+          { role: 'user' as const, text: isSpokenPinPresent(rawTranscript) ? '[REDACTED_SENSITIVE_INPUT]' : rawTranscript },
           { role: 'assistant' as const, text: output.reply.text },
         ].slice(-4);
       }
@@ -538,11 +539,20 @@ export class Brain {
 
     const decoderResult = numberDecoder.decode(rawTranscript);
 
-    // Rule: Ambiguous spoken numbers (e.g. "mpem ahanu ne aduonum") MUST clarify via keypad; never pick one.
-    if (decoderResult.ambiguous) {
-      delete draft.slots.amount;
+    // Never choose one of multiple plausible transaction values or destinations.
+    const ambiguousField = this.detectAmbiguousField(rawTranscript) || (decoderResult.ambiguous ? 'amount' : undefined);
+    if (ambiguousField) {
+      this.extractSlotsFromUtterance(rawTranscript, draft.slots, decoderResult);
+      if (!draft.intent && /\b(?:send|transfer|mane|kɔma)\b/i.test(rawTranscript)) {
+        draft.intent = 'momo.transfer';
+      }
+      if (ambiguousField === 'amount') {
+        delete draft.slots.amount;
+      } else if (draft.slots.recipient) {
+        delete draft.slots.recipient.phone;
+      }
       draft.lastReplyKind = 'clarify_slot';
-      const decision: BrainDecision = { kind: 'clarify_slot', slot: 'amount' };
+      const decision: BrainDecision = { kind: 'clarify_slot', slot: ambiguousField };
       const reply = await replyComposer.composeReply({
         decision,
         language: activeLanguage,
@@ -552,7 +562,7 @@ export class Brain {
         decision,
         modelOutput: modelOutput || undefined,
         reply: {
-          text: APPROVED_KEYPAD_FALLBACK_PROMPT,
+          text: ambiguousField === 'amount' ? APPROVED_KEYPAD_FALLBACK_PROMPT : reply.text,
           language: 'en',
           promptId: reply.promptId,
         },
@@ -1609,7 +1619,7 @@ export class Brain {
                     },
                   ],
                   config: {
-                    systemInstruction: `${COMPACT_MOMO_SYSTEM_INSTRUCTION}\n${buildTelephonyBrainKnowledge({
+                    systemInstruction: `${COMPACT_MOMO_SYSTEM_INSTRUCTION}\n\n${BRAIN_TRAINING_SYSTEM_INSTRUCTIONS}\n${buildTelephonyBrainKnowledge({
                       targetLanguage,
                       intent: draft.intent,
                       ...telephonyContext,
@@ -2174,14 +2184,20 @@ export class Brain {
     }
 
     // 3. Recipient Name / Label extraction
-    const labelMatch = raw.match(/\b(?:to\s+(?:the\s+)?|kɔma\s+|ma\s+|give\s+to\s+)([A-Za-z\s]+?)\s+(?:on|wɔ|at|\b0[0-9]{9}\b)/i) ||
-      raw.match(/\b(?:send\s+(?:it\s+)?to|kɔma|ma|give\s+to)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\b/i);
+    const relationship = '(?:(?:my|the)\\s+)?(?:(?:friend|sister|brother|mother|mum|mom|father|dad|aunt|uncle|wife|husband|son|daughter)\\s+)?';
+    const labelMatch = raw.match(new RegExp(`\\b(?:to\\s+(?:the\\s+)?|kɔma\\s+|ma\\s+|give\\s+to\\s+)${relationship}([A-Za-z]+(?:\\s+[A-Za-z]+)?)(?=\\s+(?:on|wɔ|at|number)\\b|\\s+0[0-9]{9}\\b|[.!?,;]|$)`, 'i')) ||
+      raw.match(new RegExp(`\\b(?:send\\s+(?:it\\s+)?to|kɔma|ma|give\\s+to)\\s+${relationship}([A-Za-z]+(?:\\s+[A-Za-z]+)?)\\b`, 'i'));
     if (labelMatch) {
-      const name = labelMatch[1].trim();
+      const name = labelMatch[1].trim().replace(/\s+(?:on|wɔ|at|number|network|sim)$/i, '').trim();
       const lowerName = name.toLowerCase();
-      if (!['him', 'her', 'them', 'someone', 'me', 'myself', 'me fon', 'me phone', 'my phone', 'cedis', 'ghs', 'money', 'sika', 'phone', 'number', 'the', 'my'].includes(lowerName)) {
+      if (['friend', 'sister', 'brother', 'mother', 'mum', 'mom', 'father', 'dad', 'aunt', 'uncle', 'wife', 'husband', 'son', 'daughter'].includes(lowerName)) {
+        currentSlots.recipient.name = lowerName;
+      } else if (!['him', 'her', 'them', 'someone', 'me', 'myself', 'me fon', 'me phone', 'my phone', 'cedis', 'ghs', 'money', 'sika', 'phone', 'number', 'the', 'my'].includes(lowerName)) {
         currentSlots.recipient.name = name;
       }
+    } else {
+      const relationshipMatch = raw.match(/\b(?:to|kɔma|ma|give\s+to)\s+(?:my|the)\s+(friend|sister|brother|mother|mum|mom|father|dad|aunt|uncle|wife|husband|son|daughter)\b/i);
+      if (relationshipMatch) currentSlots.recipient.name = relationshipMatch[1].toLowerCase();
     }
 
     // 4. Stated Network extraction (exclude standalone preposition 'at')
@@ -2194,6 +2210,16 @@ export class Brain {
         ? 'MTN'
         : 'AT';
     }
+  }
+
+  private detectAmbiguousField(raw: string): 'amount' | 'recipient' | undefined {
+    const phoneNumbers = raw.match(/\b(?:0[235]\d{8}|233[235]\d{8})\b/g) || [];
+    if (phoneNumbers.length > 1) return 'recipient';
+
+    const amountAlternatives = /\b\d+(?:\.\d{1,2})?\s*(?:ghs|cedis?|sidi)?\s+(?:or|anaa|maybe|perhaps)\s+\d+(?:\.\d{1,2})?\b/i;
+    if (amountAlternatives.test(raw)) return 'amount';
+
+    return undefined;
   }
 }
 

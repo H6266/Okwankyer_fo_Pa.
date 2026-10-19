@@ -384,7 +384,8 @@ describe('Phase 4: Readiness Hardening', () => {
           'https://recordings.example.invalid/call.wav',
           undefined,
           'enter-amount',
-          'twi'
+          'twi',
+          5000
         );
         expect(res.text).not.toContain('/Please_respond.mp3');
       } finally {
@@ -410,7 +411,8 @@ describe('Phase 4: Readiness Hardening', () => {
           'https://recordings.example.invalid/call.wav',
           undefined,
           'enter-amount',
-          'twi'
+          'twi',
+          5000
         );
         expect(res.text).not.toContain('/Please_respond.mp3');
       } finally {
@@ -434,6 +436,31 @@ describe('Phase 4: Readiness Hardening', () => {
       expect(res.text).toContain('/audio/Twi/Opening_voice_welcome_to_okwankyerefopa.mp3?format=mp3');
       expect(res.text).toContain('<GetDigits timeout="8"');
       expect(res.text).toContain('<Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4"');
+      expect(res.text).not.toContain('<Say');
+      expect(res.text).not.toContain('/prompt-tts/twi/');
+    });
+
+    it('returns a VoiceXML recovery prompt when AT ASR does not finish before its deadline', async () => {
+      const previousTimeout = process.env.AT_ASR_CALLBACK_TIMEOUT_MS;
+      process.env.AT_ASR_CALLBACK_TIMEOUT_MS = '50';
+      const transcribe = vi.spyOn(sttService, 'speechToText').mockImplementation(
+        () => new Promise(() => {})
+      );
+
+      try {
+        const response = await request(app)
+          .post('/speech-fallback?step=enter-amount&sessionId=sess_at_asr_timeout&lang=en')
+          .send({ recordingUrl: 'https://recordings.example.invalid/slow.wav' });
+
+        expect(response.status).toBe(200);
+        expect(response.text).toContain('<Response>');
+        expect(response.text).toContain('<Record');
+        expect(response.text).not.toContain('<Reject');
+      } finally {
+        if (previousTimeout === undefined) delete process.env.AT_ASR_CALLBACK_TIMEOUT_MS;
+        else process.env.AT_ASR_CALLBACK_TIMEOUT_MS = previousTimeout;
+        transcribe.mockRestore();
+      }
     });
 
     it('keeps DTMF-only prompts on the standard caller response timeout', async () => {
