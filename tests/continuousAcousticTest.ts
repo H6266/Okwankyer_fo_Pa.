@@ -4,7 +4,7 @@
  * Verifies:
  * 1. Voice Activity Detection (VAD) vs Background Noise (fan, hum, click)
  * 2. Hardware & Software Acoustic Echo Cancellation (system prompt rejection vs barge-in)
- * 3. Mozilla Common Voice, FLEURS & GhanaNLP phonetic repairs
+ * 3. Mozilla Common Voice, FLEURS & UG HCI Lab phonetic repairs
  * 4. Long conversation and multi-sentence discussion parsing (autofilling amount, recipient, provider, purpose)
  * 5. Server REST endpoints for datasets and discussion parsing
  */

@@ -34,7 +34,7 @@ export interface CallApiTrace {
   timestamp: string;
   endpoint: string;
   method: string;
-  provider: string; // e.g. "HCI_LAB_ASR", "HCI_LAB_TTS", "PIPER_LOCAL", "MTN_MOMO", "KYC_DIRECTORY", "GHANANLP"
+  provider: string; // e.g. "HCI_LAB_ASR", "HCI_LAB_TTS", "PIPER_LOCAL", "MTN_MOMO", "KYC_DIRECTORY"
   latencyMs: number;
   httpStatus: number;
   requestSummary?: string;

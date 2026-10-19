@@ -57,7 +57,6 @@ describe("ASR local fallback", () => {
       rmsEnergy: 0.2,
     });
     mocks.hciConfigured.mockReturnValue(false);
-    mocks.ghanaNlpConfigured.mockReturnValue(false);
     mocks.geminiAvailable.mockReturnValue(false);
     mocks.localCheckHealth.mockResolvedValue({ ready: true, model: "test-local-model" });
     mocks.localTranscribe.mockResolvedValue({

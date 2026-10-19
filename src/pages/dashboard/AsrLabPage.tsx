@@ -139,7 +139,7 @@ export const AsrLabPage: React.FC = () => {
     try {
       let actualText = tc.expectedTranscript;
       let latencyMs = 85;
-      let provider = "GhanaNLP_ASR_v3";
+      let provider = "HCI_LAB_ASR";
       let fallbackUsed = false;
       let qualityScore = 0.88;
 
@@ -158,7 +158,7 @@ export const AsrLabPage: React.FC = () => {
                     latencyMs = Math.round(performance.now() - startTime);
                     if (asrRes?.result?.text) {
                       actualText = formatSpokenNumbersAsDigits(asrRes.result.text);
-                      provider = asrRes.result.provider || "GhanaNLP_ASR_v3";
+                      provider = asrRes.result.provider || "HCI_LAB_ASR";
                       fallbackUsed = Boolean((asrRes.result as any).fallbackUsed);
                     }
                   } catch (e: any) {
@@ -280,7 +280,7 @@ export const AsrLabPage: React.FC = () => {
                 text,
                 language: res.result.languageDetected || "en",
                 latencyMs,
-                provider: res.result.provider || "GhanaNLP_ASR_v3",
+                provider: res.result.provider || "HCI_LAB_ASR",
                 fallbackUsed: Boolean((res.result as any).fallbackUsed),
               });
             } catch (err: any) {
@@ -343,7 +343,7 @@ export const AsrLabPage: React.FC = () => {
           text,
           language: res.result.languageDetected || "en",
           latencyMs,
-          provider: res.result.provider || "GhanaNLP_ASR_v3",
+          provider: res.result.provider || "HCI_LAB_ASR",
           fallbackUsed: Boolean((res.result as any).fallbackUsed),
         });
       } catch (err: any) {
@@ -383,7 +383,7 @@ export const AsrLabPage: React.FC = () => {
             </h1>
           </div>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Empirical Ghanaian Automatic Speech Recognition benchmark with genuine WER, CER, latency, and GhanaNLP verification.
+            Empirical Ghanaian Automatic Speech Recognition benchmark with genuine WER, CER, latency, and University of Ghana HCI Lab verification.
           </p>
         </div>
 
@@ -586,7 +586,7 @@ export const AsrLabPage: React.FC = () => {
                   </div>
                   <div className="bg-slate-950 p-1.5 rounded-lg text-center">
                     <span className="text-slate-500 block">Provider</span>
-                    <span className="text-cyan-400 font-bold truncate block">{tc.provider || "GhanaNLP"}</span>
+                    <span className="text-cyan-400 font-bold truncate block">{tc.provider || "HCI_LAB"}</span>
                   </div>
                 </div>
               )}

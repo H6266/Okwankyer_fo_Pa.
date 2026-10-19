@@ -36,13 +36,6 @@ export interface AppConfig {
   adminToken: string;
   sessionSecret: string;
   corsOrigins: string[];
-  ghanaNlp: {
-    apiKey: string;
-    baseUrl: string;
-    configured: boolean;
-    timeoutMs: number;
-    retries: number;
-  };
   asr: {
     chunkMs: number;
     overlapMs: number;
@@ -61,6 +54,11 @@ export interface AppConfig {
   };
   gemini: {
     apiKey: string;
+    configured: boolean;
+  };
+  groq: {
+    apiKey: string;
+    model: string;
     configured: boolean;
   };
   hciLab: {
@@ -162,9 +160,13 @@ export function loadConfig(): AppConfig {
     ""
   ).trim();
 
-  const momoSubKey = (disbSubKey || collSubKey).trim();
-  const momoUserId = (disbUserId || collUserId).trim();
-  const momoApiKey = (disbApiKey || collApiKey).trim();
+  const momoGenericSubKey = (env.MOMO_SUBSCRIPTION_KEY || env.MTN_SUBSCRIPTION_KEY || "").trim();
+  const momoGenericUserId = (env.MOMO_API_USER_ID || env.MTN_API_USER_ID || "").trim();
+  const momoGenericApiKey = (env.MOMO_API_KEY || env.MTN_API_KEY || "").trim();
+
+  const momoSubKey = (disbSubKey || collSubKey || momoGenericSubKey).trim();
+  const momoUserId = (disbUserId || collUserId || momoGenericUserId).trim();
+  const momoApiKey = (disbApiKey || collApiKey || momoGenericApiKey).trim();
 
   return {
     nodeEnv,
@@ -175,13 +177,6 @@ export function loadConfig(): AppConfig {
     adminToken,
     sessionSecret,
     corsOrigins,
-    ghanaNlp: {
-      apiKey: (env.GHANANLP_API_KEY || "").trim(),
-      baseUrl: (env.GHANANLP_BASE_URL || "https://translation-api.ghananlp.org").trim().replace(/\/+$/, ""),
-      configured: Boolean((env.GHANANLP_API_KEY || "").trim()),
-      timeoutMs: Math.max(2000, parseInt(env.GHANANLP_ASR_TIMEOUT_MS || "15000", 10)),
-      retries: Math.max(0, Math.min(5, parseInt(env.GHANANLP_ASR_RETRIES || "2", 10))),
-    },
     asr: {
       chunkMs: Math.max(3000, parseInt(env.ASR_CHUNK_MS || "12000", 10)),
       overlapMs: Math.max(200, parseInt(env.ASR_OVERLAP_MS || "1000", 10)),
@@ -201,6 +196,11 @@ export function loadConfig(): AppConfig {
     gemini: {
       apiKey: env.GEMINI_API_KEY || "",
       configured: Boolean(env.GEMINI_API_KEY),
+    },
+    groq: {
+      apiKey: (env.GROQ_API_KEY || env.QWEN_API_KEY || "").trim(),
+      model: (env.GROQ_MODEL || "qwen/qwen3.8-27b").trim(),
+      configured: Boolean((env.GROQ_API_KEY || env.QWEN_API_KEY || "").trim()),
     },
     hciLab: {
       apiKey: (env.UG_HCI_LAB_API_KEY || "").trim(),

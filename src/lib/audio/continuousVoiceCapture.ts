@@ -171,7 +171,7 @@ export class ContinuousVoiceCapture {
     speechDurationMs: 0,
     noiseDurationMs: 0,
     currentVADState: "SILENCE",
-    currentASRProvider: "GhanaNLP_ASR_v3",
+    currentASRProvider: "HCI_LAB_ASR",
     chunksCreated: 0,
     chunksCompleted: 0,
     chunksFailed: 0,

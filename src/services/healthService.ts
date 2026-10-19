@@ -185,45 +185,7 @@ export async function runRealSmokeTests(): Promise<SmokeTestReport> {
     }
   }
 
-  // Check 5: Ghana NLP (ASR v3 & TTS v2)
-  const startGhana = Date.now();
-  if (!config.ghanaNlp?.configured) {
-    checks.push({
-      id: "check_ghananlp",
-      name: "Ghana NLP API (ASR v3 / TTS v2)",
-      description: "Cloud Akan Twi & Ghanaian English Speech Services",
-      status: "warn",
-      latencyMs: Date.now() - startGhana,
-      details: "GHANANLP_API_KEY not configured; local neural Piper/Vosk and Gemini models active.",
-    });
-  } else {
-    try {
-      const { ghanaNlpAsrService } = await import("./ghanaNlpAsrService");
-      const health = await ghanaNlpAsrService.healthCheck();
-      const latency = Date.now() - startGhana;
-      checks.push({
-        id: "check_ghananlp",
-        name: "Ghana NLP API (ASR v3 / TTS v2)",
-        description: "Cloud Akan Twi & Ghanaian English Speech Services",
-        status: health.ready ? "pass" : "fail",
-        latencyMs: latency,
-        details: health.ready
-          ? `Ghana NLP connected (${latency}ms). Supported languages available.`
-          : `Ghana NLP connection issue: ${health.error}`,
-      });
-    } catch (err: any) {
-      checks.push({
-        id: "check_ghananlp",
-        name: "Ghana NLP API (ASR v3 / TTS v2)",
-        description: "Cloud Akan Twi & Ghanaian English Speech Services",
-        status: "fail",
-        latencyMs: Date.now() - startGhana,
-        details: `Ghana NLP health probe error: ${err.message}`,
-      });
-    }
-  }
-
-  // Check 6: University of Ghana HCI Lab Speech API (ASR & TTS)
+  // Check 5: University of Ghana HCI Lab Speech API (ASR & TTS)
   const startHci = Date.now();
   try {
     const { hciLabService } = await import("./hciLabService");

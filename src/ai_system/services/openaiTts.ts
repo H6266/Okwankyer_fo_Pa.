@@ -8,14 +8,14 @@
  * 
  * Hierarchy:
  * 1. FIXED PROMPT -> Studio recording catalog (audio/English, audio/Twi)
- * 2. DYNAMIC PROMPT -> Ghana NLP TTS (Akan Twi, Ghanaian English neural voice)
+ * 2. DYNAMIC PROMPT -> University of Ghana HCI Lab TTS (Akan Twi neural voice)
  * 3. FALLBACK -> OpenAI TTS (tts-1 / gpt-4o-mini-tts with natural speech cadence)
  * 4. SYSTEM FALLBACK -> Local Ghanaian TTS / google-tts-api
  */
 
 import fs from "fs";
 import path from "path";
-import { GhanaNlpTtsService } from "../../services/ghanaNlpTtsService";
+import { hciLabService } from "../../services/hciLabService";
 import { localGhanaianTtsProvider } from "../speech/tts/localGhanaianTts";
 import {
   getRecordingByPromptId,
@@ -36,16 +36,12 @@ export interface SpeechSynthesisResult {
   audioBase64?: string;
   audioUrl?: string;
   audioMimeType: string;
-  providerUsed: "studio_catalog" | "ghana_nlp" | "openai" | "local_fallback";
+  providerUsed: "studio_catalog" | "hci_lab" | "openai" | "local_fallback";
   durationEstimateSec: number;
 }
 
 export class OpenAiTtsService {
-  private ghanaNlp: GhanaNlpTtsService;
-
-  constructor() {
-    this.ghanaNlp = new GhanaNlpTtsService();
-  }
+  constructor() {}
 
   private get apiKey(): string {
     const raw = (process.env.OPENAI_API_KEY || "").trim();
@@ -66,7 +62,7 @@ export class OpenAiTtsService {
 
   /**
    * Main synthesis pipeline:
-   * Studio -> Ghana NLP -> OpenAI -> Local Fallback
+   * Studio -> HCI Lab -> OpenAI -> Local Fallback
    */
   public async synthesize(request: SpeechSynthesisRequest): Promise<SpeechSynthesisResult> {
     const cleanText = (request.text || "").trim();
@@ -90,24 +86,21 @@ export class OpenAiTtsService {
       }
     }
 
-    // 2. Try Ghana NLP TTS for authentic local voice
-    if (this.ghanaNlp.isConfigured() && isTwi) {
+    // 2. Try University of Ghana HCI Lab TTS for authentic local Akan voice
+    if (hciLabService.isConfigured() && isTwi) {
       try {
-        const ghanaRes = await this.ghanaNlp.synthesize({
-          text: cleanText,
-          language: "twi",
-        });
-        if (ghanaRes && ghanaRes.audioBuffer) {
+        const hciRes = await hciLabService.synthesize(cleanText);
+        if (hciRes && hciRes.audioBuffer) {
           return {
-            audioBuffer: ghanaRes.audioBuffer,
-            audioBase64: ghanaRes.audioBase64,
-            audioMimeType: ghanaRes.audioMimeType || "audio/wav",
-            providerUsed: "ghana_nlp",
-            durationEstimateSec: ghanaRes.durationEstimateSec || 3,
+            audioBuffer: hciRes.audioBuffer,
+            audioBase64: hciRes.audioBuffer.toString("base64"),
+            audioMimeType: "audio/wav",
+            providerUsed: "hci_lab",
+            durationEstimateSec: hciRes.durationSec || 3,
           };
         }
       } catch (err: any) {
-        console.warn("[OpenAiTts] Ghana NLP TTS error, falling back:", err.message);
+        console.warn("[OpenAiTts] HCI Lab TTS error, falling back:", err.message);
       }
     }
 

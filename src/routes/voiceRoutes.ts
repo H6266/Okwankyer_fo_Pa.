@@ -41,7 +41,14 @@ import { ivrDecisionEngine, IvrDecision } from "../ai_system/brain/ivrDecisionEn
 import { geminiClient } from "../services/geminiClient";
 import { speechNormalizer } from "../ai_system/speech/speechNormalizer";
 import { matchReplyToAudio } from "../audio/replyAudioMatcher";
-import { ChecklistStageManager, ChecklistStageId } from "../domain/checklistPipeline";
+import {
+  ChecklistStageManager,
+  ChecklistStageId,
+  KeypadBufferManager,
+  ConversationTakeoverDetector,
+  kycNetworkQueue,
+} from "../domain/checklistPipeline";
+import { matchAiReplyWithGemini } from "../audio/geminiAudioMatcher";
 
 export const voiceRouter = Router();
 export const ivrRouter = Router();
@@ -65,14 +72,16 @@ const recipientLookups = new WeakMap<object, RecipientLookupEntry>();
 const paymentInitiations = new WeakSet<object>();
 
 function resolveRecipientWithTimeout(phone: string): ReturnType<typeof recipientResolver.resolve> {
-  let timeout: NodeJS.Timeout | undefined;
-  return Promise.race([
-    recipientResolver.resolve(phone),
-    new Promise<never>((_, reject) => {
-      timeout = setTimeout(() => reject(new Error("Recipient lookup timed out.")), 5000);
-    }),
-  ]).finally(() => {
-    if (timeout) clearTimeout(timeout);
+  return kycNetworkQueue.enqueue(async () => {
+    let timeout: NodeJS.Timeout | undefined;
+    return Promise.race([
+      recipientResolver.resolve(phone),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error("Recipient lookup timed out.")), 5000);
+      }),
+    ]).finally(() => {
+      if (timeout) clearTimeout(timeout);
+    });
   });
 }
 
@@ -245,9 +254,25 @@ function speechCollectionXml(params: {
 }
 
 ivrRouter.use((req: Request, res: Response, next: NextFunction) => {
+  const dtmf = String(req.body?.dtmfDigits ?? req.query?.dtmfDigits ?? "").trim();
+  const speechText = String(req.body?.speechText ?? req.query?.speechText ?? "").trim();
+  const step = String(req.query?.step || req.body?.step || req.path.replace(/^\//, "")).toLowerCase();
+  const sessionId = String(req.body?.sessionId || req.query?.sessionId || "");
+  const lang = (req.body?.lang === "twi" || req.query?.lang === "twi" ? "twi" : "en") as "en" | "twi";
+  const baseUrl = getBaseUrl(req);
+
+  // ── Conversation Takeover Detector ────────────────────────────────────
+  // Detects when caller transitions from pressing digits to natural conversational speech/text
+  const inputToCheck = speechText || (dtmf && isNaN(Number(dtmf.replace(/[#*]/g, ""))) ? dtmf : "");
+  if (inputToCheck && ConversationTakeoverDetector.isConversationalInput(inputToCheck, step)) {
+    if (!["enter-pin", "verify-pin", "pin-handoff"].includes(step)) {
+      auditLogger.log("info", "TAKEOVER", `Keypad-to-conversational transition detected: "${inputToCheck.slice(0, 50)}"`, sessionId);
+      return res.redirect(`${baseUrl}/speech-fallback?step=${encodeURIComponent(step)}&sessionId=${encodeURIComponent(sessionId)}&lang=${lang}&speechText=${encodeURIComponent(inputToCheck)}`);
+    }
+  }
+
   const hasDtmf = Object.prototype.hasOwnProperty.call(req.body || {}, "dtmfDigits")
     || Object.prototype.hasOwnProperty.call(req.query || {}, "dtmfDigits");
-  const dtmf = String(req.body?.dtmfDigits ?? req.query?.dtmfDigits ?? "").trim();
   const speechStep = String(req.query?.step || req.body?.step || "").toLowerCase();
   const emptySpeechCallback = req.path === "/speech-fallback"
     && Boolean(speechStep)
@@ -266,8 +291,6 @@ ivrRouter.use((req: Request, res: Response, next: NextFunction) => {
     return next();
   }
 
-  const sessionId = String(req.body?.sessionId || req.query?.sessionId || "");
-  const lang = (req.body?.lang === "twi" || req.query?.lang === "twi" ? "twi" : "en") as "en" | "twi";
   const recoveryStep = req.path === "/speech-fallback" ? speechStep : req.path;
   const recoveryPathByStep: Record<string, string> = {
     "/language-selection": "/language-selection",
@@ -589,6 +612,22 @@ ivrRouter.all("/language-selection", (req: Request, res: Response) => {
 
   // Invalid keypad input at language selection (e.g. 3, 4, 5, 6)
   session.retryCount = (session.retryCount || 0) + 1;
+  const mismatchRes = KeypadBufferManager.appendDigit(sessionId, dtmf, "single_digit", ["1", "2"]);
+  if (!mismatchRes.isValidParameter && mismatchRes.mismatchFeedback) {
+    const mismatchText = mismatchRes.mismatchFeedback.en;
+    return xmlResponse(
+      res,
+      `    <Say voice="female">${escapeVoiceXml(mismatchText)}</Say>\n    <Redirect>${baseUrl}/voice-menu?sessionId=${sessionId}&amp;err=invalid</Redirect>`,
+      {
+        type: "invalid_choice",
+        reason: "Keypad input does not match expected parameters (1 for English, 2 for Twi).",
+        replyText: mismatchText,
+        action: "replay",
+        nextStep: "language-selection",
+      }
+    );
+  }
+
   const decision = ivrDecisionEngine.decide({
     stepId: "language-selection",
     language: "en",
@@ -737,8 +776,25 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
     </GetDigits>`, decision);
   }
 
-  // Invalid key at service selection (e.g. 5, 6, 7)
+  // Parameter Mismatch Detection via KeypadBufferManager (e.g. 4, 5, 6, 7)
   session.retryCount = (session.retryCount || 0) + 1;
+  const mismatchRes = KeypadBufferManager.appendDigit(sessionId, dtmf, "single_digit", ["1", "2", "3", "9", "0"]);
+  if (!mismatchRes.isValidParameter && mismatchRes.mismatchFeedback) {
+    const mismatchText = mismatchRes.mismatchFeedback[lang] || mismatchRes.mismatchFeedback.en;
+    const replayPromptText = resolvePromptText("supported_service_select", lang) || "For a supported Mobile Money transfer, press 1. Press 9 to repeat, or 0 to exit.";
+    return xmlResponse(
+      res,
+      `    <Say voice="female">${escapeVoiceXml(mismatchText)}</Say>\n    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("supported_service_select", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
+      {
+        type: "invalid_choice",
+        reason: "Keypad input does not match expected parameters (1, 2, 9, 0).",
+        replyText: mismatchText,
+        action: "replay",
+        nextStep: "service-select",
+      }
+    );
+  }
+
   const decision = ivrDecisionEngine.decide({
     stepId: "service-select",
     language: lang,
@@ -751,12 +807,12 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
     transactionStateMachine.transition(sessionId, "FAILED", { failureReason: decision.reason });
     return xmlResponse(res, `    <Say voice="female">${decision.replyText}</Say>\n    <Reject/>`, decision);
   }
-    const replayPromptText = resolvePromptText("supported_service_select", lang) || "For a supported Mobile Money transfer, press 1. Press 9 to repeat, or 0 to exit.";
-    return xmlResponse(
-      res,
-      `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("supported_service_select", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
-      decision
-    );
+  const replayPromptText = resolvePromptText("supported_service_select", lang) || "For a supported Mobile Money transfer, press 1. Press 9 to repeat, or 0 to exit.";
+  return xmlResponse(
+    res,
+    `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("supported_service_select", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
+    decision
+  );
 });
 
 // ── Step 4: Provider Selection (MTN, Telecel, AT) ─────────────────────
@@ -850,6 +906,23 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
 
   // Invalid key at provider selection (e.g. 4, 5, 6, 7)
   session.retryCount = (session.retryCount || 0) + 1;
+  const mismatchRes = KeypadBufferManager.appendDigit(sessionId, dtmf, "single_digit", ["1", "2", "3", "4", "8", "9", "0"]);
+  if (!mismatchRes.isValidParameter && mismatchRes.mismatchFeedback) {
+    const mismatchText = mismatchRes.mismatchFeedback[lang] || mismatchRes.mismatchFeedback.en;
+    const replayPromptText = resolvePromptText("mtn_network_select", lang) || "For MTN Mobile Money, press 1. For Telecel Cash, press 2. Press 9 to repeat, or 0 to exit.";
+    return xmlResponse(
+      res,
+      `    <Say voice="female">${escapeVoiceXml(mismatchText)}</Say>\n    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("mtn_network_select", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
+      {
+        type: "invalid_choice",
+        reason: "Keypad input does not match expected parameters (1, 2, 3, 8, 9, 0).",
+        replyText: mismatchText,
+        action: "replay",
+        nextStep: "provider-select",
+      }
+    );
+  }
+
   const decision = ivrDecisionEngine.decide({
     stepId: "provider-select",
     language: lang,
@@ -862,12 +935,12 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
     transactionStateMachine.transition(sessionId, "FAILED", { failureReason: decision.reason });
     return xmlResponse(res, `    <Say voice="female">${decision.replyText}</Say>\n    <Reject/>`, decision);
   }
-    const replayPromptText = resolvePromptText("mtn_network_select", lang) || "For MTN Mobile Money, press 1. For Telecel Cash, press 2. Press 9 to repeat, or 0 to exit.";
-    return xmlResponse(
-      res,
-      `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("mtn_network_select", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
-      decision
-    );
+  const replayPromptText = resolvePromptText("mtn_network_select", lang) || "For MTN Mobile Money, press 1. For Telecel Cash, press 2. Press 9 to repeat, or 0 to exit.";
+  return xmlResponse(
+    res,
+    `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("mtn_network_select", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
+    decision
+  );
 });
 
 ivrRouter.all("/action-select", (req: Request, res: Response) => {
@@ -973,6 +1046,23 @@ ivrRouter.all("/action-choice", async (req: Request, res: Response) => {
 
   // Invalid key at action-choice (e.g. 3, 4, 6, 7)
   session.retryCount = (session.retryCount || 0) + 1;
+  const mismatchRes = KeypadBufferManager.appendDigit(sessionId, dtmf, "single_digit", ["1", "2", "8", "9", "0"]);
+  if (!mismatchRes.isValidParameter && mismatchRes.mismatchFeedback) {
+    const mismatchText = mismatchRes.mismatchFeedback[lang] || mismatchRes.mismatchFeedback.en;
+    const replayPromptText = resolvePromptText("send_money_menu", lang) || "To send money, press 1. To go back, press 8. To hear this again, press 9. To exit, press 0.";
+    return xmlResponse(
+      res,
+      `    <Say voice="female">${escapeVoiceXml(mismatchText)}</Say>\n    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("send_money_menu", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
+      {
+        type: "invalid_choice",
+        reason: "Keypad input does not match expected parameters (1, 2, 8, 9, 0).",
+        replyText: mismatchText,
+        action: "replay",
+        nextStep: "action-select",
+      }
+    );
+  }
+
   const decision = ivrDecisionEngine.decide({
     stepId: "action-select",
     language: lang,
@@ -985,12 +1075,12 @@ ivrRouter.all("/action-choice", async (req: Request, res: Response) => {
     transactionStateMachine.transition(sessionId, "FAILED", { failureReason: decision.reason });
     return xmlResponse(res, `    <Say voice="female">${decision.replyText}</Say>\n    <Reject/>`, decision);
   }
-    const replayPromptText = resolvePromptText("send_money_menu", lang) || "To send money, press 1. To go back, press 8. To hear this again, press 9. To exit, press 0.";
-    return xmlResponse(
-      res,
-      `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("send_money_menu", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
-      decision
-    );
+  const replayPromptText = resolvePromptText("send_money_menu", lang) || "To send money, press 1. To go back, press 8. To hear this again, press 9. To exit, press 0.";
+  return xmlResponse(
+    res,
+    `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("send_money_menu", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
+    decision
+  );
 });
 
 ivrRouter.all("/enter-recipient", (req: Request, res: Response) => {
@@ -1018,7 +1108,9 @@ ivrRouter.all("/enter-recipient", (req: Request, res: Response) => {
 ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
-  const rawDigits = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim().replace(/#+$/, "");
+  const rawDigitsInput = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim();
+  const bufferRes = KeypadBufferManager.appendDigit(sessionId, rawDigitsInput, "phone_number");
+  const rawDigits = (bufferRes.submittedValue || bufferRes.bufferedValue || rawDigitsInput).replace(/#+$/, "");
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getOrCreateSession(sessionId);
 
@@ -1259,7 +1351,9 @@ ivrRouter.all("/enter-amount", (req: Request, res: Response) => {
 ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
-  const rawDigits = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim().replace(/#+$/, "");
+  const rawDigitsInput = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim();
+  const bufferRes = KeypadBufferManager.appendDigit(sessionId, rawDigitsInput, "amount");
+  const rawDigits = (bufferRes.submittedValue || bufferRes.bufferedValue || rawDigitsInput).replace(/#+$/, "");
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getOrCreateSession(sessionId);
 
@@ -1349,9 +1443,11 @@ ivrRouter.all("/amount-readback-choice", (req: Request, res: Response) => {
   const session = transactionStateMachine.getOrCreateSession(sessionId);
 
   if (session.state !== "AMOUNT_ENTERED" || !session.amount || !session.recipientPhone || !session.isRecipientVerified) {
-    return xmlResponse(res, `    <Say voice="female">${lang === "twi"
-      ? "Yɛrentumi nnhwɛ amount ne recipient nsɛm yi mu. Yɛrentumi nkɔ so."
-      : "We cannot verify the current amount and recipient, so we cannot continue."}</Say>\n    <Reject/>`);
+    const errorMsg = lang === "twi"
+      ? "Yɛrentumi nnhwɛ amount ne recipient nsɛm yi mu. Yɛresan akɔ baabi a ɛkae no so."
+      : "We cannot verify the current amount and recipient. Redirecting to verify your details.";
+    const targetRoute = ChecklistStageManager.getStepRouteForStage(session.isRecipientVerified ? "STAGE_5_AMOUNT" : "STAGE_4_RECIPIENT");
+    return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(errorMsg)}</Say>\n    <Redirect>${baseUrl}/${targetRoute}?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}</Redirect>`);
   }
 
   if (dtmf === "1") {
@@ -1533,6 +1629,7 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
 
   if (dtmf !== "1") {
     session.retryCount = (session.retryCount || 0) + 1;
+    const mismatchRes = KeypadBufferManager.appendDigit(sessionId, dtmf, "single_digit", ["1", "2", "3", "8", "9", "0"]);
     const decision = ivrDecisionEngine.decide({
       stepId: "safe-confirmation",
       language: lang,
@@ -1541,6 +1638,9 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
       retryCount: session.retryCount,
       sessionId,
     });
+    const spokenFeedback = !mismatchRes.isValidParameter && mismatchRes.mismatchFeedback
+      ? (mismatchRes.mismatchFeedback[lang] || mismatchRes.mismatchFeedback.en)
+      : decision.replyText;
     const confirmationChoices = lang === "twi"
       ? "Sɛ nsɛm no yɛ nokware a, mia 1. Sɛ wopɛ sɛ wosesa sika no a, mia 2. Sɛ wopɛ sɛ wosesa recipient no a, mia 3. Sɛ wopɛ sɛ wogyae a, mia 0."
       : "Press 1 to confirm. To change the amount, press 2. To change the recipient, press 3. To cancel, press 0.";
@@ -1569,16 +1669,19 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
     }
 
     if (!session.amount || session.amount <= 0) {
-      transactionStateMachine.transition(sessionId, "FAILED", {
-        failureReason: "Missing or invalid amount entered.",
-      });
+      paymentInitiations.delete(session);
       const errorMsg = lang === "twi"
-        ? "Yɛantumi anhu sika dodow a wobɔe no. Yɛtwa mu. Nante yie."
-        : "Missing transaction amount. The transaction has been cancelled. Goodbye.";
-      return xmlResponse(res, `    <Say voice="female">${errorMsg}</Say>\n    <Reject/>`);
+        ? "Yɛantumi anhu sika dodow a wobɔe no. Yɛresan akɔ sika nhyehyɛeɛ no so."
+        : "Missing transaction amount. Redirecting to enter amount.";
+      const redirectTarget = ChecklistStageManager.getStepRouteForStage("STAGE_5_AMOUNT");
+      return xmlResponse(
+        res,
+        `    <Say voice="female">${escapeVoiceXml(errorMsg)}</Say>\n    <Redirect>${baseUrl}/${redirectTarget}?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}</Redirect>`
+      );
     }
 
     if (!session.callerPhone || !session.callerPhone.trim()) {
+      paymentInitiations.delete(session);
       transactionStateMachine.transition(sessionId, "FAILED", {
         failureReason: "Missing verified caller phone number from telephony webhook.",
       });
@@ -1589,22 +1692,27 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
     }
 
     if (!session.recipientPhone || !session.recipientPhone.trim()) {
-      transactionStateMachine.transition(sessionId, "FAILED", {
-        failureReason: "Missing recipient phone number.",
-      });
+      paymentInitiations.delete(session);
       const errorMsg = lang === "twi"
-        ? "Yɛantumi anhu obi a woremane no sika no fon nɔmba. Yɛtwa mu. Nante yie."
-        : "Missing recipient phone number. The transaction has been cancelled. Goodbye.";
-      return xmlResponse(res, `    <Say voice="female">${errorMsg}</Say>\n    <Reject/>`);
+        ? "Yɛantumi anhu obi a woremane no sika no fon nɔmba. Yɛresan akɔ nɔmba nhyehyɛeɛ no so."
+        : "Missing recipient phone number. Redirecting to enter recipient.";
+      const redirectTarget = ChecklistStageManager.getStepRouteForStage("STAGE_4_RECIPIENT");
+      return xmlResponse(
+        res,
+        `    <Say voice="female">${escapeVoiceXml(errorMsg)}</Say>\n    <Redirect>${baseUrl}/${redirectTarget}?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}</Redirect>`
+      );
     }
 
     if (!session.isRecipientVerified) {
-      transactionStateMachine.transition(sessionId, "FAILED", {
-        failureReason: "The selected transfer route is not verified and supported.",
-      });
-      return xmlResponse(res, `    <Say voice="female">${lang === "twi"
-        ? "Yɛrentumi mfa network yi so nyɛ transfer yi seesei."
-        : "The recipient is not verified. No payment was submitted."}</Say>\n    <Reject/>`);
+      paymentInitiations.delete(session);
+      const errorMsg = lang === "twi"
+        ? "Yɛagye nɔma no, nanso yɛnkyerɛɛ din no yie. Yɛresan akɔ nɔmba nhyehyɛeɛ no so."
+        : "The recipient is not verified. Redirecting to enter recipient.";
+      const redirectTarget = ChecklistStageManager.getStepRouteForStage("STAGE_4_RECIPIENT");
+      return xmlResponse(
+        res,
+        `    <Say voice="female">${escapeVoiceXml(errorMsg)}</Say>\n    <Redirect>${baseUrl}/${redirectTarget}?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}</Redirect>`
+      );
     }
 
     transactionStateMachine.transition(sessionId, "CONFIRMED");
@@ -2563,7 +2671,7 @@ simulatorRouter.use((req: Request, res: Response, next: NextFunction) => {
     req.body.sessionId = `SIM_CALL_${Date.now()}`;
   }
   if (!req.body.callerNumber && !req.query?.callerNumber) {
-    req.body.callerNumber = "+233244123456";
+    req.body.callerNumber = "";
   }
   if (!req.body.phoneNumber && !req.query?.phoneNumber) {
     req.body.phoneNumber = req.body.callerNumber;

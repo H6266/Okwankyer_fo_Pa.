@@ -20,6 +20,7 @@
  */
 
 import crypto from 'crypto';
+import { aiResourceQueue } from '../../domain/checklistPipeline';
 import {
   BrainDecision,
   BrainInput,
@@ -71,6 +72,7 @@ import { normalizeGhanaPhoneNumber, validateGhanaPhoneNumber, getNetworkFromPhon
 import { brainTelemetry } from './brainTelemetry';
 import { storeGeminiConversationReply } from '../../audio/geminiAudioMatcher';
 import { openAiReasoner } from '../../services/openai/openaiReasoner';
+import { groqReasoner } from '../../services/groq/groqReasoner';
 import { qwenReasoner } from '../../services/qwen/qwenReasoner';
 import { buildTelephonyBrainKnowledge, maskDraftForModel } from './telephonyBrainKnowledge';
 
@@ -278,8 +280,15 @@ export class Brain {
 
   /**
    * Main entry point: Processes caller utterance and returns settled decision with validated reply.
+   * Serialized via aiResourceQueue to eliminate resource competition between concurrent turns.
    */
   public async process(input: BrainInput): Promise<BrainOutput> {
+    return aiResourceQueue.enqueue(async () => {
+      return this.executeProcess(input);
+    });
+  }
+
+  private async executeProcess(input: BrainInput): Promise<BrainOutput> {
     const currentTurn = ++this.currentTurnId;
     const rawTranscript = (input.transcript || '').trim();
     const effectiveBrainMode = pilotControls.getEffectiveBrainMode(input.callerNumber, this.config.mode);
@@ -1478,34 +1487,36 @@ export class Brain {
       console.log(`🤝 [Handshake 1/3 Skipped] OpenAI not configured or on cooldown.`);
     }
 
-    // ── HANDSHAKE 2: OPENAI ➔ QWEN AI ──
-    if (qwenReasoner.isAvailable()) {
+    // ── HANDSHAKE 2: OPENAI ➔ GROQ AI ──
+    const fastReasoner = groqReasoner.isAvailable() ? groqReasoner : (qwenReasoner.isAvailable() ? qwenReasoner : null);
+    if (fastReasoner) {
       try {
-        console.log(`🤝 [Handshake 2/3] OpenAI unavailable or failed. Handing over session state to Qwen AI...`);
+        const providerName = fastReasoner === groqReasoner ? "Groq AI" : "Qwen AI";
+        console.log(`🤝 [Handshake 2/3] OpenAI unavailable or failed. Handing over session state to ${providerName}...`);
         auditLogger.log(
           "info",
-          "BRAIN_HANDSHAKE_QWEN",
-          `Handshake 2/3: Transferring conversation state to Qwen AI (${qwenReasoner.getModel()}).`
+          "BRAIN_HANDSHAKE_GROQ",
+          `Handshake 2/3: Transferring conversation state to ${providerName} (${fastReasoner.getModel()}).`
         );
-        const qwenContract = await qwenReasoner.reasonForBrain(
+        const fastContract = await fastReasoner.reasonForBrain(
           masked,
           draft.slots,
-          qwenReasoner.getTimeoutMs(),
+          fastReasoner.getTimeoutMs(),
           { targetLanguage, intent: draft.intent, ...telephonyContext }
         );
-        if (qwenContract && this.validateModelContract(qwenContract)) {
+        if (fastContract && this.validateModelContract(fastContract)) {
           if (turnId !== this.currentTurnId) return null;
-          auditLogger.log("info", "BRAIN_HANDSHAKE_SUCCESS", `Qwen AI successfully fulfilled reasoning turn via handshake.`);
-          return qwenContract;
+          auditLogger.log("info", "BRAIN_HANDSHAKE_SUCCESS", `${providerName} successfully fulfilled reasoning turn via handshake.`);
+          return fastContract;
         }
       } catch (err: any) {
-        console.warn(`[Handshake 2/3] Qwen AI handover failed: ${err?.message || err}`);
+        console.warn(`[Handshake 2/3] Fast AI handover failed: ${err?.message || err}`);
       }
     } else {
-      console.log(`🤝 [Handshake 2/3 Skipped] Qwen AI not configured or on cooldown.`);
+      console.log(`🤝 [Handshake 2/3 Skipped] Groq / Qwen AI not configured or on cooldown.`);
     }
 
-    // ── HANDSHAKE 3: QWEN AI ➔ LOCAL INBUILT BRAIN ──
+    // ── HANDSHAKE 3: GROQ AI ➔ LOCAL INBUILT BRAIN ──
     console.log(`🤝 [Handshake 3/3] External AI models exhausted. Final Handover: Local Inbuilt Brain (Deterministic Ghanaian Engine).`);
     auditLogger.log(
       "warn",

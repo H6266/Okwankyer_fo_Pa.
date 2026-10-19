@@ -95,7 +95,7 @@ export LOCAL_ASR_ALLOW_MODEL_DOWNLOAD="true"
 The model is loaded only when a Twi turn is routed to the local ASR worker.
 English turns continue to use the configured faster-whisper model. The Akan
 model is optional and should be evaluated with representative Ghanaian speech
-before production use; GhanaNLP remains the primary ASR provider.
+before production use; University of Ghana HCI Lab remains the primary ASR provider.
 
 ---
 

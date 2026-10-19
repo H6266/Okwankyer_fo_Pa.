@@ -66,7 +66,7 @@ export class QwenClientManager {
   }
 
   public getApiKey(): string | undefined {
-    const raw = (process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY || "").trim();
+    const raw = (process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY || process.env.GROQ_API_KEY || "").trim();
     if (isPlaceholderKey(raw)) {
       return this.isLocalMode() ? "ollama" : undefined;
     }
@@ -74,14 +74,17 @@ export class QwenClientManager {
   }
 
   public getBaseUrl(): string {
-    return process.env.QWEN_BASE_URL ||
-      (process.env.QWEN_MODE?.trim().toLowerCase() === "local"
-        ? "http://127.0.0.1:11434/v1"
-        : "https://dashscope-intl.aliyuncs.com/compatible-mode/v1");
+    if (process.env.QWEN_BASE_URL) return process.env.QWEN_BASE_URL;
+    if (process.env.QWEN_MODE?.trim().toLowerCase() === "local") return "http://127.0.0.1:11434/v1";
+    if (process.env.GROQ_API_KEY && !process.env.QWEN_API_KEY) return process.env.GROQ_BASE_URL || "https://api.groq.com/openai/v1";
+    return "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
   }
 
   public getModel(): string {
-    return process.env.QWEN_MODEL || (this.isLocalMode() ? "qwen3:1.7b" : "qwen-plus");
+    if (process.env.QWEN_MODEL) return process.env.QWEN_MODEL;
+    if (this.isLocalMode()) return "qwen3:1.7b";
+    if (process.env.GROQ_API_KEY && !process.env.QWEN_API_KEY) return process.env.GROQ_MODEL || "qwen/qwen3.8-27b";
+    return "qwen-plus";
   }
 
   public getTimeoutMs(): number {

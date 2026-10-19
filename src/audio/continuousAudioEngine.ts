@@ -80,7 +80,7 @@ export class ContinuousAudioEngine {
     currentInterimTranscript: "",
     finalizedTranscript: "",
     lastParsedDiscussion: null,
-    datasetModel: "Mozilla Common Voice + FLEURS + GhanaNLP",
+    datasetModel: "Mozilla Common Voice + FLEURS + UG HCI Lab",
   };
 
   private stateListeners: Set<AudioStateListener> = new Set();
@@ -92,8 +92,8 @@ export class ContinuousAudioEngine {
   private discussionAccumulator: string[] = [];
   private lastDispatchTime: number = 0;
   private isZeroPinMuted: boolean = false;
-
   private isPlaybackGated: boolean = false;
+  private isProcessingGated: boolean = false;
   private isRecognizing: boolean = false;
   private recognitionSessionId: number = 0;
   private restartTimeout: any = null;
@@ -112,21 +112,23 @@ export class ContinuousAudioEngine {
           }
           this.pauseForPlayback();
         } else {
-          const wasGated = this.isPlaybackGated;
           setTimeout(() => {
             if (!audioPlaybackController.isSpeaking()) {
               this.activePromptText = "";
             }
           }, 600);
-          if (wasGated && !this.isExplicitlyStopped && !this.isZeroPinMuted) {
-            // Strict 200ms acoustic tail buffer so room reverb from the speaker isn't recorded
+          if (!this.isProcessingGated && !this.isExplicitlyStopped && !this.isZeroPinMuted) {
+            // Strict 350ms acoustic tail buffer so room reverb from the speaker isn't recorded
             setTimeout(() => {
-              if (!audioPlaybackController.isSpeaking() && !this.isExplicitlyStopped && !this.isZeroPinMuted) {
+              if (
+                !audioPlaybackController.isSpeaking() &&
+                !this.isExplicitlyStopped &&
+                !this.isZeroPinMuted &&
+                !this.isProcessingGated
+              ) {
                 this.resumeAfterPlayback();
               }
-            }, 200);
-          } else if (!audioPlaybackController.isSpeaking() && !this.isExplicitlyStopped && !this.isZeroPinMuted) {
-            this.resumeAfterPlayback();
+            }, 350);
           }
         }
       });
@@ -141,14 +143,45 @@ export class ContinuousAudioEngine {
   }
 
   /**
-   * Gates microphone recording while system audio prompt is playing or after user finishes their sentence.
-   * Uses half-duplex software gating so the browser hardware mic stream is not torn down, preventing rapid mic flickering.
+   * Sets system processing state. When the system is processing a user turn or fetching an IVR response,
+   * the microphone must remain completely turned OFF.
+   */
+  public setProcessing(processing: boolean): void {
+    this.isProcessingGated = processing;
+    if (processing) {
+      this.pauseForPlayback();
+    }
+  }
+
+  /**
+   * Gates microphone recording while system audio prompt is playing or while system is processing.
+   * Disables hardware media tracks and cancels speech recognition so zero acoustic bleed or echo enters.
    */
   public pauseForPlayback(): void {
     this.isPlaybackGated = true;
     this.clearSentenceTimer();
     this.sentenceBuffer = [];
     this.lastStreamedWordCount = 0;
+    clearTimeout(this.restartTimeout);
+
+    // 1. Physically mute hardware microphone input to AudioContext/DSP
+    if (this.mediaStream) {
+      try {
+        this.mediaStream.getAudioTracks().forEach((track) => {
+          track.enabled = false;
+        });
+      } catch {}
+    }
+
+    // 2. Abort speech recognition immediately so it cannot transcribe audio from speakers
+    if (this.recognition) {
+      try {
+        (this.recognition as any).abortedExplicitly = true;
+        this.recognition.abort();
+      } catch {}
+      this.isRecognizing = false;
+    }
+
     this.updateState({
       isMicActive: false,
       isListening: false,
@@ -158,14 +191,32 @@ export class ContinuousAudioEngine {
   }
 
   /**
-   * Automatically resumes listening right after prompt audio finishes playing
+   * Automatically resumes listening right after prompt audio finishes playing AND system processing is done.
    */
   public resumeAfterPlayback(): void {
+    if (
+      this.isExplicitlyStopped ||
+      this.isZeroPinMuted ||
+      this.isProcessingGated ||
+      audioPlaybackController.isSpeaking()
+    ) {
+      return;
+    }
+
     this.isPlaybackGated = false;
     this.clearSentenceTimer();
     this.sentenceBuffer = [];
     this.lastStreamedWordCount = 0;
-    if (this.isExplicitlyStopped || this.isZeroPinMuted || audioPlaybackController.isSpeaking()) return;
+
+    // Re-enable hardware microphone input
+    if (this.mediaStream) {
+      try {
+        this.mediaStream.getAudioTracks().forEach((track) => {
+          track.enabled = true;
+        });
+      } catch {}
+    }
+
     this.updateState({
       isMicActive: true,
       isListening: true,
@@ -337,6 +388,11 @@ export class ContinuousAudioEngine {
           isSystemPlaying
         );
 
+        const canListen = !isSystemPlaying && !this.isPlaybackGated && !this.isProcessingGated && !this.isZeroPinMuted;
+        if (!canListen) {
+          this.freqBuffer.fill(0);
+        }
+
         // Notify frequency listeners for the real-time visualizer
         this.freqListeners.forEach((fn) => {
           try {
@@ -345,14 +401,13 @@ export class ContinuousAudioEngine {
         });
 
         // Update state (while system prompt is playing or mic is gated, voice active is false)
-        const canListen = !isSystemPlaying && !this.isPlaybackGated && !this.isZeroPinMuted;
         this.updateState({
-          rmsDb: frame.rmsDb,
-          snrDb: frame.snrDb,
+          rmsDb: canListen ? frame.rmsDb : -60,
+          snrDb: canListen ? frame.snrDb : 0,
           noiseFloorDb: acousticNoiseFilterModel.getNoiseFloorDb(),
           isVoiceActive: frame.isVoiceActive && canListen,
           isSystemEchoBlocked: isSystemPlaying || frame.isSystemEchoSuspected,
-          noiseCategory: frame.noiseCategory,
+          noiseCategory: canListen ? frame.noiseCategory : "quiet",
         });
       }
 
@@ -452,9 +507,13 @@ export class ContinuousAudioEngine {
 
     // If recognition is already actively running, do not abort and recreate!
     if (this.recognition && this.isRecognizing) {
-      if (!this.isPlaybackGated && !this.isZeroPinMuted && !audioPlaybackController.isSpeaking()) {
+      if (!this.isPlaybackGated && !this.isProcessingGated && !this.isZeroPinMuted && !audioPlaybackController.isSpeaking()) {
         this.updateState({ isMicActive: true, isListening: true });
       }
+      return;
+    }
+
+    if (this.isExplicitlyStopped || this.isZeroPinMuted || this.isPlaybackGated || this.isProcessingGated || audioPlaybackController.isSpeaking()) {
       return;
     }
 
@@ -478,16 +537,22 @@ export class ContinuousAudioEngine {
 
       recognition.onstart = () => {
         if ((recognition as any).sessionId !== this.recognitionSessionId) return;
-        this.isRecognizing = true;
-        if (!this.isPlaybackGated && !this.isZeroPinMuted && !audioPlaybackController.isSpeaking()) {
-          this.updateState({ isMicActive: true, isListening: true });
+        if (this.isExplicitlyStopped || this.isZeroPinMuted || this.isPlaybackGated || this.isProcessingGated || audioPlaybackController.isSpeaking()) {
+          try {
+            (recognition as any).abortedExplicitly = true;
+            recognition.abort();
+          } catch {}
+          this.isRecognizing = false;
+          return;
         }
+        this.isRecognizing = true;
+        this.updateState({ isMicActive: true, isListening: true });
       };
 
       recognition.onresult = (event: any) => {
         if ((recognition as any).sessionId !== this.recognitionSessionId) return;
         // Strictly ignore any recognition while system audio is playing or mic is gated
-        if (this.isZeroPinMuted || this.isPlaybackGated || audioPlaybackController.isSpeaking()) return;
+        if (this.isZeroPinMuted || this.isPlaybackGated || this.isProcessingGated || this.isExplicitlyStopped || audioPlaybackController.isSpeaking()) return;
 
         let interimStr = "";
         let finalStr = "";
@@ -663,6 +728,9 @@ export class ContinuousAudioEngine {
           if (
             !this.isExplicitlyStopped &&
             !this.isZeroPinMuted &&
+            !this.isPlaybackGated &&
+            !this.isProcessingGated &&
+            !audioPlaybackController.isSpeaking() &&
             (recognition as any).sessionId === this.recognitionSessionId &&
             !this.isRecognizing
           ) {

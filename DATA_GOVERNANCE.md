@@ -9,7 +9,7 @@ The current source/license declarations are recorded in `DATASET_MANIFEST.json` 
 
 | Dataset | Declared license | Production training status | Current limits |
 |---|---|---|---|
-| Ghana Speech (`ghananlpcommunity/ghana-speech`) | CC BY-NC 4.0 | Prohibited | Research/evaluation only; verify release, consent, and sample-level restrictions. |
+| Mozilla Common Voice Akan (`mozilla-foundation/common_voice_16_1`) | CC0 | License gate permits | Community crowdsourced voice corpus; verify language splits. |
 | Ghana English-Twi Code-Switching Speech IPA | Apache-2.0 | License gate permits, but no production training is established | Check exact release contents, provenance, consent, and quality before acquisition or use. |
 | Pristine Twi | CC BY-NC 4.0 | Prohibited | Non-commercial research scope only. |
 | Twi-English Reasoning SFT Mix | CC BY-NC 4.0 | Prohibited | Non-commercial restriction; translation quality and data provenance remain to be assessed. |

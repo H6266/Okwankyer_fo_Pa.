@@ -13,6 +13,7 @@ import { geminiClient } from "../../services/geminiClient";
 import { reasoningEngine } from "../understanding/reasoningEngine";
 import { localLanguageBrain } from "./LocalLanguageBrain";
 import { openAiReasoner } from "../../services/openai/openaiReasoner";
+import { groqReasoner } from "../../services/groq/groqReasoner";
 import { qwenReasoner } from "../../services/qwen/qwenReasoner";
 
 export type CognitiveCapability =
@@ -138,7 +139,7 @@ export class ModelRouter {
       name: qwenLocal ? "Local Qwen 3 Reasoning (Ollama)" : "Qwen AI Cloud Reasoning (qwen-plus)",
       isLocal: qwenLocal,
       capabilities: new Set(["GEMINI_REASONING"]),
-      priority: qwenLocal ? 5 : 20,
+      priority: qwenLocal ? 5 : 25,
       timeoutMs: qwenLocal ? qwenReasoner.getTimeoutMs() : 3000,
       isAvailable: () => qwenReasoner.isAvailable(),
       execute: async (payload) => {
@@ -152,13 +153,43 @@ export class ModelRouter {
       },
     });
 
-    // 4. Deterministic local reasoning is the safety fallback when all cloud LLMs fail (priority 25)
+    // 3. Groq AI Cloud Reasoning: Handshake 2 fallback after OpenAI (priority 20)
+    this.register({
+      id: "groq_reasoning",
+      name: "Groq AI LPU Cloud Reasoning",
+      isLocal: false,
+      capabilities: new Set(["GEMINI_REASONING"]),
+      priority: 20,
+      timeoutMs: 3000,
+      isAvailable: () => groqReasoner.isAvailable(),
+      execute: async (payload) => {
+        const languageHint = String(payload?.languageHint || "en").toLowerCase();
+        const targetLanguage = ["tw", "twi", "ak", "en-ak", "mixed-twi-en"].includes(languageHint)
+          ? "twi-asante"
+          : "en";
+        const res = await groqReasoner.reasonForBrain(
+          payload?.utterance || payload?.prompt || "",
+          payload?.existingSlots || {},
+          3000,
+          {
+            targetLanguage,
+            currentStep: payload?.currentStep,
+            transactionState: payload?.transactionState,
+            recipientVerified: payload?.recipientVerified,
+          }
+        );
+        if (!res) throw new Error("Groq reasoning yielded no result");
+        return res;
+      },
+    });
+
+    // 4. Deterministic local reasoning is the safety fallback when cloud LLMs fail.
     this.register({
       id: "deterministic_reasoning",
       name: "Deterministic Ghanaian Reasoning",
       isLocal: true,
       capabilities: new Set(["GEMINI_REASONING"]),
-      priority: 25,
+      priority: 30,
       timeoutMs: 800,
       isAvailable: () => true,
       execute: async (payload) => {
@@ -174,13 +205,13 @@ export class ModelRouter {
       },
     });
 
-    // 5. Built-in local brain remains the final in-house fallback (priority 30)
+    // 5. Built-in local brain remains the final in-house fallback.
     this.register({
       id: "local_language_brain",
       name: "Local Inbuilt Language Brain",
       isLocal: true,
       capabilities: new Set(["GEMINI_REASONING"]),
-      priority: 30,
+      priority: 35,
       timeoutMs: 1000,
       isAvailable: () => true,
       execute: async (payload) => {

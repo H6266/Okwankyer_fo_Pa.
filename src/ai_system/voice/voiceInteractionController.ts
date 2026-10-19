@@ -136,9 +136,9 @@ export class VoiceInteractionController {
         lastPromptText: "",
         silenceCount: 0,
         diagnostics: {
-          asrEngine: "Ghana NLP (Primary) + OpenAI (Verification)",
+          asrEngine: "UG HCI Lab (Primary) + OpenAI (Verification)",
           reasoningEngine: "OpenAI Reasoner (Responses Structured Output)",
-          ttsEngine: "Studio Catalog -> Ghana NLP -> OpenAI",
+          ttsEngine: "Studio Catalog -> UG HCI Lab -> OpenAI",
           memoryRecords: openaiEmbeddings.getHistoryCount(),
           dualAsrStatus: "idle",
           state: "IDLE",

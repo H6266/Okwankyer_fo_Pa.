@@ -808,7 +808,7 @@ export const AudioLibraryPage: React.FC = () => {
             {isAiMatching && (
               <div className="p-4 rounded-xl border border-sky-500/30 bg-sky-950/20 text-xs text-sky-300 flex items-center gap-2">
                 <RefreshCw className="w-4 h-4 animate-spin text-sky-400" />
-                <span>AI Brain (Gemini 3.8 Flash / OpenAI / Qwen) is analyzing reply and cross-referencing audio library...</span>
+                <span>AI Brain (Gemini 3.8 Flash / OpenAI / Groq) is analyzing reply and cross-referencing audio library...</span>
               </div>
             )}
 
@@ -911,7 +911,7 @@ export const AudioLibraryPage: React.FC = () => {
                     <p className="text-xs text-[#111A15] dark:text-[#F8FAF8] font-semibold mt-1">
                       {matchResult.match
                         ? `Matched: "${matchResult.spokenText || matchResult.title}"`
-                        : "Confidence below 50% threshold. Sent to GhanaNLP / Piper neural speech synthesis."}
+                        : "Confidence below 50% threshold. Sent to UG HCI Lab / Piper neural speech synthesis."}
                     </p>
 
                     <div className="text-[11px] font-mono text-[#5E7265] mt-1">

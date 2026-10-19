@@ -123,7 +123,7 @@ RENDER_EXTERNAL_URL=https://okwankyer-fo-pa.onrender.com
   * Add a Quota Status Bar showing live remaining ASR/TTS daily calls (e.g. `ASR: 10/10 remaining`, `TTS: 15/15 remaining`).
   * Add a "Mock Mode (Zero Quota)" vs "Live HCI Lab" toggle.
 * In `src/pages/dashboard/AsrLabPage.tsx` and `TtsLabPage.tsx`:
-  * Surface HCI Lab as a selectable provider alongside GhanaNLP and Local Vosk/Piper.
+  * Surface HCI Lab as a selectable provider alongside Gemini and Local Vosk/Piper.
 
 ---
 
