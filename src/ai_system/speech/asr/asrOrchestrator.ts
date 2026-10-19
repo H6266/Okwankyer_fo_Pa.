@@ -92,17 +92,17 @@ export class AsrOrchestrator {
     }
 
     // ── STEP 3: Language Strategy Resolution ──
-    const languageHint = (options.languageHint || "twi").toLowerCase().trim();
+    const languageHint = (options.languageHint || "twi").toLowerCase().trim().replace(/_/g, "-");
     let resolvedLanguage = "twi";
     let isMixed = false;
 
-    if (languageHint === "en" || languageHint === "eng" || languageHint === "english") {
+    if (["en", "eng", "english", "en-gh", "ghanaian-english"].includes(languageHint)) {
       resolvedLanguage = "eng";
-    } else if (languageHint === "atw" || languageHint === "akuapem" || languageHint === "twi-akuapem") {
+    } else if (["atw", "akuapem", "twi-akuapem", "ak-akuapem"].includes(languageHint)) {
       resolvedLanguage = "atw";
-    } else if (languageHint === "fat" || languageHint === "fante") {
+    } else if (["fat", "fante"].includes(languageHint)) {
       resolvedLanguage = "fat";
-    } else if (languageHint === "mixed" || languageHint === "mixed-twi-en" || languageHint === "bilingual") {
+    } else if (["mixed", "mixed-twi-en", "bilingual", "en-ak", "ak-en", "en-tw", "tw-en", "code-switched", "code-switching"].includes(languageHint)) {
       isMixed = true;
       resolvedLanguage = "twi"; // GhanaNLP Twi handles Akan-English code-switching
     } else {

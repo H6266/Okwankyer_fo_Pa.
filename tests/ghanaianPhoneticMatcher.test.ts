@@ -52,6 +52,22 @@ describe("Ghanaian Phonetic Matcher & Pronunciation Tolerance Engine", () => {
     expect(repairGhanaianPronunciation("aduanan").normalizedTranscript).toBe("40");
     expect(repairGhanaianPronunciation("aduonum").normalizedTranscript).toBe("50");
     expect(repairGhanaianPronunciation("oha").normalizedTranscript).toBe("100");
+    expect(repairGhanaianPronunciation("nnum").normalizedTranscript).toBe("5");
+  });
+
+  it("normalizes Twi phone digit sequences before zero/cancel phonetic rules", () => {
+    const result = repairGhanaianPronunciation(
+      "hwee nnum nnum mmiɛnsa nwɔtwe mmiɛnsa nwɔtwe anan nsia anan"
+    );
+
+    expect(result.normalizedTranscript).toBe("0553838464");
+    expect(result.extractedPhone).toBe("0553838464");
+  });
+
+  it("normalizes Twi pesewa amounts without losing the five-pesewa component", () => {
+    const result = repairGhanaianPronunciation("mane sidi aduonum ne nnum pesewas");
+
+    expect(result.normalizedTranscript).toContain("50 ne 5 pesewas");
   });
 
   it("normalizes accented English numbers with Ghanaian phonetics", () => {

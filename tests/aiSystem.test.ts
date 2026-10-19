@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { aiEngine } from "../src/ai_system/core/aiEngine";
+import { reasoningEngine } from "../src/ai_system/understanding/reasoningEngine";
 import { languageDetector } from "../src/ai_system/perception/languageDetector";
 import { inputNormalizer } from "../src/ai_system/perception/inputNormalizer";
 import { intentEngine } from "../src/ai_system/understanding/intentEngine";
@@ -53,6 +54,63 @@ describe("Ɔkwankyerɛfo Pa - AI System Master Cognitive Test Suite", () => {
     it("classifies 'Check my balance' as CHECK_BALANCE", () => {
       const match = intentEngine.classify("Check my balance");
       expect(match.intent).toBe("CHECK_BALANCE");
+    });
+
+    it("classifies explicit bill payments separately from money transfers", () => {
+      const result = reasoningEngine.deterministicReasoning({
+        utterance: "pay electricity bill",
+        currentStep: "welcome",
+      });
+
+      expect(result.intent).toBe("PAY_BILL");
+    });
+
+    it("preserves cancellation intent instead of reducing it to a denial", () => {
+      const stopped = reasoningEngine.deterministicReasoning({ utterance: "stop" });
+      const cancelled = reasoningEngine.deterministicReasoning({ utterance: "cancel this transaction" });
+      const denied = reasoningEngine.deterministicReasoning({ utterance: "no" });
+
+      expect(stopped.intent).toBe("CANCEL");
+      expect(cancelled.intent).toBe("CANCEL");
+      expect(denied.intent).toBe("DENY");
+    });
+
+    it("abstains on unsupported requests instead of inferring a financial intent", () => {
+      const unrelated = reasoningEngine.deterministicReasoning({ utterance: "what is the capital of France" });
+      const noise = reasoningEngine.deterministicReasoning({ utterance: "[background static]" });
+
+      expect(unrelated.intent).toBe("UNKNOWN");
+      expect(noise.intent).toBe("UNKNOWN");
+    });
+
+    it("uses numeric confirmation only at a confirmation or authentication step", () => {
+      const menuDigit = reasoningEngine.deterministicReasoning({ utterance: "1", currentStep: "welcome" });
+      const confirmation = reasoningEngine.deterministicReasoning({ utterance: "1", currentStep: "confirm" });
+
+      expect(menuDigit.intent).toBe("UNKNOWN");
+      expect(confirmation.intent).toBe("CONFIRM");
+    });
+
+    it("recognizes Twi balance and cash-out requests despite conversational particles", () => {
+      const balance = reasoningEngine.deterministicReasoning({ utterance: "sika a aka wɔ me account mu" });
+      const cashOut = reasoningEngine.deterministicReasoning({ utterance: "gye sika no bra" });
+
+      expect(balance.intent).toBe("CHECK_BALANCE");
+      expect(cashOut.intent).toBe("CASH_OUT");
+    });
+
+    it("recognizes Twi repeat and account inquiry phrases", () => {
+      const repeat = reasoningEngine.deterministicReasoning({ utterance: "tie biom" });
+      const account = reasoningEngine.deterministicReasoning({ utterance: "bue me account ma me" });
+
+      expect(repeat.intent).toBe("REPEAT");
+      expect(account.intent).toBe("CHECK_ACCOUNT");
+    });
+
+    it("keeps a navigation request from being mistaken for a denial", () => {
+      const result = reasoningEngine.deterministicReasoning({ utterance: "no wait go back please" });
+
+      expect(result.intent).toBe("GO_BACK");
     });
 
     it("classifies Akan 'Me pɛ sɛ me check balance' as CHECK_BALANCE", () => {

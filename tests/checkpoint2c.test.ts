@@ -186,6 +186,23 @@ describe('Checkpoint 2c: Model Wiring, Safety Hardening & Fallbacks', () => {
       expect(numberDecoder.decode('apem ahanu').numericValue).toBe(1200);
     });
 
+    it('combines cedis and pesewas into one GHS amount', () => {
+      expect(numberDecoder.decode('send 12 cedis and 5 pesewas').numericValue).toBe(12.05);
+      expect(numberDecoder.decode('mane sidi aduonum ne nnum pesewas').numericValue).toBe(50.05);
+      expect(numberDecoder.decode('25 pesewas').numericValue).toBe(0.25);
+    });
+
+    it('keeps Ghanaian phone digits separate from currency and refuses PIN values', () => {
+      const phone = numberDecoder.decode('send 50 cedis to zero five five three eight three eight four six four');
+      expect(phone.numericValue).toBe(50);
+      expect(phone.phoneNumberDigits).toBe('0553838464');
+
+      const pin = numberDecoder.decode('my MoMo PIN is 1234');
+      expect(pin.numericValue).toBeNull();
+      expect(pin.phoneNumberDigits).toBeUndefined();
+      expect(pin.isCurrencyAmount).toBe(false);
+    });
+
     it('speaks *170# using English loanwords "star" and "hash" by default with Twi digits', () => {
       // Default: English loanwords star/hash
       const twiDefault = formatUssdCodeSpoken('*170#', 'twi-asante');

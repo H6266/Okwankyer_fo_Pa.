@@ -20,4 +20,21 @@ describe("local language understanding safety", () => {
 
     expect(unbound.requestedAction.type).toBe("UNBOUND_CONFIRMATION");
   });
+
+  it("clears the previous phone when the caller changes the recipient", async () => {
+    const corrected = await localLanguageBrain.understand({
+      text: "Not Ama. Send it to Kofi",
+      previousSlots: {
+        amount: 30,
+        recipientName: "Ama",
+        recipientPhone: "0551234567",
+        network: "MTN",
+      },
+    });
+
+    expect(corrected.entities.recipientName).toBe("Kofi");
+    expect(corrected.entities.recipientPhone).toBeUndefined();
+    expect(corrected.correction?.isCorrection).toBe(true);
+    expect(corrected.requestedAction.type).not.toBe("PREPARE_TRANSFER");
+  });
 });

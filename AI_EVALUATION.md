@@ -10,7 +10,11 @@ The standalone NLU trainer and evaluator now share the same Akan-aware unigram/b
 
 Focused validation run on 2026-10-18 passed for the new local-ASR fallback, ASR-feedback consent/redaction, NLU scorer/evaluator, training eligibility, dataset-license validator, and offline AI-engine tests. The production build also succeeds. The local speech health check reports local ASR `NOT_READY` and local Piper TTS `READY`.
 
-The full TypeScript check still reports 11 errors in existing recording-registry, simulator speech-call, VoiceXML route, and canonical-prompt-test code. No accuracy result is published: the checked-in evaluation harnesses have not been shown to represent disjoint, human-reviewed Twi/English holdouts across the live brain, ASR, slots, and safety behavior.
+The full TypeScript check passed on 2026-10-19. No project-wide accuracy result is published: the checked-in evaluation harnesses have not been shown to represent disjoint, human-reviewed Twi/English holdouts across the live brain, ASR, slots, and safety behavior.
+
+## Exploratory transcript check (2026-10-19)
+
+The 30-row `data/evalTranscripts.json` smoke corpus now scores deterministic intent and exact amount/phone/name slot agreement. Latest result: intent 100.0%, slot exact match 86.7%; scenario intent scores were English 100%, Twi 100%, and code-switched 100%, while slot exact-match scores were 100%, 80%, and 80%, respectively. The runner made zero live model calls, so no live-model score was measured; it mirrored offline fallback results. This small internal corpus is not documented as speaker-disjoint or human-reviewed, and its recipient-name labels are incomplete. Treat these numbers as debugging evidence only, not model accuracy or release evidence.
 
 ## Required evaluation protocol
 

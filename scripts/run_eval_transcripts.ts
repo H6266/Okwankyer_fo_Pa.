@@ -31,6 +31,22 @@ interface EvalItem {
   };
 }
 
+interface ActualSlots {
+  amount?: number;
+  recipient?: { phone?: string; name?: string };
+  recipientPhone?: string;
+  recipientName?: string;
+}
+
+export function exactSlotMatch(expected: EvalItem['expectedSlots'], actual: ActualSlots): boolean {
+  const expectedPhone = expected.recipientPhone?.replace(/\D/g, '') || undefined;
+  const actualPhone = (actual.recipient?.phone || actual.recipientPhone)?.replace(/\D/g, '') || undefined;
+  const expectedName = expected.recipientName?.trim().toLowerCase() || undefined;
+  const actualName = (actual.recipient?.name || actual.recipientName)?.trim().toLowerCase() || undefined;
+
+  return expected.amount === actual.amount && expectedPhone === actualPhone && expectedName === actualName;
+}
+
 interface EvaluationResult {
   total: number;
   offlineIntentCorrect: number;
@@ -100,17 +116,7 @@ export async function runEvaluation(datasetPath?: string): Promise<EvaluationRes
       ('intent' in offlineOut.decision && offlineOut.decision.intent === item.expectedIntent) ||
       offlineOut.updatedDraft.intent === item.expectedIntent;
 
-    let offlineSlotsMatch = true;
-    if (item.expectedSlots.amount !== undefined) {
-      if (offlineOut.updatedDraft.slots.amount !== item.expectedSlots.amount) {
-        offlineSlotsMatch = false;
-      }
-    }
-    if (item.expectedSlots.recipientPhone !== undefined) {
-      if (offlineOut.updatedDraft.slots.recipient?.phone !== item.expectedSlots.recipientPhone) {
-        offlineSlotsMatch = false;
-      }
-    }
+    const offlineSlotsMatch = exactSlotMatch(item.expectedSlots, offlineOut.updatedDraft.slots);
 
     if (offlineIntentMatch) {
       result.offlineIntentCorrect++;
@@ -140,17 +146,7 @@ export async function runEvaluation(datasetPath?: string): Promise<EvaluationRes
           ('intent' in liveOut.decision && liveOut.decision.intent === item.expectedIntent) ||
           liveOut.updatedDraft.intent === item.expectedIntent;
 
-        liveSlotsMatch = true;
-        if (item.expectedSlots.amount !== undefined) {
-          if (liveOut.updatedDraft.slots.amount !== item.expectedSlots.amount) {
-            liveSlotsMatch = false;
-          }
-        }
-        if (item.expectedSlots.recipientPhone !== undefined) {
-          if (liveOut.updatedDraft.slots.recipient?.phone !== item.expectedSlots.recipientPhone) {
-            liveSlotsMatch = false;
-          }
-        }
+        liveSlotsMatch = exactSlotMatch(item.expectedSlots, liveOut.updatedDraft.slots);
       } catch {
         result.liveFallbacks++;
         liveIntentMatch = offlineIntentMatch;
@@ -192,8 +188,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       console.log(`Total Evaluated Transcripts: ${res.total}`);
       console.log(`Offline Overall Intent Accuracy : ${((res.offlineIntentCorrect / res.total) * 100).toFixed(1)}%`);
       console.log(`Offline Overall Slot Accuracy   : ${((res.offlineSlotCorrect / res.total) * 100).toFixed(1)}%`);
-      console.log(`Live Model Intent Accuracy      : ${((res.liveIntentCorrect / res.total) * 100).toFixed(1)}%`);
-      console.log(`Live Model Slot Accuracy        : ${((res.liveSlotCorrect / res.total) * 100).toFixed(1)}%`);
+      if (res.liveModelCalls > 0) {
+        console.log(`Live Model Intent Accuracy      : ${((res.liveIntentCorrect / res.total) * 100).toFixed(1)}%`);
+        console.log(`Live Model Slot Accuracy        : ${((res.liveSlotCorrect / res.total) * 100).toFixed(1)}%`);
+      } else {
+        console.log('Live Model Accuracy             : NOT MEASURED (provider unavailable; offline fallback mirrored)');
+      }
       console.log(`Live Model Calls Executed       : ${res.liveModelCalls}`);
       console.log(`Live Model Fallback Count       : ${res.liveFallbacks}\n`);
 

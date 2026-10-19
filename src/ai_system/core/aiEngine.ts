@@ -20,6 +20,7 @@ import {
   AiLanguage,
   AiProcessInput,
   AiProcessResult,
+  TranscriptFinal,
   CognitiveState,
   ConversationTurnRecord,
   DialogueOutput,
@@ -83,12 +84,18 @@ export class AiEngine {
     // ─────────────────────────────────────────────────────────────────────────
     const stage1Start = performance.now();
     let rawUtterance = input.input || "";
+    let speechRecognition: TranscriptFinal | undefined;
 
     // Stage 1 Audio Ingestion: If audio buffer supplied and text is empty, transcribe audio
     if (!rawUtterance.trim() && input.audioBuffer) {
       try {
-        const transcript = await audioIngestor.transcribe(input.audioBuffer, input.mimeType || "audio/wav");
-        rawUtterance = transcript.text;
+        speechRecognition = await audioIngestor.transcribe(
+          input.audioBuffer,
+          input.mimeType || "audio/wav",
+          input.currentStep,
+          input.language
+        );
+        rawUtterance = speechRecognition.text;
       } catch (err: any) {
         console.warn("[AiEngine] Audio ingestion/transcription notice:", err.message);
       }
@@ -101,12 +108,28 @@ export class AiEngine {
     const normalizedInput = inputNormalizer.normalize(piiMaskedInput);
 
     // Language & Code-Switch Detection
+    const recognizedLanguage = speechRecognition?.language?.toLowerCase();
+    const asrLanguage: AiLanguage | undefined = recognizedLanguage === "tw" || recognizedLanguage === "twi" || recognizedLanguage === "ak"
+      ? "tw"
+      : recognizedLanguage === "en" || recognizedLanguage === "eng" || recognizedLanguage === "english"
+      ? "en"
+      : undefined;
     const detectedLanguage: AiLanguage = input.language && input.language !== "unknown"
       ? input.language
-      : languageDetector.detect(normalizedInput);
+      : asrLanguage || languageDetector.detect(normalizedInput);
 
-    // Hydrate session and memory
-    let session = await unifiedMemory.getSession(input.sessionId);
+    // Independent memory reads run together so durable storage latency is not additive.
+    const userIdFromInput = input.userProfile?.userId;
+    const [loadedSession, history, pastTransactions, inputPreferences] = await Promise.all([
+      unifiedMemory.getSession(input.sessionId),
+      unifiedMemory.getConversationHistory(input.sessionId),
+      unifiedMemory.listTransactions(input.sessionId).catch(() => []),
+      userIdFromInput
+        ? unifiedMemory.getPreferences(userIdFromInput).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+
+    let session = loadedSession;
     if (!session) {
       session = {
         sessionId: input.sessionId,
@@ -145,22 +168,14 @@ export class AiEngine {
     const activeTask = unifiedMemory.getActiveTask(input.sessionId);
     const interruptedTask = unifiedMemory.getInterruptedTask(input.sessionId);
     const activeDraft = activeTask?.draft || null;
-    const history = await unifiedMemory.getConversationHistory(input.sessionId);
-
-    // Hydrate semantic memory context via vector similarity query
+    // Embedding search can involve a remote call; only retrieve old turns when asked for them.
     let semanticMemoryContext: ConversationTurnRecord[] = [];
-    try {
-      semanticMemoryContext = await unifiedMemory.searchSemanticMemory(input.sessionId, normalizedInput, 3);
-    } catch (err: any) {
-      // Graceful fallback to empty
-    }
-
-    // Hydrate past transactions & aggregate frequent contacts for recipient recall
-    let pastTransactions: any[] = [];
-    try {
-      pastTransactions = await unifiedMemory.listTransactions(input.sessionId);
-    } catch (err: any) {
-      // Graceful fallback
+    if (shouldRetrieveSemanticMemory(normalizedInput, history.length)) {
+      try {
+        semanticMemoryContext = await unifiedMemory.searchSemanticMemory(input.sessionId, normalizedInput, 3);
+      } catch (err: any) {
+        // Graceful fallback to empty
+      }
     }
 
     const contactMap = new Map<string, { name: string; phone: string; network?: string; count: number }>();
@@ -183,9 +198,9 @@ export class AiEngine {
     const frequentContacts = Array.from(contactMap.values()).sort((a, b) => b.count - a.count);
 
     // Hydrate user profile preferences
-    const userId = input.userProfile?.userId || session.userId;
-    let userPreferences = null;
-    if (userId) {
+    const userId = userIdFromInput || session.userId;
+    let userPreferences = inputPreferences;
+    if (userId && userId !== userIdFromInput) {
       try {
         userPreferences = await unifiedMemory.getPreferences(userId);
       } catch (err: any) {
@@ -303,6 +318,23 @@ export class AiEngine {
 
     latencies.navigationLatencyMs = Math.round(performance.now() - stage3Start);
 
+    const audioQualityStatus = speechRecognition?.audioQuality?.status;
+    const reportedLowAsrConfidence =
+      (speechRecognition?.confidenceSource === "provider" || speechRecognition?.confidenceSource === "calibrated") &&
+      speechRecognition.confidence !== null &&
+      speechRecognition.confidence !== undefined &&
+      speechRecognition.confidence < AI_CONFIG.confidenceThresholds.medium;
+    const requiresAudioRepeat = Boolean(
+      speechRecognition &&
+      (speechRecognition.pinDiscarded ||
+        (action.riskLevel !== "LOW" &&
+          (!speechRecognition.text.trim() ||
+            audioQualityStatus === "NO_SPEECH" ||
+            audioQualityStatus === "LOW_AUDIO_QUALITY" ||
+            audioQualityStatus === "CORRUPT_AUDIO" ||
+            reportedLowAsrConfidence)))
+    );
+
     // ─────────────────────────────────────────────────────────────────────────
     // STAGE 4: AUTHORIZE (Safety Engine, Zero-PIN, Security Invariants)
     // ─────────────────────────────────────────────────────────────────────────
@@ -316,10 +348,10 @@ export class AiEngine {
       ctx.rawInput.trim() === "1"
     );
     const allowToolExecution = input.executionPolicy !== "UNDERSTAND_ONLY";
-    const clientConfirmed = allowToolExecution && isAffirmative && ctx.activeDraft?.confirmationState === "CONFIRMATION_REQUESTED";
+    const clientConfirmed = allowToolExecution && !requiresAudioRepeat && isAffirmative && ctx.activeDraft?.confirmationState === "CONFIRMATION_REQUESTED";
 
     // If this turn prepares a confirmation prompt for caller, mark draft as CONFIRMATION_REQUESTED
-    if (allowToolExecution && ctx.activeDraft && (dialogueTypeIsConfirmation(intent, ctx.workingSlots) || navigation.targetStep === "confirm")) {
+    if (allowToolExecution && !requiresAudioRepeat && ctx.activeDraft && (dialogueTypeIsConfirmation(intent, ctx.workingSlots) || navigation.targetStep === "confirm")) {
       if (ctx.activeDraft.confirmationState === "UNCONFIRMED") {
         ctx.activeDraft.confirmationState = "CONFIRMATION_REQUESTED";
       }
@@ -345,6 +377,15 @@ export class AiEngine {
       failedAttemptsCount: safetyEvaluation.failedAttemptsCount,
       socialEngineeringAlert: safetyEvaluation.socialEngineeringAlert,
     };
+
+    if (requiresAudioRepeat) {
+      action.isExecutable = false;
+      action.requiresClientConfirmation = true;
+      action.type = "ASK_REPEAT_UNCLEAR_AUDIO";
+      safety.blockedReason = speechRecognition?.pinDiscarded
+        ? "AUDIO_PIN_DISCARDED"
+        : "AUDIO_UNCERTAIN_REQUIRES_REPEAT";
+    }
 
     // If Zero-PIN violated or action not permitted, block execution
     if (!safetyEvaluation.isActionPermitted || safety.pinDetectedInVoice || safety.rateLimitExceeded) {
@@ -475,6 +516,22 @@ export class AiEngine {
       dialogue.clarificationOptions = ["Send Money", "Check Balance", "Pay Bill"];
     }
 
+    if (requiresAudioRepeat) {
+      dialogue = {
+        type: "ERROR_RECOVERY",
+        response: speechRecognition?.pinDiscarded
+          ? (ctx.detectedLanguage === "tw" || ctx.detectedLanguage === "ak"
+            ? "Mfa wo MoMo PIN nka wɔ frɛ yi mu. Fa wo handset so pene so."
+            : "Do not say your Mobile Money PIN on this call. Approve securely on your handset.")
+          : (ctx.detectedLanguage === "tw" || ctx.detectedLanguage === "ak"
+            ? "Manteɛ no antɔ asom yie. Yɛsrɛ wo, san ka nsɛm no anaa fa phone keypad no di dwuma."
+            : "I did not hear that clearly enough to act safely. Please repeat it or use the phone keypad."),
+        promptLanguage: ctx.detectedLanguage,
+        needsClarification: true,
+        clarificationOptions: ["Repeat", "Use keypad"],
+      };
+    }
+
     // Interrupted Task Resumption Check
     if (intent === "CHECK_BALANCE") {
       const interruptedTask = unifiedMemory.getInterruptedTask(ctx.sessionId) || unifiedMemory.getActiveTask(ctx.sessionId);
@@ -597,6 +654,16 @@ export class AiEngine {
       intent,
       confidence,
       language: ctx.detectedLanguage,
+      speechRecognition: speechRecognition ? {
+        confidence: speechRecognition.confidence,
+        confidenceSource: speechRecognition.confidenceSource,
+        provider: speechRecognition.provider,
+        providerAttempted: speechRecognition.providerAttempted,
+        fallbackUsed: speechRecognition.fallbackUsed,
+        pinDiscarded: speechRecognition.pinDiscarded,
+        language: speechRecognition.language,
+        audioQuality: speechRecognition.audioQuality,
+      } : undefined,
       entities: ctx.workingSlots,
       dialogue,
       navigation,
@@ -616,6 +683,11 @@ export class AiEngine {
 
 function dialogueTypeIsConfirmation(intent: IntentName, slots: EntitySlotMap): boolean {
   return intent === "SEND_MONEY" && Boolean(slots.amount && slots.recipientPhone && slots.network);
+}
+
+export function shouldRetrieveSemanticMemory(text: string, historyCount: number): boolean {
+  if (historyCount <= 0) return false;
+  return /\b(?:same|usual|last(?:\s+(?:time|one|recipient|person))?|previous(?:ly)?|remember|before|again|him|her|them|his|hers)\b|\b(?:that|send\s+it\s+to)\s+(?:person|number|recipient|contact|it|him|her|them)\b/i.test(text);
 }
 
 export const aiEngine = new AiEngine();

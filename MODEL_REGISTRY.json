@@ -4,6 +4,25 @@
   "evidencePolicy": "No benchmark metrics are stored without reproducible evaluation artifacts.",
   "models": [
     {
+      "modelId": "Qwen/Qwen3-1.7B",
+      "provider": "OLLAMA_OPENAI_COMPATIBLE",
+      "version": "70d244cc86ccca08cf5af4e1e306ecf908b1ad5e",
+      "capabilities": ["LOCAL_LLM", "STRUCTURED_REASONING_PROPOSAL"],
+      "languages": ["English", "Twi", "Ghanaian English/code-switching (requires evaluation)"],
+      "taskTypes": ["INTENT_CANDIDATE", "SLOT_CANDIDATE", "CLARIFICATION_CANDIDATE"],
+      "license": "Apache-2.0",
+      "commercialUse": "Upstream model card declares Apache-2.0; review Ollama distribution and deployment terms before commercial release",
+      "runtime": "Ollama at http://127.0.0.1:11434/v1; opt-in with QWEN_MODE=local",
+      "quantization": "Ollama tag-specific; not verified in this repository",
+      "hardwareRequirements": "Model weights not downloaded; benchmark RAM, latency, and throughput on deployment hardware",
+      "offlineCapable": true,
+      "healthCheck": "OpenAI-compatible local endpoint must be running; structured contract validation required",
+      "verifiedAt": "2026-10-19",
+      "benchmarkArtifact": null,
+      "benchmarkCommit": null,
+      "status": "INTEGRATED_OPT_IN_NOT_BENCHMARKED"
+    },
+    {
       "modelId": "local-language-rules",
       "provider": "LOCAL_DETERMINISTIC",
       "version": "repository-head",

@@ -52,7 +52,7 @@ class TrainNluGateTests(unittest.TestCase):
 
     def test_checked_in_manifest_does_not_authorize_current_nlu_training(self):
         manifest_path = Path(__file__).resolve().parents[1] / "DATASET_MANIFEST.json"
-        with self.assertRaisesRegex(ValueError, "not a text or parallel corpus"):
+        with self.assertRaisesRegex(ValueError, "not approved for production training"):
             validate_dataset_eligibility(
                 str(manifest_path),
                 "ghana-codeswitch-ipa",

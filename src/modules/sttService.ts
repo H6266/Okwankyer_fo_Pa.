@@ -36,7 +36,7 @@ export interface SttResult {
 }
 
 export interface SpeechToTextProvider {
-  transcribe(audioPayload: Buffer | string, mimeType?: string, step?: string): Promise<SttResult>;
+  transcribe(audioPayload: Buffer | string, mimeType?: string, step?: string, languageHint?: string): Promise<SttResult>;
 }
 
 import {
@@ -285,9 +285,10 @@ async function transcribeAudioBufferUnified(
   buffer: Buffer,
   mime: string,
   step?: string,
-  _deadlineMs?: number
+  _deadlineMs?: number,
+  languageHint?: string
 ): Promise<SttResult> {
-  const orchResult = await asrOrchestrator.transcribe(buffer, mime, { step, allowFallback: true });
+  const orchResult = await asrOrchestrator.transcribe(buffer, mime, { step, languageHint, allowFallback: true });
   return {
     text: orchResult.text.length > 0 ? orchResult.text : "empty",
     confidence: orchResult.confidence,
@@ -305,7 +306,8 @@ export class TelephonySpeechService implements SpeechToTextProvider {
   public async transcribe(
     audioPayload: Buffer | string,
     mimeType: string = "audio/wav",
-    step?: string
+    step?: string,
+    languageHint?: string
   ): Promise<SttResult> {
     // 1. Remote Africa's Talking recording URL
     if (
@@ -330,7 +332,7 @@ export class TelephonySpeechService implements SpeechToTextProvider {
           : extension === ".webm"
           ? "audio/webm"
           : "audio/mpeg";
-        return await transcribeAudioBufferUnified(buffer, mime, step, 3000);
+        return await transcribeAudioBufferUnified(buffer, mime, step, 3000, languageHint);
       } catch (err: any) {
         return { text: "empty", confidence: 0.0, provider: "TelephonySpeechService" };
       }
@@ -342,14 +344,14 @@ export class TelephonySpeechService implements SpeechToTextProvider {
       if (match) {
         const mime = match[1];
         const buffer = Buffer.from(match[2], "base64");
-        return await transcribeAudioBufferUnified(buffer, mime, step, 3000);
+        return await transcribeAudioBufferUnified(buffer, mime, step, 3000, languageHint);
       }
     }
 
     // 3. Raw Buffer
     if (Buffer.isBuffer(audioPayload)) {
       try {
-        return await transcribeAudioBufferUnified(audioPayload, mimeType, step, 3000);
+        return await transcribeAudioBufferUnified(audioPayload, mimeType, step, 3000, languageHint);
       } catch {
         return {
           text: "empty",
@@ -396,7 +398,8 @@ export const speechToTextService = new TelephonySpeechService();
 export async function speechToText(
   audioBuffer: Buffer | string,
   mimeType?: string,
-  step?: string
+  step?: string,
+  languageHint?: string
 ): Promise<{
   text: string;
   confidence: number | null;
@@ -405,7 +408,7 @@ export async function speechToText(
   pinDiscarded?: boolean;
   provider?: string;
 }> {
-  const result = await speechToTextService.transcribe(audioBuffer, mimeType, step);
+  const result = await speechToTextService.transcribe(audioBuffer, mimeType, step, languageHint);
   return {
     text: result.text,
     confidence: result.confidence,

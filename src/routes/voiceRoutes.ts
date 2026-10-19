@@ -47,6 +47,7 @@ export const voiceRouter = Router();
 export const ivrRouter = Router();
 export const simulatorRouter = Router();
 const CALLER_RESPONSE_TIMEOUT_SECONDS = 90;
+const VOICE_INPUT_KEYPAD_GRACE_SECONDS = 8;
 
 export function getCollectionStagePromptId(slot: "recipient" | "amount" | string, fallbackPromptId: string): string {
   if (slot === "recipient") return "OP16";
@@ -254,7 +255,10 @@ ivrRouter.use((req: Request, res: Response, next: NextFunction) => {
     && !req.query?.speechText
     && !req.body?.RecordingUrl
     && !req.body?.recordingURL
-    && !req.query?.RecordingUrl;
+    && !req.body?.recordingUrl
+    && !req.query?.RecordingUrl
+    && !req.query?.recordingURL
+    && !req.query?.recordingUrl;
 
   if ((!hasDtmf || dtmf) && !emptySpeechCallback) return next();
   if (["/enter-pin", "/verify-pin", "/pin-handoff", "/confirm-speech"].includes(req.path)
@@ -425,7 +429,11 @@ function xmlResponse(res: Response, content: string, decision?: (Partial<IvrDeci
     }
   }
 
-  xml = xml.replace(/(<GetDigits\b[^>]*\btimeout=["'])\d+(["'])/gi, `$1${CALLER_RESPONSE_TIMEOUT_SECONDS}$2`);
+  const hasSpeechFallback = /<GetDigits\b[\s\S]*?<\/GetDigits>[\s\S]*?<Record\b/i.test(xml);
+  const getDigitsTimeout = hasSpeechFallback
+    ? VOICE_INPUT_KEYPAD_GRACE_SECONDS
+    : CALLER_RESPONSE_TIMEOUT_SECONDS;
+  xml = xml.replace(/(<GetDigits\b[^>]*\btimeout=["'])\d+(["'])/gi, `$1${getDigitsTimeout}$2`);
   if (!/<GetDigits\b/i.test(xml)) {
     xml = xml.replace(/(<Record\b[^>]*\btimeout=["'])\d+(["'])/gi, `$1${CALLER_RESPONSE_TIMEOUT_SECONDS}$2`);
   }
@@ -746,7 +754,7 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
     const replayPromptText = resolvePromptText("supported_service_select", lang) || "For a supported Mobile Money transfer, press 1. Press 9 to repeat, or 0 to exit.";
     return xmlResponse(
       res,
-      `    <Say voice="female">${escapeVoiceXml(decision.replyText)}</Say>\n    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("supported_service_select", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
+      `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("supported_service_select", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
       decision
     );
 });
@@ -857,7 +865,7 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
     const replayPromptText = resolvePromptText("mtn_network_select", lang) || "For MTN Mobile Money, press 1. For Telecel Cash, press 2. Press 9 to repeat, or 0 to exit.";
     return xmlResponse(
       res,
-      `    <Say voice="female">${escapeVoiceXml(decision.replyText)}</Say>\n    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("mtn_network_select", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
+      `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("mtn_network_select", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
       decision
     );
 });
@@ -980,7 +988,7 @@ ivrRouter.all("/action-choice", async (req: Request, res: Response) => {
     const replayPromptText = resolvePromptText("send_money_menu", lang) || "To send money, press 1. To go back, press 8. To hear this again, press 9. To exit, press 0.";
     return xmlResponse(
       res,
-      `    <Say voice="female">${escapeVoiceXml(decision.replyText)}</Say>\n    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("send_money_menu", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
+      `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("send_money_menu", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
       decision
     );
 });
@@ -1538,13 +1546,14 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
       : "Press 1 to confirm. To change the amount, press 2. To change the recipient, press 3. To cancel, press 0.";
     return xmlResponse(
       res,
-      `    <Say voice="female">${escapeVoiceXml(decision.replyText)}</Say>\n    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("confirm_continue", lang, baseUrl, confirmationChoices)}\n    </GetDigits>`,
+      `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("confirm_continue", lang, baseUrl, confirmationChoices)}\n    </GetDigits>`,
       decision
     );
   }
 
   // 1 = CONFIRMED: initiate real Zero-PIN handoff to handset
-  paymentInitiations.add(session);
+  try {
+    paymentInitiations.add(session);
     session.pinGatePassed = true;
     const checklistVerification = ChecklistStageManager.verifySession(session);
     if (!checklistVerification.isReadyForInitiation) {
@@ -1847,7 +1856,10 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   const provider = (req.query?.provider || req.body?.provider || "") as string;
   const phone = (req.query?.phone || req.body?.phone || "") as string;
   const name = (req.query?.name || req.body?.name || "") as string;
-  const recordingUrl = (req.body?.RecordingUrl || req.body?.recordingURL || req.query?.RecordingUrl || "") as string;
+  const recordingUrl = (
+    req.body?.RecordingUrl || req.body?.recordingURL || req.body?.recordingUrl ||
+    req.query?.RecordingUrl || req.query?.recordingURL || req.query?.recordingUrl || ""
+  ) as string;
   const directDtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const speechText = (req.body?.speechText || req.query?.speechText || "").trim() as string;
   const retry = parseInt((req.query?.retry || req.body?.retry || "0") as string, 10) || 0;
@@ -1902,7 +1914,7 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   } else if (recordingUrl) {
     const asrStartedAt = Date.now();
     try {
-      const stt = await speechToText(recordingUrl, undefined, step);
+      const stt = await speechToText(recordingUrl, undefined, step, lang);
       transcript = stt.text;
       confidence = stt.confidence;
       confidenceSource = stt.confidenceSource || "unavailable";

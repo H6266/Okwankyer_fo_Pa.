@@ -1,5 +1,21 @@
 {
   "version": "1.0.0",
-  "models": {},
+  "models": {
+    "qwen3-local-1.7b": {
+      "model_id": "Qwen/Qwen3-1.7B",
+      "upstream_revision": "70d244cc86ccca08cf5af4e1e306ecf908b1ad5e",
+      "license": "Apache-2.0",
+      "runtime": "Ollama OpenAI-compatible API",
+      "runtime_model": "qwen3:1.7b",
+      "capability": "structured Ghanaian-language reasoning proposal",
+      "languages": ["English", "Twi", "Ghanaian English/code-switching (requires evaluation)"],
+      "offline_capable": true,
+      "opt_in_environment": "QWEN_MODE=local",
+      "weights_downloaded": false,
+      "artifact_sha256": null,
+      "benchmark_artifact": null,
+      "status": "INTEGRATED_OPT_IN_NOT_BENCHMARKED"
+    }
+  },
   "policy": "No verified model artifacts are committed. Use training/export_model.py to add a model only after hashing the actual artifact and reviewing its license, language coverage, runtime, and evaluation evidence."
 }

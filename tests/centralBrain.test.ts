@@ -114,6 +114,52 @@ describe('Central Reasoning Brain - Architectural Invariants', () => {
       }
       expect(result.reply.text).toContain('That feature is not ready yet');
     });
+
+    it('classifies English airtime despite the recipient phone network mismatch', async () => {
+      const result = await brain.process({
+        transcript: 'recharge 10 cedis airtime for my phone 0271122334',
+        language: 'en',
+        sessionLanguage: 'en',
+        draft: { slots: {} },
+      });
+
+      expect(result.decision).toMatchObject({ kind: 'not_ready', intent: 'momo.buy_airtime' });
+    });
+
+    it('classifies Twi airtime without inventing a recipient name for "me fon"', async () => {
+      const result = await brain.process({
+        transcript: 'tɔ kɔkɔɔ credit cedi edu ma me fon 0201234567',
+        language: 'twi-asante',
+        sessionLanguage: 'twi-asante',
+        draft: { slots: {} },
+      });
+
+      expect(result.decision).toMatchObject({ kind: 'not_ready', intent: 'momo.buy_airtime' });
+      expect(result.updatedDraft.slots.recipient?.name).toBeUndefined();
+    });
+
+    it('does not treat a data bundle size as a Ghana Cedi amount', async () => {
+      const result = await brain.process({
+        transcript: 'buy two gig internet data bundle for me',
+        language: 'en',
+        sessionLanguage: 'en',
+        draft: { slots: {} },
+      });
+
+      expect(result.decision).toMatchObject({ kind: 'not_ready', intent: 'momo.buy_data' });
+      expect(result.updatedDraft.slots.amount).toBeUndefined();
+    });
+
+    it('treats an explicit reversal as reversal instead of a directed transfer', async () => {
+      const result = await brain.process({
+        transcript: 'i made a mistake please reverse my wrong transfer to that number',
+        language: 'en',
+        sessionLanguage: 'en',
+        draft: { slots: {} },
+      });
+
+      expect(result.decision).toMatchObject({ kind: 'not_ready', intent: 'momo.reverse_transaction' });
+    });
   });
 
   // ── 2. CLARIFY INTENT ON CLOSE CONFIDENCE ──────────────────────────────────

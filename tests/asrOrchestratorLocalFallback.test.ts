@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   analyze: vi.fn(),
   hciConfigured: vi.fn(),
   ghanaNlpConfigured: vi.fn(),
+  ghanaNlpTranscribe: vi.fn(),
   geminiAvailable: vi.fn(),
   localCheckHealth: vi.fn(),
   localTranscribe: vi.fn(),
@@ -21,7 +22,11 @@ vi.mock("../src/services/hciLabService", () => ({
   hciLabService: { isConfigured: mocks.hciConfigured },
 }));
 vi.mock("../src/services/ghanaNlpAsrService", () => ({
-  ghanaNlpAsrService: { isConfigured: mocks.ghanaNlpConfigured },
+  ghanaNlpAsrService: {
+    isConfigured: mocks.ghanaNlpConfigured,
+    transcribe: mocks.ghanaNlpTranscribe,
+    defaultTimeoutMs: 5000,
+  },
 }));
 vi.mock("../src/services/geminiClient", () => ({
   geminiClient: { isAvailable: mocks.geminiAvailable },
@@ -71,5 +76,32 @@ describe("ASR local fallback", () => {
     expect(result.text).toBe("Send 20 cedis to Kwame");
     expect(result.providerUsed).toBe("local-test-asr");
     expect(result.errorMessage).toBeUndefined();
+  });
+
+  it.each([
+    ["en-ak", "twi", "mixed-twi-en"],
+    ["code-switched", "twi", "mixed-twi-en"],
+    ["twi-akuapem", "atw", "atw"],
+    ["en-gh", "eng", "eng"],
+    ["fante", "fat", "fat"],
+  ])("routes %s language hint to the right GhanaNLP language", async (hint, providerLanguage, detectedLanguage) => {
+    mocks.ghanaNlpConfigured.mockReturnValue(true);
+    mocks.ghanaNlpTranscribe.mockResolvedValue({
+      text: "Mepɛ sɛ me send sika",
+      confidence: null,
+      confidenceSource: "provider_unreported",
+    });
+
+    const result = await asrOrchestrator.transcribe(Buffer.from([1, 2, 3]), "audio/wav", {
+      languageHint: hint,
+    });
+
+    expect(mocks.ghanaNlpTranscribe).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      providerLanguage,
+      "audio/wav",
+      5000
+    );
+    expect(result.languageDetected).toBe(detectedLanguage);
   });
 });

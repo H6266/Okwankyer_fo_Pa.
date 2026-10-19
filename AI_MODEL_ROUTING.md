@@ -3,6 +3,8 @@
 ## 1. Architectural Philosophy
 The `ModelRouter` decouples application logic from specific AI providers. System components request **capabilities** rather than named models.
 
+When `QWEN_MODE=local` is explicitly set, the registered Ollama-backed Qwen3 1.7B provider becomes the first reasoning candidate. Its output remains an untrusted structured proposal; transaction progression, confirmation binding, authorization, and payment verification remain deterministic application responsibilities. See `ml/README.md` for setup and the model registry for license and evaluation status.
+
 The system registers providers with capability descriptors:
 ```typescript
 export type CognitiveCapability =

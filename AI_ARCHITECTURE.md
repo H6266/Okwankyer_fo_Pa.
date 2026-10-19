@@ -1,6 +1,6 @@
 # Ɔkwankyerɛfo Pa architecture
 
-**Status date:** 2026-10-05
+**Status date:** 2026-10-19
 This document describes the current implemented seams and their limits. It is not a claim that the full target architecture has shipped.
 
 ## Current execution path
@@ -31,6 +31,8 @@ Production startup requires `ADMIN_TOKEN`, `SESSION_SECRET`, `ENCRYPTION_KEY` (e
 ## Speech capabilities
 
 - DTMF decoding and voice activity detection are signal-processing utilities. They do not transcribe speech.
+- Audio ingestion passes an available caller language hint to ASR and carries provider, attempted-provider, fallback, confidence-source, detected-language, PIN-discard, and acoustic-quality evidence into the canonical result. Acoustic quality is not treated as ASR confidence.
+- For non-low-risk actions, silence, corrupt/low-quality audio, or provider/calibrated ASR confidence below the medium threshold forces a repeat/keypad clarification. PIN-discarded audio always takes the secure handset response path. This reduces unsafe actions; it does not guarantee understanding every recording.
 - Local neural ASR is a separate worker and requires an explicitly configured model. Readiness must be checked against the running model worker.
 - Fixed recordings are human studio speech, not TTS.
 - Dynamic local neural speech uses the Piper worker when configured. TTS no longer silently falls back to formant synthesis. The experimental formant provider is behind an explicit development setting.
@@ -46,7 +48,7 @@ Production startup requires `ADMIN_TOKEN`, `SESSION_SECRET`, `ENCRYPTION_KEY` (e
 
 ## Evaluation and delivery
 
-Historical unsupported metrics and file-existence grading were removed from the evaluation scripts. The current test additions cover provider truth, unbound confirmation, missing networks, safe local understanding, and durable encrypted memory. They were not runnable in this environment because the checkout has no installed `vitest`, `tsc`, `eslint`, or `tsx`; Python is also unavailable. No benchmark, accuracy, latency, or release score is claimed.
+Historical unsupported metrics and file-existence grading were removed from the evaluation scripts. Focused audio/brain regressions and the full TypeScript check passed on 2026-10-19. This does not establish broad audio accuracy: no human-reviewed, speaker-disjoint Twi/English audio holdout or production ASR benchmark is available.
 
 ## Production status
 

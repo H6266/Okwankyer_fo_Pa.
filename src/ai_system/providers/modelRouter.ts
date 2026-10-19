@@ -130,20 +130,22 @@ export class ModelRouter {
       },
     });
 
-    // 3. Qwen AI Cloud Reasoning: Handshake 2 fallback after OpenAI (priority 20)
+    const qwenLocal = qwenReasoner.isLocalMode();
+
+    // Local open-weight Qwen is opt-in and leads reasoning only when explicitly selected.
     this.register({
       id: "qwen_reasoning",
-      name: "Qwen AI Cloud Reasoning (qwen-plus)",
-      isLocal: false,
+      name: qwenLocal ? "Local Qwen 3 Reasoning (Ollama)" : "Qwen AI Cloud Reasoning (qwen-plus)",
+      isLocal: qwenLocal,
       capabilities: new Set(["GEMINI_REASONING"]),
-      priority: 20,
-      timeoutMs: 3000,
+      priority: qwenLocal ? 5 : 20,
+      timeoutMs: qwenLocal ? qwenReasoner.getTimeoutMs() : 3000,
       isAvailable: () => qwenReasoner.isAvailable(),
       execute: async (payload) => {
         const res = await qwenReasoner.reasonForBrain(
           payload?.utterance || payload?.prompt || "",
           payload?.existingSlots || {},
-          3000
+          qwenLocal ? qwenReasoner.getTimeoutMs() : 3000
         );
         if (!res) throw new Error("Qwen AI reasoning yielded no result");
         return res;
@@ -318,7 +320,10 @@ export class ModelRouter {
     const report: ProviderHealth[] = [];
     const now = Date.now();
 
-    for (const [id, provider] of this.providers.entries()) {
+    const orderedProviders = Array.from(this.providers.entries()).sort(
+      ([, left], [, right]) => left.priority - right.priority
+    );
+    for (const [id, provider] of orderedProviders) {
       const cb = this.circuitBreakers.get(id);
       const failures = this.failureCounts.get(id) || 0;
       const successes = this.successCounts.get(id) || 0;

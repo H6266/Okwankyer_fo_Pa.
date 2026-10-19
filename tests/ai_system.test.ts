@@ -3,8 +3,8 @@
  * Comprehensive validation across all ten subsystems, hard latency targets, and Zero-PIN safety guarantees.
  */
 
-import { describe, it, expect, beforeEach, beforeAll } from "vitest";
-import { aiEngine } from "../src/ai_system/core/aiEngine";
+import { describe, it, expect, beforeEach, beforeAll, vi } from "vitest";
+import { aiEngine, shouldRetrieveSemanticMemory } from "../src/ai_system/core/aiEngine";
 import { aiMemory } from "../src/ai_system/core/aiMemory";
 import { aiUnderstanding } from "../src/ai_system/core/aiUnderstanding";
 import { aiNavigation } from "../src/ai_system/core/aiNavigation";
@@ -17,6 +17,8 @@ import { aiBootstrap } from "../src/ai_system/core/aiBootstrap";
 import { aiProviderAdapter } from "../src/ai_system/providers/aiProviderAdapter";
 import { inputNormalizer } from "../src/ai_system/perception/inputNormalizer";
 import { reasoningEngine } from "../src/ai_system/understanding/reasoningEngine";
+import { audioIngestor } from "../src/ai_system/perception/audioIngestor";
+import { unifiedMemory } from "../src/ai_system/memory/unifiedMemory";
 
 describe("Ɔkwankyerɛfo Pa - 10-System Cognitive Engine Master Test Suite", () => {
   beforeEach(() => {
@@ -415,6 +417,38 @@ describe("Ɔkwankyerɛfo Pa - 10-System Cognitive Engine Master Test Suite", () 
       expect(result.performance.dialogueLatencyMs).toBeLessThan(300);
     });
 
+    it("skips semantic embedding work unless the caller references past context", async () => {
+      const history = [{ sanitizedInput: "Previously sent money to Ama", slots: {} }] as any;
+      const historySpy = vi.spyOn(unifiedMemory, "getConversationHistory").mockResolvedValue(history);
+      const semanticSpy = vi.spyOn(unifiedMemory, "searchSemanticMemory").mockResolvedValue([]);
+
+      try {
+        await aiEngine.process({
+          sessionId: `fast_turn_${Date.now()}`,
+          channel: "TEXT",
+          input: "Send 50 cedis to Ama",
+          executionPolicy: "UNDERSTAND_ONLY",
+        });
+        expect(semanticSpy).not.toHaveBeenCalled();
+
+        await aiEngine.process({
+          sessionId: `recall_turn_${Date.now()}`,
+          channel: "TEXT",
+          input: "Use the same recipient as last time",
+          executionPolicy: "UNDERSTAND_ONLY",
+        });
+        expect(semanticSpy).toHaveBeenCalledOnce();
+        expect(shouldRetrieveSemanticMemory("same recipient as last time", 1)).toBe(true);
+        expect(shouldRetrieveSemanticMemory("send it to him again", 1)).toBe(true);
+        expect(shouldRetrieveSemanticMemory("use that recipient", 1)).toBe(true);
+        expect(shouldRetrieveSemanticMemory("send 50 cedis", 1)).toBe(false);
+        expect(shouldRetrieveSemanticMemory("same recipient as last time", 0)).toBe(false);
+      } finally {
+        historySpy.mockRestore();
+        semanticSpy.mockRestore();
+      }
+    });
+
     it("seamlessly processes multi-turn conversation with mid-turn correction", async () => {
       const sessionId = `multi_turn_${Date.now()}`;
 
@@ -485,6 +519,55 @@ describe("Ɔkwankyerɛfo Pa - 10-System Cognitive Engine Master Test Suite", () 
 
       expect(response.intent).toBe("CHECK_BALANCE");
       expect(response.confidence).toBeGreaterThanOrEqual(0.7);
+    });
+
+    it("preserves ASR provenance and blocks high-risk action on low-quality audio", async () => {
+      const transcribe = vi.spyOn(audioIngestor, "transcribe").mockResolvedValue({
+        text: "I want to send 50 cedis to 0541234567",
+        confidence: 0.4,
+        confidenceSource: "provider",
+        provider: "test-asr",
+        providerAttempted: "ghana-nlp",
+        fallbackUsed: true,
+        audioQuality: {
+          status: "LOW_AUDIO_QUALITY",
+          qualityScore: 0.2,
+          snrDb: -2,
+          speechDetected: true,
+          durationMs: 1800,
+        },
+        isFinal: true,
+        language: "tw",
+        timestamp: Date.now(),
+      });
+
+      try {
+        const result = await aiEngine.process({
+          sessionId: `audio_uncertain_${Date.now()}`,
+          channel: "VOICE",
+          input: "",
+          audioBuffer: Buffer.from("test audio"),
+          mimeType: "audio/wav",
+          language: "unknown",
+        });
+
+        expect(transcribe).toHaveBeenCalledWith(expect.any(Buffer), "audio/wav", undefined, "unknown");
+        expect(result.speechRecognition).toMatchObject({
+          provider: "test-asr",
+          providerAttempted: "ghana-nlp",
+          confidence: 0.4,
+          confidenceSource: "provider",
+          fallbackUsed: true,
+          language: "tw",
+          audioQuality: { status: "LOW_AUDIO_QUALITY" },
+        });
+        expect(result.language).toBe("tw");
+        expect(result.action.isExecutable).toBe(false);
+        expect(result.safety.blockedReason).toBe("AUDIO_UNCERTAIN_REQUIRES_REPEAT");
+        expect(result.dialogue.needsClarification).toBe(true);
+      } finally {
+        transcribe.mockRestore();
+      }
     });
 
     it("verifies system bootstrap runs health checks successfully", async () => {

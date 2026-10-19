@@ -1,8 +1,26 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { ModelRouter, CognitiveCapability } from "../src/ai_system/providers/modelRouter";
 import { geminiClient } from "../src/services/geminiClient";
 
 describe("ModelRouter & Circuit Breakers (Section 41 & 42)", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("promotes opt-in local Qwen ahead of cloud reasoning providers", () => {
+    vi.stubEnv("QWEN_MODE", "local");
+    vi.stubEnv("QWEN_BASE_URL", "");
+
+    const router = new ModelRouter();
+    const providers = router.getHealthReport();
+
+    expect(providers[0].id).toBe("qwen_reasoning");
+    expect(providers[0].isLocal).toBe(true);
+    expect(providers[0].name).toContain("Local Qwen 3");
+
+  });
+
   it("uses Gemini as the primary provider and keeps deterministic / local-brain fallbacks in the default routing order", () => {
     const router = new ModelRouter();
     const order = router.getHealthReport().map((provider) => provider.id);
@@ -33,15 +51,15 @@ describe("ModelRouter & Circuit Breakers (Section 41 & 42)", () => {
     const fallbackFn = async () => ({ intent: "SEND_MONEY", source: "local_rules" });
 
     // Attempt 1: Gemini fails, deterministic reasoning handles the fallback path.
-    const res1 = await router.executeCapability("GEMINI_REASONING", { prompt: "test" }, fallbackFn);
+    const res1 = await router.executeCapability("GEMINI_REASONING", { utterance: "send money" }, fallbackFn);
     expect(res1.result.intent).toBe("SEND_MONEY");
     expect(res1.providerUsed).toBe("deterministic_reasoning");
 
     // Attempt 2: Fails
-    await router.executeCapability("GEMINI_REASONING", { prompt: "test" }, fallbackFn);
+    await router.executeCapability("GEMINI_REASONING", { utterance: "send money" }, fallbackFn);
 
     // Attempt 3: Fails and TRIPS circuit breaker
-    await router.executeCapability("GEMINI_REASONING", { prompt: "test" }, fallbackFn);
+    await router.executeCapability("GEMINI_REASONING", { utterance: "send money" }, fallbackFn);
 
     const report = router.getHealthReport().find((p) => p.id === "flaky_cloud_provider");
     expect(report).toBeDefined();
@@ -51,7 +69,7 @@ describe("ModelRouter & Circuit Breakers (Section 41 & 42)", () => {
 
     // Attempt 4: Should SKIP remote execution entirely due to open circuit breaker.
     const attemptsBefore = remoteAttempts;
-    const res4 = await router.executeCapability("GEMINI_REASONING", { prompt: "test" }, fallbackFn);
+    const res4 = await router.executeCapability("GEMINI_REASONING", { utterance: "send money" }, fallbackFn);
     expect(res4.result.intent).toBe("SEND_MONEY");
     expect(res4.providerUsed).toBe("deterministic_reasoning");
     expect(remoteAttempts).toBe(attemptsBefore); // Proves circuit breaker bypassed the failing remote call!

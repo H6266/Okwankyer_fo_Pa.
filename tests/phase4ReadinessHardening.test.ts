@@ -28,6 +28,7 @@ import { durableIdempotencyLedger } from '../src/services/durableIdempotencyLedg
 import { durableTransactionStore } from '../src/services/durableTransactionStore';
 import { summarizeShadowDisagreements } from '../scripts/summarize_shadow_disagreements';
 import { voiceRouter } from '../src/routes/voiceRoutes';
+import * as sttService from '../src/modules/sttService';
 import { TWI_INTENT_KEYWORDS } from '../src/ai_system/linguistic/twiLexicon';
 import { formatAmountAsSpokenWords, numberConfig } from '../src/ai_system/linguistic/twiNumberWords';
 import { AUDIO_ASSET_INVENTORY, AUDIO_CATALOG } from '../src/audio/catalog';
@@ -361,6 +362,99 @@ describe('Phase 4: Readiness Hardening', () => {
       expect(res.text).toContain('<Response>');
       // Offers keypad input
       expect(res.text).toMatch(/GetDigits|enter-amount/);
+    });
+
+    it("accepts Africa's Talking recordingUrl and forwards the selected language to STT", async () => {
+      const transcribe = vi.spyOn(sttService, 'speechToText').mockResolvedValue({
+        text: 'aduonum cedis',
+        confidence: 0.9,
+        confidenceSource: 'provider',
+        languageDetected: 'twi',
+        provider: 'test-asr',
+      });
+
+      try {
+        const res = await request(app)
+          .post('/speech-fallback?step=enter-amount&sessionId=sess_at_recording_url&lang=twi')
+          .type('form')
+          .send({ recordingUrl: 'https://recordings.example.invalid/call.wav' });
+
+        expect(res.status).toBe(200);
+        expect(transcribe).toHaveBeenCalledWith(
+          'https://recordings.example.invalid/call.wav',
+          undefined,
+          'enter-amount',
+          'twi'
+        );
+        expect(res.text).not.toContain('/Please_respond.mp3');
+      } finally {
+        transcribe.mockRestore();
+      }
+    });
+
+    it('does not route a lowercase query recordingUrl through empty-input recovery', async () => {
+      const transcribe = vi.spyOn(sttService, 'speechToText').mockResolvedValue({
+        text: 'aduonum cedis',
+        confidence: 0.9,
+        confidenceSource: 'provider',
+        languageDetected: 'twi',
+        provider: 'test-asr',
+      });
+
+      try {
+        const res = await request(app)
+          .get('/speech-fallback?step=enter-amount&sessionId=sess_at_query_recording&lang=twi&recordingUrl=https%3A%2F%2Frecordings.example.invalid%2Fcall.wav');
+
+        expect(res.status).toBe(200);
+        expect(transcribe).toHaveBeenCalledWith(
+          'https://recordings.example.invalid/call.wav',
+          undefined,
+          'enter-amount',
+          'twi'
+        );
+        expect(res.text).not.toContain('/Please_respond.mp3');
+      } finally {
+        transcribe.mockRestore();
+      }
+    });
+
+    it("plays verified Twi welcome audio and starts speech recording after a short keypad window", async () => {
+      const res = await request(app)
+        .post('/voice-menu')
+        .type('form')
+        .send({
+          sessionId: 'sess_at_twi_welcome_audio',
+          callerNumber: '0241234567',
+          lang: 'twi',
+          isActive: '1',
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('<Play url="http://');
+      expect(res.text).toContain('/audio/Twi/Opening_voice_welcome_to_okwankyerefopa.mp3?format=mp3');
+      expect(res.text).toContain('<GetDigits timeout="8"');
+      expect(res.text).toContain('<Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4"');
+    });
+
+    it('keeps DTMF-only prompts on the standard caller response timeout', async () => {
+      const res = await request(app)
+        .post('/service-select?sessionId=sess_at_dtmf_only&lang=twi')
+        .type('form')
+        .send({ sessionId: 'sess_at_dtmf_only', lang: 'twi' });
+
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('<GetDigits timeout="90"');
+    });
+
+    it('replays the approved service menu recording without a duplicate TTS line', async () => {
+      const res = await request(app)
+        .post('/service-choice?sessionId=sess_at_invalid_choice&lang=en')
+        .type('form')
+        .send({ sessionId: 'sess_at_invalid_choice', lang: 'en', dtmfDigits: '4' });
+
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('/audio/English_Library/2.m4a?format=mp3');
+      expect(res.text).not.toContain('<Say');
     });
   });
 

@@ -11,6 +11,8 @@
  * - Provides word-by-word streaming phonetic normalization for the phone simulator terminal.
  */
 
+import { normalizeAkanToken, SHARED_TOKEN_VALUES } from "../../linguistic/numberLexicon";
+
 export interface PhoneticCorrection {
   original: string;
   corrected: string;
@@ -91,7 +93,7 @@ const PHONETIC_CORRECTION_RULES: Array<{
   { pattern: /\b(?:mmienu|mienu|menu|meenu|mi[eɛ]nu)\b/gi, replacement: "2", category: "number", reason: "Akan 2 normalization" },
   { pattern: /\b(?:mmi[eɛ]nsa|mmiensa|miensa|miesa)\b/gi, replacement: "3", category: "number", reason: "Akan 3 normalization" },
   { pattern: /\b(?:[eɛ]nan|enan|nnan|nan)\b/gi, replacement: "4", category: "number", reason: "Akan 4 normalization" },
-  { pattern: /\b(?:[eɛ]num|enum|num)\b/gi, replacement: "5", category: "number", reason: "Akan 5 normalization" },
+  { pattern: /\b(?:[eɛ]num|enum|nnum|num)\b/gi, replacement: "5", category: "number", reason: "Akan 5 normalization" },
   { pattern: /\b(?:nsia|nsiaa|sia)\b/gi, replacement: "6", category: "number", reason: "Akan 6 normalization" },
   { pattern: /\b(?:nson|nso)\b/gi, replacement: "7", category: "number", reason: "Akan 7 normalization" },
   { pattern: /\b(?:nw[oɔ]twe|nwotwe|wotwe|notwe)\b/gi, replacement: "8", category: "number", reason: "Akan 8 normalization" },
@@ -161,6 +163,17 @@ export function repairGhanaianPronunciation(rawText: string): PhoneticMatchResul
 
   let text = rawText.trim();
   const corrections: PhoneticCorrection[] = [];
+  const twiPhone = normalizeTwiSpokenPhoneNumbers(text);
+  if (twiPhone !== text) {
+    corrections.push({
+      original: text,
+      corrected: twiPhone,
+      confidence: 0.96,
+      category: "number",
+      reason: "Twi spoken phone digit sequence normalization",
+    });
+    text = twiPhone;
+  }
 
   // 1. Apply Rule-Based Phonetic Normalizations
   for (const rule of PHONETIC_CORRECTION_RULES) {
@@ -254,6 +267,22 @@ export function repairGhanaianPronunciation(rawText: string): PhoneticMatchResul
     isNegative,
     confidenceBoost: Math.min(0.2, corrections.length * 0.05),
   };
+}
+
+function normalizeTwiSpokenPhoneNumbers(input: string): string {
+  const tokens = input.split(/\s+/).filter(Boolean);
+  const digitValues = tokens.map((token) => {
+    const value = SHARED_TOKEN_VALUES[normalizeAkanToken(token)];
+    return value !== undefined && value >= 0 && value <= 9 ? String(value) : null;
+  });
+
+  for (let start = 0; start <= tokens.length - 10; start++) {
+    const digits = digitValues.slice(start, start + 10);
+    if (digits[0] !== "0" || digits.some((digit) => digit === null)) continue;
+    return [...tokens.slice(0, start), digits.join(""), ...tokens.slice(start + 10)].join(" ");
+  }
+
+  return input;
 }
 
 /**

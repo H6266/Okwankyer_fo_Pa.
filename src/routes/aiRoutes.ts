@@ -231,7 +231,7 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
     });
 
     // ── Live Synchronization 1: Call Session Repository ──────────────────
-    const targetStep = result.navigation?.targetStep || currentStep || "welcome";
+    let targetStep = result.navigation?.targetStep || currentStep || "welcome";
     const outcome = result.intent === "CANCEL" ? "CANCELLED" : "IN_PROGRESS";
 
     // ── Canonical Brain Reasoning & Reply Composition ───────────────────
@@ -402,7 +402,10 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
             : `Checklist incomplete. Missing requirement: ${missingName}. Cannot initiate transaction until this stage is complete.`);
 
         brainOutput.reply.text = blockageNotice;
-        brainOutput.decision.kind = "ask_slot";
+        brainOutput.decision = {
+          kind: "clarify_slot",
+          slot: checklistVerification.currentStage || "recipient",
+        };
         targetStep = ChecklistStageManager.getStepRouteForStage(checklistVerification.currentStage);
       }
     }

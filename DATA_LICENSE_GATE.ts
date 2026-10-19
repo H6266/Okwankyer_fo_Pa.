@@ -56,12 +56,12 @@ export const REGISTERED_DATASETS: Record<string, DatasetLicenseRecord> = {
     url: "https://huggingface.co/datasets/ghananlpcommunity/Ghana_English-Twi_Code-switching_Speech-ipa",
     license: "Apache-2.0",
     commercialUseAllowed: true,
-    tier: "GOLD", // Human verified, phonetically transcribed with IPA alignments and explicit speaker splits
+    tier: "SILVER", // Human transcripts with derived IPA; source quality and consent still need review
     language: ["en-GH", "tw", "en-tw"],
     modality: "speech",
-    approvedForProductionTraining: true,
+    approvedForProductionTraining: false,
     approvedForResearchAndEval: true,
-    notes: "Dataset card declares Apache-2.0 and provides transcript and IPA fields with split metadata; independently validate data quality before treating it as a benchmark.",
+    notes: "Pinned Apache-2.0 dataset candidate with speaker metadata and split shards. Consent and PII review are not documented; do not train or use as a gold benchmark until reviewed.",
   },
   "pristine-twi": {
     id: "pristine-twi",

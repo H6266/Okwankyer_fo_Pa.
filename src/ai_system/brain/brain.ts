@@ -814,6 +814,9 @@ export class Brain {
     // DETERMINISTIC OFFLINE / FALLBACK PATH (Runs only when Gemini is offline)
     // ─────────────────────────────────────────────────────────────────────────
     const normalizedText = inputNormalizer.normalize(rawTranscript);
+    const hasDataQuantityWithoutCurrency =
+      /\b[\p{L}\d]+\s+(?:gig(?:abyte)?s?|gb|megabytes?|mb)\b/iu.test(rawTranscript) &&
+      !/\b\d+(?:\.\d{1,2})?\s*(?:ghs|cedis?|sedis|sidi)\b/i.test(rawTranscript);
     const contextualAnalysis = contextualReasoningEngine.analyzeTurn({
       utterance: normalizedText,
       currentSlots: draft.slots as any,
@@ -855,7 +858,9 @@ export class Brain {
     const previousRecipientName = draft.slots.recipient?.name;
 
     if (contextualAnalysis.updatedSlots) {
-      Object.assign(draft.slots, contextualAnalysis.updatedSlots);
+      const contextualSlots = { ...contextualAnalysis.updatedSlots };
+      if (hasDataQuantityWithoutCurrency) delete contextualSlots.amount;
+      Object.assign(draft.slots, contextualSlots);
       if ((contextualAnalysis.updatedSlots as any).recipientPhone || (contextualAnalysis.updatedSlots as any).recipientName) {
         draft.slots.recipient = {
           phone: (contextualAnalysis.updatedSlots as any).recipientPhone || draft.slots.recipient?.phone,
@@ -955,8 +960,17 @@ export class Brain {
       }
     }
 
-    // Check if new network discrepancy detected for low-literacy warning
-    if (draft.slots.hasNetworkDiscrepancy && !draft.slots.crossNetworkApproved) {
+    const intentScores = this.scoreIntents(rawTranscript, draft);
+    const leadingIntent = Object.entries(intentScores)
+      .filter(([id]) => id !== 'unknown')
+      .sort((a, b) => b[1] - a[1])[0]?.[0];
+
+    // A phone-number network mismatch is only a transfer concern after intent is established.
+    if (
+      draft.slots.hasNetworkDiscrepancy &&
+      !draft.slots.crossNetworkApproved &&
+      leadingIntent === 'momo.transfer'
+    ) {
       if (!draft.intent) {
         draft.intent = 'momo.transfer';
       }
@@ -1022,8 +1036,6 @@ export class Brain {
     // ─────────────────────────────────────────────────────────────────────────
     // STEP 3: INTENT SCORING & SETTLING (HYBRID MODEL / DETERMINISTIC ROUTING)
     // ─────────────────────────────────────────────────────────────────────────
-    const intentScores = this.scoreIntents(rawTranscript, draft);
-
     const sortedCandidates = Object.entries(intentScores)
       .filter(([id]) => id !== 'unknown')
       .sort((a, b) => b[1] - a[1]) as Array<[IntentId, number]>;
@@ -1953,11 +1965,12 @@ export class Brain {
     };
 
     const isCashOut = /\b(withdraw|cash\s*out|cashout|allow\s*cash\s*out|take\s*out\s*money|pull\s*money|yi\s*sika|mepɛ\s*sɛ\s*meyi\s*sika|gye\s*sika)\b/i.test(lower);
+    const hasReverseCue = /\b(?:reverse|reversal|sent\s+by\s+mistake|made\s+a\s+mistake|sesa\s+transaction|nɔmba\s+mfomsoɔ|san\s+fa\s+sika|mfomsoɔ|wrong\s+(?:number|transfer)|refund)\b/i.test(lower);
 
-    const isTransferDirected = !isCashOut && ((/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && /\b(?:to|kɔma|give)\b/i.test(lower)) ||
+    const isTransferDirected = !isCashOut && !hasReverseCue && ((/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && /\b(?:to|kɔma|give)\b/i.test(lower)) ||
       (/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && (Boolean(draft.slots.recipient?.phone) || /\b0[235]\d{8}\b/.test(lower))));
 
-    const isReverse = !isCashOut && !isTransferDirected && /\b(?:reverse|reversal|sent\s+by\s+mistake|made\s+a\s+mistake|sesa\s+transaction|nɔmba\s+mfomsoɔ|san\s+fa\s+sika|mfomsoɔ|wrong\s+(?:number|transfer)|refund)\b/i.test(lower);
+    const isReverse = !isCashOut && hasReverseCue;
 
     const hasTransferAction = isTransferDirected;
 
@@ -2124,12 +2137,15 @@ export class Brain {
 
     // 2. Amount extraction
     const halfMatch = text.match(/half of (?:my )?(\d+)/i) || text.match(/(?:i have|got)\s+(\d+).*?half/i);
-    if (halfMatch) {
+    const hasDataQuantity =
+      /\b(?:[\p{L}\d]+)\s+(?:gig(?:abyte)?s?|gb|megabytes?|mb)\b/iu.test(text) &&
+      !/\b\d+(?:\.\d{1,2})?\s*(?:ghs|cedis?|sedis|sidi)\b/i.test(text);
+    if (halfMatch && !hasDataQuantity) {
       const parsed = parseFloat(halfMatch[1]) / 2;
       if (!isNaN(parsed) && parsed > 0 && parsed <= this.config.maxTransferAmount) {
         currentSlots.amount = parsed;
       }
-    } else {
+    } else if (!hasDataQuantity) {
       const currencyAmountRegex = /\b(\d+(?:\.\d{1,2})?)\s*(?:ghs|cedis?|sedis|sidi)\b/i;
       const genericAmountRegex = /\b(\d+(?:\.\d{1,2})?)\b/i;
       const amtMatch = text.match(currencyAmountRegex) || text.match(genericAmountRegex);
@@ -2152,7 +2168,7 @@ export class Brain {
     if (labelMatch) {
       const name = labelMatch[1].trim();
       const lowerName = name.toLowerCase();
-      if (!['him', 'her', 'them', 'someone', 'cedis', 'ghs', 'money', 'sika', 'phone', 'number', 'the', 'my'].includes(lowerName)) {
+      if (!['him', 'her', 'them', 'someone', 'me', 'myself', 'me fon', 'me phone', 'my phone', 'cedis', 'ghs', 'money', 'sika', 'phone', 'number', 'the', 'my'].includes(lowerName)) {
         currentSlots.recipient.name = name;
       }
     }

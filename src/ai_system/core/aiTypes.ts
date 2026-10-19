@@ -107,7 +107,17 @@ export interface TranscriptFinal {
   confidence: number | null;
   confidenceSource?: "provider" | "calibrated" | "provider_unreported" | "unavailable";
   provider?: string;
+  providerAttempted?: string;
   fallbackUsed?: boolean;
+  pinDiscarded?: boolean;
+  audioQuality?: {
+    status?: string;
+    qualityScore?: number;
+    snrDb?: number;
+    speechDetected?: boolean;
+    durationMs?: number;
+    reason?: string;
+  };
   isFinal: true;
   language?: AiLanguage | string;
   timestamp: number;
@@ -518,6 +528,7 @@ export interface AiProcessResult {
   intent: IntentName;
   confidence: number;
   language: AiLanguage;
+  speechRecognition?: Omit<TranscriptFinal, "text" | "timestamp" | "isFinal">;
   entities: EntitySlotMap;
   dialogue: DialogueOutput;
   navigation: NavigationOutput;

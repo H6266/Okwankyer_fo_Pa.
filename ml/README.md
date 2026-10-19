@@ -52,7 +52,26 @@ python ml/piper_tts_server.py
 ```
 *Health check:* `http://127.0.0.1:8766/health`
 
-## Optional local Akan/Twi ASR
+## 2. Optional Open-Weight Reasoning Brain (Qwen3 1.7B)
+
+The TypeScript `ModelRouter` supports the Hugging Face [Qwen3-1.7B](https://huggingface.co/Qwen/Qwen3-1.7B) model through Ollama's OpenAI-compatible local API. The upstream model card declares Apache-2.0 at revision `70d244cc86ccca08cf5af4e1e306ecf908b1ad5e`. Local Qwen is opt-in; without `QWEN_MODE=local`, the current cloud/local fallback configuration is unchanged.
+
+Install Ollama using its official installation instructions, then run:
+```bash
+ollama pull qwen3:1.7b
+ollama serve
+```
+
+Configure the application process:
+```bash
+export QWEN_MODE=local
+export QWEN_BASE_URL=http://127.0.0.1:11434/v1
+export QWEN_MODEL=qwen3:1.7b
+```
+
+No API key is needed for Ollama. The model returns a structured reasoning proposal only; phone masking, schema checks, deterministic transaction state, caller confirmation, and verified provider results remain application-owned. The model has not been benchmarked on Ɔkwankyerɛfo Pa's held-out Ghanaian speech or finance corpus, so keep it in evaluation/pilot use until local latency, Twi/code-switch accuracy, and safety regressions are measured.
+
+## 3. Optional local Akan/Twi ASR
 
 The neural worker uses faster-whisper for English. For Twi, it can optionally
 use the Apache-2.0 [ASR Africa Akan XLS-R model](https://huggingface.co/asr-africa/wav2vec2-xls-r-akan-50-hours)

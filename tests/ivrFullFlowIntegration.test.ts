@@ -791,7 +791,8 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     const unadvertisedChoice = await request(app)
       .post("/service-choice")
       .send({ sessionId, lang: "en", dtmfDigits: "4" });
-    expect(unadvertisedChoice.text).toContain("not a valid choice");
+    expect(unadvertisedChoice.text).toContain("/audio/English_Library/2.m4a?format=mp3");
+    expect(unadvertisedChoice.text).not.toContain("<Say");
   });
 
   it("executes the exact 7-step canonical MoMo voice flow (Ama Mensah, 500 GHS, Zero-PIN handoff, receipt)", async () => {
