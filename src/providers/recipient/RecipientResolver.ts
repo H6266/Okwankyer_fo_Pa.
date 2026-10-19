@@ -42,6 +42,34 @@ export function sandboxRecipientFixturesAllowed(environment: {
   );
 }
 
+export function sandboxDemoRecipientsAllowed(environment: {
+  nodeEnv: string;
+  demoMode: boolean;
+  momo: { targetEnv: string };
+}): boolean {
+  return environment.nodeEnv !== "production" && (
+    environment.demoMode ||
+    (environment.nodeEnv === "development" && environment.momo.targetEnv === "sandbox")
+  );
+}
+
+const DEMO_GHANAIAN_RECIPIENT_NAMES = [
+  "Ama Mensah",
+  "Kofi Annan",
+  "Abena Mansa",
+  "Kwame Boateng",
+  "Akosua Asante",
+  "Yaw Osei",
+  "Adwoa Frimpong",
+  "Kojo Owusu",
+];
+
+function demoRecipientNameForPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  const digitSum = [...digits].reduce((sum, digit) => sum + Number(digit), 0);
+  return DEMO_GHANAIAN_RECIPIENT_NAMES[digitSum % DEMO_GHANAIAN_RECIPIENT_NAMES.length];
+}
+
 /**
  * Sandbox fallback implementation: uses clearly labeled test fixtures in src/demo/.
  */
@@ -76,12 +104,12 @@ export class SandboxRecipientResolver implements RecipientResolver {
       };
     }
 
-    if (config.nodeEnv !== "production" && config.demoMode) {
+    if (sandboxDemoRecipientsAllowed(config)) {
       return {
         valid: true,
         phoneNumber: rawPhoneNumber,
         normalizedPhone: val.normalized,
-        name: "Demo Recipient",
+        name: demoRecipientNameForPhone(val.normalized),
         network: val.network,
         verified: true,
         source: "SANDBOX_FIXTURE",

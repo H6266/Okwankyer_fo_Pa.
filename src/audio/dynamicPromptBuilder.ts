@@ -116,16 +116,16 @@ export function renderDynamicPromptTemplate(
       const name = params.name?.trim() || params.recipientName?.trim();
       if (!name) return null;
       return isTwi
-        ? `Recipient no din ne ${name}.`
-        : `The recipient's name is ${name}.`;
+        ? `Recipient no din: ${name}.`
+        : `Recipient name: ${name}.`;
     }
     case "OP21": {
       const rawPhone = params.phone || params.recipientPhone;
       if (!rawPhone || !validateGhanaPhoneNumber(rawPhone).valid) return null;
       const fullDigits = formatFullPhoneNumberForSpeech(rawPhone, language);
       return isTwi
-        ? `Ne phone nɔmba a ɛdi mũ no ne ${fullDigits}.`
-        : `The full recipient phone number is ${fullDigits}.`;
+        ? `Ne phone: ${fullDigits}.`
+        : `Phone: ${fullDigits}.`;
     }
     case "OP29": {
       if (params.amount === undefined || params.amount === "") return null;
@@ -134,8 +134,8 @@ export function renderDynamicPromptTemplate(
       if (!parsed.valid || parsed.amount === undefined) return null;
       const amountStr = parsed.formatted || `${rawAmount} Cedis`;
       return isTwi
-        ? `Mate sɛ ɛyɛ Ghana cedis ${amountStr}. Sɛ ɛyɛ nokware a, mia 1. Sɛ wopɛ sɛ wosesa a, mia 2. Sɛ wogyae a, mia 0.`
-        : `I heard ${amountStr} Ghana cedis. Press 1 to accept, 2 to change the amount, or 0 to cancel.`;
+        ? `Mate sɛ wopɛ sɛ wode Ghana cedis ${amountStr} bɛmane.`
+        : `I heard you want to send ${amountStr} Ghana cedis.`;
     }
     case "OP35": {
       const name = params.name?.trim() || params.recipientName?.trim();

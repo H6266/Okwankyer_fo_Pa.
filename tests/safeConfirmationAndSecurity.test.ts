@@ -21,6 +21,7 @@ import {
 } from "../src/domain/validation";
 import {
   SandboxRecipientResolver,
+  sandboxDemoRecipientsAllowed,
   sandboxRecipientFixturesAllowed,
 } from "../src/providers/recipient/RecipientResolver";
 import {
@@ -170,6 +171,19 @@ describe("Task 2: Real Recipient Resolution & Input Validation", () => {
       momo: { targetEnv: "sandbox" },
     })).toBe(true);
     expect(sandboxRecipientFixturesAllowed({
+      nodeEnv: "production",
+      demoMode: true,
+      momo: { targetEnv: "sandbox" },
+    })).toBe(false);
+  });
+
+  it("accepts unregistered valid recipients in development sandbox demo mode only", () => {
+    expect(sandboxDemoRecipientsAllowed({
+      nodeEnv: "development",
+      demoMode: false,
+      momo: { targetEnv: "sandbox" },
+    })).toBe(true);
+    expect(sandboxDemoRecipientsAllowed({
       nodeEnv: "production",
       demoMode: true,
       momo: { targetEnv: "sandbox" },

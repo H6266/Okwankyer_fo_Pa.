@@ -1111,6 +1111,7 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
   const rawDigitsInput = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim();
   const bufferRes = KeypadBufferManager.appendDigit(sessionId, rawDigitsInput, "phone_number");
   const rawDigits = (bufferRes.submittedValue || bufferRes.bufferedValue || rawDigitsInput).replace(/#+$/, "");
+  KeypadBufferManager.clearBuffer(sessionId);
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getOrCreateSession(sessionId);
 
@@ -1211,27 +1212,13 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
 
   const recipientNamePrompt = resolvePromptSpokenText("OP20", lang, { recipientName: resolution.name });
   const recipientPhonePrompt = resolvePromptSpokenText("OP21", lang, { recipientPhone: phoneValidation.normalized });
-  const isCrossNetwork = session.network && resolution.network && session.network.toUpperCase() !== resolution.network.toUpperCase();
-  const recipientFoundText = lang === "twi" ? "Yɛahu recipient no." : "We found the recipient.";
-  const recipientVerifyText = lang === "twi"
-    ? "Tie ne din ne fon nɔmba no yie."
-    : "Please listen carefully to the name and full phone number.";
-  const networkWarningText = isCrossNetwork
-    ? (lang === "twi"
-        ? `Saa nɔmba yi yɛ ${resolution.network}. Wopawoo ${session.network} mfitiaseɛ no. Yɛsrɛ wo, hwɛ nsɛm a ɛdidi so yi yie.`
-        : `This number is on ${resolution.network}, while you selected ${session.network}. Please review the details that follow.`)
-    : "";
-  const choiceText = lang === "twi"
-    ? "Sɛ nsɛm no yɛ nokware a, mia 1. Sɛ wopɛ sɛ wosesa recipient no a, mia 2. Sɛ wogyae a, mia 0."
-    : "If these details are correct, press 1. To change the recipient, press 2. To cancel, press 0.";
+  const readbackText = `${recipientNamePrompt} ${recipientPhonePrompt}`;
 
   const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/recipient-verify-choice?sessionId=${sessionId}&amp;lang=${lang}">
-        ${canonicalPromptElement("recipient_found", lang, baseUrl, recipientFoundText)}
-        ${canonicalPromptElement("recipient_verify", lang, baseUrl, recipientVerifyText)}
-        ${networkWarningText ? `<Say voice="female">${escapeVoiceXml(networkWarningText)}</Say>` : ""}
-        <Say voice="female">${escapeVoiceXml(recipientNamePrompt)}</Say>
-        <Say voice="female">${escapeVoiceXml(recipientPhonePrompt)}</Say>
-        ${canonicalPromptElement("recipient_confirm_speech", lang, baseUrl, choiceText)}
+        <Say voice="female">${escapeVoiceXml(readbackText)}</Say>
+        ${canonicalPromptElement("confirm_continue", lang, baseUrl, lang === "twi"
+    ? "Sɛ wopene so a mia 1, sɛ wopɛ sɛ wosesa a mia 2, anaa mia 0 na woagyae."
+    : "Press 1 to confirm, 2 to change the recipient, or 0 to cancel.")}
     </GetDigits>
     `;
 
@@ -1239,7 +1226,7 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
     stepId: "recipient-verify-choice",
     stepName: "recipient-verify-choice",
     promptKey: "OP23",
-    replyText: `${recipientFoundText} ${recipientVerifyText} ${networkWarningText} ${recipientNamePrompt} ${recipientPhonePrompt} ${choiceText}`,
+    replyText: readbackText,
     recipientName: resolution.name || undefined,
     recipientPhone: phoneValidation.normalized,
   } as any);
@@ -1291,14 +1278,13 @@ ivrRouter.all("/recipient-verify-choice", (req: Request, res: Response) => {
   }
 
   if (dtmf !== "1") {
-    const tallyFeedback = lang === "twi"
-      ? "Mmuaeɛ a wode maaeɛ no ntɔ asom, mɛbɔ nne no bio, yɛsrɛ wo paw mmuaeɛ no bio."
-      : "The answer you gave doesn't tally, I will mention the audio again please choose the answer again.";
-    const choiceText = lang === "twi"
-      ? "Sɛ nsɛm no yɛ nokware a, mia 1. Sɛ wopɛ sɛ wosesa recipient no a, mia 2. Sɛ wogyae a, mia 0."
-      : "If these details are correct, press 1. To change the recipient, press 2. To cancel, press 0.";
-    return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(tallyFeedback)}</Say>\n    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/recipient-verify-choice?sessionId=${sessionId}&amp;lang=${lang}">
-        ${canonicalPromptElement("recipient_confirm_speech", lang, baseUrl, choiceText)}
+    const namePrompt = resolvePromptSpokenText("OP20", lang, { recipientName: session.recipientName });
+    const phonePrompt = resolvePromptSpokenText("OP21", lang, { recipientPhone: session.recipientPhone });
+    return xmlResponse(res, `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/recipient-verify-choice?sessionId=${sessionId}&amp;lang=${lang}">
+      <Say voice="female">${escapeVoiceXml(`${namePrompt} ${phonePrompt}`)}</Say>
+      ${canonicalPromptElement("confirm_continue", lang, baseUrl, lang === "twi"
+    ? "Sɛ wopene so a mia 1, sɛ wopɛ sɛ wosesa a mia 2, anaa mia 0 na woagyae."
+    : "Press 1 to confirm, 2 to change the recipient, or 0 to cancel.")}
     </GetDigits>`);
   }
 
@@ -1354,6 +1340,7 @@ ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
   const rawDigitsInput = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim();
   const bufferRes = KeypadBufferManager.appendDigit(sessionId, rawDigitsInput, "amount");
   const rawDigits = (bufferRes.submittedValue || bufferRes.bufferedValue || rawDigitsInput).replace(/#+$/, "");
+  KeypadBufferManager.clearBuffer(sessionId);
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getOrCreateSession(sessionId);
 
@@ -1370,11 +1357,15 @@ ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
   }
 
   const amountValidation = parseAndValidateAmount(rawDigits);
-  const amountTooHigh = amountValidation.error?.includes("exceeds single transaction limit") === true;
+  const demoAmountLimit = config.nodeEnv !== "production" && config.momo.targetEnv === "sandbox"
+    ? 100
+    : FINANCIAL_LIMITS.MAX_AMOUNT_GHS;
+  const amountTooHigh = amountValidation.error?.includes("exceeds single transaction limit") === true
+    || (amountValidation.valid && amountValidation.amount !== undefined && amountValidation.amount > demoAmountLimit);
   const amountTooLow = amountValidation.valid
     && amountValidation.amount !== undefined
     && amountValidation.amount < FINANCIAL_LIMITS.MIN_AMOUNT_GHS;
-  if (!amountValidation.valid || amountValidation.amount === undefined || amountTooLow) {
+  if (!amountValidation.valid || amountValidation.amount === undefined || amountTooLow || amountTooHigh) {
     session.retryCount = (session.retryCount || 0) + 1;
     const decision = ivrDecisionEngine.decide({
       stepId: "enter-amount",
@@ -1392,8 +1383,8 @@ ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
     const promptKey = amountTooHigh ? "amount_too_high" : amountTooLow ? "amount_too_low" : "invalid_amount";
     decision.replyText = amountTooHigh
       ? (lang === "twi"
-        ? "Sika dodow no dɔɔso sen GHS 5,000 a yɛpene so. Yɛsrɛ wo, hyɛ sika dodow a ɛba fam."
-        : "That amount is above the GHS 5,000 limit. Please enter a lower amount.")
+        ? `Sika dodow no dɔɔso sen GHS ${demoAmountLimit} a yɛpene so. Yɛsrɛ wo, hyɛ sika dodow a ɛba fam.`
+        : `That amount is above the GHS ${demoAmountLimit} limit. Please enter a lower amount.`)
       : amountTooLow
       ? (lang === "twi"
         ? "Sika dodow no sua sen GHS 1.00. Yɛsrɛ wo, hyɛ sika dodow a ɛboro saa."
@@ -1426,6 +1417,9 @@ ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
   const amountReadback = resolvePromptSpokenText("OP29", lang, { amount: amountValidation.amount });
   return xmlResponse(res, `    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/amount-readback-choice?sessionId=${sessionId}&amp;lang=${lang}">
         <Say voice="female">${escapeVoiceXml(amountReadback)}</Say>
+        ${canonicalPromptElement("confirm_continue", lang, baseUrl, lang === "twi"
+    ? "Sɛ sika dodow no yɛ nokware a, mia 1. Sɛ wopɛ sɛ wosesa a, mia 2. Sɛ wopɛ sɛ wugyae a, mia 0."
+    : "Press 1 to confirm, 2 to change the amount, or 0 to cancel.")}
     </GetDigits>`, {
     stepId: "amount-readback",
     replyKey: "OP29",
@@ -1467,8 +1461,12 @@ ivrRouter.all("/amount-readback-choice", (req: Request, res: Response) => {
     ? "Mmuaeɛ a wode maaeɛ no ntɔ asom, mɛbɔ nne no bio, yɛsrɛ wo paw mmuaeɛ no bio."
     : "The answer you gave doesn't tally, I will mention the audio again please choose the answer again.";
   const amountReadback = resolvePromptSpokenText("OP29", lang, { amount: session.amount });
-  return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(tallyFeedback)}</Say>\n    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/amount-readback-choice?sessionId=${sessionId}&amp;lang=${lang}">
+  return xmlResponse(res, `    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/amount-readback-choice?sessionId=${sessionId}&amp;lang=${lang}">
+        <Say voice="female">${escapeVoiceXml(tallyFeedback)}</Say>
         <Say voice="female">${escapeVoiceXml(amountReadback)}</Say>
+        ${canonicalPromptElement("confirm_continue", lang, baseUrl, lang === "twi"
+    ? "Sɛ sika dodow no yɛ nokware a, mia 1. Sɛ wopɛ sɛ wosesa a, mia 2. Sɛ wopɛ sɛ wugyae a, mia 0."
+    : "Press 1 to confirm, 2 to change the amount, or 0 to cancel.")}
     </GetDigits>`, {
     stepId: "amount-readback-choice",
     replyKey: "OP29",
@@ -1763,8 +1761,8 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
         ? "Yɛretwɛn provider no mmuae. Mfa transfer foforɔ mmɔ mmɔden."
         : "We are waiting for provider confirmation. Do not start another transfer.";
       const responseOptions = lang === "twi"
-        ? "Mia 0 sɛ wopɛ sɛ wope frɛ no, anaa twɛn na yɛbɛsan ahwɛ tebea no."
-        : "Press 0 to end this call, or stay on the line while we check the provider status.";
+        ? "Mia 1 sɛ wopɛ sɛ yɛsan hwɛ provider no tebea. Mia 0 sɛ wopɛ sɛ wopɛ frɛ no mu."
+        : "Press 1 to check provider status again, or 0 to end the call.";
       const statusPrompt = `${handoffText} ${submittedText} ${waitingText} ${responseOptions}`;
       const pendingXml = `    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/check-status?sessionId=${sessionId}&amp;lang=${lang}">
         ${canonicalPromptElement("pin_handoff", lang, baseUrl, handoffText)}
@@ -1785,8 +1783,8 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
         ? "Yɛantumi ankyerɛ provider no mmuae. Yɛrehwɛ tebea no. Mfa transfer foforɔ mmɔ mmɔden seesei."
         : "We could not confirm the provider response. We are checking the final status. Do not start another transfer.";
       const endOptions = lang === "twi"
-        ? "Mia 0 sɛ wopɛ sɛ wope frɛ no, anaa twɛn na yɛnsan nhwɛ."
-        : "Press 0 to end this call, or stay on the line while we check.";
+        ? "Mia 1 sɛ wopɛ sɛ yɛsan hwɛ provider no tebea. Mia 0 sɛ wopɛ sɛ wopɛ frɛ no mu."
+        : "Press 1 to check provider status again, or 0 to end the call.";
       const unknownXml = `    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/check-status?sessionId=${sessionId}&amp;lang=${lang}">
         ${canonicalPromptElement("check_final_status", lang, baseUrl, unknownPrompt)}
         <Say voice="female">${escapeVoiceXml(endOptions)}</Say>
@@ -1887,8 +1885,8 @@ ivrRouter.all("/check-status", (req: Request, res: Response) => {
     ? "Transaction no da so retwɛn provider no mmuae. Mfa transfer foforɔ mmɔ mmɔden."
     : "Your transaction is still pending provider confirmation. Do not start another transfer.";
   const waitingChoices = lang === "twi"
-    ? "Mia 0 sɛ wopɛ sɛ wope frɛ no, anaa twɛn na yɛbɛsan ahwɛ tebea no."
-    : "Press 0 to end this call, or stay on the line while we check again.";
+    ? "Mia 1 sɛ wopɛ sɛ yɛsan hwɛ provider no tebea. Mia 0 sɛ wopɛ sɛ wopɛ frɛ no mu."
+    : "Press 1 to check provider status again, or 0 to end the call.";
   const waitingPrompt = `${waitingText} ${waitingChoices}`;
   const waitingXml = `    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/check-status?sessionId=${sessionId}&amp;lang=${lang}">
         ${canonicalPromptElement("waiting_confirmation", lang, baseUrl, waitingText)}

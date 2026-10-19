@@ -89,6 +89,21 @@ describe("canonical audio asset registry", () => {
     expect(fs.existsSync(path.resolve("Audio_files", "Twi_library", "Recipient_verify.mp3"))).toBe(true);
   });
 
+  it("maps the recorded PIN handoff clip to the canonical OP40 prompt", () => {
+    const pinHandoff = getRecordingByPromptKey("pin_handoff", "twi");
+    expect(pinHandoff?.audioVerified).toBe(true);
+    expect(resolveSafeAudioPath(pinHandoff?.url || ""))
+      .toMatch(/Audio_files\/Twi_library\/Pin_Handoff\.mp3$/);
+    const resolvedPrompt = resolvePrompt("pin_handoff", "twi");
+    expect(resolveSafeAudioPath(resolvedPrompt || "")).toBe(
+      resolveSafeAudioPath("/audio/Twi_library/Pin_Handoff.mp3")
+    );
+    expect(resolvePromptXml("pin_handoff", "twi", "https://example.test"))
+      .toContain("Pin_Handoff.mp3?format=mp3");
+    expect(resolveSafeAudioPath("Twi/Pin_Handoff.mp3"))
+      .toMatch(/Audio_files\/Twi_library\/Pin_Handoff\.mp3$/);
+  });
+
   it("links approved English recordings to their canonical prompts", () => {
     const expected = [
       ["OP07", "English_Library/2.m4a"],

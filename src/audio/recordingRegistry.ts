@@ -282,6 +282,14 @@ export function getRecordingByPromptKey(
   language: "en" | "twi" = "twi"
 ): AudioRecording | null {
   const normalizedKey = key.toLowerCase();
+  const directItem = TWI_AUDIO_LIBRARY_ITEMS.find(
+    (item) => item.key.toLowerCase() === normalizedKey || item.filename.toLowerCase() === normalizedKey
+  );
+  if (directItem && language === "twi") {
+    const recording = AUDIO_RECORDINGS.find((r) => r.url === directItem.audioUrl);
+    if (recording?.audioVerified && recording.recordingRole === "fixed") return recording;
+  }
+
   const promptId = PROMPT_KEY_TO_RECORDING_ID[key]
     || PROMPT_KEY_TO_RECORDING_ID[normalizedKey]
     || (/^OP\d{2}(?:B)?$/i.test(key) ? key.toUpperCase() : undefined);
@@ -289,14 +297,6 @@ export function getRecordingByPromptKey(
     if (DYNAMIC_PROMPT_IDS.has(promptId.toUpperCase())) return null;
     const rec = getRecordingByPromptId(promptId, language);
     if (rec) return rec;
-  }
-  // Try direct filename or item key match in Twi items
-  const directItem = TWI_AUDIO_LIBRARY_ITEMS.find(
-    (item) => item.key === key || item.filename.toLowerCase() === key.toLowerCase()
-  );
-  if (directItem && language === "twi") {
-    const recording = AUDIO_RECORDINGS.find((r) => r.url === directItem.audioUrl);
-    return recording?.audioVerified && recording.recordingRole === "fixed" ? recording : null;
   }
   return null;
 }

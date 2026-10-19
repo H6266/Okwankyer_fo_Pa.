@@ -1315,11 +1315,14 @@ export function usePhoneSimulator() {
       const nextBuf = digitsBuffer + digit;
       setDigitsBuffer(nextBuf);
 
+      const callbackStep = (atCurrentCallbackUrl || "").split("?")[0].split("/").pop()?.toLowerCase() || "";
+      const isMultiDigitField = ["verify-recipient", "verify-amount"].includes(callbackStep);
+
       // Rule 3: Do not auto-advance after the 10th digit alone; wait strictly for '#' finishOnKey!
 
       // 1-digit expectation: immediate submission ONLY when NOT buffering a phone number
       const isEnteringPhone = nextBuf.startsWith("0") || nextBuf.startsWith("233");
-      if (atExpectedDigits === 1 && !isEnteringPhone) {
+      if (atExpectedDigits === 1 && !isEnteringPhone && !isMultiDigitField) {
         setDigitsBuffer("");
         setTranscript((prev) => [
           ...prev,
@@ -1351,8 +1354,7 @@ export function usePhoneSimulator() {
       }
 
       // Strict rule: number and pin keys must not be processed but stored until user presses '#'
-      const isMultiDigitField = atExpectedDigits > 1 || isEnteringPhone || atFinishOnKey === "#" || currentStep?.includes("recipient") || currentStep?.includes("amount") || currentStep?.includes("pin");
-      if (isMultiDigitField) {
+      if (atExpectedDigits > 1 || isEnteringPhone || isMultiDigitField) {
         return;
       }
 

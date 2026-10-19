@@ -84,6 +84,7 @@ interface ParsedVoiceXml {
   raw: string;
   redirectUrl?: string;
   isReject: boolean;
+  voiceSequence?: Array<{ type: "play" | "say"; value: string }>;
   transactionOutcome?: string;
   httpStatus?: number;
   guardReason?: string;
@@ -125,10 +126,11 @@ const STEP_OPTIONS_MAP: Record<string, string> = {
   "verify-amount": "Amount followed by #",
   "safe-confirmation": "1=Confirm Transfer, 2=Edit, 9=Repeat, 0=Cancel",
   "safe-outcome": "1=Confirm Transfer, 0=Cancel",
-  "enter-pin": "Enter 4-digit PIN on keypad or say it aloud",
-  "verify-pin": "Verifying MoMo PIN...",
+  "waiting-confirmation": "1=Check provider status, 0=End call",
+  "enter-pin": "Authorize only on your Mobile Money provider's handset prompt",
+  "verify-pin": "Waiting for provider authorization...",
   "transfer-success": "Transaction Completed",
-  "pin-authorization": "4-Digit PIN Authorization",
+  "pin-authorization": "Private provider authorization",
   "cashout-offer-balance": "Balance check unavailable; 1=Continue to Agent, 0=Cancel",
   "cashout-balance-pin": "Balance check unavailable",
   "cashout-awaiting-agent": "1=Agent is Done / Approve, 0=End Call",
@@ -142,10 +144,10 @@ const STEP_FRIENDLY_NAMES: Record<string, string> = {
   "service-choice": "Service Selection",
   "provider-select": "Network Selection (MTN)",
   "provider-choice": "Network Provider",
-  "enter-pin": "MoMo PIN Entry",
-  "verify-pin": "Verifying PIN",
+  "enter-pin": "Private MoMo Authorization",
+  "verify-pin": "Waiting for Provider Authorization",
   "transfer-success": "Transfer Successful",
-  "pin-authorization": "MoMo PIN Authorization",
+  "pin-authorization": "Private Provider Authorization",
   "action-select": "Supported Action (Send Money)",
   "action-choice": "Action Choice",
   "enter-recipient": "Recipient Phone Entry",
@@ -155,6 +157,7 @@ const STEP_FRIENDLY_NAMES: Record<string, string> = {
   "verify-amount": "Verify Amount",
   "safe-confirmation": "Safe Transfer Confirmation",
   "safe-outcome": "Zero-PIN Handoff & Authorization",
+  "waiting-confirmation": "Waiting for Provider Status",
   "cashout-offer-balance": "Cash-Out Enabled; Balance Check Unavailable",
   "cashout-balance-pin": "Balance Check Unavailable",
   "cashout-awaiting-agent": "Awaiting Agent POS Submission",
@@ -577,6 +580,18 @@ export const PhoneSimulatorPage: React.FC = () => {
       result.playUrl = playUrls[0];
     }
 
+    const voiceSequence: Array<{ type: "play" | "say"; value: string }> = [];
+    const voiceTags = xml.matchAll(/<(Play|Say)\b([^>]*?)(?:\/>|>([\s\S]*?)<\/\1\s*>)/gi);
+    for (const match of voiceTags) {
+      const type = match[1].toLowerCase() as "play" | "say";
+      const attributes = match[2] || "";
+      const body = (match[3] || "").trim();
+      const url = attributes.match(/url=["']([^"']+)["']/i)?.[1];
+      const value = type === "play" ? (url || body) : body;
+      if (value) voiceSequence.push({ type, value });
+    }
+    if (voiceSequence.length > 0) result.voiceSequence = voiceSequence;
+
     const sayMatch = xml.match(/<Say[^>]*>([\s\S]*?)<\/Say>/i);
     if (sayMatch) {
       result.sayText = sayMatch[1].trim();
@@ -596,6 +611,14 @@ export const PhoneSimulatorPage: React.FC = () => {
       if (meta?.httpStatus) parsed.httpStatus = meta.httpStatus;
       if (meta?.guardReason) parsed.guardReason = meta.guardReason;
       parsed.transactionOutcome = meta?.transactionOutcome;
+      const wasWaitingForProvider = activeStepNameRef.current === "waiting-confirmation";
+      if (
+        wasWaitingForProvider &&
+        parsed.transactionOutcome !== "PENDING" &&
+        parsed.transactionOutcome !== "RECONCILIATION_REQUIRED"
+      ) {
+        continuousAudioEngine.setZeroPinMuted(false);
+      }
       const requestedPlayUrl = parsed.playUrl;
 
       // Extract step name from URL
@@ -679,6 +702,64 @@ export const PhoneSimulatorPage: React.FC = () => {
         return dispatchVoiceWebhook(parsed.redirectUrl);
       }
 
+      if (parsed.transactionOutcome === "PENDING" || parsed.transactionOutcome === "RECONCILIATION_REQUIRED") {
+        continuousAudioEngine.stop();
+        if (recognitionRef.current) {
+          try {
+            recognitionRef.current.stop();
+          } catch (error) {
+            console.warn("[PhoneSimulator] Recognition stop during provider handoff failed.", error);
+          }
+        }
+
+        activeStepNameRef.current = "waiting-confirmation";
+        activeCallbackUrlRef.current = parsed.getDigits?.callbackUrl || null;
+        setActiveStepName("waiting-confirmation");
+        setActiveCallbackUrl(parsed.getDigits?.callbackUrl || null);
+        setActiveNumDigits(parsed.getDigits?.numDigits || 1);
+        setActiveFinishOnKey(parsed.getDigits?.finishOnKey || "#");
+        setDigitsBuffer("");
+        setIsMicMuted(true);
+        isMicMutedRef.current = true;
+        continuousAudioEngine.setZeroPinMuted(true);
+        continuousAudioEngine.pauseForPlayback();
+        setCallStatus("Awaiting provider authorization");
+
+        const pendingText = responseLanguage === "twi"
+          ? "Yɛde wo adesrɛ no akɔma provider no. Pene so wɔ wo fon so. Mfa wo PIN nka wɔ telefon frɛ yi mu."
+          : "Your request is with the provider. Approve it on your handset. Never say your PIN on this call.";
+        setCurrentPrompt(pendingText);
+        currentPromptRef.current = pendingText;
+        addLog("state", `Provider transaction status: ${parsed.transactionOutcome}. PIN remains private on the handset.`);
+        addChatTurn({ sender: "ai", text: pendingText, audioSource: "studio", stepName: "pin-handoff" });
+
+        isAudioSequenceActiveRef.current = true;
+        setIsAudioSpeaking(true);
+        try {
+          for (const item of parsed.voiceSequence || []) {
+            if (item.type === "play") {
+              const audioUrl = resolvePlayableSimulatorAudioUrl(item.value, responseLanguage);
+              if (audioUrl) await audioPlaybackController.play(audioUrl);
+            } else if (item.value) {
+              await audioPlaybackController.speakText(item.value, {
+                skipStudioMatch: true,
+                language: responseLanguage,
+              });
+            }
+          }
+        } catch (error) {
+          console.warn("[PhoneSimulator] Provider handoff audio sequence failed.", error);
+          addLog("audio", "Provider handoff audio could not be fully played; PIN collection remains blocked.");
+        } finally {
+          isAudioSequenceActiveRef.current = false;
+          setIsAudioSpeaking(false);
+          setIsMicMuted(true);
+          isMicMutedRef.current = true;
+          continuousAudioEngine.setZeroPinMuted(true);
+        }
+        return;
+      }
+
       // Handle <Reject/>
       if (parsed.isReject) {
         continuousAudioEngine.stop();
@@ -688,44 +769,6 @@ export const PhoneSimulatorPage: React.FC = () => {
           } catch (error) {
             console.warn("[PhoneSimulator] Recognition stop during reject path failed.", error);
           }
-        }
-
-        if (parsed.transactionOutcome === "PENDING" || parsed.transactionOutcome === "RECONCILIATION_REQUIRED") {
-          activeStepNameRef.current = "pin-handoff";
-          activeCallbackUrlRef.current = null;
-          setActiveStepName("pin-handoff");
-          setActiveCallbackUrl(null);
-          setIsMicMuted(true);
-          isMicMutedRef.current = true;
-          continuousAudioEngine.setZeroPinMuted(true);
-          continuousAudioEngine.pauseForPlayback();
-          setCallStatus("Awaiting provider authorization");
-          const pendingText = parsed.sayText || "Check your handset for your Mobile Money provider's private authorization prompt.";
-          setCurrentPrompt(pendingText);
-          currentPromptRef.current = pendingText;
-          addLog("state", `Provider transaction status: ${parsed.transactionOutcome}. No success was reported.`);
-          addChatTurn({ sender: "ai", text: pendingText, audioSource: "synthesis", stepName: "pin-handoff" });
-          try {
-            const synthesis = await api.synthesizeSpeech({
-              text: pendingText,
-              language: responseLanguage === "twi" ? "tw" : "en",
-              sessionId: sessionIdRef.current || sessionId,
-            });
-            if (synthesis.result.audioBase64) {
-              const played = await audioPlaybackController.play({
-                audioBase64: synthesis.result.audioBase64,
-                audioMimeType: synthesis.result.audioMimeType,
-                text: pendingText,
-              });
-              if (!played) addLog("audio", "Provider authorization audio is unavailable; the pending status remains visible.");
-            } else {
-              addLog("audio", "Provider authorization audio is unavailable; the pending status remains visible.");
-            }
-          } catch (error) {
-            console.warn("[PhoneSimulator] Provider authorization speech unavailable.", error);
-            addLog("audio", "Provider authorization audio is unavailable; the pending status remains visible.");
-          }
-          return;
         }
 
         const isPinHandoff =
@@ -828,7 +871,13 @@ export const PhoneSimulatorPage: React.FC = () => {
         resolvedPromptId = STATE_TO_CANONICAL_PROMPT_ID[stepName.toUpperCase()] || null;
       }
 
-      if (parsed.sayText) {
+      if (parsed.voiceSequence && parsed.voiceSequence.length > 1) {
+        promptText = parsed.voiceSequence.map((item) => {
+          if (item.type === "say") return item.value;
+          const pathname = new URL(item.value, window.location.origin).pathname;
+          return getRecordingByUrl(pathname)?.spokenText || "";
+        }).filter(Boolean).join(" ");
+      } else if (parsed.sayText) {
         if (requestedPlayUrl) {
           const pathname = new URL(requestedPlayUrl, window.location.origin).pathname;
           const recording = getRecordingByUrl(pathname);
@@ -902,7 +951,39 @@ export const PhoneSimulatorPage: React.FC = () => {
       clearSilenceWatchdog();
 
       try {
-        if (hasDynamicSay && (stepName === "verify-recipient" || stepName.includes("recipient") || stepName.includes("confirm") || resolvedSequence.length > 0)) {
+        if (parsed.voiceSequence && parsed.voiceSequence.length > 1) {
+          let allReadbackAudioPlayed = true;
+          addLog("audio", "🔊 Auto-playing ordered VoiceXML audio and speech sequence.");
+          for (const item of parsed.voiceSequence) {
+            try {
+              if (item.type === "play") {
+                const audioUrl = resolvePlayableSimulatorAudioUrl(item.value, responseLanguage);
+                if (!audioUrl) {
+                  allReadbackAudioPlayed = false;
+                  continue;
+                }
+                await audioPlaybackController.play(audioUrl);
+              } else {
+                const played = await audioPlaybackController.speakText(item.value, {
+                  skipStudioMatch: true,
+                  language: responseLanguage,
+                });
+                if (!played) allReadbackAudioPlayed = false;
+              }
+            } catch (err) {
+              allReadbackAudioPlayed = false;
+              console.warn("[PhoneSimulator] Ordered VoiceXML playback notice:", err);
+            }
+          }
+          if (requiresSuccessfulReadback && !allReadbackAudioPlayed) {
+            blockFailedReadback();
+            return;
+          }
+          if (requiresSuccessfulReadback && parsed.getDigits?.callbackUrl) {
+            activeCallbackUrlRef.current = parsed.getDigits.callbackUrl;
+            setActiveCallbackUrl(parsed.getDigits.callbackUrl);
+          }
+        } else if (hasDynamicSay && (stepName === "verify-recipient" || stepName.includes("recipient") || stepName.includes("confirm") || resolvedSequence.length > 0)) {
           // Step with dynamic readback (KYC name, phone number, amount):
           // 1. Play introductory fixed clip if present (e.g. "Use recipient 1.m4a" -> "Yoo, yɛde saa recipient yi bedi dwuma")
           // 2. Synthesize & speak dynamic KYC/amount readback (<Say>)
@@ -2291,6 +2372,19 @@ export const PhoneSimulatorPage: React.FC = () => {
         return;
       }
 
+      if (activeStepNameRef.current === "waiting-confirmation") {
+        if (digit === "0") {
+          await dispatchVoiceWebhook(targetCallback, { dtmfDigits: "0" });
+          return;
+        }
+        if (digit === "1") {
+          await dispatchVoiceWebhook(targetCallback, { dtmfDigits: "1" });
+          return;
+        }
+        addLog("caller", `Ignored key '${digit}' while waiting for provider status.`);
+        return;
+      }
+
       // Special Handling 3: Keypad '1' during safe-confirmation
       const isTransferConfirmStep =
         activeStepNameRef.current === "safe-confirmation" ||
@@ -2335,13 +2429,10 @@ export const PhoneSimulatorPage: React.FC = () => {
       const nextBuf = digitsBuffer + digit;
       setDigitsBuffer(nextBuf);
 
-      // Single-digit expectation (only when NOT accumulating a 10-digit phone number)
+      const callbackStep = targetCallback.split("?")[0].split("/").pop()?.toLowerCase() || "";
+      const isMultiDigitField = ["verify-recipient", "verify-amount"].includes(callbackStep);
       const isAccumulatingInput =
-        nextBuf.startsWith("0") ||
-        nextBuf.startsWith("233") ||
-        activeStepNameRef.current.includes("recipient") ||
-        activeStepNameRef.current.includes("phone") ||
-        activeStepNameRef.current.includes("amount");
+        isMultiDigitField || nextBuf.startsWith("0") || nextBuf.startsWith("233");
 
       if (activeNumDigits === 1 && !isAccumulatingInput) {
         setDigitsBuffer("");
@@ -2350,7 +2441,7 @@ export const PhoneSimulatorPage: React.FC = () => {
         return;
       }
 
-      if (!activeFinishOnKey && nextBuf.length >= activeNumDigits) {
+      if (!isMultiDigitField && !activeFinishOnKey && nextBuf.length >= activeNumDigits) {
         setDigitsBuffer("");
         addLog("caller", `Keypad '${nextBuf}'`);
         dispatchVoiceWebhook(targetCallback, { dtmfDigits: nextBuf });

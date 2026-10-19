@@ -283,6 +283,14 @@ const MANIFEST_TWI_AUDIO_LIBRARY_ITEMS: TwiLibraryItem[] = [
     keywords: ["authorize", "phone", "enter pin", "screen prompt", "hyɛ nso"]
   },
   {
+    key: "pin_handoff",
+    filename: "Pin_Handoff.mp3",
+    audioUrl: "/audio/Twi_library/Pin_Handoff.mp3",
+    transcript: "Check your phone and enter your MoMo PIN privately on the secure handset prompt. Never say your PIN on this call.",
+    category: "auth",
+    keywords: ["pin handoff", "phone screen", "secure prompt", "authorize", "PIN"]
+  },
+  {
     key: "check_phone",
     filename: "Check phone.m4a",
     audioUrl: "/audio/Twi_library/Check phone.m4a",
