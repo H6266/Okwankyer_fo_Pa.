@@ -971,7 +971,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .post("/service-choice")
       .send({ sessionId, lang: "en", dtmfDigits: "4" });
     expect(unadvertisedChoice.text).toContain("/audio/English_Library/2.m4a?format=mp3");
-    expect(unadvertisedChoice.text).not.toContain("/provider-select");
+    expect(unadvertisedChoice.text).toContain("doesn&apos;t tally");
   });
 
   it("executes the canonical MoMo voice flow with a sandbox-safe amount and Zero-PIN handoff", async () => {
@@ -1015,7 +1015,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .post("/verify-recipient")
       .send({ sessionId, lang: "en", dtmfDigits: "0241234567#" });
     expect(recipRes.text).toContain("Ama Mensah");
-    expect(recipRes.text).toContain("Ama Mensah. 0241234567");
+    expect(recipRes.text).toContain("4 5 6 7");
 
     // User confirms recipient Ama Mensah (1) -> proceed to amount
     const confirmRecipRes = await request(app)
