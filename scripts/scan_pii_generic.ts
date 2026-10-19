@@ -34,7 +34,7 @@ const KEYWORD_WHITELIST = new Set([
   'INTENT_MISMATCH', 'DECISION_KIND_MISMATCH', 'SLOT_PRESENCE_MISMATCH', 'CLOSED', 'OPEN',
   'HALF_OPEN', 'SUCCESS', 'PENDING', 'COMPLETED', 'FAILED', 'REVERSED', 'INITIATED',
   'SAGA_STARTED', 'STEP_COMPLETED', 'CONFIRMED', 'DISPATCHED', 'CANCELLED', 'HOME',
-  'AI', 'Brain', 'Gemini', 'OpenAI', 'Okwankyerɛfo', 'Pa', 'Ɔkwankyerɛfo',
+  'AI', 'Brain', 'Gemini', 'Groq', 'Okwankyerɛfo', 'Pa', 'Ɔkwankyerɛfo',
   'True', 'False', 'Null', 'Undefined', 'Error', 'Warning', 'Info', 'Debug',
   'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
 ]);

@@ -126,6 +126,23 @@ export class TtsRouter implements TTSProvider {
         console.warn("[TtsRouter] Gemini Twi fallback notice:", err?.message || err);
       }
 
+      try {
+        const googleTTS = await import("google-tts-api");
+        const chunks = await googleTTS.getAllAudioBase64(text, { lang: "en", timeout: 8000 });
+        const audioBuffer = Buffer.concat(chunks.map((c) => Buffer.from(c.base64, "base64")));
+        return assertTtsResponse(request, {
+          audioBuffer,
+          audioBase64: audioBuffer.toString("base64"),
+          audioMimeType: "audio/mpeg",
+          mimeType: "audio/mpeg",
+          providerUsed: "google-tts-phonetic-fallback",
+          language: "twi",
+          model: "google-tts-fallback",
+        }, "twi");
+      } catch (err: any) {
+        console.warn("[TtsRouter] Google TTS fallback notice:", err?.message || err);
+      }
+
       // 3. Fallback to pre-recorded polite apology/system studio audio only if specifically requested
       if ((request as any).allowApologyFallback) {
         const apologyRecording = getRecordingByPromptKey("failed", "twi") || getRecordingByPromptKey("cancel", "twi");

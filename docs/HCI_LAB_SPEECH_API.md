@@ -140,7 +140,7 @@ Dynamic names, complete phone numbers, amounts, and references must use the valu
 * Keypad entries are 100% accurate and consume **0 ASR quota**. Voice ASR is only triggered when the caller chooses to speak.
 
 ### Pillar 5: Direct-to-AI Verbatim Reasoning (No Regex Mangling)
-* When speech is transcribed by ASR, the raw verbatim transcript is sent directly to the AI Brain (Gemini ➔ OpenAI ➔ Qwen ➔ Local Brain).
+* When speech is transcribed by ASR, the raw verbatim transcript is sent directly to the AI Brain (Gemini ➔ Groq ➔ Local Brain).
 * The AI understands Akan numbers, mental math (*"half of 90"*), and mid-turn corrections in a single unified pass. No repetitive re-transcription or secondary verification passes are made.
 
 ### Pillar 6: Strict Test & CI Isolation

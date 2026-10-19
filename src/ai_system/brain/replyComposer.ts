@@ -37,6 +37,7 @@ export interface ComposeReplyInput {
   notReadyMessageKey?: string;
   isZeroPinAlert?: boolean;
   conversationalText?: string;
+  conversationalLocalizedText?: string;
 }
 
 export interface ComposeReplyResult {
@@ -261,16 +262,18 @@ export class ReplyComposer {
       };
     }
 
-    // Natural Gemini conversational follow-up takes priority for conversational clarification
+    // Natural cloud-model follow-up takes priority when it matches the selected language.
+    const conversationalText = language === 'en'
+      ? input.conversationalText
+      : input.conversationalLocalizedText;
     if (
-      input.conversationalText &&
-      input.conversationalText.trim() &&
-      language === 'en' &&
-      validateSpokenReply(input.conversationalText.trim(), language) &&
+      conversationalText &&
+      conversationalText.trim() &&
+      validateSpokenReply(conversationalText.trim(), language) &&
       (decision.kind === 'clarify_slot' || decision.kind === 'clarify_intent' || (decision as any).kind === 'smalltalk')
     ) {
       return {
-        text: input.conversationalText.trim(),
+        text: conversationalText.trim(),
         language,
         source: 'MODEL_GENERATED',
         validationPassed: true,

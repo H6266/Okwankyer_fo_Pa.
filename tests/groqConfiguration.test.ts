@@ -4,20 +4,20 @@ import { buildGroqBrainPrompt, isGroqBrainContract } from "../src/services/groq/
 import { ModelOutputContract } from "../src/ai_system/brain/types";
 
 describe("Groq AI LPU configuration & reasoner", () => {
-  it("defaults to Groq cloud API endpoint and fast qwen/qwen3.8-27b model", () => {
+  it("defaults to Groq cloud API endpoint and fast llama-3.3-70b-versatile model", () => {
     vi.stubEnv("GROQ_BASE_URL", "");
     vi.stubEnv("GROQ_MODEL", "");
     vi.stubEnv("GROQ_API_KEY", "gsk_live_valid_test_key_1234567890abcdef");
 
     expect(groqClient.getBaseUrl()).toBe("https://api.groq.com/openai/v1");
-    expect(groqClient.getModel()).toBe("qwen/qwen3.8-27b");
+    expect(groqClient.getModel()).toBe("llama-3.3-70b-versatile");
     expect(groqClient.getTimeoutMs()).toBe(3000);
     expect(groqClient.isAvailable()).toBe(true);
   });
 
   it("allows overriding model via GROQ_MODEL", () => {
-    vi.stubEnv("GROQ_MODEL", "openai/gpt-oss-120b");
-    expect(groqClient.getModel()).toBe("openai/gpt-oss-120b");
+    vi.stubEnv("GROQ_MODEL", "llama-3.1-8b-instant");
+    expect(groqClient.getModel()).toBe("llama-3.1-8b-instant");
   });
 
   it("validates a compliant ModelOutputContract", () => {

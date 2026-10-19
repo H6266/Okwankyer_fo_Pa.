@@ -20,10 +20,9 @@
  * 7. Real MTN Mobile Money Sandbox execution via Payment Saga & Truth Engine
  */
 
-import { openaiReasoner, StructuredReasoningOutput } from "../services/openaiReasoner";
-import { openaiTranscriber } from "../services/openaiTranscriber";
-import { openaiTts, SpeechSynthesisResult } from "../services/openaiTts";
-import { openaiEmbeddings } from "../services/openaiEmbeddings";
+import { voiceSpeech, SpeechSynthesisResult } from "./voiceSpeech";
+import { reasoningEngine } from "../understanding/reasoningEngine";
+import { unifiedMemory } from "../memory/unifiedMemory";
 import { brain } from "../brain/brain";
 import { paymentSaga } from "../../integrations/momo/paymentSaga";
 import { auditLogger } from "../../services/auditLogger";
@@ -136,10 +135,10 @@ export class VoiceInteractionController {
         lastPromptText: "",
         silenceCount: 0,
         diagnostics: {
-          asrEngine: "UG HCI Lab (Primary) + OpenAI (Verification)",
-          reasoningEngine: "OpenAI Reasoner (Responses Structured Output)",
-          ttsEngine: "Studio Catalog -> UG HCI Lab -> OpenAI",
-          memoryRecords: openaiEmbeddings.getHistoryCount(),
+          asrEngine: "HCI Lab / Gemini / local ASR",
+          reasoningEngine: "Gemini / Groq reasoning",
+          ttsEngine: "Studio Catalog -> HCI Lab -> Gemini / local speech",
+          memoryRecords: 0,
           dualAsrStatus: "idle",
           state: "IDLE",
           service: "momo.transfer",
@@ -188,7 +187,7 @@ export class VoiceInteractionController {
       timestamp: Date.now(),
     });
 
-    const audio = await openaiTts.synthesize({
+    const audio = await voiceSpeech.synthesize({
       text: welcomeText,
       language,
       promptId: "welcome",
@@ -239,7 +238,7 @@ export class VoiceInteractionController {
 
     // If audio buffer was supplied without transcript, transcribe with ASR
     if (!callerText && input.audioBuffer) {
-      const asrResult = await openaiTranscriber.transcribeAudio(
+      const asrResult = await voiceSpeech.transcribeAudio(
         input.audioBuffer,
         session.language,
         "audio/wav"
@@ -286,7 +285,7 @@ export class VoiceInteractionController {
           : "If you need assistance, please dial *170# or try again.";
       }
 
-      const audio = await openaiTts.synthesize({
+      const audio = await voiceSpeech.synthesize({
         text: repeatPrompt,
         language: session.language,
       });
@@ -340,7 +339,7 @@ export class VoiceInteractionController {
         : "Transaction cancelled. Thank you for calling Ɔkwankyerɛfo Pa.";
       session.state = "COMPLETED";
       session.currentStep = "cancelled";
-      const audio = await openaiTts.synthesize({ text: cancelText, language: session.language });
+      const audio = await voiceSpeech.synthesize({ text: cancelText, language: session.language });
       return this.makeTurnResponse(session, cancelText, audio, false, false);
     }
 
@@ -360,7 +359,7 @@ export class VoiceInteractionController {
           const prompt = isTwi
             ? "Hwan na wobɛpɛ sɛ womane no sika no?"
             : "Who would you like to send money to?";
-          const audio = await openaiTts.synthesize({ text: prompt, language: session.language });
+          const audio = await voiceSpeech.synthesize({ text: prompt, language: session.language });
           return this.makeTurnResponse(session, prompt, audio, true, false);
         } else if (lower.includes("balance") || lower.includes("hwɛ") || lower === "4") {
           session.draft.intent = "momo.check_balance";
@@ -369,13 +368,13 @@ export class VoiceInteractionController {
             : "Balance checking through this assistant is currently unavailable. Please dial star, one, seven, zero, hash on your handset.";
           session.currentStep = "balance_unavailable";
           session.state = "COMPLETED";
-          const audio = await openaiTts.synthesize({ text: prompt, language: session.language });
+          const audio = await voiceSpeech.synthesize({ text: prompt, language: session.language });
           return this.makeTurnResponse(session, prompt, audio, false, true);
         } else {
           const prompt = isTwi
             ? "Mane sika, tɔ airtime, anaa hwɛ balance? Fa keypad no to so 1 ma sika a womane."
             : "Would you like to send money, buy airtime, or check balance? Say send money or press 1.";
-          const audio = await openaiTts.synthesize({ text: prompt, language: session.language });
+          const audio = await voiceSpeech.synthesize({ text: prompt, language: session.language });
           return this.makeTurnResponse(session, prompt, audio, true, false);
         }
       }
@@ -387,7 +386,7 @@ export class VoiceInteractionController {
         const prompt = isTwi
           ? `${session.draft.recipientName} fon nɔma ne sɛn? Ka nɔma no anaa kyerɛw wɔ keypad no so.`
           : `What is ${session.draft.recipientName}'s phone number? You can speak it or type on the keypad.`;
-        const audio = await openaiTts.synthesize({ text: prompt, language: session.language });
+        const audio = await voiceSpeech.synthesize({ text: prompt, language: session.language });
         return this.makeTurnResponse(session, prompt, audio, true, false);
       }
 
@@ -399,14 +398,14 @@ export class VoiceInteractionController {
           const prompt = isTwi
             ? `Sika dodoɔ sɛn na wobɛpɛ sɛ womane ${session.draft.recipientName}?`
             : `How much would you like to send to ${session.draft.recipientName}?`;
-          const audio = await openaiTts.synthesize({ text: prompt, language: session.language });
+          const audio = await voiceSpeech.synthesize({ text: prompt, language: session.language });
           return this.makeTurnResponse(session, prompt, audio, true, false);
         } else {
           session.diagnostics.dualAsrStatus = "discrepancy_keypad_needed";
           const prompt = isTwi
             ? "Mesrɛ wo, fa wo fon so keypad no kyerɛw nɔma du no pɛpɛɛpɛ."
             : "Please enter the 10-digit Ghanaian mobile number using your phone keypad.";
-          const audio = await openaiTts.synthesize({ text: prompt, language: session.language });
+          const audio = await voiceSpeech.synthesize({ text: prompt, language: session.language });
           return this.makeTurnResponse(session, prompt, audio, true, true);
         }
       }
@@ -426,13 +425,13 @@ export class VoiceInteractionController {
           const prompt = isTwi
             ? `Wopɛ sɛ womane sika cedis ${amount} kɔma ${session.draft.recipientName} wɔ nɔma a ɛwie ${session.draft.recipientPhone?.slice(-4)}. Ɛte saa? Ka aane anaa to so 1.`
             : `You want to send ${amount} Ghana cedis to ${session.draft.recipientName} at the number ending in ${session.draft.recipientPhone?.slice(-4)}. Is that correct? Say yes or press 1.`;
-          const audio = await openaiTts.synthesize({ text: prompt, language: session.language });
+          const audio = await voiceSpeech.synthesize({ text: prompt, language: session.language });
           return this.makeTurnResponse(session, prompt, audio, true, false);
         } else {
           const prompt = isTwi
             ? "Mesrɛ wo, kyerɛw sika no dodoɔ wɔ keypad no so (e.g. 50)."
             : "Please enter the amount using your phone keypad.";
-          const audio = await openaiTts.synthesize({ text: prompt, language: session.language });
+          const audio = await voiceSpeech.synthesize({ text: prompt, language: session.language });
           return this.makeTurnResponse(session, prompt, audio, true, true);
         }
       }
@@ -452,13 +451,13 @@ export class VoiceInteractionController {
           const prompt = isTwi
             ? "Mesrɛ wo, fa wo fon so keypad no hyɛ wo MoMo PIN mu de agye tumi. Mente na merenkora wo PIN da."
             : "Please use your phone keypad to enter your MoMo PIN. I will not hear or store your PIN.";
-          const audio = await openaiTts.synthesize({ text: prompt, language: session.language });
+          const audio = await voiceSpeech.synthesize({ text: prompt, language: session.language });
           return this.makeTurnResponse(session, prompt, audio, true, true);
         } else {
           const prompt = isTwi
             ? "Wompɛ sɛ womane sika no? Ka daabi anaa kɔ so."
             : "Would you like to cancel or change the transfer?";
-          const audio = await openaiTts.synthesize({ text: prompt, language: session.language });
+          const audio = await voiceSpeech.synthesize({ text: prompt, language: session.language });
           return this.makeTurnResponse(session, prompt, audio, true, false);
         }
       }
@@ -476,7 +475,7 @@ export class VoiceInteractionController {
 
   /**
    * Mode B — Conversational Voice Handler:
-   * Accepts natural, unstructured speech, invokes OpenAI Reasoner,
+   * Accepts natural, unstructured speech, invokes Gemini with Groq fallback,
    * engages Service Requirement Planner for missing slots, and handles corrections.
    */
   private async handleConversationalTurn(
@@ -491,43 +490,30 @@ export class VoiceInteractionController {
       return this.executePaymentTransfer(session, callerPhone);
     }
 
-    // 2. Semantic Memory Retrieval (e.g. "Send the same amount to Ama again")
-    let semanticMemoryContext = "";
-    const memory = await openaiEmbeddings.retrieveSemanticContext(input, callerPhone);
-    if (memory.hasMatch) {
-      semanticMemoryContext = memory.contextSummary;
-      session.diagnostics.memoryRecords = openaiEmbeddings.getHistoryCount(callerPhone);
-    }
-
-    // 3. OpenAI Reasoner (Structured Outputs)
-    const reasoning: StructuredReasoningOutput = await openaiReasoner.reasonAboutUtterance({
-      transcript: input,
-      sessionLanguage: session.language,
-      currentSlots: {
+    // 2. Gemini with Groq fallback for structured conversation reasoning.
+    const modelReasoning = await reasoningEngine.reason({
+      utterance: input,
+      languageHint: session.language === "twi" ? "tw" : "en",
+      existingSlots: {
         amount: session.draft.amount,
         recipientName: session.draft.recipientName,
         recipientPhone: session.draft.recipientPhone,
       },
-      semanticMemoryContext,
+      recentTurns: session.turns.slice(-8).map((turn) => ({ role: turn.role, text: turn.text })),
     });
-
-    session.diagnostics.reasoningEngine = openaiReasoner.isConfigured()
-      ? "OpenAI Reasoner (Structured Output)"
-      : "Deterministic Ghanaian Semantic Brain";
+    const reasoning = {
+      intent: String(modelReasoning.intent),
+      slots: modelReasoning.entities,
+      dialogueAct: modelReasoning.conversationAct === "DENY" ? "CANCEL" : modelReasoning.conversationAct === "CONFIRM" ? "EXECUTE_INTENT" : "UNKNOWN",
+      userConfirmed: modelReasoning.conversationAct === "CONFIRM",
+    };
+    session.diagnostics.reasoningEngine = "Gemini / Groq reasoning";
 
     // 4. Update session draft slots from reasoner
     if (reasoning.slots.amount) session.draft.amount = reasoning.slots.amount;
     if (reasoning.slots.recipientName) session.draft.recipientName = reasoning.slots.recipientName;
     if (reasoning.slots.recipientPhone) session.draft.recipientPhone = reasoning.slots.recipientPhone;
     if (reasoning.intent && reasoning.intent !== "unknown") session.draft.intent = reasoning.intent;
-
-    // Apply memory context suggestion if user said "same amount"
-    if (memory.hasMatch && !session.draft.amount && memory.suggestedSlots.amount) {
-      session.draft.amount = memory.suggestedSlots.amount;
-    }
-    if (memory.hasMatch && !session.draft.recipientPhone && memory.suggestedSlots.recipientPhone) {
-      session.draft.recipientPhone = memory.suggestedSlots.recipientPhone;
-    }
 
     // 5. Handle Cancellation
     if (reasoning.dialogueAct === "CANCEL" || reasoning.intent === "cancel") {
@@ -536,7 +522,7 @@ export class VoiceInteractionController {
         : "Transaction cancelled. Thank you for calling Ɔkwankyerɛfo Pa.";
       session.state = "COMPLETED";
       session.currentStep = "cancelled";
-      const audio = await openaiTts.synthesize({ text: cancelText, language: session.language });
+      const audio = await voiceSpeech.synthesize({ text: cancelText, language: session.language });
       return this.makeTurnResponse(session, cancelText, audio, false, false);
     }
 
@@ -550,7 +536,7 @@ export class VoiceInteractionController {
       const prompt = isTwi
         ? "Mesrɛ wo, fa wo fon so keypad no hyɛ wo MoMo PIN mu de agye tumi. Mente na merenkora wo PIN da."
         : "Please use your phone keypad to enter your MoMo PIN. I will not hear or store your PIN.";
-      const audio = await openaiTts.synthesize({ text: prompt, language: session.language });
+      const audio = await voiceSpeech.synthesize({ text: prompt, language: session.language });
       return this.makeTurnResponse(session, prompt, audio, true, true);
     }
 
@@ -565,7 +551,7 @@ export class VoiceInteractionController {
       const prompt = isTwi
         ? "Sika dodoɔ sɛn na wopɛ sɛ womane, na hwan na woremane no?"
         : "How much would you like to send, and who would you like to send it to?";
-      const audio = await openaiTts.synthesize({ text: prompt, language: session.language });
+      const audio = await voiceSpeech.synthesize({ text: prompt, language: session.language });
       return this.makeTurnResponse(session, prompt, audio, true, false);
     }
 
@@ -574,7 +560,7 @@ export class VoiceInteractionController {
       const prompt = isTwi
         ? `Sika cedis ${session.draft.amount} no, hwan na wobɛpɛ sɛ womane no?`
         : `Okay, ${session.draft.amount} cedis. Who would you like to send it to?`;
-      const audio = await openaiTts.synthesize({ text: prompt, language: session.language });
+      const audio = await voiceSpeech.synthesize({ text: prompt, language: session.language });
       return this.makeTurnResponse(session, prompt, audio, true, false);
     }
 
@@ -584,7 +570,7 @@ export class VoiceInteractionController {
       const prompt = isTwi
         ? `Yoo. Meyɛ krado sɛ memane sika cedis ${session.draft.amount || ""} ma ${recipientLabel}. ${recipientLabel} fon nɔma ne sɛn?`
         : `Okay. I have ${session.draft.amount ? session.draft.amount + " cedis and " : ""}${recipientLabel}. What is ${recipientLabel}'s phone number?`;
-      const audio = await openaiTts.synthesize({ text: prompt, language: session.language });
+      const audio = await voiceSpeech.synthesize({ text: prompt, language: session.language });
       return this.makeTurnResponse(session, prompt, audio, true, false);
     }
 
@@ -594,7 +580,7 @@ export class VoiceInteractionController {
       const prompt = isTwi
         ? `Sika dodoɔ sɛn na wopɛ sɛ womane ${recipientLabel}?`
         : `How much would you like to send to ${recipientLabel}?`;
-      const audio = await openaiTts.synthesize({ text: prompt, language: session.language });
+      const audio = await voiceSpeech.synthesize({ text: prompt, language: session.language });
       return this.makeTurnResponse(session, prompt, audio, true, false);
     }
 
@@ -608,7 +594,7 @@ export class VoiceInteractionController {
       ? `Metee ${session.draft.recipientPhone}. Wopɛ sɛ womane sika cedis ${session.draft.amount} ma ${session.draft.recipientName || ""} wɔ nɔma a ɛwie ${phoneEnding}. Ɛte saa?`
       : `I heard ${session.draft.recipientPhone}. You want to send ${session.draft.amount} Ghana cedis to ${nameLabel}the number ending in ${phoneEnding}. Is that correct?`;
 
-    const audio = await openaiTts.synthesize({ text: prompt, language: session.language });
+    const audio = await voiceSpeech.synthesize({ text: prompt, language: session.language });
     return this.makeTurnResponse(session, prompt, audio, true, false);
   }
 
@@ -642,15 +628,20 @@ export class VoiceInteractionController {
       session.draft.transactionId = sagaResult.sagaId;
       session.draft.financialReference = sagaResult.idempotencyKey;
 
-      // Record successful transaction into semantic embeddings memory
-      await openaiEmbeddings.recordTransaction({
-        callerPhone,
-        recipientName,
-        recipientPhone,
-        amount,
-        currency: "GHS",
-        summary: `Transferred ${amount} cedis to ${recipientName} (${recipientPhone})`,
-      });
+      try {
+        await unifiedMemory.recordTransaction(callerPhone, {
+          referenceId: sagaResult.sagaId,
+          type: "momo.transfer",
+          amount,
+          recipientPhone,
+          recipientName,
+          network: sagaDraft.network as any,
+          status: "PENDING",
+          source: "demo_simulator",
+        });
+      } catch (memoryError: any) {
+        auditLogger.log("warn", "VOICE_MEMORY", `Could not record transaction memory: ${memoryError?.message || memoryError}`);
+      }
 
       session.state = "COMPLETED";
       session.currentStep = "completed";
@@ -660,7 +651,7 @@ export class VoiceInteractionController {
         ? `Wo sika cedis ${amount} a womanee ${recipientName} no akɔ pɛpɛɛpɛ. Wo transaction ID ne ${sagaResult.sagaId.slice(-6)}. Meda wo ase.`
         : `Your transaction of ${amount} Ghana cedis to ${recipientName} was completed successfully. Thank you for using Ɔkwankyerɛfo Pa.`;
 
-      const audio = await openaiTts.synthesize({ text: completionText, language: session.language });
+      const audio = await voiceSpeech.synthesize({ text: completionText, language: session.language });
       return this.makeTurnResponse(session, completionText, audio, false, false, true);
     } catch (err: any) {
       console.error("[VoiceInteractionController] Payment execution error:", err);
@@ -671,7 +662,7 @@ export class VoiceInteractionController {
         ? "Mpaemuka bi sii wɔ sika no mane mu. Mesrɛ wo, sɔ bio anaa fa *170# kɔ."
         : "There was an error communicating with the payment network. Please try again later.";
 
-      const audio = await openaiTts.synthesize({ text: errorText, language: session.language });
+      const audio = await voiceSpeech.synthesize({ text: errorText, language: session.language });
       return this.makeTurnResponse(session, errorText, audio, false, false, false);
     }
   }

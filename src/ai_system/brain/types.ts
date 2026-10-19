@@ -61,10 +61,14 @@ export interface ModelOutputContract {
   };
   reply: {
     text_en: string;
+    /** Natural spoken response in target_language, supplied by the active cloud model. */
+    text_localized?: string;
     target_language: TargetLanguageId;
     reply_kind: ReplyKind;
     template_key?: string;
   };
+  /** Identifies the provider that produced this contract. */
+  provider?: 'gemini' | 'groq';
 }
 
 export type SlotType = 'amount' | 'phone' | 'name' | 'network' | 'recipient' | 'string' | 'number';

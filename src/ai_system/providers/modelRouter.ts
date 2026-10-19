@@ -12,9 +12,7 @@
 import { geminiClient } from "../../services/geminiClient";
 import { reasoningEngine } from "../understanding/reasoningEngine";
 import { localLanguageBrain } from "./LocalLanguageBrain";
-import { openAiReasoner } from "../../services/openai/openaiReasoner";
 import { groqReasoner } from "../../services/groq/groqReasoner";
-import { qwenReasoner } from "../../services/qwen/qwenReasoner";
 
 export type CognitiveCapability =
   | "LOCAL_NLU"
@@ -111,55 +109,13 @@ export class ModelRouter {
       },
     });
 
-    // 2. OpenAI Cloud Reasoning: Handshake 1 fallback after Gemini (priority 15)
-    this.register({
-      id: "openai_reasoning",
-      name: "OpenAI Cloud Reasoning (gpt-4o-mini)",
-      isLocal: false,
-      capabilities: new Set(["GEMINI_REASONING"]),
-      priority: 15,
-      timeoutMs: 3000,
-      isAvailable: () => openAiReasoner.isAvailable(),
-      execute: async (payload) => {
-        const res = await openAiReasoner.reasonForBrain(
-          payload?.utterance || payload?.prompt || "",
-          payload?.existingSlots || {},
-          3000
-        );
-        if (!res) throw new Error("OpenAI reasoning yielded no result");
-        return res;
-      },
-    });
-
-    const qwenLocal = qwenReasoner.isLocalMode();
-
-    // Local open-weight Qwen is opt-in and leads reasoning only when explicitly selected.
-    this.register({
-      id: "qwen_reasoning",
-      name: qwenLocal ? "Local Qwen 3 Reasoning (Ollama)" : "Qwen AI Cloud Reasoning (qwen-plus)",
-      isLocal: qwenLocal,
-      capabilities: new Set(["GEMINI_REASONING"]),
-      priority: qwenLocal ? 5 : 25,
-      timeoutMs: qwenLocal ? qwenReasoner.getTimeoutMs() : 3000,
-      isAvailable: () => qwenReasoner.isAvailable(),
-      execute: async (payload) => {
-        const res = await qwenReasoner.reasonForBrain(
-          payload?.utterance || payload?.prompt || "",
-          payload?.existingSlots || {},
-          qwenLocal ? qwenReasoner.getTimeoutMs() : 3000
-        );
-        if (!res) throw new Error("Qwen AI reasoning yielded no result");
-        return res;
-      },
-    });
-
-    // 3. Groq AI Cloud Reasoning: Handshake 2 fallback after OpenAI (priority 20)
+    // 2. Groq AI Cloud Reasoning: fallback after Gemini (priority 15)
     this.register({
       id: "groq_reasoning",
       name: "Groq AI LPU Cloud Reasoning",
       isLocal: false,
       capabilities: new Set(["GEMINI_REASONING"]),
-      priority: 20,
+      priority: 15,
       timeoutMs: 3000,
       isAvailable: () => groqReasoner.isAvailable(),
       execute: async (payload) => {

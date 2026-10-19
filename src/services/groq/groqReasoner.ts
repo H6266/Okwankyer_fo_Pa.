@@ -8,7 +8,6 @@
  */
 
 import { groqClient } from "./groqClient";
-import { BRAIN_TRAINING_SYSTEM_INSTRUCTIONS } from "../../ai_system/brain/trainingInstructions";
 import { ModelOutputContract } from "../../ai_system/brain/types";
 import { COMPACT_MOMO_SYSTEM_INSTRUCTION } from "../../ai_system/understanding/reasoningEngine";
 import {
@@ -24,7 +23,7 @@ import {
   StructuredReasoningResponse,
 } from "../../ai_system/core/aiTypes";
 import { parseAndValidateAmount, validateGhanaPhoneNumber } from "../../domain/validation";
-import { OpenAiReasoningParams } from "../openai/openaiReasoner";
+import type { ReasoningParams } from "../modelContracts";
 
 const BRAIN_INTENTS = new Set([
   "momo.transfer",
@@ -82,11 +81,12 @@ Return ONLY a valid JSON object matching the application's ModelOutputContract:
   },
   "reply": {
     "text_en": string,
+    "text_localized": string,
     "target_language": "${context.targetLanguage}",
     "reply_kind": "clarify_slot" | "clarify_intent" | "not_ready" | "confirm" | "dispatch" | "smalltalk" | "cancel" | "error"
   }
 }
-The reply.text_en field must be concise English for internal processing. Actual spoken text and audio are composed deterministically in the selected language. Use "unknown" only when intent is unclear. Never return fields outside this schema.`;
+The reply.text_en field must be concise English for internal processing. The reply.text_localized field must be a natural, concise spoken response in ${context.targetLanguage} for the caller. Keep it faithful to the application's safety and transaction state; do not invent amounts, recipients, verification results, or transaction outcomes. Never speak digits for clarify_slot or confirm replies. Use "unknown" only when intent is unclear. Never return fields outside this schema.`;
 }
 
 export function isGroqBrainContract(data: unknown): data is ModelOutputContract {
@@ -95,7 +95,7 @@ export function isGroqBrainContract(data: unknown): data is ModelOutputContract 
   const onlyKeys = (value: object, allowed: string[]) =>
     Object.keys(value).every((key) => allowed.includes(key));
   if (
-    !onlyKeys(candidate, ["intent", "slots", "signals", "reply"]) ||
+    !onlyKeys(candidate, ["intent", "slots", "signals", "reply", "provider"]) ||
     !candidate.intent ||
     !onlyKeys(candidate.intent, ["id", "confidence", "alternatives"]) ||
     !BRAIN_INTENTS.has(candidate.intent.id) ||
@@ -110,9 +110,11 @@ export function isGroqBrainContract(data: unknown): data is ModelOutputContract 
     typeof candidate.signals.interruption !== "boolean" ||
     typeof candidate.signals.user_confirmed !== "boolean" ||
     !candidate.reply ||
-    !onlyKeys(candidate.reply, ["text_en", "target_language", "reply_kind", "template_key"]) ||
+    !onlyKeys(candidate.reply, ["text_en", "text_localized", "target_language", "reply_kind", "template_key"]) ||
     typeof candidate.reply.text_en !== "string" ||
     candidate.reply.text_en.length > 250 ||
+    typeof candidate.reply.text_localized !== "string" ||
+    candidate.reply.text_localized.length > 250 ||
     (candidate.reply.template_key !== undefined && typeof candidate.reply.template_key !== "string") ||
     !["twi-asante", "twi-akuapem", "en"].includes(candidate.reply.target_language) ||
     !BRAIN_REPLY_KINDS.has(candidate.reply.reply_kind)
@@ -184,7 +186,6 @@ export class GroqReasoner {
               {
                 role: "system" as const,
                 content: `${COMPACT_MOMO_SYSTEM_INSTRUCTION}
-${BRAIN_TRAINING_SYSTEM_INSTRUCTIONS}
 For this central-brain task, never reconstruct or generate a masked phone number. Preserve the selected target language and return only the requested ModelOutputContract JSON. The application exclusively determines transaction stages and audio prompts.`,
               },
               {
@@ -225,6 +226,7 @@ For this central-brain task, never reconstruct or generate a masked phone number
           "GROQ_REASONING",
           `Groq evaluated intent=${parsed.intent.id} confidence=${parsed.intent.confidence ?? 0.9}`
         );
+        parsed.provider = "groq";
         return parsed;
       }
       return null;
@@ -236,9 +238,9 @@ For this central-brain task, never reconstruct or generate a masked phone number
 
   /**
    * Structured cognitive reasoning for the central ReasoningEngine and CognitiveRouter.
-   * Handshake 2 in the cascade: Gemini -> OpenAI -> Groq AI -> Local Inbuilt Brain.
+   * Fallback in the cascade: Gemini -> Groq AI -> Local Inbuilt Brain.
    */
-  public async reason(params: OpenAiReasoningParams): Promise<StructuredReasoningResponse> {
+  public async reason(params: ReasoningParams): Promise<StructuredReasoningResponse> {
     const cleanUtterance = params.utterance.trim();
     const sanitizedUtterance = cleanUtterance.slice(0, 500).replace(/<{3,}|>{3,}/g, "");
 
@@ -313,7 +315,7 @@ Rules:
               {
                 role: "system",
                 content:
-                  `You are an expert Ghanaian mobile financial voice cognitive reasoning engine. Always respond with raw valid JSON only.\n\n${BRAIN_TRAINING_SYSTEM_INSTRUCTIONS}`,
+                  "You are an expert Ghanaian mobile financial voice cognitive reasoning engine. Always respond with raw valid JSON only.",
               },
               { role: "user", content: prompt },
             ],

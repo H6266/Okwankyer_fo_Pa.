@@ -220,7 +220,7 @@ Output ONLY the transcription text without commentary.`;
                 ],
               });
             },
-            Math.min(options.timeoutMs || 7000, 7000)
+            7000
           );
 
           const geminiText = (geminiResp?.text || "").trim();

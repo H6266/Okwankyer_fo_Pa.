@@ -71,11 +71,8 @@ import { pilotMetrics } from '../../services/pilotMetrics';
 import { normalizeGhanaPhoneNumber, validateGhanaPhoneNumber, getNetworkFromPhone } from '../../domain/validation';
 import { brainTelemetry } from './brainTelemetry';
 import { storeGeminiConversationReply } from '../../audio/geminiAudioMatcher';
-import { openAiReasoner } from '../../services/openai/openaiReasoner';
 import { groqReasoner } from '../../services/groq/groqReasoner';
-import { qwenReasoner } from '../../services/qwen/qwenReasoner';
 import { buildTelephonyBrainKnowledge, maskDraftForModel } from './telephonyBrainKnowledge';
-import { BRAIN_TRAINING_SYSTEM_INSTRUCTIONS } from './trainingInstructions';
 
 export interface BrainConfig {
   mode: BrainMode;
@@ -339,7 +336,9 @@ export class Brain {
       const isTier2 = tierOverride === 'TIER_2_MODEL' || Boolean(output.modelOutput);
       const tier = isTier2 ? 'TIER_2_MODEL' : 'TIER_1_DETERMINISTIC';
       const tokensUsed = isTier2 ? 320 : 0;
-      const decisionSource = decisionSourceOverride || (isTier2 ? 'Gemini 3.8 Flash' : 'Tier 1 Deterministic Engine');
+      const decisionSource = decisionSourceOverride || (isTier2
+        ? output.modelOutput?.provider === 'groq' ? `Groq (${groqReasoner.getModel()})` : 'Gemini 3.8 Flash'
+        : 'Tier 1 Deterministic Engine');
 
       brainTelemetry.recordTurn({
         tier,
@@ -361,7 +360,7 @@ export class Brain {
       if (rawTranscript) {
         output.updatedDraft.recentTurns = [
           ...(output.updatedDraft.recentTurns || []),
-          { role: 'user' as const, text: isSpokenPinPresent(rawTranscript) ? '[REDACTED_SENSITIVE_INPUT]' : rawTranscript },
+          { role: 'user' as const, text: rawTranscript },
           { role: 'assistant' as const, text: output.reply.text },
         ].slice(-4);
       }
@@ -539,20 +538,11 @@ export class Brain {
 
     const decoderResult = numberDecoder.decode(rawTranscript);
 
-    // Never choose one of multiple plausible transaction values or destinations.
-    const ambiguousField = this.detectAmbiguousField(rawTranscript) || (decoderResult.ambiguous ? 'amount' : undefined);
-    if (ambiguousField) {
-      this.extractSlotsFromUtterance(rawTranscript, draft.slots, decoderResult);
-      if (!draft.intent && /\b(?:send|transfer|mane|kɔma)\b/i.test(rawTranscript)) {
-        draft.intent = 'momo.transfer';
-      }
-      if (ambiguousField === 'amount') {
-        delete draft.slots.amount;
-      } else if (draft.slots.recipient) {
-        delete draft.slots.recipient.phone;
-      }
+    // Rule: Ambiguous spoken numbers (e.g. "mpem ahanu ne aduonum") MUST clarify via keypad; never pick one.
+    if (decoderResult.ambiguous) {
+      delete draft.slots.amount;
       draft.lastReplyKind = 'clarify_slot';
-      const decision: BrainDecision = { kind: 'clarify_slot', slot: ambiguousField };
+      const decision: BrainDecision = { kind: 'clarify_slot', slot: 'amount' };
       const reply = await replyComposer.composeReply({
         decision,
         language: activeLanguage,
@@ -562,7 +552,7 @@ export class Brain {
         decision,
         modelOutput: modelOutput || undefined,
         reply: {
-          text: ambiguousField === 'amount' ? APPROVED_KEYPAD_FALLBACK_PROMPT : reply.text,
+          text: APPROVED_KEYPAD_FALLBACK_PROMPT,
           language: 'en',
           promptId: reply.promptId,
         },
@@ -697,7 +687,7 @@ export class Brain {
       }
 
       // Case A: Gemini needs more information or is conversing (Conversational Turn)
-      if (modelOutput.reply.reply_kind === 'clarify_slot') {
+      if (modelOutput.reply.reply_kind === 'clarify_slot' || modelOutput.reply.reply_kind === 'smalltalk' || modelOutput.reply.reply_kind === 'clarify_intent') {
         draft.lastReplyKind = 'clarify_slot';
         if (modelOutput.intent?.id) {
           draft.intent = modelOutput.intent.id;
@@ -711,13 +701,15 @@ export class Brain {
         }
         const settledIntent = draft.intent || 'momo.transfer';
         const missingSlot = this.recomputeMissingSlots(settledIntent, draft.slots);
-        const decisionSlot = missingSlot || 'conversational';
+        const isOpenConversation = modelOutput.reply.reply_kind === 'smalltalk' || modelOutput.reply.reply_kind === 'clarify_intent';
+        const decisionSlot = isOpenConversation ? 'conversational' : missingSlot || 'conversational';
         const decision: BrainDecision = { kind: 'clarify_slot', slot: decisionSlot };
         const reply = await replyComposer.composeReply({
           decision,
           language: activeLanguage,
           slots: draft.slots,
           conversationalText: modelOutput.reply?.text_en,
+          conversationalLocalizedText: modelOutput.reply?.text_localized,
         });
         return finalizeOutput({
           decision,
@@ -1470,60 +1462,31 @@ export class Brain {
     telephonyContext: BrainInput['telephonyContext'],
     geminiFailureReason: string
   ): Promise<ModelOutputContract | null> {
-    // ── HANDSHAKE 1: GEMINI ➔ OPENAI ──
-    if (openAiReasoner.isAvailable()) {
+    // ── HANDSHAKE 1: GEMINI ➔ GROQ AI ──
+    if (groqReasoner.isAvailable()) {
       try {
-        console.log(`🤝 [Handshake 1/3] Gemini unavailable (${geminiFailureReason}). Handing over session state to OpenAI...`);
-        auditLogger.log(
-          "info",
-          "BRAIN_HANDSHAKE_OPENAI",
-          `Handshake 1/3: Transferring conversation state to OpenAI (${openAiReasoner.getModel()}). Reason: ${geminiFailureReason}`
-        );
-        const openAiContract = await openAiReasoner.reasonForBrain(
-          masked,
-          maskDraftForModel(draft.slots),
-          3000,
-          { targetLanguage, intent: draft.intent, ...telephonyContext }
-        );
-        if (openAiContract && this.validateModelContract(openAiContract)) {
-          if (turnId !== this.currentTurnId) return null;
-          auditLogger.log("info", "BRAIN_HANDSHAKE_SUCCESS", `OpenAI successfully fulfilled reasoning turn via handshake.`);
-          return openAiContract;
-        }
-      } catch (err: any) {
-        console.warn(`[Handshake 1/3] OpenAI handover failed: ${err?.message || err}`);
-      }
-    } else {
-      console.log(`🤝 [Handshake 1/3 Skipped] OpenAI not configured or on cooldown.`);
-    }
-
-    // ── HANDSHAKE 2: OPENAI ➔ GROQ AI ──
-    const fastReasoner = groqReasoner.isAvailable() ? groqReasoner : (qwenReasoner.isAvailable() ? qwenReasoner : null);
-    if (fastReasoner) {
-      try {
-        const providerName = fastReasoner === groqReasoner ? "Groq AI" : "Qwen AI";
-        console.log(`🤝 [Handshake 2/3] OpenAI unavailable or failed. Handing over session state to ${providerName}...`);
+        console.log(`🤝 [Handshake 1/2] Gemini unavailable (${geminiFailureReason}). Handing over session state to Groq...`);
         auditLogger.log(
           "info",
           "BRAIN_HANDSHAKE_GROQ",
-          `Handshake 2/3: Transferring conversation state to ${providerName} (${fastReasoner.getModel()}).`
+          `Handshake 1/2: Transferring conversation state to Groq (${groqReasoner.getModel()}).`
         );
-        const fastContract = await fastReasoner.reasonForBrain(
+        const groqContract = await groqReasoner.reasonForBrain(
           masked,
           draft.slots,
-          fastReasoner.getTimeoutMs(),
+          groqReasoner.getTimeoutMs(),
           { targetLanguage, intent: draft.intent, ...telephonyContext }
         );
-        if (fastContract && this.validateModelContract(fastContract)) {
+        if (groqContract && this.validateModelContract(groqContract)) {
           if (turnId !== this.currentTurnId) return null;
-          auditLogger.log("info", "BRAIN_HANDSHAKE_SUCCESS", `${providerName} successfully fulfilled reasoning turn via handshake.`);
-          return fastContract;
+          auditLogger.log("info", "BRAIN_HANDSHAKE_SUCCESS", `Groq successfully fulfilled reasoning turn via handshake.`);
+          return groqContract;
         }
       } catch (err: any) {
-        console.warn(`[Handshake 2/3] Fast AI handover failed: ${err?.message || err}`);
+        console.warn(`[Handshake 1/2] Groq handover failed: ${err?.message || err}`);
       }
     } else {
-      console.log(`🤝 [Handshake 2/3 Skipped] Groq / Qwen AI not configured or on cooldown.`);
+      console.log(`🤝 [Handshake 1/2 Skipped] Groq not configured or on cooldown.`);
     }
 
     // ── HANDSHAKE 3: GROQ AI ➔ LOCAL INBUILT BRAIN ──
@@ -1548,29 +1511,6 @@ export class Brain {
     const sessionKey = sessionId || (draft.draftHash ? `session_${draft.draftHash}` : `session_turn_${turnId}`);
     const sanitized = sanitizeTranscriptForModel(rawTranscript);
     const masked = maskPhoneNumbers(sanitized);
-
-    if (
-      qwenReasoner.isLocalMode() &&
-      process.env.QWEN_LOCAL_PRIMARY === "true" &&
-      qwenReasoner.isAvailable()
-    ) {
-      try {
-        const qwenContract = await qwenReasoner.reasonForBrain(
-          masked,
-          draft.slots,
-          qwenReasoner.getTimeoutMs(),
-          { targetLanguage, intent: draft.intent, ...telephonyContext }
-        );
-        if (qwenContract && this.validateModelContract(qwenContract)) {
-          if (turnId !== this.currentTurnId) return null;
-          auditLogger.log("info", "BRAIN_QWEN_LOCAL_PRIMARY", "Local Qwen completed the primary reasoning turn.");
-          return qwenContract;
-        }
-        auditLogger.log("warn", "BRAIN_QWEN_LOCAL_PRIMARY", "Local Qwen returned an invalid contract; continuing provider fallback.");
-      } catch (err: any) {
-        auditLogger.log("warn", "BRAIN_QWEN_LOCAL_PRIMARY", `Local Qwen failed; continuing provider fallback: ${err?.message || err}`);
-      }
-    }
 
     if (!geminiClient.isAvailable()) {
       return this.executeProviderHandshake(
@@ -1619,7 +1559,7 @@ export class Brain {
                     },
                   ],
                   config: {
-                    systemInstruction: `${COMPACT_MOMO_SYSTEM_INSTRUCTION}\n\n${BRAIN_TRAINING_SYSTEM_INSTRUCTIONS}\n${buildTelephonyBrainKnowledge({
+                    systemInstruction: `${COMPACT_MOMO_SYSTEM_INSTRUCTION}\n${buildTelephonyBrainKnowledge({
                       targetLanguage,
                       intent: draft.intent,
                       ...telephonyContext,
@@ -1725,7 +1665,7 @@ export class Brain {
         ? `Gemini API error: ${cleanErrorMsg.slice(0, 80)}`
         : "Gemini models currently unavailable on cooldown";
 
-      auditLogger.log("warn", "BRAIN_GEMINI_FALLBACK_DIAGNOSIS", `Gemini reasoning did not return a response. Root cause: ${failureReason}. Handing over to OpenAI -> Qwen AI -> Local Brain handshake cascade.`);
+      auditLogger.log("warn", "BRAIN_GEMINI_FALLBACK_DIAGNOSIS", `Gemini reasoning did not return a response. Root cause: ${failureReason}. Handing over to Groq -> Local Brain handshake cascade.`);
       console.warn(`[Brain] Gemini fallback diagnosed: ${failureReason}. Initiating handshake...`);
       return this.executeProviderHandshake(masked, draft, turnId, targetLanguage, telephonyContext, failureReason);
     }
@@ -2184,20 +2124,14 @@ export class Brain {
     }
 
     // 3. Recipient Name / Label extraction
-    const relationship = '(?:(?:my|the)\\s+)?(?:(?:friend|sister|brother|mother|mum|mom|father|dad|aunt|uncle|wife|husband|son|daughter)\\s+)?';
-    const labelMatch = raw.match(new RegExp(`\\b(?:to\\s+(?:the\\s+)?|kɔma\\s+|ma\\s+|give\\s+to\\s+)${relationship}([A-Za-z]+(?:\\s+[A-Za-z]+)?)(?=\\s+(?:on|wɔ|at|number)\\b|\\s+0[0-9]{9}\\b|[.!?,;]|$)`, 'i')) ||
-      raw.match(new RegExp(`\\b(?:send\\s+(?:it\\s+)?to|kɔma|ma|give\\s+to)\\s+${relationship}([A-Za-z]+(?:\\s+[A-Za-z]+)?)\\b`, 'i'));
+    const labelMatch = raw.match(/\b(?:to\s+(?:the\s+)?|kɔma\s+|ma\s+|give\s+to\s+)([A-Za-z\s]+?)\s+(?:on|wɔ|at|\b0[0-9]{9}\b)/i) ||
+      raw.match(/\b(?:send\s+(?:it\s+)?to|kɔma|ma|give\s+to)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\b/i);
     if (labelMatch) {
-      const name = labelMatch[1].trim().replace(/\s+(?:on|wɔ|at|number|network|sim)$/i, '').trim();
+      const name = labelMatch[1].trim();
       const lowerName = name.toLowerCase();
-      if (['friend', 'sister', 'brother', 'mother', 'mum', 'mom', 'father', 'dad', 'aunt', 'uncle', 'wife', 'husband', 'son', 'daughter'].includes(lowerName)) {
-        currentSlots.recipient.name = lowerName;
-      } else if (!['him', 'her', 'them', 'someone', 'me', 'myself', 'me fon', 'me phone', 'my phone', 'cedis', 'ghs', 'money', 'sika', 'phone', 'number', 'the', 'my'].includes(lowerName)) {
+      if (!['him', 'her', 'them', 'someone', 'me', 'myself', 'me fon', 'me phone', 'my phone', 'cedis', 'ghs', 'money', 'sika', 'phone', 'number', 'the', 'my'].includes(lowerName)) {
         currentSlots.recipient.name = name;
       }
-    } else {
-      const relationshipMatch = raw.match(/\b(?:to|kɔma|ma|give\s+to)\s+(?:my|the)\s+(friend|sister|brother|mother|mum|mom|father|dad|aunt|uncle|wife|husband|son|daughter)\b/i);
-      if (relationshipMatch) currentSlots.recipient.name = relationshipMatch[1].toLowerCase();
     }
 
     // 4. Stated Network extraction (exclude standalone preposition 'at')
@@ -2210,16 +2144,6 @@ export class Brain {
         ? 'MTN'
         : 'AT';
     }
-  }
-
-  private detectAmbiguousField(raw: string): 'amount' | 'recipient' | undefined {
-    const phoneNumbers = raw.match(/\b(?:0[235]\d{8}|233[235]\d{8})\b/g) || [];
-    if (phoneNumbers.length > 1) return 'recipient';
-
-    const amountAlternatives = /\b\d+(?:\.\d{1,2})?\s*(?:ghs|cedis?|sidi)?\s+(?:or|anaa|maybe|perhaps)\s+\d+(?:\.\d{1,2})?\b/i;
-    if (amountAlternatives.test(raw)) return 'amount';
-
-    return undefined;
   }
 }
 

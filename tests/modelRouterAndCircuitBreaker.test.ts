@@ -8,19 +8,6 @@ describe("ModelRouter & Circuit Breakers (Section 41 & 42)", () => {
     vi.restoreAllMocks();
   });
 
-  it("promotes opt-in local Qwen ahead of cloud reasoning providers", () => {
-    vi.stubEnv("QWEN_MODE", "local");
-    vi.stubEnv("QWEN_BASE_URL", "");
-
-    const router = new ModelRouter();
-    const providers = router.getHealthReport();
-
-    expect(providers[0].id).toBe("qwen_reasoning");
-    expect(providers[0].isLocal).toBe(true);
-    expect(providers[0].name).toContain("Local Qwen 3");
-
-  });
-
   it("uses Gemini as the primary provider and keeps deterministic / local-brain fallbacks in the default routing order", () => {
     const router = new ModelRouter();
     const order = router.getHealthReport().map((provider) => provider.id);

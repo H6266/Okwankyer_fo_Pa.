@@ -17,10 +17,7 @@ import { AI_CONFIG } from "../core/aiConfig";
 import { languageDetector } from "../perception/languageDetector";
 import { aiUnderstanding } from "../core/aiUnderstanding";
 import { geminiClient } from "../../services/geminiClient";
-import { openAiReasoner } from "../../services/openai/openaiReasoner";
 import { groqReasoner } from "../../services/groq/groqReasoner";
-import { qwenReasoner } from "../../services/qwen/qwenReasoner";
-import { BRAIN_TRAINING_SYSTEM_INSTRUCTIONS } from "../brain/trainingInstructions";
 
 export const COMPACT_MOMO_SYSTEM_INSTRUCTION = `You are Ɔkwankyerɛfo Pa, a low-latency voice assistant for MTN Mobile Money (MoMo) in Ghana.
 Capabilities:
@@ -254,7 +251,7 @@ export class ReasoningEngine {
     const chat = ai.chats.create({
       model: modelName,
       config: {
-        systemInstruction: `${MOMO_SYSTEM_INSTRUCTION}\n\n${BRAIN_TRAINING_SYSTEM_INSTRUCTIONS}`,
+        systemInstruction: MOMO_SYSTEM_INSTRUCTION,
         tools: [{ functionDeclarations: [SEND_MONEY_TOOL, CASH_OUT_TOOL, ALLOW_CASH_OUT_TOOL] }],
         temperature: 0.2,
       },
@@ -299,9 +296,9 @@ export class ReasoningEngine {
     }
 
     if (this.client && typeof (this.client as any).isAvailable === "function" && !(this.client as any).isAvailable()) {
-      if (openAiReasoner.isAvailable()) {
+      if (groqReasoner.isAvailable()) {
         try {
-          return await openAiReasoner.reason({
+          return await groqReasoner.reason({
             utterance: cleanUtterance,
             languageHint: params.languageHint,
             currentScreen: params.currentScreen,
@@ -312,7 +309,7 @@ export class ReasoningEngine {
             frequentContacts: params.frequentContacts,
           });
         } catch (err: any) {
-          console.warn("[ReasoningEngine] OpenAI reasoner attempt notice:", err?.message || err);
+          console.warn("[ReasoningEngine] Groq reasoner attempt notice:", err?.message || err);
         }
       }
       return this.deterministicReasoning(params);
@@ -396,11 +393,11 @@ export class ReasoningEngine {
       }
     }
 
-    // ── Handshake 1: Gemini ➔ OpenAI Reasoner ──
-    if (openAiReasoner.isAvailable()) {
+    // ── Handshake 1: Gemini ➔ Groq AI Reasoner ──
+    if (groqReasoner.isAvailable()) {
       try {
-        console.log("[ReasoningEngine] Gemini unavailable or failed. Handshake 1/3: Passing utterance to OpenAI...");
-        return await openAiReasoner.reason({
+        console.log("[ReasoningEngine] Gemini unavailable or failed. Handshake 1/2: Passing utterance to Groq...");
+        return await groqReasoner.reason({
           utterance: cleanUtterance,
           languageHint: params.languageHint,
           currentScreen: params.currentScreen,
@@ -411,33 +408,12 @@ export class ReasoningEngine {
           frequentContacts: params.frequentContacts,
         });
       } catch (err: any) {
-        console.warn("[ReasoningEngine] OpenAI reasoner candidate attempt notice:", err?.message || err);
+        console.warn("[ReasoningEngine] Groq reasoner candidate attempt notice:", err?.message || err);
       }
     }
 
-    // ── Handshake 2: OpenAI ➔ Groq AI Reasoner ──
-    const fastReasoner = groqReasoner.isAvailable() ? groqReasoner : (qwenReasoner.isAvailable() ? qwenReasoner : null);
-    if (fastReasoner) {
-      try {
-        const providerName = fastReasoner === groqReasoner ? "Groq AI" : "Qwen AI";
-        console.log(`[ReasoningEngine] OpenAI unavailable or failed. Handshake 2/3: Passing utterance to ${providerName}...`);
-        return await fastReasoner.reason({
-          utterance: cleanUtterance,
-          languageHint: params.languageHint,
-          currentScreen: params.currentScreen,
-          currentStep: params.currentStep,
-          existingSlots: params.existingSlots,
-          recentTurns: params.recentTurns,
-          semanticMemoryContext: params.semanticMemoryContext,
-          frequentContacts: params.frequentContacts,
-        });
-      } catch (err: any) {
-        console.warn("[ReasoningEngine] Fast AI reasoner candidate attempt notice:", err?.message || err);
-      }
-    }
-
-    // ── Handshake 3: Groq AI ➔ Local Inbuilt Brain (Deterministic Ghanaian Reasoning) ──
-    console.log("[ReasoningEngine] All cloud LLMs exhausted. Handshake 3/3: Passing to Local Inbuilt Brain.");
+    // ── Handshake 2: Groq AI ➔ Local Inbuilt Brain (Deterministic Ghanaian Reasoning) ──
+    console.log("[ReasoningEngine] All cloud LLMs exhausted. Handshake 2/2: Passing to Local Inbuilt Brain.");
     return this.deterministicReasoning(params);
   }
 

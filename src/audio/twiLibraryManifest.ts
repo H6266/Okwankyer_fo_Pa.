@@ -244,8 +244,8 @@ const MANIFEST_TWI_AUDIO_LIBRARY_ITEMS: TwiLibraryItem[] = [
   },
   {
     key: "confirm_continue",
-    filename: "Confirm_continue.mp3",
-    audioUrl: "/audio/Twi_library/Confirm_continue.mp3",
+    filename: "Confirm_continue.m4a",
+    audioUrl: "/audio/Twi_library/Confirm_continue.m4a",
     transcript: "if you agree to continue press1, if you dont agree press 2, to exit press 0",
     category: "confirmation",
     keywords: ["agree to continue", "press 1", "press 2", "exit press 0", "pene so"]
@@ -356,16 +356,16 @@ const MANIFEST_TWI_AUDIO_LIBRARY_ITEMS: TwiLibraryItem[] = [
   },
   {
     key: "success_sent",
-    filename: "Success_sent.mp3",
-    audioUrl: "/audio/Twi_library/Success_sent.mp3",
+    filename: "Success_sent.m4a",
+    audioUrl: "/audio/Twi_library/Success_sent.m4a",
     transcript: "we have sent the money successfully ?",
     category: "outcome",
     keywords: ["success sent", "money sent successfully", "we have sent the money successfully", "sent the money", "sika akɔ yie"]
   },
   {
     key: "success_close",
-    filename: "Success_close.mp3",
-    audioUrl: "/audio/Twi_library/Success_close.mp3",
+    filename: "Success_close.m4a",
+    audioUrl: "/audio/Twi_library/Success_close.m4a",
     transcript: "please we have successfully completed your transaction, thank you for using okwankyerefo pa",
     category: "outcome",
     keywords: ["success close", "successfully completed", "thank you", "edaase"]
@@ -548,8 +548,8 @@ const MANIFEST_TWI_AUDIO_LIBRARY_ITEMS: TwiLibraryItem[] = [
   },
   {
     key: "please_respond",
-    filename: "Please_respond.mp3",
-    audioUrl: "/audio/Twi_library/Please_respond.mp3",
+    filename: "Please_respond.m4a",
+    audioUrl: "/audio/Twi_library/Please_respond.m4a",
     transcript: "I did not get any response from you, please give us a response!",
     category: "help",
     keywords: ["please respond", "no response", "bua"]
@@ -628,8 +628,8 @@ const MANIFEST_TWI_AUDIO_LIBRARY_ITEMS: TwiLibraryItem[] = [
   },
   {
     key: "keep_reference",
-    filename: "Keep_reference.mp3",
-    audioUrl: "/audio/Twi_library/Keep_reference.mp3",
+    filename: "Keep_reference.m4a",
+    audioUrl: "/audio/Twi_library/Keep_reference.m4a",
     transcript: "For future occurances, please keep this reference",
     category: "general",
     keywords: ["keep reference", "reference", "kora reference"]

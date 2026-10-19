@@ -198,9 +198,9 @@ export function loadConfig(): AppConfig {
       configured: Boolean(env.GEMINI_API_KEY),
     },
     groq: {
-      apiKey: (env.GROQ_API_KEY || env.QWEN_API_KEY || "").trim(),
-      model: (env.GROQ_MODEL || "qwen/qwen3.8-27b").trim(),
-      configured: Boolean((env.GROQ_API_KEY || env.QWEN_API_KEY || "").trim()),
+      apiKey: (env.GROQ_API_KEY || "").trim(),
+      model: (env.GROQ_MODEL || "llama-3.3-70b-versatile").trim(),
+      configured: Boolean((env.GROQ_API_KEY || "").trim()),
     },
     hciLab: {
       apiKey: (env.UG_HCI_LAB_API_KEY || "").trim(),

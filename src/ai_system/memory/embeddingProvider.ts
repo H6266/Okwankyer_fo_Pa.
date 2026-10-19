@@ -9,12 +9,11 @@
 
 import { GoogleGenAI } from "@google/genai";
 import { AI_CONFIG } from "../core/aiConfig";
-import { openAiEmbeddings } from "../../services/openai/openaiEmbeddings";
 import { geminiClient } from "../../services/geminiClient";
 
 export interface EmbeddingResult {
   vector: number[];
-  source: "GEMINI_EMBEDDING" | "OPENAI_EMBEDDING" | "LEXICAL_FALLBACK";
+  source: "GEMINI_EMBEDDING" | "LEXICAL_FALLBACK";
   dimension: number;
 }
 
@@ -60,22 +59,6 @@ export class GeminiEmbeddingProvider implements IEmbeddingProvider {
         }
       } catch (err: any) {
         // Fall through to next provider
-      }
-    }
-
-    // Try OpenAI text-embedding-3-small provider if available
-    if (openAiEmbeddings.isAvailable()) {
-      try {
-        const res = await openAiEmbeddings.embed(clean);
-        if (res.vector && res.vector.length > 0) {
-          return {
-            vector: res.vector,
-            source: "OPENAI_EMBEDDING",
-            dimension: res.dimension,
-          };
-        }
-      } catch (err: any) {
-        // Fall through to lexical fallback
       }
     }
 

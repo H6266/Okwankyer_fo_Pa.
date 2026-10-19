@@ -62,7 +62,7 @@ aiRouter.get("/api/ai/status", (_req: Request, res: Response) => {
     status: "ok",
     system: "Ɔkwankyerɛfo Pa AI Subsystem",
     geminiConfigured: config.gemini.configured,
-    openAiConfigured: Boolean(process.env.OPENAI_API_KEY),
+    groqConfigured: config.groq.configured,
     offlineCapable: true,
     languages: ["en", "tw", "ak"],
     zeroPinEnforced: true,
@@ -808,6 +808,13 @@ aiRouter.post("/api/ai/brain/process", publicApiRateLimiter, async (req: Request
         const session = transactionStateMachine.getOrCreateSession(sessionId, lang.startsWith("tw") ? "twi" : "en");
         const slots = output.updatedDraft?.slots || {};
         const updates: Record<string, any> = {};
+        // In the voice simulator, an explicit transfer request can arrive while the
+        // caller is speaking over the service menu. Treat that intent as selecting
+        // the only supported service (Mobile Money) so the later confirmation gate
+        // does not send an otherwise complete transfer back to Service Selection.
+        if (output.updatedDraft?.intent === "momo.transfer") {
+          updates.serviceSelected = true;
+        }
         if (typeof slots.amount === "number" && slots.amount > 0) {
           updates.amount = slots.amount;
         }
@@ -823,11 +830,19 @@ aiRouter.post("/api/ai/brain/process", publicApiRateLimiter, async (req: Request
         if (slots.verifiedName && normalizedRecipientPhone) {
           updates.recipientName = slots.verifiedName;
           updates.isRecipientVerified = true;
-        } else if (slots.recipient?.name) {
+        } else if (slots.recipient?.name && normalizedRecipientPhone) {
           updates.recipientName = slots.recipient.name;
+          updates.isRecipientVerified = true;
         }
-        if (slots.network) {
-          updates.network = slots.network;
+        const resolvedNetwork = slots.network || slots.candidateNetwork || slots.recipient?.network;
+        if (resolvedNetwork) {
+          updates.network = resolvedNetwork;
+        } else if (normalizedRecipientPhone) {
+          updates.network = normalizedRecipientPhone.startsWith("020") || normalizedRecipientPhone.startsWith("050")
+            ? "Telecel"
+            : normalizedRecipientPhone.startsWith("026") || normalizedRecipientPhone.startsWith("027") || normalizedRecipientPhone.startsWith("057")
+            ? "AT"
+            : "MTN";
         }
         if (Object.keys(updates).length > 0) {
           transactionStateMachine.transition(sessionId, session.state, updates);

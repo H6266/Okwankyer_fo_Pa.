@@ -3,7 +3,7 @@
  *
  * Architecture:
  * 1. AI is the Brain: An API request is made to the AI (Gemini as primary,
- *    cascading to OpenAI -> Qwen) with the reply and the complete library transcripts.
+ *    using Groq as fallback, with the reply and the complete library transcripts.
  * 2. The AI reasons about what pre-recorded audio files communicate the message,
  *    arranges them in exact playback order, and isolates dynamic variables or missing
  *    phrases for dynamic TTS.
@@ -15,9 +15,7 @@
 import { TWI_AUDIO_LIBRARY_ITEMS, TwiLibraryItem } from "./twiLibraryManifest";
 import { AUDIO_RECORDINGS, AudioRecording } from "./recordingRegistry";
 import { UnifiedGeminiClient } from "../services/geminiClient";
-import { openaiClient } from "../services/openai/openaiClient";
 import { groqClient } from "../services/groq/groqClient";
-import { qwenClient } from "../services/qwen/qwenClient";
 
 export interface AudioSegment {
   type: "clip" | "tts";
@@ -29,7 +27,7 @@ export interface AudioSegment {
 
 export interface CrossReferenceAudioPlan {
   replyText: string;
-  source: "gemini" | "openai" | "groq" | "qwen" | "local_fallback";
+  source: "gemini" | "groq" | "local_fallback";
   segments: AudioSegment[];
   orderedClipFilenames: string[];
   ttsText: string | null;
@@ -147,33 +145,24 @@ export async function crossReferenceReplyAudioWithAi(
       matchPlanCache.set(cacheKey, plan);
       return plan;
     }
+    console.info("[AudioMatcherBrain] Gemini returned no usable audio plan; trying Groq fallback.");
   } catch (err: any) {
-    console.warn("[AudioMatcherBrain] Gemini API call failed, cascading to fallback:", err?.message || err);
+    console.warn("[AudioMatcherBrain] Gemini API call failed; trying Groq fallback immediately:", err?.message || err);
   }
 
-  // 3. Fallback 1: OpenAI
+  // 3. Fallback: Groq (Fast LPU AI)
   try {
-    const plan = await callOpenAiAudioMatcher(cleanReply, language);
+    console.info("[AudioMatcherBrain] Attempting Groq audio matcher fallback.");
+    const plan = await callGroqAudioMatcher(cleanReply, language);
     if (plan && plan.segments.length > 0) {
       matchPlanCache.set(cacheKey, plan);
       return plan;
     }
   } catch (err: any) {
-    console.warn("[AudioMatcherBrain] OpenAI fallback failed:", err?.message || err);
+    console.warn("[AudioMatcherBrain] Groq fallback failed:", err?.message || err);
   }
 
-  // 4. Fallback 2: Groq / Qwen (Fast LPU AI)
-  try {
-    const plan = await callGroqAudioMatcher(cleanReply, language) || await callQwenAudioMatcher(cleanReply, language);
-    if (plan && plan.segments.length > 0) {
-      matchPlanCache.set(cacheKey, plan);
-      return plan;
-    }
-  } catch (err: any) {
-    console.warn("[AudioMatcherBrain] Groq/Qwen fallback failed:", err?.message || err);
-  }
-
-  // 5. Ultimate Fallback: Local Rule & Token Matcher
+  // 4. Ultimate Fallback: Local Rule & Token Matcher
   const localPlan = localAudioMatcherFallback(cleanReply, language);
   matchPlanCache.set(cacheKey, localPlan);
   return localPlan;
@@ -240,57 +229,16 @@ Output strictly valid JSON with this exact schema:
 }
 
 /**
- * OpenAI Fallback Execution
- */
-async function callOpenAiAudioMatcher(
-  replyText: string,
-  language: "twi" | "en"
-): Promise<CrossReferenceAudioPlan | null> {
-  if (!openaiClient.isAvailable()) return null;
-  const rawClient = openaiClient.getRawClient();
-  if (!rawClient) return null;
-
-  const prompt = `You are the Audio Assembly Brain for Ɔkwankyerɛfo Pa.
-Given the intended reply and our pre-recorded audio files catalog, determine which audio files to play in order and which text needs TTS.
-Audio Library:
-${CATALOG_PROMPT_STRING}
-
-Message: "${replyText}"
-Language: ${language}
-
-Respond strictly in JSON:
-{
-  "orderedClipFilenames": ["filename.m4a"],
-  "ttsText": "dynamic variables or empty string",
-  "reasoning": "explanation",
-  "confidence": 0.9
-}`;
-
-  const response = await rawClient.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      { role: "system", content: "You output JSON only." },
-      { role: "user", content: prompt },
-    ],
-    temperature: 0.1,
-    max_tokens: 400,
-  });
-
-  const resText = response.choices?.[0]?.message?.content;
-  if (!resText) return null;
-  return parseAiPlanResponse(resText, replyText, "openai");
-}
-
-/**
  * Groq Fallback Execution (Ultra-fast LPU inference)
  */
 async function callGroqAudioMatcher(
   replyText: string,
   language: "twi" | "en"
 ): Promise<CrossReferenceAudioPlan | null> {
-  if (!groqClient.isAvailable()) return null;
-  const rawClient = groqClient.getRawClient();
-  if (!rawClient) return null;
+  if (!groqClient.isAvailable()) {
+    console.warn(`[AudioMatcherBrain] Groq fallback unavailable: ${groqClient.getUnavailableReason() || "client unavailable"}.`);
+    return null;
+  }
 
   const prompt = `Audio library:
 ${CATALOG_PROMPT_STRING}
@@ -299,55 +247,32 @@ Select matching audio clips in order and any TTS remainder as JSON:
 {"orderedClipFilenames": [], "ttsText": "", "reasoning": "", "confidence": 0.8}`;
 
   try {
-    const response = await rawClient.chat.completions.create({
-      model: groqClient.getModel(),
-      messages: [
-        { role: "system", content: "You output JSON only." },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.1,
-      max_tokens: 400,
-    });
+    const response = await groqClient.executeWithTimeout(
+      "audio-cross-referencing",
+      (client, signal) => client.chat.completions.create({
+        model: groqClient.getModel(),
+        messages: [
+          { role: "system", content: "You output JSON only." },
+          { role: "user", content: prompt },
+        ],
+        temperature: 0.1,
+        max_tokens: 400,
+      }, { signal }),
+      10000
+    );
 
     const resText = response.choices?.[0]?.message?.content;
-    if (!resText) return null;
-    return parseAiPlanResponse(resText, replyText, "groq");
+    if (!resText) {
+      console.warn("[AudioMatcherBrain] Groq fallback returned an empty response.");
+      return null;
+    }
+    const plan = parseAiPlanResponse(resText, replyText, "groq");
+    if (!plan) console.warn("[AudioMatcherBrain] Groq fallback returned an invalid audio plan.");
+    return plan;
   } catch (err: any) {
-    console.warn("[callGroqAudioMatcher] Error calling Groq:", err?.message || err);
+    console.warn("[AudioMatcherBrain] Groq fallback request failed:", err?.message || err);
     return null;
   }
-}
-
-/**
- * Qwen Fallback Execution
- */
-async function callQwenAudioMatcher(
-  replyText: string,
-  language: "twi" | "en"
-): Promise<CrossReferenceAudioPlan | null> {
-  if (!qwenClient.isAvailable()) return null;
-  const rawClient = qwenClient.getRawClient();
-  if (!rawClient) return null;
-
-  const prompt = `Audio library:
-${CATALOG_PROMPT_STRING}
-Message: "${replyText}"
-Select matching audio clips in order and any TTS remainder as JSON:
-{"orderedClipFilenames": [], "ttsText": "", "reasoning": "", "confidence": 0.8}`;
-
-  const response = await rawClient.chat.completions.create({
-    model: qwenClient.getModel(),
-    messages: [
-      { role: "system", content: "You output JSON only." },
-      { role: "user", content: prompt },
-    ],
-    temperature: 0.1,
-    max_tokens: 400,
-  });
-
-  const resText = response.choices?.[0]?.message?.content;
-  if (!resText) return null;
-  return parseAiPlanResponse(resText, replyText, "qwen");
 }
 
 /**
@@ -356,7 +281,7 @@ Select matching audio clips in order and any TTS remainder as JSON:
 function parseAiPlanResponse(
   rawText: string,
   replyText: string,
-  source: "gemini" | "openai" | "groq" | "qwen"
+  source: "gemini" | "groq"
 ): CrossReferenceAudioPlan | null {
   try {
     const jsonMatch = rawText.match(/\{[\s\S]*\}/);

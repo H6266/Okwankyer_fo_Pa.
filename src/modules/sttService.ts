@@ -65,13 +65,12 @@ async function fetchRemoteRecording(url: string, timeoutMs: number = 1500): Prom
         headers["apiKey"] = process.env.AT_API_KEY;
       }
       const resp = await fetch(url, { headers, signal: controller.signal });
+      clearTimeout(timer);
       if (resp.ok) {
         const arrayBuf = await resp.arrayBuffer();
         return Buffer.from(arrayBuf);
       }
     } catch {
-      // Retry once before returning a safe empty transcript.
-    } finally {
       clearTimeout(timer);
     }
     attempt++;
@@ -285,15 +284,10 @@ async function transcribeAudioBufferUnified(
   buffer: Buffer,
   mime: string,
   step?: string,
-  deadlineMs: number = 3000,
+  _deadlineMs?: number,
   languageHint?: string
 ): Promise<SttResult> {
-  const orchResult = await asrOrchestrator.transcribe(buffer, mime, {
-    step,
-    languageHint,
-    timeoutMs: deadlineMs,
-    allowFallback: true,
-  });
+  const orchResult = await asrOrchestrator.transcribe(buffer, mime, { step, languageHint, allowFallback: true });
   return {
     text: orchResult.text.length > 0 ? orchResult.text : "empty",
     confidence: orchResult.confidence,
@@ -312,8 +306,7 @@ export class TelephonySpeechService implements SpeechToTextProvider {
     audioPayload: Buffer | string,
     mimeType: string = "audio/wav",
     step?: string,
-    languageHint?: string,
-    timeoutMs: number = 3000
+    languageHint?: string
   ): Promise<SttResult> {
     // 1. Remote Africa's Talking recording URL
     if (
@@ -321,7 +314,7 @@ export class TelephonySpeechService implements SpeechToTextProvider {
       (audioPayload.startsWith("http://") || audioPayload.startsWith("https://"))
     ) {
       try {
-        const buffer = await fetchRemoteRecording(audioPayload, Math.min(1500, timeoutMs));
+        const buffer = await fetchRemoteRecording(audioPayload, 1500);
         if (buffer.length < 300) {
           buffer.fill(0);
           return { text: "empty", confidence: 0.0, provider: "TelephonySpeechService" };
@@ -338,7 +331,7 @@ export class TelephonySpeechService implements SpeechToTextProvider {
           : extension === ".webm"
           ? "audio/webm"
           : "audio/mpeg";
-        return await transcribeAudioBufferUnified(buffer, mime, step, timeoutMs, languageHint);
+        return await transcribeAudioBufferUnified(buffer, mime, step, 3000, languageHint);
       } catch (err: any) {
         return { text: "empty", confidence: 0.0, provider: "TelephonySpeechService" };
       }
@@ -350,14 +343,14 @@ export class TelephonySpeechService implements SpeechToTextProvider {
       if (match) {
         const mime = match[1];
         const buffer = Buffer.from(match[2], "base64");
-        return await transcribeAudioBufferUnified(buffer, mime, step, timeoutMs, languageHint);
+        return await transcribeAudioBufferUnified(buffer, mime, step, 3000, languageHint);
       }
     }
 
     // 3. Raw Buffer
     if (Buffer.isBuffer(audioPayload)) {
       try {
-        return await transcribeAudioBufferUnified(audioPayload, mimeType, step, timeoutMs, languageHint);
+        return await transcribeAudioBufferUnified(audioPayload, mimeType, step, 3000, languageHint);
       } catch {
         return {
           text: "empty",
@@ -405,8 +398,7 @@ export async function speechToText(
   audioBuffer: Buffer | string,
   mimeType?: string,
   step?: string,
-  languageHint?: string,
-  timeoutMs?: number
+  languageHint?: string
 ): Promise<{
   text: string;
   confidence: number | null;
@@ -415,7 +407,7 @@ export async function speechToText(
   pinDiscarded?: boolean;
   provider?: string;
 }> {
-  const result = await speechToTextService.transcribe(audioBuffer, mimeType, step, languageHint, timeoutMs);
+  const result = await speechToTextService.transcribe(audioBuffer, mimeType, step, languageHint);
   return {
     text: result.text,
     confidence: result.confidence,

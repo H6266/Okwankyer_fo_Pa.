@@ -808,7 +808,7 @@ export const AudioLibraryPage: React.FC = () => {
             {isAiMatching && (
               <div className="p-4 rounded-xl border border-sky-500/30 bg-sky-950/20 text-xs text-sky-300 flex items-center gap-2">
                 <RefreshCw className="w-4 h-4 animate-spin text-sky-400" />
-                <span>AI Brain (Gemini 3.8 Flash / OpenAI / Groq) is analyzing reply and cross-referencing audio library...</span>
+                <span>AI Brain (Gemini 3.8 Flash / Groq) is analyzing reply and cross-referencing audio library...</span>
               </div>
             )}
 

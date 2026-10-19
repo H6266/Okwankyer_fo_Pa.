@@ -5,11 +5,18 @@
  * 1. Ultra-low-latency Groq LPU client instance management (~80-150ms TTFT).
  * 2. Per-request abort controller and bounded timeouts.
  * 3. Exponential backoff and circuit-breaker failover when quota is exhausted (HTTP 429).
- * 4. High-performance Handshake 2 in the Gemini -> OpenAI -> Groq AI -> Deterministic Brain cascade.
+ * 4. High-performance fallback in the Gemini -> Groq AI -> Deterministic Brain cascade.
  */
 
-import OpenAI from "openai";
 import { auditLogger } from "../auditLogger";
+
+export interface GroqChatCompletion {
+  choices: Array<{ message?: { content?: string | null } }>;
+}
+
+export interface GroqApiClient {
+  chat: { completions: { create(request: Record<string, unknown>, options?: { signal?: AbortSignal }): Promise<GroqChatCompletion> } };
+}
 
 function isPlaceholderKey(value?: string): boolean {
   const normalized = (value || "").trim();
@@ -36,7 +43,7 @@ export interface CircuitBreakerState {
 
 export class GroqClientManager {
   private static instance: GroqClientManager;
-  private client: OpenAI | null = null;
+  private client: GroqApiClient | null = null;
   private circuitBreaker: CircuitBreakerState = {
     failureCount: 0,
     lastFailureTime: 0,
@@ -59,7 +66,7 @@ export class GroqClientManager {
   }
 
   public getApiKey(): string | undefined {
-    const raw = (process.env.GROQ_API_KEY || process.env.QWEN_API_KEY || "").trim();
+    const raw = (process.env.GROQ_API_KEY || "").trim();
     if (isPlaceholderKey(raw)) {
       return undefined;
     }
@@ -71,7 +78,7 @@ export class GroqClientManager {
   }
 
   public getModel(): string {
-    return process.env.GROQ_MODEL || "qwen/qwen3.8-27b";
+    return process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
   }
 
   public getTimeoutMs(): number {
@@ -82,12 +89,26 @@ export class GroqClientManager {
     const apiKey = this.getApiKey();
     if (apiKey) {
       try {
-        this.client = new OpenAI({
-          apiKey,
-          baseURL: this.getBaseUrl(),
-          maxRetries: 1,
-          timeout: Math.max(5000, this.getTimeoutMs() + 1000),
-        });
+        const baseUrl = this.getBaseUrl().replace(/\/+$/, "");
+        this.client = {
+          chat: {
+            completions: {
+              create: async (request, options = {}) => {
+                const response = await fetch(`${baseUrl}/chat/completions`, {
+                  method: "POST",
+                  headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+                  body: JSON.stringify(request),
+                  signal: options.signal,
+                });
+                if (!response.ok) {
+                  const details = await response.text();
+                  throw new Error(`Groq HTTP ${response.status}: ${details.slice(0, 300)}`);
+                }
+                return response.json() as Promise<GroqChatCompletion>;
+              },
+            },
+          },
+        };
       } catch (err: any) {
         console.warn("[GroqClient] Failed to initialize Groq client:", err.message);
         this.client = null;
@@ -95,7 +116,7 @@ export class GroqClientManager {
     }
   }
 
-  public getRawClient(): OpenAI | null {
+  public getRawClient(): GroqApiClient | null {
     if (!this.client && this.getApiKey()) {
       this.initClient();
     }
@@ -116,6 +137,18 @@ export class GroqClientManager {
       return false;
     }
     return true;
+  }
+
+  public getUnavailableReason(): string | null {
+    if (!this.getApiKey()) return "GROQ_API_KEY is missing or is a placeholder";
+    const now = Date.now();
+    if (this.circuitBreaker.cooldownUntil > now) {
+      return `Groq circuit breaker cooldown has ${Math.ceil((this.circuitBreaker.cooldownUntil - now) / 1000)}s remaining`;
+    }
+    if (this.circuitBreaker.state === "OPEN" && now - this.circuitBreaker.lastFailureTime <= 30000) {
+      return "Groq circuit breaker is open";
+    }
+    return null;
   }
 
   public recordQuotaExhausted(cooldownMs: number = this.DEFAULT_COOLDOWN_MS): void {
@@ -163,7 +196,7 @@ export class GroqClientManager {
 
   public async executeWithTimeout<T>(
     operationName: string,
-    fn: (client: OpenAI, signal: AbortSignal) => Promise<T>,
+    fn: (client: GroqApiClient, signal: AbortSignal) => Promise<T>,
     timeoutMs: number = this.getTimeoutMs()
   ): Promise<T> {
     if (!this.isAvailable()) {

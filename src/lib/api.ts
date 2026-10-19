@@ -223,7 +223,6 @@ export interface ParsedVoiceXml {
   raw: string;
   say?: { text: string; voice?: string };
   sayText?: string;
-  voiceSequence?: Array<{ type: "play" | "say"; value: string }>;
   playUrl?: string;
   playUrls?: string[];
   redirect?: string;
@@ -269,18 +268,6 @@ export function parseVoiceXml(xmlText: string): ParsedVoiceXml {
     result.playUrls = playUrls;
     result.playUrl = playUrls[0];
   }
-
-  const voiceSequence: Array<{ type: "play" | "say"; value: string }> = [];
-  const voiceTags = xmlText.matchAll(/<(Play|Say)\b([^>]*?)(?:\/>|>([\s\S]*?)<\/\1\s*>)/gi);
-  for (const match of voiceTags) {
-    const type = match[1].toLowerCase() as "play" | "say";
-    const attributes = match[2] || "";
-    const body = (match[3] || "").trim();
-    const url = attributes.match(/url=["']([^"']+)["']/i)?.[1];
-    const value = type === "play" ? (url || body) : body;
-    if (value) voiceSequence.push({ type, value: value.replace(/&amp;/g, "&") });
-  }
-  if (voiceSequence.length > 0) result.voiceSequence = voiceSequence;
 
   // Say text and voice
   const sayMatch = xmlText.match(/<Say(?:\s+voice=["']([^"']+)["'])?[^>]*>([\s\S]*?)<\/Say>/i);
@@ -1502,7 +1489,7 @@ export const api = {
     sessionId?: string;
   }): Promise<{
     replyText: string;
-    source: "gemini" | "openai" | "groq" | "qwen" | "local_fallback";
+    source: "gemini" | "groq" | "local_fallback";
     segments: Array<{
       type: "clip" | "tts";
       filename?: string;

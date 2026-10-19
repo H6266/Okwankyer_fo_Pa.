@@ -8,7 +8,7 @@ This document is the authoritative, self-contained implementation plan for **Ɔk
 * **Key Technology Integrations:**
   * **Telephony Gateway:** Africa's Talking Voice (`/voice/incoming-call`, `/voice/speech-fallback`, VoiceXML).
   * **Local Language Speech:** University of Ghana HCI Lab API (`lab-subscription-platform.vercel.app`) for Akan Twi ASR (`/api/v1/asr`) and TTS (`/api/v1/tts`).
-  * **AI Reasoning Cascade:** Google Gemini 3.8 Flash $\rightarrow$ OpenAI (gpt-4o-mini) $\rightarrow$ Qwen AI (qwen-plus) $\rightarrow$ Local Deterministic Ghanaian Brain.
+  * **AI Reasoning Cascade:** Google Gemini 3.8 Flash $\rightarrow$ Groq $\rightarrow$ Local Deterministic Ghanaian Brain.
   * **Financial Engine:** MTN MoMo Open API (Collections & Disbursements) with strict Zero-PIN security.
   * **Hosting Environment:** Render Web Service (Node.js 22 runtime, dynamic port binding, public HTTPS resolution).
 
@@ -32,11 +32,6 @@ UG_HCI_LAB_URL=https://lab-subscription-platform.vercel.app
 # AI Central Brain Cascade
 GEMINI_API_KEY=AIzaSy...
 GEMINI_MODEL=gemini-3.8-flash
-OPENAI_API_KEY=sk-...
-OPENAI_REASONING_MODEL=gpt-4o-mini
-QWEN_API_KEY=
-QWEN_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
-QWEN_MODEL=qwen-plus
 
 # MTN Mobile Money API
 MOMO_SUBSCRIPTION_KEY=...
