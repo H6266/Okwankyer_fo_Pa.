@@ -20,6 +20,7 @@ import { getRecordingByPromptKey, getRecordingByUrl } from "../audio/recordingRe
 import { resolvePromptText } from "../modules/ttsService";
 import { audioFlowStore } from "../audio/audioFlowStore";
 import { matchReplyToAudio } from "../audio/replyAudioMatcher";
+import { createSingleShotTimer, playAudioElementOnce, playVoiceSequence } from "../audio/voiceAudioSequence";
 import {
   ContinuousVoiceCapture,
   MicrophoneState,
@@ -426,6 +427,15 @@ export function usePhoneSimulator() {
   const [atInstruction, setAtInstruction] = useState<string>("Africa's Talking Voice Trunk Ready (+233 30 804 8098)");
   const [atHttpLogs, setAtHttpLogs] = useState<AtHttpLogItem[]>([]);
   const [ussdPushPrompt, setUssdPushPrompt] = useState<UssdPushPrompt | null>(null);
+  const atSessionIdRef = useRef(atSessionId);
+  const atCallbackUrlRef = useRef<string | null>(atCurrentCallbackUrl);
+  const atStepRef = useRef<string>("welcome");
+  const atLanguageRef = useRef<"en" | "tw">("en");
+
+  const updateAtCallbackUrl = useCallback((url: string | null) => {
+    atCallbackUrlRef.current = url;
+    setAtCurrentCallbackUrl(url);
+  }, []);
 
   // Phone Navigation & Handset Screen State
   const [currentScreen, setCurrentScreen] = useState<string>("HOME");
@@ -578,7 +588,7 @@ export function usePhoneSimulator() {
   const timerRef = useRef<any>(null);
   const isMicActiveRef = useRef<boolean>(false);
   const capturedSpeechTextRef = useRef<string>("");
-  const silenceTimerRef = useRef<any>(null);
+  const silenceTimerRef = useRef(createSingleShotTimer(90_000));
   const micTimeoutRef = useRef<any>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -644,8 +654,9 @@ export function usePhoneSimulator() {
     }
 
     const recognition = new SpeechRecognition();
+    const selectedLanguage = gatewayMode === "AFRICASTALKING_IVR" ? atLanguageRef.current : language;
     const selectedLocale = previewLanguageOverrideRef.current || (
-      language === "tw" || language === "ak" ? "tw-GH" : "en-GH"
+      selectedLanguage === "tw" || selectedLanguage === "ak" ? "tw-GH" : "en-GH"
     );
     recognition.lang = selectedLocale;
     recognition.continuous = true;
@@ -669,6 +680,7 @@ export function usePhoneSimulator() {
       }
       const text = words.join(" ").trim();
       if (text) {
+        silenceTimerRef.current.clear();
         previewNetworkErrorsRef.current = 0;
         setLivePreviewStatus(previewLanguageOverrideRef.current ? "FALLBACK" : "AVAILABLE");
         setLivePreviewDetail(
@@ -740,7 +752,7 @@ export function usePhoneSimulator() {
       setLivePreviewDetail("Browser live preview could not start. Final speech recognition remains active.");
       console.warn("[VoiceCapture] Browser interim recognition could not start:", error);
     }
-  }, [language]);
+  }, [gatewayMode, language]);
 
   const finalizeInterimRecognition = useCallback(async () => {
     const recognition = recognitionRef.current as BrowserSpeechRecognition | null;
@@ -790,57 +802,57 @@ export function usePhoneSimulator() {
   }, []);
 
   const triggerInactivityPleaseRespond = useCallback(() => {
-    const ttsLanguage = language === "tw" ? "twi" : language;
-    const pleaseRespondAudioUrl = `/api/audio/prompt-tts/${ttsLanguage}/OP67`;
-    const transcriptText = ttsLanguage === "twi"
-      ? "Yɛsrɛ wo, bua anaa mia nɔmba bi wɔ wo keypad so."
-      : "Please respond or press a key on your phone keypad.";
+    silenceTimerRef.current.clear();
+    const ttsLanguage = language === "tw" || language === "ak" || language === "en-ak" ? "twi" : "en";
+    const recording = getRecordingByPromptKey("please_respond", ttsLanguage);
+    const transcriptText = recording?.spokenText || "Please respond or press a key on your phone keypad.";
     setTranscript((prev) => [
       ...prev,
       {
         id: `sys_silence_${Date.now()}`,
         role: "system",
-        text: `⏳ [90s Inactivity Watchdog] OP67 — Please Respond: "${transcriptText}"`,
+        text: recording
+          ? `⏳ [90s Inactivity Watchdog] OP67 — Please Respond: "${transcriptText}"`
+          : `⏳ [90s Inactivity Watchdog] OP67 recording unavailable for ${ttsLanguage}; no TTS fallback was used.`,
         timestamp: Date.now(),
       },
     ]);
-    if (audioRef.current) {
-      setIsAiSpeaking(true);
-      isAiSpeakingRef.current = true;
-      audioRef.current.src = pleaseRespondAudioUrl;
-      setActiveAudioClip(pleaseRespondAudioUrl);
-      audioRef.current.onended = () => {
-        setIsAiSpeaking(false);
-        isAiSpeakingRef.current = false;
-        setActiveAudioClip(null);
-        // Keep the caller on the same step and wait another 90 seconds.
-        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-        silenceTimerRef.current = setTimeout(() => {
-          if (!isAiSpeakingRef.current && voiceListeningEnabledRef.current) {
-            triggerInactivityPleaseRespond();
-          }
-        }, 90000);
-      };
-      audioRef.current.onerror = () => {
-        setIsAiSpeaking(false);
-        isAiSpeakingRef.current = false;
-        setActiveAudioClip(null);
-      };
-      audioRef.current.play().catch(() => {
-        setIsAiSpeaking(false);
-        isAiSpeakingRef.current = false;
+    const resumeInput = () => {
+      setIsAiSpeaking(false);
+      isAiSpeakingRef.current = false;
+      voiceListeningEnabledRef.current = true;
+      setIsMicActive(true);
+      isMicActiveRef.current = true;
+      if (voiceCaptureRef.current) {
+        voiceCaptureRef.current.unmute();
+        startInterimRecognition();
+      } else {
+        startContinuousVoiceRef.current?.(gatewayMode === "AFRICASTALKING_IVR");
+      }
+      setActiveAudioClip(null);
+      silenceTimerRef.current.arm(() => {
+        if (!isAiSpeakingRef.current && voiceListeningEnabledRef.current) triggerInactivityPleaseRespond();
       });
+    };
+
+    if (!recording?.url || !audioRef.current) {
+      resumeInput();
+      return;
     }
-  }, [language]);
+
+    setIsAiSpeaking(true);
+    isAiSpeakingRef.current = true;
+    stopInterimRecognition();
+    voiceCaptureRef.current?.mute();
+    setActiveAudioClip(recording.url);
+    void playAudioElementOnce(audioRef.current, recording.url).finally(resumeInput);
+  }, [language, gatewayMode, startInterimRecognition, stopInterimRecognition]);
 
   const updateAiSpeaking = useCallback((speaking: boolean, promptText?: string) => {
     setIsAiSpeaking(speaking);
     isAiSpeakingRef.current = speaking;
     if (speaking) {
-      if (silenceTimerRef.current) {
-        clearTimeout(silenceTimerRef.current);
-        silenceTimerRef.current = null;
-      }
+      silenceTimerRef.current.clear();
       stopInterimRecognition();
       if (voiceCaptureRef.current) {
         voiceCaptureRef.current.mute();
@@ -854,16 +866,15 @@ export function usePhoneSimulator() {
         voiceCaptureRef.current.unmute();
         startInterimRecognition();
       } else {
-        startContinuousVoiceRef.current?.();
+        startContinuousVoiceRef.current?.(gatewayMode === "AFRICASTALKING_IVR");
       }
 
       // Wait 90 seconds before the next OP67 silence reminder.
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = setTimeout(() => {
+      silenceTimerRef.current.arm(() => {
         if (!isAiSpeakingRef.current && voiceListeningEnabledRef.current) {
           triggerInactivityPleaseRespond();
         }
-      }, 90000);
+      });
     }
     if (voiceListeningEnabledRef.current) {
       setTranscriptionStatus(speaking ? "PAUSED" : "LISTENING");
@@ -882,7 +893,7 @@ export function usePhoneSimulator() {
         }
       }, 1500);
     }
-  }, [startInterimRecognition, stopInterimRecognition, triggerInactivityPleaseRespond]);
+  }, [gatewayMode, startInterimRecognition, stopInterimRecognition, triggerInactivityPleaseRespond]);
 
   const applySyncPayload = useCallback((data: any) => {
     if (!data) return;
@@ -992,6 +1003,7 @@ export function usePhoneSimulator() {
     ) => {
       const parsed = res.parsed;
       const currentXml = res.voiceXml;
+      updateAtCallbackUrl(null);
 
       // 1. Log to HTTP inspector
       const logItem: AtHttpLogItem = {
@@ -1009,6 +1021,7 @@ export function usePhoneSimulator() {
 
       // 2. Live VoiceXML Trace
       const stepLabel = requestEndpoint.replace(/^\//, "").split("?")[0] || "voice-menu";
+      atStepRef.current = stepLabel;
       setVoiceXmlTraces((prev) => [
         {
           step: stepLabel,
@@ -1018,8 +1031,51 @@ export function usePhoneSimulator() {
         ...prev.slice(0, 19),
       ]);
 
+      const sequence = parsed.voiceSequence || [
+        ...(parsed.sayText ? [{ type: "say" as const, value: parsed.sayText }] : []),
+        ...((parsed.playUrls?.length ? parsed.playUrls : parsed.playUrl ? [parsed.playUrl] : [])
+          .map((value) => ({ type: "play" as const, value }))),
+      ];
+      const requiredReadback = Boolean(parsed.sayText?.trim()) && (
+        /recipient|amount|confirm|review/i.test(stepLabel)
+        || /OP20|OP21|OP29|OP35/i.test(parsed.playUrl || "")
+      );
+      const playSequence = async (keepInputMuted: boolean) => {
+        if (sequence.length === 0) return !requiredReadback;
+        if (!enableTts || !audioRef.current) return false;
+        updateAtCallbackUrl(null);
+        updateAiSpeaking(true, sequence.filter((item) => item.type === "say").map((item) => item.value).join(" "));
+        const succeeded = await playVoiceSequence(sequence, async (item) => {
+          let source: string;
+          if (item.type === "play") {
+            source = item.value;
+            if (source.startsWith("http://") || source.startsWith("https://")) {
+              try { source = new URL(source).pathname; } catch {}
+            }
+          } else {
+            const languageHint = language === "tw" || language === "ak" ? "tw" : "en";
+            const synthesized = await api.synthesizeSpeech({
+              text: item.value,
+              language: languageHint,
+              style: "ghanaian-warm",
+              sessionId: sessionKey,
+            });
+            const result = synthesized?.result;
+            if (!synthesized?.success || !result?.audioBase64 || !result.audioMimeType
+              || !isValidAudioPayload(result.audioBase64, result.audioMimeType)) return false;
+            source = `data:${result.audioMimeType};base64,${result.audioBase64}`;
+          }
+          setActiveAudioClip(item.type === "play" ? source : null);
+          return playAudioElementOnce(audioRef.current!, source);
+        });
+        setActiveAudioClip(null);
+        if (keepInputMuted) return succeeded;
+        return succeeded;
+      };
+
       // 3. Follow Africa's Talking <Redirect> automatically
       if (parsed.redirectUrl && redirectDepth < 6) {
+        await playSequence(true);
         const nextUrl = parsed.redirectUrl;
         setTranscript((prev) => [
           ...prev,
@@ -1060,89 +1116,53 @@ export function usePhoneSimulator() {
         }
       }
 
-      // 4. Handle Spoken text (<Say voice="...">) and Audio Prompts (<Play url="...">) sequentially
+      // 4. Display the complete ordered spoken sequence once.
       const spokenText = parsed.say?.text || "";
-      const urlsToPlay = (parsed.playUrls && parsed.playUrls.length > 0)
-        ? parsed.playUrls
-        : parsed.playUrl ? [parsed.playUrl] : [];
+      const promptTranscript = sequence.map((item) => item.type === "say"
+        ? item.value
+        : getPromptTranscript(item.value)).filter(Boolean).join(" ");
 
-      if (spokenText) {
-        setAiResponse(spokenText);
+      if (promptTranscript) {
+        setAiResponse(promptTranscript);
         setTranscript((prev) => [
           ...prev,
           {
             id: `ai_${Date.now()}`,
             role: "ai",
-            text: spokenText,
-            timestamp: Date.now(),
-            stage: stepLabel,
-          },
-        ]);
-      } else if (parsed.playUrl) {
-        const promptText = getPromptTranscript(parsed.playUrl);
-        setAiResponse(promptText);
-        setTranscript((prev) => [
-          ...prev,
-          {
-            id: `ai_${Date.now()}`,
-            role: "ai",
-            text: promptText,
+            text: promptTranscript,
             timestamp: Date.now(),
             stage: stepLabel,
           },
         ]);
       }
 
-      if (enableTts && audioRef.current) {
-        const playClips = async () => {
-          let currentIdx = 0;
-          const playNextClip = async () => {
-            if (currentIdx >= urlsToPlay.length) {
-              updateAiSpeaking(false);
-              setActiveAudioClip(null);
-              return;
-            }
-            let audioUrl = urlsToPlay[currentIdx++];
-            if (audioUrl.startsWith("http://") || audioUrl.startsWith("https://")) {
-              try {
-                const u = new URL(audioUrl);
-                audioUrl = u.pathname;
-              } catch {}
-            }
-            setActiveAudioClip(audioUrl);
-            audioRef.current!.src = audioUrl;
-            const promptText = getPromptTranscript(audioUrl) || spokenText || "";
-            updateAiSpeaking(true, promptText);
-            audioRef.current!.onended = () => {
-              playNextClip();
-            };
-            audioRef.current!.onerror = () => {
-              playNextClip();
-            };
-            try {
-              await audioRef.current!.play();
-            } catch (err) {
-              console.warn("[AT Voice Prompt] Audio clip playback error; advancing:", err);
-              playNextClip();
-            }
-          };
-          await playNextClip();
-        };
-
-        if (spokenText && urlsToPlay.length > 0) {
-          // Play spoken feedback first (e.g. tally mismatch error), then the prompt audio sequentially!
-          await playAudioSynthesis(spokenText, language);
-          await playClips();
-        } else if (spokenText) {
-          await playAudioSynthesis(spokenText, language);
-        } else if (urlsToPlay.length > 0) {
-          await playClips();
-        }
+      const sequencePlayed = await playSequence(requiredReadback || parsed.isReject);
+      if (requiredReadback && !sequencePlayed) {
+        updateAtCallbackUrl(null);
+        setAtInstruction("Required transaction audio unavailable; confirmation was cancelled.");
+        setIsActive(false);
+        voiceListeningEnabledRef.current = false;
+        voiceCaptureRef.current?.stop();
+        setIsMicActive(false);
+        updateAtCallbackUrl(null);
+        setTranscript((prev) => [
+          ...prev,
+          {
+            id: `sys_readback_error_${Date.now()}`,
+            role: "system",
+            text: "Required transaction audio failed. No confirmation was accepted.",
+            timestamp: Date.now(),
+          },
+        ]);
+        return;
+      }
+      if (requiredReadback && parsed.getDigits?.callbackUrl) {
+        updateAtCallbackUrl(parsed.getDigits.callbackUrl);
       }
 
       // 6. GetDigits expectation
       if (parsed.getDigits) {
-        setAtCurrentCallbackUrl(parsed.getDigits.callbackUrl || null);
+        updateAtCallbackUrl(requiredReadback ? null : parsed.getDigits.callbackUrl || null);
         const expected = parsed.getDigits.numDigits || 1;
         setAtExpectedDigits(expected);
         setAtFinishOnKey(parsed.getDigits.finishOnKey || "#");
@@ -1153,6 +1173,12 @@ export function usePhoneSimulator() {
             ? "Awaiting Single Digit Keypad Choice (Press 1, 2, 8, 9, 0)"
             : `Awaiting ${expected} Digits (Press digits, finish with ${parsed.getDigits.finishOnKey || "#"})`;
         setAtInstruction(promptDesc);
+      } else if (parsed.record) {
+        updateAtCallbackUrl(requiredReadback ? null : parsed.record.callbackUrl || null);
+        setAtExpectedDigits(1);
+        setAtFinishOnKey(parsed.record.finishOnKey || "#");
+        setCurrentStep(stepLabel);
+        setAtInstruction("Awaiting caller speech or keypad response");
       }
 
       // 7. Reject handling (Zero-PIN USSD screen push & hangup)
@@ -1162,7 +1188,7 @@ export function usePhoneSimulator() {
         voiceCaptureRef.current?.mute();
         voiceCaptureRef.current?.stop();
         setIsMicActive(false);
-        setAtCurrentCallbackUrl(null);
+        updateAtCallbackUrl(null);
         setAtInstruction("Call Completed (<Reject/> Released)");
 
         // Pop up USSD prompt modal if safe-outcome occurred
@@ -1188,12 +1214,20 @@ export function usePhoneSimulator() {
             timestamp: Date.now(),
           },
         ]);
+        return;
       }
 
+      const inputCallbackUrl = parsed.getDigits?.callbackUrl || parsed.record?.callbackUrl || null;
+      if (requiredReadback && inputCallbackUrl) {
+        updateAtCallbackUrl(inputCallbackUrl);
+      }
+      updateAiSpeaking(false);
       refreshSyncStatus();
     },
-    [atCallerPhone, enableTts, language, refreshSyncStatus, updateAiSpeaking]
+    [atCallerPhone, enableTts, language, refreshSyncStatus, updateAiSpeaking, updateAtCallbackUrl]
   );
+  const processAtVoiceResponseRef = useRef(processAtVoiceResponse);
+  processAtVoiceResponseRef.current = processAtVoiceResponse;
 
   /**
    * Start Africa's Talking Live Voice IVR Call
@@ -1201,6 +1235,8 @@ export function usePhoneSimulator() {
   const startAtCall = useCallback(
     async (initialLang: "en" | "tw" = "en") => {
       const newAtSession = `ATVN_${Date.now()}`;
+      atSessionIdRef.current = newAtSession;
+      atLanguageRef.current = initialLang;
       setAtSessionId(newAtSession);
       setSessionId(newAtSession);
       setIsActive(true);
@@ -1262,6 +1298,8 @@ export function usePhoneSimulator() {
    */
   const handleAtKeypadDigit = useCallback(
     async (digit: string) => {
+      silenceTimerRef.current.clear();
+      if (isAiSpeakingRef.current || isLoading) return;
       playTone(digit);
 
       if (!isActive) {
@@ -1397,6 +1435,7 @@ export function usePhoneSimulator() {
       digitsBuffer,
       atSessionId,
       atCallerPhone,
+      isLoading,
       playTone,
       startAtCall,
       processAtVoiceResponse,
@@ -1406,7 +1445,7 @@ export function usePhoneSimulator() {
   // Stop audio, recognition, and mic on unmount
   useEffect(() => {
     return () => {
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current.clear();
       if (micTimeoutRef.current) clearTimeout(micTimeoutRef.current);
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       if (audioContextRef.current) {
@@ -2101,18 +2140,72 @@ export function usePhoneSimulator() {
     }
   }, [gatewayMode, digitsBuffer, atCurrentCallbackUrl, atSessionId, atCallerPhone, processAtVoiceResponse, sendInputTurn]);
 
+  const submitRecognizedSpeech = useCallback(async (text: string) => {
+    if (gatewayMode !== "AFRICASTALKING_IVR") {
+      await sendInputTurn(text, "VOICE");
+      return;
+    }
+
+    const activeCallbackUrl = atCallbackUrlRef.current;
+    if (!activeCallbackUrl) {
+      setAiProcessingDetail("Africa's Talking has no active speech callback. Use the keypad or restart the call.");
+      setTranscriptionStatus("ERROR");
+      return;
+    }
+
+    let callbackPath = activeCallbackUrl;
+    let callbackLanguage = atLanguageRef.current;
+    try {
+      const callbackUrl = new URL(activeCallbackUrl, window.location.origin);
+      callbackPath = callbackUrl.pathname;
+      const lang = callbackUrl.searchParams.get("lang");
+      if (lang === "en" || lang === "twi") callbackLanguage = lang === "twi" ? "tw" : "en";
+    } catch {}
+    const callbackKey = callbackPath.split("/").pop()?.toLowerCase() || "";
+    const speechStepByCallback: Record<string, string> = {
+      "service-choice": "service-select",
+      "provider-choice": "provider-select",
+      "action-choice": "action-select",
+      "verify-recipient": "enter-recipient",
+      "recipient-verify-choice": "recipient-verify-choice",
+      "verify-amount": "enter-amount",
+      "safe-outcome": "safe-confirmation",
+      "check-status": "check-status",
+    };
+    const speechStep = speechStepByCallback[callbackKey] || atStepRef.current;
+    const speechUrl = `/speech-fallback?step=${encodeURIComponent(speechStep)}&sessionId=${encodeURIComponent(atSessionIdRef.current)}&lang=${callbackLanguage === "tw" ? "twi" : "en"}`;
+    setIsLoading(true);
+    setIsMicActive(false);
+    isMicActiveRef.current = false;
+    try {
+      const response = await api.dispatchAtVoiceWebhook(speechUrl, {
+        sessionId: atSessionIdRef.current,
+        callerNumber: atCallerPhone,
+        destinationNumber: "+233308048098",
+        isActive: "1",
+        speechText: text,
+      });
+      await processAtVoiceResponseRef.current(response, atSessionIdRef.current, speechUrl, { speechText: "[recognized speech]" });
+    } catch (error: any) {
+      setTranscriptionStatus("ERROR");
+      setAiProcessingDetail(`Africa's Talking speech callback failed: ${error.message || "request failed"}`);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [gatewayMode, sendInputTurn, atCallerPhone]);
+
   /**
    * Continuous Conversational Voice Engine: Start listening with real microphone,
    * resampled PCM streaming, adaptive VAD, and assistant-playback microphone gating.
    */
-  const startContinuousVoice = useCallback(async () => {
+  const startContinuousVoice = useCallback(async (skipAutoConnect = false) => {
     setVoiceModeActive("REAL_MIC");
     voiceListeningEnabledRef.current = true;
     previewDisabledRef.current = false;
     previewNetworkErrorsRef.current = 0;
 
     // Auto-connect call immediately if not active
-    if (!isActive) {
+    if (!isActive && !skipAutoConnect) {
       await startCall(language === "tw" ? "tw" : "en");
     }
 
@@ -2159,6 +2252,7 @@ export function usePhoneSimulator() {
         },
         onUtteranceComplete: async (wavBase64) => {
           // Automatic end of user speech turn detected by VAD: turn microphone OFF now that sentence is finished
+          silenceTimerRef.current.clear();
           voiceListeningEnabledRef.current = false;
           setIsMicActive(false);
           isMicActiveRef.current = false;
@@ -2246,7 +2340,7 @@ export function usePhoneSimulator() {
               );
 
               // Automatically submit turn to AI Brain without requiring Send click!
-              await sendInputTurn(textToSend, "VOICE");
+              await submitRecognizedSpeech(textToSend);
             } else {
               setTranscriptionStatus("ERROR");
               const isQuota = Boolean(
@@ -2318,7 +2412,7 @@ export function usePhoneSimulator() {
               setTranscriptionStatus("PROCESSING");
               setAiProcessingPhase("LANGUAGE_DETECTION");
               setAiProcessingDetail(`Server ASR failed; using browser final transcript: "${fallbackText}". Processing with AI Brain...`);
-              await sendInputTurn(fallbackText, "VOICE");
+              await submitRecognizedSpeech(fallbackText);
             } else {
               setTranscriptionStatus("ERROR");
               console.warn("[VoiceCapture] Final speech recognition request failed:", message);
@@ -2355,7 +2449,7 @@ export function usePhoneSimulator() {
       setAiProcessingDetail("🎙️ Smart Voice Mode Active · Choose a Ghanaian voice phrase or upload audio");
     }
     return success;
-  }, [isActive, language, currentStep, startCall, sendInputTurn, startInterimRecognition, finalizeInterimRecognition]);
+  }, [isActive, language, currentStep, startCall, submitRecognizedSpeech, startInterimRecognition, finalizeInterimRecognition]);
 
   const startContinuousVoiceRef = useRef(startContinuousVoice);
   useEffect(() => {

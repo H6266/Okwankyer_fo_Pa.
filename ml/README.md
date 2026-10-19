@@ -1,7 +1,7 @@
 # Pluggable Speech Engine Architecture
 
 Ɔkwankyerɛfo Pa provides a dual-phase speech engine:
-- **Phase II Prototype (Local/Offline)**: Vosk ASR + Piper TTS (100% free open-source, local FastAPI servers).
+- **Phase II Prototype (Local/Offline)**: faster-whisper ASR + Piper TTS (local FastAPI servers).
 - **Final Hackathon Submission**: University of Ghana HCI Lab API (native Akan Twi & Ghanaian English).
 
 Swapping between the prototype and the University of Ghana API is controlled by a single configuration flag:
@@ -12,35 +12,34 @@ SPEECH_PROVIDER="hci_lab"  # University of Ghana HCI Lab API (final)
 
 ---
 
-## 1. Free Prototype Setup (Vosk + Piper)
+## 1. Free Prototype Setup (faster-whisper + Piper)
 
 ### Step 1: Install Dependencies
+On Debian/Ubuntu, install Python's virtual-environment support if it is missing:
+```bash
+sudo apt-get install python3-venv python3-pip
+```
+
 ```bash
 python3 -m venv .venv-ai
 source .venv-ai/bin/activate
-pip install fastapi uvicorn vosk
+pip install -r ml/requirements-asr.txt
 ```
 
-### Step 2: Download English Model for Vosk
+### Step 2: Start the local speech stack
+
+The launcher uses the multilingual faster-whisper `small` model by default.
+It downloads the model on first start and caches it for later offline use.
+Set `LOCAL_ASR_MODEL_PATH` to a local model directory to avoid downloading it,
+or set `LOCAL_ASR_ALLOW_MODEL_DOWNLOAD=false` to require a preinstalled model.
+
 ```bash
-mkdir -p models/asr
-cd models/asr
-wget https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip
-unzip vosk-model-small-en-us-0.15.zip
-cd ../..
+bash scripts/start_free_speech_stack.sh
 ```
 
-*(Optional: Place local Twi model in `models/asr/twi-model` if available; otherwise prototype uses English + studio prompts and plans UG HCI Lab for Twi).*
-
-### Step 3: Start Vosk ASR Server
-```bash
-export VOSK_EN_MODEL_PATH="models/asr/vosk-model-small-en-us-0.15"
-export VOSK_TW_MODEL_PATH="models/asr/twi-model"
-python ml/vosk_asr_server.py
-```
 *Health check:* `http://127.0.0.1:8765/health`
 
-### Step 4: Start Piper TTS Server
+### Step 3: Start Piper TTS Server
 **Via Docker (recommended):**
 ```bash
 docker run --rm -it -p 127.0.0.1:8766:5000 rhasspy/piper

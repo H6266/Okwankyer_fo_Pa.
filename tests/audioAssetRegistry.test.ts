@@ -8,7 +8,7 @@ import {
 import { AUDIO_ASSET_INVENTORY, AUDIO_CATALOG, audioFileExists } from "../src/audio/catalog";
 import { resolvePrompt, resolvePromptXml, resolveSimulatorAudioUrl } from "../src/modules/ttsService";
 import { matchReplyToAudio } from "../src/audio/replyAudioMatcher";
-import { resolveSafeAudioPath } from "../src/audio/streaming";
+import { isMp3Buffer, resolveSafeAudioPath } from "../src/audio/streaming";
 import { getRecordingFilePath } from "../src/audio/recordingRegistry";
 import fs from "fs";
 import path from "path";
@@ -102,6 +102,28 @@ describe("canonical audio asset registry", () => {
       .toContain("Pin_Handoff.mp3?format=mp3");
     expect(resolveSafeAudioPath("Twi/Pin_Handoff.mp3"))
       .toMatch(/Audio_files\/Twi_library\/Pin_Handoff\.mp3$/);
+  });
+
+  it("resolves each final-sequence recording URL to its actual playable MP3", () => {
+    const required = [
+      ["OP36", "Confirm_continue.mp3"],
+      ["OP67", "Please_respond.mp3"],
+      ["OP53", "Success_sent.mp3"],
+      ["OP54", "Keep_reference.mp3"],
+      ["OP55", "Success_close.mp3"],
+    ] as const;
+
+    for (const [promptId, filename] of required) {
+      const recording = getRecordingByPromptId(promptId, "twi");
+      expect(recording?.audioVerified, promptId).toBe(true);
+      expect(recording?.url).toBe(`/audio/Twi/${filename}`);
+      expect(resolveSimulatorAudioUrl(recording!.url!, "twi")).toBe(recording!.url);
+      const resolvedPath = resolveSafeAudioPath(recording!.url!);
+      expect(resolvedPath).toMatch(new RegExp(`Audio_files/Twi_library/${filename.replace(".", "\\.")}$`));
+      expect(isMp3Buffer(fs.readFileSync(resolvedPath!)), filename).toBe(true);
+    }
+
+    expect(getRecordingByPromptId("OP67", "en")).toBeNull();
   });
 
   it("links approved English recordings to their canonical prompts", () => {

@@ -24,6 +24,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { audioPlaybackController } from "../../audio/audioPlaybackController";
+import { playVoiceSequence } from "../../audio/voiceAudioSequence";
 import { isAcousticSystemEcho } from "../../domain/echoFilter";
 import {
   resolveSimulatorAudioUrl,
@@ -31,7 +32,8 @@ import {
   resolvePrompt,
 } from "../../modules/ttsService";
 import { api } from "../../lib/api";
-import { getRecordingByUrl } from "../../audio/recordingRegistry";
+import { getRecordingByPromptId, getRecordingByUrl } from "../../audio/recordingRegistry";
+import { createSingleShotTimer } from "../../audio/voiceAudioSequence";
 import { resolvePromptText } from "../../modules/ttsService";
 import { isDynamicPrompt, STATE_TO_CANONICAL_PROMPT_ID } from "../../audio/canonicalRegistry";
 import { MONEY_TRANSFER_FLOW_STEPS } from "../../audio/audioFlowStore";
@@ -204,6 +206,8 @@ export const PhoneSimulatorPage: React.FC = () => {
   const [digitsBuffer, setDigitsBuffer] = useState<string>("");
   const [callDuration, setCallDuration] = useState<number>(0);
   const [isMicMuted, setIsMicMuted] = useState<boolean>(false);
+  const [testPinEntryEnabled, setTestPinEntryEnabled] = useState<boolean>(false);
+  const [testPinDigitCount, setTestPinDigitCount] = useState<number>(0);
   const [micUnavailable, setMicUnavailable] = useState<boolean>(false);
   const [clock, setClock] = useState<string>("10:00");
   const [zeroPinOverlay, setZeroPinOverlay] = useState<boolean>(false);
@@ -307,7 +311,9 @@ export const PhoneSimulatorPage: React.FC = () => {
   const zeroPinOverlayRef = useRef<boolean>(false);
   const brainDraftRef = useRef<DraftState>({ slots: {} });
   const startPinAuthorizationFlowRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const endCallRef = useRef<((reason?: string) => Promise<void>) | null>(null);
   const digitsBufferRef = useRef<string>("");
+  const testPinBufferRef = useRef<string>("");
 
   useEffect(() => { callActiveRef.current = callActive; }, [callActive]);
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
@@ -400,40 +406,62 @@ export const PhoneSimulatorPage: React.FC = () => {
   }, []);
 
   // ── 90-Second Caller Silence Watchdog (OP67) ──────────────────────────
-  const silenceWatchdogTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const silenceWatchdogTimerRef = useRef(createSingleShotTimer(90_000));
 
   const clearSilenceWatchdog = useCallback(() => {
-    if (silenceWatchdogTimerRef.current) {
-      clearTimeout(silenceWatchdogTimerRef.current);
-      silenceWatchdogTimerRef.current = null;
-    }
+    silenceWatchdogTimerRef.current.clear();
   }, []);
 
   const triggerSilenceTimeout = useCallback(async () => {
     if (!callActiveRef.current) return;
+    clearSilenceWatchdog();
     const curLang = languageRef.current || "twi";
-    const isTwi = curLang === "twi";
-    const op67Text = isTwi
-      ? "Mante deɛ wofiri wo hɔ bae, yɛsrɛ wo ma yɛn mmuaeɛ!"
-      : "I did not get any response from you, please give us a response!";
+    const recording = getRecordingByPromptId("OP67", curLang);
+    const playbackUrl = recording?.audioVerified
+      ? resolveSimulatorAudioUrl(recording.url, curLang)
+      : null;
     addLog("system", "⏱️ [90s Silence Watchdog] No caller response; triggering OP67 and retaining the current step.");
     addChatTurn({
       sender: "system",
-      text: `⏱️ OP67: "${op67Text}"`,
+      text: playbackUrl
+        ? `⏱️ OP67: "${recording?.spokenText || "Please respond."}"`
+        : `⏱️ OP67 recording unavailable for ${curLang}; no TTS fallback was used.`,
       promptId: "OP67",
-      audioSource: "synthesis",
+      audioSource: playbackUrl ? "studio" : null,
     });
 
-    await audioPlaybackController.speakText(op67Text, { language: curLang });
-  }, [addLog, addChatTurn]);
+    if (playbackUrl) {
+      isAudioSequenceActiveRef.current = true;
+      setIsAudioSpeaking(true);
+      setIsMicMuted(true);
+      isMicMutedRef.current = true;
+      continuousAudioEngine.pauseForPlayback();
+      try {
+        await audioPlaybackController.play(playbackUrl);
+      } catch (error) {
+        addLog("audio", "OP67 recording playback failed; continuing without synthesized speech.");
+      } finally {
+        isAudioSequenceActiveRef.current = false;
+        setIsAudioSpeaking(false);
+        if (callActiveRef.current && !isSystemProcessingRef.current && !zeroPinOverlayRef.current) {
+          setIsMicMuted(false);
+          isMicMutedRef.current = false;
+          setCallStatus("Listening");
+          continuousAudioEngine.resumeAfterPlayback();
+        }
+      }
+    }
+    silenceWatchdogTimerRef.current.arm(() => {
+      void triggerSilenceTimeout();
+    });
+  }, [addLog, addChatTurn, clearSilenceWatchdog]);
 
   const armSilenceWatchdog = useCallback(() => {
     clearSilenceWatchdog();
     if (!callActiveRef.current) return;
-    // Wait 90 seconds before reminding the caller, then keep the same step active.
-    silenceWatchdogTimerRef.current = setTimeout(() => {
+    silenceWatchdogTimerRef.current.arm(() => {
       triggerSilenceTimeout();
-    }, 90000);
+    });
   }, [clearSilenceWatchdog, triggerSilenceTimeout]);
 
   // ── Clock & Auto-Login ───────────────────────────────────────────────
@@ -642,6 +670,21 @@ export const PhoneSimulatorPage: React.FC = () => {
         if (match) stepName = match[1];
       }
       const playbackUrl = resolvePlayableSimulatorAudioUrl(requestedPlayUrl, responseLanguage);
+      const voiceSequence = parsed.voiceSequence || [
+        ...(parsed.sayText ? [{ type: "say" as const, value: parsed.sayText }] : []),
+        ...((parsed.playUrls?.length ? parsed.playUrls : parsed.playUrl ? [parsed.playUrl] : [])
+          .map((value) => ({ type: "play" as const, value }))),
+      ];
+      const playSequenceItems = async () => playVoiceSequence(voiceSequence, async (item) => {
+        if (item.type === "play") {
+          const url = resolvePlayableSimulatorAudioUrl(item.value, responseLanguage);
+          return url ? audioPlaybackController.play(url) : false;
+        }
+        return audioPlaybackController.speakText(item.value, {
+          skipStudioMatch: true,
+          language: responseLanguage,
+        });
+      });
       setRawVoiceXml(
         xmlText.replace(
           /<Play\b[^>]*(?:\/>|>[\s\S]*?<\/Play>)/gi,
@@ -669,10 +712,19 @@ export const PhoneSimulatorPage: React.FC = () => {
         currentPromptRef.current = recoveryText;
         addLog("state", "Required transaction readback failed; confirmation is disabled and no transaction was submitted.");
         addChatTurn({ sender: "system", text: recoveryText, stepName: "readback-unavailable" });
+        void endCallRef.current?.("Required transaction review audio unavailable");
       };
 
       // Follow <Redirect> after auto-playing any associated audio prompt
       if (parsed.redirectUrl) {
+        if (voiceSequence.length > 0) {
+          isAudioSequenceActiveRef.current = true;
+          setIsAudioSpeaking(true);
+          setIsMicMuted(true);
+          isMicMutedRef.current = true;
+          continuousAudioEngine.pauseForPlayback();
+          clearSilenceWatchdog();
+        }
         if (parsed.sayText?.trim()) {
           setCurrentPrompt(parsed.sayText);
           currentPromptRef.current = parsed.sayText;
@@ -684,18 +736,15 @@ export const PhoneSimulatorPage: React.FC = () => {
             audioSource: playbackUrl ? "studio" : "synthesis",
           });
         }
-        if (playbackUrl) {
-          addLog("audio", `🔊 Auto-playing feed prompt: ${playbackUrl}`);
-          try {
-            await audioPlaybackController.play(playbackUrl, parsed.sayText || undefined);
-          } catch (err) {
-            console.warn("[PhoneSimulator] Redirect audio play notice:", err);
-          }
-        } else if (parsed.sayText?.trim()) {
-          try {
-            await audioPlaybackController.speakText(parsed.sayText, { language: responseLanguage });
-          } catch (err) {
-            console.warn("[PhoneSimulator] Redirect message speech notice:", err);
+        if (voiceSequence.length > 0) {
+          const sequencePlayed = await playSequenceItems();
+          isAudioSequenceActiveRef.current = false;
+          setIsAudioSpeaking(false);
+          if (!sequencePlayed) addLog("audio", "A redirect prompt item was unavailable; continuing with the callback flow.");
+          if (!zeroPinOverlayRef.current && !isVoiceCaptureBlockedForStep(activeStepNameRef.current)) {
+            setIsMicMuted(false);
+            isMicMutedRef.current = false;
+            continuousAudioEngine.resumeAfterPlayback();
           }
         }
         addLog("state", `Redirecting to ${parsed.redirectUrl}`);
@@ -736,19 +785,9 @@ export const PhoneSimulatorPage: React.FC = () => {
         isAudioSequenceActiveRef.current = true;
         setIsAudioSpeaking(true);
         try {
-          for (const item of parsed.voiceSequence || []) {
-            if (item.type === "play") {
-              const audioUrl = resolvePlayableSimulatorAudioUrl(item.value, responseLanguage);
-              if (audioUrl) await audioPlaybackController.play(audioUrl);
-            } else if (item.value) {
-              await audioPlaybackController.speakText(item.value, {
-                skipStudioMatch: true,
-                language: responseLanguage,
-              });
-            }
-          }
-        } catch (error) {
-          console.warn("[PhoneSimulator] Provider handoff audio sequence failed.", error);
+          const played = await playSequenceItems();
+          if (!played) addLog("audio", "Provider handoff audio was incomplete; PIN collection remains blocked.");
+        } catch {
           addLog("audio", "Provider handoff audio could not be fully played; PIN collection remains blocked.");
         } finally {
           isAudioSequenceActiveRef.current = false;
@@ -786,34 +825,40 @@ export const PhoneSimulatorPage: React.FC = () => {
         const isSuccessOutcome = parsed.transactionOutcome === "SUCCESSFUL" || stepName === "transfer-success";
 
         if (isSuccessOutcome) {
-          const successMsg = parsed.sayText || (responseLanguage === "twi" ? "Wo MoMo transfer no akɔ pɛpɛɛpɛ!" : "Transfer completed successfully!");
-          setCallStatus("Completed");
+          setTestPinEntryEnabled(false);
+          testPinBufferRef.current = "";
+          setTestPinDigitCount(0);
+          const successMsg = parsed.sayText || (responseLanguage === "twi" ? "Wo transaction reference nɔmba no." : "Your transaction reference number.");
+          setCallStatus("Speaking");
           setCurrentPrompt(successMsg);
           currentPromptRef.current = successMsg;
           setDigitsBuffer("");
           activeStepNameRef.current = "transfer-success";
           setActiveStepName("transfer-success");
 
-          addLog("reply", "Transfer outcome announced (SUCCESSFUL).");
+          addLog("reply", "Provider-confirmed success receipt sequence started.");
           addChatTurn({
             sender: "ai",
-            text: successMsg,
+            text: parsed.sayText || successMsg,
             audioSource: playbackUrl ? "studio" : "synthesis",
             stepName: "transfer-success",
           });
 
           setActiveCallbackUrl(null);
           activeCallbackUrlRef.current = null;
-
-          // Play authentic studio success audio chime, then speak receipt
-          if (playbackUrl) {
-            try {
-              await audioPlaybackController.play(playbackUrl, successMsg);
-            } catch {
-              await audioPlaybackController.speakText(successMsg);
-            }
-          } else if (parsed.sayText) {
-            await audioPlaybackController.speakText(parsed.sayText);
+          isAudioSequenceActiveRef.current = true;
+          setIsAudioSpeaking(true);
+          try {
+            const played = await playSequenceItems();
+            if (!played) addLog("audio", "Success receipt audio was incomplete; no duplicate TTS fallback was played.");
+          } finally {
+            isAudioSequenceActiveRef.current = false;
+            setIsAudioSpeaking(false);
+            audioPlaybackController.stop();
+            continuousAudioEngine.stop();
+            setCallStatus("Completed");
+            setCallActive(false);
+            callActiveRef.current = false;
           }
           return;
         }
@@ -935,12 +980,6 @@ export const PhoneSimulatorPage: React.FC = () => {
 
       // Play audio automatically
       audioPlaybackController.unlockAudio();
-      const resolvedSequence = (parsed.playUrls && parsed.playUrls.length > 1)
-        ? (parsed.playUrls.map(u => resolvePlayableSimulatorAudioUrl(u, responseLanguage)).filter(Boolean) as string[])
-        : [];
-
-      const hasDynamicSay = Boolean(parsed.sayText && parsed.sayText.trim());
-
       // Mark audio sequence active, mute microphone immediately
       isAudioSequenceActiveRef.current = true;
       setIsAudioSpeaking(true);
@@ -951,128 +990,23 @@ export const PhoneSimulatorPage: React.FC = () => {
       clearSilenceWatchdog();
 
       try {
-        if (parsed.voiceSequence && parsed.voiceSequence.length > 1) {
-          let allReadbackAudioPlayed = true;
-          addLog("audio", "🔊 Auto-playing ordered VoiceXML audio and speech sequence.");
-          for (const item of parsed.voiceSequence) {
-            try {
-              if (item.type === "play") {
-                const audioUrl = resolvePlayableSimulatorAudioUrl(item.value, responseLanguage);
-                if (!audioUrl) {
-                  allReadbackAudioPlayed = false;
-                  continue;
-                }
-                await audioPlaybackController.play(audioUrl);
-              } else {
-                const played = await audioPlaybackController.speakText(item.value, {
-                  skipStudioMatch: true,
-                  language: responseLanguage,
-                });
-                if (!played) allReadbackAudioPlayed = false;
-              }
-            } catch (err) {
-              allReadbackAudioPlayed = false;
-              console.warn("[PhoneSimulator] Ordered VoiceXML playback notice:", err);
-            }
-          }
-          if (requiresSuccessfulReadback && !allReadbackAudioPlayed) {
+        if (voiceSequence.length === 0) {
+          addLog("audio", "No approved audio is available for this prompt.");
+        } else {
+          addLog("audio", "🔊 Playing the ordered VoiceXML sequence.");
+          const allItemsPlayed = await playSequenceItems();
+          if (requiresSuccessfulReadback && !allItemsPlayed) {
             blockFailedReadback();
             return;
+          }
+          if (!allItemsPlayed) {
+            setCallStatus("Audio unavailable; listening restored.");
+            addLog("audio", "An audio item failed; no competing TTS fallback was started.");
           }
           if (requiresSuccessfulReadback && parsed.getDigits?.callbackUrl) {
             activeCallbackUrlRef.current = parsed.getDigits.callbackUrl;
             setActiveCallbackUrl(parsed.getDigits.callbackUrl);
           }
-        } else if (hasDynamicSay && (stepName === "verify-recipient" || stepName.includes("recipient") || stepName.includes("confirm") || resolvedSequence.length > 0)) {
-          // Step with dynamic readback (KYC name, phone number, amount):
-          // 1. Play introductory fixed clip if present (e.g. "Use recipient 1.m4a" -> "Yoo, yɛde saa recipient yi bedi dwuma")
-          // 2. Synthesize & speak dynamic KYC/amount readback (<Say>)
-          if (resolvedSequence.length > 0) {
-            addLog("audio", `🔊 Auto-playing intro clip: ${resolvedSequence[0]}`);
-            try {
-              await audioPlaybackController.play(resolvedSequence[0]);
-            } catch (err) {
-              console.warn("[PhoneSimulator] Intro clip playback notice:", err);
-            }
-          } else if (playbackUrl) {
-            addLog("audio", `🔊 Auto-playing intro clip: ${playbackUrl}`);
-            try {
-              await audioPlaybackController.play(playbackUrl);
-            } catch (err) {
-              console.warn("[PhoneSimulator] Intro clip playback notice:", err);
-            }
-          }
-          if (parsed.sayText) {
-            addLog("audio", "Synthesizing required dynamic readback.");
-            const played = await audioPlaybackController.speakText(parsed.sayText, { skipStudioMatch: true, language: responseLanguage });
-            if (requiresSuccessfulReadback && !played) {
-              blockFailedReadback();
-              return;
-            }
-            if (requiresSuccessfulReadback && parsed.getDigits?.callbackUrl) {
-              activeCallbackUrlRef.current = parsed.getDigits.callbackUrl;
-              setActiveCallbackUrl(parsed.getDigits.callbackUrl);
-            }
-          }
-        } else if (resolvedSequence.length > 1) {
-          addLog("audio", `🔊 Auto-playing sequence: ${resolvedSequence.join(" -> ")}`);
-          try {
-            await audioPlaybackController.playSequence(resolvedSequence, promptText);
-            if (parsed.sayText && !parsed.redirectUrl) {
-              await audioPlaybackController.speakText(parsed.sayText, { language: responseLanguage });
-            }
-          } catch (err) {
-            console.warn("[PhoneSimulator] Sequence auto-play notice:", err);
-            setCallStatus("Audio unavailable");
-          }
-        } else if (playbackUrl) {
-          addLog("audio", `🔊 Auto-playing prompt: ${playbackUrl}`);
-          try {
-            await audioPlaybackController.play(playbackUrl, promptText);
-            if (parsed.sayText && !parsed.redirectUrl) {
-              // Intro audio finished; synthesize dynamic KYC readback text
-              await audioPlaybackController.speakText(parsed.sayText, { language: responseLanguage });
-            }
-          } catch (err) {
-            console.warn("[PhoneSimulator] Auto-play prompt notice:", err);
-            if (parsed.sayText) {
-              try {
-                const played = await audioPlaybackController.speakText(parsed.sayText, { language: responseLanguage });
-                if (requiresSuccessfulReadback && !played) blockFailedReadback();
-                if (requiresSuccessfulReadback && played && parsed.getDigits?.callbackUrl) {
-                  activeCallbackUrlRef.current = parsed.getDigits.callbackUrl;
-                  setActiveCallbackUrl(parsed.getDigits.callbackUrl);
-                }
-              } catch {
-                if (requiresSuccessfulReadback) blockFailedReadback();
-              }
-            } else {
-              setCallStatus("Audio unavailable");
-            }
-          }
-        } else if (parsed.sayText) {
-          addLog("audio", "Synthesizing dynamic prompt.");
-          try {
-            const played = await audioPlaybackController.speakText(parsed.sayText, { language: responseLanguage });
-            if (requiresSuccessfulReadback && !played) blockFailedReadback();
-            if (requiresSuccessfulReadback && played && parsed.getDigits?.callbackUrl) {
-              activeCallbackUrlRef.current = parsed.getDigits.callbackUrl;
-              setActiveCallbackUrl(parsed.getDigits.callbackUrl);
-            }
-          } catch (err) {
-            console.warn("[PhoneSimulator] Dynamic speakText notice:", err);
-            if (requiresSuccessfulReadback) blockFailedReadback();
-          }
-        } else if (hasDynamicSay) {
-          addLog("audio", "Synthesizing dynamic prompt.");
-          try {
-            const played = await audioPlaybackController.speakText(parsed.sayText!, { skipStudioMatch: true, language: responseLanguage });
-            if (requiresSuccessfulReadback && !played) blockFailedReadback();
-          } catch {
-            if (requiresSuccessfulReadback) blockFailedReadback();
-          }
-        } else {
-          addLog("audio", "No approved audio is available for this prompt.");
         }
       } finally {
         isAudioSequenceActiveRef.current = false;
@@ -1263,6 +1197,9 @@ export const PhoneSimulatorPage: React.FC = () => {
     setConversationState("INITIATED");
     setCallActive(true);
     setCallStatus("Connected");
+    setTestPinEntryEnabled(false);
+    testPinBufferRef.current = "";
+    setTestPinDigitCount(0);
     setLanguage(initialLang);
     languageRef.current = initialLang;
     setDigitsBuffer("");
@@ -1271,7 +1208,7 @@ export const PhoneSimulatorPage: React.FC = () => {
 
     addLog("system", `Call initiated. Session ID: ${newSession}`);
     addLog("state", "Connecting to phone simulator (/api/simulator/voice-menu)...");
-    addLog("audio", `🔊 Playing welcome audio: ${initialWelcomeAudio}`);
+    addLog("audio", `Waiting for the VoiceXML welcome prompt: ${initialWelcomeAudio}`);
 
     // Keep microphone OFF during initial welcome prompt playback; it will automatically turn ON when the prompt finishes playing
     setIsMicMuted(true);
@@ -1280,18 +1217,7 @@ export const PhoneSimulatorPage: React.FC = () => {
     continuousAudioEngine.resetDiscussionBuffer();
     setInterimTranscript("");
 
-    // Play the opening greeting followed by the available localized welcome clip.
-    const followUpWelcomeAudio = initialLang === "twi"
-      ? "/audio/welcome_twi.mp3"
-      : "/audio/welcome_en.mp3";
-    try {
-      const welcomeSequence = [...new Set([initialWelcomeAudio, followUpWelcomeAudio])];
-      await audioPlaybackController.playSequence(welcomeSequence, initialWelcomeText);
-    } catch (err) {
-      console.warn("[PhoneSimulator] Welcome audio sequence notice:", err);
-    }
-
-    // Initial step expectations
+    // VoiceXML owns the single welcome playback and subsequent language input.
     setActiveStepName("voice-menu");
     setActiveCallbackUrl(initialCallback);
     setActiveNumDigits(1);
@@ -1318,6 +1244,9 @@ export const PhoneSimulatorPage: React.FC = () => {
       setZeroPinOverlay(false);
       setActiveCallbackUrl(null);
       setInterimTranscript("");
+      setTestPinEntryEnabled(false);
+      testPinBufferRef.current = "";
+      setTestPinDigitCount(0);
 
       audioPlaybackController.stop();
       continuousAudioEngine.stop();
@@ -1339,6 +1268,7 @@ export const PhoneSimulatorPage: React.FC = () => {
     },
     [addLog, addChatTurn, clearSilenceWatchdog]
   );
+  endCallRef.current = endCall;
 
   const startPinAuthorizationFlow = useCallback(async () => {
     activeStepNameRef.current = "pin-handoff";
@@ -1463,6 +1393,7 @@ export const PhoneSimulatorPage: React.FC = () => {
       utterance: string,
       isDirectSimulated: boolean = false
     ) => {
+      clearSilenceWatchdog();
       // If call is inactive, initiate call first
       if (!callActiveRef.current) {
         if (activeStepNameRef.current === "ended" || !sessionIdRef.current) {
@@ -1474,6 +1405,7 @@ export const PhoneSimulatorPage: React.FC = () => {
         }
       }
 
+      if (isAudioSequenceActiveRef.current || audioPlaybackController.isSpeaking()) return;
       const curStep = activeStepNameRef.current;
       if (zeroPinOverlayRef.current || isVoiceCaptureBlockedForStep(curStep)) return;
       if (shouldDiscardSensitiveSpeech(utterance, curStep)) {
@@ -2113,6 +2045,7 @@ export const PhoneSimulatorPage: React.FC = () => {
       startCall,
       addLog,
       addChatTurn,
+      testPinEntryEnabled,
     ]
   );
 
@@ -2121,6 +2054,7 @@ export const PhoneSimulatorPage: React.FC = () => {
     async (textToSpeak: string) => {
       const phrase = textToSpeak.trim();
       if (!phrase || isSimulatingSpeech) return;
+      if (isAudioSequenceActiveRef.current || audioPlaybackController.isSpeaking()) return;
 
       audioPlaybackController.unlockAudio();
       setIsSimulatingSpeech(true);
@@ -2182,7 +2116,7 @@ export const PhoneSimulatorPage: React.FC = () => {
       // Process utterance directly (bypassing mic acoustic echo filter since it is direct test input)
       processSpokenUtterance(effective, true);
     },
-    [isSimulatingSpeech, language, processSpokenUtterance, startCall, addLog]
+    [isSimulatingSpeech, language, processSpokenUtterance, startCall, addLog, clearSilenceWatchdog]
   );
 
   // Synchronize audio engine context and Zero-PIN security
@@ -2209,6 +2143,7 @@ export const PhoneSimulatorPage: React.FC = () => {
 
     const unsubWords = continuousAudioEngine.subscribeWordToken((token) => {
       if (token && token.word) {
+        clearSilenceWatchdog();
         setRecentStreamingWords((prev) => [
           ...prev.slice(-8),
           {
@@ -2244,7 +2179,7 @@ export const PhoneSimulatorPage: React.FC = () => {
       unsubWords();
       unsubState();
     };
-  }, [processSpokenUtterance, isAudioSpeaking, micUnavailable]);
+  }, [processSpokenUtterance, isAudioSpeaking, micUnavailable, clearSilenceWatchdog]);
 
 
   // Auto-scroll chat timeline to latest turn
@@ -2269,8 +2204,46 @@ export const PhoneSimulatorPage: React.FC = () => {
   const handleKeypadPress = useCallback(
     async (digit: string) => {
       clearSilenceWatchdog();
+      if (isAudioSequenceActiveRef.current || audioPlaybackController.isSpeaking()) return;
       if (zeroPinOverlayRef.current || isVoiceCaptureBlockedForStep(activeStepNameRef.current)) {
         if (digit === "0") endCall("Caller ended the secure handset handoff");
+        return;
+      }
+      if (activeStepNameRef.current === "waiting-confirmation" && testPinEntryEnabled) {
+        if (digit === "#") {
+          if (testPinBufferRef.current.length !== 4) {
+            setCallStatus("Enter four dummy digits, then press #");
+            return;
+          }
+          testPinBufferRef.current = "";
+          setTestPinDigitCount(0);
+          setIsMicMuted(true);
+          isMicMutedRef.current = true;
+          continuousAudioEngine.pauseForPlayback();
+          setCurrentPrompt("Dummy PIN discarded. Provider status remains pending.");
+          currentPromptRef.current = "Dummy PIN discarded. Provider status remains pending.";
+          addLog("state", "Simulator dummy PIN was discarded locally; no ASR, API, or provider request was made.");
+          const pendingRecording = getRecordingByPromptId("OP46", languageRef.current || "twi");
+          const pendingUrl = pendingRecording?.audioVerified
+            ? resolveSimulatorAudioUrl(pendingRecording.url, languageRef.current || "twi")
+            : null;
+          try {
+            if (pendingUrl) await audioPlaybackController.play(pendingUrl);
+            else addLog("audio", "Pending-status recording is unavailable; no TTS fallback was used.");
+          } finally {
+            if (callActiveRef.current) {
+              setIsMicMuted(false);
+              isMicMutedRef.current = false;
+              continuousAudioEngine.resumeAfterPlayback();
+              setCallStatus("Awaiting provider authorization");
+            }
+          }
+          return;
+        }
+        if (/^\d$/.test(digit) && testPinBufferRef.current.length < 4) {
+          testPinBufferRef.current += digit;
+          setTestPinDigitCount(testPinBufferRef.current.length);
+        }
         return;
       }
       audioPlaybackController.unlockAudio();
@@ -2641,7 +2614,42 @@ export const PhoneSimulatorPage: React.FC = () => {
 
               {/* Center Display: Digits or State */}
               <div className="my-auto py-1 text-center w-full">
-                {(activeStepName.includes("pin") || activeStepName.includes("auth") || callStatus === "Verifying PIN") ? (
+                {activeStepName === "waiting-confirmation" ? (
+                  <div className="flex flex-col items-center justify-center gap-2 w-full px-2 py-1">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-amber-300">
+                      Provider authorization pending
+                    </span>
+                    <label className="flex items-center gap-2 text-[10px] text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={testPinEntryEnabled}
+                        onChange={(event) => {
+                          testPinBufferRef.current = "";
+                          setTestPinDigitCount(0);
+                          setTestPinEntryEnabled(event.target.checked);
+                        }}
+                        className="accent-amber-500"
+                      />
+                      Simulator-only dummy PIN test
+                    </label>
+                    {testPinEntryEnabled ? (
+                      <>
+                        <span className="text-[10px] text-amber-300">Dummy only. Never enter your real PIN.</span>
+                        <div className="flex items-center justify-center gap-3 py-2 w-full bg-slate-950/80 rounded-lg border border-amber-500/30">
+                          {[0, 1, 2, 3].map((idx) => (
+                            <div
+                              key={idx}
+                              className={`w-3.5 h-3.5 rounded-full border-2 ${idx < testPinDigitCount ? "bg-amber-400 border-amber-300" : "border-slate-600 bg-slate-900/60"}`}
+                            />
+                          ))}
+                        </div>
+                        <span className="text-[10px] text-slate-400">Enter four dummy digits, then press #. No provider request is made.</span>
+                      </>
+                    ) : (
+                      <span className="text-[10px] text-slate-400">Approve only on your provider's secure handset prompt.</span>
+                    )}
+                  </div>
+                ) : (activeStepName.includes("pin") || activeStepName.includes("auth") || callStatus === "Verifying PIN") ? (
                   <div className="flex flex-col items-center justify-center gap-1.5 w-full px-2 py-1">
                     <div className="flex items-center justify-between w-full text-[10px] text-emerald-400 font-semibold uppercase tracking-wider">
                       <span className="flex items-center gap-1">
@@ -2667,14 +2675,7 @@ export const PhoneSimulatorPage: React.FC = () => {
                     </div>
                     <div className="flex items-center justify-between w-full text-[10px] text-slate-400">
                       <span className="text-amber-400/90 font-medium">
-                        {callStatus === "Verifying PIN" ? (
-                          <span className="flex items-center gap-1 text-emerald-300 animate-pulse font-semibold">
-                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block mr-1" />
-                            Validating PIN with MoMo Switch...
-                          </span>
-                        ) : (
-                          "Type 4-digit PIN on keypad or say aloud"
-                        )}
+                        Approve only on the provider's secure handset prompt. This app never reads PINs.
                       </span>
                       <span className="font-mono text-emerald-400 bg-emerald-950/70 px-1.5 py-0.5 rounded border border-emerald-700/40">Secure PIN</span>
                     </div>

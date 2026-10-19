@@ -2,7 +2,7 @@
  * Ɔkwankyerɛfo Pa - Africa's Talking Telephony Voice Webhook Routes
  * 
  * Implements the voice call state transitions with:
- * 1. Dynamic safe confirmation readback (validated amount, recipient name/warning, and all ten phone digits).
+    return `    <GetDigits timeout="25" finishOnKey="#" callbackUrl="${baseUrl}/verify-amount?${query}&amp;inputMethod=keypad-complete">\n        ${prompt}\n    </GetDigits>\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="8" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=enter-amount&amp;${query}"/>`;
  * 2. Real recipient resolution via provider interface.
  * 3. Zero-PIN USSD screen push handoff.
  * 4. Universal keypad grammar (#, *, 8, 9, 0).
@@ -14,7 +14,7 @@ import { config } from "../config/env";
 import { recipientResolver } from "../providers/recipient/RecipientResolver";
 import { parseAndValidateAmount, validateGhanaPhoneNumber, normalizeGhanaPhoneNumber, redactPii } from "../domain/validation";
 import { transactionStateMachine } from "../domain/stateMachine";
-import { buildSafeConfirmationPrompt, buildReceiptPrompt, formatFullPhoneNumberForSpeech } from "../audio/dynamicPromptBuilder";
+import { formatSlowReferenceForSpeech } from "../audio/dynamicPromptBuilder";
 import { isSpokenPinPattern, speechToText } from "../modules/sttService";
 import { mtnMomoService } from "../modules/mtnMomoService";
 import { auditLogger } from "../services/auditLogger";
@@ -79,6 +79,15 @@ export function getCollectionStagePromptId(slot: "recipient" | "amount" | string
   if (slot === "recipient") return "OP16";
   if (slot === "amount") return "OP28";
   return fallbackPromptId;
+}
+
+function formatAmountForSpeech(amount: number): string {
+  const totalPesewas = Math.round(amount * 100);
+  const cedis = Math.floor(totalPesewas / 100);
+  const pesewas = totalPesewas % 100;
+  return pesewas > 0
+    ? `${cedis} Ghana cedis and ${pesewas} pesewas.`
+    : `${cedis} Ghana cedis.`;
 }
 
 interface RecipientLookupEntry {
@@ -300,7 +309,7 @@ ivrRouter.use((req: Request, res: Response, next: NextFunction) => {
   // ── Conversation Takeover Detector ────────────────────────────────────
   // Detects when caller transitions from pressing digits to natural conversational speech/text
   const inputToCheck = speechText || (dtmf && isNaN(Number(dtmf.replace(/[#*]/g, ""))) ? dtmf : "");
-  if (inputToCheck && ConversationTakeoverDetector.isConversationalInput(inputToCheck, step)) {
+  if (req.path !== "/speech-fallback" && inputToCheck && ConversationTakeoverDetector.isConversationalInput(inputToCheck, step)) {
     if (!["enter-pin", "verify-pin", "pin-handoff"].includes(step)) {
       auditLogger.log("info", "TAKEOVER", `Keypad-to-conversational transition detected: "${inputToCheck.slice(0, 50)}"`, sessionId);
       const query = new URLSearchParams({ step, sessionId, lang, speechText: inputToCheck });
@@ -1250,9 +1259,7 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
     ...(amountValidation?.valid && amountValidation.amount !== undefined ? { amount: amountValidation.amount } : {}),
   });
 
-  const recipientNamePrompt = resolvePromptSpokenText("OP20", lang, { recipientName: resolution.name });
-  const recipientPhonePrompt = resolvePromptSpokenText("OP21", lang, { recipientPhone: phoneValidation.normalized });
-  const readbackText = `${recipientNamePrompt} ${recipientPhonePrompt}`;
+  const readbackText = `${resolution.name}. ${phoneValidation.normalized}`;
 
   const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/recipient-verify-choice?sessionId=${sessionId}&amp;lang=${lang}">
         <Say voice="female">${escapeVoiceXml(readbackText)}</Say>
@@ -1318,10 +1325,9 @@ ivrRouter.all("/recipient-verify-choice", (req: Request, res: Response) => {
   }
 
   if (dtmf !== "1") {
-    const namePrompt = resolvePromptSpokenText("OP20", lang, { recipientName: session.recipientName });
-    const phonePrompt = resolvePromptSpokenText("OP21", lang, { recipientPhone: session.recipientPhone });
+    const readbackText = `${session.recipientName}. ${session.recipientPhone}`;
     return xmlResponse(res, `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/recipient-verify-choice?sessionId=${sessionId}&amp;lang=${lang}">
-      <Say voice="female">${escapeVoiceXml(`${namePrompt} ${phonePrompt}`)}</Say>
+      <Say voice="female">${escapeVoiceXml(readbackText)}</Say>
       ${canonicalPromptElement("confirm_continue", lang, baseUrl, lang === "twi"
     ? "Sɛ wopene so a mia 1, sɛ wopɛ sɛ wosesa a mia 2, anaa mia 0 na woagyae."
     : "Press 1 to confirm, 2 to change the recipient, or 0 to cancel.")}
@@ -1357,7 +1363,7 @@ ivrRouter.all("/enter-amount", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
   const baseUrl = getBaseUrl(req);
 
-  const xml = `    <GetDigits timeout="30" finishOnKey="#" callbackUrl="${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}">
+  const xml = `    <GetDigits timeout="30" finishOnKey="#" callbackUrl="${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}&amp;inputMethod=keypad-complete">
         ${canonicalPromptElement("amount_prompt", lang, baseUrl, "How much would you like to send?")}
         ${canonicalPromptElement("enter_amount", lang, baseUrl, "Please enter the amount, then press hash.")}
     </GetDigits>
@@ -1377,9 +1383,20 @@ ivrRouter.all("/enter-amount", (req: Request, res: Response) => {
 ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const inputMethod = req.query?.inputMethod || req.body?.inputMethod;
+  const speechInput = inputMethod === "speech";
+  const keypadComplete = inputMethod === "keypad-complete";
   const rawDigitsInput = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim();
-  const bufferRes = KeypadBufferManager.appendDigit(sessionId, rawDigitsInput, "amount");
-  const rawDigits = (bufferRes.submittedValue || bufferRes.bufferedValue || rawDigitsInput).replace(/#+$/, "");
+  const bufferRes = speechInput || keypadComplete
+    ? { submittedValue: rawDigitsInput.replace(/#+$/, "") }
+    : KeypadBufferManager.appendDigit(sessionId, rawDigitsInput, "amount");
+  if (!speechInput && !bufferRes.submittedValue) {
+    const baseUrl = getBaseUrl(req);
+    return xmlResponse(res, `    <GetDigits timeout="30" finishOnKey="#" callbackUrl="${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}">
+        ${canonicalPromptElement("enter_amount", lang, baseUrl, "Please finish entering the amount and press hash.")}
+    </GetDigits>`);
+  }
+  const rawDigits = (bufferRes.submittedValue || "").replace(/#+$/, "");
   KeypadBufferManager.clearBuffer(sessionId);
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getOrCreateSession(sessionId);
@@ -1453,19 +1470,11 @@ ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
   transactionStateMachine.transition(sessionId, "AMOUNT_ENTERED", {
     amount: amountValidation.amount,
   });
-
-  const amountReadback = resolvePromptSpokenText("OP29", lang, { amount: amountValidation.amount });
-  return xmlResponse(res, `    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/amount-readback-choice?sessionId=${sessionId}&amp;lang=${lang}">
-        <Say voice="female">${escapeVoiceXml(amountReadback)}</Say>
-        ${canonicalPromptElement("confirm_continue", lang, baseUrl, lang === "twi"
-    ? "Sɛ sika dodow no yɛ nokware a, mia 1. Sɛ wopɛ sɛ wosesa a, mia 2. Sɛ wopɛ sɛ wugyae a, mia 0."
-    : "Press 1 to confirm, 2 to change the amount, or 0 to cancel.")}
-    </GetDigits>`, {
-    stepId: "amount-readback",
-    replyKey: "OP29",
-    replyText: amountReadback,
+  return xmlResponse(res, `    <Redirect>${baseUrl}/safe-confirmation?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}</Redirect>`, {
+    stepId: "amount-entered",
+    replyText: "Amount validated. Proceeding to transaction review.",
     action: "advance",
-    nextStep: "amount-readback-choice",
+    nextStep: "safe-confirmation",
   });
 });
 
@@ -1556,25 +1565,24 @@ ivrRouter.all("/safe-confirmation", (req: Request, res: Response) => {
 
   const callbackUrl = `${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}`;
 
-  const { spokenText } = buildSafeConfirmationPrompt({
-    language: lang,
-    amount,
-    recipientPhone,
-    recipientName,
-    network: session.network,
-    isVerified,
-    callbackUrl,
-  });
+  const amountReadback = `${recipientName}. ${formatAmountForSpeech(amount)}`;
   const confirmationChoices = lang === "twi"
-    ? "Sɛ nsɛm no yɛ nokware a, mia 1. Sɛ wopɛ sɛ wosesa sika no a, mia 2. Sɛ wopɛ sɛ wosesa recipient no a, mia 3. Sɛ wopɛ sɛ wogyae a, mia 0."
-    : "Press 1 to confirm. To change the amount, press 2. To change the recipient, press 3. To cancel, press 0.";
+    ? "Sɛ wopɛ sɛ wokɔ so a, mia 1. Sɛ wopɛ sɛ wosesa transaction no a, mia 2. Sɛ wopɛ sɛ wugyae a, mia 0."
+    : "Press 1 to continue, 2 to revise the transaction, or 0 to cancel.";
   const voiceXml = `    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
-        <Say voice="female">${escapeVoiceXml(spokenText)}</Say>
+        ${canonicalPromptElement("review_transaction", lang, baseUrl, "Please review your transaction.")}
+        <Say voice="female">${escapeVoiceXml(amountReadback)}</Say>
         ${canonicalPromptElement("confirm_continue", lang, baseUrl, confirmationChoices)}
     </GetDigits>`;
 
   auditLogger.log("info", "TELEPHONY", "Dynamic safe confirmation generated from validated session values.", sessionId);
-  xmlResponse(res, voiceXml);
+  xmlResponse(res, voiceXml, {
+    stepId: "safe-confirmation",
+    replyKey: "OP35",
+    replyText: amountReadback,
+    action: "confirm",
+    nextStep: "safe-outcome",
+  });
 });
 
 ivrRouter.all(["/pin-handoff", "/confirm-speech"], (req: Request, res: Response) => {
@@ -1872,22 +1880,22 @@ ivrRouter.all("/check-status", (req: Request, res: Response) => {
   if (saga?.state === "COMPLETED" && saga.providerFinancialTransactionId) {
     if (session.state === "PIN_PENDING") transactionStateMachine.transition(sessionId, "COMPLETED");
     res.set("X-Payment-Status", "SUCCESSFUL");
-    const receipt = resolvePromptSpokenText("OP52", lang, {
-      amount: session.amount ?? undefined,
-      recipientName: session.recipientName || undefined,
-      referenceId: session.referenceId,
-    });
-    const anotherPrompt = lang === "twi"
-      ? "Wopɛ transfer foforɔ a ɛwɔ hɔ a? Mia 1. Sɛ wowie a, mia 0."
-      : "Would you like another supported transfer? Press 1. To finish, press 0.";
-    const successXml = `    <Say voice="female">${escapeVoiceXml(receipt)}</Say>
-    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/post-success-choice?sessionId=${sessionId}&amp;lang=${lang}">
-      ${canonicalPromptElement("anything_else", lang, baseUrl, anotherPrompt)}
-    </GetDigits>`;
+    const providerReference = [
+      saga.disbursementReference,
+      saga.collectionReference,
+      saga.providerFinancialTransactionId,
+    ].find((value) => typeof value === "string" && value.trim().length > 0);
+    const reference = providerReference || session.referenceId;
+    const spokenReference = formatSlowReferenceForSpeech(reference, lang);
+    const successXml = `    <Play url="${baseUrl}/audio/Twi_library/Success_sent.mp3"/>
+    <Play url="${baseUrl}/audio/Twi_library/Keep_reference.mp3"/>
+    <Say voice="female">${escapeVoiceXml(spokenReference)}</Say>
+    <Play url="${baseUrl}/audio/Twi_library/Success_close.mp3"/>
+    <Reject/>`;
     return xmlResponse(res, successXml, {
       type: "transaction_success",
-      replyKey: "OP52",
-      replyText: receipt,
+      replyKey: "OP52B",
+      replyText: spokenReference,
       outcome: "SUCCESSFUL",
     });
   }
@@ -2012,7 +2020,7 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   const retry = parseInt((req.query?.retry || req.body?.retry || "0") as string, 10) || 0;
   const baseUrl = getBaseUrl(req);
 
-  if (["enter-pin", "verify-pin", "pin-handoff"].includes(step)) {
+  if (["enter-pin", "verify-pin", "pin-handoff"].includes(step.toLowerCase())) {
     auditLogger.log(
       "warn",
       "SECURITY",
@@ -2096,43 +2104,6 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   }
 
   const clean = transcript.toLowerCase().trim();
-
-  // Spoken PIN handling during enter-pin step
-  if (step === "enter-pin") {
-    const rawInput = speechText || transcript || directDtmf || "";
-    let extractedPin = rawInput.replace(/\D/g, "");
-    if (extractedPin.length < 4) {
-      const WORD_TO_DIGIT: Record<string, string> = {
-        zero: "0", oh: "0", hwee: "0",
-        one: "1", baako: "1", bako: "1",
-        two: "2", mmienu: "2", mienu: "2",
-        three: "3", mmiɛnsa: "3", miensa: "3", mmiensa: "3",
-        four: "4", nan: "4", ɛnan: "4", enan: "4",
-        five: "5", num: "5", enum: "5", ɛnum: "5",
-        six: "6", nsia: "6",
-        seven: "7", nson: "7",
-        eight: "8", nwɔtwe: "8", nwotwe: "8",
-        nine: "9", nkron: "9",
-      };
-      const words = rawInput.toLowerCase().replace(/[^a-zA-Z0-9ɛɔƐƆ]/gu, " ").split(/\s+/).filter(Boolean);
-      const digitsList: string[] = [];
-      for (const w of words) {
-        if (/^\d+$/.test(w)) digitsList.push(...w.split(""));
-        else if (WORD_TO_DIGIT[w] !== undefined) digitsList.push(WORD_TO_DIGIT[w]);
-      }
-      extractedPin = digitsList.join("");
-    }
-    if (extractedPin.length >= 4) {
-      return xmlResponse(
-        res,
-        `    <Redirect>${baseUrl}/verify-pin?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${extractedPin.slice(0, 4)}</Redirect>`
-      );
-    }
-    return xmlResponse(
-      res,
-      `    <Redirect>${baseUrl}/enter-pin?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`
-    );
-  }
 
   if (transcript) {
     auditLogger.log(
@@ -2646,7 +2617,7 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
     const amt = extractAmount(clean);
     const digitsOnly = amt !== null ? String(amt) : clean.replace(/[^0-9]/g, "");
     if (digitsOnly.length > 0 && digitsOnly.length <= 5) {
-      return xmlResponse(res, `    <Redirect>${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${digitsOnly}</Redirect>`);
+      return xmlResponse(res, `    <Redirect>${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}&amp;inputMethod=speech&amp;dtmfDigits=${encodeURIComponent(digitsOnly)}</Redirect>`);
     }
     return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
   }
