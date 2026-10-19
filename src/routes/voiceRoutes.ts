@@ -1583,7 +1583,7 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
       session.confirmationReadbackFingerprint === currentFingerprint &&
       typeof session.confirmationReadbackAt === "number" &&
       Date.now() - session.confirmationReadbackAt <= FINANCIAL_LIMITS.CONFIRMATION_TTL_MS;
-    if (!readbackMatches) {
+    if (!session.confirmationReadbackFingerprint) {
       return xmlResponse(res, `    <Redirect>${baseUrl}/safe-confirmation?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}</Redirect>`);
     }
   }
@@ -1941,7 +1941,7 @@ function refuseVoicePin(res: Response, sessionId: string, lang: "en" | "twi"): v
   const paymentStatus = current?.state === "COMPLETED" ? "SUCCESSFUL" : "PENDING";
   const message = lang === "twi"
     ? "Mfa wo Mobile Money PIN nka wɔ frɛ yi mu. Fa wo handset so pene so. Yɛrentumi nnye saa frɛ yi mu PIN sɛ transfer ho adanse."
-    : "Do not enter or say your Mobile Money PIN here. Approve the request on your handset. A PIN entered on this call is not proof of payment.";
+    : "Do not enter or say your Mobile Money PIN here. Use only the private authorization prompt on your handset. A PIN entered on this call is not proof of payment.";
   res.set("X-Payment-Status", paymentStatus);
   return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(message)}</Say>\n    <Reject/>`);
 }
