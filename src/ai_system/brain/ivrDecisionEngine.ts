@@ -64,17 +64,19 @@ export class IvrDecisionEngine {
     const clean = input.trim();
     const cleanLower = clean.toLowerCase().replace(/[.,!?;:]/g, "");
 
-    // ── 0. Max-Retry Hangup Gate ──────────────────────────────────────────
+    // ── 0. Max-Retry Recovery ─────────────────────────────────────────────
     if (retryCount >= MAX_RETRIES) {
       return {
         type: "invalid_choice",
         reason: `Exceeded maximum retries (${retryCount} >= ${MAX_RETRIES}) at step ${stepId}.`,
         replyText:
           language === "twi"
-            ? "Wobɔɔ mmɔden pii a yɛante ase. Ahobammbɔ nti, yɛtwa frɛ yi mu seesei. Nante yie."
-            : "Too many unrecognized attempts. For your security, this call will now end. Goodbye.",
+            ? "Mante wo mmuae no ase. Yɛsrɛ wo paw bio, anaa mia hwee sɛ wopɛ sɛ wugyae."
+            : "I did not understand. Please choose again, or press 0 if you want to end the call.",
         replyKey: "max_retries_exceeded",
-        action: "hangup",
+        nextStep: stepDef?.id || stepId,
+        action: "replay",
+        promptReplayKey: stepDef?.promptKey,
       };
     }
 
@@ -185,7 +187,9 @@ export class IvrDecisionEngine {
               ? "Mentumi nhwɛ wo wallet balance wɔ fon frɛ yi so. Sɛ wopɛ sɛ wohwɛ wo sika dodow a, bɔ star baako nson hwee hash wɔ wo fon so."
               : "I cannot check wallet balances over this voice service. To check your balance, please dial star one seven zero hash directly on your phone keypad.",
           replyKey: "balance_inquiry_unsupported",
-          action: "hangup",
+          nextStep: stepDef?.id || stepId,
+          action: "replay",
+          promptReplayKey: stepDef?.promptKey,
         };
       }
 

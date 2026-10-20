@@ -290,7 +290,9 @@ describe("ƆKWANKYERƐFO PA — Master Acceptance Tests (AT-01 to AT-35)", () =>
       retryCount: 3,
       sessionId: "test_at_24",
     });
-    expect(timeoutDecision.action).toBe("hangup");
+    expect(timeoutDecision.action).toBe("replay");
+    expect(timeoutDecision.nextStep).toBe("enter-amount");
+    expect(timeoutDecision.promptReplayKey).toBe("enter_amount");
     expect(timeoutDecision.reason).toContain("maximum retries");
   });
 

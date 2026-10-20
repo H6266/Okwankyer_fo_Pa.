@@ -170,6 +170,12 @@ voiceRouter.use((req: Request, res: Response, next) => {
     }
 
     return telephonyRateLimiter(req, res, () => verifyAtWebhook(req, res, () => {
+      const callbackSessionId = String(req.body?.sessionId || req.query?.sessionId || "");
+      if (callbackSessionId && req.path !== "/language-selection") {
+        const sessionLanguage = transactionStateMachine.getSession(callbackSessionId)?.language;
+        if (sessionLanguage) req.query.lang = sessionLanguage;
+      }
+
       const dtmf = req.body?.dtmfDigits ?? req.query?.dtmfDigits;
       const sessionId = req.body?.sessionId ?? req.query?.sessionId;
       if (typeof dtmf === "string" && dtmf.length > 0 && typeof sessionId === "string" && sessionId.length > 0) {
@@ -596,9 +602,13 @@ ivrRouter.all("/language-selection", (req: Request, res: Response) => {
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getOrCreateSession(sessionId);
+  const lang = session.language || "en";
 
   if (!dtmf) {
-    const prompt = canonicalPromptElement("language_selection", "en", baseUrl, "For English, press 1. For Twi, press 2.");
+    const fallbackText = lang === "twi"
+      ? "Sɛ wopɛ Borɔfo a, mia 1. Sɛ wopɛ Twi a, mia 2."
+      : "For English, press 1. For Twi, press 2.";
+    const prompt = canonicalPromptElement("language_selection", lang, baseUrl, fallbackText);
     const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?sessionId=${sessionId}">
         ${prompt}
     </GetDigits>
@@ -704,6 +714,13 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getOrCreateSession(sessionId);
+
+  if (!dtmf) {
+    const replayText = resolvePromptText("supported_service_select", lang)
+      || "For a supported Mobile Money transfer, press 1. Press 9 to repeat, or 0 to exit.";
+    const prompt = canonicalPromptElement("supported_service_select", lang, baseUrl, replayText);
+    return xmlResponse(res, `    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${prompt}\n    </GetDigits>`);
+  }
 
   const stepDef = getStepDefinition("service-select")!;
   const validation = validateKeypadInput(stepDef, dtmf, lang);
@@ -873,7 +890,13 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
   const session = transactionStateMachine.getOrCreateSession(sessionId);
 
   if (!dtmf) {
-    const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=provider-select&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
+    const prompt = canonicalPromptElement(
+      promptKey,
+      lang,
+      baseUrl,
+      resolvePromptText(promptKey, lang) || "Choose your network provider. Press 1 to continue, or 0 to exit."
+    );
+    const xml = `    <GetDigits timeout="20" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${prompt}\n    </GetDigits>\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=provider-select&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
     return xmlResponse(res, xml);
   }
 
@@ -997,9 +1020,17 @@ ivrRouter.all("/action-select", (req: Request, res: Response) => {
 ivrRouter.all("/action-choice", async (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
-  const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "1").trim() as string;
+  const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getOrCreateSession(sessionId);
+
+  if (!dtmf) {
+    const promptKey = lang === "twi" ? "mtn_menu" : "send_money_menu";
+    const replayText = resolvePromptText(promptKey, lang) || "To send money, press 1. Press 9 to repeat, or 0 to exit.";
+    const prompt = canonicalPromptElement(promptKey, lang, baseUrl, replayText);
+    const xml = `    <GetDigits timeout="20" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${prompt}\n    </GetDigits>\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=action-select&amp;sessionId=${sessionId}&amp;lang=${lang}&amp;retry=0"/>`;
+    return xmlResponse(res, xml);
+  }
 
   const stepDef = getStepDefinition("action-select")!;
   if (dtmf === "2" && !SERVICE_CAPABILITIES.checkBalance.available) {

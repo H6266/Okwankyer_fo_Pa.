@@ -82,6 +82,59 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(transactionStateMachine.getSession(sessionId)?.interactionMode).toBe("GUIDED_IVR");
   });
 
+  it("keeps Twi audio when Africa's Talking omits lang on later callbacks", async () => {
+    const sessionId = "AT-TWI-LANG-OMITTED-001";
+    transactionStateMachine.getOrCreateSession(sessionId, "twi", "VOICE");
+
+    const serviceChoice = await request(app)
+      .post(`/service-choice?sessionId=${sessionId}&lang=en`)
+      .send({ dtmfDigits: "1" });
+
+    expect(serviceChoice.status).toBe(200);
+    expect(serviceChoice.text).toContain(`/provider-select?sessionId=${sessionId}&amp;lang=twi`);
+
+    const providerMenu = await request(app)
+      .post(`/provider-select?sessionId=${sessionId}&lang=en`);
+
+    expect(providerMenu.status).toBe(200);
+    expect(providerMenu.text).toContain("/audio/Twi/Network_selection.mp3?format=mp3");
+    expect(providerMenu.text).not.toContain("<Say");
+  });
+
+  it("keeps the Twi call open and replays direct audio when menu callbacks have no DTMF", async () => {
+    const sessionId = "AT-TWI-EMPTY-DTMF-001";
+    transactionStateMachine.getOrCreateSession(sessionId, "twi", "VOICE");
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const serviceRetry = await request(app)
+        .post(`/service-choice?sessionId=${sessionId}`)
+        .send({ dtmfDigits: "" });
+
+      expect(serviceRetry.status).toBe(200);
+      expect(serviceRetry.text).toContain("<Redirect>");
+      expect(serviceRetry.text).toContain(`/service-select?sessionId=${sessionId}&amp;lang=twi`);
+      expect(serviceRetry.text).not.toContain("<Reject/>");
+    }
+
+    const serviceMenu = await request(app)
+      .post(`/service-select?sessionId=${sessionId}`);
+    expect(serviceMenu.text).toContain("/audio/Twi/Service_selection.mp3?format=mp3");
+
+    const actionRetry = await request(app)
+      .post(`/action-choice?sessionId=${sessionId}`)
+      .send({ dtmfDigits: "" });
+
+    expect(actionRetry.status).toBe(200);
+    expect(actionRetry.text).toContain("<Redirect>");
+    expect(actionRetry.text).toContain(`/action-select?sessionId=${sessionId}&amp;lang=twi`);
+    expect(actionRetry.text).not.toContain("<Reject/>");
+
+    const actionMenu = await request(app)
+      .post(`/action-select?sessionId=${sessionId}`);
+    expect(actionMenu.text).toContain("/audio/Twi/MTN%20menu.mp3?format=mp3");
+    expect(actionMenu.text).toContain("/action-choice");
+  });
+
   it("does not treat a spoken phone number as recipient data outside recipient entry", async () => {
     const sessionId = "AT-PHONE-STATE-GUARD-001";
     const processBrain = vi.spyOn(brain, "process").mockResolvedValue({

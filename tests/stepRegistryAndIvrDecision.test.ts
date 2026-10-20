@@ -263,7 +263,7 @@ describe("Cognitive IVR Decision Engine Structured Decisions", () => {
     expect(decision.promptReplayKey).toBe("mtn_network_select");
   });
 
-  it("enforces max-retry hangup gate when retryCount >= 3", () => {
+  it("replays the current menu when retryCount >= 3 instead of ending the call", () => {
     const decision = engine.decide({
       stepId: "service-select",
       language: "en",
@@ -271,8 +271,10 @@ describe("Cognitive IVR Decision Engine Structured Decisions", () => {
       inputMethod: "keypad",
       retryCount: 3,
     });
-    expect(decision.action).toBe("hangup");
-    expect(decision.replyText).toContain("Too many unrecognized attempts");
+    expect(decision.action).toBe("replay");
+    expect(decision.nextStep).toBe("service-select");
+    expect(decision.promptReplayKey).toBe("supported_service_select");
+    expect(decision.replyText).toContain("press 0");
   });
 
   it("brain exposes decideIvr delegating directly to ivrDecisionEngine", () => {
