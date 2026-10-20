@@ -28,8 +28,6 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
-      - key: UG_HCI_LAB_API_KEY
-        sync: false
       - key: ADMIN_TOKEN
         sync: false
       - key: SESSION_SECRET

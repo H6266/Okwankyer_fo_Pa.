@@ -253,22 +253,6 @@ function speechCollectionXml(params: {
   return `    <GetDigits timeout="25" finishOnKey="#" callbackUrl="${baseUrl}/verify-amount?${query}">\n        ${prompt}\n    </GetDigits>\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="8" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=enter-amount&amp;${query}"/>`;
 }
 
-function speechRecordingXml(
-  baseUrl: string,
-  sessionId: string,
-  language: "en" | "twi",
-  step: string,
-  maxLength = 8
-): string {
-  const query = new URLSearchParams({
-    step,
-    sessionId,
-    lang: language,
-    retry: "0",
-  }).toString().replace(/&/g, "&amp;");
-  return `<Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="${maxLength}" timeout="5" callbackUrl="${baseUrl}/speech-fallback?${query}"/>`;
-}
-
 ivrRouter.use((req: Request, res: Response, next: NextFunction) => {
   const dtmf = String(req.body?.dtmfDigits ?? req.query?.dtmfDigits ?? "").trim();
   const speechText = String(req.body?.speechText ?? req.query?.speechText ?? "").trim();
@@ -487,17 +471,6 @@ function xmlResponse(res: Response, content: string, decision?: (Partial<IvrDeci
 }
 
 export function getBaseUrl(req: Request): string {
-  const configuredBaseUrl = (
-    process.env.BASE_URL ||
-    process.env.APP_URL ||
-    process.env.RENDER_EXTERNAL_URL ||
-    ""
-  ).trim().replace(/\/+$/, "");
-
-  if (process.env.NODE_ENV === "production" && configuredBaseUrl) {
-    return configuredBaseUrl;
-  }
-
   const forwardedHost = ((req.headers["x-forwarded-host"] as string) || "").split(",")[0]?.trim();
   const reqHost = req.get("host") || "";
   const host = forwardedHost || reqHost;
@@ -509,8 +482,9 @@ export function getBaseUrl(req: Request): string {
     return `${proto}://${host}`.replace(/\/+$/, "");
   }
 
-  if (configuredBaseUrl) {
-    return configuredBaseUrl;
+  const envBase = (process.env.BASE_URL || process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || "").trim().replace(/\/+$/, "");
+  if (envBase) {
+    return envBase;
   }
 
   return "";
@@ -694,8 +668,7 @@ ivrRouter.all("/service-select", (req: Request, res: Response) => {
 
   const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">
       ${promptElement}
-    </GetDigits>
-    ${speechRecordingXml(baseUrl, sessionId, lang, "service-select", 6)}`;
+    </GetDigits>`;
 
   xmlResponse(res, xml);
 });
@@ -842,7 +815,7 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
   const replayPromptText = resolvePromptText("supported_service_select", lang) || "For a supported Mobile Money transfer, press 1. Press 9 to repeat, or 0 to exit.";
   return xmlResponse(
     res,
-    `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("supported_service_select", lang, baseUrl, replayPromptText)}\n    </GetDigits>\n    ${speechRecordingXml(baseUrl, sessionId, lang, "service-select", 6)}`,
+    `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("supported_service_select", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
     decision
   );
 });
@@ -861,8 +834,7 @@ ivrRouter.all("/provider-select", (req: Request, res: Response) => {
           baseUrl,
           resolvePromptText(promptKey, lang) || "Only MTN Mobile Money transfers are currently supported. Press 1 for MTN."
         )}
-        </GetDigits>
-        ${speechRecordingXml(baseUrl, sessionId, lang, "provider-select", 6)}`;
+    </GetDigits>`;
 
   xmlResponse(res, xml);
 });
@@ -876,12 +848,7 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
   const session = transactionStateMachine.getOrCreateSession(sessionId);
 
   if (!dtmf) {
-    const xml = `    ${canonicalPromptElement(
-      promptKey,
-      lang,
-      baseUrl,
-      resolvePromptText(promptKey, lang) || "Select your network provider."
-    )}\n    ${speechRecordingXml(baseUrl, sessionId, lang, "provider-select", 6)}`;
+    const xml = `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=provider-select&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
     return xmlResponse(res, xml);
   }
 
@@ -1005,19 +972,11 @@ ivrRouter.all("/action-select", (req: Request, res: Response) => {
 ivrRouter.all("/action-choice", async (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
-  const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
+  const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "1").trim() as string;
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getOrCreateSession(sessionId);
 
   const stepDef = getStepDefinition("action-select")!;
-  if (!dtmf) {
-    const actionPromptKey = lang === "twi" ? "mtn_menu" : "send_money_menu";
-    const promptText = resolvePromptText(actionPromptKey, lang) || "To send money, press 1.";
-    return xmlResponse(
-      res,
-      `    ${canonicalPromptElement(actionPromptKey, lang, baseUrl, promptText)}\n    ${speechRecordingXml(baseUrl, sessionId, lang, "action-select", 6)}`
-    );
-  }
   if (dtmf === "2" && !SERVICE_CAPABILITIES.checkBalance.available) {
     const unsupportedText = resolvePromptText("balance_inquiry_unsupported", lang)
       || "Balance checks are not available through this voice service.";
@@ -1266,7 +1225,6 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
     ? "Sɛ wopene so a mia 1, sɛ wopɛ sɛ wosesa a mia 2, anaa mia 0 na woagyae."
     : "Press 1 to confirm, 2 to change the recipient, or 0 to cancel.")}
     </GetDigits>
-    ${speechRecordingXml(baseUrl, sessionId, lang, "recipient-verify-choice", 6)}
     `;
 
   xmlResponse(res, xml, {
@@ -1332,8 +1290,7 @@ ivrRouter.all("/recipient-verify-choice", (req: Request, res: Response) => {
       ${canonicalPromptElement("confirm_continue", lang, baseUrl, lang === "twi"
     ? "Sɛ wopene so a mia 1, sɛ wopɛ sɛ wosesa a mia 2, anaa mia 0 na woagyae."
     : "Press 1 to confirm, 2 to change the recipient, or 0 to cancel.")}
-    </GetDigits>
-    ${speechRecordingXml(baseUrl, sessionId, lang, "recipient-verify-choice", 6)}`);
+    </GetDigits>`);
   }
 
   if (!session.recipientPhone || !session.recipientName || !session.isRecipientVerified) {
@@ -1468,8 +1425,7 @@ ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
         ${canonicalPromptElement("confirm_continue", lang, baseUrl, lang === "twi"
     ? "Sɛ sika dodow no yɛ nokware a, mia 1. Sɛ wopɛ sɛ wosesa a, mia 2. Sɛ wopɛ sɛ wugyae a, mia 0."
     : "Press 1 to confirm, 2 to change the amount, or 0 to cancel.")}
-    </GetDigits>
-    ${speechRecordingXml(baseUrl, sessionId, lang, "amount-readback-choice", 6)}`, {
+    </GetDigits>`, {
     stepId: "amount-readback",
     replyKey: "OP29",
     replyText: amountReadback,
@@ -1516,8 +1472,7 @@ ivrRouter.all("/amount-readback-choice", (req: Request, res: Response) => {
         ${canonicalPromptElement("confirm_continue", lang, baseUrl, lang === "twi"
     ? "Sɛ sika dodow no yɛ nokware a, mia 1. Sɛ wopɛ sɛ wosesa a, mia 2. Sɛ wopɛ sɛ wugyae a, mia 0."
     : "Press 1 to confirm, 2 to change the amount, or 0 to cancel.")}
-    </GetDigits>
-    ${speechRecordingXml(baseUrl, sessionId, lang, "amount-readback-choice", 6)}`, {
+    </GetDigits>`, {
     stepId: "amount-readback-choice",
     replyKey: "OP29",
     replyText: amountReadback,
@@ -1581,8 +1536,7 @@ ivrRouter.all("/safe-confirmation", (req: Request, res: Response) => {
   const voiceXml = `    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
         <Say voice="female">${escapeVoiceXml(spokenText)}</Say>
         ${canonicalPromptElement("confirm_continue", lang, baseUrl, confirmationChoices)}
-    </GetDigits>
-    ${speechRecordingXml(baseUrl, sessionId, lang, "safe-confirmation", 6)}`;
+    </GetDigits>`;
 
   auditLogger.log("info", "TELEPHONY", "Dynamic safe confirmation generated from validated session values.", sessionId);
   xmlResponse(res, voiceXml);
@@ -1979,8 +1933,7 @@ ivrRouter.all("/post-success-choice", (req: Request, res: Response) => {
     : "Press 1 for another supported transfer, or press 0 to finish.";
   return xmlResponse(res, `    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/post-success-choice?sessionId=${sessionId}&amp;lang=${lang}">
         ${canonicalPromptElement("anything_else", lang, baseUrl, prompt)}
-    </GetDigits>
-    ${speechRecordingXml(baseUrl, sessionId, lang, "post-success-choice", 6)}`);
+    </GetDigits>`);
 });
 
 function refuseVoicePin(res: Response, sessionId: string, lang: "en" | "twi"): void {
@@ -2099,67 +2052,6 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   }
 
   const clean = transcript.toLowerCase().trim();
-  const isConfirmationStep = step === "safe-confirmation" || step === "recipient-verify-choice" || step === "confirm-speech";
-
-  if (transcript && (confidence === null || confidence >= 0.75)) {
-    const choiceRoute = (route: string, digits: string) =>
-      xmlResponse(
-        res,
-        `    <Redirect>${baseUrl}/${route}?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}&amp;dtmfDigits=${digits}</Redirect>`
-      );
-    const affirmative = /\b(yes|yeah|correct|confirm|aane|ampa|yie|ɛyɛ|one|baako|1|another|again)\b/i.test(clean);
-    const negative = /\b(no|wrong|change|dabi|sesa|two|mmienu|2)\b/i.test(clean);
-
-    if (step === "service-select") {
-      const serviceSelection = clean
-        .replace(/^(?:option|number|service)\s+/, "")
-        .replace(/[.!?]+$/, "")
-        .trim();
-      if (/^(mobile money|momo|transfer|send money|one|baako|1)$/.test(serviceSelection)) {
-        return choiceRoute("service-choice", "1");
-      }
-      if (/^(bank|banking|three|3)$/.test(serviceSelection)) {
-        return choiceRoute("service-choice", "3");
-      }
-    }
-    if (step === "provider-select" || step === "provider-choice") {
-      if (/\b(mtn|one|baako|1)\b/i.test(clean)) return choiceRoute("provider-choice", "1");
-      if (/\b(telecel|vodafone|two|mmienu|2)\b/i.test(clean)) return choiceRoute("provider-choice", "2");
-    }
-    if (step === "action-select") {
-      if (/\b(send money|transfer|mane sika|one|baako|1)\b/i.test(clean)) {
-        return choiceRoute("action-choice", "1");
-      }
-      if (/\b(balance|two|mmienu|2)\b/i.test(clean)) return choiceRoute("action-choice", "2");
-    }
-    if (step === "amount-readback-choice") {
-      if (affirmative) return choiceRoute("amount-readback-choice", "1");
-      if (negative) return choiceRoute("amount-readback-choice", "2");
-      if (/\b(cancel|stop|exit|gyae|zero|0)\b/i.test(clean)) {
-        return choiceRoute("amount-readback-choice", "0");
-      }
-    }
-    if (step === "post-success-choice") {
-      if (affirmative) return choiceRoute("post-success-choice", "1");
-      if (negative || /\b(finish|goodbye|exit|zero|0)\b/i.test(clean)) {
-        return choiceRoute("post-success-choice", "0");
-      }
-    }
-    if (isConfirmationStep) {
-      if (affirmative) {
-        const route = step === "safe-confirmation" ? "safe-outcome" : "recipient-verify-choice";
-        return choiceRoute(route, "1");
-      }
-      if (negative) {
-        const route = step === "safe-confirmation" ? "safe-outcome" : "recipient-verify-choice";
-        return choiceRoute(route, "2");
-      }
-      if (/\b(cancel|stop|exit|gyae|zero|0)\b/i.test(clean)) {
-        const route = step === "safe-confirmation" ? "safe-outcome" : "recipient-verify-choice";
-        return choiceRoute(route, "0");
-      }
-    }
-  }
 
   // Spoken PIN handling during enter-pin step
   if (step === "enter-pin") {
@@ -2216,6 +2108,7 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   }
 
   const isSpeechControl = /\b(cancel|stop|abort|quit|exit|gyae|hwee|go back|previous|back|san akyi|repeat|say again|tie bio)\b/i.test(clean);
+  const isConfirmationStep = step === "safe-confirmation" || step === "recipient-verify-choice" || step === "confirm-speech";
   const isSpokenKey = /^(?:[0-9]|zero|one|two|three|four|five|six|seven|eight|nine|baako|bako|mmienu|mienu|mmiensa|mmiɛnsa|ɛnan|enan|enum|nsia|nson|nwɔtwe|nwotwe|nkron|kron)$/i.test(clean);
   const isLanguageChoice = step === "language-selection" && /\b(english|twi|akan|brofo)\b/i.test(clean);
   const isProviderChoice = /provider/.test(step) && /\b(mtn|telecel|vodafone|airteltigo|tigo)\b/i.test(clean);

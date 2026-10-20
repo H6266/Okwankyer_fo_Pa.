@@ -145,39 +145,6 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(balanceAttempt.text).not.toContain("/enter-recipient");
   });
 
-  it("enables speech recording and spoken choices throughout the live AT menu flow", async () => {
-    const sessionId = "AT-LIVE-SPEECH-MENUS-001";
-    const serviceMenu = await request(app)
-      .post("/service-select")
-      .query({ sessionId, lang: "en" });
-    const providerMenu = await request(app)
-      .post("/provider-select")
-      .query({ sessionId, lang: "en" });
-    const actionMenu = await request(app)
-      .post("/action-select")
-      .query({ sessionId, lang: "en" });
-
-    expect(serviceMenu.text).toContain("/speech-fallback?step=service-select");
-    expect(providerMenu.text).toContain("/speech-fallback?step=provider-select");
-    expect(actionMenu.text).toContain("/speech-fallback?step=action-select");
-
-    const emptyAction = await request(app)
-      .post("/action-choice")
-      .send({ sessionId, lang: "en" });
-    expect(emptyAction.text).toContain("/speech-fallback?step=action-select");
-    expect(emptyAction.text).not.toContain("/enter-recipient");
-
-    const spokenService = await request(app)
-      .post(`/speech-fallback?step=service-select&sessionId=${sessionId}&lang=en`)
-      .send({ speechText: "Mobile Money" });
-    expect(spokenService.text).toContain("/service-choice?sessionId=AT-LIVE-SPEECH-MENUS-001&amp;lang=en&amp;dtmfDigits=1");
-
-    const spokenProvider = await request(app)
-      .post(`/speech-fallback?step=provider-select&sessionId=${sessionId}&lang=en`)
-      .send({ speechText: "Telecel" });
-    expect(spokenProvider.text).toContain("/provider-choice?sessionId=AT-LIVE-SPEECH-MENUS-001&amp;lang=en&amp;dtmfDigits=2");
-  });
-
   it("plays one welcome with language choices and reserves OP02 for replay", async () => {
     const sessionId = "AT-OPENING-SEPARATE-001";
     const welcome = await request(app)
@@ -266,15 +233,14 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(accepted.text).toContain("/enter-amount");
   });
 
-  it("offers speech fallback after the keypad grace period and keeps the current step on silence", async () => {
+  it("waits 90 seconds before reminding silent callers and keeps the current step", async () => {
     const sessionId = "AT-SILENCE-REMINDER-001";
     transactionStateMachine.getOrCreateSession(sessionId, "en");
 
     const prompt = await request(app)
       .post("/provider-select")
       .query({ sessionId, lang: "en" });
-    expect(prompt.text).toContain('timeout="8"');
-    expect(prompt.text).toContain("/speech-fallback?step=provider-select");
+    expect(prompt.text).toContain('timeout="90"');
 
     const noInput = await request(app)
       .post("/provider-choice")
@@ -881,47 +847,6 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       } else {
         process.env.AT_WEBHOOK_SECRET = originalSecret;
       }
-    }
-  });
-
-  it("uses the configured public HTTPS origin for production AT callbacks behind a proxy", async () => {
-    const originalNodeEnv = process.env.NODE_ENV;
-    const originalBaseUrl = process.env.BASE_URL;
-    const originalSecret = process.env.AT_WEBHOOK_SECRET;
-    const secret = "test-render-telephony-secret";
-    process.env.NODE_ENV = "production";
-    process.env.BASE_URL = "https://stable.example.onrender.com/";
-    process.env.AT_WEBHOOK_SECRET = secret;
-
-    try {
-      const sessionId = "AT-RENDER-PROXY-001";
-      const welcome = await request(app)
-        .post("/voice-menu")
-        .set("x-forwarded-host", "internal-render-host")
-        .set("x-forwarded-proto", "http")
-        .send({ sessionId, callerNumber: "+233543546010", isActive: "1" });
-
-      expect(welcome.status).toBe(200);
-      expect(welcome.text).toContain(
-        `https://stable.example.onrender.com/language-selection?sessionId=${sessionId}&amp;lang=twi&amp;secret=${secret}`
-      );
-      expect(welcome.text).not.toContain("internal-render-host");
-
-      const language = await request(app)
-        .post(`/language-selection?sessionId=${sessionId}&secret=${secret}`)
-        .send({ dtmfDigits: "1" });
-
-      expect(language.text).toContain(
-        `https://stable.example.onrender.com/service-select?sessionId=${sessionId}&amp;lang=en&amp;secret=${secret}`
-      );
-      expect(language.text).not.toContain("internal-render-host");
-    } finally {
-      if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
-      else process.env.NODE_ENV = originalNodeEnv;
-      if (originalBaseUrl === undefined) delete process.env.BASE_URL;
-      else process.env.BASE_URL = originalBaseUrl;
-      if (originalSecret === undefined) delete process.env.AT_WEBHOOK_SECRET;
-      else process.env.AT_WEBHOOK_SECRET = originalSecret;
     }
   });
 

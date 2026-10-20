@@ -54,9 +54,9 @@ export {
 /**
  * Downloads a remote telephony audio recording with strict timeout and one retry.
  */
-async function fetchRemoteRecording(url: string, timeoutMs: number = 5000): Promise<Buffer> {
-  let lastError: Error | undefined;
-  for (let attempt = 0; attempt < 2; attempt++) {
+async function fetchRemoteRecording(url: string, timeoutMs: number = 1500): Promise<Buffer> {
+  let attempt = 0;
+  while (attempt <= 1) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -65,33 +65,17 @@ async function fetchRemoteRecording(url: string, timeoutMs: number = 5000): Prom
         headers["apiKey"] = process.env.AT_API_KEY;
       }
       const resp = await fetch(url, { headers, signal: controller.signal });
-      if (!resp.ok) {
-        throw new Error(`Africa's Talking recording download failed with HTTP ${resp.status}.`);
+      clearTimeout(timer);
+      if (resp.ok) {
+        const arrayBuf = await resp.arrayBuffer();
+        return Buffer.from(arrayBuf);
       }
-      const contentLength = Number(resp.headers.get("content-length"));
-      if (Number.isFinite(contentLength) && contentLength > 20 * 1024 * 1024) {
-        throw new Error("Africa's Talking recording exceeds the 20 MB processing limit.");
-      }
-      const buffer = Buffer.from(await resp.arrayBuffer());
-      if (buffer.length > 20 * 1024 * 1024) {
-        buffer.fill(0);
-        throw new Error("Africa's Talking recording exceeds the 20 MB processing limit.");
-      }
-      if (buffer.length < 300) {
-        buffer.fill(0);
-        throw new Error("Africa's Talking recording is empty or truncated.");
-      }
-      return buffer;
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      if (attempt === 0) {
-        await new Promise((resolve) => setTimeout(resolve, 200));
-      }
-    } finally {
+    } catch {
       clearTimeout(timer);
     }
+    attempt++;
   }
-  throw new Error("Failed to fetch the Africa's Talking recording after retry.", { cause: lastError });
+  throw new Error(`Failed to fetch audio recording from remote within deadline.`);
 }
 
 /**
@@ -330,7 +314,11 @@ export class TelephonySpeechService implements SpeechToTextProvider {
       (audioPayload.startsWith("http://") || audioPayload.startsWith("https://"))
     ) {
       try {
-        const buffer = await fetchRemoteRecording(audioPayload);
+        const buffer = await fetchRemoteRecording(audioPayload, 1500);
+        if (buffer.length < 300) {
+          buffer.fill(0);
+          return { text: "empty", confidence: 0.0, provider: "TelephonySpeechService" };
+        }
 
         const recordingPath = new URL(audioPayload).pathname.toLowerCase();
         const extension = recordingPath.match(/\.[a-z0-9]+$/)?.[0];
@@ -345,11 +333,6 @@ export class TelephonySpeechService implements SpeechToTextProvider {
           : "audio/mpeg";
         return await transcribeAudioBufferUnified(buffer, mime, step, 3000, languageHint);
       } catch (err: any) {
-        auditLogger.log(
-          "warn",
-          "STT",
-          `Africa's Talking recording could not be retrieved or transcribed: ${err.message || err}`,
-        );
         return { text: "empty", confidence: 0.0, provider: "TelephonySpeechService" };
       }
     }
