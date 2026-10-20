@@ -12,6 +12,7 @@
 
 import { spawn } from "child_process";
 import fs from "fs";
+import ffmpegStatic from "ffmpeg-static";
 
 export interface NormalizedAudio {
   wavBuffer: Buffer;        // 16 kHz mono 16-bit PCM WAV (with canonical 44-byte RIFF header)
@@ -81,9 +82,10 @@ export class AudioNormalizer {
     const format = this.detectFormat(rawBuffer, mimeHint);
 
     // If ffmpeg is available, use it for universal multi-codec conversion
-    if (this.hasFfmpeg()) {
+    const ffmpegPath = this.getFfmpegPath();
+    if (ffmpegPath) {
       try {
-        const convertedPcm = await this.transcodeWithFfmpeg(rawBuffer);
+        const convertedPcm = await this.transcodeWithFfmpeg(rawBuffer, ffmpegPath);
         return this.postProcessPcm(convertedPcm, format);
       } catch (err: any) {
         console.warn(`[AudioNormalizer] ffmpeg transcoding notice (${err.message}), attempting native fallback...`);
@@ -120,16 +122,19 @@ export class AudioNormalizer {
     return "wav";
   }
 
-  private hasFfmpeg(): boolean {
-    return fs.existsSync("/usr/bin/ffmpeg") || fs.existsSync("/usr/local/bin/ffmpeg");
+  private getFfmpegPath(): string | null {
+    if (ffmpegStatic && fs.existsSync(ffmpegStatic)) return ffmpegStatic;
+    if (fs.existsSync("/usr/bin/ffmpeg")) return "/usr/bin/ffmpeg";
+    if (fs.existsSync("/usr/local/bin/ffmpeg")) return "/usr/local/bin/ffmpeg";
+    return null;
   }
 
   /**
    * Transcodes any audio format to 16 kHz mono s16le PCM using ffmpeg.
    */
-  private transcodeWithFfmpeg(inputBuffer: Buffer): Promise<Buffer> {
+  private transcodeWithFfmpeg(inputBuffer: Buffer, ffmpegPath: string): Promise<Buffer> {
     return new Promise((resolve, reject) => {
-      const ffmpeg = spawn("ffmpeg", [
+      const ffmpeg = spawn(ffmpegPath, [
         "-i", "pipe:0",               // Read from stdin
         "-vn",                        // Disable video
         "-ac", "1",                   // Mono

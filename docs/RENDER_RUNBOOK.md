@@ -26,8 +26,9 @@ Configure the following variables in the Render Dashboard under **Service ➔ En
 | `AT_USERNAME` | Yes | `sandbox` (or live username) | Africa's Talking API account username. |
 | `AT_API_KEY` | Yes | `atsk_...` | Africa's Talking API key for voice gateway connectivity. |
 | `AT_VOICE_NUMBER` | Yes | `+233308048097` | Virtual telephony voice trunk number. |
-| `AT_WEBHOOK_SECRET` | Yes | Random URL-safe value (at least 16 characters) | Authenticity token for telephony webhooks; the initial phone-number callback URL must include the exact same value. |
+| `AT_WEBHOOK_SECRET` | Yes | Random URL-safe value (at least 16 characters) | Authenticity token added to callbacks and redirects generated during a call. |
 | `GEMINI_API_KEY` | Yes | `AIzaSy...` | Google Gemini API key for spoken ASR & intent parsing. |
+| `UG_HCI_LAB_API_KEY` | Optional | Secret from the University of Ghana HCI Lab | Primary native Ghanaian-language ASR provider for Twi calls; Gemini remains the fallback. |
 | `ADMIN_TOKEN` | Yes | `sec_admin_...` | Secret Bearer token protecting administrative endpoints (`/api/upload-audio`). |
 | `MOMO_SUBSCRIPTION_KEY` | Optional | `32-char hex string` | MTN MoMo API subscription key. |
 | `MOMO_API_USER_ID` | Optional | `uuid` | MTN MoMo API User UUID. |
@@ -64,7 +65,7 @@ Configure the following variables in the Render Dashboard under **Service ➔ En
    ```
    https://okwankyer-fo-pa.onrender.com/voice-menu
    ```
-   Do not put the webhook secret in the Africa's Talking dashboard URL. The initial inbound Africa's Talking payload is validated as a telephony request, and the app appends the configured `AT_WEBHOOK_SECRET` to subsequent callback and redirect URLs.
+   Do not put the webhook secret in the Africa's Talking dashboard URL. The initial inbound request is recognized by its Africa's Talking call fields; the app appends the configured `AT_WEBHOOK_SECRET` to callback and redirect URLs it generates for later call steps.
 6. Click **Save**, then redeploy the Render service after changing its environment variables.
 
 **Secret rotation:** If the repository's example/default webhook secret has ever been used in a deployed callback or shared in a call log, replace `AT_WEBHOOK_SECRET` in Render with a new random value of at least 32 characters and redeploy. Never paste that secret into source control, the Africa's Talking URL field, or chat logs.
@@ -75,7 +76,7 @@ forwarded URL for development, but that URL can change and the development
 server is not a production endpoint. Do not configure a production phone
 number to use the Codespaces URL.
 
-An AT session marked **Aborted** can occur when the webhook is rejected. The production app returns HTTP 401 and `<Reject/>` if the URL's `secret` is missing or does not exactly match Render's `AT_WEBHOOK_SECRET`. If calls still fail after correcting this, inspect the AT session's request/response details and Render logs for the webhook status.
+An AT session marked **Aborted** can occur when the webhook is rejected. Generated callback and redirect URLs must carry the exact `secret` value configured as `AT_WEBHOOK_SECRET`; a missing or incorrect secret on those later requests returns HTTP 401 and `<Reject/>`. The initial inbound request from Africa's Talking is accepted based on its telephony payload fields and does not need the secret in the dashboard URL. If calls still fail, inspect the AT session's request/response details and Render logs for the webhook status.
 
 ---
 
@@ -107,7 +108,7 @@ A healthy deployment returns:
   "warnCount": 0
 }
 ```
-If any check fails, inspect application logs in Render Dashboard to view correlation IDs and detailed probe diagnostics. An unsigned request to `/voice-menu` should return HTTP 401 in production; configure the callback URL in Africa's Talking with the URL-encoded `AT_WEBHOOK_SECRET` as shown above.
+If any check fails, inspect application logs in Render Dashboard to view correlation IDs and detailed probe diagnostics. Test the configured callback from Africa's Talking itself: a plain request without a session ID or AT call fields is not a valid inbound-call test and may be rejected.
 
 The Blueprint currently uses Render's free plan. Free web services can spin
 down when idle and take time to start again, which can delay an inbound
