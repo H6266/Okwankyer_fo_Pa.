@@ -5,6 +5,7 @@
 
 import express, { Request, Response } from "express";
 import http from "http";
+import net from "node:net";
 import path from "path";
 import fs from "fs";
 import helmet from "helmet";
@@ -33,6 +34,30 @@ import { startPiperWorker } from "./ai_system/speech/tts/piperWorker";
 import { validateWebhookSecurityConfig } from "./providers/telephony/webhookGuard";
 
 export const app = express();
+
+export function findAvailablePort(startPort: number, host = "0.0.0.0", maxAttempts = 25): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const tryPort = (candidate: number, attemptsLeft: number) => {
+      const tester = net.createServer();
+
+      tester.once("error", (err: NodeJS.ErrnoException) => {
+        if (err.code === "EADDRINUSE" && attemptsLeft > 0) {
+          return tryPort(candidate + 1, attemptsLeft - 1);
+        }
+
+        reject(err);
+      });
+
+      tester.once("listening", () => {
+        tester.close(() => resolve(candidate));
+      });
+
+      tester.listen(candidate, host);
+    };
+
+    tryPort(startPort, maxAttempts);
+  });
+}
 
 // Trust reverse proxy (Google Cloud Run / Load Balancers) to read X-Forwarded-For correctly
 app.set("trust proxy", 1);
@@ -236,14 +261,13 @@ export async function startServer() {
     const parsed = parseInt(process.argv[portIdx + 1], 10);
     if (!isNaN(parsed)) portArg = parsed;
   }
-  const activePort = Number(portArg || process.env.PORT || 4174);
-
   let hostArg = "0.0.0.0";
   const hostIdx = process.argv.indexOf("--host");
   if (hostIdx !== -1 && process.argv[hostIdx + 1]) {
     hostArg = process.argv[hostIdx + 1];
   }
   const activeHost = hostArg || process.env.HOST || "0.0.0.0";
+  let activePort = Number(portArg ?? process.env.PORT ?? 4174);
 
   const shutdown = () => {
     try {
@@ -258,19 +282,27 @@ export async function startServer() {
 
   const listenWithRetry = (retriesLeft = 10): Promise<void> => {
     return new Promise((resolve, reject) => {
-      const onError = async (err: any) => {
+      const onError = async (err: NodeJS.ErrnoException) => {
         server.removeListener("listening", onListening);
+        if (err.code === "EADDRINUSE" && isDev && retriesLeft > 0) {
+          try {
+            activePort = await findAvailablePort(activePort + 1, activeHost);
+            config.port = activePort;
+            if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(config.baseUrl)) {
+              config.baseUrl = config.baseUrl.replace(/:\d+$/, "") + `:${activePort}`;
+            }
+            console.warn(`⚠️ Port ${activePort - 1} is in use; trying ${activePort}...`);
+            await listenWithRetry(retriesLeft - 1);
+            resolve();
+          } catch (retryErr) {
+            reject(retryErr);
+          }
+          return;
+        }
         if (err.code === "EADDRINUSE") {
           if (retriesLeft > 0) {
             console.warn(`⚠️ Port ${activePort} is in use; waiting for port release (${retriesLeft} retries left)...`);
-            setTimeout(async () => {
-              try {
-                await listenWithRetry(retriesLeft - 1);
-                resolve();
-              } catch (retryErr) {
-                reject(retryErr);
-              }
-            }, 600);
+            setTimeout(() => listenWithRetry(retriesLeft - 1).then(resolve, reject), 600);
             return;
           }
           console.error(`FATAL: Port ${activePort} is occupied after multiple retries.`);

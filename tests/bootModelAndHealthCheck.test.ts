@@ -26,6 +26,7 @@ import {
 } from "../src/services/healthService";
 import { aiRouter } from "../src/routes/aiRoutes";
 import { loadConfig } from "../src/config/env";
+import { findAvailablePort } from "../src/serverApp";
 
 describe("0. Local dev port defaults", () => {
   it("uses the non-conflicting default local port in development", () => {
@@ -45,6 +46,25 @@ describe("0. Local dev port defaults", () => {
 
       if (origPort === undefined) delete process.env.PORT;
       else process.env.PORT = origPort;
+    }
+  });
+
+  it("selects the next free port when the default dev port is occupied", async () => {
+    const { createServer } = await import("node:net");
+    const server = createServer();
+    const port = await new Promise<number>((resolve) => {
+      server.listen(0, "0.0.0.0", () => {
+        resolve((server.address() as import("node:net").AddressInfo).port);
+      });
+    });
+
+    try {
+      const nextPort = await findAvailablePort(port, "0.0.0.0");
+      expect(nextPort).toBeGreaterThan(port);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve());
+      });
     }
   });
 });
