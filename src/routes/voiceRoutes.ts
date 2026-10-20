@@ -20,6 +20,7 @@ import { buildSafeConfirmationPrompt, buildReceiptPrompt, formatFullPhoneNumberF
 import { isSpokenPinPattern, speechToText } from "../modules/sttService";
 import { mtnMomoService } from "../modules/mtnMomoService";
 import { auditLogger } from "../services/auditLogger";
+import { callSessionRepository } from "../services/callSessionRepository";
 import { verifyAtWebhook } from "../providers/telephony/webhookGuard";
 import { paymentSaga } from "../integrations/momo/paymentSaga";
 import { FINANCIAL_LIMITS, financialPolicy } from "../ai_system/core/financialPolicy";
@@ -114,6 +115,7 @@ const TELEPHONY_ROUTES = new Set([
   "/voice-menu",
   "/voice",
   "/voice/callback",
+  "/voice/events",
   "/voice/webhook",
   "/voice-callback",
   "/callback",
@@ -544,8 +546,46 @@ export const handleInboundCall = (req: Request, res: Response) => {
   const baseUrl = getBaseUrl(req);
 
   if (isActive === "0") {
-    auditLogger.log("info", "TELEPHONY", `Call ended remotely`, sessionId);
-    return xmlResponse(res, "    <Reject/>");
+    const liveSession = transactionStateMachine.getSession(sessionId);
+    const savedSession = callSessionRepository.getSession(sessionId);
+    const savedCallDetails = savedSession?.voiceCallDetails;
+    const rawDuration = Number(req.body?.durationInSeconds ?? req.query?.durationInSeconds);
+    const durationInSeconds = Number.isFinite(rawDuration) && rawDuration >= 0 ? rawDuration : undefined;
+    const recordingUrl = String(req.body?.recordingUrl ?? req.query?.recordingUrl ?? "").trim();
+    const currencyCode = String(req.body?.currencyCode ?? req.query?.currencyCode ?? "").trim();
+    const amountValue = req.body?.amount ?? req.query?.amount;
+    const amount = amountValue === undefined || amountValue === null ? "" : String(amountValue).trim();
+    const outcome = liveSession?.state === "COMPLETED"
+      ? "COMPLETED"
+      : liveSession?.state === "FAILED"
+      ? "FAILED"
+      : liveSession?.state === "TIMEOUT"
+      ? "TIMEOUT"
+      : savedSession?.outcome && savedSession.outcome !== "IN_PROGRESS"
+      ? savedSession.outcome
+      : "CANCELLED";
+
+    callSessionRepository.upsertSession({
+      sessionId,
+      callerNumber: callerNumber !== "caller" ? redactPii(callerNumber) : savedSession?.callerNumber || "Unknown",
+      durationSeconds: durationInSeconds ?? savedSession?.durationSeconds ?? (liveSession ? Math.floor((Date.now() - liveSession.createdAt) / 1000) : 0),
+      language: liveSession?.language === "twi" || savedSession?.language === "twi" ? "twi" : "en",
+      finalStep: liveSession?.state.toLowerCase() || savedSession?.finalStep || "call-ended",
+      outcome,
+      amountGHS: liveSession?.amount ?? savedSession?.amountGHS,
+      recipientName: liveSession?.recipientName || savedSession?.recipientName || "",
+      recipientPhone: liveSession?.recipientPhone ? redactPii(liveSession.recipientPhone) : savedSession?.recipientPhone || "",
+      referenceId: liveSession?.referenceId || savedSession?.referenceId || "",
+      voiceCallDetails: {
+        recordingUrl: recordingUrl || savedCallDetails?.recordingUrl,
+        durationInSeconds: durationInSeconds ?? savedCallDetails?.durationInSeconds,
+        currencyCode: currencyCode || savedCallDetails?.currencyCode,
+        amount: amount || savedCallDetails?.amount,
+      },
+    });
+    transactionStateMachine.deleteSession(sessionId);
+    auditLogger.log("info", "TELEPHONY", "Call ended; final call details stored and session closed.", sessionId);
+    return res.status(200).type("text/plain").send("OK");
   }
 
   auditLogger.log("info", "TELEPHONY", `Inbound call connected from ${redactPii(callerNumber)}`, sessionId);
@@ -587,6 +627,31 @@ export const handleInboundCall = (req: Request, res: Response) => {
     nextStep: "language-selection",
   });
 };
+
+ivrRouter.all("/voice/events", (req: Request, res: Response) => {
+  const sessionId = String(req.body?.sessionId || req.query?.sessionId || "");
+  const callSessionState = String(req.body?.callSessionState || req.query?.callSessionState || "");
+  const callTransferState = String(req.body?.callTransferState || req.query?.callTransferState || "");
+  const details = {
+    callSessionState: callSessionState || undefined,
+    callTransferState: callTransferState || undefined,
+  };
+
+  callSessionRepository.addDiagnostic(sessionId, {
+    id: `at-event-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    timestamp: new Date().toISOString(),
+    type: "INFO",
+    message: "Africa's Talking voice event received.",
+    details,
+  });
+  auditLogger.log(
+    "info",
+    "TELEPHONY",
+    `Africa's Talking event: session=${callSessionState || "unknown"}, transfer=${callTransferState || "none"}.`,
+    sessionId
+  );
+  return res.status(200).type("text/plain").send("OK");
+});
 
 // Mount across canonical and all common Africa's Talking webhook callback aliases
 const INBOUND_ENTRY_ROUTES = [
@@ -1802,10 +1867,7 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
 
     transactionStateMachine.transition(sessionId, "CONFIRMED");
 
-    const isAccessiblePin =
-      req.query?.accessiblePin === "1" ||
-      req.body?.accessiblePin === "1" ||
-      getAccessiblePinMode();
+    const isAccessiblePin = isAccessiblePinSimulatorRequest(req, res);
 
     if (isAccessiblePin) {
       paymentInitiations.delete(session);
@@ -2063,6 +2125,14 @@ function refuseVoicePin(res: Response, sessionId: string, lang: "en" | "twi"): v
   return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(message)}</Say>\n    <Reject/>`);
 }
 
+function isAccessiblePinSimulatorRequest(req: Request, res: Response): boolean {
+  return Boolean(res.locals.isSimulator) && (
+    req.query?.accessiblePin === "1" ||
+    req.body?.accessiblePin === "1" ||
+    getAccessiblePinMode()
+  );
+}
+
 // Accessible In-Call PIN Authentication Entry Point
 ivrRouter.all("/enter-pin", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
@@ -2070,10 +2140,7 @@ ivrRouter.all("/enter-pin", (req: Request, res: Response) => {
   const lang = (req.query?.lang || req.body?.lang || session?.language || "en") as "en" | "twi";
   const baseUrl = getBaseUrl(req);
 
-  const isAccessiblePin =
-    req.query?.accessiblePin === "1" ||
-    req.body?.accessiblePin === "1" ||
-    getAccessiblePinMode();
+  const isAccessiblePin = isAccessiblePinSimulatorRequest(req, res);
 
   if (!isAccessiblePin) {
     return refuseVoicePin(res, sessionId, lang);
@@ -2108,10 +2175,7 @@ ivrRouter.all("/verify-pin", async (req: Request, res: Response) => {
   const rawSpeech = String(req.body?.speechText || req.query?.speechText || "").trim();
   const baseUrl = getBaseUrl(req);
 
-  const isAccessiblePin =
-    req.query?.accessiblePin === "1" ||
-    req.body?.accessiblePin === "1" ||
-    getAccessiblePinMode();
+  const isAccessiblePin = isAccessiblePinSimulatorRequest(req, res);
 
   if (!isAccessiblePin) {
     return refuseVoicePin(res, sessionId, lang);
@@ -2230,10 +2294,7 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   const baseUrl = getBaseUrl(req);
 
   if (["enter-pin", "verify-pin", "pin-handoff"].includes(step)) {
-    const isAccessiblePin =
-      req.query?.accessiblePin === "1" ||
-      req.body?.accessiblePin === "1" ||
-      getAccessiblePinMode();
+    const isAccessiblePin = isAccessiblePinSimulatorRequest(req, res);
 
     if (isAccessiblePin) {
       return xmlResponse(res, `    <Redirect>${baseUrl}/verify-pin?sessionId=${sessionId}&amp;lang=${lang}&amp;accessiblePin=1&amp;speechText=${encodeURIComponent(speechText || directDtmf)}</Redirect>`);

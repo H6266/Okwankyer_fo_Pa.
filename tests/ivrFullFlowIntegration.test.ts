@@ -15,6 +15,7 @@ import express from "express";
 import request from "supertest";
 import { getCollectionStagePromptId, simulatorRouter, voiceRouter } from "../src/routes/voiceRoutes";
 import { transactionStateMachine } from "../src/domain/stateMachine";
+import { callSessionRepository } from "../src/services/callSessionRepository";
 import { paymentSaga } from "../src/integrations/momo/paymentSaga";
 import { brain } from "../src/ai_system/brain/brain";
 import { auditLogger } from "../src/services/auditLogger";
@@ -304,7 +305,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
 
     try {
       const response = await request(app)
-        .post("/voice-menu")
+        .post("/voice/callback")
         .send({
           sessionId: "AT-RINGING-ENABLED-001",
           callerNumber: "+233543546010",
@@ -338,25 +339,76 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     })).toBe(false);
   });
 
-  it("returns a valid silent action for completed AT callbacks", async () => {
+  it("stores final AT call details and closes completed callbacks", async () => {
     const previousSetting = process.env.AT_INBOUND_VOICE_ENABLED;
     process.env.AT_INBOUND_VOICE_ENABLED = "true";
+    const sessionId = `AT-COMPLETED-${Date.now()}`;
 
     try {
       const response = await request(app)
-        .post("/voice-menu")
+        .post("/voice/callback")
         .send({
-          sessionId: "AT-COMPLETED-001",
+          sessionId,
           callerNumber: "+233543546010",
           callSessionState: "Completed",
           isActive: "0",
+          recordingUrl: "https://recordings.example/call.mp3",
+          durationInSeconds: "42",
+          currencyCode: "GHS",
+          amount: "0.35",
           errorMessage: "No actions were found in the input",
         });
 
       expect(response.status).toBe(200);
-      expect(response.text).toContain("<Response>");
-      expect(response.text).toContain("<Reject/>");
-      expect(response.text).not.toMatch(/<Say\b|<Play\b|<GetDigits\b|<Record\b/i);
+      expect(response.text).toBe("OK");
+      expect(response.headers["content-type"]).toContain("text/plain");
+      expect(callSessionRepository.getSession(sessionId)?.voiceCallDetails).toEqual({
+        recordingUrl: "https://recordings.example/call.mp3",
+        durationInSeconds: 42,
+        currencyCode: "GHS",
+        amount: "0.35",
+      });
+      expect(callSessionRepository.getSession(sessionId)?.durationSeconds).toBe(42);
+      expect(transactionStateMachine.getSession(sessionId)).toBeUndefined();
+
+      const duplicate = await request(app)
+        .post("/voice/callback")
+        .send({ sessionId, callSessionState: "Completed", isActive: "0" });
+      expect(duplicate.status).toBe(200);
+      expect(duplicate.text).toBe("OK");
+      expect(callSessionRepository.getSession(sessionId)?.voiceCallDetails).toEqual({
+        recordingUrl: "https://recordings.example/call.mp3",
+        durationInSeconds: 42,
+        currencyCode: "GHS",
+        amount: "0.35",
+      });
+    } finally {
+      if (previousSetting === undefined) delete process.env.AT_INBOUND_VOICE_ENABLED;
+      else process.env.AT_INBOUND_VOICE_ENABLED = previousSetting;
+    }
+  });
+
+  it("records Africa's Talking call and transfer events", async () => {
+    const previousSetting = process.env.AT_INBOUND_VOICE_ENABLED;
+    process.env.AT_INBOUND_VOICE_ENABLED = "true";
+    const sessionId = `AT-EVENT-${Date.now()}`;
+
+    try {
+      const response = await request(app)
+        .post("/voice/events")
+        .send({
+          sessionId,
+          direction: "Inbound",
+          callSessionState: "Transferred",
+          callTransferState: "TransferCompleted",
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.text).toBe("OK");
+      expect(callSessionRepository.getSession(sessionId)?.diagnostics.at(-1)?.details).toEqual({
+        callSessionState: "Transferred",
+        callTransferState: "TransferCompleted",
+      });
     } finally {
       if (previousSetting === undefined) delete process.env.AT_INBOUND_VOICE_ENABLED;
       else process.env.AT_INBOUND_VOICE_ENABLED = previousSetting;
@@ -928,6 +980,22 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .get(`/api/simulator/transaction-status?sessionId=${sessionId}`);
     expect(status.body.status).toBe("PIN_PENDING");
     expect(status.body.paymentStatus).toBe("PIN_PENDING");
+  });
+
+  it("keeps accessible PIN collection inside the simulator namespace", async () => {
+    const sessionId = `AT-PIN-ISOLATION-${Date.now()}`;
+    const liveResponse = await request(app)
+      .post(`/enter-pin?sessionId=${sessionId}&accessiblePin=1`)
+      .send({ sessionId });
+
+    expect(liveResponse.text).toContain("Do not enter or say your Mobile Money PIN here");
+    expect(liveResponse.text).not.toContain("<GetDigits");
+
+    const simulatorResponse = await request(app)
+      .post(`/api/simulator/enter-pin?sessionId=${sessionId}&accessiblePin=1`)
+      .send({ sessionId });
+
+    expect(simulatorResponse.text).toMatch(/<GetDigits\b[^>]*numDigits="4"/);
   });
 
   it("preserves a Brain-provided amount through recipient lookup and approval", async () => {

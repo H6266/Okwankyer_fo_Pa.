@@ -141,7 +141,9 @@ export function verifyAtWebhook(req: Request, res: Response, next: NextFunction)
       req.query?.callerNumber ||
       req.body?.phoneNumber ||
       req.body?.isActive !== undefined ||
-      req.body?.direction === "Inbound"
+      req.body?.direction === "Inbound" ||
+      req.body?.callSessionState ||
+      req.body?.callTransferState
     );
     if (!isLegitAtPayload) {
       auditLogger.log("warn", "SECURITY", `Telephony callback missing signature for session ${sessionId}`, req.ip);

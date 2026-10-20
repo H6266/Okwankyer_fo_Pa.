@@ -9,7 +9,7 @@
 
 import { formatSpokenNumbersAsDigits } from "./numberFormatter";
 
-let _accessiblePinModeEnabled = true; // Enabled by default for Accessibility & Live Judge Demonstrations
+let _accessiblePinModeEnabled = false;
 
 export function setAccessiblePinMode(enabled: boolean): void {
   _accessiblePinModeEnabled = enabled;

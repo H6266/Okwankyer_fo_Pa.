@@ -68,6 +68,12 @@ export interface StoredCallSession {
   conversationTurns: CallConversationTurn[];
   apiRequests: CallApiTrace[];
   diagnostics: CallDiagnosticEvent[];
+  voiceCallDetails?: {
+    recordingUrl?: string;
+    durationInSeconds?: number;
+    currencyCode?: string;
+    amount?: string;
+  };
   voiceXmlTrace: Array<{
     step: string;
     voiceXml: string;
@@ -307,6 +313,7 @@ export class CallSessionRepository {
       conversationTurns: partial.conversationTurns || existing?.conversationTurns || [],
       apiRequests: partial.apiRequests || existing?.apiRequests || [],
       diagnostics: partial.diagnostics || existing?.diagnostics || [],
+      voiceCallDetails: partial.voiceCallDetails || existing?.voiceCallDetails,
       voiceXmlTrace: partial.voiceXmlTrace
         ? (existing?.voiceXmlTrace ? [...existing.voiceXmlTrace, ...partial.voiceXmlTrace] : partial.voiceXmlTrace)
         : (existing?.voiceXmlTrace || []),
