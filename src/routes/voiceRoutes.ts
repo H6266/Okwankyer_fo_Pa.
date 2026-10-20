@@ -160,7 +160,8 @@ voiceRouter.use((req: Request, res: Response, next) => {
       req.originalUrl.includes("/api/simulator")
     );
     const atInboundVoiceSetting = process.env.AT_INBOUND_VOICE_ENABLED?.toLowerCase();
-    const atInboundVoiceEnabled = atInboundVoiceSetting === "true" || (
+    const atInboundVoiceEnabled = process.env.AT_CALL_PIPELINE?.toLowerCase() === "unified"
+      || atInboundVoiceSetting === "true" || (
       atInboundVoiceSetting !== "false" && process.env.NODE_ENV !== "production"
     );
 
@@ -168,7 +169,7 @@ voiceRouter.use((req: Request, res: Response, next) => {
       return res
         .status(200)
         .type("application/xml; charset=utf-8")
-        .send('<?xml version="1.0" encoding="UTF-8"?>\n<Response/>');
+        .send('<?xml version="1.0" encoding="UTF-8"?>\n<Response><Reject/></Response>');
     }
 
     return telephonyRateLimiter(req, res, () => verifyAtWebhook(req, res, () => {
@@ -526,7 +527,7 @@ export const handleInboundCall = (req: Request, res: Response) => {
 
   if (isActive === "0") {
     auditLogger.log("info", "TELEPHONY", `Call ended remotely`, sessionId);
-    return xmlResponse(res, "");
+    return xmlResponse(res, "    <Reject/>");
   }
 
   auditLogger.log("info", "TELEPHONY", `Inbound call connected from ${redactPii(callerNumber)}`, sessionId);

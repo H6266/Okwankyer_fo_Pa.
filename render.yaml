@@ -19,7 +19,7 @@ services:
       - key: AT_API_KEY
         sync: false
       - key: AT_INBOUND_VOICE_ENABLED
-        value: "false"
+        value: "true"
       - key: AT_VOICE_NUMBER
         value: "+233308048097"
       - key: AT_WEBHOOK_SECRET

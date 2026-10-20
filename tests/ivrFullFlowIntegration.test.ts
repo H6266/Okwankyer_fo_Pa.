@@ -167,7 +167,9 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
   });
 
   it("silently rejects live AT voice while leaving the phone simulator available", async () => {
+    const previousPipeline = process.env.AT_CALL_PIPELINE;
     const previousSetting = process.env.AT_INBOUND_VOICE_ENABLED;
+    delete process.env.AT_CALL_PIPELINE;
     process.env.AT_INBOUND_VOICE_ENABLED = "false";
 
     try {
@@ -176,15 +178,15 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
         .send({ sessionId: "AT-VOICE-DISABLED-001", callerNumber: "+233543546010", isActive: "1" });
 
       expect(liveResponse.status).toBe(200);
-      expect(liveResponse.text).toContain("<Response/>");
-      expect(liveResponse.text).not.toMatch(/<Say\b|<Play\b|<GetDigits\b|<Record\b|<Reject\b/i);
+      expect(liveResponse.text).toContain("<Reject/>");
+      expect(liveResponse.text).not.toMatch(/<Say\b|<Play\b|<GetDigits\b|<Record\b/i);
 
       const rootWebhookResponse = await request(app)
         .post("/")
         .send({ sessionId: "AT-VOICE-DISABLED-ROOT-001", callerNumber: "+233543546010", isActive: "1" });
 
       expect(rootWebhookResponse.status).toBe(200);
-      expect(rootWebhookResponse.text).toContain("<Response/>");
+      expect(rootWebhookResponse.text).toContain("<Reject/>");
       expect(rootWebhookResponse.text).not.toMatch(/<Say\b|<Play\b|<GetDigits\b|<Record\b/i);
 
       const simulatorResponse = await request(app)
@@ -194,11 +196,64 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       expect(simulatorResponse.status).toBe(200);
       expect(simulatorResponse.text).toContain("/audio/Twi/Opening_voice_welcome_to_okwankyerefopa.mp3");
     } finally {
+      if (previousPipeline === undefined) delete process.env.AT_CALL_PIPELINE;
+      else process.env.AT_CALL_PIPELINE = previousPipeline;
       if (previousSetting === undefined) delete process.env.AT_INBOUND_VOICE_ENABLED;
       else process.env.AT_INBOUND_VOICE_ENABLED = previousSetting;
     }
   });
 
+  it("returns a playable menu for an enabled Africa's Talking Ringing callback", async () => {
+    const previousSetting = process.env.AT_INBOUND_VOICE_ENABLED;
+    process.env.AT_INBOUND_VOICE_ENABLED = "true";
+
+    try {
+      const response = await request(app)
+        .post("/voice-menu")
+        .send({
+          sessionId: "AT-RINGING-ENABLED-001",
+          callerNumber: "+233543546010",
+          destinationNumber: "+233308048097",
+          direction: "Inbound",
+          callSessionState: "Ringing",
+          isActive: "1",
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.text).toContain("<GetDigits");
+      expect(response.text).toContain("/language-selection?");
+      expect(response.text).not.toContain("<Response/>");
+      expect(response.text).not.toContain("<Reject/>");
+    } finally {
+      if (previousSetting === undefined) delete process.env.AT_INBOUND_VOICE_ENABLED;
+      else process.env.AT_INBOUND_VOICE_ENABLED = previousSetting;
+    }
+  });
+
+  it("returns a valid silent action for completed AT callbacks", async () => {
+    const previousSetting = process.env.AT_INBOUND_VOICE_ENABLED;
+    process.env.AT_INBOUND_VOICE_ENABLED = "true";
+
+    try {
+      const response = await request(app)
+        .post("/voice-menu")
+        .send({
+          sessionId: "AT-COMPLETED-001",
+          callerNumber: "+233543546010",
+          callSessionState: "Completed",
+          isActive: "0",
+          errorMessage: "No actions were found in the input",
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.text).toContain("<Response>");
+      expect(response.text).toContain("<Reject/>");
+      expect(response.text).not.toMatch(/<Say\b|<Play\b|<GetDigits\b|<Record\b/i);
+    } finally {
+      if (previousSetting === undefined) delete process.env.AT_INBOUND_VOICE_ENABLED;
+      else process.env.AT_INBOUND_VOICE_ENABLED = previousSetting;
+    }
+  });
   it("waits for # in recipient and amount DTMF collection", async () => {
     const sessionId = "AT-DTMF-HASH-001";
     const recipientPrompt = await request(app)
