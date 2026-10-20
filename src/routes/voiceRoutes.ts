@@ -1949,13 +1949,15 @@ function refuseVoicePin(res: Response, sessionId: string, lang: "en" | "twi"): v
 // PIN entry is exclusively handled by the provider's secure handset prompt.
 ivrRouter.all("/enter-pin", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
-  const lang = (req.query?.lang || req.body?.lang || "twi") as "en" | "twi";
+  const session = transactionStateMachine.getSession(sessionId);
+  const lang = (req.query?.lang || req.body?.lang || session?.language || "en") as "en" | "twi";
   return refuseVoicePin(res, sessionId, lang);
 });
 
 ivrRouter.all("/verify-pin", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
-  const lang = (req.query?.lang || req.body?.lang || "twi") as "en" | "twi";
+  const session = transactionStateMachine.getSession(sessionId);
+  const lang = (req.query?.lang || req.body?.lang || session?.language || "en") as "en" | "twi";
   return refuseVoicePin(res, sessionId, lang);
 });
 
