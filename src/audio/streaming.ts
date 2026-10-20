@@ -105,35 +105,6 @@ export async function getOrTranscodeMp3(sourceFilePath: string): Promise<string>
   return transcodePromise;
 }
 
-export async function transcodeAudioBufferToMp3(audioBuffer: Buffer, mimeType: string): Promise<Buffer> {
-  if (isMp3Buffer(audioBuffer)) return audioBuffer;
-
-  const extensionByMimeType: Record<string, string> = {
-    "audio/aac": ".aac",
-    "audio/mp4": ".m4a",
-    "audio/m4a": ".m4a",
-    "audio/ogg": ".ogg",
-    "audio/wav": ".wav",
-    "audio/x-wav": ".wav",
-    "audio/mpeg": ".mp3",
-    "audio/mp3": ".mp3",
-  };
-  const sourcePath = path.join(MP3_CACHE_DIR, `tts_${crypto.randomUUID()}${extensionByMimeType[mimeType.toLowerCase()] || ".wav"}`);
-  let transcodedPath: string | undefined;
-
-  try {
-    fs.writeFileSync(sourcePath, audioBuffer);
-    transcodedPath = await getOrTranscodeMp3(sourcePath);
-    return fs.readFileSync(transcodedPath);
-  } finally {
-    for (const filePath of [sourcePath, transcodedPath]) {
-      if (filePath && fs.existsSync(filePath)) {
-        try { fs.unlinkSync(filePath); } catch {}
-      }
-    }
-  }
-}
-
 /**
  * Preheats the MP3 transcode cache in background so incoming telephony calls experience 0ms transcode latency.
  */

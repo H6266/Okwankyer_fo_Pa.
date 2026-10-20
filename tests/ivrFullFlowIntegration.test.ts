@@ -23,8 +23,6 @@ import { resolvePromptText } from "../src/modules/ttsService";
 import { durableTransactionStore } from "../src/services/durableTransactionStore";
 import { recipientResolver } from "../src/providers/recipient/RecipientResolver";
 import { config } from "../src/config/env";
-import { aiSystem } from "../src/ai_system";
-import { ttsRouter } from "../src/ai_system/speech/tts/ttsRouter";
 
 let nextTestClientIp = 1;
 
@@ -181,14 +179,6 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       expect(liveResponse.text).toContain("<Response/>");
       expect(liveResponse.text).not.toMatch(/<Say\b|<Play\b|<GetDigits\b|<Record\b|<Reject\b/i);
 
-      const liveTurnResponse = await request(app)
-        .post("/voice-turn?sessionId=AT-VOICE-DISABLED-TURN-001&screen=HOME&step=welcome&lang=en")
-        .send({ dtmfDigits: "1" });
-
-      expect(liveTurnResponse.status).toBe(200);
-      expect(liveTurnResponse.text).toContain("<Response/>");
-      expect(liveTurnResponse.text).not.toMatch(/<Say\b|<Play\b|<GetDigits\b|<Record\b/i);
-
       const rootWebhookResponse = await request(app)
         .post("/")
         .send({ sessionId: "AT-VOICE-DISABLED-ROOT-001", callerNumber: "+233543546010", isActive: "1" });
@@ -206,119 +196,6 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     } finally {
       if (previousSetting === undefined) delete process.env.AT_INBOUND_VOICE_ENABLED;
       else process.env.AT_INBOUND_VOICE_ENABLED = previousSetting;
-    }
-  });
-
-  it("routes unified AT welcome and keypad turns through the simulator AI engine", async () => {
-    const previousPipeline = process.env.AT_CALL_PIPELINE;
-    const previousVoiceSetting = process.env.AT_INBOUND_VOICE_ENABLED;
-    process.env.AT_CALL_PIPELINE = "unified";
-    process.env.AT_INBOUND_VOICE_ENABLED = "true";
-    const processTurn = vi.spyOn(aiSystem, "process").mockResolvedValueOnce({
-      sessionId: "AT-UNIFIED-TURN-001",
-      state: "COLLECTING",
-      language: "en",
-      intent: "SEND_MONEY",
-      navigation: { targetScreen: "SEND_MONEY_FLOW", targetStep: "recipient" },
-      dialogue: { response: "Engine fallback text should not be spoken.", promptLanguage: "en" },
-      safety: { pinDetectedInVoice: false },
-      entities: {},
-    } as any);
-    const processBrain = vi.spyOn(brain, "process").mockResolvedValueOnce({
-      reply: { text: "Who would you like to send money to?", language: "en" },
-      decision: { kind: "clarify_slot" },
-      updatedDraft: { slots: {} },
-    } as any);
-    const wavAudio = Buffer.alloc(44 + 3200);
-    wavAudio.write("RIFF", 0);
-    wavAudio.writeUInt32LE(wavAudio.length - 8, 4);
-    wavAudio.write("WAVEfmt ", 8);
-    wavAudio.writeUInt32LE(16, 16);
-    wavAudio.writeUInt16LE(1, 20);
-    wavAudio.writeUInt16LE(1, 22);
-    wavAudio.writeUInt32LE(16000, 24);
-    wavAudio.writeUInt32LE(32000, 28);
-    wavAudio.writeUInt16LE(2, 32);
-    wavAudio.writeUInt16LE(16, 34);
-    wavAudio.write("data", 36);
-    wavAudio.writeUInt32LE(wavAudio.length - 44, 40);
-    const synthesizeReply = vi.spyOn(ttsRouter, "synthesizeBrainReply").mockResolvedValue({
-      audioBuffer: wavAudio,
-      audioMimeType: "audio/wav",
-      providerUsed: "test",
-    });
-
-    try {
-      const sessionId = "AT-UNIFIED-TURN-001";
-      const welcome = await request(app)
-        .post("/voice-menu")
-        .send({ sessionId, callerNumber: "+233543546010", isActive: "1" });
-
-      expect(welcome.status).toBe(200);
-      expect(welcome.text).toContain("/audio/welcome_en.mp3");
-      expect(welcome.text).toContain("/voice-turn?sessionId=AT-UNIFIED-TURN-001");
-      expect(welcome.text).not.toContain("/language-selection");
-      expect(welcome.text).toContain("step=welcome");
-      expect(processTurn).not.toHaveBeenCalled();
-
-      const turn = await request(app)
-        .post(`/voice-turn?sessionId=${sessionId}&screen=HOME&step=welcome&lang=en`)
-        .send({ callerNumber: "+233543546010", isActive: "1", dtmfDigits: "1" });
-
-      expect(turn.status).toBe(200);
-      expect(processTurn).toHaveBeenNthCalledWith(1, expect.objectContaining({
-        sessionId,
-        channel: "DTMF",
-        input: "send money",
-        language: "en",
-        currentScreen: "HOME",
-        currentStep: "welcome",
-        executionMode: "SIMULATION",
-      }));
-      expect(synthesizeReply).toHaveBeenCalledWith(expect.objectContaining({
-        text: "Who would you like to send money to?",
-        language: "en",
-      }));
-      expect(turn.text).toContain("/voice-turn?sessionId=AT-UNIFIED-TURN-001");
-      expect(turn.text).toContain("step=recipient");
-      const audioUrl = turn.text.match(/<Play[^>]*url="([^"]+)"/i)?.[1];
-      expect(audioUrl).toMatch(/\/api\/telephony\/audio\/[0-9a-f-]{36}$/i);
-
-      const audioResponse = await request(app).get(new URL(audioUrl!, "http://call.test").pathname);
-      expect(audioResponse.status).toBe(200);
-      expect(audioResponse.headers["content-type"]).toContain("audio/mpeg");
-      expect(audioResponse.body.subarray(0, 3).toString("ascii")).toBe("ID3");
-
-      processTurn.mockResolvedValueOnce({
-        sessionId,
-        state: "RECOVERING",
-        language: "en",
-        intent: "UNKNOWN",
-        navigation: { targetScreen: "HOME", targetStep: "safe-confirmation" },
-        dialogue: { response: "Never say your PIN on a call.", promptLanguage: "en" },
-        safety: { pinDetectedInVoice: true },
-        entities: {},
-      } as any);
-
-      const pinTurn = await request(app)
-        .post(`/voice-turn?sessionId=${sessionId}&screen=HOME&step=safe-confirmation&lang=en`)
-        .send({ speechText: "[DISCARDED_PIN]" });
-
-      expect(pinTurn.status).toBe(200);
-      expect(pinTurn.text).toContain("<Play");
-      expect(synthesizeReply).toHaveBeenCalledWith(expect.objectContaining({
-        text: "Never say your PIN on a call.",
-        language: "en",
-      }));
-      expect(processBrain).toHaveBeenCalledTimes(1);
-    } finally {
-      processTurn.mockRestore();
-      processBrain.mockRestore();
-      synthesizeReply.mockRestore();
-      if (previousPipeline === undefined) delete process.env.AT_CALL_PIPELINE;
-      else process.env.AT_CALL_PIPELINE = previousPipeline;
-      if (previousVoiceSetting === undefined) delete process.env.AT_INBOUND_VOICE_ENABLED;
-      else process.env.AT_INBOUND_VOICE_ENABLED = previousVoiceSetting;
     }
   });
 

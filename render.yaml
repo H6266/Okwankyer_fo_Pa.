@@ -18,10 +18,8 @@ services:
         sync: false
       - key: AT_API_KEY
         sync: false
-      - key: AT_CALL_PIPELINE
-        value: unified
       - key: AT_INBOUND_VOICE_ENABLED
-        value: "true"
+        value: "false"
       - key: AT_VOICE_NUMBER
         value: "+233308048097"
       - key: AT_WEBHOOK_SECRET

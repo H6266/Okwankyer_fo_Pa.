@@ -21,6 +21,8 @@ export function useSpeechRecognition(options: {
   isMuted: boolean;
   activePrompt?: string;
   isSpeaking?: boolean;
+  currentStep?: string;
+  isAccessiblePinMode?: boolean;
   onMatch?: (result: SpeechMatchResult) => void;
 }) {
   const [isListening, setIsListening] = useState(false);
@@ -32,10 +34,48 @@ export function useSpeechRecognition(options: {
   const onMatchRef = useRef(options.onMatch);
   onMatchRef.current = options.onMatch;
 
+  const isSpeakingRef = useRef(options.isSpeaking);
+  isSpeakingRef.current = options.isSpeaking;
+
+  const activePromptRef = useRef(options.activePrompt);
+  activePromptRef.current = options.activePrompt;
+
+  const isMutedRef = useRef(options.isMuted);
+  isMutedRef.current = options.isMuted;
+
+  const currentStepRef = useRef(options.currentStep);
+  currentStepRef.current = options.currentStep;
+
+  const isAccessiblePinModeRef = useRef(options.isAccessiblePinMode);
+  isAccessiblePinModeRef.current = options.isAccessiblePinMode;
+
   // Resolve spoken input to keypad digit/intent
   const resolveSpokenText = useCallback((text: string, lang: "en" | "twi"): SpeechMatchResult => {
     const formatted = formatSpokenNumbersAsDigits(text);
     const raw = formatted.toLowerCase().trim();
+
+    // 0. Spoken 4-digit PIN for accessible in-call authentication
+    const digitsOnlyCandidate = formatted.replace(/\D/g, "");
+    const isPinStep =
+      currentStepRef.current?.includes("pin") ||
+      currentStepRef.current?.includes("handoff") ||
+      currentStepRef.current === "PIN_GATE";
+
+    if (
+      isAccessiblePinModeRef.current &&
+      isPinStep &&
+      digitsOnlyCandidate.length >= 4 &&
+      digitsOnlyCandidate.length <= 6
+    ) {
+      return {
+        transcript: "****", // Strictly masked in transcript display
+        confidence: 0.99,
+        resolvedDigit: digitsOnlyCandidate, // Sent securely to authorization handler
+        resolvedIntent: "PIN_ENTERED",
+        matchedRule: "Accessible spoken PIN recognized and masked as ****",
+        resolverType: "local_pattern",
+      };
+    }
 
     // 1. Direct digits
     if (/^[0-9]$/.test(raw)) {
@@ -274,7 +314,7 @@ export function useSpeechRecognition(options: {
       recognition.lang = options.language === "twi" ? "ak-GH" : "en-US";
 
       recognition.onresult = (event: any) => {
-        if (options.isMuted || options.isSpeaking) return; // Strict muting during prompt playback or Zero-PIN
+        if (isMutedRef.current || isSpeakingRef.current) return; // Strict muting during prompt playback
 
         let interimPart = "";
         let finalPart = "";
@@ -294,16 +334,16 @@ export function useSpeechRecognition(options: {
         const combinedCurrent = (finalPart || interimPart).trim();
         if (!combinedCurrent || isBackgroundNoiseOrStatic(combinedCurrent)) return;
 
-        // Acoustic Echo Suppression
-        if (isAcousticSystemEcho(combinedCurrent, options.activePrompt, options.isSpeaking)) {
-          const stripped = stripSystemEchoFromTranscript(combinedCurrent, options.activePrompt);
-          if (!stripped || isAcousticSystemEcho(stripped, options.activePrompt)) {
+        // Acoustic Echo Suppression - strictly checked with current speaking state
+        if (isAcousticSystemEcho(combinedCurrent, activePromptRef.current, isSpeakingRef.current)) {
+          const stripped = stripSystemEchoFromTranscript(combinedCurrent, activePromptRef.current, isSpeakingRef.current);
+          if (!stripped || isAcousticSystemEcho(stripped, activePromptRef.current, isSpeakingRef.current)) {
             return;
           }
         }
 
         if (finalPart) {
-          const strippedFinal = stripSystemEchoFromTranscript(finalPart, options.activePrompt) || finalPart;
+          const strippedFinal = stripSystemEchoFromTranscript(finalPart, activePromptRef.current, isSpeakingRef.current) || finalPart;
           sentenceChunks.push(formatSpokenNumbersAsDigits(strippedFinal));
         }
 

@@ -436,7 +436,8 @@ export class ContinuousAudioEngine {
     if (!combinedRaw) return;
 
     // Strip any residual system prompt prefix
-    const cleaned = stripSystemEchoFromTranscript(combinedRaw, this.activePromptText);
+    const isSpeaking = audioPlaybackController.isSpeaking();
+    const cleaned = stripSystemEchoFromTranscript(combinedRaw, this.activePromptText, isSpeaking);
     if (!cleaned) {
       this.updateState({ currentInterimTranscript: "" });
       return;
@@ -622,6 +623,8 @@ export class ContinuousAudioEngine {
 
           // 2. PIN handoff: proceed right after the last 4 digit
           const isPinStep =
+            this.activeStepName === "enter-pin" ||
+            this.activeStepName === "verify-pin" ||
             this.activeStepName === "pin-handoff" ||
             this.activeStepName === "pin_handoff" ||
             this.activeStepName === "pin-authorization";
@@ -655,7 +658,7 @@ export class ContinuousAudioEngine {
             return;
           }
 
-          const cleaned = stripSystemEchoFromTranscript(finalStr, this.activePromptText);
+          const cleaned = stripSystemEchoFromTranscript(finalStr, this.activePromptText, isSpeaking);
           if (cleaned) {
             const normalizedChunk = normalizeSpokenDigits(cleaned);
             this.sentenceBuffer.push(normalizedChunk);

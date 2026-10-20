@@ -1651,7 +1651,7 @@ export function usePhoneSimulator() {
     if (!rawInput && channel !== "DTMF") return;
 
     const activeStep = overrideStep || currentStep;
-    const languageChoice = /^(language-selection|voice-menu)$/i.test(activeStep)
+    const languageChoice = /^(welcome|language-selection|voice-menu)$/i.test(activeStep)
       ? resolveSpokenLanguageChoice(rawInput)
       : null;
     const turnChannel = languageChoice ? "DTMF" : channel;
@@ -1912,7 +1912,7 @@ export function usePhoneSimulator() {
     setIsActive(true);
     setLanguage(initialLang);
     setCurrentScreen("HOME");
-    setCurrentStep("welcome");
+    setCurrentStep("language-selection");
     setTurnCount(0);
     setDigitsBuffer("");
     setEntities({});
@@ -1958,7 +1958,7 @@ export function usePhoneSimulator() {
       input: initialLang === "tw" ? "Akwaaba" : "Hello",
       language: initialLang,
       currentScreen: "HOME",
-      currentStep: "welcome",
+      currentStep: "language-selection",
       executionMode,
       callDurationSec: 0,
     }).then((resp) => {
@@ -2049,12 +2049,6 @@ export function usePhoneSimulator() {
     // Cancellation on 0 if empty
     if (digit === "0" && !digitsBuffer) {
       sendInputTurn("0", "DTMF");
-      return;
-    }
-
-    if (currentStep === "welcome" && (digit === "1" || digit === "2")) {
-      sendInputTurn(digit, "DTMF");
-      setDigitsBuffer("");
       return;
     }
 

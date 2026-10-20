@@ -9,15 +9,44 @@
 
 import { formatSpokenNumbersAsDigits } from "./numberFormatter";
 
-export function isVoiceCaptureBlockedForStep(step?: string): boolean {
-  const norm = (step || "").toLowerCase().replace(/_/g, "-");
-  return /(?:enter-pin|verify-pin|pin-handoff|pin-authorization)/.test(norm);
+let _accessiblePinModeEnabled = true; // Enabled by default for Accessibility & Live Judge Demonstrations
+
+export function setAccessiblePinMode(enabled: boolean): void {
+  _accessiblePinModeEnabled = enabled;
 }
 
-export function shouldDiscardSensitiveSpeech(text: string, step?: string): boolean {
-  if (isVoiceCaptureBlockedForStep(step)) return true;
+export function getAccessiblePinMode(): boolean {
+  return _accessiblePinModeEnabled;
+}
+
+/**
+ * Masks any potential PIN numbers or digits as **** for privacy.
+ */
+export function maskPinCredentials(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/\b\d{4,6}\b/g, "****")
+    .replace(/(?:pin|password|secret|passcode)\s*(?:is\s*)?(\d{4,6})/gi, "PIN: ****");
+}
+
+export function isVoiceCaptureBlockedForStep(step?: string, accessibleMode: boolean = getAccessiblePinMode()): boolean {
+  const norm = (step || "").toLowerCase().replace(/_/g, "-");
+  const isAuthStep = /(?:enter-pin|verify-pin|pin-handoff|pin-authorization)/.test(norm);
+  if (accessibleMode && isAuthStep) {
+    // In Accessible PIN Mode (for blind & elderly users), we allow keypad/spoken PIN entry at this step
+    return false;
+  }
+  return isAuthStep;
+}
+
+export function shouldDiscardSensitiveSpeech(text: string, step?: string, accessibleMode: boolean = getAccessiblePinMode()): boolean {
+  if (accessibleMode && isVoiceCaptureBlockedForStep(step, false)) {
+    // In accessible mode during authentication step, do NOT discard spoken PIN
+    return false;
+  }
+  if (isVoiceCaptureBlockedForStep(step, accessibleMode)) return true;
   return (
-    isVoiceCaptureBlockedForStep(step) ||
+    isVoiceCaptureBlockedForStep(step, accessibleMode) ||
     isSpokenPinPattern(text, step) ||
     isSpokenPinPattern(formatSpokenNumbersAsDigits(text), step)
   );

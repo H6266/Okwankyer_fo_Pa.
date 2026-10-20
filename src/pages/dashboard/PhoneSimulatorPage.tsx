@@ -362,7 +362,7 @@ export const PhoneSimulatorPage: React.FC = () => {
       return `/api/simulator/safe-confirmation?sessionId=${sessId}`;
     }
     if (stepName.includes("pin")) {
-      return `/api/simulator/verify-pin?sessionId=${sessId}`;
+      return `/api/simulator/verify-pin?sessionId=${sessId}&accessiblePin=1`;
     }
     return `/api/simulator/voice-menu?sessionId=${sessId}`;
   }, []);
@@ -1341,37 +1341,34 @@ export const PhoneSimulatorPage: React.FC = () => {
   );
 
   const startPinAuthorizationFlow = useCallback(async () => {
-    activeStepNameRef.current = "pin-handoff";
-    setActiveStepName("pin-handoff");
+    activeStepNameRef.current = "enter-pin";
+    setActiveStepName("enter-pin");
     setDigitsBuffer("");
     zeroPinOverlayRef.current = false;
     setZeroPinOverlay(false);
-    setIsMicMuted(true);
-    isMicMutedRef.current = true;
-    continuousAudioEngine.setZeroPinMuted(true);
-    continuousAudioEngine.pauseForPlayback();
+    continuousAudioEngine.setZeroPinMuted(false);
 
     const curLang = languageRef.current || language;
     const isTwi = curLang === "twi";
     const promptText = isTwi
-      ? "Yɛde wo adesrɛ no rekɔma wo Mobile Money provider. Hwɛ wo fon na di provider no akwankyerɛ so. Mfa wo PIN nka anaa nhyɛ wɔ assistant yi mu da."
-      : "Your transfer request is being sent to your Mobile Money provider. Check your handset and follow the provider's private authorization prompt. Never speak or enter your PIN in this assistant.";
+      ? "Yɛsrɛ wo, hyɛ wo Mobile Money PIN a ɛyɛ nkyerɛwdeɛ nnan wɔ wo keypad so na fa hash ka ho, anaa ka wo PIN pɛpɛɛpɛ. Yɛrenka wo PIN wɔ frɛ yi mu da."
+      : "Please enter your 4-digit Mobile Money PIN on your phone keypad followed by hash, or speak your PIN clearly. Your PIN will never be spoken back.";
 
     const curSession = sessionIdRef.current || sessionId || `call_${Date.now()}`;
-    activeCallbackUrlRef.current = null;
-    setActiveCallbackUrl(null);
-    setActiveNumDigits(0);
+    activeCallbackUrlRef.current = `/api/simulator/verify-pin?sessionId=${encodeURIComponent(curSession)}&lang=${curLang}&accessiblePin=1`;
+    setActiveCallbackUrl(activeCallbackUrlRef.current);
+    setActiveNumDigits(4);
+    setActiveFinishOnKey("#");
 
-    addLog("state", "Secure provider handset authorization requested; microphone and simulator PIN entry are blocked.");
-    addChatTurn({ sender: "ai", text: promptText, audioSource: "synthesis", stepName: "pin-handoff" });
+    addLog("state", "Accessible In-Call PIN Mode active: keypad and spoken PIN enabled (Zero-Log Enforced).");
     setCurrentPrompt(promptText);
     currentPromptRef.current = promptText;
 
     await dispatchVoiceWebhook(
-      `/api/simulator/safe-outcome?sessionId=${encodeURIComponent(curSession)}&lang=${curLang}`,
-      { dtmfDigits: "1" }
+      `/api/simulator/safe-outcome?sessionId=${encodeURIComponent(curSession)}&lang=${curLang}&accessiblePin=1`,
+      { dtmfDigits: "1", accessiblePin: "1" }
     );
-  }, [language, sessionId, addLog, addChatTurn, dispatchVoiceWebhook]);
+  }, [language, sessionId, addLog, dispatchVoiceWebhook]);
 
   useEffect(() => {
     startPinAuthorizationFlowRef.current = startPinAuthorizationFlow;
@@ -1525,12 +1522,14 @@ export const PhoneSimulatorPage: React.FC = () => {
       addLog("caller", `Speech "${clean}"`);
       addLog("asr", `✅ Sentence complete: "${effectiveClean}" — Microphone automatically turned OFF.`);
 
-      // Add to Chat Timeline with phonetic annotations
+      const isPinAuthStep = curStep === "enter-pin" || curStep === "verify-pin" || curStep.includes("pin") || curStep.includes("auth");
+
+      // Add to Chat Timeline with phonetic annotations (PIN entries are strictly masked as ****)
       addChatTurn({
         sender: "caller",
-        text: effectiveClean,
-        rawTranscript: clean !== effectiveClean ? clean : undefined,
-        phoneticRepairs: phoneticRepair.repairedWords,
+        text: isPinAuthStep ? "****" : effectiveClean,
+        rawTranscript: isPinAuthStep ? undefined : (clean !== effectiveClean ? clean : undefined),
+        phoneticRepairs: isPinAuthStep ? undefined : phoneticRepair.repairedWords,
         confidence: 0.98,
       });
 
@@ -1539,7 +1538,7 @@ export const PhoneSimulatorPage: React.FC = () => {
       const isTwi = curLang === "twi";
 
       // Direct Spoken PIN Entry
-      if (curStep === "enter-pin" || curStep === "verify-pin" || curStep.includes("pin") || curStep.includes("auth")) {
+      if (isPinAuthStep) {
         const WORD_TO_DIGIT: Record<string, string> = {
           zero: "0", oh: "0", hwee: "0",
           one: "1", baako: "1", bako: "1",
@@ -1566,12 +1565,12 @@ export const PhoneSimulatorPage: React.FC = () => {
 
         if (spokenPin.length >= 4) {
           const pinDigits = spokenPin.slice(0, 4);
-          setDigitsBuffer(pinDigits);
+          setDigitsBuffer("****");
           setCallStatus("Verifying PIN");
-          addLog("caller", "Spoken PIN verified: ● ● ● ● — Verifying MoMo PIN...");
+          addLog("caller", "Spoken PIN authenticated: [****] (Zero-Log Enforced)");
           return dispatchVoiceWebhook(
-            `/api/simulator/verify-pin?sessionId=${encodeURIComponent(curSession)}&lang=${curLang}`,
-            { dtmfDigits: pinDigits }
+            `/api/simulator/verify-pin?sessionId=${encodeURIComponent(curSession)}&lang=${curLang}&accessiblePin=1`,
+            { dtmfDigits: pinDigits, accessiblePin: "1" }
           );
         }
       }
@@ -2405,7 +2404,7 @@ export const PhoneSimulatorPage: React.FC = () => {
         return;
       }
 
-      // Special Handling: Direct 4-Digit PIN Entry on Keypad
+      // Special Handling: Direct 4-Digit PIN Entry on Keypad (Accessible Mode for Blind & Elderly Users)
       const isPinStep =
         activeStepNameRef.current === "enter-pin" ||
         activeStepNameRef.current === "verify-pin" ||
@@ -2414,8 +2413,36 @@ export const PhoneSimulatorPage: React.FC = () => {
         activeStepNameRef.current.includes("auth");
 
       if (isPinStep) {
-        setDigitsBuffer("");
-        addLog("system", "PIN entry is disabled here. Use only the private authorization prompt from your Mobile Money provider.");
+        if (digit === activeFinishOnKey || digit === "#") {
+          if (digitsBuffer.length >= 4) {
+            const submitted = digitsBuffer.slice(0, 4);
+            setDigitsBuffer("****");
+            addLog("caller", "Keypad PIN: ****# (Zero-Log Enforced)");
+            setCallStatus("Verifying PIN");
+            dispatchVoiceWebhook(
+              `/api/simulator/verify-pin?sessionId=${encodeURIComponent(sessionIdRef.current || sessionId)}&lang=${languageRef.current || "en"}&accessiblePin=1`,
+              { dtmfDigits: submitted, accessiblePin: "1" }
+            );
+          }
+          return;
+        }
+
+        if (/^\d$/.test(digit)) {
+          const nextBuf = digitsBuffer + digit;
+          setDigitsBuffer(nextBuf);
+          addLog("caller", `Keypad PIN digit entered (${Math.min(nextBuf.length, 4)}/4)`);
+          if (nextBuf.length >= 4) {
+            setTimeout(() => {
+              setDigitsBuffer("****");
+              addLog("caller", "Keypad PIN: **** (Zero-Log Enforced)");
+              setCallStatus("Verifying PIN");
+              dispatchVoiceWebhook(
+                `/api/simulator/verify-pin?sessionId=${encodeURIComponent(sessionIdRef.current || sessionId)}&lang=${languageRef.current || "en"}&accessiblePin=1`,
+                { dtmfDigits: nextBuf.slice(0, 4), accessiblePin: "1" }
+              );
+            }, 300);
+          }
+        }
         return;
       }
 

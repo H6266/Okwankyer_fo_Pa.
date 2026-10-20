@@ -27,10 +27,17 @@ import {
 } from "../audio/geminiAudioMatcher";
 import { ttsRouter } from "../ai_system/speech/tts/ttsRouter";
 import { assertTtsResponse, getTtsErrorCode, normalizeTtsLanguage } from "../ai_system/speech/tts/ttsProvider";
+import { formatSpokenNumbersAsDigits } from "../domain/numberFormatter";
 import { paymentSaga } from "../integrations/momo/paymentSaga";
 import { geminiClient } from "../services/geminiClient";
 import { recipientResolver } from "../providers/recipient/RecipientResolver";
-import { normalizeGhanaPhoneNumber } from "../domain/validation";
+import { normalizeGhanaPhoneNumber, parseAndValidateAmount, validateGhanaPhoneNumber } from "../domain/validation";
+import {
+  isAcousticSystemEcho,
+  stripSystemEchoFromTranscript,
+  isBackgroundNoiseOrStatic,
+} from "../domain/echoFilter";
+import { asrOrchestrator } from "../ai_system/speech/asr/asrOrchestrator";
 import { longConversationAsr } from "../ai_system/speech/asr/longConversationAsr";
 import { feedbackService } from "../ai_system/speech/asr/feedbackService";
 import { hasExplicitAsrFeedbackConsent } from "../ai_system/speech/asr/feedbackConsent";
@@ -45,7 +52,8 @@ import { acousticNoiseFilterModel } from "../ai_system/speech/acousticModels/noi
 import { getFullAiHealthReport } from "../services/healthService";
 import { transactionStateMachine } from "../domain/stateMachine";
 import { ChecklistStageManager } from "../domain/checklistPipeline";
-import { processCanonicalCallTurn } from "../ai_system/voice/callTurnPipeline";
+import { buildReceiptPrompt } from "../audio/dynamicPromptBuilder";
+import { matchReplyToAudio } from "../audio/replyAudioMatcher";
 
 export const aiRouter = Router();
 
@@ -211,7 +219,7 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
         .replace(/\bmane\b/gi, "mame");
     }
 
-    const callTurn = await processCanonicalCallTurn({
+    const result = await aiSystem.process({
       sessionId: sessionKey,
       channel: channel || "SIMULATOR",
       input: effectiveInput,
@@ -220,11 +228,7 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       currentStep: currentStep || "welcome",
       executionMode: executionMode || "SIMULATION",
       userProfile,
-      draft: req.body.draft || {},
-      callerPhone: typeof req.body.callerPhone === "string" ? req.body.callerPhone : undefined,
     });
-    effectiveInput = callTurn.input.input;
-    const result = callTurn.result;
 
     // ── Live Synchronization 1: Call Session Repository ──────────────────
     let targetStep = result.navigation?.targetStep || currentStep || "welcome";
@@ -241,21 +245,34 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
         ? "mixed-twi-en"
         : "en";
 
-    const brainOutput = callTurn.brainOutput;
+    const brainOutput = await brain.process({
+      transcript: effectiveInput,
+      language: brainLanguage,
+      languageConfidence: 0.95,
+      sessionLanguage: brainLanguage,
+      draft: req.body.draft || {},
+      sessionId: sessionKey,
+      callerNumber: typeof req.body.callerPhone === "string" ? req.body.callerPhone : undefined,
+    });
 
     // Wire brain's reply (text, language, promptId) into telephonyAdapter
     simulatorTelephonyAdapter.speakBrainReply(brainOutput.reply, {
       callbackUrl: `/api/ai/simulator/turn`,
     });
 
-    const ttsAudioMeta = callTurn.ttsAudio
-      ? {
-          providerUsed: callTurn.ttsAudio.providerUsed,
-          audioMimeType: callTurn.ttsAudio.audioMimeType,
-          audioBase64: callTurn.ttsAudio.audioBase64,
-          durationEstimateSec: callTurn.ttsAudio.durationEstimateSec,
-        }
-      : null;
+    // Wire brain reply into ttsRouter for audio synthesis
+    let ttsAudioMeta: any = null;
+    try {
+      const ttsResult = await ttsRouter.synthesizeBrainReply(brainOutput.reply);
+      ttsAudioMeta = {
+        providerUsed: ttsResult.providerUsed,
+        audioMimeType: ttsResult.audioMimeType,
+        audioBase64: ttsResult.audioBase64,
+        durationEstimateSec: ttsResult.durationEstimateSec,
+      };
+    } catch {
+      // safe fallback if TTS engine is unavailable
+    }
 
     // ── Independent AI Audio Reasoning Brain ─────────────────────────────
     // Independent from conversation reasoning: evaluates reply text against
@@ -817,7 +834,7 @@ aiRouter.post("/api/ai/brain/process", publicApiRateLimiter, async (req: Request
           updates.recipientName = slots.recipient.name;
           updates.isRecipientVerified = true;
         }
-        const resolvedNetwork = slots.network || slots.candidateNetwork;
+        const resolvedNetwork = slots.network || slots.candidateNetwork || slots.recipient?.network;
         if (resolvedNetwork) {
           updates.network = resolvedNetwork;
         } else if (normalizedRecipientPhone) {
@@ -1427,7 +1444,7 @@ aiRouter.post("/api/ai/intent-to-momo", publicApiRateLimiter, async (req: Reques
 // ── Pre-Transaction Telco KYC & Recipient Lookup ─────────────────────
 aiRouter.post("/api/ai/simulator/validate-recipient", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {
-    const { phone, candidateName, candidateNetwork } = req.body || {};
+    const { phone, sessionId, candidateName, candidateNetwork } = req.body || {};
     if (!phone) {
       return res.status(400).json({ success: false, error: "Missing recipient phone number." });
     }
@@ -1741,7 +1758,7 @@ Guidelines:
             reason = "In cashout-confirm-approval, approving is confirmation to proceed";
           }
         }
-      } catch {
+      } catch (geminiErr: any) {
         // Fallback to local deterministic linguistic evaluation
       }
     }

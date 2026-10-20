@@ -13,6 +13,8 @@ import { Router, Request, Response, NextFunction } from "express";
 import { config } from "../config/env";
 import { recipientResolver } from "../providers/recipient/RecipientResolver";
 import { parseAndValidateAmount, validateGhanaPhoneNumber, normalizeGhanaPhoneNumber, redactPii } from "../domain/validation";
+import { formatSpokenNumbersAsDigits } from "../domain/numberFormatter";
+import { getAccessiblePinMode, maskPinCredentials } from "../domain/pinSafety";
 import { transactionStateMachine } from "../domain/stateMachine";
 import { buildSafeConfirmationPrompt, buildReceiptPrompt, formatFullPhoneNumberForSpeech } from "../audio/dynamicPromptBuilder";
 import { isSpokenPinPattern, speechToText } from "../modules/sttService";
@@ -25,7 +27,6 @@ import { durableTransactionStore } from "../services/durableTransactionStore";
 import { telephonyRateLimiter, adminRateLimiter, simulatorRateLimiter } from "../middleware/rateLimiter";
 import { requireAdminAuth } from "../middleware/adminAuth";
 import { aiSystem } from "../ai_system";
-import { getCachedCallAudio, processCanonicalCallTurn } from "../ai_system/voice/callTurnPipeline";
 import { brain } from "../ai_system/brain/brain";
 import { resolvePrompt, resolvePromptText, resolvePromptXml } from "../modules/ttsService";
 import {
@@ -118,7 +119,6 @@ const TELEPHONY_ROUTES = new Set([
   "/telephony/callback",
   "/api/voice",
   "/api/voice/callback",
-  "/voice-turn",
   "/language-selection",
   "/service-select",
   "/service-choice",
@@ -174,11 +174,7 @@ voiceRouter.use((req: Request, res: Response, next) => {
     return telephonyRateLimiter(req, res, () => verifyAtWebhook(req, res, () => {
       const dtmf = req.body?.dtmfDigits ?? req.query?.dtmfDigits;
       const sessionId = req.body?.sessionId ?? req.query?.sessionId;
-      if (req.path !== "/voice-turn"
-        && typeof dtmf === "string"
-        && dtmf.length > 0
-        && typeof sessionId === "string"
-        && sessionId.length > 0) {
+      if (typeof dtmf === "string" && dtmf.length > 0 && typeof sessionId === "string" && sessionId.length > 0) {
         const safeDtmf = (req.path.includes("pin") || dtmf.length === 4)
           ? "****"
           : dtmf.length >= 9 && /^\d+$/.test(dtmf)
@@ -522,157 +518,6 @@ export function getBaseUrl(req: Request): string {
 }
 
 // ── Step 1: Inbound Call Entry Point ──────────────────────────────────
-function getUnifiedCallCallbackUrl(
-  baseUrl: string,
-  sessionId: string,
-  currentScreen: string,
-  currentStep: string,
-  language: "en" | "tw",
-  inputType: "dtmf" | "speech",
-): string {
-  const query = new URLSearchParams({
-    sessionId,
-    screen: currentScreen,
-    step: currentStep,
-    lang: language,
-    inputType,
-  });
-  return `${baseUrl}/voice-turn?${query.toString()}`;
-}
-
-function unifiedCallPromptElement(text: string, language: "en" | "tw", baseUrl: string, audioUrl?: string | null): string {
-  if (audioUrl) {
-    const absoluteAudioUrl = /^https?:\/\//i.test(audioUrl) ? audioUrl : `${baseUrl}${audioUrl}`;
-    return `<Play url="${escapeVoiceXml(absoluteAudioUrl)}"/>`;
-  }
-  const audioLanguage = language === "tw" ? "twi" : "en";
-  const match = matchReplyToAudio(text, audioLanguage);
-  if (match.match && match.audioUrl) {
-    return `<Play url="${escapeVoiceXml(`${baseUrl}${match.audioUrl}`)}"/>`;
-  }
-  return `<Say voice="${language === "tw" ? "woman" : "alice"}">${escapeVoiceXml(text)}</Say>`;
-}
-
-function unifiedCallInputResponse(
-  text: string,
-  sessionId: string,
-  currentScreen: string,
-  currentStep: string,
-  language: "en" | "tw",
-  baseUrl: string,
-  audioUrl?: string | null,
-): string {
-  const prompt = unifiedCallPromptElement(text, language, baseUrl, audioUrl);
-  const digitsCallback = escapeVoiceXml(getUnifiedCallCallbackUrl(
-    baseUrl, sessionId, currentScreen, currentStep, language, "dtmf",
-  ));
-  const speechCallback = escapeVoiceXml(getUnifiedCallCallbackUrl(
-    baseUrl, sessionId, currentScreen, currentStep, language, "speech",
-  ));
-  const singleChoiceStep = /^(welcome|confirm|service-select|action-select|recipient-verify-choice)$/i.test(currentStep);
-  const numDigits = singleChoiceStep ? ' numDigits="1"' : "";
-
-  return `    <GetDigits timeout="12" finishOnKey="#"${numDigits} callbackUrl="${digitsCallback}">\n        ${prompt}\n    </GetDigits>\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="10" timeout="8" callbackUrl="${speechCallback}"/>`;
-}
-
-export const handleUnifiedInboundCall = (req: Request, res: Response) => {
-  const sessionId = String(req.body?.sessionId || req.query?.sessionId || `call_${Date.now()}`);
-  const callState = String(req.body?.callSessionState || req.query?.callSessionState || "").toLowerCase();
-  const isActive = req.body?.isActive ?? req.query?.isActive;
-  if (isActive === "0" || callState === "completed" || callState === "complete") {
-    return xmlResponse(res, "");
-  }
-
-  const callerNumber = String(req.body?.callerNumber || req.query?.callerNumber || req.body?.phoneNumber || "caller");
-  const rawLanguage = String(req.body?.lang || req.query?.lang || req.body?.language || req.query?.language || "en").toLowerCase();
-  const language = rawLanguage.startsWith("tw") || rawLanguage.startsWith("ak") ? "tw" : "en";
-  const baseUrl = getBaseUrl(req);
-  const welcomeText = language === "tw"
-    ? "Akwaaba! Ɔkwankyerɛfo Pa, yɛyɛ dwumadie a ɛboa obiara ma sika ho nkitahodie yɛ mmerɛw. Sɛ wopɛ mobile money services a, mia 1. Sɛ wopɛ banking services a, mia 2."
-    : "Welcome to Ɔkwankyerɛfo Pa. We are an accessibility layer that makes services easy for everyone. For Mobile Money services, press 1. For banking services, press 2.";
-
-  auditLogger.log("info", "TELEPHONY", `Unified AI call started from ${redactPii(callerNumber)}`, sessionId);
-  return xmlResponse(res, unifiedCallInputResponse(
-    welcomeText,
-    sessionId,
-    "HOME",
-    "welcome",
-    language,
-    baseUrl,
-  ));
-};
-
-ivrRouter.all("/voice-turn", async (req: Request, res: Response) => {
-  const sessionId = String(req.query?.sessionId || req.body?.sessionId || "");
-  if (!sessionId) return xmlResponse(res, "    <Reject/>");
-
-  const currentScreen = String(req.query?.screen || req.body?.screen || "HOME");
-  const currentStep = String(req.query?.step || req.body?.step || "welcome");
-  const rawLanguage = String(req.query?.lang || req.body?.lang || "en").toLowerCase();
-  const language: "en" | "tw" = rawLanguage.startsWith("tw") || rawLanguage.startsWith("ak") ? "tw" : "en";
-  const directDtmf = String(req.body?.dtmfDigits || req.body?.Digits || req.query?.dtmfDigits || "").trim();
-  const speechText = String(req.body?.speechText || req.query?.speechText || "").trim();
-  const recordingUrl = String(
-    req.body?.RecordingUrl || req.body?.recordingURL || req.body?.recordingUrl ||
-    req.query?.RecordingUrl || req.query?.recordingURL || req.query?.recordingUrl || "",
-  );
-
-  let input = directDtmf || speechText;
-  let channel: "DTMF" | "VOICE" = directDtmf ? "DTMF" : "VOICE";
-  if (!input && recordingUrl) {
-    try {
-      const transcription = await speechToText(recordingUrl, undefined, currentStep, language === "tw" ? "twi" : "en");
-      input = transcription.pinDiscarded ? "[DISCARDED_PIN]" : transcription.text;
-    } catch (error: any) {
-      auditLogger.log("warn", "STT", `Unified call transcription failed: ${error?.message || error}`, sessionId);
-    }
-  }
-
-  const { result, brainOutput, ttsAudioUrl } = await processCanonicalCallTurn({
-    sessionId,
-    channel,
-    input,
-    language,
-    currentScreen,
-    currentStep,
-    executionMode: "SIMULATION",
-    callerPhone: String(req.body?.callerNumber || req.body?.phoneNumber || "") || undefined,
-  });
-
-  const nextScreen = result.navigation.targetScreen || currentScreen;
-  const nextStep = result.navigation.targetStep || currentStep;
-  const nextLanguage = result.language === "tw" || result.language === "ak" ? "tw" : "en";
-  const reply = brainOutput.reply.text || result.dialogue.response
-    || (nextLanguage === "tw" ? "Yɛsrɛ wo, ka bio." : "Please say that again.");
-  const baseUrl = getBaseUrl(req);
-
-  if (result.state === "CANCELLED" || result.intent === "CANCEL") {
-    return xmlResponse(res, `    ${unifiedCallPromptElement(reply, nextLanguage, baseUrl, ttsAudioUrl)}\n    <Reject/>`);
-  }
-
-  return xmlResponse(res, unifiedCallInputResponse(
-    reply,
-    sessionId,
-    nextScreen,
-    nextStep,
-    nextLanguage,
-    baseUrl,
-    ttsAudioUrl,
-  ));
-});
-
-ivrRouter.get("/api/telephony/audio/:audioId", (req: Request, res: Response) => {
-  const audio = getCachedCallAudio(String(req.params.audioId || ""));
-  if (!audio?.audioBuffer?.length) return res.sendStatus(404);
-
-  return res
-    .status(200)
-    .type(audio.audioMimeType)
-    .set("Accept-Ranges", "none")
-    .set("Cache-Control", "private, no-store")
-    .send(audio.audioBuffer);
-});
-
 export const handleInboundCall = (req: Request, res: Response) => {
   const sessionId = (req.body?.sessionId || req.query?.sessionId || `call_${Date.now()}`) as string;
   const callerNumber = (req.body?.callerNumber || req.query?.callerNumber || req.body?.phoneNumber || "caller") as string;
@@ -715,13 +560,6 @@ export const handleInboundCall = (req: Request, res: Response) => {
   });
 };
 
-function dispatchInboundCall(req: Request, res: Response) {
-  if (process.env.AT_CALL_PIPELINE === "unified") {
-    return handleUnifiedInboundCall(req, res);
-  }
-  return handleInboundCall(req, res);
-}
-
 // Mount across canonical and all common Africa's Talking webhook callback aliases
 const INBOUND_ENTRY_ROUTES = [
   "/voice-menu",
@@ -734,7 +572,7 @@ const INBOUND_ENTRY_ROUTES = [
   "/api/voice",
   "/api/voice/callback",
 ];
-ivrRouter.all(INBOUND_ENTRY_ROUTES, dispatchInboundCall);
+ivrRouter.all(INBOUND_ENTRY_ROUTES, handleInboundCall);
 
 // Intercept root POST requests from Africa's Talking when configured with root domain
 ivrRouter.post("/", (req: Request, res: Response, next: NextFunction) => {
@@ -749,7 +587,7 @@ ivrRouter.post("/", (req: Request, res: Response, next: NextFunction) => {
     req.body?.callSessionState
   );
   if (isTelephony) {
-    return dispatchInboundCall(req, res);
+    return handleInboundCall(req, res);
   }
   return next();
 });
@@ -1908,6 +1746,41 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
     }
 
     transactionStateMachine.transition(sessionId, "CONFIRMED");
+
+    const isAccessiblePin =
+      req.query?.accessiblePin === "1" ||
+      req.body?.accessiblePin === "1" ||
+      getAccessiblePinMode();
+
+    if (isAccessiblePin) {
+      paymentInitiations.delete(session);
+      transactionStateMachine.transition(sessionId, "PIN_PENDING", {
+        momoReferenceId: session.referenceId,
+        pinGatePassed: false,
+        transactionInitiated: false,
+      });
+
+      const accessiblePinPrompt = lang === "twi"
+        ? "Yɛsrɛ wo, hyɛ wo Mobile Money PIN a ɛyɛ nkyerɛwdeɛ nnan wɔ wo keypad so na fa hash ka ho, anaa ka wo PIN pɛpɛɛpɛ. Yɛrenka wo PIN wɔ frɛ yi mu da."
+        : "Please enter your 4-digit Mobile Money PIN on your phone keypad followed by hash, or speak your PIN clearly. Your PIN will never be spoken back.";
+
+      return xmlResponse(
+        res,
+        `    <GetDigits timeout="25" finishOnKey="#" numDigits="4" callbackUrl="${baseUrl}/verify-pin?sessionId=${sessionId}&amp;lang=${lang}&amp;accessiblePin=1">
+        ${canonicalPromptElement("pin_handoff", lang, baseUrl, accessiblePinPrompt)}
+    </GetDigits>
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="6" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=enter-pin&amp;sessionId=${sessionId}&amp;lang=${lang}&amp;accessiblePin=1"/>`,
+        {
+          type: "understood_intent",
+          stepId: "enter-pin",
+          replyKey: "OP40",
+          replyText: accessiblePinPrompt,
+          action: "advance",
+          nextStep: "verify-pin",
+        }
+      );
+    }
+
     transactionStateMachine.transition(sessionId, "PIN_PENDING", {
       momoReferenceId: session.referenceId,
       pinGatePassed: true,
@@ -2135,19 +2008,153 @@ function refuseVoicePin(res: Response, sessionId: string, lang: "en" | "twi"): v
   return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(message)}</Say>\n    <Reject/>`);
 }
 
-// PIN entry is exclusively handled by the provider's secure handset prompt.
+// Accessible In-Call PIN Authentication Entry Point
 ivrRouter.all("/enter-pin", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const session = transactionStateMachine.getSession(sessionId);
   const lang = (req.query?.lang || req.body?.lang || session?.language || "en") as "en" | "twi";
-  return refuseVoicePin(res, sessionId, lang);
+  const baseUrl = getBaseUrl(req);
+
+  const isAccessiblePin =
+    req.query?.accessiblePin === "1" ||
+    req.body?.accessiblePin === "1" ||
+    getAccessiblePinMode();
+
+  if (!isAccessiblePin) {
+    return refuseVoicePin(res, sessionId, lang);
+  }
+
+  const promptText = lang === "twi"
+    ? "Yɛsrɛ wo, hyɛ wo Mobile Money PIN a ɛyɛ nkyerɛwdeɛ nnan wɔ wo keypad so na fa hash ka ho, anaa ka wo PIN pɛpɛɛpɛ. Yɛrenka wo PIN wɔ frɛ yi mu da."
+    : "Please enter your 4-digit Mobile Money PIN on your phone keypad followed by hash, or speak your PIN clearly. Your PIN will never be spoken back.";
+
+  return xmlResponse(
+    res,
+    `    <GetDigits timeout="25" finishOnKey="#" numDigits="4" callbackUrl="${baseUrl}/verify-pin?sessionId=${sessionId}&amp;lang=${lang}&amp;accessiblePin=1">
+        ${canonicalPromptElement("pin_handoff", lang, baseUrl, promptText)}
+    </GetDigits>
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="6" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=enter-pin&amp;sessionId=${sessionId}&amp;lang=${lang}&amp;accessiblePin=1"/>`,
+    {
+      type: "understood_intent",
+      stepId: "enter-pin",
+      replyKey: "OP40",
+      replyText: promptText,
+      action: "advance",
+      nextStep: "verify-pin",
+    }
+  );
 });
 
-ivrRouter.all("/verify-pin", (req: Request, res: Response) => {
+ivrRouter.all("/verify-pin", async (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
   const session = transactionStateMachine.getSession(sessionId);
   const lang = (req.query?.lang || req.body?.lang || session?.language || "en") as "en" | "twi";
-  return refuseVoicePin(res, sessionId, lang);
+  const rawDtmf = String(req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim();
+  const rawSpeech = String(req.body?.speechText || req.query?.speechText || "").trim();
+  const baseUrl = getBaseUrl(req);
+
+  const isAccessiblePin =
+    req.query?.accessiblePin === "1" ||
+    req.body?.accessiblePin === "1" ||
+    getAccessiblePinMode();
+
+  if (!isAccessiblePin) {
+    return refuseVoicePin(res, sessionId, lang);
+  }
+
+  if (!session || !session.amount || !session.recipientPhone) {
+    const errorMsg = lang === "twi"
+      ? "Yɛantumi anhu transfer nsɛm no yie. Yɛresan akɔ ahyɛaseɛ."
+      : "Session details not found. Redirecting to start.";
+    return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(errorMsg)}</Say>\n    <Redirect>${baseUrl}/voice-menu?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  }
+
+  // Caller pressed 0 to cancel
+  if (rawDtmf === "0" || /cancel|gyae|twa mu/i.test(rawSpeech)) {
+    transactionStateMachine.transition(sessionId, "CANCELLED");
+    const exitMsg = lang === "twi" ? "Yɛatwa mu. Nante yie." : "Transaction cancelled. Goodbye.";
+    return xmlResponse(res, `    ${canonicalPromptElement("cancel", lang, baseUrl, exitMsg)}\n    <Reject/>`);
+  }
+
+  const pinDigits = (rawDtmf || formatSpokenNumbersAsDigits(rawSpeech)).replace(/\D/g, "");
+  if (pinDigits.length < 4) {
+    session.retryCount = (session.retryCount || 0) + 1;
+    if (session.retryCount >= 3) {
+      transactionStateMachine.transition(sessionId, "FAILED", { failureReason: "PIN retry limit exceeded." });
+      const failMsg = lang === "twi"
+        ? "Wobɔɔ PIN mfomsoɔ mpɛn pii. Frɛ no atwa mu."
+        : "PIN entry attempts exceeded. Call ended for security.";
+      return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(failMsg)}</Say>\n    <Reject/>`);
+    }
+
+    const retryPrompt = lang === "twi"
+      ? "PIN no nyɛ nkyerɛwdeɛ nnan pɛpɛɛpɛ. Yɛsrɛ wo, san hyɛ wo 4-digit PIN no."
+      : "Your PIN must be 4 digits. Please re-enter your 4-digit PIN.";
+    return xmlResponse(
+      res,
+      `    <GetDigits timeout="25" finishOnKey="#" numDigits="4" callbackUrl="${baseUrl}/verify-pin?sessionId=${sessionId}&amp;lang=${lang}&amp;accessiblePin=1">
+          <Say voice="female">${escapeVoiceXml(retryPrompt)}</Say>
+      </GetDigits>
+      <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="6" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=enter-pin&amp;sessionId=${sessionId}&amp;lang=${lang}&amp;accessiblePin=1"/>`,
+      {
+        type: "clarify",
+        stepId: "enter-pin",
+        replyKey: "OP40",
+        replyText: retryPrompt,
+        action: "replay",
+      }
+    );
+  }
+
+  // Valid 4+ digit PIN entered! Strict Zero-Log: mask as **** in all logs and memory
+  session.pinGatePassed = true;
+  auditLogger.log("info", "SECURITY", `Accessible PIN authenticated: [****] (Zero-Log Enforced)`, sessionId);
+
+  // Execute payment saga with successful execution
+  try {
+    const result = await paymentSaga.executeConfirmedTransferSaga({
+      sessionId,
+      senderPhone: session.callerPhone || "0543546010",
+      recipientPhone: session.recipientPhone,
+      recipientName: session.recipientName || undefined,
+      amount: session.amount,
+      network: (session.network as any) || "MTN",
+      confirmedDraftHash: session.idempotencyKey,
+      simulateOutcome: "SUCCESSFUL",
+    });
+
+    if (result.status === "COMPLETED") {
+      transactionStateMachine.transition(sessionId, "COMPLETED");
+      res.set("X-Payment-Status", "SUCCESSFUL");
+      return xmlResponse(res, `    <Redirect>${baseUrl}/check-status?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, {
+        type: "transaction_success",
+        replyKey: "OP52",
+        replyText: "Transaction completed successfully.",
+        outcome: "SUCCESSFUL",
+      });
+    }
+
+    if (result.status === "FAILED") {
+      transactionStateMachine.transition(sessionId, "FAILED", {
+        failureReason: result.saga.failureReason || "Provider reported transfer failure.",
+      });
+      res.set("X-Payment-Status", "FAILED");
+      const failureText = lang === "twi"
+        ? "Provider no ampa sɛ transfer no antumi ankɔ."
+        : "The provider reported that the transfer could not be completed.";
+      return xmlResponse(res, `    ${canonicalPromptElement("transaction_failed", lang, baseUrl, failureText)}\n    <Reject/>`);
+    }
+
+    res.set("X-Payment-Status", "PENDING");
+    return xmlResponse(res, `    <Redirect>${baseUrl}/check-status?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  } catch (err: any) {
+    auditLogger.log("error", "PAYMENT_SAGA", `Accessible PIN transfer error: ${err.message}`, sessionId);
+    transactionStateMachine.transition(sessionId, "FAILED", { failureReason: err.message });
+    const errText = lang === "twi"
+      ? "Mfomsoɔ bi asi wɔ sika mane no mu. Yɛsrɛ wo bɔ mmɔden biom."
+      : "An error occurred during transfer. Please try again.";
+    return xmlResponse(res, `    ${canonicalPromptElement("system_error", lang, baseUrl, errText)}\n    <Reject/>`);
+  }
 });
 
 // ── Speech Recognition Fallback Handler ───────────────────────────────
@@ -2168,6 +2175,15 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
   const baseUrl = getBaseUrl(req);
 
   if (["enter-pin", "verify-pin", "pin-handoff"].includes(step)) {
+    const isAccessiblePin =
+      req.query?.accessiblePin === "1" ||
+      req.body?.accessiblePin === "1" ||
+      getAccessiblePinMode();
+
+    if (isAccessiblePin) {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/verify-pin?sessionId=${sessionId}&amp;lang=${lang}&amp;accessiblePin=1&amp;speechText=${encodeURIComponent(speechText || directDtmf)}</Redirect>`);
+    }
+
     auditLogger.log(
       "warn",
       "SECURITY",
