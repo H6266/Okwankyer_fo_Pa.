@@ -253,12 +253,22 @@ function speechCollectionXml(params: {
   return `    <GetDigits timeout="25" finishOnKey="#" callbackUrl="${baseUrl}/verify-amount?${query}">\n        ${prompt}\n    </GetDigits>\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="8" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=enter-amount&amp;${query}"/>`;
 }
 
+function resolveLang(req: Request, sessionId: string): "en" | "twi" {
+  const queryLang = req.query?.lang;
+  if (queryLang === "twi" || queryLang === "en") return queryLang;
+  const bodyLang = req.body?.lang;
+  if (bodyLang === "twi" || bodyLang === "en") return bodyLang;
+  if (!sessionId) return "en";
+  const sessionLanguage = transactionStateMachine.getOrCreateSession(sessionId).language;
+  if (sessionLanguage === "twi" || sessionLanguage === "en") return sessionLanguage;
+  return "en";
+}
 ivrRouter.use((req: Request, res: Response, next: NextFunction) => {
   const dtmf = String(req.body?.dtmfDigits ?? req.query?.dtmfDigits ?? "").trim();
   const speechText = String(req.body?.speechText ?? req.query?.speechText ?? "").trim();
   const step = String(req.query?.step || req.body?.step || req.path.replace(/^\//, "")).toLowerCase();
   const sessionId = String(req.body?.sessionId || req.query?.sessionId || "");
-  const lang = (req.body?.lang === "twi" || req.query?.lang === "twi" ? "twi" : "en") as "en" | "twi";
+  const lang = resolveLang(req, sessionId);
   const baseUrl = getBaseUrl(req);
 
   // ── Conversation Takeover Detector ────────────────────────────────────
@@ -655,7 +665,7 @@ ivrRouter.all("/language-selection", (req: Request, res: Response) => {
 // ── Step 3: Service Selection (Telecom / Banking) ─────────────────────
 ivrRouter.all("/service-select", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
-  const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const lang = resolveLang(req, sessionId);
   const baseUrl = getBaseUrl(req);
 
   const promptElement = canonicalPromptElement(
@@ -675,7 +685,7 @@ ivrRouter.all("/service-select", (req: Request, res: Response) => {
 
 ivrRouter.all("/service-choice", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
-  const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const lang = resolveLang(req, sessionId);
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getOrCreateSession(sessionId);
@@ -823,7 +833,7 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
 // ── Step 4: Provider Selection (MTN, Telecel, AT) ─────────────────────
 ivrRouter.all("/provider-select", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
-  const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const lang = resolveLang(req, sessionId);
   const baseUrl = getBaseUrl(req);
   const promptKey = lang === "twi" ? "network_selection" : "mtn_network_select";
 
@@ -841,7 +851,7 @@ ivrRouter.all("/provider-select", (req: Request, res: Response) => {
 
 ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
-  const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const lang = resolveLang(req, sessionId);
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getBaseUrl(req);
   const promptKey = lang === "twi" ? "network_selection" : "mtn_network_select";
@@ -950,7 +960,7 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
 
 ivrRouter.all("/action-select", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
-  const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const lang = resolveLang(req, sessionId);
   const baseUrl = getBaseUrl(req);
   const promptKey = lang === "twi" ? "mtn_menu" : "send_money_menu";
 
@@ -971,7 +981,7 @@ ivrRouter.all("/action-select", (req: Request, res: Response) => {
 
 ivrRouter.all("/action-choice", async (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
-  const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const lang = resolveLang(req, sessionId);
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "1").trim() as string;
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getOrCreateSession(sessionId);
@@ -1090,7 +1100,7 @@ ivrRouter.all("/action-choice", async (req: Request, res: Response) => {
 
 ivrRouter.all("/enter-recipient", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
-  const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const lang = resolveLang(req, sessionId);
   const baseUrl = getBaseUrl(req);
 
   const xml = `    <GetDigits timeout="35" finishOnKey="#" callbackUrl="${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}">
@@ -1112,7 +1122,7 @@ ivrRouter.all("/enter-recipient", (req: Request, res: Response) => {
 // ── Step 7: Recipient Verification (Real Resolver) ────────────────────
 ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
-  const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const lang = resolveLang(req, sessionId);
   const rawDigitsInput = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim();
   const bufferRes = KeypadBufferManager.appendDigit(sessionId, rawDigitsInput, "phone_number");
   const rawDigits = (bufferRes.submittedValue || bufferRes.bufferedValue || rawDigitsInput).replace(/#+$/, "");
@@ -1240,7 +1250,7 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
 // ── Step 7.5: Exit Grace Choice (7s wait -> start over transfer) ─────
 ivrRouter.all("/exit-grace-choice", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
-  const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const lang = resolveLang(req, sessionId);
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getOrCreateSession(sessionId);
@@ -1257,7 +1267,7 @@ ivrRouter.all("/exit-grace-choice", (req: Request, res: Response) => {
 
 ivrRouter.all("/recipient-verify-choice", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
-  const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const lang = resolveLang(req, sessionId);
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getOrCreateSession(sessionId);
@@ -1319,7 +1329,7 @@ ivrRouter.all("/recipient-verify-choice", (req: Request, res: Response) => {
 // ── Step 8: Amount Input ──────────────────────────────────────────────
 ivrRouter.all("/enter-amount", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
-  const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const lang = resolveLang(req, sessionId);
   const baseUrl = getBaseUrl(req);
 
   const xml = `    <GetDigits timeout="30" finishOnKey="#" callbackUrl="${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}">
@@ -1341,7 +1351,7 @@ ivrRouter.all("/enter-amount", (req: Request, res: Response) => {
 // ── Step 9: Amount Verification & Routing to PIN Entry ────────────────
 ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
-  const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const lang = resolveLang(req, sessionId);
   const rawDigitsInput = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim();
   const bufferRes = KeypadBufferManager.appendDigit(sessionId, rawDigitsInput, "amount");
   const rawDigits = (bufferRes.submittedValue || bufferRes.bufferedValue || rawDigitsInput).replace(/#+$/, "");
@@ -1436,7 +1446,7 @@ ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
 
 ivrRouter.all("/amount-readback-choice", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
-  const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const lang = resolveLang(req, sessionId);
   const dtmf = String(req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim();
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getOrCreateSession(sessionId);
@@ -1484,7 +1494,7 @@ ivrRouter.all("/amount-readback-choice", (req: Request, res: Response) => {
 // CRITICAL: NEVER plays static 500 GHS audio. Generates dynamic VoiceXML for caller's exact inputs!
 ivrRouter.all("/safe-confirmation", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
-  const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const lang = resolveLang(req, sessionId);
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getOrCreateSession(sessionId);
 
@@ -1544,14 +1554,14 @@ ivrRouter.all("/safe-confirmation", (req: Request, res: Response) => {
 
 ivrRouter.all(["/pin-handoff", "/confirm-speech"], (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
-  const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const lang = resolveLang(req, sessionId);
   return refuseVoicePin(res, sessionId, lang);
 });
 
 // ── Step 13: Safe Outcome & Payment Submission ────────────────────────
 ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
-  const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const lang = resolveLang(req, sessionId);
   const dtmf = (req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim() as string;
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getOrCreateSession(sessionId);
@@ -1819,7 +1829,7 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
 
 ivrRouter.all("/check-status", (req: Request, res: Response) => {
   const sessionId = String(req.query?.sessionId || req.body?.sessionId || "");
-  const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const lang = resolveLang(req, sessionId);
   const dtmf = String(req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim();
   const baseUrl = getBaseUrl(req);
   const session = transactionStateMachine.getSession(sessionId);
@@ -1908,7 +1918,7 @@ ivrRouter.all("/check-status", (req: Request, res: Response) => {
 
 ivrRouter.all("/post-success-choice", (req: Request, res: Response) => {
   const sessionId = String(req.query?.sessionId || req.body?.sessionId || "");
-  const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const lang = resolveLang(req, sessionId);
   const dtmf = String(req.body?.dtmfDigits || req.query?.dtmfDigits || "").trim();
   const baseUrl = getBaseUrl(req);
   const current = transactionStateMachine.getSession(sessionId);
@@ -1949,13 +1959,13 @@ function refuseVoicePin(res: Response, sessionId: string, lang: "en" | "twi"): v
 // PIN entry is exclusively handled by the provider's secure handset prompt.
 ivrRouter.all("/enter-pin", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
-  const lang = (req.query?.lang || req.body?.lang || "twi") as "en" | "twi";
+  const lang = resolveLang(req, sessionId);
   return refuseVoicePin(res, sessionId, lang);
 });
 
 ivrRouter.all("/verify-pin", (req: Request, res: Response) => {
   const sessionId = (req.query?.sessionId || req.body?.sessionId || "") as string;
-  const lang = (req.query?.lang || req.body?.lang || "twi") as "en" | "twi";
+  const lang = resolveLang(req, sessionId);
   return refuseVoicePin(res, sessionId, lang);
 });
 
