@@ -9,6 +9,7 @@ import { Router, Request, Response } from "express";
 import path from "path";
 import fs from "fs";
 import { config } from "../config/env";
+import { isInboundVoiceEnabled } from "../providers/telephony/inboundVoiceConfig";
 import { runRealSmokeTests } from "../services/healthService";
 import { recipientResolver } from "../providers/recipient/RecipientResolver";
 import { AUDIO_ASSET_INVENTORY, AUDIO_CATALOG, audioFileExists, getAudioFileSize } from "../audio/catalog";
@@ -250,6 +251,7 @@ const handleHealth = (req: Request, res: Response) => {
     environment: config.nodeEnv,
     demoMode: config.demoMode,
     atConfigured: config.at.configured,
+    inboundVoiceEnabled: isInboundVoiceEnabled(),
     geminiConfigured: config.gemini.configured,
     momoConfigured: config.momo.configured,
     baseUrl,

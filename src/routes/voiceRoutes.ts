@@ -27,6 +27,7 @@ import { durableTransactionStore } from "../services/durableTransactionStore";
 import { telephonyRateLimiter, adminRateLimiter, simulatorRateLimiter } from "../middleware/rateLimiter";
 import { requireAdminAuth } from "../middleware/adminAuth";
 import { aiSystem } from "../ai_system";
+import { isInboundVoiceEnabled } from "../providers/telephony/inboundVoiceConfig";
 import { brain } from "../ai_system/brain/brain";
 import { resolvePrompt, resolvePromptText, resolvePromptXml } from "../modules/ttsService";
 import {
@@ -159,11 +160,7 @@ voiceRouter.use((req: Request, res: Response, next) => {
       res.locals.isSimulator ||
       req.originalUrl.includes("/api/simulator")
     );
-    const atInboundVoiceSetting = process.env.AT_INBOUND_VOICE_ENABLED?.toLowerCase();
-    const atInboundVoiceEnabled = process.env.AT_CALL_PIPELINE?.toLowerCase() === "unified"
-      || atInboundVoiceSetting === "true" || (
-      atInboundVoiceSetting !== "false" && process.env.NODE_ENV !== "production"
-    );
+    const atInboundVoiceEnabled = isInboundVoiceEnabled();
 
     if (!isSimulator && !atInboundVoiceEnabled) {
       return res

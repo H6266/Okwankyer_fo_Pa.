@@ -23,6 +23,7 @@ import { resolvePromptText } from "../src/modules/ttsService";
 import { durableTransactionStore } from "../src/services/durableTransactionStore";
 import { recipientResolver } from "../src/providers/recipient/RecipientResolver";
 import { config } from "../src/config/env";
+import { isInboundVoiceEnabled } from "../src/providers/telephony/inboundVoiceConfig";
 
 let nextTestClientIp = 1;
 
@@ -204,8 +205,10 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
   });
 
   it("returns a playable menu for an enabled Africa's Talking Ringing callback", async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
     const previousSetting = process.env.AT_INBOUND_VOICE_ENABLED;
-    process.env.AT_INBOUND_VOICE_ENABLED = "true";
+    process.env.NODE_ENV = "production";
+    process.env.AT_INBOUND_VOICE_ENABLED = "false";
 
     try {
       const response = await request(app)
@@ -225,9 +228,22 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       expect(response.text).not.toContain("<Response/>");
       expect(response.text).not.toContain("<Reject/>");
     } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
       if (previousSetting === undefined) delete process.env.AT_INBOUND_VOICE_ENABLED;
       else process.env.AT_INBOUND_VOICE_ENABLED = previousSetting;
     }
+  });
+
+  it("keeps production inbound voice enabled despite a stale false env override", () => {
+    expect(isInboundVoiceEnabled({
+      NODE_ENV: "production",
+      AT_INBOUND_VOICE_ENABLED: "false",
+    })).toBe(true);
+    expect(isInboundVoiceEnabled({
+      NODE_ENV: "test",
+      AT_INBOUND_VOICE_ENABLED: "false",
+    })).toBe(false);
   });
 
   it("returns a valid silent action for completed AT callbacks", async () => {
