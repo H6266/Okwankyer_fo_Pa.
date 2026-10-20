@@ -78,6 +78,19 @@ describe("canonical audio asset registry", () => {
     expect(matchReplyToAudio("Completely unknown arbitrary prompt text that has no recording", "twi").match).toBe(false);
   });
 
+  it("never matches English manifest audio in Twi mode (no cross-language bleed)", () => {
+    const result = matchReplyToAudio("Welcome to Ɔkwankyerɛfo Pa", "twi");
+    expect(result.match).toBe(false);
+    expect(result.matchReason).not.toContain("manifest_english_crossmatch");
+  });
+
+  it("resolves missing Twi prompts with Twi recovery text, not English", () => {
+    const xml = resolvePromptXml("nonexistent_prompt", "twi", "https://example.test");
+    expect(xml).toContain("<Say");
+    expect(xml).not.toContain("Twi audio is unavailable");
+    expect(xml).not.toContain("Press 1 for English");
+  });
+
   it("maps canonical Twi URLs to the approved recordings in the existing library", () => {
     const twiRecording = getRecordingsByPromptId("OP19", "twi")[0];
     expect(twiRecording?.legacyRelativePath).toBe("Twi_library/Recipient_verify.mp3");

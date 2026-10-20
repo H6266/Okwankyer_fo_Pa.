@@ -214,7 +214,7 @@ function brainPromptElement(promptId: string | undefined, replyText: string, bas
   if (scriptText) {
     return `<Say voice="female">${escapeVoiceXml(scriptText)}</Say>`;
   }
-  return `<Say voice="female">${escapeVoiceXml(replyText)}</Say>`;
+  return language === "twi" ? `<Pause length="1"/>` : `<Say voice="female">${escapeVoiceXml(replyText)}</Say>`;
 }
 
 function canonicalPromptElement(
@@ -226,7 +226,7 @@ function canonicalPromptElement(
   const element = resolvePromptXml(promptKey, language, baseUrl, fallbackText);
   if (element) return element;
   return language === "twi"
-    ? `<Say voice="female">Twi audio is unavailable. Press 1 for English, or try again later.</Say>`
+    ? `<Say voice="female">Twi yɛnntumi pɛ. Sɛ wopɛ Borɔfo a, mia 1. Anaasɛ wo baabi a, twɛn kakra.</Say>`
     : `<Say voice="female">${escapeVoiceXml(fallbackText)}</Say>`;
 }
 

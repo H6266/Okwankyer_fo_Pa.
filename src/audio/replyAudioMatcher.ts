@@ -328,7 +328,7 @@ export function matchReplyToAudio(
     let { confidence, reason } = calculateMatchConfidence(text, recording.spokenText, []);
 
     // Also check if prompt manifest has an English script matching the text
-    if (confidence < minConfidence && recording.promptId) {
+    if (confidence < minConfidence && recording.promptId && wantedLanguage !== "twi") {
       const manifestEntry = getPromptManifestEntry(recording.promptId);
       if (manifestEntry?.english) {
         const engMatch = calculateMatchConfidence(text, manifestEntry.english, []);

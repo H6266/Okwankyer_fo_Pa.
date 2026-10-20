@@ -314,11 +314,11 @@ export function resolvePromptXml(
     return `<Play url="${baseUrl}${telephonyUrl}"/>`;
   }
   const text = resolvePromptText(key, lang);
-  if (lang === "en" && text) return `<Say voice="female">${escapeXmlText(text)}</Say>`;
+  if (text) return `<Say voice="female">${escapeXmlText(text)}</Say>`;
   if (lang === "twi") {
     const recovery = /^(?:welcome|language_selection|OP01|OP02)$/i.test(key)
-      ? "Twi audio is unavailable. Press 1 for English, or try again later."
-      : "Twi audio is unavailable right now. Please use the keypad or try again later.";
+      ? "Twi yɛnntumi pɛ. Sɛ wopɛ Borɔfo a, mia 1. Anaasɛ wo baabi a, twɛn kakra."
+      : "Twi yɛnntumi pɛ. Yɛsrɛ wo, mia nɔmba bi wɔ keypad no so anaa twɛn kakra.";
     return `<Say voice="female">${escapeXmlText(recovery)}</Say>`;
   }
   return null;
