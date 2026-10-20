@@ -432,7 +432,7 @@ describe('Phase 4: Readiness Hardening', () => {
       expect(res.status).toBe(200);
       expect(res.text).toContain('<Play url="http://');
       expect(res.text).toContain('/audio/Twi/Opening_voice_welcome_to_okwankyerefopa.mp3?format=mp3');
-      expect(res.text).toContain('<GetDigits timeout="8"');
+      expect(res.text).toContain('<GetDigits timeout="20"');
       expect(res.text).toContain('<Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4"');
     });
 

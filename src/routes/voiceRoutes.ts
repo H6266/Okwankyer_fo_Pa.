@@ -57,7 +57,7 @@ export const voiceRouter = Router();
 export const ivrRouter = Router();
 export const simulatorRouter = Router();
 const CALLER_RESPONSE_TIMEOUT_SECONDS = 90;
-const VOICE_INPUT_KEYPAD_GRACE_SECONDS = 8;
+const VOICE_INPUT_KEYPAD_GRACE_SECONDS = 20;
 
 export function getCollectionStagePromptId(slot: "recipient" | "amount" | string, fallbackPromptId: string): string {
   if (slot === "recipient") return "OP16";
