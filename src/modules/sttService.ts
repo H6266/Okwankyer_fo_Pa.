@@ -54,9 +54,12 @@ export {
 /**
  * Downloads a remote telephony audio recording with strict timeout and one retry.
  */
-async function fetchRemoteRecording(url: string, timeoutMs: number = 1500): Promise<Buffer> {
-  let attempt = 0;
-  while (attempt <= 1) {
+const AT_RECORDING_FETCH_TIMEOUT_MS = 5000;
+const MAX_AT_RECORDING_BYTES = 15 * 1024 * 1024;
+
+async function fetchRemoteRecording(url: string, timeoutMs: number = AT_RECORDING_FETCH_TIMEOUT_MS): Promise<Buffer> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -65,17 +68,40 @@ async function fetchRemoteRecording(url: string, timeoutMs: number = 1500): Prom
         headers["apiKey"] = process.env.AT_API_KEY;
       }
       const resp = await fetch(url, { headers, signal: controller.signal });
-      clearTimeout(timer);
-      if (resp.ok) {
-        const arrayBuf = await resp.arrayBuffer();
-        return Buffer.from(arrayBuf);
+      if (!resp.ok) {
+        const error = new Error(`AT_RECORDING_HTTP_${resp.status}`);
+        if (resp.status >= 500 && attempt === 0) {
+          lastError = error;
+          continue;
+        }
+        throw error;
       }
-    } catch {
+
+      const contentLength = Number(resp.headers.get("content-length") || 0);
+      if (contentLength > MAX_AT_RECORDING_BYTES) {
+        throw new Error("AT_RECORDING_TOO_LARGE");
+      }
+      const arrayBuffer = await resp.arrayBuffer();
+      if (arrayBuffer.byteLength > MAX_AT_RECORDING_BYTES) {
+        throw new Error("AT_RECORDING_TOO_LARGE");
+      }
+      if (arrayBuffer.byteLength < 300) {
+        throw new Error("AT_RECORDING_EMPTY");
+      }
+      return Buffer.from(arrayBuffer);
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : "";
+      if (message.startsWith("AT_RECORDING_HTTP_4") || message === "AT_RECORDING_TOO_LARGE" || message === "AT_RECORDING_EMPTY") {
+        throw error;
+      }
+      if (attempt === 1) break;
+    } finally {
       clearTimeout(timer);
     }
-    attempt++;
   }
-  throw new Error(`Failed to fetch audio recording from remote within deadline.`);
+  const reason = lastError instanceof Error ? lastError.message : "network timeout";
+  throw new Error(`AT_RECORDING_DOWNLOAD_FAILED: ${reason}`);
 }
 
 /**
@@ -314,11 +340,7 @@ export class TelephonySpeechService implements SpeechToTextProvider {
       (audioPayload.startsWith("http://") || audioPayload.startsWith("https://"))
     ) {
       try {
-        const buffer = await fetchRemoteRecording(audioPayload, 1500);
-        if (buffer.length < 300) {
-          buffer.fill(0);
-          return { text: "empty", confidence: 0.0, provider: "TelephonySpeechService" };
-        }
+        const buffer = await fetchRemoteRecording(audioPayload);
 
         const recordingPath = new URL(audioPayload).pathname.toLowerCase();
         const extension = recordingPath.match(/\.[a-z0-9]+$/)?.[0];
@@ -333,7 +355,15 @@ export class TelephonySpeechService implements SpeechToTextProvider {
           : "audio/mpeg";
         return await transcribeAudioBufferUnified(buffer, mime, step, 3000, languageHint);
       } catch (err: any) {
-        return { text: "empty", confidence: 0.0, provider: "TelephonySpeechService" };
+        const reason = String(err?.message || "AT_RECORDING_DOWNLOAD_FAILED").split(":")[0];
+        auditLogger.log("warn", "STT", `AT recording unavailable (${reason}); returning to the current audio/keypad prompt.`);
+        return {
+          text: "empty",
+          confidence: 0.0,
+          confidenceSource: "unavailable",
+          languageDetected: languageHint || "twi",
+          provider: "AT_RECORDING_UNAVAILABLE",
+        };
       }
     }
 

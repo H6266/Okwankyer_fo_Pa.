@@ -253,6 +253,8 @@ const handleHealth = (req: Request, res: Response) => {
     atConfigured: config.at.configured,
     inboundVoiceEnabled: isInboundVoiceEnabled(),
     geminiConfigured: config.gemini.configured,
+    hciLabAsrConfigured: config.hciLab.configured,
+    atRecordingDownloadConfigured: Boolean(config.at.apiKey),
     momoConfigured: config.momo.configured,
     baseUrl,
     callbackUrl: `${baseUrl}/voice-menu`,
