@@ -577,5 +577,28 @@ describe("Ɔkwankyerɛfo Pa - 10-System Cognitive Engine Master Test Suite", () 
       expect(health.subsystems.memory).toBe(true);
       expect(health.subsystems.safetyGate).toBe(true);
     });
+
+    it("keeps local call safeguards available when Gemini model access is denied", async () => {
+      const previousApiKey = process.env.GEMINI_API_KEY;
+      process.env.GEMINI_API_KEY = "test-key";
+      const verifyModels = vi.spyOn(aiBootstrap, "verifyModelsAgainstSdk").mockResolvedValue({
+        verified: false,
+        modelsFound: [],
+        errors: ["Gemini API returned 403 Permission Denied."],
+      });
+
+      try {
+        const health = await aiBootstrap.initialize();
+        expect(health.status).toBe("DEGRADED");
+        expect(health.zeroPinPolicyVerified).toBe(true);
+        expect(health.subsystems.safetyGate).toBe(true);
+        expect(health.subsystems.navigation).toBe(true);
+        expect(health.errors).toContain("Gemini API returned 403 Permission Denied.");
+      } finally {
+        verifyModels.mockRestore();
+        if (previousApiKey === undefined) delete process.env.GEMINI_API_KEY;
+        else process.env.GEMINI_API_KEY = previousApiKey;
+      }
+    });
   });
 });

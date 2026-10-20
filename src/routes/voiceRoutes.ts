@@ -143,7 +143,32 @@ const TELEPHONY_ROUTES = new Set([
 
 // Apply rate limiting & Africa's Talking webhook verification strictly to telephony routes
 voiceRouter.use((req: Request, res: Response, next) => {
-  if (TELEPHONY_ROUTES.has(req.path)) {
+  const isRootAtWebhook = req.path === "/" && req.method === "POST" && Boolean(
+    req.body?.sessionId ||
+    req.body?.callerNumber ||
+    req.body?.phoneNumber ||
+    req.body?.isActive !== undefined ||
+    req.body?.direction ||
+    req.body?.callSessionState
+  );
+
+  if (TELEPHONY_ROUTES.has(req.path) || isRootAtWebhook) {
+    const isSimulator = Boolean(
+      res.locals.isSimulator ||
+      req.originalUrl.includes("/api/simulator")
+    );
+    const atInboundVoiceSetting = process.env.AT_INBOUND_VOICE_ENABLED?.toLowerCase();
+    const atInboundVoiceEnabled = atInboundVoiceSetting === "true" || (
+      atInboundVoiceSetting !== "false" && process.env.NODE_ENV !== "production"
+    );
+
+    if (!isSimulator && !atInboundVoiceEnabled) {
+      return res
+        .status(200)
+        .type("application/xml; charset=utf-8")
+        .send('<?xml version="1.0" encoding="UTF-8"?>\n<Response/>');
+    }
+
     return telephonyRateLimiter(req, res, () => verifyAtWebhook(req, res, () => {
       const dtmf = req.body?.dtmfDigits ?? req.query?.dtmfDigits;
       const sessionId = req.body?.sessionId ?? req.query?.sessionId;

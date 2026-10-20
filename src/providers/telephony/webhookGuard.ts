@@ -148,7 +148,7 @@ export function verifyAtWebhook(req: Request, res: Response, next: NextFunction)
       rejectWithReason(401, "Missing AT_WEBHOOK_SECRET signature");
       return;
     }
-    auditLogger.log("info", "TELEPHONY", `Initial inbound call connected for session ${sessionId} (automatic pass-through)`);
+    auditLogger.log("info", "TELEPHONY", `Telephony callback accepted for session ${sessionId} (automatic pass-through)`);
   } else {
     // Open webhook mode (when AT_WEBHOOK_SECRET is not set)
     auditLogger.log(

@@ -166,6 +166,39 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(languagePrompt.text).not.toContain("Welcome to Ɔkwankyerɛfo Pa");
   });
 
+  it("silently rejects live AT voice while leaving the phone simulator available", async () => {
+    const previousSetting = process.env.AT_INBOUND_VOICE_ENABLED;
+    process.env.AT_INBOUND_VOICE_ENABLED = "false";
+
+    try {
+      const liveResponse = await request(app)
+        .post("/voice-menu")
+        .send({ sessionId: "AT-VOICE-DISABLED-001", callerNumber: "+233543546010", isActive: "1" });
+
+      expect(liveResponse.status).toBe(200);
+      expect(liveResponse.text).toContain("<Response/>");
+      expect(liveResponse.text).not.toMatch(/<Say\b|<Play\b|<GetDigits\b|<Record\b|<Reject\b/i);
+
+      const rootWebhookResponse = await request(app)
+        .post("/")
+        .send({ sessionId: "AT-VOICE-DISABLED-ROOT-001", callerNumber: "+233543546010", isActive: "1" });
+
+      expect(rootWebhookResponse.status).toBe(200);
+      expect(rootWebhookResponse.text).toContain("<Response/>");
+      expect(rootWebhookResponse.text).not.toMatch(/<Say\b|<Play\b|<GetDigits\b|<Record\b/i);
+
+      const simulatorResponse = await request(app)
+        .post("/api/simulator/voice-menu")
+        .send({ sessionId: "AT-VOICE-DISABLED-SIM-001", phoneNumber: "+233543546010" });
+
+      expect(simulatorResponse.status).toBe(200);
+      expect(simulatorResponse.text).toContain("/audio/Twi/Opening_voice_welcome_to_okwankyerefopa.mp3");
+    } finally {
+      if (previousSetting === undefined) delete process.env.AT_INBOUND_VOICE_ENABLED;
+      else process.env.AT_INBOUND_VOICE_ENABLED = previousSetting;
+    }
+  });
+
   it("waits for # in recipient and amount DTMF collection", async () => {
     const sessionId = "AT-DTMF-HASH-001";
     const recipientPrompt = await request(app)
