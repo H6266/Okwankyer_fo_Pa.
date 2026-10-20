@@ -413,18 +413,20 @@ export const PhoneSimulatorPage: React.FC = () => {
     if (!callActiveRef.current) return;
     const curLang = languageRef.current || "twi";
     const isTwi = curLang === "twi";
-    const op67Text = isTwi
-      ? "Mante deɛ wofiri wo hɔ bae, yɛsrɛ wo ma yɛn mmuaeɛ!"
-      : "I did not get any response from you, please give us a response!";
+    const op67Text = resolvePromptText("OP67", curLang)
+      || (isTwi
+        ? "Mante deɛ wofiri wo hɔ bae, yɛsrɛ wo ma yɛn mmuaeɛ!"
+        : "I did not get any response from you, please give us a response!");
+    const op67AudioUrl = resolvePrompt("OP67", curLang);
     addLog("system", "⏱️ [90s Silence Watchdog] No caller response; triggering OP67 and retaining the current step.");
     addChatTurn({
       sender: "system",
       text: `⏱️ OP67: "${op67Text}"`,
       promptId: "OP67",
-      audioSource: "synthesis",
+      audioSource: op67AudioUrl ? "studio" : "synthesis",
     });
 
-    await audioPlaybackController.speakText(op67Text, { language: curLang });
+    await audioPlaybackController.speakText(op67Text, { language: curLang, promptId: "OP67" });
   }, [addLog, addChatTurn]);
 
   const armSilenceWatchdog = useCallback(() => {

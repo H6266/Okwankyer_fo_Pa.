@@ -236,7 +236,7 @@ export async function startServer() {
     const parsed = parseInt(process.argv[portIdx + 1], 10);
     if (!isNaN(parsed)) portArg = parsed;
   }
-  const activePort = Number(portArg || (isDev ? 3000 : (process.env.PORT ? process.env.PORT : 3000)));
+  const activePort = Number(portArg || process.env.PORT || 4174);
 
   let hostArg = "0.0.0.0";
   const hostIdx = process.argv.indexOf("--host");

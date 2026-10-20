@@ -815,6 +815,13 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     const outcomeRes = await request(app)
       .post("/safe-outcome")
       .send({ sessionId, lang: "en", dtmfDigits: "1" });
+    expect(outcomeRes.text).toContain("Waiting_confirmation.mp3");
+    expect(outcomeRes.text).toContain("/submit-transfer?");
+    expect(startSaga).not.toHaveBeenCalled();
+
+    const handoffRes = await request(app)
+      .post("/submit-transfer")
+      .query({ sessionId, lang: "en" });
     expect(startSaga).toHaveBeenCalledWith(expect.objectContaining({
       sessionId,
       senderPhone: "+233543546010",
@@ -822,12 +829,13 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       amount: 75,
       network: "MTN",
     }));
-    expect(outcomeRes.text).toContain("Approve it on your handset.");
-    expect(outcomeRes.text).not.toContain("Congratulations");
-    expect(outcomeRes.text).not.toContain("<Record");
-    expect(outcomeRes.text).toContain("/check-status");
-    expect(outcomeRes.text).toContain('timeout="90"');
-    expect(outcomeRes.text).not.toContain("<Reject/>");
+    expect(handoffRes.text).toContain("Approve it on your handset.");
+    expect(handoffRes.text).not.toContain("Waiting_confirmation.mp3");
+    expect(handoffRes.text).not.toContain("Congratulations");
+    expect(handoffRes.text).not.toContain("<Record");
+    expect(handoffRes.text).toContain("/check-status");
+    expect(handoffRes.text).toContain('timeout="90"');
+    expect(handoffRes.text).not.toContain("<Reject/>");
 
     const duplicateOutcome = await request(app)
       .post("/safe-outcome")
@@ -886,13 +894,23 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       mode: "MOCK_PROVIDER",
     });
     try {
-      const handoff = await request(app)
+      const processing = await request(app)
         .post("/safe-outcome")
         .send({ sessionId, lang: "twi", dtmfDigits: "1" });
+
+      expect(startSaga).toHaveBeenCalledTimes(0);
+      expect(processing.text).toContain("Waiting_confirmation.mp3");
+      expect(processing.text).toContain("/submit-transfer?");
+      expect(startSaga).toHaveBeenCalledTimes(0);
+
+      const handoff = await request(app)
+        .post("/submit-transfer")
+        .query({ sessionId, lang: "twi" });
 
       expect(startSaga).toHaveBeenCalledTimes(1);
       expect(handoff.headers["x-transaction-outcome"]).toBe("PENDING");
       expect(handoff.text).toContain("Pin_Handoff.mp3");
+      expect(handoff.text).not.toContain("Waiting_confirmation.mp3");
       expect(handoff.text).not.toContain("/verify-pin");
       expect(handoff.text).not.toContain('numDigits="4"');
       expect(transactionStateMachine.getSession(sessionId)?.state).toBe("PIN_PENDING");
@@ -1275,6 +1293,13 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     const handoffRes = await request(app)
       .post("/safe-outcome")
       .send({ sessionId, lang: "en", dtmfDigits: "1" });
+    expect(handoffRes.text).toContain("Waiting_confirmation.mp3");
+    expect(handoffRes.text).toContain("/submit-transfer?");
+    expect(startSaga).not.toHaveBeenCalled();
+
+    const pendingRes = await request(app)
+      .post("/submit-transfer")
+      .query({ sessionId, lang: "en" });
     expect(startSaga).toHaveBeenCalledWith(expect.objectContaining({
       sessionId,
       senderPhone: "+233543546010",
@@ -1283,10 +1308,11 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       network: "MTN",
     }));
     startSaga.mockRestore();
-    expect(handoffRes.text).toContain("Approve it on your handset.");
-    expect(handoffRes.text).toContain("/check-status");
-    expect(handoffRes.text).toContain('timeout="90"');
-    expect(handoffRes.text).not.toContain("<Reject/>");
+    expect(pendingRes.text).toContain("Approve it on your handset.");
+    expect(pendingRes.text).not.toContain("Waiting_confirmation.mp3");
+    expect(pendingRes.text).toContain("/check-status");
+    expect(pendingRes.text).toContain('timeout="90"');
+    expect(pendingRes.text).not.toContain("<Reject/>");
 
     const stateAfterHandoff = transactionStateMachine.getSession(sessionId);
     expect(stateAfterHandoff?.state).toBe("PIN_PENDING");

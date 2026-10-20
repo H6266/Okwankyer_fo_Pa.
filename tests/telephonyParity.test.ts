@@ -241,13 +241,21 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
     expect(readback.text).toContain("/safe-outcome");
     expect(readback.text).not.toContain("numDigits=\"4\"");
 
-    const handoff = await request(app)
+    const processing = await request(app)
       .post(`/safe-outcome?sessionId=${flowSessionId}&lang=en`)
       .send({ dtmfDigits: "1" });
+
+    expect(processing.status).toBe(200);
+    expect(processing.text).toContain("Waiting_confirmation.mp3");
+    expect(processing.text).toContain("/submit-transfer?");
+
+    const handoff = await request(app)
+      .post(`/submit-transfer?sessionId=${flowSessionId}&lang=en`);
 
     expect(handoff.status).toBe(200);
     expect(handoff.headers["x-transaction-outcome"]).toBe("PENDING");
     expect(handoff.text).toContain("private authorization prompt");
+    expect(handoff.text).not.toContain("Waiting_confirmation.mp3");
     expect(handoff.text).not.toContain("transaction was successful");
     expect(handoff.text).not.toContain("Success.m4a");
     expect(transactionStateMachine.getSession(flowSessionId)?.state).toBe("PIN_PENDING");

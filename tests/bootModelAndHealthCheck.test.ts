@@ -25,6 +25,29 @@ import {
   getFullAiHealthReport,
 } from "../src/services/healthService";
 import { aiRouter } from "../src/routes/aiRoutes";
+import { loadConfig } from "../src/config/env";
+
+describe("0. Local dev port defaults", () => {
+  it("uses the non-conflicting default local port in development", () => {
+    const origNodeEnv = process.env.NODE_ENV;
+    const origPort = process.env.PORT;
+
+    try {
+      process.env.NODE_ENV = "development";
+      delete process.env.PORT;
+
+      const cfg = loadConfig();
+      expect(cfg.port).toBe(4174);
+      expect(cfg.baseUrl).toBe("http://localhost:4174");
+    } finally {
+      if (origNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = origNodeEnv;
+
+      if (origPort === undefined) delete process.env.PORT;
+      else process.env.PORT = origPort;
+    }
+  });
+});
 
 describe("1. Model Verification at Boot (verifyModelsAtStartup)", () => {
   it("aborts production start if GEMINI_API_KEY is missing", async () => {

@@ -137,6 +137,7 @@ const TELEPHONY_ROUTES = new Set([
   "/amount-readback-choice",
   "/safe-confirmation",
   "/safe-outcome",
+  "/submit-transfer",
   "/check-status",
   "/post-success-choice",
   "/pin-handoff",
@@ -1898,12 +1899,55 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
       );
     }
 
+    const waitingText = lang === "twi"
+      ? "Wo transfer no rebɛn sɛ provider no agye atom. Yɛsrɛ wo twɛn."
+      : "We are sending your transfer request now. Please wait for the provider's confirmation.";
+    return xmlResponse(
+      res,
+      `    ${canonicalPromptElement("waiting_confirmation", lang, baseUrl, waitingText)}
+    <Redirect>${baseUrl}/submit-transfer?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}</Redirect>`
+    );
+  } catch (err: any) {
+    auditLogger.log("error", "MOMO", `Handoff execution failed: ${err.message}`, sessionId);
+    transactionStateMachine.transition(sessionId, "FAILED", {
+      failureReason: err.message,
+    });
+
+    const errorMsg = lang === "twi"
+      ? "Fakyɛ yɛn, sika no antumi ankɔ. Yɛsrɛ wo, bɔ mmɔden biom akyire yi."
+      : "We are sorry, your transfer could not be initiated at this time. Please try again later.";
+    return xmlResponse(res, `    ${canonicalPromptElement("system_error", lang, baseUrl, errorMsg)}
+    <Reject/>`);
+  } finally {
+    paymentInitiations.delete(session);
+  }
+});
+
+ivrRouter.all("/submit-transfer", async (req: Request, res: Response) => {
+  const sessionId = String(req.query?.sessionId || req.body?.sessionId || "");
+  const lang = (req.query?.lang || req.body?.lang || "en") as "en" | "twi";
+  const baseUrl = getBaseUrl(req);
+  const session = transactionStateMachine.getSession(sessionId);
+
+  if (!session) {
+    return xmlResponse(res, `    ${canonicalPromptElement("system_error", lang, baseUrl, "Transaction session was not found.")}
+    <Reject/>`);
+  }
+  if (session.state === "PIN_PENDING" || session.state === "COMPLETED") {
+    return xmlResponse(res, `    <Redirect>${baseUrl}/check-status?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}</Redirect>`);
+  }
+  if (session.state !== "CONFIRMED" || paymentInitiations.has(session)) {
+    return xmlResponse(res, `    ${canonicalPromptElement("system_error", lang, baseUrl, "This transfer is not ready to be submitted.")}
+    <Reject/>`);
+  }
+
+  paymentInitiations.add(session);
+  try {
     transactionStateMachine.transition(sessionId, "PIN_PENDING", {
       momoReferenceId: session.referenceId,
       pinGatePassed: true,
       transactionInitiated: true,
     });
-
     const handoffText = lang === "twi"
       ? "Pene so wɔ wo handset so. Mfa wo PIN nka wɔ telefon frɛ yi mu."
       : "Approve it on your handset. Do not enter or say your PIN on this call.";
@@ -1912,17 +1956,17 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
       const result = await paymentSaga.executeConfirmedTransferSaga({
         sessionId,
         senderPhone: session.callerPhone,
-        recipientPhone: session.recipientPhone,
+        recipientPhone: session.recipientPhone!,
         recipientName: session.recipientName || undefined,
-        amount: session.amount,
-        network: session.network,
+        amount: session.amount!,
+        network: session.network || undefined,
         confirmedDraftHash: session.idempotencyKey,
       });
 
       if (result.status === "COMPLETED") {
         transactionStateMachine.transition(sessionId, "COMPLETED");
         res.set("X-Payment-Status", "SUCCESSFUL");
-        return xmlResponse(res, `    <Redirect>${baseUrl}/check-status?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+        return xmlResponse(res, `    <Redirect>${baseUrl}/check-status?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}</Redirect>`);
       }
 
       if (result.status === "FAILED") {
@@ -1941,22 +1985,19 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
       const submittedText = lang === "twi"
         ? "Yɛde wo request no akɔma provider no. Eyi nkyerɛ sɛ transfer no awie."
         : "Your request has been submitted. This does not mean the transfer is complete.";
-      const waitingText = lang === "twi"
-        ? "Yɛretwɛn provider no mmuae. Mfa transfer foforɔ mmɔ mmɔden."
-        : "We are waiting for provider confirmation. Do not start another transfer.";
       const responseOptions = lang === "twi"
         ? "Mia 1 sɛ wopɛ sɛ yɛsan hwɛ provider no tebea. Mia 0 sɛ wopɛ sɛ wopɛ frɛ no mu."
         : "Press 1 to check provider status again, or 0 to end the call.";
-      const statusPrompt = `${handoffText} ${submittedText} ${waitingText} ${responseOptions}`;
-      const pendingXml = `    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/check-status?sessionId=${sessionId}&amp;lang=${lang}">
+      const statusPrompt = `${handoffText} ${submittedText} ${responseOptions}`;
+      const pendingXml = `    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/check-status?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}">
         ${canonicalPromptElement("pin_handoff", lang, baseUrl, handoffText)}
         ${canonicalPromptElement("submitted", lang, baseUrl, submittedText)}
-        ${canonicalPromptElement("waiting_confirmation", lang, baseUrl, waitingText)}
         <Say voice="female">${escapeVoiceXml(responseOptions)}</Say>
     </GetDigits>`;
       return xmlResponse(res, pendingXml, {
         type: "transaction_pending",
         stepId: "waiting-confirmation",
+        replyKey: "OP46",
         replyText: statusPrompt,
         outcome: "PENDING",
       });
@@ -1969,23 +2010,21 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
       const endOptions = lang === "twi"
         ? "Mia 1 sɛ wopɛ sɛ yɛsan hwɛ provider no tebea. Mia 0 sɛ wopɛ sɛ wopɛ frɛ no mu."
         : "Press 1 to check provider status again, or 0 to end the call.";
-      const unknownXml = `    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/check-status?sessionId=${sessionId}&amp;lang=${lang}">
+      const unknownXml = `    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/check-status?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}">
         ${canonicalPromptElement("check_final_status", lang, baseUrl, unknownPrompt)}
         <Say voice="female">${escapeVoiceXml(endOptions)}</Say>
     </GetDigits>`;
       return xmlResponse(res, unknownXml, {
         type: "transaction_pending",
         stepId: "waiting-confirmation",
+        replyKey: "OP50",
         replyText: `${unknownPrompt} ${endOptions}`,
         outcome: "PENDING",
       });
     }
-  } catch (err: any) {
-    auditLogger.log("error", "MOMO", `Handoff execution failed: ${err.message}`, sessionId);
-    transactionStateMachine.transition(sessionId, "FAILED", {
-      failureReason: err.message,
-    });
-
+  } catch (error: any) {
+    auditLogger.log("error", "MOMO", `Handoff execution failed: ${error.message}`, sessionId);
+    transactionStateMachine.transition(sessionId, "FAILED", { failureReason: error.message });
     const errorMsg = lang === "twi"
       ? "Fakyɛ yɛn, sika no antumi ankɔ. Yɛsrɛ wo, bɔ mmɔden biom akyire yi."
       : "We are sorry, your transfer could not be initiated at this time. Please try again later.";

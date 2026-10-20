@@ -12,6 +12,13 @@ import { twiAmountSynthesizer } from "../src/ai_system/speech/tts/twiAmountSynth
 import { ttsRouter } from "../src/ai_system/speech/tts/ttsRouter";
 
 describe("TTS Studio Prompt Registry & Fallback Chain Invariants", () => {
+  it("resolves approved silence and transfer-wait recordings before synthesis", () => {
+    expect(resolvePrompt("OP67", "twi")).toBe("/audio/Twi/Please_respond.mp3");
+    expect(resolvePrompt("OP06", "twi")).toBe("/audio/Twi/Processing.mp3");
+    expect(resolvePrompt("OP46", "twi")).toBe("/audio/Twi/Waiting_confirmation.mp3");
+    expect(resolvePrompt("OP46", "en")).toBeNull();
+  });
+
   it("does not route fixed or unknown prompts into TTS", () => {
     expect(resolvePrompt("unknown_input", "twi")).toBeNull();
     expect(resolvePrompt("unknown_input", "en")).toBeNull();
