@@ -119,6 +119,9 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .post(`/enter-recipient?sessionId=${sessionId}&lang=en`);
     expect(recipientPrompt.text).toContain("/audio/Twi/Enter_recipient.mp3?format=mp3");
     expect(recipientPrompt.text).not.toContain("<Say");
+    const recipientGetDigits = recipientPrompt.text.match(/<GetDigits\b[^>]*>([\s\S]*?)<\/GetDigits>/i)?.[1] || "";
+    expect([...recipientGetDigits.matchAll(/<(?:Say|Play)\b/gi)]).toHaveLength(1);
+    expect(recipientPrompt.text.indexOf("/Send_money_selected.mp3")).toBeLessThan(recipientPrompt.text.indexOf("<GetDigits"));
   });
 
   it("keeps the Twi call open and replays direct audio when menu callbacks have no DTMF", async () => {

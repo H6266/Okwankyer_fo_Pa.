@@ -32,8 +32,9 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
 
     expect(body).toContain("<Response>");
     const prompts = [...body.matchAll(/<Play[^>]*url="([^"]+)"/gi)].map((match) => match[1]);
-    expect(prompts.length).toBeGreaterThanOrEqual(0);
-    expect(body).toContain("Sɛ wopɛ Borɔfo a, mia 1. Sɛ wopɛ Twi a, mia 2.");
+    expect(prompts).toHaveLength(2);
+    expect(prompts[0]).toContain("/audio/Twi/Opening_voice_welcome_to_okwankyerefopa.mp3?format=mp3");
+    expect(prompts[1]).toContain("/audio/Twi/Language_selection.mp3?format=mp3");
     expect(body).toMatch(/\/(?:language-selection|service-choice)\?sessionId=/);
     expect(body).not.toContain("Welcome back");
   });

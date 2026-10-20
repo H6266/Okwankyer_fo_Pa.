@@ -222,6 +222,20 @@ function escapeVoiceXml(text: string): string {
     .replace(/'/g, "&apos;");
 }
 
+function enforceSingleGetDigitsPrompt(xml: string): string {
+  return xml.replace(/(<GetDigits\b[^>]*>)([\s\S]*?)(<\/GetDigits>)/gi, (action, openTag, body, closeTag) => {
+    const promptPattern = /<Play\b[^>]*\/>|<Say\b[^>]*>[\s\S]*?<\/Say>/gi;
+    const prompts = [...body.matchAll(promptPattern)];
+    if (prompts.length <= 1) return action;
+
+    const finalPrompt = prompts[prompts.length - 1][0];
+    const precedingPrompts = prompts.slice(0, -1).map((prompt) => prompt[0].trim()).join("\n    ");
+    const remainingBody = body.replace(promptPattern, "").trim();
+    const collectorBody = remainingBody ? `${remainingBody}\n        ${finalPrompt}` : finalPrompt;
+    return `${precedingPrompts}\n    ${openTag}${collectorBody}${closeTag}`;
+  });
+}
+
 function redactSpeechForDiagnostics(text: string): string {
   return text
     .replace(/\b(0[235]\d{8}|233[235]\d{8})\b/g, "[PHONE]")
@@ -496,6 +510,7 @@ function xmlResponse(res: Response, content: string, decision?: (Partial<IvrDeci
   if (!/<GetDigits\b/i.test(xml)) {
     xml = xml.replace(/(<Record\b[^>]*\btimeout=["'])\d+(["'])/gi, `$1${CALLER_RESPONSE_TIMEOUT_SECONDS}$2`);
   }
+  xml = enforceSingleGetDigitsPrompt(xml);
   xml = xml.replace(/(<Say\b[^>]*\bvoice=["'])female(["'])/gi, "$1woman$2");
   res.set("Content-Type", "application/xml; charset=utf-8");
   res.send(`<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n${xml}\n</Response>`);
@@ -548,9 +563,18 @@ export const handleInboundCall = (req: Request, res: Response) => {
       ? "Akwaaba kɔ Ɔkwankyerɛfo Pa. Sɛ wopɛ Borɔfo a, mia 1. Sɛ wopɛ Twi a, mia 2."
       : "Welcome to Ɔkwankyerɛfo Pa. For English, press 1. For Twi, press 2."
   );
+  const languagePrompt = canonicalPromptElement(
+    "language_selection",
+    initialLang,
+    baseUrl,
+    initialLang === "twi"
+      ? "Sɛ wopɛ Borɔfo a, mia 1. Sɛ wopɛ Twi a, mia 2."
+      : "For English, press 1. For Twi, press 2."
+  );
 
   const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?sessionId=${sessionId}&amp;lang=${initialLang}">
         ${welcomePrompt}
+        ${languagePrompt}
     </GetDigits>
     <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=language-selection&amp;sessionId=${sessionId}&amp;retry=0"/>`;
 
