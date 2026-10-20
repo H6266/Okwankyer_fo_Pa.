@@ -25,6 +25,7 @@ import { durableTransactionStore } from "../services/durableTransactionStore";
 import { telephonyRateLimiter, adminRateLimiter, simulatorRateLimiter } from "../middleware/rateLimiter";
 import { requireAdminAuth } from "../middleware/adminAuth";
 import { aiSystem } from "../ai_system";
+import { getCachedCallAudio, processCanonicalCallTurn } from "../ai_system/voice/callTurnPipeline";
 import { brain } from "../ai_system/brain/brain";
 import { resolvePrompt, resolvePromptText, resolvePromptXml } from "../modules/ttsService";
 import {
@@ -117,6 +118,7 @@ const TELEPHONY_ROUTES = new Set([
   "/telephony/callback",
   "/api/voice",
   "/api/voice/callback",
+  "/voice-turn",
   "/language-selection",
   "/service-select",
   "/service-choice",
@@ -172,7 +174,11 @@ voiceRouter.use((req: Request, res: Response, next) => {
     return telephonyRateLimiter(req, res, () => verifyAtWebhook(req, res, () => {
       const dtmf = req.body?.dtmfDigits ?? req.query?.dtmfDigits;
       const sessionId = req.body?.sessionId ?? req.query?.sessionId;
-      if (typeof dtmf === "string" && dtmf.length > 0 && typeof sessionId === "string" && sessionId.length > 0) {
+      if (req.path !== "/voice-turn"
+        && typeof dtmf === "string"
+        && dtmf.length > 0
+        && typeof sessionId === "string"
+        && sessionId.length > 0) {
         const safeDtmf = (req.path.includes("pin") || dtmf.length === 4)
           ? "****"
           : dtmf.length >= 9 && /^\d+$/.test(dtmf)
@@ -516,6 +522,157 @@ export function getBaseUrl(req: Request): string {
 }
 
 // ── Step 1: Inbound Call Entry Point ──────────────────────────────────
+function getUnifiedCallCallbackUrl(
+  baseUrl: string,
+  sessionId: string,
+  currentScreen: string,
+  currentStep: string,
+  language: "en" | "tw",
+  inputType: "dtmf" | "speech",
+): string {
+  const query = new URLSearchParams({
+    sessionId,
+    screen: currentScreen,
+    step: currentStep,
+    lang: language,
+    inputType,
+  });
+  return `${baseUrl}/voice-turn?${query.toString()}`;
+}
+
+function unifiedCallPromptElement(text: string, language: "en" | "tw", baseUrl: string, audioUrl?: string | null): string {
+  if (audioUrl) {
+    const absoluteAudioUrl = /^https?:\/\//i.test(audioUrl) ? audioUrl : `${baseUrl}${audioUrl}`;
+    return `<Play url="${escapeVoiceXml(absoluteAudioUrl)}"/>`;
+  }
+  const audioLanguage = language === "tw" ? "twi" : "en";
+  const match = matchReplyToAudio(text, audioLanguage);
+  if (match.match && match.audioUrl) {
+    return `<Play url="${escapeVoiceXml(`${baseUrl}${match.audioUrl}`)}"/>`;
+  }
+  return `<Say voice="${language === "tw" ? "woman" : "alice"}">${escapeVoiceXml(text)}</Say>`;
+}
+
+function unifiedCallInputResponse(
+  text: string,
+  sessionId: string,
+  currentScreen: string,
+  currentStep: string,
+  language: "en" | "tw",
+  baseUrl: string,
+  audioUrl?: string | null,
+): string {
+  const prompt = unifiedCallPromptElement(text, language, baseUrl, audioUrl);
+  const digitsCallback = escapeVoiceXml(getUnifiedCallCallbackUrl(
+    baseUrl, sessionId, currentScreen, currentStep, language, "dtmf",
+  ));
+  const speechCallback = escapeVoiceXml(getUnifiedCallCallbackUrl(
+    baseUrl, sessionId, currentScreen, currentStep, language, "speech",
+  ));
+  const singleChoiceStep = /^(welcome|confirm|service-select|action-select|recipient-verify-choice)$/i.test(currentStep);
+  const numDigits = singleChoiceStep ? ' numDigits="1"' : "";
+
+  return `    <GetDigits timeout="12" finishOnKey="#"${numDigits} callbackUrl="${digitsCallback}">\n        ${prompt}\n    </GetDigits>\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="10" timeout="8" callbackUrl="${speechCallback}"/>`;
+}
+
+export const handleUnifiedInboundCall = (req: Request, res: Response) => {
+  const sessionId = String(req.body?.sessionId || req.query?.sessionId || `call_${Date.now()}`);
+  const callState = String(req.body?.callSessionState || req.query?.callSessionState || "").toLowerCase();
+  const isActive = req.body?.isActive ?? req.query?.isActive;
+  if (isActive === "0" || callState === "completed" || callState === "complete") {
+    return xmlResponse(res, "");
+  }
+
+  const callerNumber = String(req.body?.callerNumber || req.query?.callerNumber || req.body?.phoneNumber || "caller");
+  const rawLanguage = String(req.body?.lang || req.query?.lang || req.body?.language || req.query?.language || "en").toLowerCase();
+  const language = rawLanguage.startsWith("tw") || rawLanguage.startsWith("ak") ? "tw" : "en";
+  const baseUrl = getBaseUrl(req);
+  const welcomeText = language === "tw"
+    ? "Akwaaba! Ɔkwankyerɛfo Pa, yɛyɛ dwumadie a ɛboa obiara ma sika ho nkitahodie yɛ mmerɛw. Sɛ wopɛ mobile money services a, mia 1. Sɛ wopɛ banking services a, mia 2."
+    : "Welcome to Ɔkwankyerɛfo Pa. We are an accessibility layer that makes services easy for everyone. For Mobile Money services, press 1. For banking services, press 2.";
+
+  auditLogger.log("info", "TELEPHONY", `Unified AI call started from ${redactPii(callerNumber)}`, sessionId);
+  return xmlResponse(res, unifiedCallInputResponse(
+    welcomeText,
+    sessionId,
+    "HOME",
+    "welcome",
+    language,
+    baseUrl,
+  ));
+};
+
+ivrRouter.all("/voice-turn", async (req: Request, res: Response) => {
+  const sessionId = String(req.query?.sessionId || req.body?.sessionId || "");
+  if (!sessionId) return xmlResponse(res, "    <Reject/>");
+
+  const currentScreen = String(req.query?.screen || req.body?.screen || "HOME");
+  const currentStep = String(req.query?.step || req.body?.step || "welcome");
+  const rawLanguage = String(req.query?.lang || req.body?.lang || "en").toLowerCase();
+  const language: "en" | "tw" = rawLanguage.startsWith("tw") || rawLanguage.startsWith("ak") ? "tw" : "en";
+  const directDtmf = String(req.body?.dtmfDigits || req.body?.Digits || req.query?.dtmfDigits || "").trim();
+  const speechText = String(req.body?.speechText || req.query?.speechText || "").trim();
+  const recordingUrl = String(
+    req.body?.RecordingUrl || req.body?.recordingURL || req.body?.recordingUrl ||
+    req.query?.RecordingUrl || req.query?.recordingURL || req.query?.recordingUrl || "",
+  );
+
+  let input = directDtmf || speechText;
+  let channel: "DTMF" | "VOICE" = directDtmf ? "DTMF" : "VOICE";
+  if (!input && recordingUrl) {
+    try {
+      const transcription = await speechToText(recordingUrl, undefined, currentStep, language === "tw" ? "twi" : "en");
+      input = transcription.pinDiscarded ? "[DISCARDED_PIN]" : transcription.text;
+    } catch (error: any) {
+      auditLogger.log("warn", "STT", `Unified call transcription failed: ${error?.message || error}`, sessionId);
+    }
+  }
+
+  const { result, brainOutput, ttsAudioUrl } = await processCanonicalCallTurn({
+    sessionId,
+    channel,
+    input,
+    language,
+    currentScreen,
+    currentStep,
+    executionMode: "SIMULATION",
+    callerPhone: String(req.body?.callerNumber || req.body?.phoneNumber || "") || undefined,
+  });
+
+  const nextScreen = result.navigation.targetScreen || currentScreen;
+  const nextStep = result.navigation.targetStep || currentStep;
+  const nextLanguage = result.language === "tw" || result.language === "ak" ? "tw" : "en";
+  const reply = brainOutput.reply.text || result.dialogue.response
+    || (nextLanguage === "tw" ? "Yɛsrɛ wo, ka bio." : "Please say that again.");
+  const baseUrl = getBaseUrl(req);
+
+  if (result.state === "CANCELLED" || result.intent === "CANCEL") {
+    return xmlResponse(res, `    ${unifiedCallPromptElement(reply, nextLanguage, baseUrl, ttsAudioUrl)}\n    <Reject/>`);
+  }
+
+  return xmlResponse(res, unifiedCallInputResponse(
+    reply,
+    sessionId,
+    nextScreen,
+    nextStep,
+    nextLanguage,
+    baseUrl,
+    ttsAudioUrl,
+  ));
+});
+
+ivrRouter.get("/api/telephony/audio/:audioId", (req: Request, res: Response) => {
+  const audio = getCachedCallAudio(String(req.params.audioId || ""));
+  if (!audio?.audioBuffer?.length) return res.sendStatus(404);
+
+  return res
+    .status(200)
+    .type(audio.audioMimeType)
+    .set("Accept-Ranges", "none")
+    .set("Cache-Control", "private, no-store")
+    .send(audio.audioBuffer);
+});
+
 export const handleInboundCall = (req: Request, res: Response) => {
   const sessionId = (req.body?.sessionId || req.query?.sessionId || `call_${Date.now()}`) as string;
   const callerNumber = (req.body?.callerNumber || req.query?.callerNumber || req.body?.phoneNumber || "caller") as string;
@@ -558,6 +715,13 @@ export const handleInboundCall = (req: Request, res: Response) => {
   });
 };
 
+function dispatchInboundCall(req: Request, res: Response) {
+  if (process.env.AT_CALL_PIPELINE === "unified") {
+    return handleUnifiedInboundCall(req, res);
+  }
+  return handleInboundCall(req, res);
+}
+
 // Mount across canonical and all common Africa's Talking webhook callback aliases
 const INBOUND_ENTRY_ROUTES = [
   "/voice-menu",
@@ -570,7 +734,7 @@ const INBOUND_ENTRY_ROUTES = [
   "/api/voice",
   "/api/voice/callback",
 ];
-ivrRouter.all(INBOUND_ENTRY_ROUTES, handleInboundCall);
+ivrRouter.all(INBOUND_ENTRY_ROUTES, dispatchInboundCall);
 
 // Intercept root POST requests from Africa's Talking when configured with root domain
 ivrRouter.post("/", (req: Request, res: Response, next: NextFunction) => {
@@ -585,7 +749,7 @@ ivrRouter.post("/", (req: Request, res: Response, next: NextFunction) => {
     req.body?.callSessionState
   );
   if (isTelephony) {
-    return handleInboundCall(req, res);
+    return dispatchInboundCall(req, res);
   }
   return next();
 });

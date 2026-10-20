@@ -23,6 +23,10 @@ import { durableIdempotencyLedger } from "../src/services/durableIdempotencyLedg
 import { setAllowUnapprovedTemplates } from "../src/ai_system/brain/replyTemplates";
 import { setRequireApprovedNumbers } from "../src/ai_system/linguistic/twiNumberWords";
 import { momoEngine } from "../src/integrations/momo";
+import {
+  normalizeCanonicalCallInput,
+  processCanonicalCallTurn,
+} from "../src/ai_system/voice/callTurnPipeline";
 
 function createIntegrationApp() {
   const app = express();
@@ -48,6 +52,34 @@ describe("Chunk 3: Simulator Integration & End-to-End Smoke Tests", () => {
     setAllowUnapprovedTemplates(false);
     setRequireApprovedNumbers(true);
     vi.restoreAllMocks();
+  });
+
+  it("normalizes welcome and confirmation DTMF consistently for every call channel", () => {
+    const baseInput = {
+      sessionId: "SHARED-CALL-DTMF-001",
+      channel: "DTMF" as const,
+      language: "en" as const,
+    };
+
+    expect(normalizeCanonicalCallInput({ ...baseInput, input: "1", currentStep: "welcome" }).input).toBe("send money");
+    expect(normalizeCanonicalCallInput({ ...baseInput, input: "1", currentStep: "confirm" }).input).toBe("yes");
+    expect(normalizeCanonicalCallInput({ ...baseInput, input: "0541234567", currentStep: "recipient" }).input).toBe("0541234567");
+  });
+
+  it("advances an AT welcome digit through the same AI intent and navigation as the simulator", async () => {
+    const { result } = await processCanonicalCallTurn({
+      sessionId: "SHARED-CALL-WELCOME-001",
+      channel: "DTMF",
+      input: "1",
+      language: "en",
+      currentScreen: "HOME",
+      currentStep: "welcome",
+      executionMode: "SIMULATION",
+    });
+
+    expect(result.intent).toBe("SEND_MONEY");
+    expect(result.navigation.targetStep).toBe("recipient");
+    expect(result.safety.pinDetectedInVoice).toBe(false);
   });
 
   // ── 1. ENGLISH FULL FLOW VIA SIMULATOR ENDPOINT ───────────────────────────
