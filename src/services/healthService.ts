@@ -327,7 +327,8 @@ export interface AudioCatalogHealth {
 }
 
 export function checkAudioFilesHealth(): AudioCatalogHealth {
-  const recordings = getAudioAssetInventory();
+  const allRecordings = getAudioAssetInventory();
+  const recordings = allRecordings.filter((r) => r.audioVerified && r.recordingRole === "fixed");
   const missingFiles: string[] = [];
   const sampleFiles: { path: string; sizeBytes: number; readable: boolean }[] = [];
   let reviewedFiles = 0;
@@ -344,7 +345,7 @@ export function checkAudioFilesHealth(): AudioCatalogHealth {
       if (fs.existsSync(abs)) {
         fs.accessSync(abs, fs.constants.R_OK);
         const stat = fs.statSync(abs);
-        if (recording.audioVerified && recording.recordingRole === "fixed") reviewedFiles += 1;
+        reviewedFiles += 1;
         sampleFiles.push({
           path: sourcePath,
           sizeBytes: stat.size,

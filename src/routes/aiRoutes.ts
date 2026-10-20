@@ -834,7 +834,7 @@ aiRouter.post("/api/ai/brain/process", publicApiRateLimiter, async (req: Request
           updates.recipientName = slots.recipient.name;
           updates.isRecipientVerified = true;
         }
-        const resolvedNetwork = slots.network || slots.candidateNetwork || slots.recipient?.network;
+        const resolvedNetwork = slots.network || slots.candidateNetwork || (slots.recipient as any)?.network;
         if (resolvedNetwork) {
           updates.network = resolvedNetwork;
         } else if (normalizedRecipientPhone) {

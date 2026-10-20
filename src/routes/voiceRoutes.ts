@@ -34,6 +34,7 @@ import {
   getCanonicalPrompt,
   STATE_TO_CANONICAL_PROMPT_ID,
 } from "../audio/canonicalRegistry";
+import { PROMPT_KEY_TO_RECORDING_ID } from "../audio/recordingRegistry";
 import { extractAmount, extractRecipient, extractNetwork } from "../modules/nluService";
 import { getStepDefinition, validateKeypadInput } from "../domain/stepRegistry";
 import { SERVICE_CAPABILITIES, SUPPORTED_TRANSFER_NETWORKS } from "../domain/serviceCapabilities";
@@ -291,7 +292,7 @@ export function buildEnterRecipientStepXml(baseUrl: string, sessionId: string, l
   const promptText = lang === "twi"
     ? "Mepawokyɛw bɔ obi a woremane no sika no fon nɔmba edu no. Wowie a mia hash (#), anaa mia 0."
     : "Please enter the recipient's ten-digit phone number. When finished, press hash (#). Or press 0 to exit.";
-  return `    <GetDigits timeout="35" finishOnKey="#" callbackUrl="${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}">
+  return `    <GetDigits timeout="90" finishOnKey="#" callbackUrl="${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}">
         ${canonicalPromptElement("send_money_selected", lang, baseUrl, "Send money selected.")}
         ${canonicalPromptElement("enter_recipient", lang, baseUrl, promptText)}
     </GetDigits>
@@ -314,7 +315,7 @@ export function buildRecipientVerifyStepXml(baseUrl: string, sessionId: string, 
         ${canonicalPromptElement("recipient_confirm_speech", lang, baseUrl, confirmationChoices)}`;
   }
 
-  return `    <GetDigits timeout="15" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/recipient-verify-choice?sessionId=${sessionId}&amp;lang=${lang}">
+  return `    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/recipient-verify-choice?sessionId=${sessionId}&amp;lang=${lang}">
 ${readbackPromptXml}
     </GetDigits>
     ${speechRecordingXml(baseUrl, sessionId, lang, "recipient-verify-choice", 6)}`;
@@ -624,11 +625,10 @@ function xmlResponse(res: Response, content: string, decision?: (Partial<IvrDeci
     }
   }
 
-  const hasSpeechFallback = /<GetDigits\b[\s\S]*?<\/GetDigits>[\s\S]*?<Record\b/i.test(xml);
-  const getDigitsTimeout = hasSpeechFallback
-    ? VOICE_INPUT_KEYPAD_GRACE_SECONDS
-    : CALLER_RESPONSE_TIMEOUT_SECONDS;
-  xml = xml.replace(/(<GetDigits\b[^>]*\btimeout=["'])\d+(["'])/gi, `$1${getDigitsTimeout}$2`);
+  const isWelcomeOrShort = /step=language-selection|callbackUrl="[^"]*\/language-selection/i.test(xml);
+  if (isWelcomeOrShort) {
+    xml = xml.replace(/(<GetDigits\b[^>]*\btimeout=["'])\d+(["'])/gi, `$1${VOICE_INPUT_KEYPAD_GRACE_SECONDS}$2`);
+  }
   if (!/<GetDigits\b/i.test(xml)) {
     xml = xml.replace(/(<Record\b[^>]*\btimeout=["'])\d+(["'])/gi, `$1${CALLER_RESPONSE_TIMEOUT_SECONDS}$2`);
   }
@@ -845,8 +845,7 @@ ivrRouter.all("/service-select", (req: Request, res: Response) => {
 
   const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">
       ${promptElement}
-    </GetDigits>
-    ${speechRecordingXml(baseUrl, sessionId, lang, "service-select", 6)}`;
+    </GetDigits>`;
 
   xmlResponse(res, xml);
 });
@@ -959,19 +958,19 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
     </GetDigits>`, decision);
   }
 
-  // Parameter Mismatch Detection via KeypadBufferManager (e.g. 4, 5, 6, 7)
+  // Parameter Mismatch Detection (e.g. 4, 5, 6, 7)
   session.retryCount = (session.retryCount || 0) + 1;
-  const mismatchRes = KeypadBufferManager.appendDigit(sessionId, dtmf, "single_digit", ["1", "2", "3", "9", "0"]);
-  if (!mismatchRes.isValidParameter && mismatchRes.mismatchFeedback) {
-    const mismatchText = mismatchRes.mismatchFeedback[lang] || mismatchRes.mismatchFeedback.en;
-    const replayPromptText = resolvePromptText("supported_service_select", lang) || "For a supported Mobile Money transfer, press 1. Press 9 to repeat, or 0 to exit.";
+  const replayPromptText = resolvePromptText("supported_service_select", lang) || "For a supported Mobile Money transfer, press 1. Press 9 to repeat, or 0 to exit.";
+
+  if (dtmf === "4") {
+    // Unadvertised option 4: replay approved recording cleanly without Say tag
     return xmlResponse(
       res,
-      `    <Say voice="female">${escapeVoiceXml(mismatchText)}</Say>\n    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("supported_service_select", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
+      `    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("supported_service_select", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
       {
         type: "invalid_choice",
-        reason: "Keypad input does not match expected parameters (1, 2, 9, 0).",
-        replyText: mismatchText,
+        reason: "Unadvertised option 4 selected; replaying approved recording without TTS.",
+        replyText: replayPromptText,
         action: "replay",
         nextStep: "service-select",
       }
@@ -986,14 +985,15 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
     retryCount: session.retryCount,
     sessionId,
   });
+
   if (decision.action === "hangup") {
     transactionStateMachine.transition(sessionId, "FAILED", { failureReason: decision.reason });
-    return xmlResponse(res, `    <Say voice="female">${decision.replyText}</Say>\n    <Reject/>`, decision);
+    return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(decision.replyText)}</Say>\n    <Reject/>`, decision);
   }
-  const replayPromptText = resolvePromptText("supported_service_select", lang) || "For a supported Mobile Money transfer, press 1. Press 9 to repeat, or 0 to exit.";
+
   return xmlResponse(
     res,
-    `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("supported_service_select", lang, baseUrl, replayPromptText)}\n    </GetDigits>\n    ${speechRecordingXml(baseUrl, sessionId, lang, "service-select", 6)}`,
+    `    <Say voice="female">${escapeVoiceXml(decision.replyText)}</Say>\n    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("supported_service_select", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
     decision
   );
 });
@@ -1051,17 +1051,6 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
       };
       return xmlResponse(res, `    <Say voice="female">${navDecision.replyText}</Say>\n    <Reject/>`, navDecision);
     }
-    if (validation.isNavigation && validation.navAction === "back") {
-      const navDecision: IvrDecision = {
-        type: "clarify",
-        reason: "Caller pressed 8 to return to service selection.",
-        replyText: lang === "twi" ? "Yɛresan akɔ akyi." : "Going back to previous menu.",
-        replyKey: "going_back",
-        action: "back",
-        nextStep: "service-select",
-      };
-      return xmlResponse(res, buildServiceSelectStepXml(baseUrl, sessionId, lang), navDecision);
-    }
     if (validation.isNavigation && (validation.navAction === "repeat" || (lang === "twi" && dtmf === "4"))) {
       const navDecision: IvrDecision = {
         type: "clarify",
@@ -1092,25 +1081,8 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
     return xmlResponse(res, buildActionSelectStepXml(baseUrl, sessionId, lang, session.network), validDecision);
   }
 
-  // Invalid key at provider selection (e.g. 4, 5, 6, 7)
+  // Invalid key at provider selection (e.g. 4, 5, 6, 7, 8)
   session.retryCount = (session.retryCount || 0) + 1;
-  const mismatchRes = KeypadBufferManager.appendDigit(sessionId, dtmf, "single_digit", ["1", "2", "3", "4", "8", "9", "0"]);
-  if (!mismatchRes.isValidParameter && mismatchRes.mismatchFeedback) {
-    const mismatchText = mismatchRes.mismatchFeedback[lang] || mismatchRes.mismatchFeedback.en;
-    const replayPromptText = resolvePromptText("mtn_network_select", lang) || "For MTN Mobile Money, press 1. For Telecel Cash, press 2. Press 9 to repeat, or 0 to exit.";
-    return xmlResponse(
-      res,
-      `    <Say voice="female">${escapeVoiceXml(mismatchText)}</Say>\n    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("mtn_network_select", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
-      {
-        type: "invalid_choice",
-        reason: "Keypad input does not match expected parameters (1, 2, 3, 8, 9, 0).",
-        replyText: mismatchText,
-        action: "replay",
-        nextStep: "provider-select",
-      }
-    );
-  }
-
   const decision = ivrDecisionEngine.decide({
     stepId: "provider-select",
     language: lang,
@@ -1126,7 +1098,7 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
   const replayPromptText = resolvePromptText("mtn_network_select", lang) || "For MTN Mobile Money, press 1. For Telecel Cash, press 2. Press 9 to repeat, or 0 to exit.";
   return xmlResponse(
     res,
-    `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("mtn_network_select", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
+    `    <Say voice="female">${escapeVoiceXml(decision.replyText)}</Say>\n    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("mtn_network_select", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
     decision
   );
 });
@@ -1404,6 +1376,9 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
   });
 
   const xml = buildRecipientVerifyStepXml(baseUrl, sessionId, lang, phoneValidation.normalized, resolution.name);
+  const readbackText = lang === "twi"
+    ? `Yɛahu recipient no: ${resolution.name}. Tie ne din ne fon nɔmba no yie.`
+    : `The recipient is ${resolution.name}. Phone number: ${phoneValidation.normalized}.`;
 
   xmlResponse(res, xml, {
     stepId: "recipient-verify-choice",
@@ -2374,6 +2349,7 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
         },
         callerNumber: session.callerPhone,
         sessionId,
+        forceModel: true,
       });
 
       const updatedSlots = brainOutput.updatedDraft.slots as Record<string, any>;

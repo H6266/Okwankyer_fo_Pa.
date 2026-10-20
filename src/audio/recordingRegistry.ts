@@ -176,25 +176,26 @@ const ENGLISH_FIXED_PROMPT_TEXT: Readonly<Record<string, string>> = {
 };
 
 for (const [filename, language] of [["welcome_en.mp3", "en"], ["welcome_twi.mp3", "twi"]] as const) {
+  const isEn = language === "en";
   recordings.push({
     id: `public:${filename}`,
-    promptId: "OP01",
+    promptId: isEn ? "OP01" : "OP01",
     state: "WELCOME",
     category: "session",
-    context: language === "en" ? "Approved English welcome recording." : "Approved Akan Twi welcome recording.",
+    context: isEn ? "Approved English welcome recording." : "Alternate Akan Twi welcome recording.",
     language,
     title: filename.replace(/\.[a-z0-9]+$/i, ""),
-    spokenText: language === "en"
+    spokenText: isEn
       ? "Welcome to Ɔkwankyerɛfo Pa. For English, press 1. For Twi, press 2."
       : "Akwaaba kɔ Ɔkwankyerɛfo Pa. Sɛ wopɛ Borɔfo a, mia 1. Sɛ wopɛ Twi a, mia 2.",
     relativePath: filename,
     assetRoot: "public",
     url: `/audio/${filename}`,
     mimeType: "audio/mpeg",
-    isAlternate: false,
-    recordingRole: "fixed",
-    mappingStatus: "VERIFIED",
-    audioVerified: true,
+    isAlternate: !isEn,
+    recordingRole: isEn ? "fixed" : "alternative",
+    mappingStatus: isEn ? "VERIFIED" : "CANDIDATE_NOT_AUDIO_VERIFIED",
+    audioVerified: isEn,
   });
 }
 

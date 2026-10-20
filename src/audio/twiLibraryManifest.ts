@@ -711,6 +711,7 @@ const MANIFEST_TWI_AUDIO_LIBRARY_ITEMS: TwiLibraryItem[] = [
     filename: "Acknowledge.mp3",
     audioUrl: "/audio/Twi_library/Acknowledge.mp3",
     transcript: "Okay, i understand you, please let you continue",
+    audioVerified: false,
     category: "general",
     keywords: ["acknowledge", "understand you", "continue", "mate aseɛ"]
   }
