@@ -145,10 +145,11 @@ export async function warmupTelephonyMp3Cache(): Promise<void> {
     collectAudioFiles(d);
   }
 
-  // Process in small batches to avoid CPU spikes
-  for (let i = 0; i < filesToTranscode.length; i += 4) {
-    const batch = filesToTranscode.slice(i, i + 4);
+  // Process in small batches with breathing room to avoid CPU/memory spikes
+  for (let i = 0; i < filesToTranscode.length; i += 2) {
+    const batch = filesToTranscode.slice(i, i + 2);
     await Promise.all(batch.map((f) => getOrTranscodeMp3(f).catch(() => {})));
+    await new Promise((r) => setTimeout(r, 60));
   }
 }
 

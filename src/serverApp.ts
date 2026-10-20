@@ -245,26 +245,59 @@ export async function startServer() {
   }
   const activeHost = hostArg || process.env.HOST || "0.0.0.0";
 
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", (err: any) => {
-      if (err.code === "EADDRINUSE") {
-        console.warn(`⚠️ Port ${activePort} is already in use; server is already running.`);
-        resolve();
-      } else {
-        reject(err);
-      }
-    });
+  const shutdown = () => {
+    try {
+      server.close(() => {
+        process.exit(0);
+      });
+    } catch {}
+    setTimeout(() => process.exit(0), 3000);
+  };
+  process.once("SIGTERM", shutdown);
+  process.once("SIGINT", shutdown);
 
-    server.listen(activePort, activeHost, () => {
-      console.log(`Ɔkwankyerɛfo Pa running on http://${activeHost}:${activePort}`);
-      auditLogger.log("info", "SYSTEM", `Server online on port ${activePort} (Env: ${config.nodeEnv})`);
-      // Start local Piper neural TTS worker for dynamic speech synthesis
-      startPiperWorker().catch((err: any) => console.warn("[Server] Piper worker start notice:", err?.message || err));
-      // Pre-warm MP3 cache for Africa's Talking telephony audio
-      warmupTelephonyMp3Cache().catch((err: any) => console.warn("[Server] Telephony MP3 warmup notice:", err?.message || err));
-      resolve();
+  const listenWithRetry = (retriesLeft = 10): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      const onError = async (err: any) => {
+        server.removeListener("listening", onListening);
+        if (err.code === "EADDRINUSE") {
+          if (retriesLeft > 0) {
+            console.warn(`⚠️ Port ${activePort} is in use; waiting for port release (${retriesLeft} retries left)...`);
+            setTimeout(async () => {
+              try {
+                await listenWithRetry(retriesLeft - 1);
+                resolve();
+              } catch (retryErr) {
+                reject(retryErr);
+              }
+            }, 600);
+            return;
+          }
+          console.error(`FATAL: Port ${activePort} is occupied after multiple retries.`);
+          reject(err);
+        } else {
+          reject(err);
+        }
+      };
+
+      const onListening = () => {
+        server.removeListener("error", onError);
+        console.log(`Ɔkwankyerɛfo Pa running on http://${activeHost}:${activePort}`);
+        auditLogger.log("info", "SYSTEM", `Server online on port ${activePort} (Env: ${config.nodeEnv})`);
+        // Start local Piper neural TTS worker for dynamic speech synthesis
+        startPiperWorker().catch((err: any) => console.warn("[Server] Piper worker start notice:", err?.message || err));
+        // Pre-warm MP3 cache for Africa's Talking telephony audio
+        warmupTelephonyMp3Cache().catch((err: any) => console.warn("[Server] Telephony MP3 warmup notice:", err?.message || err));
+        resolve();
+      };
+
+      server.once("error", onError);
+      server.once("listening", onListening);
+      server.listen(activePort, activeHost);
     });
-  });
+  };
+
+  await listenWithRetry();
 
   // Initialize AI Cognitive Core subsystem asynchronously to avoid blocking startup
   (async () => {

@@ -40,6 +40,7 @@ export type ReplyKind =
 export interface RecipientSlot {
   name?: string;
   phone?: string;
+  network?: string;
 }
 
 export interface ModelOutputContract {

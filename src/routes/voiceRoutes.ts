@@ -22,7 +22,7 @@ import { verifyAtWebhook } from "../providers/telephony/webhookGuard";
 import { paymentSaga } from "../integrations/momo/paymentSaga";
 import { FINANCIAL_LIMITS, financialPolicy } from "../ai_system/core/financialPolicy";
 import { durableTransactionStore } from "../services/durableTransactionStore";
-import { telephonyRateLimiter, adminRateLimiter } from "../middleware/rateLimiter";
+import { telephonyRateLimiter, adminRateLimiter, simulatorRateLimiter } from "../middleware/rateLimiter";
 import { requireAdminAuth } from "../middleware/adminAuth";
 import { aiSystem } from "../ai_system";
 import { brain } from "../ai_system/brain/brain";
@@ -2693,7 +2693,7 @@ ivrRouter.post("/api/ivr/understand", async (req: Request, res: Response) => {
 voiceRouter.use(ivrRouter);
 
 // Simulator router behind dashboard adminAuth with simulated session
-simulatorRouter.use(adminRateLimiter);
+simulatorRouter.use(simulatorRateLimiter);
 simulatorRouter.use((req: Request, res: Response, next: NextFunction) => {
   if (config.nodeEnv === "production" && config.adminToken && !config.demoMode) {
     return requireAdminAuth(req, res, next);

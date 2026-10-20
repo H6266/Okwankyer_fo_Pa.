@@ -1866,7 +1866,9 @@ export const PhoneSimulatorPage: React.FC = () => {
         curStep.includes("confirm");
 
       if (isTransferConfirmStep) {
-        const isAffirmative = /\b(yes|confirm|proceed|okay|sure|aane|pene so|ampa|that's him|thats him|correct|send it|kɔ so|yie|1|baako|agree|yes i agree|send the money)\b/i.test(effectiveClean) || matchedDtmf === "1";
+        const isAffirmative =
+          /\b(yes|confirm|proceed|okay|sure|aane|pene\s*so|ampa|that'?s\s*him|that'?s\s*her|correct|send\s*it|kɔ\s*so|yie|1|baako|agree|i\s*agree|yes\s*i\s*agree|send\s*(?:the|her|him)?\s*money|send\s*it\s*please|yes\s*please|my\s*mother\s*name\s*is|that\s*is\s*my\s*mother)\b/i.test(effectiveClean) ||
+          matchedDtmf === "1";
         const isNegative = /\b(no|cancel|wrong|dabi|stop|sesa|change|reject|2|mmienu)\b/i.test(effectiveClean) || matchedDtmf === "2";
         if (isAffirmative) {
           addLog("caller", `Spoken confirmation approval: "${effectiveClean}"`);
