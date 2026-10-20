@@ -49,6 +49,7 @@ import {
   kycNetworkQueue,
 } from "../domain/checklistPipeline";
 import { matchAiReplyWithGemini } from "../audio/geminiAudioMatcher";
+import { formatFullPhoneNumberSpaced } from "../audio/digitAudioSynthesizer";
 
 export const voiceRouter = Router();
 export const ivrRouter = Router();
@@ -210,6 +211,10 @@ function brainPromptElement(promptId: string | undefined, replyText: string, bas
   if (match.match && match.audioUrl) {
     return `<Play url="${escapeVoiceXml(`${baseUrl}${match.audioUrl}`)}"/>`;
   }
+  if (language === "twi") {
+    const canonicalKey = PROMPT_KEY_TO_RECORDING_ID[(promptId || "").toLowerCase()] || promptId || "service_description";
+    return `<Play url="${baseUrl}/api/audio/prompt-tts/twi/${encodeURIComponent(canonicalKey)}?format=mp3"/>`;
+  }
   const scriptText = promptId ? resolvePromptText(promptId, language) : null;
   if (scriptText) {
     return `<Say voice="female">${escapeVoiceXml(scriptText)}</Say>`;
@@ -225,9 +230,155 @@ function canonicalPromptElement(
 ): string {
   const element = resolvePromptXml(promptKey, language, baseUrl, fallbackText);
   if (element) return element;
-  return language === "twi"
-    ? `<Say voice="female">Twi audio is unavailable. Press 1 for English, or try again later.</Say>`
-    : `<Say voice="female">${escapeVoiceXml(fallbackText)}</Say>`;
+  if (language === "twi") {
+    const canonicalKey = PROMPT_KEY_TO_RECORDING_ID[promptKey.toLowerCase()] || promptKey;
+    return `<Play url="${baseUrl}/api/audio/prompt-tts/twi/${encodeURIComponent(canonicalKey)}?format=mp3"/>`;
+  }
+  return `<Say voice="female">${escapeVoiceXml(fallbackText)}</Say>`;
+}
+
+export function buildWelcomeStepXml(baseUrl: string, sessionId: string, lang: "en" | "twi"): string {
+  const welcomePrompt = canonicalPromptElement(
+    "welcome",
+    lang,
+    baseUrl,
+    lang === "twi"
+      ? "Akwaaba kɔ Ɔkwankyerɛfo Pa. Sɛ wopɛ Borɔfo a, mia 1. Sɛ wopɛ Twi a, mia 2."
+      : "Welcome to Ɔkwankyerɛfo Pa. For English, press 1. For Twi, press 2."
+  );
+  return `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?sessionId=${sessionId}&amp;lang=${lang}">
+        ${welcomePrompt}
+    </GetDigits>
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=language-selection&amp;sessionId=${sessionId}&amp;lang=${lang}&amp;retry=0"/>`;
+}
+
+export function buildServiceSelectStepXml(baseUrl: string, sessionId: string, lang: "en" | "twi"): string {
+  const promptText = lang === "twi"
+    ? "Sɛ wopɛ Mobile Money transfer a yɛboa a, mia 1. Mia 9 na tie bio, anaasɛ mia 0 na woapue."
+    : "For a supported Mobile Money transfer, press 1. Press 9 to repeat, or 0 to exit.";
+  const promptElement = canonicalPromptElement("supported_service_select", lang, baseUrl, promptText);
+  return `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">
+        ${promptElement}
+    </GetDigits>
+    ${speechRecordingXml(baseUrl, sessionId, lang, "service-select", 6)}`;
+}
+
+export function buildProviderSelectStepXml(baseUrl: string, sessionId: string, lang: "en" | "twi"): string {
+  const promptKey = lang === "twi" ? "network_selection" : "mtn_network_select";
+  const promptText = lang === "twi"
+    ? "Sɛ wo network yɛ MTN a, mia 1. Sɛ ɛyɛ Telecel Cash a, mia 2. Mia 9 na tie bio, anaasɛ mia 0 na woapue."
+    : "For MTN Mobile Money, press 1. For Telecel Cash, press 2. Press 9 to repeat, or 0 to exit.";
+  const promptElement = canonicalPromptElement(promptKey, lang, baseUrl, promptText);
+  return `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}">
+        ${promptElement}
+    </GetDigits>
+    ${speechRecordingXml(baseUrl, sessionId, lang, "provider-select", 6)}`;
+}
+
+export function buildActionSelectStepXml(baseUrl: string, sessionId: string, lang: "en" | "twi", provider?: string): string {
+  const promptKey = lang === "twi" ? "mtn_menu" : "send_money_menu";
+  const promptText = lang === "twi"
+    ? "Sɛ wopɛ sɛ womane sika a, mia 1. Mia 8 na san kɔ akyi, mia 9 na tie bio, anaasɛ mia 0 na woapue."
+    : "To send money, press 1. To go back, press 8. Press 9 to repeat, or 0 to exit.";
+  const promptElement = canonicalPromptElement(promptKey, lang, baseUrl, promptText);
+  return `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?sessionId=${sessionId}&amp;lang=${lang}${provider ? `&amp;provider=${encodeURIComponent(provider)}` : ""}">
+        ${promptElement}
+    </GetDigits>
+    ${speechRecordingXml(baseUrl, sessionId, lang, "action-select", 6)}`;
+}
+
+export function buildEnterRecipientStepXml(baseUrl: string, sessionId: string, lang: "en" | "twi"): string {
+  const promptText = lang === "twi"
+    ? "Mepawokyɛw bɔ obi a woremane no sika no fon nɔmba edu no. Wowie a mia hash (#), anaa mia 0."
+    : "Please enter the recipient's ten-digit phone number. When finished, press hash (#). Or press 0 to exit.";
+  return `    <GetDigits timeout="35" finishOnKey="#" callbackUrl="${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}">
+        ${canonicalPromptElement("send_money_selected", lang, baseUrl, "Send money selected.")}
+        ${canonicalPromptElement("enter_recipient", lang, baseUrl, promptText)}
+    </GetDigits>
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="12" timeout="5" callbackUrl="${baseUrl}/speech-fallback?step=enter-recipient&amp;sessionId=${sessionId}&amp;lang=${lang}"/>`;
+}
+
+export function buildRecipientVerifyStepXml(baseUrl: string, sessionId: string, lang: "en" | "twi", phone: string, name: string): string {
+  const confirmationChoices = lang === "twi"
+    ? "Sɛ nsɛm no yɛ nokware a, mia 1. Sɛ wopɛ sɛ wosesa recipient no a, mia 2. Sɛ wogyae a, mia 0."
+    : "Press 1 to confirm, 2 to change the recipient, or 0 to cancel.";
+  
+  let readbackPromptXml = "";
+  if (lang === "twi") {
+    readbackPromptXml = `        ${canonicalPromptElement("recipient_verify", lang, baseUrl, "Yɛahu recipient no. Tie ne din ne fon nɔmba no yie.")}
+        <Play url="${baseUrl}/api/audio/prompt-tts/twi/OP21?recipientPhone=${encodeURIComponent(phone)}&amp;recipientName=${encodeURIComponent(name)}&amp;format=mp3"/>
+        ${canonicalPromptElement("recipient_confirm_speech", lang, baseUrl, confirmationChoices)}`;
+  } else {
+    readbackPromptXml = `        ${canonicalPromptElement("recipient_verify", lang, baseUrl, "We found the recipient. Listen carefully to the details.")}
+        <Say voice="female">The recipient is ${escapeVoiceXml(name)}. Phone number: ${formatFullPhoneNumberSpaced(phone, "en")}.</Say>
+        ${canonicalPromptElement("recipient_confirm_speech", lang, baseUrl, confirmationChoices)}`;
+  }
+
+  return `    <GetDigits timeout="15" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/recipient-verify-choice?sessionId=${sessionId}&amp;lang=${lang}">
+${readbackPromptXml}
+    </GetDigits>
+    ${speechRecordingXml(baseUrl, sessionId, lang, "recipient-verify-choice", 6)}`;
+}
+
+export function buildEnterAmountStepXml(baseUrl: string, sessionId: string, lang: "en" | "twi"): string {
+  const promptText = lang === "twi"
+    ? "Yɛsrɛ wo, bɔ sika dodow no wɔ Ghana Cedi mu. Fa nsoroma bɔ pesewas, na wie a mia hash."
+    : "Please enter the amount in Ghana Cedis. Use star for pesewas, then press hash.";
+  return `    <GetDigits timeout="30" finishOnKey="#" callbackUrl="${baseUrl}/verify-amount?sessionId=${sessionId}&amp;lang=${lang}">
+        ${canonicalPromptElement("enter_amount", lang, baseUrl, promptText)}
+    </GetDigits>
+    ${speechRecordingXml(baseUrl, sessionId, lang, "enter-amount", 6)}`;
+}
+
+export function buildAmountReadbackStepXml(baseUrl: string, sessionId: string, lang: "en" | "twi", amount: number): string {
+  const confirmText = lang === "twi"
+    ? "Sɛ sika dodow no yɛ nokware a, mia 1. Sɛ wopɛ sɛ wosesa a, mia 2. Sɛ wopɛ sɛ wugyae a, mia 0."
+    : "Press 1 to confirm, 2 to change the amount, or 0 to cancel.";
+  
+  let amountVoiceXml = "";
+  if (lang === "twi") {
+    amountVoiceXml = `        ${canonicalPromptElement("amount_readback", lang, baseUrl, "Sika a woremane ne:")}
+        <Play url="${baseUrl}/api/audio/prompt-tts/twi/OP29?amount=${amount}&amp;format=mp3"/>
+        ${canonicalPromptElement("confirm_continue", lang, baseUrl, confirmText)}`;
+  } else {
+    amountVoiceXml = `        <Say voice="female">You entered ${amount} Ghana Cedis.</Say>
+        ${canonicalPromptElement("confirm_continue", lang, baseUrl, confirmText)}`;
+  }
+
+  return `    <GetDigits timeout="15" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/amount-readback-choice?sessionId=${sessionId}&amp;lang=${lang}">
+${amountVoiceXml}
+    </GetDigits>
+    ${speechRecordingXml(baseUrl, sessionId, lang, "amount-readback-choice", 6)}`;
+}
+
+export function buildSafeConfirmationStepXml(
+  baseUrl: string,
+  sessionId: string,
+  lang: "en" | "twi",
+  amount: number,
+  phone: string,
+  name: string
+): string {
+  const confirmationChoices = lang === "twi"
+    ? "Sɛ nsɛm no yɛ nokware a, mia 1. Sɛ wopɛ sɛ wosesa sika no a, mia 2. Sɛ wopɛ sɛ wosesa recipient no a, mia 3. Sɛ wopɛ sɛ wogyae a, mia 0."
+    : "Press 1 to confirm. To change the amount, press 2. To change the recipient, press 3. To cancel, press 0.";
+
+  let promptXml = "";
+  if (lang === "twi") {
+    promptXml = `        ${canonicalPromptElement("review_transaction", lang, baseUrl, "Tie nsɛm no yie:")}
+        <Play url="${baseUrl}/api/audio/prompt-tts/twi/OP21?recipientPhone=${encodeURIComponent(phone)}&amp;recipientName=${encodeURIComponent(name)}&amp;format=mp3"/>
+        <Play url="${baseUrl}/api/audio/prompt-tts/twi/OP29?amount=${amount}&amp;format=mp3"/>
+        ${canonicalPromptElement("confirm_continue", lang, baseUrl, confirmationChoices)}`;
+  } else {
+    promptXml = `        ${canonicalPromptElement("review_transaction", lang, baseUrl, "Review your transfer details:")}
+        <Say voice="female">Sending ${amount} Ghana Cedis to ${escapeVoiceXml(name)} at ${formatFullPhoneNumberSpaced(phone, "en")}.</Say>
+        ${canonicalPromptElement("confirm_continue", lang, baseUrl, confirmationChoices)}`;
+  }
+
+  return `    <GetDigits timeout="25" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}">
+${promptXml}
+    </GetDigits>
+    ${speechRecordingXml(baseUrl, sessionId, lang, "safe-confirmation", 6)}`;
 }
 
 function speechCollectionXml(params: {
@@ -616,7 +767,7 @@ ivrRouter.all("/language-selection", (req: Request, res: Response) => {
       return xmlResponse(res, `    <Say voice="female">Goodbye.</Say>\n    <Reject/>`);
     }
     if (validation.isNavigation && validation.navAction === "repeat") {
-      return xmlResponse(res, `    <Redirect>${baseUrl}/voice-menu?sessionId=${sessionId}</Redirect>`);
+      return xmlResponse(res, buildWelcomeStepXml(baseUrl, sessionId, "en"));
     }
     const lang = dtmf === "2" ? "twi" : "en";
     session.language = lang;
@@ -636,7 +787,7 @@ ivrRouter.all("/language-selection", (req: Request, res: Response) => {
 
     return xmlResponse(
       res,
-      `    <Redirect>${baseUrl}/service-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`,
+      buildServiceSelectStepXml(baseUrl, sessionId, lang),
       decision
     );
   }
@@ -734,7 +885,7 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
         action: "back",
         nextStep: "language-selection",
       };
-      return xmlResponse(res, `    <Redirect>${baseUrl}/language-selection?sessionId=${sessionId}</Redirect>`, navDecision);
+      return xmlResponse(res, buildWelcomeStepXml(baseUrl, sessionId, lang), navDecision);
     }
     if (validation.isNavigation && validation.navAction === "repeat") {
       const navDecision: IvrDecision = {
@@ -745,7 +896,7 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
         action: "repeat",
         nextStep: "service-select",
       };
-      return xmlResponse(res, `    <Redirect>${baseUrl}/service-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, navDecision);
+      return xmlResponse(res, buildServiceSelectStepXml(baseUrl, sessionId, lang), navDecision);
     }
     if (dtmf === "1") {
       session.retryCount = 0;
@@ -758,7 +909,7 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
         action: "advance",
         nextStep: "provider-select",
       };
-      return xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, validDecision);
+      return xmlResponse(res, buildProviderSelectStepXml(baseUrl, sessionId, lang), validDecision);
     }
     if (!session.serviceSelected && (dtmf === "2" || dtmf === "3")) {
       const unsupportedText = lang === "twi"
@@ -901,16 +1052,15 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
       return xmlResponse(res, `    <Say voice="female">${navDecision.replyText}</Say>\n    <Reject/>`, navDecision);
     }
     if (validation.isNavigation && validation.navAction === "back") {
-      const prev = "service-select";
       const navDecision: IvrDecision = {
         type: "clarify",
-        reason: `Caller pressed 8 to return to ${prev}.`,
+        reason: "Caller pressed 8 to return to service selection.",
         replyText: lang === "twi" ? "Yɛresan akɔ akyi." : "Going back to previous menu.",
         replyKey: "going_back",
         action: "back",
-        nextStep: prev,
+        nextStep: "service-select",
       };
-      return xmlResponse(res, `    <Redirect>${baseUrl}/${prev}?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, navDecision);
+      return xmlResponse(res, buildServiceSelectStepXml(baseUrl, sessionId, lang), navDecision);
     }
     if (validation.isNavigation && (validation.navAction === "repeat" || (lang === "twi" && dtmf === "4"))) {
       const navDecision: IvrDecision = {
@@ -921,7 +1071,7 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
         action: "repeat",
         nextStep: "provider-select",
       };
-      return xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, navDecision);
+      return xmlResponse(res, buildProviderSelectStepXml(baseUrl, sessionId, lang), navDecision);
     }
 
     session.network = dtmf === "2" ? "Telecel" : dtmf === "3" ? "AT" : "MTN";
@@ -939,7 +1089,7 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
     if (!SUPPORTED_TRANSFER_NETWORKS.includes(session.network)) {
       throw new Error(`Provider selected unsupported network ${session.network}`);
     }
-    return xmlResponse(res, `    <Redirect>${baseUrl}/action-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, validDecision);
+    return xmlResponse(res, buildActionSelectStepXml(baseUrl, sessionId, lang, session.network), validDecision);
   }
 
   // Invalid key at provider selection (e.g. 4, 5, 6, 7)
@@ -1060,7 +1210,7 @@ ivrRouter.all("/action-choice", async (req: Request, res: Response) => {
         action: "back",
         nextStep: "provider-select",
       };
-      return xmlResponse(res, `    <Redirect>${baseUrl}/provider-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, navDecision);
+      return xmlResponse(res, buildProviderSelectStepXml(baseUrl, sessionId, lang), navDecision);
     }
     if (validation.isNavigation && validation.navAction === "repeat") {
       const navDecision: IvrDecision = {
@@ -1071,7 +1221,7 @@ ivrRouter.all("/action-choice", async (req: Request, res: Response) => {
         action: "repeat",
         nextStep: "action-select",
       };
-      return xmlResponse(res, `    <Redirect>${baseUrl}/action-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, navDecision);
+      return xmlResponse(res, buildActionSelectStepXml(baseUrl, sessionId, lang, session.network), navDecision);
     }
 
     // 1 = Send Money
@@ -1085,9 +1235,8 @@ ivrRouter.all("/action-choice", async (req: Request, res: Response) => {
         action: "advance",
         nextStep: "enter-recipient",
       };
-      return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`, validDecision);
+      return xmlResponse(res, buildEnterRecipientStepXml(baseUrl, sessionId, lang), validDecision);
     }
-
   }
 
   // Invalid key at action-choice (e.g. 3, 4, 6, 7)
@@ -1173,10 +1322,10 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
     );
   }
   if (rawDigits === "8") {
-    return xmlResponse(res, `    <Redirect>${baseUrl}/action-select?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+    return xmlResponse(res, buildActionSelectStepXml(baseUrl, sessionId, lang, session.network));
   }
   if (rawDigits === "9") {
-    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+    return xmlResponse(res, buildEnterRecipientStepXml(baseUrl, sessionId, lang));
   }
 
   // Validate phone number format and prefix
@@ -1211,10 +1360,7 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
     ? undefined
     : parseAndValidateAmount(String(rawAmount));
   if (rawAmount !== undefined && (!amountValidation?.valid || amountValidation.amount === undefined)) {
-    const amountError = lang === "twi"
-      ? "Sika dodow no nyɛ pɛpɛɛpɛ. Yɛsrɛ wo, bɔ sika dodow no bio."
-      : "The amount could not be verified. Please enter the amount again.";
-    return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(amountError)}</Say>\n    <Redirect>${getBaseUrl(req)}/enter-amount?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}</Redirect>`);
+    return xmlResponse(res, buildEnterAmountStepXml(baseUrl, sessionId, lang));
   }
 
   // Resolve recipient using active provider (Sandbox or real MTN)
@@ -1222,10 +1368,10 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
   try {
     lookup = await resolveRecipientOnce(session, phoneValidation.normalized);
   } catch {
-    return xmlResponse(res, `    <Say voice="female">We could not verify that number right now. Please try again.</Say>\n    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+    return xmlResponse(res, buildEnterRecipientStepXml(baseUrl, sessionId, lang));
   }
   if (recipientLookups.get(session) !== lookup) {
-    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+    return xmlResponse(res, buildEnterRecipientStepXml(baseUrl, sessionId, lang));
   }
   const resolution = lookup.result!;
   auditLogger.log(
@@ -1244,7 +1390,8 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
       : lang === "twi"
         ? "Yɛagye nɔma no, nanso provider no antumi ankyerɛ din no. Hwɛ nɔma no mu na san sɔ hwɛ."
         : "I received the number, but the provider could not verify its owner. Check the number and try again.";
-    return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(message)}</Say>\n    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+    const errorPrefix = canonicalPromptElement("invalid_recipient", lang, baseUrl, message);
+    return xmlResponse(res, `    ${errorPrefix}\n${buildEnterRecipientStepXml(baseUrl, sessionId, lang)}`);
   }
 
   // Transition state machine to RECIPIENT_VERIFIED
@@ -1256,18 +1403,7 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
     ...(amountValidation?.valid && amountValidation.amount !== undefined ? { amount: amountValidation.amount } : {}),
   });
 
-  const recipientNamePrompt = resolvePromptSpokenText("OP20", lang, { recipientName: resolution.name });
-  const recipientPhonePrompt = resolvePromptSpokenText("OP21", lang, { recipientPhone: phoneValidation.normalized });
-  const readbackText = `${recipientNamePrompt} ${recipientPhonePrompt}`;
-
-  const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/recipient-verify-choice?sessionId=${sessionId}&amp;lang=${lang}">
-        <Say voice="female">${escapeVoiceXml(readbackText)}</Say>
-        ${canonicalPromptElement("confirm_continue", lang, baseUrl, lang === "twi"
-    ? "Sɛ wopene so a mia 1, sɛ wopɛ sɛ wosesa a mia 2, anaa mia 0 na woagyae."
-    : "Press 1 to confirm, 2 to change the recipient, or 0 to cancel.")}
-    </GetDigits>
-    ${speechRecordingXml(baseUrl, sessionId, lang, "recipient-verify-choice", 6)}
-    `;
+  const xml = buildRecipientVerifyStepXml(baseUrl, sessionId, lang, phoneValidation.normalized, resolution.name);
 
   xmlResponse(res, xml, {
     stepId: "recipient-verify-choice",
@@ -1310,7 +1446,7 @@ ivrRouter.all("/recipient-verify-choice", (req: Request, res: Response) => {
     return xmlResponse(res, `    ${canonicalPromptElement("cancel", lang, baseUrl, cancelledText)}\n    ${canonicalPromptElement("exit", lang, baseUrl, lang === "twi" ? "Nante yie." : "Goodbye.")}\n    <Reject/>`);
   }
   if (dtmf === "9") {
-    return xmlResponse(res, `    <Redirect>${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${session.recipientPhone || ""}</Redirect>`);
+    return xmlResponse(res, buildRecipientVerifyStepXml(baseUrl, sessionId, lang, session.recipientPhone || "", session.recipientName || ""));
   }
   if (dtmf === "2" || dtmf === "8") {
     recipientLookups.delete(session);
@@ -1321,26 +1457,15 @@ ivrRouter.all("/recipient-verify-choice", (req: Request, res: Response) => {
       amount: null,
     });
     session.retryCount = 0;
-    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+    return xmlResponse(res, buildEnterRecipientStepXml(baseUrl, sessionId, lang));
   }
 
   if (dtmf !== "1") {
-    const namePrompt = resolvePromptSpokenText("OP20", lang, { recipientName: session.recipientName });
-    const phonePrompt = resolvePromptSpokenText("OP21", lang, { recipientPhone: session.recipientPhone });
-    return xmlResponse(res, `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/recipient-verify-choice?sessionId=${sessionId}&amp;lang=${lang}">
-      <Say voice="female">${escapeVoiceXml(`${namePrompt} ${phonePrompt}`)}</Say>
-      ${canonicalPromptElement("confirm_continue", lang, baseUrl, lang === "twi"
-    ? "Sɛ wopene so a mia 1, sɛ wopɛ sɛ wosesa a mia 2, anaa mia 0 na woagyae."
-    : "Press 1 to confirm, 2 to change the recipient, or 0 to cancel.")}
-    </GetDigits>
-    ${speechRecordingXml(baseUrl, sessionId, lang, "recipient-verify-choice", 6)}`);
+    return xmlResponse(res, buildRecipientVerifyStepXml(baseUrl, sessionId, lang, session.recipientPhone || "", session.recipientName || ""));
   }
 
   if (!session.recipientPhone || !session.recipientName || !session.isRecipientVerified) {
-    return xmlResponse(res, `    <Say voice="female">${lang === "twi"
-      ? "Yɛrentumi nnye recipient yi ntom. Yɛsrɛ wo san hyɛ nɔmba no."
-      : "We cannot confirm this recipient. Please enter the number again."}</Say>
-    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+    return xmlResponse(res, buildEnterRecipientStepXml(baseUrl, sessionId, lang));
   }
 
   // If confirmed with 1, update session network to resolved recipient network if cross-network
@@ -1351,12 +1476,12 @@ ivrRouter.all("/recipient-verify-choice", (req: Request, res: Response) => {
 
   if (session.amount && session.amount > 0 && session.state === "RECIPIENT_VERIFIED") {
     transactionStateMachine.transition(sessionId, "AMOUNT_ENTERED", { amount: session.amount });
-    return xmlResponse(res, `    <Redirect>${baseUrl}/safe-confirmation?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+    return xmlResponse(res, buildSafeConfirmationStepXml(baseUrl, sessionId, lang, session.amount, session.recipientPhone, session.recipientName));
   }
 
   // Proceed directly to amount input, NEVER get stuck at recipient step
   session.retryCount = 0;
-  return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+  return xmlResponse(res, buildEnterAmountStepXml(baseUrl, sessionId, lang));
 });
 
 // ── Step 8: Amount Input ──────────────────────────────────────────────
@@ -1398,10 +1523,10 @@ ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
     return xmlResponse(res, `    ${canonicalPromptElement("cancel", lang, baseUrl, cancelledText)}\n    ${canonicalPromptElement("exit", lang, baseUrl, lang === "twi" ? "Nante yie." : "Goodbye.")}\n    <Reject/>`);
   }
   if (rawDigits === "8") {
-    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+    return xmlResponse(res, buildEnterRecipientStepXml(baseUrl, sessionId, lang));
   }
   if (rawDigits === "9") {
-    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+    return xmlResponse(res, buildEnterAmountStepXml(baseUrl, sessionId, lang));
   }
 
   const amountValidation = parseAndValidateAmount(rawDigits);
@@ -1450,12 +1575,7 @@ ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
 
   session.retryCount = 0;
   if (!session.recipientPhone || !session.isRecipientVerified) {
-    return xmlResponse(
-      res,
-      `    <Say voice="female">${lang === "twi"
-        ? "Yɛsrɛ wo, di kan hwɛ recipient no din ne fon nɔmba no ansa na woakɔ so."
-        : "Please verify the recipient before continuing to amount confirmation."}</Say>\n    <Redirect>${baseUrl}/enter-recipient?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`
-    );
+    return xmlResponse(res, buildEnterRecipientStepXml(baseUrl, sessionId, lang));
   }
 
   transactionStateMachine.transition(sessionId, "AMOUNT_ENTERED", {
@@ -1463,13 +1583,8 @@ ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
   });
 
   const amountReadback = resolvePromptSpokenText("OP29", lang, { amount: amountValidation.amount });
-  return xmlResponse(res, `    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/amount-readback-choice?sessionId=${sessionId}&amp;lang=${lang}">
-        <Say voice="female">${escapeVoiceXml(amountReadback)}</Say>
-        ${canonicalPromptElement("confirm_continue", lang, baseUrl, lang === "twi"
-    ? "Sɛ sika dodow no yɛ nokware a, mia 1. Sɛ wopɛ sɛ wosesa a, mia 2. Sɛ wopɛ sɛ wugyae a, mia 0."
-    : "Press 1 to confirm, 2 to change the amount, or 0 to cancel.")}
-    </GetDigits>
-    ${speechRecordingXml(baseUrl, sessionId, lang, "amount-readback-choice", 6)}`, {
+  const xml = buildAmountReadbackStepXml(baseUrl, sessionId, lang, amountValidation.amount);
+  return xmlResponse(res, xml, {
     stepId: "amount-readback",
     replyKey: "OP29",
     replyText: amountReadback,
@@ -1486,19 +1601,15 @@ ivrRouter.all("/amount-readback-choice", (req: Request, res: Response) => {
   const session = transactionStateMachine.getOrCreateSession(sessionId);
 
   if (session.state !== "AMOUNT_ENTERED" || !session.amount || !session.recipientPhone || !session.isRecipientVerified) {
-    const errorMsg = lang === "twi"
-      ? "Yɛrentumi nnhwɛ amount ne recipient nsɛm yi mu. Yɛresan akɔ baabi a ɛkae no so."
-      : "We cannot verify the current amount and recipient. Redirecting to verify your details.";
-    const targetRoute = ChecklistStageManager.getStepRouteForStage(session.isRecipientVerified ? "STAGE_5_AMOUNT" : "STAGE_4_RECIPIENT");
-    return xmlResponse(res, `    <Say voice="female">${escapeVoiceXml(errorMsg)}</Say>\n    <Redirect>${baseUrl}/${targetRoute}?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}</Redirect>`);
+    return xmlResponse(res, buildEnterAmountStepXml(baseUrl, sessionId, lang));
   }
 
   if (dtmf === "1") {
-    return xmlResponse(res, `    <Redirect>${baseUrl}/safe-confirmation?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+    return xmlResponse(res, buildSafeConfirmationStepXml(baseUrl, sessionId, lang, session.amount, session.recipientPhone, session.recipientName || ""));
   }
   if (dtmf === "2") {
     transactionStateMachine.transition(sessionId, "RECIPIENT_VERIFIED", { amount: null });
-    return xmlResponse(res, `    <Redirect>${baseUrl}/enter-amount?sessionId=${sessionId}&amp;lang=${lang}</Redirect>`);
+    return xmlResponse(res, buildEnterAmountStepXml(baseUrl, sessionId, lang));
   }
   if (dtmf === "0") {
     transactionStateMachine.transition(sessionId, "CANCELLED");

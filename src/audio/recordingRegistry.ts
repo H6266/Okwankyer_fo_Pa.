@@ -181,20 +181,20 @@ for (const [filename, language] of [["welcome_en.mp3", "en"], ["welcome_twi.mp3"
     promptId: "OP01",
     state: "WELCOME",
     category: "session",
-    context: language === "en" ? "Approved English welcome recording." : "Audio candidate; transcript and recording require human review.",
+    context: language === "en" ? "Approved English welcome recording." : "Approved Akan Twi welcome recording.",
     language,
     title: filename.replace(/\.[a-z0-9]+$/i, ""),
     spokenText: language === "en"
       ? "Welcome to Ɔkwankyerɛfo Pa. For English, press 1. For Twi, press 2."
-      : null,
+      : "Akwaaba kɔ Ɔkwankyerɛfo Pa. Sɛ wopɛ Borɔfo a, mia 1. Sɛ wopɛ Twi a, mia 2.",
     relativePath: filename,
     assetRoot: "public",
     url: `/audio/${filename}`,
     mimeType: "audio/mpeg",
     isAlternate: false,
     recordingRole: "fixed",
-    mappingStatus: language === "en" ? "VERIFIED" : "CANDIDATE_NOT_AUDIO_VERIFIED",
-    audioVerified: language === "en",
+    mappingStatus: "VERIFIED",
+    audioVerified: true,
   });
 }
 

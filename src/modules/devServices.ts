@@ -149,12 +149,15 @@ export function generateVoiceXmlStep(
   const promptKey = promptKeyByStep[stepNumber];
   const audioPath = promptKey ? resolvePrompt(promptKey, language) : null;
   const audioUrl = audioPath ? `${baseUrl}${audioPath}` : "";
+  const stepAudioUrl = stepNumber === 7
+    ? (language === "twi" ? `${baseUrl}/audio/additional/Pin%20Handoff.mp3` : `${baseUrl}/api/audio/prompt-tts/en/pin_handoff`)
+    : audioUrl;
   const promptText = promptKey ? resolvePromptText(promptKey, language) : null;
   const escapeXml = (value: string) => value.replace(/[<>&'"]/g, (character) => ({
     "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;",
   })[character] || character);
-  const promptContent = audioUrl
-    ? `<Play url="${audioUrl}"/>`
+  const promptContent = stepAudioUrl
+    ? `<Play url="${stepAudioUrl}"/>`
     : promptText
     ? `<Say voice="female">${escapeXml(promptText)}</Say>`
     : "";
@@ -268,7 +271,7 @@ export function generateVoiceXmlStep(
       return {
         stepNumber: 7,
         stepName: "7. Zero-PIN Security Boundary & Handset Handoff",
-        promptAudioUrl: audioUrl,
+        promptAudioUrl: stepAudioUrl,
         inputWindowSec: 45, // Waiting for telco USSD prompt on screen
         dtmfGrammar: ["NONE (Microphone completely muted; PIN entered strictly on screen)"],
         zeroPinMuted: true,

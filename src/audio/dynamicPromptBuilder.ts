@@ -145,11 +145,11 @@ export function renderDynamicPromptTemplate(
       const phoneValidation = validateGhanaPhoneNumber(phone);
       const parsed = parseAndValidateAmount(String(params.amount));
       if (!phoneValidation.valid || !parsed.valid || parsed.amount === undefined) return null;
-      const lastFour = phone.replace(/\D/g, "").slice(-4).split("").join(" ");
-      const amount = parsed.formatted || String(params.amount);
+      const fullDigits = formatFullPhoneNumberForSpeech(phone, language);
+      const amountStr = parsed.formatted || `${params.amount} Cedis`;
       return isTwi
-        ? `Wopɛ sɛ womane ${amount} kɔma ${name} wɔ ${network} so. Recipient phone nɔmba no awiei ne ${lastFour}.`
-        : `You are about to send ${amount} to ${name} on ${network}. The recipient phone number ends in ${lastFour}.`;
+        ? `Wopɛ sɛ womane ${amountStr} kɔma ${name} wɔ ${network} so. Recipient phone nɔmba ne ${fullDigits}.`
+        : `You are about to send ${amountStr} to ${name} on ${network}. Phone number: ${fullDigits}.`;
     }
     case "OP52": {
       const name = params.name?.trim() || params.recipientName?.trim();
@@ -159,8 +159,8 @@ export function renderDynamicPromptTemplate(
       if (!parsed.valid || parsed.amount === undefined) return null;
       const spokenRef = formatRefForSpeech(reference);
       return isTwi
-        ? `Wo transfer a ɛyɛ ${parsed.formatted || params.amount} kɔma ${name} no adi nkonim. Application reference no ne ${spokenRef}. Fa sie yie.`
-        : `Your transfer of ${parsed.formatted || params.amount} to ${name} is complete. Your application reference is ${spokenRef}. Please keep it for your records.`;
+        ? `Wo transfer a ɛyɛ ${parsed.formatted || `${params.amount} Cedis`} kɔma ${name} no adi nkonim. Application reference no ne ${spokenRef}. Fa sie yie.`
+        : `Your transfer of ${parsed.formatted || `${params.amount} Cedis`} to ${name} is complete. Your application reference is ${spokenRef}. Please keep it for your records.`;
     }
     case "OP52B": {
       const reference = params.referenceId || params.ref;
@@ -229,7 +229,11 @@ export function buildRecipientVerificationPrompt(options: {
   }
 
   const voiceXml = language === "twi"
-    ? `    <Say voice="female">Twi speech is unavailable, so we cannot safely verify this recipient. Please try again later.</Say>\n    <Reject/>`
+    ? `    <GetDigits timeout="15" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
+        <Play url="/audio/Twi_library/Recipient_verify.mp3"/>
+        <Play url="/api/audio/prompt-tts/twi/OP21?recipientPhone=${encodeURIComponent(recipientPhone)}&amp;recipientName=${encodeURIComponent(name)}&amp;format=mp3"/>
+        <Play url="/audio/Twi_library/Recipient_confirm_speech.mp3"/>
+    </GetDigits>`
     : `    <GetDigits timeout="15" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
         <Say voice="female">${escapeXml(spokenText)}</Say>
     </GetDigits>`;
@@ -257,7 +261,12 @@ export function buildSafeConfirmationPrompt(options: SafeConfirmationOptions): {
     ? "Kɔkɔbɔ: Yɛantumi anhu edin ne transaction nsɛm no. Yɛrentumi nkɔ so."
     : "Warning: The recipient name and transaction details could not be verified. We cannot continue.");
   const voiceXml = language === "twi"
-    ? `    <Say voice="female">Twi speech is unavailable, so we cannot safely confirm this transfer. Please try again later.</Say>\n    <Reject/>`
+    ? `    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">
+        <Play url="/audio/Twi_library/Review%20transaction.mp3"/>
+        <Play url="/api/audio/prompt-tts/twi/OP21?recipientPhone=${encodeURIComponent(recipientPhone)}&amp;recipientName=${encodeURIComponent(recipientName || '')}&amp;format=mp3"/>
+        <Play url="/api/audio/prompt-tts/twi/OP29?amount=${amount}&amp;format=mp3"/>
+        <Play url="/audio/Twi_library/Confirm_continue.mp3"/>
+    </GetDigits>`
     : review
     ? `    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">\n        <Say voice="female">${escapeXml(spokenText)}</Say>\n    </GetDigits>`
     : `    <Say voice="female">${escapeXml(spokenText)}</Say>\n    <Reject/>`;
@@ -289,7 +298,7 @@ export function buildReceiptPrompt(options: DynamicReceiptOptions): {
       spokenText = `Your transfer of ${amountFormatted} to ${displayName} has failed. Your ${referenceLabel} is ${spacedRef}. Please check the status before trying again.`;
     }
     const voiceXml = language === "twi"
-      ? `    <Say voice="female">Twi speech is unavailable. The transfer was not completed. Please check your provider messages.</Say>\n    <Reject/>`
+      ? `    <Play url="/audio/Twi_library/Failed.mp3"/>\n    <Reject/>`
       : `    <Say voice="female">${escapeXml(spokenText)}</Say>\n    <Reject/>`;
     return { spokenText, voiceXml };
   } else if (status === "PENDING") {
@@ -299,7 +308,7 @@ export function buildReceiptPrompt(options: DynamicReceiptOptions): {
       spokenText = `Your transfer of ${amountFormatted} to ${displayName} is still pending provider confirmation. Your ${referenceLabel} is ${spacedRef}. Do not start another transfer until the status is checked.`;
     }
     const voiceXml = language === "twi"
-      ? `    <Say voice="female">Twi speech is unavailable. This transfer is still awaiting provider confirmation. Please check your phone.</Say>\n    <Reject/>`
+      ? `    <Play url="/audio/Twi_library/Waiting_confirmation.mp3"/>\n    <Reject/>`
       : `    <Say voice="female">${escapeXml(spokenText)}</Say>\n    <Reject/>`;
     return { spokenText, voiceXml };
   } else {
@@ -311,7 +320,7 @@ export function buildReceiptPrompt(options: DynamicReceiptOptions): {
       ? "Yɛrentumi nnhwɛ transaction nsɛm yi mu, enti yɛrentumi nka sɛ edi nkonim."
       : "We cannot verify the transaction details, so we cannot confirm completion.");
     const voiceXml = language === "twi"
-      ? `    <Say voice="female">Twi speech is unavailable. Please check your provider messages for the confirmed transaction status.</Say>\n    <Reject/>`
+      ? `    <Play url="/audio/Twi_library/Success_sent.mp3"/>`
       : `    <Say voice="female">${escapeXml(spokenText)}</Say>`;
 
     return { spokenText, voiceXml };
