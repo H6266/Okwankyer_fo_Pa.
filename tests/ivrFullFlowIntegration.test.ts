@@ -99,6 +99,26 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(providerMenu.status).toBe(200);
     expect(providerMenu.text).toContain("/audio/Twi/Network_selection.mp3?format=mp3");
     expect(providerMenu.text).not.toContain("<Say");
+
+    const providerChoice = await request(app)
+      .post(`/provider-choice?sessionId=${sessionId}&lang=en`)
+      .send({ dtmfDigits: "1" });
+    expect(providerChoice.text).toContain(`/action-select?sessionId=${sessionId}&amp;lang=twi`);
+
+    const actionMenu = await request(app)
+      .post(`/action-select?sessionId=${sessionId}&lang=en`);
+    expect(actionMenu.text).toContain("/audio/Twi/MTN%20menu.mp3?format=mp3");
+    expect(actionMenu.text).not.toContain("<Say");
+
+    const actionChoice = await request(app)
+      .post(`/action-choice?sessionId=${sessionId}&lang=en`)
+      .send({ dtmfDigits: "1" });
+    expect(actionChoice.text).toContain(`/enter-recipient?sessionId=${sessionId}&amp;lang=twi`);
+
+    const recipientPrompt = await request(app)
+      .post(`/enter-recipient?sessionId=${sessionId}&lang=en`);
+    expect(recipientPrompt.text).toContain("/audio/Twi/Enter_recipient.mp3?format=mp3");
+    expect(recipientPrompt.text).not.toContain("<Say");
   });
 
   it("keeps the Twi call open and replays direct audio when menu callbacks have no DTMF", async () => {
@@ -196,7 +216,16 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .post("/action-choice")
       .send({ sessionId, lang: "en", dtmfDigits: "2" });
     expect(balanceAttempt.text).toContain("cannot check wallet balances");
+    expect(balanceAttempt.text).toContain("<GetDigits");
+    expect(balanceAttempt.text).not.toContain("<Reject/>");
     expect(balanceAttempt.text).not.toContain("/enter-recipient");
+
+    const twiBalanceAttempt = await request(app)
+      .post("/action-choice")
+      .send({ sessionId: "AT-TWI-UNSUPPORTED-BALANCE-001", lang: "twi", dtmfDigits: "2" });
+    expect(twiBalanceAttempt.text).toContain("<GetDigits");
+    expect(twiBalanceAttempt.text).toContain("/audio/Twi/MTN%20menu.mp3?format=mp3");
+    expect(twiBalanceAttempt.text).not.toContain("<Reject/>");
   });
 
   it("plays one welcome with language choices and reserves OP02 for replay", async () => {

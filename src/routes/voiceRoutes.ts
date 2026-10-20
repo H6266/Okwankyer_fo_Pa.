@@ -1036,9 +1036,11 @@ ivrRouter.all("/action-choice", async (req: Request, res: Response) => {
   if (dtmf === "2" && !SERVICE_CAPABILITIES.checkBalance.available) {
     const unsupportedText = resolvePromptText("balance_inquiry_unsupported", lang)
       || "Balance checks are not available through this voice service.";
+    const promptKey = lang === "twi" ? "mtn_menu" : "send_money_menu";
+    const menuText = resolvePromptText(promptKey, lang) || "To send money, press 1. Press 9 to repeat, or 0 to exit.";
     return xmlResponse(
       res,
-      `    <Say voice="female">${escapeVoiceXml(unsupportedText)}</Say>\n    <Reject/>`
+      `    ${canonicalPromptElement("balance_unavailable", lang, baseUrl, unsupportedText)}\n    <GetDigits timeout="20" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/action-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement(promptKey, lang, baseUrl, menuText)}\n    </GetDigits>`
     );
   }
   if (dtmf === "2" && SERVICE_CAPABILITIES.checkBalance.available) {
@@ -2582,10 +2584,20 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
 
       if (brainOutput.decision.kind === "not_ready") {
         const audioMatch = matchReplyToAudio(brainOutput.reply.text, lang);
-        const playElement = audioMatch.audioUrl
+        const replyElement = audioMatch.audioUrl
           ? `<Play url="${escapeVoiceXml(`${baseUrl}${audioMatch.audioUrl}`)}"/>`
-          : "";
-        return xmlResponse(res, `    ${playElement}\n    <Say voice="female">${escapeVoiceXml(brainOutput.reply.text)}</Say>\n    <Reject/>`);
+          : `<Say voice="${lang === "twi" ? "woman" : "alice"}">${escapeVoiceXml(brainOutput.reply.text)}</Say>`;
+        const menuStep = step === "provider-select" ? "provider-select" : step === "action-select" ? "action-select" : "service-select";
+        const callbackStep = menuStep === "provider-select" ? "provider-choice" : menuStep === "action-select" ? "action-choice" : "service-choice";
+        const menuPromptKey = menuStep === "provider-select"
+          ? lang === "twi" ? "network_selection" : "mtn_network_select"
+          : menuStep === "action-select"
+          ? lang === "twi" ? "mtn_menu" : "send_money_menu"
+          : "supported_service_select";
+        const menuText = resolvePromptText(menuPromptKey, lang) || (lang === "twi"
+          ? "Sɛ wopɛ sɛ wokɔ so a, mia 1. Mia 9 na tie bio, anaa mia 0 sɛ wopɛ sɛ wogyae."
+          : "Press 1 to continue, 9 to repeat, or 0 to end the call.");
+        return xmlResponse(res, `    ${replyElement}\n    <GetDigits timeout="20" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/${callbackStep}?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement(menuPromptKey, lang, baseUrl, menuText)}\n    </GetDigits>`);
       } else if (brainOutput.decision.kind === "clarify_intent") {
         const prompt = brainPromptElement(brainOutput.reply.promptId, brainOutput.reply.text, baseUrl, lang);
         return xmlResponse(
