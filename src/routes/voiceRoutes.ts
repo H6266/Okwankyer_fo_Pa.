@@ -58,7 +58,7 @@ export const voiceRouter = Router();
 export const ivrRouter = Router();
 export const simulatorRouter = Router();
 const CALLER_RESPONSE_TIMEOUT_SECONDS = 90;
-const VOICE_INPUT_KEYPAD_GRACE_SECONDS = 1;
+const VOICE_INPUT_KEYPAD_GRACE_SECONDS = 5;
 
 const SPEECH_STEP_BY_CALLBACK: Record<string, string> = {
   "language-selection": "language-selection",
