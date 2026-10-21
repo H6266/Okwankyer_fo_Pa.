@@ -418,6 +418,52 @@ describe('Phase 4: Readiness Hardening', () => {
       }
     });
 
+    it('opens recording directly after language timeout and routes an ASR transcript of 2 to Twi', async () => {
+      const sessionId = 'sess_at_spoken_language_choice';
+      await request(app)
+        .post('/voice-menu')
+        .type('form')
+        .send({ sessionId, callerNumber: '0241234567', lang: 'en', isActive: '1' });
+
+      const captureRes = await request(app)
+        .post(`/language-selection?sessionId=${sessionId}&lang=en`)
+        .type('form')
+        .send({ sessionId, lang: 'en' });
+      expect(captureRes.text).not.toContain('<GetDigits');
+      expect(captureRes.text).toContain('<Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="15" timeout="8"');
+      expect(captureRes.text).toContain(`/speech-fallback?step=language-selection&amp;sessionId=${sessionId}&amp;lang=en&amp;retry=0`);
+
+      const transcribe = vi.spyOn(sttService, 'speechToText').mockResolvedValue({
+        text: '2',
+        confidence: 0.95,
+        confidenceSource: 'provider',
+        languageDetected: 'en',
+        provider: 'test-asr',
+      });
+
+      try {
+        const speechRes = await request(app)
+          .post(`/speech-fallback?step=language-selection&sessionId=${sessionId}&lang=en`)
+          .type('form')
+          .send({ recordingUrl: 'https://recordings.example.invalid/language-choice.wav' });
+        expect(transcribe).toHaveBeenCalledWith(
+          'https://recordings.example.invalid/language-choice.wav',
+          undefined,
+          'language-selection',
+          'en'
+        );
+        expect(speechRes.text).toContain(`/language-selection?sessionId=${sessionId}&amp;dtmfDigits=2`);
+
+        const languageRes = await request(app)
+          .post(`/language-selection?sessionId=${sessionId}`)
+          .type('form')
+          .send({ sessionId, dtmfDigits: '2' });
+        expect(languageRes.text).toContain(`/service-select?sessionId=${sessionId}&amp;lang=twi`);
+      } finally {
+        transcribe.mockRestore();
+      }
+    });
+
     it("plays verified Twi welcome audio and starts speech recording after a short keypad window", async () => {
       const res = await request(app)
         .post('/voice-menu')
@@ -433,8 +479,8 @@ describe('Phase 4: Readiness Hardening', () => {
       expect(res.text).toContain('<Play url="http://');
       expect(res.text).toContain('/audio/Twi/Opening_voice_welcome_to_okwankyerefopa.mp3?format=mp3');
       expect(res.text).toContain('<GetDigits timeout="1"');
-      expect(res.text).toContain('<Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4"');
-      expect(res.text).toContain('step=language-selection&amp;sessionId=sess_at_twi_welcome_audio&amp;retry=0&amp;lang=twi');
+      expect(res.text).toContain('<Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="15" timeout="8"');
+      expect(res.text).toContain('step=language-selection&amp;sessionId=sess_at_twi_welcome_audio&amp;lang=twi&amp;retry=0');
     });
 
     it('starts speech capture after the service prompt while preserving its keypad callback', async () => {

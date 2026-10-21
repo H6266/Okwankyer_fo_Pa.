@@ -582,9 +582,6 @@ function xmlResponse(res: Response, content: string, decision?: (Partial<IvrDeci
     ? VOICE_INPUT_KEYPAD_GRACE_SECONDS
     : CALLER_RESPONSE_TIMEOUT_SECONDS;
   xml = xml.replace(/(<GetDigits\b[^>]*\btimeout=["'])\d+(["'])/gi, `$1${getDigitsTimeout}$2`);
-  if (!/<GetDigits\b/i.test(xml)) {
-    xml = xml.replace(/(<Record\b[^>]*\btimeout=["'])\d+(["'])/gi, `$1${CALLER_RESPONSE_TIMEOUT_SECONDS}$2`);
-  }
   xml = enforceSingleGetDigitsPrompt(xml);
   xml = xml.replace(/(<Say\b[^>]*\bvoice=["'])female(["'])/gi, "$1woman$2");
   res.set("Content-Type", "application/xml; charset=utf-8");
@@ -689,7 +686,7 @@ export const handleInboundCall = (req: Request, res: Response) => {
         ${welcomePrompt}
         ${languagePrompt}
     </GetDigits>
-    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=language-selection&amp;sessionId=${sessionId}&amp;retry=0"/>`;
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="15" timeout="8" callbackUrl="${baseUrl}/speech-fallback?step=language-selection&amp;sessionId=${sessionId}&amp;lang=${initialLang}&amp;retry=0"/>`;
 
   xmlResponse(res, xml, {
     type: "understood_intent",
@@ -767,15 +764,15 @@ ivrRouter.all("/language-selection", (req: Request, res: Response) => {
   const lang = session.language || "en";
 
   if (!dtmf) {
-    const fallbackText = lang === "twi"
-      ? "Sɛ wopɛ Borɔfo a, mia 1. Sɛ wopɛ Twi a, mia 2."
-      : "For English, press 1. For Twi, press 2.";
-    const prompt = canonicalPromptElement("language_selection", lang, baseUrl, fallbackText);
-    const xml = `    <GetDigits timeout="8" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?sessionId=${sessionId}">
-        ${prompt}
-    </GetDigits>
-    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4" callbackUrl="${baseUrl}/speech-fallback?step=language-selection&amp;sessionId=${sessionId}&amp;retry=0"/>`;
-    return xmlResponse(res, xml);
+    const speechCallback = new URL(`${baseUrl}/speech-fallback`);
+    speechCallback.searchParams.set("step", "language-selection");
+    speechCallback.searchParams.set("sessionId", sessionId);
+    speechCallback.searchParams.set("lang", lang);
+    speechCallback.searchParams.set("retry", "0");
+    return xmlResponse(
+      res,
+      `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="15" timeout="8" callbackUrl="${escapeVoiceXml(speechCallback.toString())}"/>`
+    );
   }
 
   const stepDef = getStepDefinition("language-selection")!;
