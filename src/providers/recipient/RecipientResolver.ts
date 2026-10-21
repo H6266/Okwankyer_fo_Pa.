@@ -47,10 +47,10 @@ export function sandboxDemoRecipientsAllowed(environment: {
   demoMode: boolean;
   momo: { targetEnv: string };
 }): boolean {
-  return environment.nodeEnv !== "production" && (
-    environment.demoMode ||
-    (environment.nodeEnv === "development" && environment.momo.targetEnv === "sandbox")
-  );
+  if (environment.nodeEnv === "production" || environment.nodeEnv === "test") {
+    return false;
+  }
+  return Boolean(environment.demoMode);
 }
 
 const DEMO_GHANAIAN_RECIPIENT_NAMES = [

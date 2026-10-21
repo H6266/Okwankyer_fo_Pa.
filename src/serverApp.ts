@@ -267,7 +267,7 @@ export async function startServer() {
     hostArg = process.argv[hostIdx + 1];
   }
   const activeHost = hostArg || process.env.HOST || "0.0.0.0";
-  let activePort = Number(portArg ?? process.env.PORT ?? 4174);
+  let activePort = Number(portArg ?? process.env.PORT ?? 3000);
 
   const shutdown = () => {
     try {

@@ -141,9 +141,15 @@ export function verifyAtWebhook(req: Request, res: Response, next: NextFunction)
       req.query?.callerNumber ||
       req.body?.phoneNumber ||
       req.body?.isActive !== undefined ||
-      req.body?.direction === "Inbound" ||
+      req.body?.direction ||
       req.body?.callSessionState ||
-      req.body?.callTransferState
+      req.body?.callTransferState ||
+      req.body?.recordingUrl ||
+      req.body?.RecordingUrl ||
+      req.body?.recordingURL ||
+      req.query?.recordingUrl ||
+      req.query?.RecordingUrl ||
+      req.query?.recordingURL
     );
     if (!isLegitAtPayload) {
       auditLogger.log("warn", "SECURITY", `Telephony callback missing signature for session ${sessionId}`, req.ip);

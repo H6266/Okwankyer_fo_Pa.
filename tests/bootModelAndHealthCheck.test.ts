@@ -38,8 +38,8 @@ describe("0. Local dev port defaults", () => {
       delete process.env.PORT;
 
       const cfg = loadConfig();
-      expect(cfg.port).toBe(4174);
-      expect(cfg.baseUrl).toBe("http://localhost:4174");
+      expect(cfg.port).toBe(3000);
+      expect(cfg.baseUrl).toBe("http://localhost:3000");
     } finally {
       if (origNodeEnv === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = origNodeEnv;

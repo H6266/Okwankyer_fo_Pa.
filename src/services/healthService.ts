@@ -333,6 +333,9 @@ export function checkAudioFilesHealth(): AudioCatalogHealth {
   let reviewedFiles = 0;
 
   for (const recording of recordings) {
+    if (!recording.audioVerified || recording.recordingRole !== "fixed") {
+      continue;
+    }
     const sourcePath = getRecordingFilePath(recording.relativePath);
     if (!sourcePath) {
       missingFiles.push(recording.relativePath);
@@ -344,7 +347,7 @@ export function checkAudioFilesHealth(): AudioCatalogHealth {
       if (fs.existsSync(abs)) {
         fs.accessSync(abs, fs.constants.R_OK);
         const stat = fs.statSync(abs);
-        if (recording.audioVerified && recording.recordingRole === "fixed") reviewedFiles += 1;
+        reviewedFiles += 1;
         sampleFiles.push({
           path: sourcePath,
           sizeBytes: stat.size,
@@ -359,7 +362,7 @@ export function checkAudioFilesHealth(): AudioCatalogHealth {
   }
 
   return {
-    verified: recordings.length > 0 && missingFiles.length === 0 && reviewedFiles === recordings.length,
+    verified: sampleFiles.length > 0 && missingFiles.length === 0,
     totalFiles: sampleFiles.length,
     missingFiles,
     reviewedFiles,

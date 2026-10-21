@@ -90,7 +90,7 @@ function automaticSpeechCaptureXml(callbackUrl: string, req: Request): string | 
   const step = callback.searchParams.get("step")
     || SPEECH_STEP_BY_CALLBACK[callbackPath]
     || req.path.replace(/^\//, "");
-  if (["enter-pin", "verify-pin", "pin-handoff"].includes(step)) return null;
+  if (["enter-pin", "verify-pin", "pin-handoff", "check-status"].includes(step)) return null;
 
   const sessionId = callback.searchParams.get("sessionId")
     || String(req.body?.sessionId || req.query?.sessionId || "");
@@ -589,18 +589,31 @@ function xmlResponse(res: Response, content: string, decision?: (Partial<IvrDeci
 }
 
 export function getBaseUrl(req: Request): string {
+  const isSimulator = Boolean(
+    req && (req.baseUrl?.startsWith("/api/simulator") || req.originalUrl?.includes("/api/simulator"))
+  );
+  const envBase = (process.env.BASE_URL || process.env.RENDER_EXTERNAL_URL || process.env.APP_URL || "").trim().replace(/\/+$/, "");
+
+  // In production or when public BASE_URL is set, use it for external Africa's Talking telephony callbacks
+  if (!isSimulator && envBase && (envBase.startsWith("https://") || process.env.NODE_ENV === "production")) {
+    return envBase;
+  }
+
   const forwardedHost = ((req.headers["x-forwarded-host"] as string) || "").split(",")[0]?.trim();
   const reqHost = req.get("host") || "";
   const host = forwardedHost || reqHost;
 
   const forwardedProto = ((req.headers["x-forwarded-proto"] as string) || "").split(",")[0]?.trim();
-  const proto = forwardedProto || req.protocol || "http";
+  let proto = forwardedProto || req.protocol || "http";
+
+  if (process.env.NODE_ENV === "production" || host.includes("onrender.com") || host.includes("run.app")) {
+    proto = "https";
+  }
 
   if (host) {
     return `${proto}://${host}`.replace(/\/+$/, "");
   }
 
-  const envBase = (process.env.BASE_URL || process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || "").trim().replace(/\/+$/, "");
   if (envBase) {
     return envBase;
   }
@@ -673,18 +686,9 @@ export const handleInboundCall = (req: Request, res: Response) => {
       ? "Akwaaba kɔ Ɔkwankyerɛfo Pa. Sɛ wopɛ Borɔfo a, mia 1. Sɛ wopɛ Twi a, mia 2."
       : "Welcome to Ɔkwankyerɛfo Pa. For English, press 1. For Twi, press 2."
   );
-  const languagePrompt = canonicalPromptElement(
-    "language_selection",
-    initialLang,
-    baseUrl,
-    initialLang === "twi"
-      ? "Sɛ wopɛ Borɔfo a, mia 1. Sɛ wopɛ Twi a, mia 2."
-      : "For English, press 1. For Twi, press 2."
-  );
 
   const xml = `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?sessionId=${sessionId}&amp;lang=${initialLang}">
         ${welcomePrompt}
-        ${languagePrompt}
     </GetDigits>
     <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="15" timeout="8" callbackUrl="${baseUrl}/speech-fallback?step=language-selection&amp;sessionId=${sessionId}&amp;lang=${initialLang}&amp;retry=0"/>`;
 
@@ -764,6 +768,9 @@ ivrRouter.all("/language-selection", (req: Request, res: Response) => {
   const lang = session.language || "en";
 
   if (!dtmf) {
+    const promptText = (req.query?.lang === "twi" || req.body?.lang === "twi" || lang === "twi")
+      ? "Sɛ wopɛ Borɔfo a, mia 1. Sɛ wopɛ Twi a, mia 2."
+      : "For English, press 1. For Twi, press 2.";
     const speechCallback = new URL(`${baseUrl}/speech-fallback`);
     speechCallback.searchParams.set("step", "language-selection");
     speechCallback.searchParams.set("sessionId", sessionId);
@@ -771,7 +778,10 @@ ivrRouter.all("/language-selection", (req: Request, res: Response) => {
     speechCallback.searchParams.set("retry", "0");
     return xmlResponse(
       res,
-      `    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="15" timeout="8" callbackUrl="${escapeVoiceXml(speechCallback.toString())}"/>`
+      `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?sessionId=${sessionId}&amp;lang=${lang}">
+        <Say voice="female">${promptText}</Say>
+    </GetDigits>
+    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="15" timeout="8" callbackUrl="${escapeVoiceXml(speechCallback.toString())}"/>`
     );
   }
 
@@ -988,9 +998,14 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
   if (!mismatchRes.isValidParameter && mismatchRes.mismatchFeedback) {
     const mismatchText = mismatchRes.mismatchFeedback[lang] || mismatchRes.mismatchFeedback.en;
     const replayPromptText = resolvePromptText("supported_service_select", lang) || "For a supported Mobile Money transfer, press 1. Press 9 to repeat, or 0 to exit.";
+    const promptElement = canonicalPromptElement("supported_service_select", lang, baseUrl, replayPromptText);
+    const hasFixedAudio = Boolean(resolvePrompt("supported_service_select", lang));
+    const contentXml = hasFixedAudio
+      ? promptElement
+      : `<Say voice="female">${escapeVoiceXml(mismatchText)}</Say>\n        ${promptElement}`;
     return xmlResponse(
       res,
-      `    <Say voice="female">${escapeVoiceXml(mismatchText)}</Say>\n    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("supported_service_select", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
+      `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${contentXml}\n    </GetDigits>`,
       {
         type: "invalid_choice",
         reason: "Keypad input does not match expected parameters (1, 2, 9, 0).",
@@ -1579,11 +1594,9 @@ ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
   }
 
   const amountValidation = parseAndValidateAmount(rawDigits);
-  const demoAmountLimit = config.nodeEnv !== "production" && config.momo.targetEnv === "sandbox"
-    ? 100
-    : FINANCIAL_LIMITS.MAX_AMOUNT_GHS;
+  const amountLimit = FINANCIAL_LIMITS.MAX_AMOUNT_GHS;
   const amountTooHigh = amountValidation.error?.includes("exceeds single transaction limit") === true
-    || (amountValidation.valid && amountValidation.amount !== undefined && amountValidation.amount > demoAmountLimit);
+    || (amountValidation.valid && amountValidation.amount !== undefined && amountValidation.amount > amountLimit);
   const amountTooLow = amountValidation.valid
     && amountValidation.amount !== undefined
     && amountValidation.amount < FINANCIAL_LIMITS.MIN_AMOUNT_GHS;
@@ -1605,8 +1618,8 @@ ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
     const promptKey = amountTooHigh ? "amount_too_high" : amountTooLow ? "amount_too_low" : "invalid_amount";
     decision.replyText = amountTooHigh
       ? (lang === "twi"
-        ? `Sika dodow no dɔɔso sen GHS ${demoAmountLimit} a yɛpene so. Yɛsrɛ wo, hyɛ sika dodow a ɛba fam.`
-        : `That amount is above the GHS ${demoAmountLimit} limit. Please enter a lower amount.`)
+        ? `Sika dodow no dɔɔso sen GHS ${amountLimit} a yɛpene so. Yɛsrɛ wo, hyɛ sika dodow a ɛba fam.`
+        : `That amount is above the GHS ${amountLimit} limit. Please enter a lower amount.`)
       : amountTooLow
       ? (lang === "twi"
         ? "Sika dodow no sua sen GHS 1.00. Yɛsrɛ wo, hyɛ sika dodow a ɛboro saa."

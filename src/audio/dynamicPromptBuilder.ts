@@ -157,7 +157,7 @@ export function renderDynamicPromptTemplate(
       if (!name || !reference || params.amount === undefined || params.amount === "") return null;
       const parsed = parseAndValidateAmount(String(params.amount));
       if (!parsed.valid || parsed.amount === undefined) return null;
-      const spokenRef = formatRefForSpeech(reference);
+      const spokenRef = formatSlowReferenceForSpeech(reference, language);
       return isTwi
         ? `Wo transfer a ɛyɛ ${parsed.formatted || params.amount} kɔma ${name} no adi nkonim. Application reference no ne ${spokenRef}. Fa sie yie.`
         : `Your transfer of ${parsed.formatted || params.amount} to ${name} is complete. Your application reference is ${spokenRef}. Please keep it for your records.`;
@@ -245,20 +245,26 @@ export function buildSafeConfirmationPrompt(options: SafeConfirmationOptions): {
   voiceXml: string;
 } {
   const { language, amount, recipientPhone, recipientName, isVerified, callbackUrl } = options;
-  const review = isVerified && recipientName
-    ? renderDynamicPromptTemplate("OP35", language, {
-        amount,
-        recipientName,
-        recipientPhone,
-        network: options.network,
-      })
-    : null;
-  const spokenText = review || (language === "twi"
-    ? "Kɔkɔbɔ: Yɛantumi anhu edin ne transaction nsɛm no. Yɛrentumi nkɔ so."
-    : "Warning: The recipient name and transaction details could not be verified. We cannot continue.");
-  const voiceXml = language === "twi"
-    ? `    <Say voice="female">Twi speech is unavailable, so we cannot safely confirm this transfer. Please try again later.</Say>\n    <Reject/>`
-    : review
+  const parsed = parseAndValidateAmount(String(amount));
+  const amountFormatted = parsed.formatted || `${amount} Cedis`;
+  const fullPhoneSpoken = formatFullPhoneNumberForSpeech(recipientPhone, language);
+
+  let spokenText = "";
+  if (!isVerified || !recipientName) {
+    if (language === "twi") {
+      spokenText = `Kɔkɔbɔ: Yɛantumi anhu edin ne transaction nsɛm no. Wopɛ sɛ womane ${amountFormatted} kɔma unverified recipient a ne nɔmba ne ${fullPhoneSpoken}. Yɛrentumi nkɔ so.`;
+    } else {
+      spokenText = `Warning: The recipient name and transaction details could not be verified. You are sending ${amountFormatted} to unverified recipient with phone number ${fullPhoneSpoken}. We cannot continue.`;
+    }
+  } else {
+    if (language === "twi") {
+      spokenText = `Worepɛ sɛ womane ${amountFormatted} kɔma ${recipientName} a ne nɔmba ne ${fullPhoneSpoken}. Sɛ wopene so a, mia baako (1). Sɛ wonpene so a, mia mmienu (2). Sɛ wopɛ sɛ wogyae a, mia hwee (0). To confirm and continue, press 1. To cancel, press 2. To exit, press 0.`;
+    } else {
+      spokenText = `You are about to send ${amountFormatted} to ${recipientName} with phone number ${fullPhoneSpoken}. To confirm and continue, press 1. To cancel, press 2. To exit, press 0.`;
+    }
+  }
+
+  const voiceXml = isVerified && recipientName
     ? `    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${callbackUrl}">\n        <Say voice="female">${escapeXml(spokenText)}</Say>\n    </GetDigits>`
     : `    <Say voice="female">${escapeXml(spokenText)}</Say>\n    <Reject/>`;
   return { spokenText, voiceXml };

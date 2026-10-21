@@ -4,7 +4,7 @@ import path from 'path';
 import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
-  const defaultPort = Number(process.env.PORT || 4174);
+  const defaultPort = Number(process.env.PORT || 3000);
 
   return {
     plugins: [react(), tailwindcss()],

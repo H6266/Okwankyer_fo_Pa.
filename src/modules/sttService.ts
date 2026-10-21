@@ -54,7 +54,7 @@ export {
 /**
  * Downloads a remote telephony audio recording with strict timeout and one retry.
  */
-const AT_RECORDING_FETCH_TIMEOUT_MS = 5000;
+const AT_RECORDING_FETCH_TIMEOUT_MS = 8000;
 const MAX_AT_RECORDING_BYTES = 15 * 1024 * 1024;
 
 async function fetchRemoteRecording(url: string, timeoutMs: number = AT_RECORDING_FETCH_TIMEOUT_MS): Promise<Buffer> {
@@ -64,11 +64,24 @@ async function fetchRemoteRecording(url: string, timeoutMs: number = AT_RECORDIN
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const headers: Record<string, string> = {};
-      if (process.env.AT_API_KEY) {
+      const urlObj = new URL(url);
+      const isExternalStorage = urlObj.hostname.includes("amazonaws.com") ||
+        urlObj.hostname.includes("cloudfront.net") ||
+        urlObj.hostname.includes("storage.googleapis.com");
+
+      // External storage (S3/CloudFront) uses public/presigned URLs and rejects unexpected apiKey headers.
+      // Only attach AT_API_KEY when directly querying Africa's Talking servers on retry or authenticated endpoints.
+      if (!isExternalStorage && process.env.AT_API_KEY && (attempt === 1 || urlObj.hostname.includes("africastalking.com"))) {
         headers["apiKey"] = process.env.AT_API_KEY;
       }
+
       const resp = await fetch(url, { headers, signal: controller.signal });
       if (!resp.ok) {
+        // If external S3 returned 400/403 with headers or initial attempt failed, retry cleanly
+        if ((resp.status === 400 || resp.status === 401 || resp.status === 403) && attempt === 0) {
+          lastError = new Error(`AT_RECORDING_HTTP_${resp.status}`);
+          continue;
+        }
         const error = new Error(`AT_RECORDING_HTTP_${resp.status}`);
         if (resp.status >= 500 && attempt === 0) {
           lastError = error;
@@ -85,14 +98,14 @@ async function fetchRemoteRecording(url: string, timeoutMs: number = AT_RECORDIN
       if (arrayBuffer.byteLength > MAX_AT_RECORDING_BYTES) {
         throw new Error("AT_RECORDING_TOO_LARGE");
       }
-      if (arrayBuffer.byteLength < 300) {
+      if (arrayBuffer.byteLength < 100) {
         throw new Error("AT_RECORDING_EMPTY");
       }
       return Buffer.from(arrayBuffer);
     } catch (error) {
       lastError = error;
       const message = error instanceof Error ? error.message : "";
-      if (message.startsWith("AT_RECORDING_HTTP_4") || message === "AT_RECORDING_TOO_LARGE" || message === "AT_RECORDING_EMPTY") {
+      if (message === "AT_RECORDING_TOO_LARGE" || message === "AT_RECORDING_EMPTY") {
         throw error;
       }
       if (attempt === 1) break;
