@@ -58,7 +58,69 @@ export const voiceRouter = Router();
 export const ivrRouter = Router();
 export const simulatorRouter = Router();
 const CALLER_RESPONSE_TIMEOUT_SECONDS = 90;
-const VOICE_INPUT_KEYPAD_GRACE_SECONDS = 20;
+const VOICE_INPUT_KEYPAD_GRACE_SECONDS = 1;
+
+const SPEECH_STEP_BY_CALLBACK: Record<string, string> = {
+  "language-selection": "language-selection",
+  "service-choice": "service-select",
+  "provider-choice": "provider-select",
+  "action-choice": "action-select",
+  "verify-recipient": "enter-recipient",
+  "verify-amount": "enter-amount",
+  "safe-outcome": "safe-confirmation",
+  "recipient-verify-choice": "recipient-verify-choice",
+  "amount-readback-choice": "amount-readback-choice",
+  "check-status": "check-status",
+  "post-success-choice": "post-success-choice",
+  "enter-pin": "enter-pin",
+  "verify-pin": "verify-pin",
+  "pin-handoff": "pin-handoff",
+};
+
+function automaticSpeechCaptureXml(callbackUrl: string, req: Request): string | null {
+  const baseUrl = getBaseUrl(req);
+  let callback: URL;
+  try {
+    callback = new URL(callbackUrl.replace(/&amp;/g, "&"), baseUrl);
+  } catch {
+    return null;
+  }
+
+  const callbackPath = callback.pathname.split("/").filter(Boolean).pop() || "";
+  const step = callback.searchParams.get("step")
+    || SPEECH_STEP_BY_CALLBACK[callbackPath]
+    || req.path.replace(/^\//, "");
+  if (["enter-pin", "verify-pin", "pin-handoff"].includes(step)) return null;
+
+  const sessionId = callback.searchParams.get("sessionId")
+    || String(req.body?.sessionId || req.query?.sessionId || "");
+  const language = callback.searchParams.get("lang")
+    || String(req.body?.lang || req.query?.lang || "en");
+  const speechCallback = new URL(`${baseUrl}/speech-fallback`);
+  speechCallback.searchParams.set("step", step);
+  if (sessionId) speechCallback.searchParams.set("sessionId", sessionId);
+  speechCallback.searchParams.set("lang", language === "twi" ? "twi" : "en");
+
+  return `\n    <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="30" timeout="5" callbackUrl="${escapeVoiceXml(speechCallback.toString())}"/>`;
+}
+
+function normalizeSpeechCallbackUrl(callbackUrl: string, req: Request): string {
+  try {
+    const callback = new URL(callbackUrl.replace(/&amp;/g, "&"), getBaseUrl(req));
+    if (!callback.pathname.endsWith("/speech-fallback")) return callbackUrl;
+    if (!callback.searchParams.has("sessionId")) {
+      const sessionId = String(req.body?.sessionId || req.query?.sessionId || "");
+      if (sessionId) callback.searchParams.set("sessionId", sessionId);
+    }
+    if (!callback.searchParams.has("lang")) {
+      const language = String(req.body?.lang || req.query?.lang || "en");
+      callback.searchParams.set("lang", language === "twi" ? "twi" : "en");
+    }
+    return callback.toString().replace(/&/g, "&amp;");
+  } catch {
+    return callbackUrl;
+  }
+}
 
 export function getCollectionStagePromptId(slot: "recipient" | "amount" | string, fallbackPromptId: string): string {
   if (slot === "recipient") return "OP16";
@@ -445,6 +507,16 @@ function xmlResponse(res: Response, content: string, decision?: (Partial<IvrDeci
   const isSimulator = Boolean(
     res.locals?.isSimulator ||
     (req && (req.baseUrl?.startsWith("/api/simulator") || req.originalUrl?.includes("/api/simulator")))
+  );
+  xml = xml.replace(
+    /(<GetDigits\b[^>]*\bcallbackUrl=["']([^"']+)["'][^>]*>[\s\S]*?<\/GetDigits>)(?!\s*<Record\b)/gi,
+    (getDigitsXml, _match, callbackUrl: string) =>
+      `${getDigitsXml}${automaticSpeechCaptureXml(callbackUrl, req) || ""}`
+  );
+  xml = xml.replace(
+    /(<Record\b[^>]*\bcallbackUrl=["'])([^"']+)(["'][^>]*>)/gi,
+    (_match, before: string, callbackUrl: string, after: string) =>
+      `${before}${normalizeSpeechCallbackUrl(callbackUrl, req)}${after}`
   );
   if (isSimulator) {
     const base = req ? getBaseUrl(req) : "";

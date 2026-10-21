@@ -432,18 +432,32 @@ describe('Phase 4: Readiness Hardening', () => {
       expect(res.status).toBe(200);
       expect(res.text).toContain('<Play url="http://');
       expect(res.text).toContain('/audio/Twi/Opening_voice_welcome_to_okwankyerefopa.mp3?format=mp3');
-      expect(res.text).toContain('<GetDigits timeout="20"');
+      expect(res.text).toContain('<GetDigits timeout="1"');
       expect(res.text).toContain('<Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="5" timeout="4"');
+      expect(res.text).toContain('step=language-selection&amp;sessionId=sess_at_twi_welcome_audio&amp;retry=0&amp;lang=twi');
     });
 
-    it('keeps DTMF-only prompts on the standard caller response timeout', async () => {
+    it('starts speech capture after the service prompt while preserving its keypad callback', async () => {
       const res = await request(app)
         .post('/service-select?sessionId=sess_at_dtmf_only&lang=twi')
         .type('form')
         .send({ sessionId: 'sess_at_dtmf_only', lang: 'twi' });
 
       expect(res.status).toBe(200);
-      expect(res.text).toContain('<GetDigits timeout="90"');
+      expect(res.text).toContain('<GetDigits timeout="1"');
+      expect(res.text).toContain('callbackUrl="http://127.0.0.1:');
+      expect(res.text).toContain('/speech-fallback?step=service-select&amp;sessionId=sess_at_dtmf_only&amp;lang=twi');
+      expect(res.text.indexOf('</GetDigits>')).toBeLessThan(res.text.indexOf('<Record'));
+    });
+
+    it('never enables voice recording during provider PIN authorization', async () => {
+      const res = await request(app)
+        .post('/enter-pin?sessionId=sess_at_pin_handoff&lang=twi')
+        .type('form')
+        .send({ sessionId: 'sess_at_pin_handoff', lang: 'twi' });
+
+      expect(res.status).toBe(200);
+      expect(res.text).not.toContain('<Record');
     });
 
     it('replays the approved service menu recording without a duplicate TTS line', async () => {
