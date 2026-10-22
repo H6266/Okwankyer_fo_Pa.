@@ -30,7 +30,7 @@ import { requireAdminAuth } from "../middleware/adminAuth";
 import { aiSystem } from "../ai_system";
 import { isInboundVoiceEnabled } from "../providers/telephony/inboundVoiceConfig";
 import { brain } from "../ai_system/brain/brain";
-import { resolvePrompt, resolvePromptText, resolvePromptXml } from "../modules/ttsService";
+import { resolvePrompt, resolvePromptText, resolvePromptXml, toTelephonyAudioUrl } from "../modules/ttsService";
 import {
   isDynamicPrompt,
   resolvePromptSpokenText,
@@ -577,14 +577,6 @@ function xmlResponse(res: Response, content: string, decision?: (Partial<IvrDeci
     }
   }
 
-  // Preserve explicit 90-second caller response window for elderly accessibility
-  if (!xml.includes('timeout="90"')) {
-    const hasSpeechFallback = /<GetDigits\b[\s\S]*?<\/GetDigits>[\s\S]*?<Record\b/i.test(xml);
-    const getDigitsTimeout = hasSpeechFallback
-      ? VOICE_INPUT_KEYPAD_GRACE_SECONDS
-      : CALLER_RESPONSE_TIMEOUT_SECONDS;
-    xml = xml.replace(/(<GetDigits\b[^>]*\btimeout=["'])\d+(["'])/gi, `$1${getDigitsTimeout}$2`);
-  }
   xml = enforceSingleGetDigitsPrompt(xml);
   xml = xml.replace(/(<Say\b[^>]*\bvoice=["'])female(["'])/gi, "$1woman$2");
   res.set("Content-Type", "application/xml; charset=utf-8");
@@ -1755,17 +1747,10 @@ ivrRouter.all("/safe-confirmation", (req: Request, res: Response) => {
   const callbackUrl = `${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}`;
 
   const network = session.network || "MTN";
-  const last4 = recipientPhone.slice(-4).split("").join(" ");
-  const parsed = parseAndValidateAmount(String(amount));
-  const amountFormatted = parsed.formatted || `${amount} Cedis`;
-  const spokenText = isVerified && recipientName
-    ? (lang === "twi"
-      ? `Worepɛ sɛ womane ${amountFormatted} kɔma ${recipientName} wɔ ${network} so, a ne fon nɔmba awieeɛ ne ${last4}. Sɛ wopene so a, mia baako (1). Sɛ wonpene so a, mia mmienu (2). Sɛ wopɛ sɛ wogyae a, mia hwee (0).`
-      : `You are about to send ${amountFormatted} to ${recipientName} on ${network}, phone number ending in ${last4}. To confirm and continue, press 1. To cancel, press 2. To exit, press 0.`)
-    : (lang === "twi"
-      ? `Kɔkɔbɔ: Yɛantumi anhu recipient no din. Sika mane no rentumi nkɔ so.`
-      : `Warning: The recipient name could not be verified. We cannot continue.`);
-
+  const last4Spaced = recipientPhone.slice(-4).split("").join(" ");
+  const spokenText = lang === "twi"
+    ? `Worepɛ sɛ womane ${amount} Cedis kɔma ${recipientName || "recipient"} wɔ ${network} so a ne nɔmba no wie ${last4Spaced}. To confirm and continue, press 1. To cancel, press 2. To exit, press 0.`
+    : `You are about to send ${amount} Cedis to ${recipientName || "recipient"} on ${network} with phone number ending in ${last4Spaced}. To confirm and continue, press 1. To cancel, press 2. To exit, press 0.`;
   const confirmationChoices = lang === "twi"
     ? "Sɛ nsɛm no yɛ nokware a, mia 1. Sɛ wopɛ sɛ wosesa sika no a, mia 2. Sɛ wopɛ sɛ wosesa recipient no a, mia 3. Sɛ wopɛ sɛ wogyae a, mia 0."
     : "Press 1 to confirm. To change the amount, press 2. To change the recipient, press 3. To cancel, press 0.";
@@ -1987,11 +1972,14 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
       );
     }
 
-    const waitingElement = `<Play url="${baseUrl}/audio/Twi_library/Waiting_confirmation.mp3?format=mp3"/>`;
+    const waitingText = lang === "twi"
+      ? "Wo transfer no rebɛn sɛ provider no agye atom. Yɛsrɛ wo twɛn."
+      : "We are sending your transfer request now. Please wait for the provider's confirmation.";
+    const waitingAudio = resolvePrompt("waiting_confirmation", "twi");
+    const playWaiting = waitingAudio ? `<Play url="${escapeVoiceXml(`${baseUrl}${toTelephonyAudioUrl(waitingAudio)}`)}"/>` : "";
     return xmlResponse(
       res,
-      `    ${waitingElement}
-    <Redirect>${baseUrl}/submit-transfer?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}</Redirect>`
+      `    ${playWaiting}\n    <Say voice="female">${escapeVoiceXml(waitingText)}</Say>\n    <Redirect>${baseUrl}/submit-transfer?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}</Redirect>`
     );
   } catch (err: any) {
     auditLogger.log("error", "MOMO", `Handoff execution failed: ${err.message}`, sessionId);
@@ -3016,9 +3004,8 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
         );
       }
       if (ivrDecision.nextStep === "recipient-verify-choice" && ivrDecision.updatedSlots?.recipientPhone) {
-        if (ivrDecision.updatedSlots?.amount) {
-          const session = transactionStateMachine.getOrCreateSession(sessionId);
-          session.amount = Number(ivrDecision.updatedSlots.amount);
+        if (ivrDecision.updatedSlots.amount) {
+          transactionStateMachine.updateSession(sessionId, { amount: ivrDecision.updatedSlots.amount });
         }
         return xmlResponse(
           res,
