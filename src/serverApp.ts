@@ -5,7 +5,6 @@
 
 import express, { Request, Response } from "express";
 import { addTelnyxWebhook, addTelnyxStream } from "./telnyxVoice";
-import { addAfricasTalkingForward } from "./africasTalkingForward";
 import http from "http";
 import net from "node:net";
 import path from "path";
@@ -97,8 +96,6 @@ app.use((req: Request, res: Response, next) => {
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(express.json({ limit: "50mb" }));
 addTelnyxWebhook(app);
-addAfricasTalkingForward(app);
-addAfricasTalkingForward(app);
 
 // Graceful handler for payload too large errors
 app.use((err: any, _req: Request, res: Response, next: any) => {
