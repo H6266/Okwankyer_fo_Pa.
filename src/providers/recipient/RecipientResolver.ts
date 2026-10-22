@@ -47,10 +47,10 @@ export function sandboxDemoRecipientsAllowed(environment: {
   demoMode: boolean;
   momo: { targetEnv: string };
 }): boolean {
-  if (environment.nodeEnv === "production") {
+  if (environment.nodeEnv === "production" || environment.nodeEnv === "test") {
     return false;
   }
-  return environment.nodeEnv === "development" || environment.demoMode || environment.momo.targetEnv === "sandbox";
+  return environment.momo?.targetEnv === "sandbox" || Boolean(environment.demoMode);
 }
 
 const DEMO_GHANAIAN_RECIPIENT_NAMES = [
@@ -113,6 +113,7 @@ export class SandboxRecipientResolver implements RecipientResolver {
         network: val.network,
         verified: true,
         source: "SANDBOX_FIXTURE",
+        warning: `Demo mode accepted ${redactPii(val.normalized)} as a valid sandbox recipient without provider lookup.`,
       };
     }
 
@@ -124,7 +125,7 @@ export class SandboxRecipientResolver implements RecipientResolver {
       network: val.network,
       verified: false,
       source: "UNRESOLVED",
-      warning: `The recipient number ${val.normalized} could not be verified in the directory.`,
+      warning: `Subscriber identity for ${redactPii(val.normalized)} could not be verified in the sandbox directory.`,
     };
   }
 }
