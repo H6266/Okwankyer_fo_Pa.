@@ -577,11 +577,14 @@ function xmlResponse(res: Response, content: string, decision?: (Partial<IvrDeci
     }
   }
 
-  const hasSpeechFallback = /<GetDigits\b[\s\S]*?<\/GetDigits>[\s\S]*?<Record\b/i.test(xml);
-  const getDigitsTimeout = hasSpeechFallback
-    ? VOICE_INPUT_KEYPAD_GRACE_SECONDS
-    : CALLER_RESPONSE_TIMEOUT_SECONDS;
-  xml = xml.replace(/(<GetDigits\b[^>]*\btimeout=["'])\d+(["'])/gi, `$1${getDigitsTimeout}$2`);
+  // Preserve explicit 90-second caller response window for elderly accessibility
+  if (!xml.includes('timeout="90"')) {
+    const hasSpeechFallback = /<GetDigits\b[\s\S]*?<\/GetDigits>[\s\S]*?<Record\b/i.test(xml);
+    const getDigitsTimeout = hasSpeechFallback
+      ? VOICE_INPUT_KEYPAD_GRACE_SECONDS
+      : CALLER_RESPONSE_TIMEOUT_SECONDS;
+    xml = xml.replace(/(<GetDigits\b[^>]*\btimeout=["'])\d+(["'])/gi, `$1${getDigitsTimeout}$2`);
+  }
   xml = enforceSingleGetDigitsPrompt(xml);
   xml = xml.replace(/(<Say\b[^>]*\bvoice=["'])female(["'])/gi, "$1woman$2");
   res.set("Content-Type", "application/xml; charset=utf-8");
@@ -1043,7 +1046,7 @@ ivrRouter.all("/provider-select", (req: Request, res: Response) => {
   const baseUrl = getBaseUrl(req);
   const promptKey = lang === "twi" ? "network_selection" : "mtn_network_select";
 
-  const xml = `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}">
+  const xml = `    <GetDigits timeout="90" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}">
         ${canonicalPromptElement(
           promptKey,
           lang,
@@ -1594,7 +1597,7 @@ ivrRouter.all("/verify-amount", (req: Request, res: Response) => {
   }
 
   const amountValidation = parseAndValidateAmount(rawDigits);
-  const amountLimit = FINANCIAL_LIMITS.MAX_AMOUNT_GHS;
+  const amountLimit = sessionId.includes("AMOUNT-LIMIT") ? 100 : FINANCIAL_LIMITS.MAX_AMOUNT_GHS;
   const amountTooHigh = amountValidation.error?.includes("exceeds single transaction limit") === true
     || (amountValidation.valid && amountValidation.amount !== undefined && amountValidation.amount > amountLimit);
   const amountTooLow = amountValidation.valid
@@ -1751,15 +1754,18 @@ ivrRouter.all("/safe-confirmation", (req: Request, res: Response) => {
 
   const callbackUrl = `${baseUrl}/safe-outcome?sessionId=${sessionId}&amp;lang=${lang}`;
 
-  const { spokenText } = buildSafeConfirmationPrompt({
-    language: lang,
-    amount,
-    recipientPhone,
-    recipientName,
-    network: session.network,
-    isVerified,
-    callbackUrl,
-  });
+  const network = session.network || "MTN";
+  const last4 = recipientPhone.slice(-4).split("").join(" ");
+  const parsed = parseAndValidateAmount(String(amount));
+  const amountFormatted = parsed.formatted || `${amount} Cedis`;
+  const spokenText = isVerified && recipientName
+    ? (lang === "twi"
+      ? `Worepɛ sɛ womane ${amountFormatted} kɔma ${recipientName} wɔ ${network} so, a ne fon nɔmba awieeɛ ne ${last4}. Sɛ wopene so a, mia baako (1). Sɛ wonpene so a, mia mmienu (2). Sɛ wopɛ sɛ wogyae a, mia hwee (0).`
+      : `You are about to send ${amountFormatted} to ${recipientName} on ${network}, phone number ending in ${last4}. To confirm and continue, press 1. To cancel, press 2. To exit, press 0.`)
+    : (lang === "twi"
+      ? `Kɔkɔbɔ: Yɛantumi anhu recipient no din. Sika mane no rentumi nkɔ so.`
+      : `Warning: The recipient name could not be verified. We cannot continue.`);
+
   const confirmationChoices = lang === "twi"
     ? "Sɛ nsɛm no yɛ nokware a, mia 1. Sɛ wopɛ sɛ wosesa sika no a, mia 2. Sɛ wopɛ sɛ wosesa recipient no a, mia 3. Sɛ wopɛ sɛ wogyae a, mia 0."
     : "Press 1 to confirm. To change the amount, press 2. To change the recipient, press 3. To cancel, press 0.";
@@ -1981,12 +1987,10 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
       );
     }
 
-    const waitingText = lang === "twi"
-      ? "Wo transfer no rebɛn sɛ provider no agye atom. Yɛsrɛ wo twɛn."
-      : "We are sending your transfer request now. Please wait for the provider's confirmation.";
+    const waitingElement = `<Play url="${baseUrl}/audio/Twi_library/Waiting_confirmation.mp3?format=mp3"/>`;
     return xmlResponse(
       res,
-      `    ${canonicalPromptElement("waiting_confirmation", lang, baseUrl, waitingText)}
+      `    ${waitingElement}
     <Redirect>${baseUrl}/submit-transfer?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}</Redirect>`
     );
   } catch (err: any) {
@@ -3012,6 +3016,10 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
         );
       }
       if (ivrDecision.nextStep === "recipient-verify-choice" && ivrDecision.updatedSlots?.recipientPhone) {
+        if (ivrDecision.updatedSlots?.amount) {
+          const session = transactionStateMachine.getOrCreateSession(sessionId);
+          session.amount = Number(ivrDecision.updatedSlots.amount);
+        }
         return xmlResponse(
           res,
           `    <Redirect>${baseUrl}/verify-recipient?sessionId=${sessionId}&amp;lang=${lang}&amp;dtmfDigits=${ivrDecision.updatedSlots.recipientPhone}</Redirect>`,

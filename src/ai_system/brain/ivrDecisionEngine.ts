@@ -209,7 +209,7 @@ export class IvrDecisionEngine {
                 ? `Mate aseɛ. Wopɛ sɛ womane GHS ${extractedAmt} kɔma ${extractedRec.name || extractedRec.phone}.`
                 : `Understood. You want to send ${extractedAmt} Cedis to ${extractedRec.name || extractedRec.phone}.`,
             replyKey: "intent_understood_proceed",
-            nextStep: "safe-confirmation",
+            nextStep: "recipient-verify-choice",
             action: "advance",
             updatedSlots: {
               amount: extractedAmt,

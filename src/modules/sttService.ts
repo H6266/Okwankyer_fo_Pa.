@@ -59,26 +59,35 @@ const MAX_AT_RECORDING_BYTES = 15 * 1024 * 1024;
 
 async function fetchRemoteRecording(url: string, timeoutMs: number = AT_RECORDING_FETCH_TIMEOUT_MS): Promise<Buffer> {
   let lastError: unknown;
+  let currentUrl = url;
+
   for (let attempt = 0; attempt < 2; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const headers: Record<string, string> = {};
-      const urlObj = new URL(url);
+      const urlObj = new URL(currentUrl);
       const isExternalStorage = urlObj.hostname.includes("amazonaws.com") ||
         urlObj.hostname.includes("cloudfront.net") ||
-        urlObj.hostname.includes("storage.googleapis.com");
+        urlObj.hostname.includes("storage.googleapis.com") ||
+        urlObj.searchParams.has("AWSAccessKeyId") ||
+        urlObj.searchParams.has("X-Amz-Algorithm");
 
       // External storage (S3/CloudFront) uses public/presigned URLs and rejects unexpected apiKey headers.
-      // Only attach AT_API_KEY when directly querying Africa's Talking servers on retry or authenticated endpoints.
+      // Only attach AT_API_KEY when directly querying Africa's Talking servers on retry or authenticated endpoints without AWS presigned query params.
       if (!isExternalStorage && process.env.AT_API_KEY && (attempt === 1 || urlObj.hostname.includes("africastalking.com"))) {
         headers["apiKey"] = process.env.AT_API_KEY;
       }
 
-      const resp = await fetch(url, { headers, signal: controller.signal });
+      const resp = await fetch(currentUrl, {
+        headers,
+        signal: controller.signal,
+        redirect: "follow",
+      });
+
       if (!resp.ok) {
-        // If external S3 returned 400/403 with headers or initial attempt failed, retry cleanly
-        if ((resp.status === 400 || resp.status === 401 || resp.status === 403) && attempt === 0) {
+        // If S3 or server rejected with headers, retry without apiKey
+        if ((resp.status === 400 || resp.status === 401 || resp.status === 403) && attempt === 0 && headers["apiKey"]) {
           lastError = new Error(`AT_RECORDING_HTTP_${resp.status}`);
           continue;
         }

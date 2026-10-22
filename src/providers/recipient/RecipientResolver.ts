@@ -50,7 +50,7 @@ export function sandboxDemoRecipientsAllowed(environment: {
   if (environment.nodeEnv === "production" || environment.nodeEnv === "test") {
     return false;
   }
-  return Boolean(environment.demoMode);
+  return environment.momo?.targetEnv === "sandbox" || Boolean(environment.demoMode);
 }
 
 const DEMO_GHANAIAN_RECIPIENT_NAMES = [
@@ -104,7 +104,7 @@ export class SandboxRecipientResolver implements RecipientResolver {
       };
     }
 
-    if (sandboxDemoRecipientsAllowed(config)) {
+    if (config.demoMode && sandboxDemoRecipientsAllowed(config)) {
       return {
         valid: true,
         phoneNumber: rawPhoneNumber,
