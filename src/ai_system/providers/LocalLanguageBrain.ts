@@ -181,10 +181,13 @@ export class LocalLanguageBrain {
     const numDecoded = numberDecoder.decode(raw);
     const phoneMatch = raw.match(/(?:^|\D)(?:\+?233|0)(?:[\s().-]*\d){8,9}(?!\d)/);
     const phoneDigits = phoneMatch?.[0].replace(/\D/g, "");
+    let hasNewRecipientPhone = false;
     if (phoneDigits && (phoneDigits.length === 10 || (phoneDigits.length === 12 && phoneDigits.startsWith("233")))) {
       slots.recipientPhone = phoneDigits.length === 12 ? `0${phoneDigits.slice(3)}` : phoneDigits;
+      hasNewRecipientPhone = true;
     } else if (numDecoded.isPhoneNumber && numDecoded.phoneNumberDigits) {
       slots.recipientPhone = numDecoded.phoneNumberDigits;
+      hasNewRecipientPhone = true;
     }
     if (!numDecoded.isPhoneNumber && numDecoded.numericValue !== null) {
       slots.amount = numDecoded.numericValue;
@@ -226,6 +229,26 @@ export class LocalLanguageBrain {
       }
       confidence = 0.92;
       intent = "SEND_MONEY";
+    }
+
+    // A changed recipient cannot inherit the previous person's phone or network.
+    const recipientCorrectionMatch = raw.match(/\b(?:send\s+(?:it\s+)?to|change\s+(?:recipient|person)\s+to)\s+([A-Za-z]+)\b/i);
+    const isRecipientCorrection = recipientCorrectionMatch &&
+      (/\bnot\b|\binstead\b|\bchange\b/i.test(lower));
+    if (isRecipientCorrection && recipientCorrectionMatch[1]) {
+      const correctedName = recipientCorrectionMatch[1].trim();
+      if (correctedName.toLowerCase() !== String(slots.recipientName || "").toLowerCase()) {
+        oldVal = slots.recipientName;
+        newVal = correctedName;
+        slots.recipientName = correctedName;
+        if (!hasNewRecipientPhone) slots.recipientPhone = undefined;
+        if (!/\b(mtn|telecel|vodafone|at|airteltigo)\b/i.test(lower)) slots.network = undefined;
+        isCorrection = true;
+        correctionField = "recipientName";
+        conversationAct = "CORRECT";
+        confidence = 0.92;
+        intent = "SEND_MONEY";
+      }
     }
 
     // Recipient Name extraction

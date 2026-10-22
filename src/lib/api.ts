@@ -34,27 +34,82 @@ function getAdminAuthHeaders(customHeaders: Record<string, string> = {}): Record
 
 export interface AudioItem {
   id: string;
-  number: string;
+  number?: string;
   language: "en" | "twi" | "bilingual";
   step: number;
   filename: string;
   title: string;
   spokenText: string;
   description: string;
-  url: string;
+  url: string | null;
   exists: boolean;
   sizeBytes: number;
   sizeFormatted: string;
-  durationEstSec?: number;
+  promptId?: string | null;
+  assetRoot?: "supplied" | "public" | "additional";
   mimeType?: string;
+  isAlternate?: boolean;
+  recordingRole?: "fixed" | "dynamic" | "alternative" | "unmapped";
+  durationEstSec?: number;
 }
 
 export interface AudioManifestResponse {
   englishPrompts: AudioItem[];
   twiPrompts: AudioItem[];
-  sharedPrompts: AudioItem[];
+  sharedPrompts?: AudioItem[];
+  allPrompts?: AudioItem[];
+  unresolvedAssets?: AudioItem[];
+  missingPromptVariants?: Array<{
+    promptId: string;
+    language: "en" | "twi";
+    state: string;
+    status: string;
+  }>;
   totalClips: number;
-  allPresent: boolean;
+  englishClips?: number;
+  twiClips?: number;
+  allPresent?: boolean;
+}
+
+export interface SessionConversationTurn {
+  id: string;
+  turnNumber: number;
+  timestamp: string;
+  callerInput: string;
+  callerChannel: "VOICE" | "DTMF" | "SIMULATOR" | "TEXT";
+  asrProvider?: string;
+  asrConfidence?: number | null;
+  asrLatencyMs?: number;
+  intent?: string;
+  entitiesExtracted?: Record<string, any>;
+  assistantResponse: string;
+  assistantAudioUrl?: string | null;
+  ttsProvider?: string;
+  step: string;
+  status: "SUCCESS" | "FAILED" | "FALLBACK";
+  rawAsrText?: string;
+}
+
+export interface SessionApiTrace {
+  id: string;
+  timestamp: string;
+  endpoint: string;
+  method: string;
+  provider: string;
+  latencyMs: number;
+  httpStatus: number;
+  requestSummary?: string;
+  responseSummary?: string;
+  status: "SUCCESS" | "ERROR" | "TIMEOUT" | "RATE_LIMITED" | "QUOTA_EXCEEDED";
+  errorMessage?: string;
+}
+
+export interface SessionDiagnosticEvent {
+  id: string;
+  timestamp: string;
+  type: "INFO" | "WARN" | "ERROR" | "QUOTA" | "RATE_LIMIT";
+  message: string;
+  details?: any;
 }
 
 export interface SessionRecord {
@@ -65,12 +120,16 @@ export interface SessionRecord {
   durationSeconds: number;
   language: "en" | "twi";
   finalStep: string;
-  stepReachedIndex: number;
-  outcome: "COMPLETED" | "CANCELLED" | "TIMEOUT" | "ERROR";
+  stepReachedIndex?: number;
+  outcome: "COMPLETED" | "CANCELLED" | "TIMEOUT" | "ERROR" | "FAILED" | "IN_PROGRESS" | "RECONCILIATION_REQUIRED";
   amountGHS?: number;
   recipientName?: string;
   recipientPhone?: string;
   referenceId?: string;
+  isDemo?: boolean;
+  conversationTurns?: SessionConversationTurn[];
+  apiRequests?: SessionApiTrace[];
+  diagnostics?: SessionDiagnosticEvent[];
   voiceXmlTrace: Array<{
     step: string;
     requestBody?: any;
@@ -163,7 +222,10 @@ export interface MomoTransactionStatus {
 export interface ParsedVoiceXml {
   raw: string;
   say?: { text: string; voice?: string };
+  sayText?: string;
   playUrl?: string;
+  playUrls?: string[];
+  redirect?: string;
   getDigits?: {
     timeout?: number;
     finishOnKey?: string;
@@ -180,6 +242,8 @@ export interface ParsedVoiceXml {
   };
   redirectUrl?: string;
   isReject: boolean;
+  httpStatus?: number;
+  guardReason?: string;
 }
 
 export function parseVoiceXml(xmlText: string): ParsedVoiceXml {
@@ -190,10 +254,19 @@ export function parseVoiceXml(xmlText: string): ParsedVoiceXml {
 
   if (!xmlText) return result;
 
-  // Play URL
-  const playMatch = xmlText.match(/<Play[^>]*>([^<]+)<\/Play>/i) || xmlText.match(/<Play\s+url=["']([^"']+)["']/i);
-  if (playMatch) {
-    result.playUrl = playMatch[1].trim();
+  // Extract all Play URLs in order
+  const playUrls: string[] = [];
+  const playRegex = /<Play\s+[^>]*url=["']([^"']+)["'][^>]*\/?>(?:<\/Play>)?|<Play[^>]*>([^<]+)<\/Play>/gi;
+  let pMatch: RegExpExecArray | null;
+  while ((pMatch = playRegex.exec(xmlText)) !== null) {
+    const matchedUrl = (pMatch[1] || pMatch[2] || "").trim();
+    if (matchedUrl) {
+      playUrls.push(matchedUrl);
+    }
+  }
+  if (playUrls.length > 0) {
+    result.playUrls = playUrls;
+    result.playUrl = playUrls[0];
   }
 
   // Say text and voice
@@ -203,6 +276,7 @@ export function parseVoiceXml(xmlText: string): ParsedVoiceXml {
       voice: sayMatch[1] || "female",
       text: sayMatch[2].trim(),
     };
+    result.sayText = sayMatch[2].trim();
   }
 
   // GetDigits attributes
@@ -345,10 +419,69 @@ export const api = {
   },
 
   async getSessions(): Promise<SessionRecord[]> {
-    const res = await fetch("/api/sessions");
+    const res = await fetch("/api/sessions", {
+      headers: getAdminAuthHeaders(),
+      credentials: "same-origin",
+    });
     if (!res.ok) throw new Error(`Sessions fetch failed: ${res.status}`);
     const data = await res.json();
     return data.sessions || [];
+  },
+
+  async getSessionDetail(sessionId: string): Promise<SessionRecord | null> {
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+        headers: getAdminAuthHeaders(),
+        credentials: "same-origin",
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.session || null;
+    } catch {
+      return null;
+    }
+  },
+
+  async logSessionTurn(sessionId: string, turn: Partial<SessionConversationTurn>): Promise<any> {
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/turn`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(turn),
+      });
+      return res.json();
+    } catch (e) {
+      console.warn("Failed to log session turn:", e);
+      return null;
+    }
+  },
+
+  async logSessionApiTrace(sessionId: string, trace: Partial<SessionApiTrace>): Promise<any> {
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/api-trace`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(trace),
+      });
+      return res.json();
+    } catch (e) {
+      console.warn("Failed to log session API trace:", e);
+      return null;
+    }
+  },
+
+  async logSessionDiagnostic(sessionId: string, diag: Partial<SessionDiagnosticEvent>): Promise<any> {
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/diagnostic`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(diag),
+      });
+      return res.json();
+    } catch (e) {
+      console.warn("Failed to log session diagnostic:", e);
+      return null;
+    }
   },
 
   async getLedger(): Promise<LedgerItem[]> {
@@ -586,6 +719,125 @@ export const api = {
     return res.json();
   },
 
+  async getMomoFeeds(): Promise<{ success: boolean; total: number; feeds: any[] }> {
+    const res = await fetch("/api/momo/feeds", {
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders(),
+    });
+    return res.json();
+  },
+
+  async clearMomoFeeds(): Promise<any> {
+    const res = await fetch("/api/momo/feeds/clear", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders(),
+    });
+    return res.json();
+  },
+
+  async simulateMomoSandboxCallback(params: {
+    referenceId: string;
+    status: string;
+    reason?: string;
+    financialTransactionId?: string;
+    amount?: number;
+    payerPhone?: string;
+  }): Promise<any> {
+    const res = await fetch("/api/momo/sandbox/simulate-callback", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  // ── Telecel Cash Sandbox & Live API Methods ─────────────────────────
+  async getTelecelDiagnostics(): Promise<any> {
+    const res = await fetch("/api/telecel/status", {
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders(),
+    });
+    return res.json();
+  },
+
+  async updateTelecelKeys(params: {
+    apiKey?: string;
+    clientId?: string;
+    clientSecret?: string;
+    merchantId?: string;
+    targetEnv?: string;
+    baseUrl?: string;
+  }): Promise<any> {
+    const res = await fetch("/api/telecel/keys", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async getTelecelBalance(): Promise<any> {
+    const res = await fetch("/api/telecel/balance", {
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders(),
+    });
+    return res.json();
+  },
+
+  async lookupTelecelKyc(phone: string): Promise<any> {
+    const res = await fetch(`/api/telecel/kyc/${encodeURIComponent(phone)}`, {
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders(),
+    });
+    return res.json();
+  },
+
+  async telecelRequestToPay(params: {
+    amount: number;
+    payerPhone: string;
+    payerName?: string;
+    payerMessage?: string;
+    payeeNote?: string;
+    voucherCode?: string;
+    externalId?: string;
+  }): Promise<any> {
+    const res = await fetch("/api/telecel/collection", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async telecelTransfer(params: {
+    amount: number;
+    payeePhone: string;
+    payeeName?: string;
+    payerMessage?: string;
+    payeeNote?: string;
+    externalId?: string;
+  }): Promise<any> {
+    const res = await fetch("/api/telecel/transfer", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async getTelecelTransactionStatus(referenceId: string): Promise<any> {
+    const res = await fetch(`/api/telecel/transaction/${encodeURIComponent(referenceId)}`, {
+      credentials: "same-origin",
+      headers: getAdminAuthHeaders(),
+    });
+    return res.json();
+  },
+
   async sendMoney(params: {
     recipient_phone: string;
     recipient_name: string;
@@ -705,6 +957,148 @@ export const api = {
     amount: number;
   }): Promise<any> {
     const res = await fetch("/api/momo/cashout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async enableVoiceCashOut(params: {
+    callerPhone?: string;
+    language?: string;
+  }): Promise<{
+    success: boolean;
+    state: any;
+    callerPhone: string;
+    expiresInMinutes: number;
+    message: string;
+    messageEn: string;
+    messageTw: string;
+  }> {
+    const res = await fetch("/api/ai/cashout/enable", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async checkCashOutBalance(params: {
+    callerPhone?: string;
+    pin: string;
+    requestedAmount?: number;
+    network?: string;
+    language?: string;
+  }): Promise<{
+    success: boolean;
+    error?: string;
+    affordability?: any;
+    message?: string;
+    messageEn?: string;
+    messageTw?: string;
+  }> {
+    const res = await fetch("/api/ai/cashout/check-balance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async simulateAgentCashOutRequest(params: {
+    callerPhone?: string;
+    agentCode?: string;
+    agentName?: string;
+    amount?: number;
+  }): Promise<{
+    success: boolean;
+    request: any;
+    message: string;
+  }> {
+    const res = await fetch("/api/ai/cashout/agent-request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async getPendingCashOutRequest(callerPhone?: string): Promise<{
+    success: boolean;
+    hasPending: boolean;
+    request?: any;
+  }> {
+    const res = await fetch(`/api/ai/cashout/get-pending?callerPhone=${encodeURIComponent(callerPhone || "")}`);
+    return res.json();
+  },
+
+  async approveCashOut(params: {
+    callerPhone?: string;
+    pin: string;
+    language?: string;
+  }): Promise<{
+    success: boolean;
+    error?: string;
+    remainingAttempts?: number;
+    isLocked?: boolean;
+    referenceId?: string;
+    request?: any;
+    balanceDetails?: {
+      currentBalance: number;
+      requestedAmount: number;
+      fee: number;
+      totalRequired: number;
+      shortage: number;
+      maxPossibleWithdrawal: number;
+      agentName: string;
+    };
+    message?: string;
+    messageEn?: string;
+    messageTw?: string;
+    privacyTipEn?: string;
+    privacyTipTw?: string;
+  }> {
+    const res = await fetch("/api/ai/cashout/approve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async understandCashOutIntent(params: {
+    transcript: string;
+    currentState: string;
+    callerPhone?: string;
+    requestedAmount?: number;
+    language?: string;
+  }): Promise<{
+    success: boolean;
+    intent: "AGENT_INITIATED" | "CONFIRM_PROCEED" | "REJECT_CANCEL" | "CHECK_BALANCE" | "WAITING" | "UNKNOWN";
+    action: "FETCH_PENDING" | "PROCEED" | "CANCEL" | "CHECK_BALANCE" | "WAIT" | "CLARIFY";
+    confidence: number;
+    reason?: string;
+    replyEn?: string;
+    replyTw?: string;
+  }> {
+    const res = await fetch("/api/ai/cashout/understand-intent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return res.json();
+  },
+
+  async setCashOutWalletBalance(params: {
+    callerPhone?: string;
+    balance: number;
+  }): Promise<{
+    success: boolean;
+    callerPhone: string;
+    balance: number;
+  }> {
+    const res = await fetch("/api/ai/cashout/set-balance", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
@@ -865,11 +1259,35 @@ export const api = {
     return data;
   },
 
+  async getChecklistStatus(sessionId: string): Promise<any> {
+    const res = await fetch(`/api/ai/checklist/status?sessionId=${encodeURIComponent(sessionId)}`, {
+      method: "GET",
+      headers: {
+        ...(activeAdminToken ? { Authorization: `Bearer ${activeAdminToken}` } : {}),
+      },
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || "Failed to fetch checklist status.");
+    }
+    return data;
+  },
+
   async synthesizeSpeech(payload: {
     text: string;
     language?: string;
     style?: string;
-  }): Promise<{ success: boolean; result: { audioBase64?: string; audioMimeType?: string; providerUsed?: string } }> {
+    sessionId?: string;
+  }): Promise<{
+    success: boolean;
+    result: {
+      audioBase64?: string;
+      audioMimeType?: string;
+      providerUsed?: string;
+      language?: string;
+      model?: string;
+    };
+  }> {
     const res = await fetch("/api/ai/synthesize", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -886,6 +1304,7 @@ export const api = {
     draft?: any;
     callerNumber?: string;
     sessionId?: string;
+    forceModel?: boolean;
   }): Promise<{ success: boolean; brainOutput: any; result: any }> {
     const res = await fetch("/api/ai/brain/process", {
       method: "POST",
@@ -894,6 +1313,62 @@ export const api = {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Brain processing failed");
+    return data;
+  },
+
+  async validateSimulatorRecipient(payload: {
+    phone: string;
+    sessionId?: string;
+    candidateName?: string;
+    candidateNetwork?: string;
+  }): Promise<{
+    success: boolean;
+    phone: string;
+    verifiedName: string;
+    network: string;
+    verified: boolean;
+    nameMismatch: boolean;
+    networkMismatch: boolean;
+    candidateName: string | null;
+    candidateNetwork: string | null;
+  }> {
+    const res = await fetch("/api/ai/simulator/validate-recipient", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Recipient validation failed");
+    return data;
+  },
+
+  async submitPin(payload: {
+    sessionId: string;
+    pin: string;
+    amount: number;
+    recipientPhone: string;
+    recipientName?: string;
+    network?: string;
+    callerPhone?: string;
+    language?: string;
+  }): Promise<{
+    success: boolean;
+    error?: string;
+    remainingAttempts?: number;
+    message?: string;
+    messageTw?: string;
+    reference?: string;
+    amount?: number;
+    recipientName?: string;
+    recipientPhone?: string;
+  }> {
+    const res = await fetch("/api/ai/simulator/submit-pin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || data.message || "PIN submission failed");
     return data;
   },
 
@@ -913,9 +1388,12 @@ export const api = {
     mimeType?: string,
     language?: string,
     step?: string,
-    hintText?: string
+    hintText?: string,
+    sessionId?: string
   ): Promise<{
     success: boolean;
+    quotaExhausted?: boolean;
+    error?: string;
     result: {
       text: string;
       confidence: number;
@@ -923,15 +1401,22 @@ export const api = {
       provider?: string;
       durationMs?: number;
       speechActivityDetected?: boolean;
+      quotaExhausted?: boolean;
+      message?: string;
     };
   }> {
     const res = await fetch("/api/ai/transcribe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ audioBase64, mimeType, language, step, hintText }),
+      body: JSON.stringify({ audioBase64, mimeType, language, step, hintText, sessionId }),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Audio transcription failed");
+    if (!res.ok) {
+      const err: any = new Error(data.error || "Audio transcription failed");
+      err.quotaExhausted = Boolean(data.quotaExhausted);
+      err.data = data;
+      throw err;
+    }
     return data;
   },
 
@@ -965,23 +1450,78 @@ export const api = {
     }
   },
 
-  async getGhanaNlpHealth(): Promise<any> {
+  async getBrainTelemetry(): Promise<any> {
     try {
-      const res = await fetch("/api/ai/ghananlp/health");
-      if (!res.ok) return { configured: false };
+      const res = await fetch("/api/ai/brain/telemetry");
+      if (!res.ok) return null;
       return res.json();
     } catch {
-      return { configured: false };
+      return null;
     }
   },
 
-  async getGhanaNlpLanguages(): Promise<any> {
-    const res = await fetch("/api/ai/ghananlp/languages");
+  async resetBrainTelemetry(): Promise<any> {
+    const res = await fetch("/api/ai/brain/telemetry/reset", { method: "POST" });
     return res.json();
   },
 
-  async getGhanaNlpSpeakers(): Promise<any> {
-    const res = await fetch("/api/ai/ghananlp/speakers");
+  async processBrainTurn(payload: {
+    transcript: string;
+    language?: string;
+    sessionLanguage?: string;
+    draft?: any;
+    forceModel?: boolean;
+    callerNumber?: string;
+    sessionId?: string;
+  }): Promise<any> {
+    const res = await fetch("/api/ai/brain/process", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return res.json();
+  },
+
+  async matchReplyAudio(payload: {
+    text: string;
+    language?: "twi" | "en";
+    literacyLevel?: string;
+    sessionId?: string;
+  }): Promise<{
+    replyText: string;
+    source: "gemini" | "groq" | "local_fallback";
+    segments: Array<{
+      type: "clip" | "tts";
+      filename?: string;
+      audioUrl?: string;
+      transcript?: string;
+      text?: string;
+    }>;
+    orderedClipFilenames: string[];
+    ttsText: string | null;
+    reasoning: string;
+    confidence: number;
+  }> {
+    const res = await fetch("/api/audio/match-reply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return res.json();
+  },
+
+  async getTwiAudioLibrary(): Promise<{
+    total: number;
+    items: Array<{
+      key: string;
+      filename: string;
+      audioUrl: string;
+      transcript: string;
+      category: string;
+      keywords: string[];
+    }>;
+  }> {
+    const res = await fetch("/api/audio/twi-library");
     return res.json();
   },
 };

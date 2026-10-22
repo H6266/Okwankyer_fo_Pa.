@@ -604,12 +604,12 @@ The selected excerpt connects theological doctrine directly with preaching and p
             {/* Header Document Badge */}
             <div className="flex items-center justify-between pb-6 mb-8 border-b border-slate-200 dark:border-slate-800">
               <div>
-                <span className="text-[11px] font-sans font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400 block mb-1">
-                  {currentDoc.type.toUpperCase()} • PAGE {currentPageIndex + 1} OF {currentDoc.totalPages}
-                </span>
                 <h1 className="text-xl sm:text-2xl font-bold tracking-tight font-serif text-slate-900 dark:text-white">
                   {currentDoc.title}
                 </h1>
+                <span className="text-[11px] font-sans font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400 block mt-1">
+                  {currentDoc.type.toUpperCase()} • PAGE {currentPageIndex + 1} OF {currentDoc.totalPages}
+                </span>
               </div>
 
               {detectedReferences.length > 0 && (

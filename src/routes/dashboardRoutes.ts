@@ -9,7 +9,7 @@ import { Router, Request, Response } from "express";
 import fs from "fs";
 import path from "path";
 import { config } from "../config/env";
-import { AUDIO_CATALOG, audioFileExists } from "../audio/catalog";
+import { AUDIO_CATALOG, audioFileExists, getAudioFileSize } from "../audio/catalog";
 import { recipientResolver } from "../providers/recipient/RecipientResolver";
 import { parseAndValidateAmount, validateGhanaPhoneNumber } from "../domain/validation";
 import { conversationManager } from "../modules/conversationManager";
@@ -43,9 +43,7 @@ dashboardRouter.use((req: Request, res: Response, next) => {
 dashboardRouter.get("/api/phrase-bank", (_req: Request, res: Response) => {
   const phrases = AUDIO_CATALOG.map((item) => {
     const exists = audioFileExists(item.filename);
-    const size = exists
-      ? fs.statSync(path.resolve(process.cwd(), "Audio_files", "audio", item.filename)).size
-      : 0;
+    const size = getAudioFileSize(item.filename);
     return {
       id: item.id,
       filename: item.filename,
@@ -86,7 +84,7 @@ dashboardRouter.get("/api/twi-audio", (_req: Request, res: Response) => {
     folder: "Twi",
     aliasFolder: null,
     manifest: {
-      folder: "Audio_files/audio/Twi",
+      folder: "Audio_files/Twi",
       prompts: twiPrompts.map((p) => ({
         number: String(p.stepNumber),
         filename: p.filename,
@@ -96,14 +94,14 @@ dashboardRouter.get("/api/twi-audio", (_req: Request, res: Response) => {
       })),
     },
     files: twiPrompts.map((p) => {
-      const size = fs.statSync(path.resolve(process.cwd(), "Audio_files", "audio", p.filename)).size;
+      const size = getAudioFileSize(p.filename);
       return {
         name: p.filename,
         size,
         sizeFormatted: `${(size / 1024).toFixed(1)} KB`,
         url: p.url,
-        ext: ".m4a",
-        mimeType: "audio/mp4",
+        ext: ".mp3",
+        mimeType: "audio/mpeg",
       };
     }),
     count: twiPrompts.length,

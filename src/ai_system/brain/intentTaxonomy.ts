@@ -27,8 +27,8 @@ export const ALL_INTENTS: Record<IntentId, IntentMetadata> = {
     description: 'Direct transfer of Mobile Money funds from subscriber wallet to recipient wallet.',
     category: 'momo',
     requiredSlots: [
-      { name: 'amount', type: 'amount', required: true, description: 'Transaction amount in GHS' },
       { name: 'recipient', type: 'recipient', required: true, description: 'Recipient information with phone number' },
+      { name: 'amount', type: 'amount', required: true, description: 'Transaction amount in GHS' },
     ],
     optionalSlots: [
       { name: 'network', type: 'network', required: false, description: 'Recipient telecom carrier network' },
@@ -36,6 +36,21 @@ export const ALL_INTENTS: Record<IntentId, IntentMetadata> = {
     keywords: {
       en: ['send', 'transfer', 'money', 'pay money', 'cedis', 'momo send'],
       twi: ['mane', 'kɔma', 'sika', 'send sika', 'cedi', 'me pɛ sɛ me mane'],
+    },
+  },
+
+  'momo.cash_out': {
+    id: 'momo.cash_out',
+    name: 'MoMo Cash-Out & Withdrawal',
+    description: 'Enable Cash-Out on subscriber wallet for agent-initiated cash withdrawal, with balance check and approval assistance.',
+    category: 'momo',
+    requiredSlots: [],
+    optionalSlots: [
+      { name: 'amount', type: 'amount', required: false, description: 'Intended withdrawal amount in GHS' },
+    ],
+    keywords: {
+      en: ['withdraw', 'cash out', 'cashout', 'take out money', 'pull money', 'agent cash out', 'allow cash out', 'withdrawal', 'momo vendor'],
+      twi: ['yi sika', 'mepɛ sɛ meyi sika', 'allow cash out', 'cash out', 'agent', 'gye sika', 'sika yi'],
     },
   },
 

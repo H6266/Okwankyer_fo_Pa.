@@ -3,6 +3,8 @@
 ## 1. Architectural Philosophy
 The `ModelRouter` decouples application logic from specific AI providers. System components request **capabilities** rather than named models.
 
+Cloud reasoning uses Gemini first, then Groq. If both are unavailable, deterministic application logic remains the fallback; transaction progression, confirmation binding, authorization, and payment verification remain application responsibilities.
+
 The system registers providers with capability descriptors:
 ```typescript
 export type CognitiveCapability =

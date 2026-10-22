@@ -24,7 +24,13 @@ export const momoTransferHandler: ServiceHandler = async (params): Promise<Servi
   const recipientPhone = String(slots.recipient?.phone || '').trim();
   const recipientName = String(slots.recipient?.name || 'Recipient').trim();
   const network = (slots.network || 'MTN') as 'MTN' | 'Telecel' | 'AT';
-  const senderPhone = callerNumber || '0553838464';
+  const senderPhone = callerNumber ? String(callerNumber).trim() : '';
+  if (!senderPhone) {
+    return {
+      success: false,
+      error: 'MISSING_SENDER_PHONE: Caller phone number is required to execute transfer.',
+    };
+  }
 
   // 1. Validate phone number
   const phoneVal = validateGhanaPhoneNumber(recipientPhone);

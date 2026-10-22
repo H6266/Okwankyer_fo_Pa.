@@ -72,13 +72,18 @@ export class AudioIngestor {
   /**
    * Delegates transcription directly to the unified Speech-To-Text pipeline.
    */
-  public async transcribe(input: Buffer | string, mimeType: string = "audio/wav", step?: string): Promise<TranscriptFinal> {
+  public async transcribe(
+    input: Buffer | string,
+    mimeType: string = "audio/wav",
+    step?: string,
+    languageHint?: string
+  ): Promise<TranscriptFinal> {
     const validated = this.validateAudio(input, mimeType);
     if (!validated.valid) {
       throw new Error(validated.error || "Audio validation failed");
     }
 
-    const sttResult = await speechToTextService.transcribe(validated.dataBuffer, mimeType, step);
+    const sttResult = await speechToTextService.transcribe(validated.dataBuffer, mimeType, step, languageHint);
     const text = sttResult.text === "empty" ? "" : formatSpokenNumbersAsDigits(sttResult.text);
 
     return {
@@ -86,7 +91,10 @@ export class AudioIngestor {
       confidence: sttResult.confidence,
       confidenceSource: sttResult.confidenceSource,
       provider: sttResult.provider,
+      providerAttempted: sttResult.providerAttempted,
       fallbackUsed: sttResult.fallbackUsed,
+      pinDiscarded: sttResult.pinDiscarded,
+      audioQuality: sttResult.audioQuality,
       isFinal: true,
       language: sttResult.languageDetected?.includes("tw") ? "tw" : "en",
       timestamp: Date.now(),

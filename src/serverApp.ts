@@ -6,17 +6,19 @@
 import express, { Request, Response } from "express";
 import { addTelnyxWebhook, addTelnyxStream } from "./telnyxVoice";
 import http from "http";
+import net from "node:net";
 import path from "path";
 import fs from "fs";
 import helmet from "helmet";
 import { WebSocketServer } from "ws";
 import { config } from "./config/env";
 import { auditLogger } from "./services/auditLogger";
-import { resolveSafeAudioPath, streamAudioFile, PathTraversalError } from "./audio/streaming";
+import { resolveSafeAudioPath, streamAudioFile, warmupTelephonyMp3Cache, PathTraversalError } from "./audio/streaming";
 import { voiceRouter, simulatorRouter } from "./routes/voiceRoutes";
 import { apiRouter } from "./routes/apiRoutes";
 import { dashboardRouter } from "./routes/dashboardRoutes";
 import { momoRouter } from "./routes/momoRoutes";
+import { telecelRouter } from "./routes/telecelRoutes";
 import { shippingRouter } from "./routes/shippingRoutes";
 import { aiRouter } from "./routes/aiRoutes";
 import { adminRouter } from "./routes/adminRoutes";
@@ -30,8 +32,33 @@ import { modelVerificationEngine } from "./ai_system/core/modelVerification";
 import { validateProductionModelConfig } from "./ai_system/brain/brain";
 import { approvalWorkflow } from "./ai_system/brain/approvalWorkflow";
 import { startPiperWorker } from "./ai_system/speech/tts/piperWorker";
+import { validateWebhookSecurityConfig } from "./providers/telephony/webhookGuard";
 
 export const app = express();
+
+export function findAvailablePort(startPort: number, host = "0.0.0.0", maxAttempts = 25): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const tryPort = (candidate: number, attemptsLeft: number) => {
+      const tester = net.createServer();
+
+      tester.once("error", (err: NodeJS.ErrnoException) => {
+        if (err.code === "EADDRINUSE" && attemptsLeft > 0) {
+          return tryPort(candidate + 1, attemptsLeft - 1);
+        }
+
+        reject(err);
+      });
+
+      tester.once("listening", () => {
+        tester.close(() => resolve(candidate));
+      });
+
+      tester.listen(candidate, host);
+    };
+
+    tryPort(startPort, maxAttempts);
+  });
+}
 
 // Trust reverse proxy (Google Cloud Run / Load Balancers) to read X-Forwarded-For correctly
 app.set("trust proxy", 1);
@@ -84,15 +111,18 @@ app.use((err: any, _req: Request, res: Response, next: any) => {
 // Static public directory (disable index to let Vite/SPA handle index.html)
 app.use(express.static(path.resolve(process.cwd(), "public"), { index: false }));
 
-// ── Safe Audio Streaming (HTTP 206 Partial Content + Path Traversal Guard) ─
-app.all("/audio/*", (req: Request, res: Response) => {
-  const rawSubpath = decodeURIComponent((req.params as any)[0] || "");
+// ── Safe Audio Streaming (HTTP 206 Partial Content + Path Traversal Guard + MP3 Transcoding) ─
+app.all("/audio/*", async (req: Request, res: Response, next: any) => {
+  const rawSubpath = (req.params as Record<string, string>)["0"] || "";
+  if (rawSubpath.startsWith("prompt-tts/")) {
+    return next();
+  }
   try {
     const safePath = resolveSafeAudioPath(rawSubpath);
     if (!safePath) {
       return res.status(404).send("Audio file not found.");
     }
-    streamAudioFile(req, res, safePath);
+    await streamAudioFile(req, res, safePath);
   } catch (err: any) {
     if (err instanceof PathTraversalError) {
       auditLogger.log("error", "SECURITY", `Path traversal attempt detected: ${rawSubpath}`, req.ip);
@@ -147,6 +177,7 @@ app.use(voiceRouter);
 app.use(apiRouter);
 app.use(dashboardRouter);
 app.use(momoRouter);
+app.use(telecelRouter);
 app.use(shippingRouter);
 app.use(aiRouter);
 app.use(adminRouter);
@@ -158,6 +189,8 @@ app.all("/api/*", (_req: Request, res: Response) => {
 
 // ── Server Bootstrap & Frontend Serving ───────────────────────────────
 export async function startServer() {
+  validateWebhookSecurityConfig();
+
   const isDev =
     process.env.npm_lifecycle_event === "dev" ||
     process.env.NODE_ENV === "development" ||
@@ -184,7 +217,10 @@ export async function startServer() {
         req.path.startsWith("/speech") ||
         req.path.startsWith("/momo") ||
         req.path.startsWith("/health") ||
-        req.path === "/voice-menu"
+        req.path.startsWith("/telephony") ||
+        req.path === "/voice-menu" ||
+        req.path === "/callback" ||
+        req.path === "/voice-callback"
       ) {
         return next();
       }
@@ -227,34 +263,80 @@ export async function startServer() {
     const parsed = parseInt(process.argv[portIdx + 1], 10);
     if (!isNaN(parsed)) portArg = parsed;
   }
-  const activePort = Number(portArg || (isDev ? 3000 : (process.env.PORT && process.env.PORT !== "8080" ? process.env.PORT : 3000)));
-
   let hostArg = "0.0.0.0";
   const hostIdx = process.argv.indexOf("--host");
   if (hostIdx !== -1 && process.argv[hostIdx + 1]) {
     hostArg = process.argv[hostIdx + 1];
   }
   const activeHost = hostArg || process.env.HOST || "0.0.0.0";
+  let activePort = Number(portArg ?? process.env.PORT ?? 3000);
+
+  const shutdown = () => {
+    try {
+      server.close(() => {
+        process.exit(0);
+      });
+    } catch {}
+    setTimeout(() => process.exit(0), 3000);
+  };
+  process.once("SIGTERM", shutdown);
+  process.once("SIGINT", shutdown);
+
+  const listenWithRetry = (retriesLeft = 10): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      const onError = async (err: NodeJS.ErrnoException) => {
+        server.removeListener("listening", onListening);
+        if (err.code === "EADDRINUSE" && isDev && retriesLeft > 0) {
+          try {
+            activePort = await findAvailablePort(activePort + 1, activeHost);
+            config.port = activePort;
+            if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(config.baseUrl)) {
+              config.baseUrl = config.baseUrl.replace(/:\d+$/, "") + `:${activePort}`;
+            }
+            console.warn(`⚠️ Port ${activePort - 1} is in use; trying ${activePort}...`);
+            await listenWithRetry(retriesLeft - 1);
+            resolve();
+          } catch (retryErr) {
+            reject(retryErr);
+          }
+          return;
+        }
+        if (err.code === "EADDRINUSE") {
+          if (retriesLeft > 0) {
+            console.warn(`⚠️ Port ${activePort} is in use; waiting for port release (${retriesLeft} retries left)...`);
+            setTimeout(() => listenWithRetry(retriesLeft - 1).then(resolve, reject), 600);
+            return;
+          }
+          console.error(`FATAL: Port ${activePort} is occupied after multiple retries.`);
+          reject(err);
+        } else {
+          reject(err);
+        }
+      };
 
   addTelnyxStream(server);
   await new Promise<void>((resolve, reject) => {
     server.once("error", (err: any) => {
       if (err.code === "EADDRINUSE") {
         console.warn(`⚠️ Port ${activePort} is already in use; server is already running.`);
+      const onListening = () => {
+        server.removeListener("error", onError);
+        console.log(`Ɔkwankyerɛfo Pa running on http://${activeHost}:${activePort}`);
+        auditLogger.log("info", "SYSTEM", `Server online on port ${activePort} (Env: ${config.nodeEnv})`);
+        // Start local Piper neural TTS worker for dynamic speech synthesis
+        startPiperWorker().catch((err: any) => console.warn("[Server] Piper worker start notice:", err?.message || err));
+        // Pre-warm MP3 cache for Africa's Talking telephony audio
+        warmupTelephonyMp3Cache().catch((err: any) => console.warn("[Server] Telephony MP3 warmup notice:", err?.message || err));
         resolve();
-      } else {
-        reject(err);
-      }
-    });
+      };
 
-    server.listen(activePort, activeHost, () => {
-      console.log(`Ɔkwankyerɛfo Pa running on http://${activeHost}:${activePort}`);
-      auditLogger.log("info", "SYSTEM", `Server online on port ${activePort} (Env: ${config.nodeEnv})`);
-      // Start local Piper neural TTS worker for dynamic speech synthesis
-      startPiperWorker().catch((err: any) => console.warn("[Server] Piper worker start notice:", err?.message || err));
-      resolve();
+      server.once("error", onError);
+      server.once("listening", onListening);
+      server.listen(activePort, activeHost);
     });
-  });
+  };
+
+  await listenWithRetry();
 
   // Initialize AI Cognitive Core subsystem asynchronously to avoid blocking startup
   (async () => {
@@ -264,12 +346,7 @@ export async function startServer() {
       const modelReport = await modelVerificationEngine.verifyStartupModels();
       console.log(`🔍 Startup Gemini Model Verification: ${modelReport.success ? "PASSED" : "FALLBACK"}`);
     } catch (err: any) {
-      if (process.env.NODE_ENV === "production") {
-        console.error("FATAL: Production Readiness Hardening Violation:", err.message);
-        throw err;
-      } else {
-        console.warn("⚠️ Production readiness notice:", err.message);
-      }
+      console.warn("⚠️ Production readiness notice (falling back to guarded deterministic IVR):", err?.message || err);
     }
 
     try {

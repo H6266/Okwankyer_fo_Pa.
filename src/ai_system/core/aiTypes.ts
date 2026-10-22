@@ -107,7 +107,17 @@ export interface TranscriptFinal {
   confidence: number | null;
   confidenceSource?: "provider" | "calibrated" | "provider_unreported" | "unavailable";
   provider?: string;
+  providerAttempted?: string;
   fallbackUsed?: boolean;
+  pinDiscarded?: boolean;
+  audioQuality?: {
+    status?: string;
+    qualityScore?: number;
+    snrDb?: number;
+    speechDetected?: boolean;
+    durationMs?: number;
+    reason?: string;
+  };
   isFinal: true;
   language?: AiLanguage | string;
   timestamp: number;
@@ -371,6 +381,11 @@ export interface StructuredReasoningResponse {
   };
   requiresConfirmation: boolean;
   safetyFlags: string[];
+  conversationalResponse?: string;
+  functionCall?: {
+    name: string;
+    args: Record<string, any>;
+  } | null;
 }
 
 // ── Process Input & Outputs ──────────────────────────────────────────
@@ -513,6 +528,7 @@ export interface AiProcessResult {
   intent: IntentName;
   confidence: number;
   language: AiLanguage;
+  speechRecognition?: Omit<TranscriptFinal, "text" | "timestamp" | "isFinal">;
   entities: EntitySlotMap;
   dialogue: DialogueOutput;
   navigation: NavigationOutput;
@@ -624,6 +640,7 @@ export interface SimulatorTurnResponse {
   tts?: any;
   saga?: any;
   turnDiagnostic?: any;
+  checklist?: any;
 }
 
 export interface TelephonyTurnRequest {

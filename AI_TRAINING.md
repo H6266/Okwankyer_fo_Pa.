@@ -1,5 +1,14 @@
 # Ɔkwankyerɛfo Pa - Training & Fine-Tuning Architecture (AI_TRAINING.md)
 
+## Current Implementation Status (2026-10-18)
+
+- `training/train_nlu.py` trains a standalone Naive Bayes intent artifact from an explicitly supplied JSON corpus. It is not loaded by the live `AiEngine` or `LocalLanguageBrain`.
+- Production training now fails closed unless the dataset manifest records production approval, commercial permission, text/parallel modality, source checksum, exact reviewed training-split checksum, consent review, PII review, source, and provenance.
+- No dataset currently meets that gate for NLU. The production-approved English-Twi code-switch dataset is speech-only; the text/dialogue datasets are not approved for production training. Do not train a production artifact from user, simulator, payment-sandbox, or ASR-feedback records.
+- `training/evaluate_nlu.py` uses the trainer's tokenizer and intent scorer, but reports intent accuracy only. Its softmax score is not calibrated, and it is not a release benchmark.
+- `models/manifest.json` records no verified trained artifacts. No training result or accuracy claim is currently available.
+- ASR corrections require explicit consent and are stored separately; they do not automatically enter training. Any later corpus build still requires human label review, data minimization, license/provenance review, speaker-safe splits where applicable, and a held-out evaluation set.
+
 ## 1. Principles of Compact & Specialized Training
 Rather than attempting to train a multi-billion parameter general model from scratch, Ɔkwankyerɛfo Pa employs a modular training strategy:
 - **Task-Specific NLU Classifiers**: High-speed, lightweight intent classifiers (<15MB, <10ms CPU inference).
@@ -10,7 +19,9 @@ Rather than attempting to train a multi-billion parameter general model from scr
 
 ---
 
-## 2. Directory Layout & Pipeline Scripts
+## 2. Target Directory Layout & Pipeline Scripts
+
+The following describes the intended architecture, not the current checked-in directory structure. Only the listed scripts below are currently present; other stages require implementation.
 
 ```
 training/
@@ -28,11 +39,12 @@ training/
 └── export/                  Quantized ONNX and CPU-optimized runtime artifacts
 ```
 
-### Key Training Pipeline Scripts:
+### Existing Training Pipeline Scripts:
 - `training/download_datasets.py`: Resumable dataset acquisition with hash verification.
 - `training/redact_pii.py`: Scrubbing of sensitive identifiers prior to ingestion.
 - `training/create_splits.py`: Enforces zero speaker leakage across train and test sets.
 - `training/train_nlu.py`: Trains the local intent classification and entity extraction models.
-- `training/train_slot_model.py`: Fine-tunes token sequence tagging for amounts and phones.
-- `training/build_local_model.py`: Compiles lexical graphs and quantized weights.
+- `training/evaluate_nlu.py`: Evaluates intent accuracy using the trainer's shared scoring implementation; does not report calibrated confidence or a full release scorecard.
 - `training/export_model.py`: Generates versioned `models/` manifests for deployment.
+
+Slot-model training, speech fine-tuning, dialogue-policy optimization, model compilation, and live inference integration remain planned work unless separately implemented and validated.

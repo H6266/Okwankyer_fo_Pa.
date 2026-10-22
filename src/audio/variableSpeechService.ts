@@ -15,6 +15,7 @@
 
 import { resolvePrompt, resolvePromptText, SupportedLanguage } from "../modules/ttsService";
 import { getRecordingByPromptKey } from "./recordingRegistry";
+import { isDynamicPrompt, resolvePromptSpokenText } from "./canonicalRegistry";
 import { ttsRouter } from "../ai_system/speech/tts/ttsRouter";
 import { auditLogger } from "../services/auditLogger";
 
@@ -84,15 +85,23 @@ export class VariableSpeechService {
       ? this.maskPhoneNumber(instruction.metadata.recipientPhone)
       : undefined;
 
+    const isDynamic = Boolean(instruction.promptKey && isDynamicPrompt(instruction.promptKey));
+
     // Strict Rule: Dynamic purposes CANNOT be routed to static recordings
     const isDynamicPurpose =
+      isDynamic ||
       instruction.purpose === "RECIPIENT_READBACK" ||
       instruction.purpose === "AMOUNT_READBACK" ||
       instruction.purpose === "TRANSACTION_STATUS" ||
       instruction.purpose === "TRANSACTION_RECEIPT";
 
     if (isDynamicPurpose) {
-      if (!instruction.text || instruction.text.trim().length === 0) {
+      let resolvedText = instruction.text?.trim() || "";
+      if (!resolvedText && instruction.promptKey) {
+        resolvedText = resolvePromptSpokenText(instruction.promptKey, lang, instruction.metadata || {});
+      }
+
+      if (!resolvedText) {
         throw new Error(`[VariableSpeechService] Incomplete dynamic speech instruction for ${instruction.purpose}: text is required.`);
       }
 
@@ -100,7 +109,7 @@ export class VariableSpeechService {
         mode: "SYNTHESIZE",
         purpose: instruction.purpose,
         language: lang,
-        textToSpeak: instruction.text.trim(),
+        textToSpeak: resolvedText,
         isDemoFixture: instruction.metadata?.isDemoFixture,
         maskedRecipient: maskedPhone,
         metadata: instruction.metadata,
@@ -113,12 +122,12 @@ export class VariableSpeechService {
         throw new Error("[VariableSpeechService] promptKey is required for RECORDED speech mode.");
       }
 
-      const recording = lang === "twi" ? getRecordingByPromptKey(instruction.promptKey) : null;
+      const recording = getRecordingByPromptKey(instruction.promptKey, lang);
       const audioUrl = recording ? resolvePrompt(instruction.promptKey, lang) : null;
       if (!audioUrl) {
-        auditLogger.log("warn", "VARIABLE_SPEECH", `Missing recorded prompt asset for key: ${instruction.promptKey} [${lang}]. Falling back to explicit TTS.`);
+        auditLogger.log("warn", "VARIABLE_SPEECH", `Fixed prompt audio unavailable for key: ${instruction.promptKey} [${lang}].`);
         return {
-          mode: "SYNTHESIZE",
+          mode: "RECORDED",
           purpose: instruction.purpose,
           language: lang,
           textToSpeak: instruction.text || resolvePromptText(instruction.promptKey, lang) || instruction.promptKey,
@@ -163,6 +172,9 @@ export class VariableSpeechService {
         providerUsed: "STUDIO_PROMPT_CATALOG",
         durationEstimateSec: 3.0,
       };
+    }
+    if (decision.mode === "RECORDED") {
+      throw new Error("FIXED_PROMPT_AUDIO_UNAVAILABLE: no reviewed recording is available for this prompt.");
     }
 
     // Dynamic Synthesis through authoritative ttsRouter

@@ -111,7 +111,7 @@ export class FreeOpenSourceTtsProvider implements PluggableTtsProvider {
         const data = (await res.json()) as any;
         return {
           ready: Boolean(data.ready),
-          provider: data.provider || "piper-offline-tts",
+          provider: "piper-offline-tts",
           languages: data.languages || ["en"],
         };
       }

@@ -1,10 +1,11 @@
 services:
   - type: web
     name: okwankyer-fo-pa
-    env: node
+    runtime: node
     plan: free
     buildCommand: npm install --legacy-peer-deps && npm run build
     startCommand: npm start
+    healthCheckPath: /health
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
@@ -17,13 +18,19 @@ services:
         sync: false
       - key: AT_API_KEY
         sync: false
+      - key: AT_INBOUND_VOICE_ENABLED
+        value: "true"
       - key: AT_VOICE_NUMBER
-        value: "+233308048098"
-      - key: BASE_URL
+        value: "+233308048097"
+      - key: AT_WEBHOOK_SECRET
         sync: false
+      - key: BASE_URL
+        value: "https://okwankyer-fo-pa.onrender.com"
       - key: CORS_ORIGINS
         sync: false
       - key: GEMINI_API_KEY
+        sync: false
+      - key: UG_HCI_LAB_API_KEY
         sync: false
       - key: ADMIN_TOKEN
         sync: false

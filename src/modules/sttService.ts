@@ -14,7 +14,6 @@ import { AI_CONFIG } from "../ai_system/core/aiConfig";
 import { geminiClient } from "../services/geminiClient";
 import { auditLogger } from "../services/auditLogger";
 import { offlineSpeechRecognizer } from "../ai_system/speech/asr/offlineAsrEngine";
-import { ghanaNlpAsrService } from "../services/ghanaNlpAsrService";
 import { formatSpokenNumbersAsDigits } from "../domain/numberFormatter";
 import {
   isAcousticSystemEcho,
@@ -36,102 +35,86 @@ export interface SttResult {
 }
 
 export interface SpeechToTextProvider {
-  transcribe(audioPayload: Buffer | string, mimeType?: string, step?: string): Promise<SttResult>;
+  transcribe(audioPayload: Buffer | string, mimeType?: string, step?: string, languageHint?: string): Promise<SttResult>;
 }
 
-/**
- * Step-Aware PIN Safety Gate (Item 3.1)
- * Decides whether an utterance is a potential leaked PIN based on the dialogue step.
- */
-export function isSpokenPinPattern(text: string, step?: string): boolean {
-  if (!text) return false;
+import {
+  isVoiceCaptureBlockedForStep,
+  shouldDiscardSensitiveSpeech,
+  isSpokenPinPattern,
+} from "../domain/pinSafety";
 
-  const lower = text.toLowerCase().trim();
-  const normalizedStep = (step || "").toLowerCase();
+export {
+  isVoiceCaptureBlockedForStep,
+  shouldDiscardSensitiveSpeech,
+  isSpokenPinPattern,
+};
 
-  if (/\b(pin|momo\s*pin|password|secret|passcode|kokoam|ahintasɛm)\b/i.test(lower)) {
-    return true;
-  }
-
-  if (/(secret|password|pin)/i.test(lower) && /(one|two|three|four|five|six|seven|eight|nine|zero)/i.test(lower)) {
-    return true;
-  }
-
-  const digitsOnly = text.replace(/[^0-9]/g, "");
-  const hasAmountLanguage =
-    /(cedis?|ghs|pesewas?|ghana|amount|send\s*\d+|transfer|sika|mane|money)/i.test(lower);
-
-  const hasPhoneLanguage =
-    /(phone|number|recipient|contact|mobile|nɔmba|fon)/i.test(lower);
-
-  const isMenu = normalizedStep.includes("menu") ||
-    normalizedStep.includes("selection") ||
-    normalizedStep.includes("choice") ||
-    normalizedStep.includes("service");
-
-  const isAmountStep = normalizedStep.includes("amount") ||
-    normalizedStep.includes("enter-amount") ||
-    normalizedStep.includes("cedi");
-
-  const isRecipientStep = normalizedStep.includes("recipient") ||
-    normalizedStep.includes("phone") ||
-    normalizedStep.includes("enter-recipient");
-
-  if (isAmountStep) {
-    if (digitsOnly.length === 0) return false;
-    if (digitsOnly.length <= 4) return false; // 1000, 2500, 5000 are valid amounts
-    if (digitsOnly.length <= 6 && !hasAmountLanguage) {
-      return true; // probable PIN, not an amount
-    }
-    return false;
-  }
-
-  if (isRecipientStep) {
-    if (digitsOnly.length >= 4 && digitsOnly.length <= 6 && !hasPhoneLanguage) {
-      return true;
-    }
-    return false;
-  }
-
-  if (isMenu) {
-    if (digitsOnly.length >= 2) return true;
-    return false;
-  }
-
-  // Default: only reject strongly suspicious 4-6 digit PIN-like utterances.
-  if (digitsOnly.length >= 4 && digitsOnly.length <= 6) {
-    if (hasAmountLanguage || hasPhoneLanguage) return false;
-    return true;
-  }
-
-  return false;
-}
 
 /**
  * Downloads a remote telephony audio recording with strict timeout and one retry.
  */
-async function fetchRemoteRecording(url: string, timeoutMs: number = 1500): Promise<Buffer> {
-  let attempt = 0;
-  while (attempt <= 1) {
+const AT_RECORDING_FETCH_TIMEOUT_MS = 8000;
+const MAX_AT_RECORDING_BYTES = 15 * 1024 * 1024;
+
+async function fetchRemoteRecording(url: string, timeoutMs: number = AT_RECORDING_FETCH_TIMEOUT_MS): Promise<Buffer> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const headers: Record<string, string> = {};
-      if (process.env.AT_API_KEY) {
+      const urlObj = new URL(url);
+      const isExternalStorage = urlObj.hostname.includes("amazonaws.com") ||
+        urlObj.hostname.includes("cloudfront.net") ||
+        urlObj.hostname.includes("storage.googleapis.com");
+
+      // External storage (S3/CloudFront) uses public/presigned URLs and rejects unexpected apiKey headers.
+      // Only attach AT_API_KEY when directly querying Africa's Talking servers on retry or authenticated endpoints.
+      if (!isExternalStorage && process.env.AT_API_KEY && (attempt === 1 || urlObj.hostname.includes("africastalking.com"))) {
         headers["apiKey"] = process.env.AT_API_KEY;
       }
+
       const resp = await fetch(url, { headers, signal: controller.signal });
-      clearTimeout(timer);
-      if (resp.ok) {
-        const arrayBuf = await resp.arrayBuffer();
-        return Buffer.from(arrayBuf);
+      if (!resp.ok) {
+        // If external S3 returned 400/403 with headers or initial attempt failed, retry cleanly
+        if ((resp.status === 400 || resp.status === 401 || resp.status === 403) && attempt === 0) {
+          lastError = new Error(`AT_RECORDING_HTTP_${resp.status}`);
+          continue;
+        }
+        const error = new Error(`AT_RECORDING_HTTP_${resp.status}`);
+        if (resp.status >= 500 && attempt === 0) {
+          lastError = error;
+          continue;
+        }
+        throw error;
       }
-    } catch {
+
+      const contentLength = Number(resp.headers.get("content-length") || 0);
+      if (contentLength > MAX_AT_RECORDING_BYTES) {
+        throw new Error("AT_RECORDING_TOO_LARGE");
+      }
+      const arrayBuffer = await resp.arrayBuffer();
+      if (arrayBuffer.byteLength > MAX_AT_RECORDING_BYTES) {
+        throw new Error("AT_RECORDING_TOO_LARGE");
+      }
+      if (arrayBuffer.byteLength < 100) {
+        throw new Error("AT_RECORDING_EMPTY");
+      }
+      return Buffer.from(arrayBuffer);
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : "";
+      if (message === "AT_RECORDING_TOO_LARGE" || message === "AT_RECORDING_EMPTY") {
+        throw error;
+      }
+      if (attempt === 1) break;
+    } finally {
       clearTimeout(timer);
     }
-    attempt++;
   }
-  throw new Error(`Failed to fetch audio recording from remote within deadline.`);
+  const reason = lastError instanceof Error ? lastError.message : "network timeout";
+  throw new Error(`AT_RECORDING_DOWNLOAD_FAILED: ${reason}`);
 }
 
 /**
@@ -191,14 +174,15 @@ Instructions:
 4. NUMBER FORMATTING MANDATE: Always write numbers and digits as numeric digits (e.g. write '2' NOT 'two', write '1' NOT 'one', write '20' NOT 'twenty', write '50 cedis' NOT 'fifty cedis', write '0553838464' NOT 'zero five five...'). Never spell out numbers as words.`;
 
   try {
-    const rawJsonText = await geminiClient.executeHedged(
+    const activeModel = geminiClient.isModelAvailable(primaryModel) ? primaryModel : secondaryModel;
+    const rawJsonText = await geminiClient.executeWithTimeout<string>(
       "STT_TRANSCRIBE",
       async (ai, signal) => {
-        const isTranscribeModel = primaryModel.includes("transcribe");
+        const isTranscribeModel = activeModel.includes("transcribe");
         if (isTranscribeModel) {
           // Dedicated transcribe models (e.g. gemini-3.5-transcribe) output plain text and do NOT support JSON mode
           const resp = await ai.models.generateContent({
-            model: primaryModel,
+            model: activeModel,
             contents: [
               { inlineData: { data: base64Data, mimeType: mime } },
               { text: "Transcribe the caller's spoken words or numbers accurately in Ghanaian English or Akan Twi. Output only the spoken words. Write all numbers as digits (e.g. 2 not two, 20 not twenty)." },
@@ -214,36 +198,7 @@ Instructions:
         }
 
         const resp = await ai.models.generateContent({
-          model: primaryModel,
-          contents: [
-            { inlineData: { data: base64Data, mimeType: mime } },
-            { text: promptText },
-          ],
-          config: { responseMimeType: "application/json" },
-        });
-        return resp.text || "{}";
-      },
-      async (ai, signal) => {
-        const isTranscribeModel = secondaryModel.includes("transcribe");
-        if (isTranscribeModel) {
-          const resp = await ai.models.generateContent({
-            model: secondaryModel,
-            contents: [
-              { inlineData: { data: base64Data, mimeType: mime } },
-              { text: "Transcribe the caller's spoken words or numbers accurately in Ghanaian English or Akan Twi. Output only the spoken words. Write all numbers as digits (e.g. 2 not two, 20 not twenty)." },
-            ],
-          });
-          const text = formatSpokenNumbersAsDigits((resp.text || "").trim());
-          const isTwi = /[\u0190\u0254\u025b\u0186]|sika|mane|akwaaba|kasa|brofo|baako|mmienu|mmeensa|dabi|aane|mepa|kyɛ/i.test(text);
-          return JSON.stringify({
-            transcript: text,
-            confidence: text.length > 0 ? 0.92 : 0.0,
-            languageDetected: isTwi ? "twi" : "en",
-          });
-        }
-
-        const resp = await ai.models.generateContent({
-          model: secondaryModel,
+          model: activeModel,
           contents: [
             { inlineData: { data: base64Data, mimeType: mime } },
             { text: promptText },
@@ -253,7 +208,10 @@ Instructions:
         return resp.text || "{}";
       },
       deadlineMs,
-      Math.min(800, Math.floor(deadlineMs * 0.67)) // Hedge delay: start secondary after 800ms if primary hasn't responded
+      1,
+      undefined,
+      undefined,
+      activeModel
     );
 
     let cleanJson = (rawJsonText || "").trim();
@@ -358,16 +316,17 @@ Instructions:
 
 /**
  * Authoritative unified ASR transcription delegating to asrOrchestrator:
- * Primary: Ghana NLP ASR v3
+ * Primary: University of Ghana HCI Lab ASR
  * Fallback: Hedged Gemini STT / Offline Speech Recognizer
  */
 async function transcribeAudioBufferUnified(
   buffer: Buffer,
   mime: string,
   step?: string,
-  _deadlineMs?: number
+  _deadlineMs?: number,
+  languageHint?: string
 ): Promise<SttResult> {
-  const orchResult = await asrOrchestrator.transcribe(buffer, mime, { step, allowFallback: true });
+  const orchResult = await asrOrchestrator.transcribe(buffer, mime, { step, languageHint, allowFallback: true });
   return {
     text: orchResult.text.length > 0 ? orchResult.text : "empty",
     confidence: orchResult.confidence,
@@ -385,7 +344,8 @@ export class TelephonySpeechService implements SpeechToTextProvider {
   public async transcribe(
     audioPayload: Buffer | string,
     mimeType: string = "audio/wav",
-    step?: string
+    step?: string,
+    languageHint?: string
   ): Promise<SttResult> {
     // 1. Remote Africa's Talking recording URL
     if (
@@ -393,11 +353,7 @@ export class TelephonySpeechService implements SpeechToTextProvider {
       (audioPayload.startsWith("http://") || audioPayload.startsWith("https://"))
     ) {
       try {
-        const buffer = await fetchRemoteRecording(audioPayload, 1500);
-        if (buffer.length < 300) {
-          buffer.fill(0);
-          return { text: "empty", confidence: 0.0, provider: "TelephonySpeechService" };
-        }
+        const buffer = await fetchRemoteRecording(audioPayload);
 
         const recordingPath = new URL(audioPayload).pathname.toLowerCase();
         const extension = recordingPath.match(/\.[a-z0-9]+$/)?.[0];
@@ -410,9 +366,17 @@ export class TelephonySpeechService implements SpeechToTextProvider {
           : extension === ".webm"
           ? "audio/webm"
           : "audio/mpeg";
-        return await transcribeAudioBufferUnified(buffer, mime, step, 3000);
+        return await transcribeAudioBufferUnified(buffer, mime, step, 3000, languageHint);
       } catch (err: any) {
-        return { text: "empty", confidence: 0.0, provider: "TelephonySpeechService" };
+        const reason = String(err?.message || "AT_RECORDING_DOWNLOAD_FAILED").split(":")[0];
+        auditLogger.log("warn", "STT", `AT recording unavailable (${reason}); returning to the current audio/keypad prompt.`);
+        return {
+          text: "empty",
+          confidence: 0.0,
+          confidenceSource: "unavailable",
+          languageDetected: languageHint || "twi",
+          provider: "AT_RECORDING_UNAVAILABLE",
+        };
       }
     }
 
@@ -422,14 +386,14 @@ export class TelephonySpeechService implements SpeechToTextProvider {
       if (match) {
         const mime = match[1];
         const buffer = Buffer.from(match[2], "base64");
-        return await transcribeAudioBufferUnified(buffer, mime, step, 3000);
+        return await transcribeAudioBufferUnified(buffer, mime, step, 3000, languageHint);
       }
     }
 
     // 3. Raw Buffer
     if (Buffer.isBuffer(audioPayload)) {
       try {
-        return await transcribeAudioBufferUnified(audioPayload, mimeType, step, 3000);
+        return await transcribeAudioBufferUnified(audioPayload, mimeType, step, 3000, languageHint);
       } catch {
         return {
           text: "empty",
@@ -476,13 +440,23 @@ export const speechToTextService = new TelephonySpeechService();
 export async function speechToText(
   audioBuffer: Buffer | string,
   mimeType?: string,
-  step?: string
-): Promise<{ text: string; confidence: number; languageDetected?: "en" | "twi" | string; pinDiscarded?: boolean }> {
-  const result = await speechToTextService.transcribe(audioBuffer, mimeType, step);
+  step?: string,
+  languageHint?: string
+): Promise<{
+  text: string;
+  confidence: number | null;
+  confidenceSource?: SttResult["confidenceSource"];
+  languageDetected?: "en" | "twi" | string;
+  pinDiscarded?: boolean;
+  provider?: string;
+}> {
+  const result = await speechToTextService.transcribe(audioBuffer, mimeType, step, languageHint);
   return {
     text: result.text,
     confidence: result.confidence,
     languageDetected: result.languageDetected,
     pinDiscarded: result.pinDiscarded,
+    provider: result.provider,
+    confidenceSource: result.confidenceSource,
   };
 }

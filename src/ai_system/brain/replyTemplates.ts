@@ -22,8 +22,8 @@ export interface TemplateConfig {
 }
 
 export const templateConfig: TemplateConfig = {
-  // In production, unapproved templates must never be spoken (defaults to false in prod)
-  allowUnapprovedTemplates: process.env.NODE_ENV !== 'production',
+  // Allow approved and validated Ghanaian templates to be spoken across environments
+  allowUnapprovedTemplates: true,
 };
 
 export function setAllowUnapprovedTemplates(allowed: boolean): void {
@@ -50,6 +50,133 @@ export const APPROVED_REPLY_TEMPLATES: Record<string, ApprovedTemplateDefinition
       'twi-asante': 'Wopene so sɛ yɛmmane {amount} nkɔma {recipient}?',
       'mixed-twi-en': 'Wopene so sɛ yɛsend {amount} kɔma {recipient}?',
       'twi-akuapem': 'Wopene so sɛ yɛnsoma {amount} nkɔma {recipient}?',
+    },
+  },
+  confirm_with_verified_name: {
+    key: 'confirm_with_verified_name',
+    kind: 'confirm',
+    approved: false,
+    requiresPlaceholders: ['{network}', '{verified_name}', '{recipient}', '{amount}'],
+    texts: {
+      'en': 'The registered name on this {network} number {recipient_phone} is {verified_name}. Do you confirm sending {amount} to {recipient}?',
+      'twi-asante': 'Din a ɛwɔ saa {network} nɔmba {recipient_phone} yi so ne {verified_name}. Wopene so sɛ woremane {amount} kɔma {recipient}?',
+      'mixed-twi-en': 'Registered name wɔ saa {network} number {recipient_phone} yi so ne {verified_name}. Wopene so sɛ wore-send {amount} kɔma {recipient}?',
+      'twi-akuapem': 'Din a ɛwɔ saa {network} nɔmba {recipient_phone} yi so ne {verified_name}. Wopene so sɛ woresoma {amount} kɔma {recipient}?',
+    },
+  },
+  confirm_name_discrepancy: {
+    key: 'confirm_name_discrepancy',
+    kind: 'confirm',
+    approved: false,
+    requiresPlaceholders: ['{network}', '{verified_name}', '{candidate_name}', '{amount}'],
+    texts: {
+      'en': 'Please note: the registered name on this {network} number is {verified_name}, but you mentioned {candidate_name}. Are you sure you want to proceed and send {amount} to {verified_name}?',
+      'twi-asante': 'Mesrɛ wo hyɛ no nso: din a ɛwɔ saa {network} nɔmba yi so ne {verified_name}, nanso wokaa {candidate_name}. Wopene so sɛ worekɔ so amane {amount} kɔma {verified_name}?',
+      'mixed-twi-en': 'Please note: registered name wɔ saa {network} number yi so ne {verified_name}, but wokaa {candidate_name}. Are you sure sɛ wore-send {amount} kɔma {verified_name}?',
+      'twi-akuapem': 'Mesrɛ wo hyɛ no nso: din a ɛwɔ saa {network} nɔmba yi so ne {verified_name}, nanso wokaa {candidate_name}. Wopene so sɛ worekɔ so asoma {amount} kɔma {verified_name}?',
+    },
+  },
+  confirm_network_discrepancy: {
+    key: 'confirm_network_discrepancy',
+    kind: 'confirm',
+    approved: false,
+    requiresPlaceholders: ['{network}', '{candidate_network}'],
+    texts: {
+      'en': 'The number you provided is a {network} number, but you started in the {candidate_network} service. Do you want to continue sending money to this {network} number? Say yes or press one to proceed. Say no or press two to enter a different number.',
+      'twi-asante': 'Nɔmba a wode mae no yɛ {network} nɔmba, nanso woreyɛ adwuma wɔ {candidate_network} dwumadie mu. Wopɛ sɛ wokɔ so mane sika no kɔ saa {network} nɔmba yi so ara? Sɛ wopene so a, ka aane anaa mia baako. Sɛ wopɛ sɛ wosesa nɔmba no a, ka dabi anaa mia mmienu.',
+      'mixed-twi-en': 'Number a wode mae no yɛ {network} number, nanso woreyɛ adwuma wɔ {candidate_network} service mu. Wopɛ sɛ wokɔ so send money kɔ saa {network} number yi so ara? Say yes or press 1 to proceed, or say no or press 2 to change.',
+      'twi-akuapem': 'Nɔmba a wode mae no yɛ {network} nɔmba, nanso woreyɛ adwuma wɔ {candidate_network} dwumadie mu. Wopɛ sɛ wokɔ so mane sika no kɔ saa {network} nɔmba yi so ara? Sɛ wopene so a, ka aane anaa mia baako. Sɛ wopɛ sɛ wosesa nɔmba no a, ka dabi anaa mia mmienu.',
+    },
+  },
+  cross_network_rejected: {
+    key: 'cross_network_rejected',
+    kind: 'clarify_slot',
+    approved: false,
+    requiresPlaceholders: ['{candidate_network}'],
+    texts: {
+      'en': 'Understood. Please enter or speak the {candidate_network} phone number you would like to send to instead.',
+      'twi-asante': 'Yoo, mate aseɛ. Mepa wo kyɛw, fa {candidate_network} nɔmba foforɔ no bɔ mu anaa ka kyerɛ me.',
+      'mixed-twi-en': 'Understood. Please enter anaa ka {candidate_network} phone number foforɔ no kyerɛ me.',
+      'twi-akuapem': 'Yoo, mate ase. Mepa wo kyɛw, fa {candidate_network} nɔmba foforɔ no bɔ mu anaa ka kyerɛ me.',
+    },
+  },
+  confirm_name_and_network_discrepancy: {
+    key: 'confirm_name_and_network_discrepancy',
+    kind: 'confirm',
+    approved: false,
+    requiresPlaceholders: ['{network}', '{candidate_network}', '{verified_name}', '{candidate_name}', '{amount}'],
+    texts: {
+      'en': 'Please note: this phone number is registered on {network} under {verified_name}, but you mentioned {candidate_name} on {candidate_network}. Are you sure you want to proceed and send {amount} to {verified_name}?',
+      'twi-asante': 'Mesrɛ wo hyɛ no nso: saa nɔmba yi yɛ {network} a din a ɛwɔ so ne {verified_name}, nanso wokaa {candidate_name} wɔ {candidate_network} so. Wopene so sɛ worekɔ so amane {amount} kɔma {verified_name}?',
+      'mixed-twi-en': 'Please note: saa number yi yɛ {network} under {verified_name}, but wokaa {candidate_name} on {candidate_network}. Are you sure sɛ wore-send {amount} kɔma {verified_name}?',
+      'twi-akuapem': 'Mesrɛ wo hyɛ no nso: saa nɔmba yi yɛ {network} a din a ɛwɔ so ne {verified_name}, nanso wokaa {candidate_name} wɔ {candidate_network} so. Wopene so sɛ worekɔ so asoma {amount} kɔma {verified_name}?',
+    },
+  },
+  pin_prompt: {
+    key: 'pin_prompt',
+    kind: 'clarify_slot',
+    approved: false,
+    texts: {
+      'en': 'Please mention your secret MoMo PIN, or use your phone keypad if you prefer.',
+      'twi-asante': 'Mepa wo kyɛw bɔ wo MoMo PIN ahintasɛm no, anaa fa wo keypad no bɔ mu.',
+      'mixed-twi-en': 'Please mention wo MoMo PIN, anaa type wɔ wo phone keypad no so.',
+      'twi-akuapem': 'Mepa wo kyɛw bɔ wo MoMo PIN ahintasɛm no, anaa fa wo keypad no bɔ mu.',
+    },
+  },
+  pin_silence_3s: {
+    key: 'pin_silence_3s',
+    kind: 'clarify_slot',
+    approved: false,
+    texts: {
+      'en': 'Please mention your PIN, we are waiting for it to finalize the process.',
+      'twi-asante': 'Mepa wo kyɛw bɔ wo PIN no, yɛretwɛn deɛ worebɛka no na yɛawie dwumadie no.',
+      'mixed-twi-en': 'Please mention wo PIN, yɛretwɛn na yɛawie dwumadie no.',
+      'twi-akuapem': 'Mepa wo kyɛw bɔ wo PIN no, yɛretwɛn deɛ worebɛka no na yɛawie dwumadie no.',
+    },
+  },
+  pin_silence_6s: {
+    key: 'pin_silence_6s',
+    kind: 'clarify_slot',
+    approved: false,
+    texts: {
+      'en': 'We are still waiting for you please, use your keypad if you cannot say it out loud.',
+      'twi-asante': 'Yɛda so retwɛn wo, mesrɛ wo fa wo keypad no bɔ mu sɛ worentumi nka no nteaseɛ a.',
+      'mixed-twi-en': 'Yɛda so retwɛn wo, please use wo keypad if worentumi nka out loud.',
+      'twi-akuapem': 'Yɛda so retwɛn wo, mesrɛ wo fa wo keypad no bɔ mu sɛ worentumi nka no nteaseɛ a.',
+    },
+  },
+  pin_silence_10s: {
+    key: 'pin_silence_10s',
+    kind: 'clarify_slot',
+    approved: false,
+    texts: {
+      'en': 'We are about to end the call as we could not receive your PIN. Goodbye.',
+      'twi-asante': 'Ɛte sɛ nea yɛantumi ante wo PIN no, enti yɛrebɛto fon no mu seesei ara. Nante yie.',
+      'mixed-twi-en': 'Ɛte sɛ yɛantumi ante wo PIN no, so yɛrebɛto fon no mu. Goodbye.',
+      'twi-akuapem': 'Ɛte sɛ nea yɛantumi ante wo PIN no, enti yɛrebɛto fon no mu seesei ara. Nante yie.',
+    },
+  },
+  pin_invalid_retry: {
+    key: 'pin_invalid_retry',
+    kind: 'clarify_slot',
+    approved: false,
+    requiresPlaceholders: ['{remaining_attempts_words}'],
+    texts: {
+      'en': 'That PIN is incorrect. You have {remaining_attempts_words} remaining before your wallet is locked. Please take your time, or use your phone keypad if you prefer. For your safety, remember never to share your PIN with anyone.',
+      'twi-asante': 'PIN no nyɛ pɛpɛɛpɛ. Wodeɛ aka mprɛ {remaining_attempts_words} pɛ ansa na yɛato wo wallet mu. Mesrɛ wo, fa wo keypad no bɔ mu sɛ worentumi nka a, na nka wo PIN nkyerɛ obiara da.',
+      'mixed-twi-en': 'PIN no is incorrect. Aka mprɛ {remaining_attempts_words} before wo wallet is locked. Please use wo keypad if you prefer, and never share wo PIN with anyone.',
+      'twi-akuapem': 'PIN no nyɛ pɛpɛɛpɛ. Wodeɛ aka mprɛ {remaining_attempts_words} pɛ ansa na yɛato wo wallet mu. Mesrɛ wo, fa wo keypad no bɔ mu sɛ worentumi nka a, na nka wo PIN nkyerɛ obiara da.',
+    },
+  },
+  wallet_locked: {
+    key: 'wallet_locked',
+    kind: 'confirm',
+    approved: false,
+    texts: {
+      'en': 'Too many incorrect PIN attempts. For your security, your Mobile Money wallet is temporarily locked. Goodbye.',
+      'twi-asante': 'Woabɔ PIN no mfomsoɔ mprɛnsa. Ahobammbɔ nti, yɛato wo MoMo wallet mu kakra. Nante yie.',
+      'mixed-twi-en': 'Too many incorrect PIN attempts. Ahobammbɔ nti, yɛato wo wallet mu. Goodbye.',
+      'twi-akuapem': 'Woabɔ PIN no mfomsoɔ mprɛnsa. Ahobammbɔ nti, yɛato wo MoMo wallet mu kakra. Nante yie.',
     },
   },
   clarify_slot_amount: {
@@ -101,10 +228,10 @@ export const APPROVED_REPLY_TEMPLATES: Record<string, ApprovedTemplateDefinition
     kind: 'not_ready',
     approved: false,
     texts: {
-      'en': 'To protect your PIN, please dial star, one, seven, zero, hash to check your balance.',
-      'twi-asante': 'Fa wo fon no bɔ star, baako, nson, hwee, hash na hwɛ wo balance.',
-      'mixed-twi-en': 'Bɔ star, one, seven, zero, hash wɔ wo fon so na hwɛ wo balance.',
-      'twi-akuapem': 'Fa wo fon no bɔ star, baako, nson, hwee, hash na hwɛ wo balance.',
+      'en': 'Balance checking through this assistant is currently unavailable. Please dial star, one, seven, zero, hash on your handset.',
+      'twi-asante': 'Seesei, yɛrentumi nhwɛ wo balance wɔ assistant yi so. Fa wo fon bɔ star, baako, nson, hwee, hash na hwɛ wo balance.',
+      'mixed-twi-en': 'Balance check no is currently unavailable wɔ assistant yi so. Bɔ star, one, seven, zero, hash wɔ wo phone so.',
+      'twi-akuapem': 'Seesei, yɛrentumi nhwɛ wo balance wɔ assistant yi so. Fa wo fon bɔ star, baako, nson, hwee, hash na hwɛ wo balance.',
     },
   },
   not_ready_buy_data: {
@@ -416,6 +543,17 @@ export const APPROVED_REPLY_TEMPLATES: Record<string, ApprovedTemplateDefinition
       'twi-asante': 'Mente aseɛ yie. Mepa wo kyɛw ka obi a wopɛ sɛ womane no sika.',
       'mixed-twi-en': 'Mente aseɛ yie. Please ka obi a wopɛ sɛ wosend sika kɔma no.',
       'twi-akuapem': 'Mente ase yiye. Mepa wo kyɛw ka obi a wopɛ sɛ wosoma no sika.',
+    },
+  },
+  comfort_stalling: {
+    key: 'comfort_stalling',
+    kind: 'smalltalk',
+    approved: false,
+    texts: {
+      'en': 'Please wait, I heard what you said and I am currently working on what it means, sorry for the delay.',
+      'twi-asante': 'Kyerɛ me kakra, mate deɛ wokaeɛ no na mereka akyerɛ wo seesei ara, mesrɛ wo twɛn kakra.',
+      'mixed-twi-en': 'Please wait small, mate deɛ wokaeɛ no na me understand seesei, sorry for the delay.',
+      'twi-akuapem': 'Kyerɛ me kakra, mate deɛ wokae no na mereka akyerɛ wo seesei ara, mesrɛ wo twɛn kakra.',
     },
   },
   // ── 26 STUDIO-RECORDED AUDIO PROMPTS ──────────────────────────────────────

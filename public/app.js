@@ -1862,6 +1862,23 @@
       }
 
       if (match.nextStep) {
+        const spokenAmount = Number(match.slots?.amount);
+        if (match.nextStep === 'confirm' && Number.isFinite(spokenAmount) && (spokenAmount < 1 || spokenAmount > 100)) {
+          this.callState.amount = '';
+          const amountInput = document.getElementById('inAmountSim');
+          if (amountInput) amountInput.value = '';
+          const isTwi = this.callState.lang === 'twi';
+          const tooLow = spokenAmount < 1;
+          const amountPrompt = isTwi
+            ? (tooLow ? 'Sika no sua sen GH₵ 1. Yɛsrɛ wo, hyɛ sika dodow a ɛboro saa.' : 'Sika dodow no dɔɔso sen GH₵ 100. Yɛsrɛ wo, hyɛ sika dodow a ɛba fam.')
+            : (tooLow ? 'The amount must be at least GH₵ 1. Please enter 1 to 100.' : 'That amount is above the GH₵ 100 demo limit. Please enter an amount from 1 to 100.');
+          this.playPhoneAudio(
+            tooLow ? (isTwi ? '/api/audio/prompt/twi/amount_too_low' : '/api/audio/prompt/en/amount_too_low')
+              : (isTwi ? '/api/audio/prompt/twi/amount_too_high' : '/api/audio/prompt/en/amount_too_high'),
+            amountPrompt
+          );
+          return;
+        }
         this.optionSelectedForCurrentPrompt = true;
         this.setSpeechRecognitionActive(false, `Fast voice next step: ${match.nextStep}`);
         if (match.slots) {
@@ -2416,9 +2433,8 @@
           { label: '🗣️ "Exit completely (0)"', val: 'Exit' }
         ],
         'amount': [
-          { label: '🗣️ "500 cedis"', val: '500 cedis', primary: true },
+          { label: '🗣️ "100 cedis"', val: '100 cedis', primary: true },
           { label: '🗣️ "50 cedis"', val: '50 cedis' },
-          { label: '🗣️ "100 cedis"', val: '100 cedis' },
           { label: '🗣️ "Go back (8)"', val: 'Go back' }
         ],
         'confirm': [
@@ -2474,9 +2490,8 @@
           { label: '🗣️ "Firi mu (0)"', val: 'Exit' }
         ],
         'amount': [
-          { label: '🗣️ "500 cedis"', val: '500 cedis', primary: true },
+          { label: '🗣️ "100 cedis"', val: '100 cedis', primary: true },
           { label: '🗣️ "50 cedis"', val: '50 cedis' },
-          { label: '🗣️ "100 cedis"', val: '100 cedis' },
           { label: '🗣️ "San akyi (8)"', val: 'Go back' }
         ],
         'confirm': [
@@ -2496,7 +2511,7 @@
       if (step === 'pin_handoff' || step === 'auth') {
         container.innerHTML = `
           <div style="font-size: 11.5px; color: #a7f3d0; padding: 7px 12px; background: rgba(16, 185, 129, 0.15); border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.35); text-align: center; width: 100%;">
-            🔒 ${isTwi ? 'Kasa nnyigyei no ayɛ din ma Zero-PIN ahobammbɔ. Bɔ wo PIN nɔma 4 wɔ wo fon no anim pɔtee.' : 'Speech layer is turned off for Zero-PIN security. Enter your 4-digit PIN on the handset keypad.'}
+            🔒 ${isTwi ? 'Pene so wɔ wo fon no so. Mfa wo MoMo PIN nka anaa mmɔ wɔ ha.' : 'Approve the secure payment prompt on your handset. Never enter or say your PIN in this app.'}
           </div>
         `;
         return;
@@ -2584,8 +2599,8 @@
       const stepTag = document.getElementById('currentStepTag');
       const viewport = document.getElementById('stepControlsViewport');
 
-      const last4 = (this.callState.phone || '0553838464').slice(-4);
       const recipientName = this.callState.name || 'Kwame Nyamebere';
+      const recipientDigits = (this.callState.phone || '0553838464').replace(/\D/g, '').slice(-10).split('').join(' ');
 
       // ─────────────────────────────────────────────────────────────────
       // Prompt playback resolves through the central recording registry.
@@ -2732,7 +2747,7 @@
         recipient_verify: {
           tag: 'Step 6: KYC Verification (Kwame Nyamebere)',
           audio: null,
-          promptText: `"You are about to send money to ${recipientName}, whose phone number ends with ${last4}. To confirm and send the money, press 1. To cancel, press 2. To exit completely, press 0."`,
+          promptText: `Recipient name: ${recipientName}. Phone: ${recipientDigits}.`,
           render: () => `
             <div class="step-options-grid">
               <button class="step-opt-btn" onclick="window.app.pressKey('1')">
@@ -2764,7 +2779,7 @@
                 <span id="stepCountdownAmount" style="background:rgba(16,185,129,0.2); padding:1px 6px; border-radius:4px; font-family:monospace;">30s</span>
                 <span style="color:var(--ink-muted); font-size:10px;">(* for decimal, # to submit)</span>
               </div>
-              <input type="text" id="inAmountSim" value="${this.callState.amount || trialAmt}" 
+              <input type="text" id="inAmountSim" value="${this.callState.amount || ''}" 
                 style="width:90%; padding:8px; font-size:16px; font-weight:bold; text-align:center; background:#000; border:1px solid var(--border-subtle); color:#fff; border-radius:6px; margin-bottom:8px;">
               <button class="btn btn-sm btn-primary" style="width:90%; margin-bottom:6px;" onclick="window.app.submitSimAmount()">
                 Submit Amount (#)
@@ -3001,7 +3016,7 @@
         recipient_verify: {
           tag: 'Step 6: KYC Verification (Kwame Nyamebrɛ)',
           audio: null,
-          promptText: `"Me pɛ sɛ wo bɛ sendi sika kɔ ${recipientName} fɔn so, anaa number ${last4} ɛna ɛtɔ. Sɛ wo pɛ sɛ wo gye tum na wo sendi sika ma me a baako (1). Sɛ wo pɛ sɛ wo cancel a mia mmienu (2). Sɛ wo pɛ sɛ wo firi mu a mia zero (0)."`,
+          promptText: `Recipient no din: ${recipientName}. Ne phone: ${recipientDigits}.`,
           render: () => `
             <div class="step-options-grid">
               <button class="step-opt-btn" onclick="window.app.pressKey('1')">
@@ -3033,7 +3048,7 @@
                 <span id="stepCountdownAmount" style="background:rgba(16,185,129,0.2); padding:1px 6px; border-radius:4px; font-family:monospace;">30s</span>
                 <span style="color:var(--ink-muted); font-size:10px;">(* ma decimal, # ma wie)</span>
               </div>
-              <input type="text" id="inAmountSim" value="${this.callState.amount || trialAmt}" 
+              <input type="text" id="inAmountSim" value="${this.callState.amount || ''}" 
                 style="width:90%; padding:8px; font-size:16px; font-weight:bold; text-align:center; background:#000; border:1px solid var(--border-subtle); color:#fff; border-radius:6px; margin-bottom:8px;">
               <button class="btn btn-sm btn-primary" style="width:90%; margin-bottom:6px;" onclick="window.app.submitSimAmount()">
                 Fa Hash Wie (#)
@@ -3066,8 +3081,8 @@
         },
         pin_handoff: {
           tag: 'Step 9: Zero-PIN Fon Ahobammbɔ (Handset Handoff)',
-          audio: null,
-          promptText: '"Hwɛ wo fon screen so na wie payment no. Mmmɔ wo PIN wɔ frɛ no mu."',
+          audio: '/audio/Twi_library/Pin_Handoff.mp3',
+          promptText: '"Hwɛ wo fon screen so na hyɛ wo MoMo PIN wɔ provider prompt no mu. Mfa wo PIN nka wɔ frɛ yi mu."',
           xmlUrl: `/safe-outcome?lang=twi&provider=${this.callState.provider}&phone=${this.callState.phone}&name=${encodeURIComponent(recipientName)}&amount=${this.callState.amount}&dtmfDigits=1`,
           render: () => this.renderPinPadUi('Mena GH₵ 500.00 kɔma Kwame Nyamebrɛ', true)
         },
@@ -3147,6 +3162,15 @@
         if (!audioEl || audioEl.paused || audioEl.ended || this.currentAudioUrl !== audioFile) {
           this.playPhoneAudio(audioFile, null);
         }
+      } else if (step === 'recipient_verify') {
+        const confirmationAudio = isTwi
+          ? '/audio/Twi_library/Confirm_continue.mp3'
+          : '/api/audio/prompt-tts/en/confirm_continue';
+        this.playPhoneAudio(null, stepConfig.promptText, () => {
+          if (this.callState.active && this.callState.step === 'recipient_verify') {
+            this.playPhoneAudio(confirmationAudio, null);
+          }
+        });
       } else {
         this.playPhoneAudio(audioFile, stepConfig.promptText);
       }
@@ -3621,8 +3645,9 @@
         } else {
           this.handleWrongFigure(key);
         }
-      } else if (this.callState.step === 'recipient_verify') {
+      } else if (this.callState.step === 'recipient_verify' || this.callState.step === 'verify_recipient') {
         if (key === '1') {
+          this.callState.amount = '';
           this.goToStep('amount');
         } else if (key === '2') {
           this.goToStep('recipient');
@@ -3680,8 +3705,11 @@
         this.callState.name = sub.name;
         this.callState.provider = sub.network;
       } else {
-        this.callState.name = val.endsWith('8464') ? 'Kwame Nyamebere' : `Subscriber (ends ${val.slice(-4)})`;
+        const localNames = ['Ama Mensah', 'Kofi Annan', 'Abena Mansa', 'Kwame Boateng', 'Akosua Asante', 'Yaw Osei', 'Adwoa Frimpong', 'Kojo Owusu'];
+        const digitSum = [...val.replace(/\D/g, '')].reduce((sum, digit) => sum + Number(digit), 0);
+        this.callState.name = localNames[digitSum % localNames.length];
       }
+      this.callState.amount = '';
       this.goToStep('recipient_verify');
     },
 
@@ -3689,8 +3717,21 @@
       const inputEl = document.getElementById('inAmountSim');
       const val = inputEl ? inputEl.value.trim().replace('*', '.') : (this.callState.amount || '500');
       const num = parseFloat(val);
-      if (isNaN(num) || num <= 0) {
+      if (isNaN(num) || num < 1) {
         this.handleWrongFigure(val ? `${val} Cedis` : 'Invalid Amount');
+        return;
+      }
+      if (num > 100) {
+        this.callState.amount = '';
+        if (inputEl) inputEl.value = '';
+        const isTwi = this.callState.lang === 'twi';
+        const tooHighText = isTwi
+          ? 'Sika dodow no dɔɔso sen GH₵ 100. Yɛsrɛ wo, hyɛ sika dodow a ɛba fam.'
+          : 'That amount is above the GH₵ 100 demo limit. Please enter an amount from 1 to 100.';
+        this.playPhoneAudio(
+          isTwi ? '/audio/Twi_library/Amount too high 3.mp3' : null,
+          tooHighText
+        );
         return;
       }
       this.callState.amount = String(num);
@@ -3775,7 +3816,7 @@
       });
     },
 
-    playPhoneAudio(audioUrl, fallbackTtsText) {
+    playPhoneAudio(audioUrl, fallbackTtsText, onEnd = null) {
       const audioEl = document.getElementById('phoneAudioElement');
       const sourceInd = document.getElementById('audioSourceIndicator');
       const playLabel = document.getElementById('playPromptLabel');
@@ -3852,21 +3893,24 @@
               this.setSpeechRecognitionActive(false, 'PIN prompt is open - speech turned off');
             }
           }
+          if (typeof onEnd === 'function') onEnd();
         };
 
         audioEl.onerror = () => {
           this.isPromptPlaying = false;
           this.stopWaveformAnimation();
           if (this.callState.active && !this.optionSelectedForCurrentPrompt && this.listeningServiceEnabled && !this.isPinPromptOpen) {
-            this.speakFallback(fallbackTtsText);
+            this.speakFallback(fallbackTtsText, onEnd);
+          } else if (typeof onEnd === 'function') {
+            onEnd();
           }
         };
       } else {
-        this.speakFallback(fallbackTtsText);
+        this.speakFallback(fallbackTtsText, onEnd);
       }
     },
 
-    speakFallback(text) {
+    speakFallback(text, onEnd = null) {
       this.isPromptPlaying = true;
       this.setSpeechRecognitionActive(false, 'TTS fallback prompt playing');
 
@@ -3877,6 +3921,7 @@
         if (!('speechSynthesis' in window) || !text) {
           this.isPromptPlaying = false;
           this.setSpeechRecognitionActive(true, 'TTS unavailable, waiting for response');
+          if (typeof onEnd === 'function') onEnd();
           return;
         }
         window.speechSynthesis.cancel();
@@ -3890,6 +3935,7 @@
           if (this.callState.active && !this.optionSelectedForCurrentPrompt && this.listeningServiceEnabled && !this.isPinPromptOpen) {
             this.setSpeechRecognitionActive(true, 'TTS prompt finished, waiting for response');
           }
+          if (typeof onEnd === 'function') onEnd();
         };
         utter.onend = onDone;
         utter.onerror = onDone;
@@ -3898,6 +3944,7 @@
 
       if (!text || this.isPinPromptOpen || this.callState.step === 'pin_handoff') {
         this.isPromptPlaying = false;
+        if (typeof onEnd === 'function') onEnd();
         return;
       }
 
@@ -3928,8 +3975,9 @@
           if (this.callState.active && !this.optionSelectedForCurrentPrompt && this.listeningServiceEnabled && !this.isPinPromptOpen) {
             this.setSpeechRecognitionActive(true, 'TTS prompt finished, waiting for response');
           }
+          if (typeof onEnd === 'function') onEnd();
         };
-        audio.onerror = playBrowserFallback;
+        audio.onerror = () => playBrowserFallback();
         audio.play().catch((error) => {
           console.warn('TTS audio playback failed; using browser speech synthesis.', error);
           playBrowserFallback();

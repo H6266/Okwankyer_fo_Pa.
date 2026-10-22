@@ -140,37 +140,26 @@ describe("2. Step-Aware Amount vs PIN Separation", () => {
 });
 
 describe("3. Correct Prompt Fallback Order & TTS Audio Invariants", () => {
-  it("3.1. Tier 1: Canonical prompts route to Studio Recording Catalog with cached metadata", () => {
-    // Welcome prompt
-    const welcome = studioPromptRegistry.getPrompt("welcome", "tw");
-    expect(welcome).toBeDefined();
-    expect(welcome?.relativeUrl).toContain("Welcome%201.m4a");
-    expect(welcome?.fileSizeBytes).toBeGreaterThan(1000);
-    expect(welcome?.durationSec).toBeNull();
-    expect(welcome?.sampleRateHz).toBeNull();
-    expect(welcome?.bitrateKbps).toBeNull();
+  it("3.1. Unreviewed prompt candidates are not loaded into the Studio Recording Catalog", () => {
+    // Unreviewed prompts are not in studio catalog
+    const unreviewed = studioPromptRegistry.getPrompt("unreviewed_step", "tw");
+    expect(unreviewed).toBeNull();
 
     const amountEn = studioPromptRegistry.getPrompt("enter_amount", "en");
     expect(amountEn).toBeNull();
 
-    const amountTw = studioPromptRegistry.getPrompt("enter_amount", "tw");
-    expect(amountTw).toBeDefined();
-    expect(amountTw?.relativeUrl).toContain("Enter%20amount.m4a");
+    const customStep = studioPromptRegistry.getPrompt("custom_unreviewed_step", "tw");
+    expect(customStep).toBeNull();
   });
 
-  it("3.2. TTS Router retrieves Tier 1 studio prompts instantly with verified buffer and headers", async () => {
-    const res = await ttsRouter.synthesize({
-      text: "welcome",
+  it("3.2. TTS Router refuses unreviewed Twi synthesis without a reviewed real provider", async () => {
+    await expect(ttsRouter.synthesize({
+      text: "Unreviewed custom text for dynamic speech synthesis",
       language: "tw",
-    });
-
-    expect(res.providerUsed).toContain("tier1-studio-prompt-registry:welcome");
-    expect(res.audioBuffer).toBeDefined();
-    expect(res.audioBuffer!.length).toBeGreaterThan(128);
-    expect(res.mimeType).toBe("audio/mp4");
+    })).rejects.toThrow(/TWI_TTS_UNAVAILABLE/);
   });
 
-  it("3.3. Twi dynamic amounts use pre-recorded digit audio concatenation snippets without generic English TTS", () => {
+  it("3.3. Twi number text is distinct from audio synthesis and fails without reviewed speech assets", () => {
     // Akan number conversion
     expect(twiAmountSynthesizer.numberToTwi(1)).toBe("baako");
     expect(twiAmountSynthesizer.numberToTwi(2)).toBe("mmienu");
@@ -178,28 +167,15 @@ describe("3. Correct Prompt Fallback Order & TTS Audio Invariants", () => {
     expect(twiAmountSynthesizer.numberToTwi(500)).toBe("ahanum");
 
     // Audio generation
-    const audioRes = twiAmountSynthesizer.synthesizeTwiAmount(500);
-    expect(audioRes.twiText).toBe("Sidi ahanum");
-    expect(audioRes.mimeType).toBe("audio/wav");
-    expect(audioRes.audioBuffer.length).toBeGreaterThan(500);
-
-    // Verified RIFF/WAVE header
-    const magic = audioRes.audioBuffer.subarray(0, 4).toString("ascii");
-    const wave = audioRes.audioBuffer.subarray(8, 12).toString("ascii");
-    expect(magic).toBe("RIFF");
-    expect(wave).toBe("WAVE");
+    expect(() => twiAmountSynthesizer.synthesizeTwiAmount(500)).toThrow(/TWI_AMOUNT_TTS_UNAVAILABLE/);
   });
 
-  it("3.4. TTS Router falls back cleanly for non-catalog text without failing silently", async () => {
-    const res = await ttsRouter.synthesize({
+  it("3.4. TTS Router fails explicitly when no real English speech provider returns audio", async () => {
+    await expect(ttsRouter.synthesize({
       text: "Transaction OKP-109283 confirmed.",
       language: "en",
       skipCatalogCheck: true,
-    });
-
-    expect(res.audioBuffer).toBeDefined();
-    expect(res.audioBuffer!.length).toBeGreaterThan(128);
-    expect(res.providerUsed).toBeDefined();
+    })).rejects.toThrow(/TTS_PROVIDER_UNAVAILABLE/);
   });
 });
 

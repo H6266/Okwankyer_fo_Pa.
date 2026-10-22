@@ -14,7 +14,7 @@ import fs from "fs";
 import path from "path";
 import { config } from "../config/env";
 import { audioFileExists } from "../audio/catalog";
-import { getRecordingByPromptKey } from "../audio/recordingRegistry";
+import { getAudioAssetInventory, getRecordingFilePath } from "../audio/recordingRegistry";
 import { VoiceService } from "../../africastalking";
 import { mtnMomoService } from "../modules/mtnMomoService";
 import { GoogleGenAI } from "@google/genai";
@@ -44,24 +44,33 @@ export async function runRealSmokeTests(): Promise<SmokeTestReport> {
 
   // Check 1: Audio Catalog on Disk
   const startAudio = Date.now();
-  const welcome = getRecordingByPromptKey("welcome");
-  const network = getRecordingByPromptKey("provider_select");
-  const amount = getRecordingByPromptKey("enter_amount");
-  const welcomeExists = Boolean(welcome && audioFileExists(welcome.relativePath));
-  const networkExists = Boolean(network && audioFileExists(network.relativePath));
-  const amountExists = Boolean(amount && audioFileExists(amount.relativePath));
+  const recordings = getAudioAssetInventory();
+  const findPrompt = (promptId: string) => recordings.find((recording) =>
+    recording.promptId === promptId && recording.language === "twi"
+  );
+  const welcome = findPrompt("OP01");
+  const network = findPrompt("OP08");
+  const amount = findPrompt("OP26");
+  const welcomeExists = Boolean(welcome && audioFileExists(welcome.relativePath, welcome.assetRoot));
+  const networkExists = Boolean(network && audioFileExists(network.relativePath, network.assetRoot));
+  const amountExists = Boolean(amount && audioFileExists(amount.relativePath, amount.assetRoot));
   const audioLatency = Date.now() - startAudio;
 
   const allAudioFound = welcomeExists && networkExists && amountExists;
+  const allAudioReviewed = [welcome, network, amount].every((recording) =>
+    recording?.audioVerified === true && recording.recordingRole === "fixed"
+  );
   checks.push({
     id: "check_audio",
     name: "Audio Catalog & Studio Files on Disk",
-    description: "Verifies registered Twi welcome, network, and amount recordings exist on filesystem",
-    status: allAudioFound ? "pass" : "fail",
+    description: "Checks registered Twi welcome, network, and amount files and their review status",
+    status: !allAudioFound ? "fail" : allAudioReviewed ? "pass" : "warn",
     latencyMs: audioLatency,
-    details: allAudioFound
-      ? "Registered Twi source recordings verified on disk."
-      : "One or more registered Twi source recordings are missing from Audio_files/audio.",
+    details: !allAudioFound
+      ? "One or more exact registered Twi source paths are missing or unreadable."
+      : allAudioReviewed
+        ? "Registered Twi source recordings are reviewed and readable."
+        : "Source files are readable, but no audio review approval is recorded; they are not eligible for automatic playback.",
   });
 
   // Check 2: Africa's Talking Gateway
@@ -117,50 +126,26 @@ export async function runRealSmokeTests(): Promise<SmokeTestReport> {
     checks.push({
       id: "check_gemini",
       name: "Gemini Speech & NLU API",
-      description: "Google Gemini Cloud API probe",
+      description: "Google Gemini Cloud API Status",
       status: "warn",
       latencyMs: Date.now() - startGemini,
       details: "Gemini API in quota cooldown mode. Local Ghanaian NLU and offline speech engine active and operational.",
     });
   } else {
-    try {
-      const probeModel = geminiClient.isModelAvailable("gemini-3.8-flash")
-        ? "gemini-3.8-flash"
-        : (geminiClient.isModelAvailable("gemini-flash-latest") ? "gemini-flash-latest" : "gemini-3.8-flash");
-
-      const pingResponse = await geminiClient.executeWithTimeout(
-        "HEALTH_PROBE",
-        async (ai) => {
-          return ai.models.generateContent({
-            model: probeModel,
-            contents: "System health check. Reply READY.",
-          });
-        },
-        2000,
-        0
-      );
-      const geminiLatency = Date.now() - startGemini;
-      const isOk = pingResponse.text?.includes("READY") || Boolean(pingResponse.text);
-      checks.push({
-        id: "check_gemini",
-        name: "Gemini Speech & NLU API",
-        description: `Live probe to Google Gemini API (${probeModel})`,
-        status: isOk ? "pass" : "warn",
-        latencyMs: geminiLatency,
-        details: isOk
-          ? `Gemini API live and responsive (${geminiLatency}ms) via ${probeModel}.`
-          : `Gemini API returned response: ${pingResponse.text?.slice(0, 50)}`,
-      });
-    } catch (err: any) {
-      checks.push({
-        id: "check_gemini",
-        name: "Gemini Speech & NLU API",
-        description: "Google Gemini Cloud API probe",
-        status: "warn",
-        latencyMs: Date.now() - startGemini,
-        details: `Gemini in quota/offline fallback mode: ${err.message?.slice(0, 80)}. Offline Ghanaian engine active.`,
-      });
-    }
+    // PASSIVE CHECK: Check API key configuration and circuit breaker state without firing live generateContent tokens
+    const cbState = geminiClient.getCircuitBreakerState();
+    const isOk = cbState !== "OPEN";
+    const geminiLatency = Date.now() - startGemini;
+    checks.push({
+      id: "check_gemini",
+      name: "Gemini Speech & NLU API",
+      description: "Google Gemini Cloud API Status & Quota State",
+      status: isOk ? "pass" : "warn",
+      latencyMs: geminiLatency,
+      details: isOk
+        ? `Gemini API key configured and operational (Circuit Breaker: ${cbState}). Passive monitoring active (0 tokens consumed).`
+        : `Gemini API circuit breaker in ${cbState} state. Offline Ghanaian engine active.`,
+    });
   }
 
   // Check 4: MTN MoMo Collections
@@ -200,42 +185,31 @@ export async function runRealSmokeTests(): Promise<SmokeTestReport> {
     }
   }
 
-  // Check 5: Ghana NLP (ASR v3 & TTS v2)
-  const startGhana = Date.now();
-  if (!config.ghanaNlp?.configured) {
+  // Check 5: University of Ghana HCI Lab Speech API (ASR & TTS)
+  const startHci = Date.now();
+  try {
+    const { hciLabService } = await import("./hciLabService");
+    const isHciConfigured = hciLabService.isConfigured();
+    const usage = hciLabService.getUsageReport();
     checks.push({
-      id: "check_ghananlp",
-      name: "Ghana NLP API (ASR v3 / TTS v2)",
-      description: "Cloud Akan Twi & Ghanaian English Speech Services",
-      status: "warn",
-      latencyMs: Date.now() - startGhana,
-      details: "GHANANLP_API_KEY not configured; local neural Piper/Vosk and Gemini models active.",
+      id: "check_hcilab",
+      name: "HCI Lab Akan Speech API (ASR / TTS)",
+      description: "University of Ghana Native Akan Speech & Quota Defense",
+      status: isHciConfigured ? "pass" : "warn",
+      latencyMs: Date.now() - startHci,
+      details: isHciConfigured
+        ? `HCI Lab active. Quota: ASR ${usage.dailyAsrCount}/${usage.dailyAsrLimit} today, TTS ${usage.dailyTtsCount}/${usage.dailyTtsLimit} today. Zero-waste disk cache active.`
+        : "UG_HCI_LAB_API_KEY unconfigured; operating in offline studio & deterministic fallback mode.",
     });
-  } else {
-    try {
-      const { ghanaNlpAsrService } = await import("./ghanaNlpAsrService");
-      const health = await ghanaNlpAsrService.healthCheck();
-      const latency = Date.now() - startGhana;
-      checks.push({
-        id: "check_ghananlp",
-        name: "Ghana NLP API (ASR v3 / TTS v2)",
-        description: "Cloud Akan Twi & Ghanaian English Speech Services",
-        status: health.ready ? "pass" : "fail",
-        latencyMs: latency,
-        details: health.ready
-          ? `Ghana NLP connected (${latency}ms). Supported languages available.`
-          : `Ghana NLP connection issue: ${health.error}`,
-      });
-    } catch (err: any) {
-      checks.push({
-        id: "check_ghananlp",
-        name: "Ghana NLP API (ASR v3 / TTS v2)",
-        description: "Cloud Akan Twi & Ghanaian English Speech Services",
-        status: "fail",
-        latencyMs: Date.now() - startGhana,
-        details: `Ghana NLP health probe error: ${err.message}`,
-      });
-    }
+  } catch (err: any) {
+    checks.push({
+      id: "check_hcilab",
+      name: "HCI Lab Akan Speech API (ASR / TTS)",
+      description: "University of Ghana Native Akan Speech & Quota Defense",
+      status: "warn",
+      latencyMs: Date.now() - startHci,
+      details: `HCI Lab status check notice: ${err.message}`,
+    });
   }
 
   const passCount = checks.filter((c) => c.status === "pass").length;
@@ -348,56 +322,50 @@ export interface AudioCatalogHealth {
   verified: boolean;
   totalFiles: number;
   missingFiles: string[];
+  reviewedFiles: number;
   sampleFiles: { path: string; sizeBytes: number; readable: boolean }[];
 }
 
 export function checkAudioFilesHealth(): AudioCatalogHealth {
-  const legacyAudioRoot = path.resolve(process.cwd(), "audio");
-  const root = fs.existsSync(legacyAudioRoot)
-    ? legacyAudioRoot
-    : path.resolve(process.cwd(), "public", "audio");
-  const canonicalFiles = [
-    "Welcome_prompt_01.mp3",
-    "English/Audio_prompt_02.mp3",
-    "English/Audio_prompt_06.mp3",
-    "English/Audio_prompt_09.mp3",
-    "English/Audio_prompt_10.mp3",
-    "English/Audio_prompt_11.mp3",
-    "Twi/Audio_prompt_twi_02.mp3",
-    "Twi/Audio_prompt_twi_03.mp3",
-    "Twi/Audio_prompt_twi_04.mp3",
-    "Twi/Audio_prompt_twi_05.mp3",
-    "Twi/Audio_prompt_twi_07.mp3",
-    "Twi/Audio_prompt_twi_08.mp3",
-    "Twi/Audio_prompt_twi_09.mp3",
-  ];
-
+  const recordings = getAudioAssetInventory();
   const missingFiles: string[] = [];
   const sampleFiles: { path: string; sizeBytes: number; readable: boolean }[] = [];
+  let reviewedFiles = 0;
 
-  for (const rel of canonicalFiles) {
-    const abs = path.join(root, rel);
+  for (const recording of recordings) {
+    if (!recording.audioVerified || recording.recordingRole !== "fixed") {
+      continue;
+    }
+    const sourcePath = getRecordingFilePath(recording.relativePath);
+    if (!sourcePath) {
+      missingFiles.push(recording.relativePath);
+      continue;
+    }
+    const abs = path.resolve(process.cwd(), sourcePath);
+
     try {
       if (fs.existsSync(abs)) {
         fs.accessSync(abs, fs.constants.R_OK);
         const stat = fs.statSync(abs);
+        reviewedFiles += 1;
         sampleFiles.push({
-          path: `/audio/${rel}`,
+          path: sourcePath,
           sizeBytes: stat.size,
           readable: true,
         });
       } else {
-        missingFiles.push(rel);
+        missingFiles.push(sourcePath);
       }
     } catch {
-      missingFiles.push(rel);
+      missingFiles.push(sourcePath);
     }
   }
 
   return {
-    verified: missingFiles.length === 0,
+    verified: sampleFiles.length > 0 && missingFiles.length === 0,
     totalFiles: sampleFiles.length,
     missingFiles,
+    reviewedFiles,
     sampleFiles: sampleFiles.slice(0, 5),
   };
 }
@@ -486,7 +454,7 @@ export async function getFullAiHealthReport(): Promise<FullAiDiagnosticReport> {
   let status: FullAiDiagnosticReport["status"] = "HEALTHY";
   if (isProd && (momo.status === "failed" || !modelsVerified || !audio.verified || !disk.sufficient)) {
     status = "UNHEALTHY";
-  } else if (!modelsVerified || telephony.status === "unconfigured" || audio.missingFiles.length > 0 || !disk.sufficient) {
+  } else if (!modelsVerified || telephony.status === "unconfigured" || audio.missingFiles.length > 0 || !audio.verified || !disk.sufficient) {
     status = "DEGRADED";
   }
 

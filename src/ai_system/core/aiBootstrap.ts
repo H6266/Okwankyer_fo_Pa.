@@ -169,14 +169,29 @@ export class AiBootstrap {
         errors,
       };
     } catch (err: any) {
+      const message = String(err?.message || "Gemini model verification failed.");
+      const status = Number(err?.status ?? err?.statusCode);
+      const providerUnavailable =
+        status === 403 ||
+        status === 429 ||
+        /PERMISSION_DENIED|API_KEY_INVALID|RESOURCE_EXHAUSTED|\b403\b|\b429\b|quota/i.test(message);
+
+      if (providerUnavailable) {
+        const fallbackNotice = `Gemini model verification unavailable; local-first fallback active (${message}).`;
+        console.warn(`[AiBootstrap] ${fallbackNotice}`);
+        this.sdkVerified = false;
+        this.verifiedModelList = [];
+        return { verified: false, modelsFound: [], errors: [fallbackNotice] };
+      }
+
       if (isProd) {
         throw err;
       }
-      console.warn(`[AiBootstrap] SDK model verification notice: ${err.message}`);
+      console.warn(`[AiBootstrap] SDK model verification notice: ${message}`);
       return {
         verified: false,
         modelsFound: [],
-        errors: [err.message],
+        errors: [message],
       };
     }
   }
@@ -243,6 +258,7 @@ export class AiBootstrap {
   public async initialize(): Promise<BootstrapHealthReport> {
     const start = performance.now();
     const modelCheck = this.validateModelConfiguration();
+    let startupWarnings: string[] = [];
 
     try {
       if (!modelCheck.valid) {
@@ -252,6 +268,7 @@ export class AiBootstrap {
       if (process.env.GEMINI_API_KEY) {
         const sdkReport = await this.verifyModelsAgainstSdk();
         this.sdkVerified = sdkReport.verified;
+        startupWarnings = sdkReport.errors;
       }
 
       // 1. Preload global phonetic memory
@@ -273,7 +290,7 @@ export class AiBootstrap {
       const duration = performance.now() - start;
 
       return {
-        status: "INITIALIZED",
+        status: startupWarnings.length > 0 ? "DEGRADED" : "INITIALIZED",
         timestamp: Date.now(),
         subsystems: {
           memory: true,
@@ -288,6 +305,7 @@ export class AiBootstrap {
         zeroPinPolicyVerified: true,
         bootstrapLatencyMs: duration,
         diagnostics: this.getDiagnostics(),
+        ...(startupWarnings.length > 0 ? { errors: startupWarnings } : {}),
       };
     } catch (err: any) {
       const duration = performance.now() - start;

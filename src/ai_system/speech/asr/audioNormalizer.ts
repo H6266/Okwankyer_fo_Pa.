@@ -6,7 +6,7 @@
  * - Normalizes to mono, 16 kHz, 16-bit PCM
  * - Removes DC offset, normalizes amplitude to target (-26 dBFS telephony), prevents clipping
  * - Detects corrupt / truncated audio
- * - Produces pristine 16 kHz mono PCM WAV accepted by GhanaNLP and neural models
+ * - Produces pristine 16 kHz mono PCM WAV accepted by UG HCI Lab and neural models
  * - Preserves timing metadata
  */
 

@@ -64,17 +64,19 @@ export class IvrDecisionEngine {
     const clean = input.trim();
     const cleanLower = clean.toLowerCase().replace(/[.,!?;:]/g, "");
 
-    // ── 0. Max-Retry Hangup Gate ──────────────────────────────────────────
+    // ── 0. Max-Retry Recovery ─────────────────────────────────────────────
     if (retryCount >= MAX_RETRIES) {
       return {
         type: "invalid_choice",
         reason: `Exceeded maximum retries (${retryCount} >= ${MAX_RETRIES}) at step ${stepId}.`,
         replyText:
           language === "twi"
-            ? "Wobɔɔ mmɔden pii a yɛante ase. Ahobammbɔ nti, yɛtwa frɛ yi mu seesei. Nante yie."
-            : "Too many unrecognized attempts. For your security, this call will now end. Goodbye.",
+            ? "Mante wo mmuae no ase. Yɛsrɛ wo paw bio, anaa mia hwee sɛ wopɛ sɛ wugyae."
+            : "I did not understand. Please choose again, or press 0 if you want to end the call.",
         replyKey: "max_retries_exceeded",
-        action: "hangup",
+        nextStep: stepDef?.id || stepId,
+        action: "replay",
+        promptReplayKey: stepDef?.promptKey,
       };
     }
 
@@ -93,34 +95,6 @@ export class IvrDecisionEngine {
         action: "advance",
         promptReplayKey: "enter_recipient",
       };
-    }
-
-    // ── Universal 10-Digit Phone Auto-Identification Across Any Step ──────────
-    // The moment the user punches or says numbers up to 10 at a time, automatically identify
-    // it as recipient phone for sending money and allow the user to the next stage (amount sending).
-    const digitsOnlyUniversal = clean.replace(/[^0-9]/g, "");
-    const isStepAmountOrConfirm = stepId.includes("amount") || stepId.includes("confirm") || stepId.includes("safe-outcome");
-    if (!isStepAmountOrConfirm && (digitsOnlyUniversal.length === 10 || (digitsOnlyUniversal.length === 12 && digitsOnlyUniversal.startsWith("233")))) {
-      const phoneVal = validateGhanaPhoneNumber(clean);
-      if (phoneVal.valid && phoneVal.normalized) {
-        return {
-          type: "understood_intent",
-          reason: `Auto-identified 10-digit recipient number ${phoneVal.normalized} for sending money. Advancing to recipient verification.`,
-          replyText:
-            language === "twi"
-              ? `Worebɛmane sika akɔ Kwame Boateng a ne nɔmba wie ${phoneVal.last4Spaced} so. Sɛ wopene so na wopɛ sɛ womane sika no a, mia 1. Sɛ wopɛ sɛ wosesa nɔmba no a, mia 2.`
-              : `Sending money to Kwame Boateng, whose phone number ends with ${phoneVal.last4Spaced}. To confirm this recipient, press 1. To re-enter the phone number, press 2.`,
-          replyKey: "recipient_verified_choice",
-          nextStep: "recipient-verify-choice",
-          action: "advance",
-          updatedSlots: {
-            action: "send_money",
-            recipientPhone: phoneVal.normalized,
-            network: phoneVal.network,
-            recipientName: "Kwame Boateng",
-          },
-        };
-      }
     }
 
     // ── 1. Spoken Universal Navigation & Clarification ───────────────────
@@ -213,7 +187,9 @@ export class IvrDecisionEngine {
               ? "Mentumi nhwɛ wo wallet balance wɔ fon frɛ yi so. Sɛ wopɛ sɛ wohwɛ wo sika dodow a, bɔ star baako nson hwee hash wɔ wo fon so."
               : "I cannot check wallet balances over this voice service. To check your balance, please dial star one seven zero hash directly on your phone keypad.",
           replyKey: "balance_inquiry_unsupported",
-          action: "hangup",
+          nextStep: stepDef?.id || stepId,
+          action: "replay",
+          promptReplayKey: stepDef?.promptKey,
         };
       }
 
@@ -233,7 +209,7 @@ export class IvrDecisionEngine {
                 ? `Mate aseɛ. Wopɛ sɛ womane GHS ${extractedAmt} kɔma ${extractedRec.name || extractedRec.phone}.`
                 : `Understood. You want to send ${extractedAmt} Cedis to ${extractedRec.name || extractedRec.phone}.`,
             replyKey: "intent_understood_proceed",
-            nextStep: "safe-confirmation",
+            nextStep: "recipient-verify-choice",
             action: "advance",
             updatedSlots: {
               amount: extractedAmt,
@@ -303,7 +279,7 @@ export class IvrDecisionEngine {
 
       // A) Check length
       if (digitsOnly.length < 10) {
-        const reason = `Recipient number '${clean}' has only ${digitsOnly.length} digits. Ghana phone numbers must be 10 digits.`;
+        const reason = `Recipient number has only ${digitsOnly.length} digits. Ghana phone numbers must be 10 digits.`;
         return {
           type: "invalid_choice",
           reason,
@@ -319,7 +295,7 @@ export class IvrDecisionEngine {
       }
 
       if (digitsOnly.length > 11) {
-        const reason = `Recipient number '${clean}' has ${digitsOnly.length} digits, which exceeds valid length.`;
+        const reason = `Recipient number has ${digitsOnly.length} digits, which exceeds valid length.`;
         return {
           type: "invalid_choice",
           reason,
@@ -338,7 +314,7 @@ export class IvrDecisionEngine {
       const phoneVal = validateGhanaPhoneNumber(clean);
       if (!phoneVal.valid) {
         const prefix = digitsOnly.slice(0, 3);
-        const reason = `Recipient number '${clean}' has invalid network prefix '${prefix}' (error: ${phoneVal.error}).`;
+        const reason = `Recipient number has invalid network prefix '${prefix}'.`;
         return {
           type: "invalid_choice",
           reason,
@@ -353,21 +329,20 @@ export class IvrDecisionEngine {
         };
       }
 
-      // C) Valid number received: Immediately advance to recipient confirmation
+      // C) Valid number received: hand off to the route that performs recipient lookup
       return {
         type: "understood_intent",
-        reason: `Valid Ghanaian ${phoneVal.network} number ${phoneVal.normalized} recognized. Advancing to recipient verification.`,
+        reason: `Valid Ghanaian ${phoneVal.network} number received. Resolving recipient before confirmation.`,
         replyText:
           language === "twi"
-            ? `Worebɛmane sika akɔ Kwame Boateng a ne nɔmba wie ${phoneVal.last4Spaced} so. Sɛ wopene so na wopɛ sɛ womane sika no a, mia 1. Sɛ wopɛ sɛ wosesa nɔmba no a, mia 2.`
-            : `Sending money to Kwame Boateng, whose phone number ends with ${phoneVal.last4Spaced}. To confirm this recipient, press 1. To re-enter the phone number, press 2.`,
+            ? `Yɛagye wo nɔmba a ɛyɛ digit du no. Yɛrehwehwɛ recipient no seesei.`
+            : `I received the full ten-digit number. I am checking the recipient now.`,
         replyKey: "recipient_verified_choice",
         nextStep: "recipient-verify-choice",
         action: "advance",
         updatedSlots: {
           recipientPhone: phoneVal.normalized,
           network: phoneVal.network,
-          recipientName: "Kwame Boateng",
         },
       };
     }
@@ -420,8 +395,8 @@ export class IvrDecisionEngine {
         reason,
         replyText:
           language === "twi"
-            ? `Paw ${clean} nyɛ pɛpɛɛpɛ wɔ ha. Yɛsrɛ wo, paw: ${optionsTwi}.`
-            : `Option ${clean} is not a valid choice. Please choose: ${optionsEn}.`,
+            ? `Mmuaeɛ a wode maa no nnyɛ pɛpɛɛpɛ, mɛbɔ nne no bio mesrɛ wo paw mmuaeɛ no bio.`
+            : `The answer you gave doesn't tally, I will mention the audio again please choose the answer again.`,
         replyKey: "invalid_choice",
         nextStep: stepDef.id,
         action: "replay",

@@ -321,8 +321,8 @@ export const VoiceTesterPage: React.FC = () => {
                 <div className="absolute inset-2 bg-[#090F0C] border-2 border-emerald-500 rounded-xl p-3 flex flex-col justify-between shadow-2xl z-20">
                   <div className="space-y-1">
                     <div className="flex items-center justify-between text-[10px] text-emerald-400 font-mono font-bold">
-                      <span>MTN MoMo PUSH</span>
-                      <span>SECURE USSD</span>
+                      <span>SIMULATED PAYMENT PROMPT</span>
+                      <span>NO PIN COLLECTION</span>
                     </div>
                     <div className="text-xs font-bold text-white">
                       Authorize GH₵ {session.amount}.00 to {session.recipientName}?
@@ -334,28 +334,22 @@ export const VoiceTesterPage: React.FC = () => {
 
                   <div className="py-2 text-center">
                     <div className="text-[10px] text-[#D4AF37] mb-1 font-semibold">
-                      Enter 4-digit secret PIN on screen:
-                    </div>
-                    <div className="flex justify-center gap-2">
-                      <span className="w-3 h-3 rounded-full bg-[#D4AF37]" />
-                      <span className="w-3 h-3 rounded-full bg-[#D4AF37]" />
-                      <span className="w-3 h-3 rounded-full bg-[#D4AF37]" />
-                      <span className="w-3 h-3 rounded-full bg-[#D4AF37]" />
+                      Approve on your handset. This test does not send a payment or collect a PIN.
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 pt-2 border-t border-neutral-800">
                     <button
-                      onClick={() => session.handleUssdPinSubmit(true)}
+                      onClick={() => session.handleUssdAuthorization(true)}
                       className="py-1 px-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[11px] font-bold"
                     >
-                      1: Approve
+                      Simulate approve
                     </button>
                     <button
-                      onClick={() => session.handleUssdPinSubmit(false)}
+                      onClick={() => session.handleUssdAuthorization(false)}
                       className="py-1 px-2 bg-neutral-700 hover:bg-neutral-600 text-white rounded text-[11px] font-bold"
                     >
-                      2: Decline
+                      Simulate decline
                     </button>
                   </div>
                 </div>

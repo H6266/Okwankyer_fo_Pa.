@@ -18,9 +18,11 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { variableSpeechService } from "../src/audio/variableSpeechService";
 import { audioPlaybackController } from "../src/audio/audioPlaybackController";
 import {
+  buildRecipientVerificationPrompt,
   buildSafeConfirmationPrompt,
   buildReceiptPrompt,
   buildPendingAuthorizationPrompt,
+  renderDynamicPromptTemplate,
 } from "../src/audio/dynamicPromptBuilder";
 import { sandboxRecipientResolver } from "../src/providers/recipient/RecipientResolver";
 import { SANDBOX_RECIPIENT_FIXTURES } from "../src/demo/recipientFixtures";
@@ -30,7 +32,7 @@ describe("Professional Dynamic TTS & Variable Speech Layer", () => {
     audioPlaybackController.stop();
   });
 
-  it("1. Uses TTS for missing English recordings and the supplied Twi recording", () => {
+  it("1. Uses the studio recording for fixed welcome and rejects unavailable fixed audio", async () => {
     const decisionEn = variableSpeechService.evaluate({
       mode: "RECORDED",
       language: "en",
@@ -38,29 +40,43 @@ describe("Professional Dynamic TTS & Variable Speech Layer", () => {
       purpose: "FIXED_INSTRUCTION",
     });
 
-    expect(decisionEn.mode).toBe("SYNTHESIZE");
-    expect(decisionEn.audioUrl).toBeUndefined();
+    expect(decisionEn.mode).toBe("RECORDED");
+    expect(decisionEn.audioUrl).toContain("/audio/");
+    await expect(variableSpeechService.generateSpeech({
+      mode: "RECORDED",
+      language: "en",
+      promptKey: "welcome",
+      purpose: "FIXED_INSTRUCTION",
+    })).resolves.toMatchObject({
+      providerUsed: "STUDIO_PROMPT_CATALOG",
+      audioUrl: expect.stringContaining("/audio/"),
+    });
 
     const decisionTwi = variableSpeechService.evaluate({
       mode: "RECORDED",
       language: "twi",
-      promptKey: "service_select",
+      promptKey: "unreviewed_key",
       purpose: "FIXED_INSTRUCTION",
     });
 
     expect(decisionTwi.mode).toBe("RECORDED");
-    expect(decisionTwi.audioUrl).toBe(
-      "/audio/supplied/Twi/02_Main_Service_Navigation/Service%20selection.m4a"
-    );
+    expect(decisionTwi.audioUrl).toBeUndefined();
+    await expect(variableSpeechService.generateSpeech({
+      mode: "RECORDED",
+      language: "twi",
+      promptKey: "unreviewed_key",
+      purpose: "FIXED_INSTRUCTION",
+    })).rejects.toThrow(/FIXED_PROMPT_AUDIO_UNAVAILABLE/);
   });
 
-  it("2. Changing recipient phone number changes the spoken confirmation last 4 digits", () => {
+  it("2. Changing recipient phone number changes the spoken last four digits", () => {
     const p1 = buildSafeConfirmationPrompt({
       language: "en",
       amount: 20,
       recipientPhone: "0553838464",
       recipientName: "Kwame Boateng",
       isVerified: true,
+      network: "MTN",
       callbackUrl: "/callback",
     });
 
@@ -70,11 +86,14 @@ describe("Professional Dynamic TTS & Variable Speech Layer", () => {
       recipientPhone: "0241234567",
       recipientName: "Ama Serwaa",
       isVerified: true,
+      network: "MTN",
       callbackUrl: "/callback",
     });
 
     expect(p1.spokenText).toContain("8 4 6 4");
     expect(p2.spokenText).toContain("4 5 6 7");
+    expect(p1.spokenText).not.toContain("0 5 5 3 8 3");
+    expect(p2.spokenText).not.toContain("0 2 4 1 2 3");
     expect(p1.spokenText).not.toEqual(p2.spokenText);
   });
 
@@ -85,6 +104,7 @@ describe("Professional Dynamic TTS & Variable Speech Layer", () => {
       recipientPhone: "0553838464",
       recipientName: "Kwame Boateng",
       isVerified: true,
+      network: "MTN",
       callbackUrl: "/callback",
     });
 
@@ -94,11 +114,47 @@ describe("Professional Dynamic TTS & Variable Speech Layer", () => {
       recipientPhone: "0553838464",
       recipientName: "Kwame Boateng",
       isVerified: true,
+      network: "MTN",
       callbackUrl: "/callback",
     });
 
     expect(p20.spokenText).toContain("20 Cedis");
     expect(p35.spokenText).toContain("35 Cedis");
+  });
+
+  it("uses the supplied name, complete phone number, amount, and transaction reference", () => {
+    expect(renderDynamicPromptTemplate("OP20", "en", { name: "Ama Mensah" })).toContain("Ama Mensah");
+    expect(renderDynamicPromptTemplate("OP21", "en", { phone: "0241234567" }))
+      .toContain("0 2 4 1 2 3 4 5 6 7");
+    expect(renderDynamicPromptTemplate("OP29", "en", { amount: 35 })).toContain("35 Cedis");
+    expect(renderDynamicPromptTemplate("OP52B", "en", { referenceId: "OKP-123456" }))
+      .toContain("O ... K ... P ... , ... one ... two ... three ... four ... five ... six");
+  });
+
+  it("does not send Twi transaction details to an English VoiceXML speaker", () => {
+    const recipient = buildRecipientVerificationPrompt({
+      language: "twi",
+      recipientPhone: "0241234567",
+      recipientName: "Ama Mensah",
+      isVerified: true,
+      callbackUrl: "/callback",
+    });
+    const confirmation = buildSafeConfirmationPrompt({
+      language: "twi",
+      amount: 35,
+      recipientPhone: "0241234567",
+      recipientName: "Ama Mensah",
+      isVerified: true,
+      callbackUrl: "/callback",
+    });
+
+    expect(recipient.voiceXml).toContain("<Reject/>");
+    expect(confirmation.voiceXml).toContain("<Reject/>");
+    expect(recipient.voiceXml).toContain("Twi speech is unavailable");
+    expect(confirmation.voiceXml).toContain("Twi speech is unavailable");
+    expect(recipient.voiceXml).not.toContain("Ama Mensah");
+    expect(confirmation.voiceXml).not.toContain("35");
+    expect(confirmation.voiceXml).not.toContain("0241234567");
   });
 
   it("4. Sandbox fixture is explicitly labeled as demo data, not real subscriber verification", async () => {
@@ -179,7 +235,7 @@ describe("Professional Dynamic TTS & Variable Speech Layer", () => {
       status: "PENDING",
     });
 
-    expect(pendingReceipt.spokenText).toContain("pending authorization");
+    expect(pendingReceipt.spokenText).toContain("pending provider confirmation");
     expect(pendingReceipt.spokenText).not.toContain("Congratulations");
   });
 

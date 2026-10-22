@@ -104,8 +104,8 @@ export const DocsPage: React.FC = () => {
               </div>
               <div className="p-3 bg-[#FAF9F5] dark:bg-[#16241D] rounded-xl border">
                 <strong>STEP 9: ZERO-PIN SCREEN HANDOFF</strong><br />
-                EN: "Confirmed. Now please check your phone screen and enter your MoMo PIN accurately."<br />
-                TWI: "Me pɛ sɛ ɔfa ɛsi wo phone no so na bɔ wo MoMo PIN."
+                EN: "Confirmed. Please approve the secure payment prompt on your handset. Never enter or say your PIN here."<br />
+                TWI: "Pene so wɔ wo fon no so. Mfa wo MoMo PIN nka anaa mmɔ wɔ ha."
               </div>
             </div>
           </div>

@@ -176,6 +176,8 @@ export const aiSystem = {
       latencyMs: res.latencyMs,
       audioQuality: res.audioQuality,
       pinDiscarded: res.pinDiscarded,
+      quotaExhausted: res.quotaExhausted,
+      errorMessage: res.errorMessage,
     };
   },
 

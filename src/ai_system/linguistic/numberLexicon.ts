@@ -192,6 +192,7 @@ export const DECODER_ALIASES: Record<string, number> = {
   anan: 4,
   nan: 4,
   num: 5,
+  nnum: 5,
   nsoŋ: 7,
   nsonn: 7,
   nwotwe: 8,

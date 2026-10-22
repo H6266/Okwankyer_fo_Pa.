@@ -53,11 +53,11 @@ describe("Step Registry & Canonical Input Contracts", () => {
       }
     });
 
-    it("provider-select: accepts 1, 2, 3, repeat 9, cancel 0; rejects 8 and invalid digits", () => {
+    it("provider-select: accepts MTN (1) and Telecel (2), rejects AT (3), handles repeat 9 and cancel 0", () => {
       const step = getStepDefinition("provider-select")!;
       expect(validateKeypadInput(step, "1").valid).toBe(true);
       expect(validateKeypadInput(step, "2").valid).toBe(true);
-      expect(validateKeypadInput(step, "3").valid).toBe(true);
+      expect(validateKeypadInput(step, "3").valid).toBe(false);
       expect(validateKeypadInput(step, "9").isNavigation).toBe(true);
       expect(validateKeypadInput(step, "0").isNavigation).toBe(true);
 
@@ -70,7 +70,7 @@ describe("Step Registry & Canonical Input Contracts", () => {
     it("action-select: allows back 8 (to provider-select), repeat 9, cancel 0", () => {
       const step = getStepDefinition("action-select")!;
       expect(validateKeypadInput(step, "1").valid).toBe(true);
-      expect(validateKeypadInput(step, "2").valid).toBe(true);
+      expect(validateKeypadInput(step, "2").valid).toBe(false);
 
       const res8 = validateKeypadInput(step, "8");
       expect(res8.valid).toBe(true);
@@ -168,9 +168,9 @@ describe("Cognitive IVR Decision Engine Structured Decisions", () => {
 
     expect(decision.type).toBe("invalid_choice");
     expect(decision.reason).toContain("Input '5' is not a valid option");
-    expect(decision.replyText).toContain("Option 5 is not a valid choice");
+    expect(decision.replyText).toContain("The answer you gave doesn't tally, I will mention the audio again please choose the answer again.");
     expect(decision.action).toBe("replay");
-    expect(decision.promptReplayKey).toBe("service_select");
+    expect(decision.promptReplayKey).toBe("supported_service_select");
   });
 
   it("decision type 'invalid_choice': states specific phone number defect", () => {
@@ -213,7 +213,7 @@ describe("Cognitive IVR Decision Engine Structured Decisions", () => {
     expect(decision.replyText).toContain("enter the recipient's ten-digit phone number");
   });
 
-  it("decision type 'understood_intent': spoken number advances to recipient confirmation", () => {
+  it("decision type 'understood_intent': spoken number routes to recipient lookup without inventing a name", () => {
     const decision = engine.decide({
       stepId: "enter-recipient",
       language: "en",
@@ -226,6 +226,9 @@ describe("Cognitive IVR Decision Engine Structured Decisions", () => {
     expect(decision.action).toBe("advance");
     expect(decision.updatedSlots?.recipientPhone).toBe("0553838464");
     expect(decision.updatedSlots?.network).toBe("MTN");
+    expect(decision.updatedSlots?.recipientName).toBeUndefined();
+    expect(decision.replyText).toContain("full ten-digit number");
+    expect(decision.replyText).not.toContain("Kwame Boateng");
   });
 
   it("decision type 'unsupported': explains unsupported banking, loans, or balance inquiry", () => {
@@ -257,10 +260,10 @@ describe("Cognitive IVR Decision Engine Structured Decisions", () => {
     });
     expect(decision.type).toBe("clarify");
     expect(decision.action).toBe("repeat");
-    expect(decision.promptReplayKey).toBe("provider_select");
+    expect(decision.promptReplayKey).toBe("mtn_network_select");
   });
 
-  it("enforces max-retry hangup gate when retryCount >= 3", () => {
+  it("replays the current menu when retryCount >= 3 instead of ending the call", () => {
     const decision = engine.decide({
       stepId: "service-select",
       language: "en",
@@ -268,8 +271,10 @@ describe("Cognitive IVR Decision Engine Structured Decisions", () => {
       inputMethod: "keypad",
       retryCount: 3,
     });
-    expect(decision.action).toBe("hangup");
-    expect(decision.replyText).toContain("Too many unrecognized attempts");
+    expect(decision.action).toBe("replay");
+    expect(decision.nextStep).toBe("service-select");
+    expect(decision.promptReplayKey).toBe("supported_service_select");
+    expect(decision.replyText).toContain("press 0");
   });
 
   it("brain exposes decideIvr delegating directly to ivrDecisionEngine", () => {
@@ -306,7 +311,7 @@ describe("TTS Fallback Scripts & Recording Registry", () => {
       expect(PROMPT_SCRIPTS[key].en.length).toBeGreaterThan(10);
       expect(PROMPT_SCRIPTS[key].twi.length).toBeGreaterThan(10);
     }
-    expect(getRecordingByPromptKey("enter_amount")?.promptId).toBe("OP26");
+    expect(getRecordingByPromptKey("enter_amount", "en")).toBeNull();
     expect(getRecordingByPromptKey("safe_confirmation")).toBeNull();
   });
 });
@@ -328,11 +333,10 @@ describe("IVR Telephony Route Integration (Real Express XML Responses)", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers["x-ai-decision-type"]).toBe("invalid_choice");
-    expect(res.headers["x-ai-decision-reason"]).toContain("1 for Mobile Money, 2 for Banking");
-    expect(res.text).toContain("<Say voice=\"female\">Option 5 is not a valid choice");
+    expect(res.headers["x-ai-decision-reason"]).toContain("1 for Mobile Money");
+    expect(res.text).toContain("The answer you gave doesn&apos;t tally, I will mention the audio again please choose the answer again.");
     expect(res.text).toContain("<GetDigits");
-    expect(res.text).toContain("callbackUrl=\"http://localhost:3000/service-choice?sessionId=TEST_SESS_A&amp;lang=en\"");
-    expect(res.text).toContain("/api/audio/prompt-tts/en/service_select");
+    expect(res.text).toContain("callbackUrl=\"http://localhost:3000/service-choice?sessionId=TEST_SESS_A&amp;lang=en");
     expect(res.text).not.toContain("<Redirect");
   });
 
@@ -344,10 +348,10 @@ describe("IVR Telephony Route Integration (Real Express XML Responses)", () => {
     expect(res.status).toBe(200);
     expect(res.headers["x-ai-decision-type"]).toBe("understood_intent");
     expect(res.headers["x-ai-reply-key"]).toBe("intent_understood_ask_number");
-    expect(res.text).toContain("enter the recipient's ten-digit phone number");
-    expect(res.text).toContain("<GetDigits timeout=\"40\" finishOnKey=\"#\" numDigits=\"10\"");
-    expect(res.text).toContain("callbackUrl=\"http://localhost:3000/verify-recipient?sessionId=TEST_SESS_B&amp;lang=en\"");
-    expect(res.text).toContain("/api/audio/prompt-tts/en/enter_recipient");
+    expect(res.text).toContain("Please enter the recipient&apos;s ten-digit phone number");
+    expect(res.text).toContain("<GetDigits timeout=\"90\" finishOnKey=\"#\"");
+    expect(res.text).not.toContain('numDigits="10"');
+    expect(res.text).toContain("callbackUrl=\"http://localhost:3000/verify-recipient?sessionId=TEST_SESS_B&amp;lang=en");
   });
 
   it("Scenario c (invalid phone): At enter-recipient enter '6666666666#': states invalid prefix 666, re-prompts", async () => {
@@ -359,8 +363,9 @@ describe("IVR Telephony Route Integration (Real Express XML Responses)", () => {
     expect(res.headers["x-ai-decision-type"]).toBe("invalid_choice");
     expect(res.headers["x-ai-decision-reason"]).toContain("prefix '666'");
     expect(res.text).toContain("The prefix 666 is not a valid Ghanaian mobile network");
-    expect(res.text).toContain("<GetDigits timeout=\"40\" finishOnKey=\"#\" numDigits=\"10\"");
-    expect(res.text).toContain("/api/audio/prompt-tts/en/enter_recipient");
+    expect(res.text).toContain("<GetDigits timeout=\"90\" finishOnKey=\"#\"");
+    expect(res.text).not.toContain('numDigits="10"');
+    expect(res.text).toContain("Please enter the recipient&apos;s ten-digit phone number");
   });
 
   it("Scenario c (valid phone): At enter-recipient enter '0553838464#': resolves MTN recipient and asks for confirmation", async () => {
@@ -369,8 +374,8 @@ describe("IVR Telephony Route Integration (Real Express XML Responses)", () => {
       .send({ dtmfDigits: "0553838464#" });
 
     expect(res.status).toBe(200);
-    expect(res.text).toContain("<GetDigits timeout=\"12\" finishOnKey=\"#\" numDigits=\"1\"");
-    expect(res.text).toContain("callbackUrl=\"http://localhost:3000/recipient-verify-choice?sessionId=TEST_SESS_C_VALID&amp;lang=en\"");
+    expect(res.text).toContain("<GetDigits timeout=\"90\" finishOnKey=\"#\" numDigits=\"1\"");
+    expect(res.text).toContain("callbackUrl=\"http://localhost:3000/recipient-verify-choice?sessionId=TEST_SESS_C_VALID&amp;lang=en");
   });
 
   it("Pressing 8 at network step (provider-choice) does not jump back: treated as invalid key", async () => {
@@ -380,8 +385,8 @@ describe("IVR Telephony Route Integration (Real Express XML Responses)", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers["x-ai-decision-type"]).toBe("invalid_choice");
-    expect(res.text).toContain("Option 8 is not a valid choice");
-    expect(res.text).toContain("callbackUrl=\"http://localhost:3000/provider-choice?sessionId=TEST_SESS_NET8&amp;lang=en\"");
+    expect(res.text).toContain("The answer you gave doesn&apos;t tally, I will mention the audio again please choose the answer again.");
+    expect(res.text).toContain("callbackUrl=\"http://localhost:3000/provider-choice?sessionId=TEST_SESS_NET8&amp;lang=en");
     expect(res.text).not.toContain("service-select");
   });
 });

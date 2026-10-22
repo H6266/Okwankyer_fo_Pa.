@@ -2,11 +2,11 @@
  * Ɔkwankyerɛfo Pa - Authoritative ASR Orchestrator (asrOrchestrator.ts)
  * 
  * The single authoritative orchestration path for speech recognition:
- * AudioInput -> AudioNormalizer -> AudioQuality/VAD -> GhanaNLP ASR -> Fallback (Gemini/Offline) -> NumberDecoder -> Zero-PIN Safety
+ * AudioInput -> AudioNormalizer -> AudioQuality/VAD -> UG HCI Lab ASR -> Fallback (Gemini/Offline) -> NumberDecoder -> Zero-PIN Safety
  * 
  * Rules:
- * - GhanaNLP ASR is the primary Ghanaian-language ASR provider.
- * - Gemini and local models are explicit fallbacks (never falsely claiming GhanaNLP was used).
+ * - University of Ghana HCI Lab is the primary native Ghanaian-language ASR provider.
+ * - Gemini and local models are explicit fallbacks (never falsely claiming HCI Lab was used).
  * - Real confidence numbers only (null with "provider_unreported" if provider does not report it).
  * - Acoustic quality scores are reported separately from model confidence.
  * - Spoken PINs are intercepted and discarded to enforce Zero-PIN security.
@@ -14,10 +14,9 @@
 
 import { audioNormalizer } from "./audioNormalizer";
 import { audioQualityAnalyzer, AudioQualityReport } from "./audioQuality";
-import { ghanaNlpAsrService } from "../../../services/ghanaNlpAsrService";
+import { hciLabService } from "../../../services/hciLabService";
 import { geminiClient } from "../../../services/geminiClient";
 import { offlineSpeechRecognizer } from "./offlineAsrEngine";
-import { ghanaAsrProvider } from "./ghanaAsrProvider";
 import { formatSpokenNumbersAsDigits } from "../../../domain/numberFormatter";
 import { isAcousticSystemEcho, stripSystemEchoFromTranscript, isBackgroundNoiseOrStatic } from "../../../domain/echoFilter";
 import { isSpokenPinPattern } from "../../../modules/sttService";
@@ -43,6 +42,8 @@ export interface AsrOrchestrationResult {
   latencyMs: number;
   audioQuality: AudioQualityReport;
   pinDiscarded?: boolean;
+  quotaExhausted?: boolean;
+  errorMessage?: string;
 }
 
 export interface AsrTranscribeOptions {
@@ -90,87 +91,72 @@ export class AsrOrchestrator {
     }
 
     // ── STEP 3: Language Strategy Resolution ──
-    const languageHint = (options.languageHint || "twi").toLowerCase().trim();
+    const languageHint = (options.languageHint || "twi").toLowerCase().trim().replace(/_/g, "-");
     let resolvedLanguage = "twi";
     let isMixed = false;
 
-    if (languageHint === "en" || languageHint === "eng" || languageHint === "english") {
+    if (["en", "eng", "english", "en-gh", "ghanaian-english"].includes(languageHint)) {
       resolvedLanguage = "eng";
-    } else if (languageHint === "atw" || languageHint === "akuapem" || languageHint === "twi-akuapem") {
+    } else if (["atw", "akuapem", "twi-akuapem", "ak-akuapem"].includes(languageHint)) {
       resolvedLanguage = "atw";
-    } else if (languageHint === "fat" || languageHint === "fante") {
+    } else if (["fat", "fante"].includes(languageHint)) {
       resolvedLanguage = "fat";
-    } else if (languageHint === "mixed" || languageHint === "mixed-twi-en" || languageHint === "bilingual") {
+    } else if (["mixed", "mixed-twi-en", "bilingual", "en-ak", "ak-en", "en-tw", "tw-en", "code-switched", "code-switching"].includes(languageHint)) {
       isMixed = true;
-      resolvedLanguage = "twi"; // GhanaNLP Twi handles Akan-English code-switching
+      resolvedLanguage = "twi"; // HCI Lab Twi handles Akan-English code-switching
     } else {
       resolvedLanguage = "twi";
     }
+
+    // ── STEP 3: API Key Configuration & Speech Strategy ──
+    const hasHciKey = hciLabService.isConfigured();
+    const hasGeminiKey = geminiClient.isAvailable();
+    const hasAnySpeechApiKey = hasHciKey || hasGeminiKey;
+
+    let hciQuotaFailed = false;
+    let geminiQuotaFailed = false;
 
     let rawText = "";
     let providerUsed = "";
     let providerAttempted: string | undefined;
     let fallbackUsed = false;
-    let fallbackReason: string | undefined;
+    let fallbackReason: string | undefined = hasAnySpeechApiKey
+      ? undefined
+      : "NO_REMOTE_ASR_KEY: No hosted speech API key configured; attempting local recognition.";
     let confidence: number | null = null;
     let confidenceSource: AsrOrchestrationResult["confidenceSource"] = "unavailable";
 
-    // ── STEP 4: Primary Provider: GhanaNLP ASR v3 ──
-    if (ghanaNlpAsrService.isConfigured()) {
-      providerAttempted = "GhanaNLP_ASR_v3";
+    // ── STEP 4A: Dedicated Ghanaian ASR: University of Ghana HCI Lab ──
+    if (hasHciKey && (resolvedLanguage === "twi" || resolvedLanguage === "atw")) {
+      providerAttempted = "HCI_LAB_ASR";
       try {
-        const timeoutMs = options.timeoutMs || ghanaNlpAsrService.defaultTimeoutMs;
-        const ghaResult = await ghanaNlpAsrService.transcribe(
-          normalized.wavBuffer,
-          resolvedLanguage,
-          "audio/wav",
-          timeoutMs
-        );
-
-        if (ghaResult.text && ghaResult.text.trim().length > 0) {
-          rawText = ghaResult.text;
-          providerUsed = "GhanaNLP_ASR_v3";
-          confidence = ghaResult.confidence; // null
-          confidenceSource = ghaResult.confidenceSource; // "provider_unreported"
-        }
-      } catch (err: any) {
-        fallbackReason = err.message || "GhanaNLP transcription failure";
-        auditLogger.log("warn", "ASR_ORCHESTRATOR", `GhanaNLP primary attempt notice: ${fallbackReason}. Proceeding to fallback.`);
-      }
-    } else {
-      providerAttempted = "GhanaNLP_ASR_v3";
-      fallbackReason = "GHANANLP_UNCONFIGURED: Missing GHANANLP_API_KEY";
-    }
-
-    // ── STEP 4B: Local neural ASR fallback ──
-    // Use the real Faster-Whisper worker before cloud/deterministic fallbacks.
-    if (!rawText && allowFallback) {
-      fallbackUsed = true;
-      try {
-        const localLanguageHint: "auto" | "en" | "tw" =
-          resolvedLanguage === "eng" ? "en" : isMixed ? "auto" : "tw";
-
-        const localResult = await ghanaAsrProvider.transcribe(
+        const timeoutMs = options.timeoutMs || 8000;
+        const hciResult = await hciLabService.transcribe(
           normalized.wavBuffer,
           "audio/wav",
-          localLanguageHint
+          { timeoutMs }
         );
-
-        if (localResult.text && localResult.text.trim()) {
-          rawText = localResult.text.trim();
-          providerUsed = localResult.provider || "faster-whisper-local-neural-asr";
-          // The worker's confidence value is a diagnostic heuristic, not calibrated.
-          confidence = null;
-          confidenceSource = "provider_unreported";
-          auditLogger.log("info", "ASR_ORCHESTRATOR", `Local neural ASR produced a transcript (${providerUsed}).`);
+        if (hciResult.transcript && hciResult.transcript.trim().length > 0) {
+          rawText = hciResult.transcript;
+          providerUsed = "HCI_LAB_ASR";
+          confidence = hciResult.confidence;
+          confidenceSource = "provider";
         }
       } catch (err: any) {
-        const msg = String(err?.message || "Local neural ASR unavailable");
-        fallbackReason = msg;
-        auditLogger.log("warn", "ASR_ORCHESTRATOR", `Local neural ASR fallback unavailable: ${msg.slice(0, 180)}`);
+        if (
+          err?.isQuotaError ||
+          err?.statusCode === 429 ||
+          String(err?.code || "").includes("QUOTA") ||
+          String(err?.message || "").toLowerCase().includes("quota") ||
+          String(err?.message || "").toLowerCase().includes("token") ||
+          String(err?.message || "").toLowerCase().includes("rate limit")
+        ) {
+          hciQuotaFailed = true;
+        }
+        fallbackReason = err.message || "HCI Lab ASR transcription failure";
+        auditLogger.log("warn", "ASR_ORCHESTRATOR", `HCI Lab primary ASR attempt notice: ${fallbackReason}. Proceeding to fallback.`);
       }
     }
-
     // ── STEP 5: Explicit Fallback Provider (Local Neural / Gemini / Offline) ──
     if (!rawText && allowFallback) {
       fallbackUsed = true;
@@ -186,7 +172,7 @@ export class AsrOrchestrator {
           );
           if (neuralRes.text && neuralRes.text.trim().length > 0) {
             rawText = neuralRes.text;
-            providerUsed = `local_neural_${neuralHealth.model}`;
+            providerUsed = neuralRes.provider || `local_neural_${neuralHealth.model}`;
             confidence = null;
             confidenceSource = "provider_unreported";
           }
@@ -245,6 +231,14 @@ Output ONLY the transcription text without commentary.`;
             confidenceSource = "provider_unreported";
           }
         } catch (gemErr: any) {
+          if (
+            String(gemErr?.message || "").includes("429") ||
+            String(gemErr?.message || "").toLowerCase().includes("quota") ||
+            String(gemErr?.message || "").toLowerCase().includes("resource_exhausted") ||
+            String(gemErr?.message || "").toLowerCase().includes("token")
+          ) {
+            geminiQuotaFailed = true;
+          }
           auditLogger.log("warn", "ASR_ORCHESTRATOR", `Gemini fallback notice: ${gemErr.message}`);
         }
       }
@@ -270,7 +264,7 @@ Output ONLY the transcription text without commentary.`;
     }
 
     if (!providerUsed) {
-      providerUsed = providerAttempted || "no-asr-available";
+      providerUsed = providerAttempted || (!hasAnySpeechApiKey ? "text-testing-mode" : "no-asr-available");
     }
 
     // ── STEP 6: Entity, Noise, and Number Post-Processing ──
@@ -320,6 +314,17 @@ Output ONLY the transcription text without commentary.`;
       qualityStatus: audioQuality.status,
     });
 
+    const anyQuotaFailed = hciQuotaFailed || geminiQuotaFailed;
+    const quotaExhausted = !rawText && anyQuotaFailed;
+    const quotaErrorMessage = quotaExhausted
+      ? (resolvedLanguage.includes("tw")
+          ? "ASR token no aba awieeɛ. Yɛsrɛ wo sɔ hwɛ bio da foforɔ."
+          : "ASR token has been maxed out. Please try again another time.")
+      : undefined;
+    const noProviderErrorMessage = !rawText && !hasAnySpeechApiKey
+      ? "No voice API key is configured and no local ASR worker returned a transcript. Start the local ASR worker or switch to typing."
+      : undefined;
+
     return {
       text: finalText,
       rawTranscript: rawText,
@@ -336,6 +341,8 @@ Output ONLY the transcription text without commentary.`;
       latencyMs,
       audioQuality,
       pinDiscarded,
+      quotaExhausted,
+      errorMessage: quotaErrorMessage || noProviderErrorMessage,
     };
   }
 }

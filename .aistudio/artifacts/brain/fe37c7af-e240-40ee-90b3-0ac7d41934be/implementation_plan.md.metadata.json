@@ -1,0 +1,6 @@
+{
+  "summary": "Comprehensive implementation plan for the Ɔkwankyerɛfo Pa Simplified Complete Audio & TTS Flow:\n- Reconciles canonical audio prompt registry (OP01-OP94) and introduces OP52b dedicated reference number read-back prompt ID.\n- Upgrades recipient verification to pronounce full 10-digit telephone numbers digit-by-digit (OP21) instead of last-four digits.\n- Implements slow reference number readback (OP52b) with 0.8x cadence, 400ms digit pauses, and prefix handling after OP53 (success) and OP54 (keep reference).\n- Implements audio-concatenation synthesis engine for digits with fallback to neural TTS.\n- Configures 60-second silence watchdog with OP67 (Please Respond) audio alert and strict zero-skip branching.",
+  "updatedAt": "2026-10-18T00:28:18.440538207Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

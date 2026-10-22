@@ -30,8 +30,10 @@ describe("VoiceXML Telephony Snapshots & Pillar Invariants", () => {
     expect(twiStep7.xml.toLowerCase()).not.toContain("<getdigits");
 
     // Audio prompts must be present
-    expect(enStep7.promptAudioUrl).toContain("Audio_prompt_11.mp3");
-    expect(twiStep7.promptAudioUrl).toContain("Audio_prompt_twi_11.mp3");
+    expect(enStep7.promptAudioUrl).toContain("/api/audio/prompt-tts/en/pin_handoff");
+    expect(twiStep7.promptAudioUrl).toMatch(/\/(?:api\/audio\/prompt-tts\/twi\/pin_handoff|audio\/(?:additional\/)?Pin%20Handoff\.mp3)/);
+    expect(enStep7.xml).toContain("<Play");
+    expect(twiStep7.xml).toContain("<Play");
   });
 
   it("Pillar 1 & 4: Verifies DTMF barge-in timeouts and input windows", () => {

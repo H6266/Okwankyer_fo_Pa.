@@ -3,7 +3,7 @@
  * 
  * Implements authoritative speech routing:
  * 1. IN-BAND DTMF: Goertzel detects phone keypad tones with hardware-grade precision (conf: 0.99).
- * 2. VAD & Normalization: Routes through asrOrchestrator (GhanaNLP ASR v3 primary, explicit fallbacks).
+ * 2. VAD & Normalization: Routes through asrOrchestrator (UG HCI Lab ASR primary, explicit fallbacks).
  * 3. HONEST FALLBACK: Signal processing does NOT guess words. If neural ASR is offline or no speech,
  *    reports honest status without fabricating transcripts.
  */

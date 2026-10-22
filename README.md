@@ -51,7 +51,7 @@ Standard USSD interfaces (`*170#`) impose severe accessibility barriers:
        │  ┌─────────────────────────┐  ┌─────────────────────────────────────┐  │
        │  │  Inbound Webhook Router │  │  Webhook Security Guard             │  │
        │  │  (/voice-menu)          │  │  - SessionID validation             │  │
-       │  └────────────┬────────────┘  │  - Optional shared secret           │  │
+       │  └────────────┬────────────┘  │  - Required production shared secret│  │
        │               │               └─────────────────────────────────────┘  │
        │               ▼                                                        │
        │  ┌─────────────────────────┐  ┌─────────────────────────────────────┐  │
@@ -164,6 +164,7 @@ AT_USERNAME=sandbox
 AT_API_KEY=atsk_your_key_here
 AT_VOICE_NUMBER=+233308048098
 GEMINI_API_KEY=your_gemini_api_key_here
+BRAIN_MODE=live
 MOMO_SUBSCRIPTION_KEY=your_momo_subscription_key
 MOMO_API_USER_ID=your_momo_user_id
 MOMO_API_KEY=your_momo_api_key
@@ -175,6 +176,13 @@ MOMO_CURRENCY=GHS
 ```bash
 npm run dev
 ```
+
+In GitHub Codespaces, the development server starts automatically when the
+container starts. Port 3000 is automatically forwarded and configured as
+public. Anyone with the forwarded URL can reach the development app, so use
+test credentials and data only. The development URL can change when the
+Codespace is recreated. Rebuild the Codespace once after adding the
+configuration; subsequent starts launch the server and forward the port.
 
 ### 4. Run Test Suite
 ```bash

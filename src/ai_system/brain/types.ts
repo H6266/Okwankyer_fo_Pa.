@@ -8,6 +8,7 @@ export type BrainMode = 'offline_only' | 'shadow' | 'live';
 
 export type IntentId =
   | 'momo.transfer'
+  | 'momo.cash_out'
   | 'momo.check_balance'
   | 'momo.buy_airtime'
   | 'momo.buy_data'
@@ -33,11 +34,13 @@ export type ReplyKind =
   | 'confirm'
   | 'dispatch'
   | 'smalltalk'
+  | 'cancel'
   | 'error';
 
 export interface RecipientSlot {
   name?: string;
   phone?: string;
+  network?: string;
 }
 
 export interface ModelOutputContract {
@@ -50,6 +53,7 @@ export interface ModelOutputContract {
     amount?: number | null;
     recipient?: RecipientSlot | null;
     network?: string | null;
+    reference?: string | null;
   };
   signals: {
     correction: boolean;
@@ -58,10 +62,14 @@ export interface ModelOutputContract {
   };
   reply: {
     text_en: string;
+    /** Natural spoken response in target_language, supplied by the active cloud model. */
+    text_localized?: string;
     target_language: TargetLanguageId;
     reply_kind: ReplyKind;
     template_key?: string;
   };
+  /** Identifies the provider that produced this contract. */
+  provider?: 'gemini' | 'groq';
 }
 
 export type SlotType = 'amount' | 'phone' | 'name' | 'network' | 'recipient' | 'string' | 'number';
@@ -95,6 +103,7 @@ export type ServiceHandler = (params: {
   sessionId?: string;
   confirmedDraftHash?: string;
   dispatchKey?: string;
+  [key: string]: any;
 }) => Promise<ServiceHandlerResult>;
 
 export interface ServiceDefinition {
@@ -110,6 +119,7 @@ export type BrainDecision =
   | { kind: 'clarify_slot'; slot: string }
   | { kind: 'confirm'; intent: IntentId; slots: Slots }
   | { kind: 'not_ready'; intent: IntentId }
+  | { kind: 'cancel'; intent?: IntentId }
   | { kind: 'dispatch'; intent: IntentId; slots: Slots };
 
 export interface TurnHistoryItem {
@@ -151,6 +161,12 @@ export interface BrainInput {
   draft: DraftState;
   callerNumber?: string;
   sessionId?: string;
+  forceModel?: boolean;
+  telephonyContext?: {
+    currentStep?: string;
+    transactionState?: string;
+    recipientVerified?: boolean;
+  };
 }
 
 export interface BrainOutput {
@@ -166,4 +182,10 @@ export interface BrainOutput {
   };
   updatedDraft: DraftState;
   sessionLanguage: LanguageId;
+  telemetry?: {
+    tier: 'TIER_1_DETERMINISTIC' | 'TIER_2_MODEL';
+    tokensUsed: number;
+    latencyMs: number;
+    decisionSource: string;
+  };
 }

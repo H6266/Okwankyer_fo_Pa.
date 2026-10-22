@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isSpokenPinPattern } from "../src/modules/sttService";
+import { isSpokenPinPattern, isVoiceCaptureBlockedForStep, shouldDiscardSensitiveSpeech } from "../src/modules/sttService";
 import { unifiedSafetyEngine } from "../src/ai_system/safety/unifiedSafetyEngine";
 
 describe("Context-Aware PIN Security (Section 14 & 46)", () => {
@@ -27,5 +27,20 @@ describe("Context-Aware PIN Security (Section 14 & 46)", () => {
     const masked = unifiedSafetyEngine.maskCredentials(rawUtterance);
     expect(masked).not.toContain("4321");
     expect(masked).toContain("[REDACTED_PIN]");
+  });
+
+  it("blocks speech capture during the secure handset handoff", () => {
+    expect(isVoiceCaptureBlockedForStep("pin-authorization")).toBe(true);
+    expect(isVoiceCaptureBlockedForStep("enter-pin")).toBe(true);
+    expect(isVoiceCaptureBlockedForStep("verify_pin")).toBe(true);
+    expect(isVoiceCaptureBlockedForStep("pin-handoff")).toBe(true);
+    expect(isVoiceCaptureBlockedForStep("safe-confirmation")).toBe(false);
+    expect(shouldDiscardSensitiveSpeech("1234", "enter-pin")).toBe(true);
+    expect(isSpokenPinPattern("1234", "verify-pin")).toBe(true);
+  });
+
+  it("discards spoken PIN-like digit words before simulator transcript handling", () => {
+    expect(shouldDiscardSensitiveSpeech("one two three four", "cashout-confirm-approval")).toBe(true);
+    expect(shouldDiscardSensitiveSpeech("my PIN is 1234", "safe-confirmation")).toBe(true);
   });
 });

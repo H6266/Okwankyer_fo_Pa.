@@ -11,6 +11,7 @@
 
 import fs from "fs";
 import path from "path";
+import { hasExplicitAsrFeedbackConsent } from "./feedbackConsent";
 
 export type FeedbackReason =
   | "wrong_word"
@@ -52,8 +53,8 @@ export interface AsrTurnTelemetry {
 
 export interface AsrFeedbackMetrics {
   totalTurns: number;
-  ghanaNlpUsageCount: number;
-  ghanaNlpUsageRate: number;
+  hciLabUsageCount: number;
+  hciLabUsageRate: number;
   fallbackUsageCount: number;
   fallbackUsageRate: number;
   timeoutCount: number;
@@ -91,24 +92,21 @@ export class FeedbackService {
   /**
    * Sanitizes text to remove PINs, passwords, and sensitive financial credentials.
    */
-  public sanitizeTranscript(text: string, maskPhone: boolean = true): string {
+  public sanitizeTranscript(text: string): string {
     if (!text) return "";
     let sanitized = text;
 
     // Redact explicit PIN words and adjacent numbers
     sanitized = sanitized.replace(/\b(pin|momo\s*pin|password|secret|passcode)\s*[:=]?\s*\d+/gi, "$1 [REDACTED_PIN]");
+
+    // Redact Ghanaian phone numbers in local and international formats, including spacing.
+    sanitized = sanitized.replace(/(?<!\d)(?:\+?233|0)(?:[\s().-]*\d){9}(?![\s().-]*\d)/g, "[REDACTED_PHONE]");
+
     sanitized = sanitized.replace(/\b\d{4,6}\b/g, (match) => {
       // If it looks like a 4-6 digit standalone PIN (not year 2024-2026 or cedi amounts)
       if (match.startsWith("19") || match.startsWith("20")) return match;
       return "[REDACTED_NUMBER]";
     });
-
-    // Mask phone numbers if requested: 0553838464 -> 055***64
-    if (maskPhone) {
-      sanitized = sanitized.replace(/\b0(20|23|24|26|27|28|30|50|54|55|57|59)\d{7}\b/g, (phone) => {
-        return `${phone.slice(0, 3)}****${phone.slice(-2)}`;
-      });
-    }
 
     return sanitized;
   }
@@ -141,10 +139,13 @@ export class FeedbackService {
     correctedTranscript: string;
     reason: FeedbackReason;
     userNotes?: string;
-    userConsent?: boolean;
+    userConsent: true;
   }): AsrFeedbackEntry {
+    if (!hasExplicitAsrFeedbackConsent(params.userConsent)) {
+      throw new Error("Explicit user consent is required to submit ASR feedback");
+    }
+
     const feedbackId = `fb_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    const consent = params.userConsent !== false;
 
     const entry: AsrFeedbackEntry = {
       feedbackId,
@@ -152,12 +153,12 @@ export class FeedbackService {
       chunkId: params.chunkId,
       provider: params.provider || "unknown",
       language: params.language || "twi",
-      originalTranscript: this.sanitizeTranscript(params.originalTranscript, !consent),
-      correctedTranscript: this.sanitizeTranscript(params.correctedTranscript, !consent),
+      originalTranscript: this.sanitizeTranscript(params.originalTranscript),
+      correctedTranscript: this.sanitizeTranscript(params.correctedTranscript),
       reason: params.reason,
       userNotes: params.userNotes ? this.sanitizeTranscript(params.userNotes) : undefined,
       timestamp: Date.now(),
-      userConsent: consent,
+      userConsent: true,
     };
 
     this.feedbackEntries.push(entry);
@@ -197,7 +198,7 @@ export class FeedbackService {
     const turns = this.turnTelemetries;
     const totalTurns = turns.length;
 
-    let ghanaNlpCount = 0;
+    let hciLabCount = 0;
     let fallbackCount = 0;
     let timeoutCount = 0;
     let emptyResultCount = 0;
@@ -207,8 +208,8 @@ export class FeedbackService {
     const languageDist: Record<string, number> = {};
 
     for (const t of turns) {
-      if (t.provider.toLowerCase().includes("ghananlp")) {
-        ghanaNlpCount++;
+      if (t.provider.toLowerCase().includes("hci")) {
+        hciLabCount++;
       }
       if (t.fallbackUsed) fallbackCount++;
       if (t.timeoutOccurred) timeoutCount++;
@@ -242,8 +243,8 @@ export class FeedbackService {
 
     return {
       totalTurns,
-      ghanaNlpUsageCount: ghanaNlpCount,
-      ghanaNlpUsageRate: totalTurns > 0 ? Number((ghanaNlpCount / totalTurns).toFixed(3)) : 0,
+      hciLabUsageCount: hciLabCount,
+      hciLabUsageRate: totalTurns > 0 ? Number((hciLabCount / totalTurns).toFixed(3)) : 0,
       fallbackUsageCount: fallbackCount,
       fallbackUsageRate: totalTurns > 0 ? Number((fallbackCount / totalTurns).toFixed(3)) : 0,
       timeoutCount,

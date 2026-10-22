@@ -7,7 +7,7 @@
 
 export type MoMoTargetEnvironment = "sandbox" | "production" | "live";
 export type MoMoProductType = "collection" | "disbursement";
-export type MoMoMode = "LIVE_API" | "SANDBOX_API";
+export type MoMoMode = "LIVE_API" | "SANDBOX_API" | "SANDBOX_SIMULATOR";
 export type MoMoTransactionStatus = "PENDING" | "SUCCESSFUL" | "FAILED" | "REJECTED" | "TIMEOUT";
 
 export interface MoMoProductCredentials {
@@ -26,22 +26,23 @@ export interface MoMoConfig {
 }
 
 export interface GatewayEvidence {
-  timestamp: string;
-  host: string;
-  roundTripMs: number;
-  endpoint: string;
-  request: {
+  timestamp?: string;
+  host?: string;
+  roundTripMs?: number;
+  endpoint?: string;
+  request?: {
     method: string;
     url: string;
     headers: Record<string, string>;
     body?: any;
   };
-  response: {
+  response?: {
     status: number;
     statusText: string;
     headers: Record<string, string>;
     body: any;
   };
+  [key: string]: any;
 }
 
 export interface MoMoTransactionRecord {
@@ -89,6 +90,7 @@ export type SagaState =
 
 export interface SagaTransaction {
   sagaId: string;
+  sessionId?: string;
   idempotencyKey: string;
   senderPhone: string;
   recipientPhone: string;
@@ -137,6 +139,7 @@ export interface MoMoBalanceResult {
 export interface MoMoAccountHolderResult {
   isActive: boolean;
   msisdn: string;
+  phone?: string;
   name?: string;
   mode: MoMoMode;
   gatewayEvidence?: GatewayEvidence;
@@ -231,11 +234,10 @@ export interface TransactionResult {
   authorizationModel: string;
   momoDetails?: {
     referenceId: string;
-    mode: "LIVE_API" | "SANDBOX_API" | "MOCKED" | "UNCONFIGURED";
+    mode: MoMoMode | "MOCKED" | "UNCONFIGURED";
     status: string;
     financialTransactionId?: string;
   };
   rawPayload?: any;
   gatewayEvidence?: any;
 }
-

@@ -268,9 +268,8 @@ export class HedgedAsrService {
 
     const wavBase64 = normalized.wavBuffer.toString("base64");
 
-    // Race Primary & Secondary with Hedging
+    // Single ASR transcription call with deadline (dual-racing disabled to conserve quota)
     const primaryController = new AbortController();
-    const secondaryController = new AbortController();
 
     const invokeGeminiModel = async (model: string, signal: AbortSignal): Promise<{ text: string; model: string }> => {
       if (!geminiClient.isAvailable()) throw new Error("Gemini unavailable");
@@ -291,7 +290,7 @@ export class HedgedAsrService {
         ],
       });
 
-      if (signal.aborted) throw new Error("Aborted by hedged race winner");
+      if (signal.aborted) throw new Error("Aborted");
       const text = (resp?.text || "").trim();
       return { text, model };
     };
@@ -300,45 +299,20 @@ export class HedgedAsrService {
     let providerUsed = "";
 
     try {
-      // Launch primary immediately
+      // Single ASR call with deadline
       const primaryPromise = invokeGeminiModel(primaryModel, primaryController.signal);
-
-      // Launch secondary after hedging delay if primary hasn't resolved
-      const secondaryPromise = new Promise<{ text: string; model: string }>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          if (!primaryController.signal.aborted) {
-            invokeGeminiModel(secondaryModel, secondaryController.signal)
-              .then(resolve)
-              .catch(reject);
-          }
-        }, hedgingDelayMs);
-
-        primaryController.signal.addEventListener("abort", () => clearTimeout(timer));
-      });
-
-      // Hard deadline timeout
       const deadlinePromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error("Hedged ASR deadline exceeded")), deadlineMs);
+        setTimeout(() => {
+          primaryController.abort();
+          reject(new Error("ASR deadline exceeded"));
+        }, deadlineMs);
       });
 
-      // Race primary against secondary and deadline
-      const raceWinner = await Promise.race([
-        primaryPromise.then((res) => {
-          secondaryController.abort();
-          return res;
-        }),
-        secondaryPromise.then((res) => {
-          primaryController.abort();
-          return res;
-        }),
-        deadlinePromise,
-      ]);
-
+      const raceWinner = await Promise.race([primaryPromise, deadlinePromise]);
       rawText = raceWinner.text;
       providerUsed = raceWinner.model;
     } catch {
       primaryController.abort();
-      secondaryController.abort();
 
       // Fallback: Offline local engine (faster-whisper/Vosk)
       try {

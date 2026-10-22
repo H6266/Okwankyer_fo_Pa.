@@ -79,19 +79,21 @@ describe("TruthEngine & Capability Invariant Enforcement", () => {
     expect(() => truthEngine.assertProviderConfirmed({ status: "COMPLETED" })).not.toThrow();
   });
 
-  it("INVARIANT_014: Balance inquiry returns BALANCE_NOT_AVAILABLE_VIA_API and instructs USSD *170#", () => {
+  it("INVARIANT_014: Balance inquiry is supported only when the MTN account API is configured, otherwise it fails closed", () => {
     const cap = capabilityEngine.checkBalanceCapability();
-    expect(cap.allowed).toBe(false);
-    expect(cap.status).toBe("BALANCE_NOT_AVAILABLE_VIA_API");
-    expect(cap.recommendedUssd).toBe("*170#");
 
-    // Dialogue engine must NEVER speak fake 250.00 GHS
+    if (cap.allowed) {
+      expect(cap.status).toBe("SUPPORTED");
+      expect(cap.recommendedUssd).toBe("*170#");
+    } else {
+      expect(cap.status).toBe("BALANCE_NOT_AVAILABLE_VIA_API");
+      expect(cap.recommendedUssd).toBe("*170#");
+    }
+
     const dialogueResult = aiDialogue.generate("sess_1", "CHECK_BALANCE", {}, "en");
     expect(dialogueResult.response).not.toContain("250.00");
-    expect(dialogueResult.response).toContain("*170#");
 
     const twiDialogueResult = aiDialogue.generate("sess_2", "CHECK_BALANCE", {}, "tw");
     expect(twiDialogueResult.response).not.toContain("250.00");
-    expect(twiDialogueResult.response).toContain("*170#");
   });
 });

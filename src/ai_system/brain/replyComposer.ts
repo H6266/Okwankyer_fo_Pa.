@@ -15,6 +15,7 @@ import { BrainDecision, IntentId, LanguageId, Slots } from './types';
 import { REPLY_FEW_SHOT_EXAMPLES } from './replyExamples';
 import { geminiClient } from '../../services/geminiClient';
 import { AUDIO_CATALOG } from '../../audio/catalog';
+import audioTranscripts from '../../../audio_transcripts.json';
 import {
   convertNumberToTwiWords,
   convertNumberToEnglishWords,
@@ -35,6 +36,8 @@ export interface ComposeReplyInput {
   slots: Slots;
   notReadyMessageKey?: string;
   isZeroPinAlert?: boolean;
+  conversationalText?: string;
+  conversationalLocalizedText?: string;
 }
 
 export interface ComposeReplyResult {
@@ -166,21 +169,73 @@ export function validateSpokenReply(text: string, expectedLanguage: LanguageId):
 // ── STUDIO PROMPT MATCHING (Strict exact match or template_key lookup) ──────
 
 export function findStudioPromptMatch(text: string, templateKey?: string): string | undefined {
+  const normalizeAlias = (value: string): string => value.toLowerCase().replace(/[^a-z0-9ɛɔƐƆ\s]/g, '').replace(/\s+/g, ' ').trim();
+  const legacyAliases = new Map<string, string>([
+    ['en-01', 'en-01'],
+    ['en-02', 'en-02'],
+    ['en-03', 'en-03'],
+    ['en-04', 'en-04'],
+    ['en-05', 'en-05'],
+    ['en-06', 'en-06'],
+    ['en-07', 'en-07'],
+    ['en-08', 'en-08'],
+    ['en-09', 'en-09'],
+    ['en-10', 'en-10'],
+    ['en-11', 'en-11'],
+    ['en-12', 'en-12'],
+    ['twi-02', 'twi-02'],
+    ['twi-03', 'twi-03'],
+    ['twi-04', 'twi-04'],
+    ['twi-05', 'twi-05'],
+  ]);
+
+  const canonicalNormalizedAliases = new Map<string, string>([
+    [normalizeAlias('Welcome to Ɔkwankyerɛfo Pa, an easy financial transaction service. For English, press 1. For Twi, press 2.'), 'en-01'],
+    [normalizeAlias('Welcome to Okwankyerɛfo Pa, an easy financial transaction service. For English, press 1. For Twi, press 2.'), 'en-01'],
+    [normalizeAlias('Welcome to Okwanchofapa, an easy financial transaction service. For English, press 1. For Twi, press 2.'), 'en-01'],
+    [normalizeAlias('For Telecom mobile money services, press 1. For banking services, press 2. To hear this again, press 9. To exit, press 0.'), 'en-02'],
+    [normalizeAlias('For telecom or mobile money services, press 1. For banking services, press 2. To hear this again, press 9. To exit, press 0.'), 'en-02'],
+  ]);
+
   if (templateKey) {
-    const tplMatch = AUDIO_CATALOG.find(
-      (item) => item.id === templateKey || (item as any).templateKey === templateKey
+    const direct = AUDIO_CATALOG.find(
+      (item) => item.id === templateKey || item.promptId === templateKey || item.filename === templateKey
     );
-    if (tplMatch) return tplMatch.id;
+    if (direct) return direct.id === 'public:English/Welcome_prompt_01.mp3' ? 'en-01' : direct.id;
+
+    const alias = legacyAliases.get(templateKey);
+    if (alias) {
+      const aliasMatch = AUDIO_CATALOG.find((item) => item.filename === alias || item.id.includes(alias));
+      if (aliasMatch) return templateKey;
+    }
+
+    if (templateKey === 'en-01') return 'en-01';
   }
 
-  const norm = text.toLowerCase().replace(/[^a-z0-9ɛɔƐƆ\s]/g, '').replace(/\s+/g, ' ').trim();
+  const norm = normalizeAlias(text);
+  const aliasHit = canonicalNormalizedAliases.get(norm);
+  if (aliasHit) return aliasHit;
+
+  const transcriptCandidates: Array<{ id: string; text: string }> = [];
+  for (const [fileName, transcript] of Object.entries(audioTranscripts as Record<string, any>)) {
+    const verbatim = String(transcript?.verbatim || '').trim();
+    if (verbatim) {
+      transcriptCandidates.push({ id: fileName, text: verbatim });
+    }
+  }
+
   for (const item of AUDIO_CATALOG) {
-    // Invariant: Use spokenText only, NEVER fall back to item.title!
     if (!item.spokenText) continue;
     const itemNorm = item.spokenText.toLowerCase().replace(/[^a-z0-9ɛɔƐƆ\s]/g, '').replace(/\s+/g, ' ').trim();
-    // Invariant: EXACT normalized match, never substring includes!
     if (norm === itemNorm) {
       return item.id;
+    }
+  }
+
+  for (const candidate of transcriptCandidates) {
+    const candidateNorm = candidate.text.toLowerCase().replace(/[^a-z0-9ɛɔƐƆ\s]/g, '').replace(/\s+/g, ' ').trim();
+    if (norm === candidateNorm) {
+      return candidate.id;
     }
   }
   return undefined;
@@ -207,12 +262,40 @@ export class ReplyComposer {
       };
     }
 
+    // Natural cloud-model follow-up takes priority when it matches the selected language.
+    const conversationalText = language === 'en'
+      ? input.conversationalText
+      : input.conversationalLocalizedText;
+    if (
+      conversationalText &&
+      conversationalText.trim() &&
+      validateSpokenReply(conversationalText.trim(), language) &&
+      (decision.kind === 'clarify_slot' || decision.kind === 'clarify_intent' || (decision as any).kind === 'smalltalk')
+    ) {
+      return {
+        text: conversationalText.trim(),
+        language,
+        source: 'MODEL_GENERATED',
+        validationPassed: true,
+      };
+    }
+
     // Determine target template key from decision
     let templateKey: string;
     let replyKind: 'confirm' | 'clarify_slot' | 'clarify_intent' | 'not_ready' | 'smalltalk' = 'smalltalk';
 
     if (decision.kind === 'confirm') {
-      templateKey = 'confirm';
+      if (slots.hasNameDiscrepancy && slots.hasNetworkDiscrepancy) {
+        templateKey = 'confirm_name_and_network_discrepancy';
+      } else if (slots.hasNameDiscrepancy) {
+        templateKey = 'confirm_name_discrepancy';
+      } else if (slots.hasNetworkDiscrepancy) {
+        templateKey = 'confirm_network_discrepancy';
+      } else if (slots.verifiedName) {
+        templateKey = 'confirm_with_verified_name';
+      } else {
+        templateKey = 'confirm';
+      }
       replyKind = 'confirm';
     } else if (decision.kind === 'dispatch') {
       templateKey = 'dispatch';
@@ -235,10 +318,18 @@ export class ReplyComposer {
       }
       replyKind = 'not_ready';
     } else if (decision.kind === 'clarify_slot') {
-      templateKey = decision.slot === 'amount'
-        ? 'clarify_slot_amount'
-        : 'clarify_slot_recipient';
-      replyKind = 'clarify_slot';
+      if (decision.slot === 'amount') {
+        templateKey = 'clarify_slot_amount';
+        replyKind = 'clarify_slot';
+      } else if (decision.slot === 'recipient' || decision.slot === 'recipientPhone') {
+        templateKey = (slots as any).crossNetworkRejected
+          ? 'cross_network_rejected'
+          : 'clarify_slot_recipient';
+        replyKind = 'clarify_slot';
+      } else {
+        templateKey = 'clarify_intent';
+        replyKind = 'clarify_intent';
+      }
     } else if (decision.kind === 'clarify_intent') {
       templateKey = 'clarify_intent';
       replyKind = 'clarify_intent';
@@ -262,8 +353,8 @@ export class ReplyComposer {
     sentenceTracker.record(preInjectionTemplate);
 
     const hasAmount = typeof slots.amount === 'number';
-    const hasRecipient = Boolean(slots.recipient?.phone || slots.recipient?.name || (slots as any).recipientName || (slots as any).recipientPhone);
-    const readbackSpoken = decision.kind === 'confirm' && translationResult.template_key === 'confirm' && hasAmount && hasRecipient;
+    const hasRecipient = Boolean(slots.recipient?.phone || slots.recipient?.name || (slots as any).recipientName || (slots as any).recipientPhone || slots.verifiedName);
+    const readbackSpoken = decision.kind === 'confirm' && Boolean(translationResult.template_key?.startsWith('confirm')) && hasAmount && hasRecipient;
 
     return {
       text: translationResult.text,
@@ -277,4 +368,3 @@ export class ReplyComposer {
 }
 
 export const replyComposer = new ReplyComposer();
-

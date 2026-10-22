@@ -25,7 +25,7 @@ export class TtsService {
     voiceProfile: string = "ghanaian-warm",
     userId?: string
   ): Promise<TtsSynthesisResponse> {
-    // 1. Speech normalization (currency verbalization, phone cadence)
+    // Speech normalization (currency verbalization, phone cadence)
     const normalizedText = speechNormalizer.normalizeForSpeech(rawText, language);
 
     // 2. Pronunciation enrichment (names, places, user preferences)

@@ -12,6 +12,7 @@
  */
 
 import { GhanaianNetwork, validateGhanaPhoneNumber, parseAndValidateAmount } from "./validation";
+import { SUPPORTED_TRANSFER_NETWORKS } from "./serviceCapabilities";
 
 export type StepInputType = "single_digit" | "phone_number" | "amount" | "confirm";
 
@@ -70,7 +71,7 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
     collects: "language",
     nextStepMap: {
       "1": "service-select",
-      "2": "provider-select",
+      "2": "service-select",
     },
   },
 
@@ -96,23 +97,23 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
     collects: "language",
     nextStepMap: {
       "1": "service-select",
-      "2": "provider-select",
+      "2": "service-select",
     },
   },
 
   "service-select": {
     id: "service-select",
     name: "Service Selection",
-    promptKey: "service_select",
+    promptKey: "supported_service_select",
     promptText: {
-      en: "For telecom or mobile money services, press 1. For banking services, press 2. To hear this again, press 9. To exit, press 0.",
-      twi: "Sɛ wopɛ telecom anaa Mobile Money dwumadie a mia 1. Sɛ wopɛ sikakorabea dwumadie a mia 2. Sɛ wopɛ sɛ wote bio a mia 9. Sɛ wopɛ sɛ wotwa mu a mia 0.",
+      en: "For a supported Mobile Money transfer, press 1. Press 9 to repeat, or 0 to exit.",
+      twi: "Sɛ wopɛ Mobile Money transfer a yɛboa a, mia 1. Mia 9 na tie bio, anaasɛ mia 0 na woapue.",
     },
     inputType: "single_digit",
     acceptedDigits: ["1", "2"],
     optionsDescription: {
-      en: "1 for Mobile Money, 2 for Banking",
-      twi: "1 ma Mobile Money, 2 ma Sikakorabea",
+      en: "1 for Mobile Money transfer, 9 to repeat, 0 to exit",
+      twi: "1 ma Mobile Money transfer, 9 na tie bio, 0 na woapue",
     },
     navigation: {
       allowBack: true,
@@ -130,16 +131,16 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
   "provider-select": {
     id: "provider-select",
     name: "Network Provider Selection",
-    promptKey: "provider_select",
+    promptKey: "mtn_network_select",
     promptText: {
-      en: "Select your network. For MTN, press 1. For Telecel, press 2. For AirtelTigo, press 3. Press 9 to hear this again, or 0 to exit.",
-      twi: "Paw wo network. Sɛ ɛyɛ MTN a mia 1. Sɛ ɛyɛ Telecel a mia 2. Sɛ ɛyɛ AirtelTigo a mia 3. Sɛ wopɛ sɛ wote bio a mia 9. Sɛ wopɛ sɛ wotwa mu a mia 0.",
+      en: "For MTN Mobile Money, press 1. For Telecel Cash, press 2. Press 9 to hear this again, or 0 to exit.",
+      twi: "Sɛ wo network yɛ MTN a, mia 1. Sɛ ɛyɛ Telecel Cash a, mia 2. Mia 9 na tie bio, anaasɛ mia 0 na woapue.",
     },
     inputType: "single_digit",
-    acceptedDigits: ["1", "2", "3"],
+    acceptedDigits: SUPPORTED_TRANSFER_NETWORKS.map((network) => network === "MTN" ? "1" : network === "Telecel" ? "2" : "3"),
     optionsDescription: {
-      en: "1 for MTN, 2 for Telecel, 3 for AT",
-      twi: "1 ma MTN, 2 ma Telecel, 3 ma AT",
+      en: "1 for MTN, 2 for Telecel Cash",
+      twi: "1 ma MTN, 2 ma Telecel Cash",
     },
     navigation: {
       allowBack: false,
@@ -147,26 +148,25 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
       allowCancel: true,
     },
     collects: "network",
-    nextStepMap: {
-      "1": "action-select",
-      "2": "action-select",
-      "3": "action-select",
-    },
+    nextStepMap: Object.fromEntries(SUPPORTED_TRANSFER_NETWORKS.map((network) => [
+      network === "MTN" ? "1" : network === "Telecel" ? "2" : "3",
+      "action-select",
+    ])),
   },
 
   "action-select": {
     id: "action-select",
     name: "Action Menu",
-    promptKey: "action_select",
+    promptKey: "send_money_menu",
     promptText: {
-      en: "To send money, press 1. To check balance, press 2. To go back, press 8. To hear this again, press 9. To exit, press 0.",
-      twi: "Sɛ wopɛ sɛ womane sika a mia 1. Sɛ wopɛ sɛ wohwɛ wo sika dodow a mia 2. Sɛ wopɛ sɛ wosan kɔ akyi a mia 8. Sɛ wopɛ sɛ wote bio a mia 9. Sɛ wopɛ sɛ wotwa mu a mia 0.",
+      en: "To send money, press 1. To go back, press 8. To hear this again, press 9. To exit, press 0.",
+      twi: "Sɛ wopɛ sɛ womane sika a mia 1. Sɛ wopɛ sɛ wosan kɔ akyi a mia 8. Sɛ wopɛ sɛ wote bio a mia 9. Sɛ wopɛ sɛ wotwa mu a mia 0.",
     },
     inputType: "single_digit",
-    acceptedDigits: ["1", "2"],
+    acceptedDigits: ["1"],
     optionsDescription: {
-      en: "1 to Send Money, 2 to Check Balance",
-      twi: "1 ma Sika Mane, 2 ma Sika Dodow Hwɛ",
+      en: "1 to Send Money",
+      twi: "1 ma Sika Mane",
     },
     navigation: {
       allowBack: true,
@@ -177,7 +177,6 @@ export const STEP_REGISTRY: Record<string, StepDefinition> = {
     collects: "action",
     nextStepMap: {
       "1": "enter-recipient",
-      "2": "check-balance",
     },
   },
 
@@ -314,7 +313,7 @@ export function getStepDefinition(stepId: string): StepDefinition | null {
   if (normalized === "service-choice") return STEP_REGISTRY["service-select"];
   if (normalized === "provider-choice") return STEP_REGISTRY["provider-select"];
   if (normalized === "action-choice") return STEP_REGISTRY["action-select"];
-  if (normalized === "verify-recipient") return STEP_REGISTRY["enter-recipient"];
+  if (normalized === "verify-recipient") return STEP_REGISTRY["recipient-verify-choice"];
   if (normalized === "verify-amount") return STEP_REGISTRY["enter-amount"];
   if (normalized === "safe-outcome") return STEP_REGISTRY["safe-confirmation"];
 
@@ -328,6 +327,10 @@ export interface StepValidationResult {
   targetStep?: string;
   normalizedValue?: any;
   errorReason?: string;
+  feedbackText?: {
+    en: string;
+    twi: string;
+  };
 }
 
 /**
@@ -364,6 +367,10 @@ export function validateKeypadInput(
         valid: false,
         isNavigation: false,
         errorReason: `Key '${clean}' is not an option for ${stepDef.name}. Valid choices: ${stepDef.optionsDescription[language]}.`,
+        feedbackText: {
+          en: "The answer you gave doesn't tally, I will mention the audio again please choose the answer again.",
+          twi: "Mmuaeɛ a wode maa no nnyɛ pɛpɛɛpɛ, mɛbɔ nne no bio mesrɛ wo paw mmuaeɛ no bio.",
+        },
       };
     }
 

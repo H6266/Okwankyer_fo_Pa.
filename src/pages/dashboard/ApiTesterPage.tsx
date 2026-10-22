@@ -128,6 +128,7 @@ export const ApiTesterPage: React.FC = () => {
   } | null>(null);
   const [consoleLoading, setConsoleLoading] = useState(false);
   const [copiedCurl, setCopiedCurl] = useState(false);
+  const [copiedWebhook, setCopiedWebhook] = useState(false);
   const [requestHistory, setRequestHistory] = useState<
     Array<{ name: string; path: string; status: number; time: string }>
   >([]);
@@ -1258,59 +1259,129 @@ export const ApiTesterPage: React.FC = () => {
 
       {/* ── TAB 4: Telco Webhook Simulator ──────────────────────────────── */}
       {activeTab === "webhook" && (
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-6">
-          <div>
-            <h2 className="text-sm font-bold text-slate-900">Africa&apos;s Talking Webhook &amp; IVR Simulator</h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Simulates incoming Africa&apos;s Talking voice menu callback requests to test dynamic VoiceXML XML generation.
+        <div className="space-y-6">
+          {/* Public Webhook Live URL Card */}
+          <div className="bg-gradient-to-br from-emerald-50 via-teal-50 to-white p-6 rounded-2xl border-2 border-emerald-400 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-emerald-200/60">
+              <div className="flex items-center gap-2.5">
+                <span className="w-3 h-3 rounded-full bg-emerald-500 animate-ping" />
+                <h2 className="text-base font-black text-emerald-950">
+                  Africa&apos;s Talking Public Voice Webhook (Port 3000 Active)
+                </h2>
+              </div>
+              <span className="px-3 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                🟢 Live &amp; Publicly Reachable
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-700 leading-relaxed">
+              Internal port <strong>3000</strong> is automatically mapped to Google Cloud Run&apos;s public HTTPS gateway (port 443).
+              When callers dial your Africa&apos;s Talking voice number (<code>+233 30 804 8098</code>), Africa&apos;s Talking automatically connects to this endpoint.
             </p>
+
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-slate-800">
+                Primary Callback URL (Set this in Africa&apos;s Talking Voice Dashboard):
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={typeof window !== "undefined" ? `${window.location.origin}/voice-menu` : "https://ais-pre-2di4ul3vcelcb4sg4kc3gs-537806139713.europe-west1.run.app/voice-menu"}
+                  className="flex-1 px-3 py-2.5 bg-white border-2 border-emerald-300 rounded-xl text-xs font-mono font-bold text-emerald-900 selection:bg-emerald-200"
+                />
+                <button
+                  onClick={() => {
+                    const url = typeof window !== "undefined" ? `${window.location.origin}/voice-menu` : "";
+                    navigator.clipboard.writeText(url);
+                    setCopiedWebhook(true);
+                    setTimeout(() => setCopiedWebhook(false), 2000);
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors shrink-0"
+                >
+                  {copiedWebhook ? <Check className="w-4 h-4 text-amber-300" /> : <Copy className="w-4 h-4" />}
+                  <span>{copiedWebhook ? "Copied!" : "Copy URL"}</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 text-xs">
+              <div className="bg-white/80 p-3 rounded-xl border border-emerald-200">
+                <div className="font-bold text-slate-800">1. Dashboard Location</div>
+                <div className="text-slate-600 text-[11px] mt-0.5">
+                  Africa&apos;s Talking &gt; Voice &gt; Phone Numbers &gt; Edit Number
+                </div>
+              </div>
+              <div className="bg-white/80 p-3 rounded-xl border border-emerald-200">
+                <div className="font-bold text-slate-800">2. Fallback Aliases</div>
+                <div className="text-slate-600 text-[11px] mt-0.5 font-mono">
+                  /voice, /callback, /voice/callback, /
+                </div>
+              </div>
+              <div className="bg-white/80 p-3 rounded-xl border border-emerald-200">
+                <div className="font-bold text-slate-800">3. Inbound Flow</div>
+                <div className="text-slate-600 text-[11px] mt-0.5">
+                  Bilingual IVR (1: English, 2: Twi) with Zero-PIN Security
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* Webhook & IVR Simulator */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-6">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Session ID</label>
-              <input
-                type="text"
-                value={webhookSessionId}
-                onChange={(e) => setWebhookSessionId(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
-              />
+              <h2 className="text-sm font-bold text-slate-900">Africa&apos;s Talking Inbound Call Test Simulator</h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Dispatches a simulated inbound call payload directly to the live <code>/voice-menu</code> handler to verify VoiceXML generation.
+              </p>
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Caller Phone Number</label>
-              <input
-                type="text"
-                value={webhookCaller}
-                onChange={(e) => setWebhookCaller(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
-              />
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Session ID</label>
+                <input
+                  type="text"
+                  value={webhookSessionId}
+                  onChange={(e) => setWebhookSessionId(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Caller Phone Number</label>
+                <input
+                  type="text"
+                  value={webhookCaller}
+                  onChange={(e) => setWebhookCaller(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">DTMF Digits Pressed</label>
+                <input
+                  type="text"
+                  value={webhookDigits}
+                  onChange={(e) => setWebhookDigits(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
+                />
+              </div>
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">DTMF Digits Pressed</label>
-              <input
-                type="text"
-                value={webhookDigits}
-                onChange={(e) => setWebhookDigits(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
-              />
-            </div>
+
+            <button
+              onClick={handleSimulateWebhook}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+            >
+              Execute Webhook &amp; Generate VoiceXML
+            </button>
+
+            {simulatedVoiceXml && (
+              <div className="space-y-1">
+                <span className="text-xs font-bold text-slate-900">Generated VoiceXML Response</span>
+                <pre className="p-4 bg-slate-50 border border-slate-200 text-slate-800 font-mono text-[11px] rounded-xl overflow-x-auto shadow-2xs">
+                  {simulatedVoiceXml}
+                </pre>
+              </div>
+            )}
           </div>
-
-          <button
-            onClick={handleSimulateWebhook}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
-          >
-            Execute Webhook &amp; Generate VoiceXML
-          </button>
-
-          {simulatedVoiceXml && (
-            <div className="space-y-1">
-              <span className="text-xs font-bold text-slate-900">Generated VoiceXML Response</span>
-              <pre className="p-4 bg-slate-50 border border-slate-200 text-slate-800 font-mono text-[11px] rounded-xl overflow-x-auto shadow-2xs">
-                {simulatedVoiceXml}
-              </pre>
-            </div>
-          )}
         </div>
       )}
     </div>

@@ -22,6 +22,9 @@ export interface NeuralAsrHealth {
 }
 
 export class NeuralAsrProvider {
+  private healthCache = new Map<string, { result: NeuralAsrHealth; expiresAt: number }>();
+  private healthChecks = new Map<string, Promise<NeuralAsrHealth>>();
+
   private getBaseUrl(): string {
     return (process.env.LOCAL_GHANA_ASR_URL || "http://127.0.0.1:8765").replace(/\/$/, "");
   }
@@ -44,15 +47,38 @@ export class NeuralAsrProvider {
    */
   public async checkHealth(): Promise<NeuralAsrHealth> {
     const url = `${this.getBaseUrl()}/health`;
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 30000);
+    const cached = this.healthCache.get(url);
+    if (cached && cached.expiresAt > Date.now()) return cached.result;
 
+    const pending = this.healthChecks.get(url);
+    if (pending) return pending;
+
+    const check = this.fetchHealth(url);
+    this.healthChecks.set(url, check);
+    try {
+      const result = await check;
+      this.healthCache.set(url, {
+        result,
+        expiresAt: Date.now() + (result.ready ? 2000 : 750),
+      });
+      return result;
+    } finally {
+      if (this.healthChecks.get(url) === check) this.healthChecks.delete(url);
+    }
+  }
+
+  private async fetchHealth(url: string): Promise<NeuralAsrHealth> {
+    const configuredTimeout = Number(process.env.LOCAL_GHANA_ASR_HEALTH_TIMEOUT_MS || 750);
+    const timeoutMs = Number.isFinite(configuredTimeout)
+      ? Math.max(100, Math.min(configuredTimeout, 5000))
+      : 750;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
       const res = await fetch(url, {
         headers: this.getAuthHeaders(),
         signal: controller.signal,
       });
-      clearTimeout(timeout);
 
       if (res.ok) {
         const data = (await res.json()) as any;
@@ -79,6 +105,8 @@ export class NeuralAsrProvider {
         model: process.env.LOCAL_ASR_MODEL_LABEL || "not-running",
         details: `Worker connection failed at ${url}: ${err.message}`,
       };
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -119,10 +147,15 @@ export class NeuralAsrProvider {
       }
 
       const json = (await res.json()) as any;
+      const reportedConfidence = typeof json.confidence === "number" && Number.isFinite(json.confidence)
+        ? json.confidence
+        : null;
       return {
         text: json.text || "",
-        confidence: typeof json.confidence === "number" ? json.confidence : 0.85,
-        confidenceSource: json.confidenceSource || "MODEL_HEURISTIC",
+        confidence: reportedConfidence,
+        confidenceSource: reportedConfidence === null
+          ? "PROVIDER_UNREPORTED"
+          : json.confidenceSource || "MODEL_HEURISTIC",
         detectedLanguage: json.language === "tw" ? "tw" : "en",
         speechActivityDetected: Boolean(json.text && json.text.trim().length > 0),
         durationMs: json.durationMs || 300,

@@ -28,6 +28,7 @@ import {
   sanitizeTranscriptForModel,
   maskPhoneNumbers,
   computeDraftHash,
+  isExplicitConfirmation,
 } from '../src/ai_system/brain/brain';
 import { serviceRegistry } from '../src/ai_system/brain/serviceRegistry';
 import { numberDecoder } from '../src/ai_system/speech/asr/numberDecoder';
@@ -69,6 +70,26 @@ describe('Checkpoint 2c: Model Wiring, Safety Hardening & Fallbacks', () => {
     setMaxTransferAmount(5000);
     setUseTwiSpecialSymbols(false);
     vi.restoreAllMocks();
+  });
+
+  it('does not treat a correction sentence ending in okay as transfer approval', () => {
+    expect(isExplicitConfirmation('no no i want to send 500 to 0553838464 instead okay, sorry it is an mtn number')).toBe(false);
+    expect(isExplicitConfirmation('okay')).toBe(true);
+  });
+
+  it('extracts corrected amount and recipient from a sentence ending in okay', async () => {
+    const correctionBrain = new Brain({ mode: 'offline_only' });
+    const result = await correctionBrain.process({
+      transcript: 'no no i want to send 500 to 0553838464 instead okay, sorry it is an mtn number',
+      language: 'en',
+      languageConfidence: 0.98,
+      sessionLanguage: 'en',
+      draft: { intent: 'momo.transfer', slots: { recipient: { name: 'brother' } } },
+    });
+
+    expect(result.updatedDraft.slots.amount).toBe(500);
+    expect(result.updatedDraft.slots.recipient?.phone).toBe('0553838464');
+    expect(result.decision.kind).toBe('confirm');
   });
 
   describe('1. Amount Caps & Morphological Ambiguity', () => {
@@ -165,6 +186,23 @@ describe('Checkpoint 2c: Model Wiring, Safety Hardening & Fallbacks', () => {
       expect(numberDecoder.decode('apem ahanu').numericValue).toBe(1200);
     });
 
+    it('combines cedis and pesewas into one GHS amount', () => {
+      expect(numberDecoder.decode('send 12 cedis and 5 pesewas').numericValue).toBe(12.05);
+      expect(numberDecoder.decode('mane sidi aduonum ne nnum pesewas').numericValue).toBe(50.05);
+      expect(numberDecoder.decode('25 pesewas').numericValue).toBe(0.25);
+    });
+
+    it('keeps Ghanaian phone digits separate from currency and refuses PIN values', () => {
+      const phone = numberDecoder.decode('send 50 cedis to zero five five three eight three eight four six four');
+      expect(phone.numericValue).toBe(50);
+      expect(phone.phoneNumberDigits).toBe('0553838464');
+
+      const pin = numberDecoder.decode('my MoMo PIN is 1234');
+      expect(pin.numericValue).toBeNull();
+      expect(pin.phoneNumberDigits).toBeUndefined();
+      expect(pin.isCurrencyAmount).toBe(false);
+    });
+
     it('speaks *170# using English loanwords "star" and "hash" by default with Twi digits', () => {
       // Default: English loanwords star/hash
       const twiDefault = formatUssdCodeSpoken('*170#', 'twi-asante');
@@ -235,7 +273,7 @@ describe('Checkpoint 2c: Model Wiring, Safety Hardening & Fallbacks', () => {
     });
   });
 
-  describe('4. Hard Model Timeout & Deterministic Skip-Model Routing', () => {
+  describe('4. Gemini-Primary Routing & Deterministic Fallback', () => {
     it('falls back cleanly to offline deterministic engine when model call times out', async () => {
       // Mock Gemini isAvailable and getRawClient with hanging promise
       vi.spyOn(geminiClient, 'isAvailable').mockReturnValue(true);
@@ -250,7 +288,6 @@ describe('Checkpoint 2c: Model Wiring, Safety Hardening & Fallbacks', () => {
         ...DEFAULT_BRAIN_CONFIG,
         mode: 'live',
         modelTimeoutMs: 10,
-        skipModelTierConfidence: 1.0, // Force model attempt
       });
 
       const input: BrainInput = {
@@ -270,12 +307,13 @@ describe('Checkpoint 2c: Model Wiring, Safety Hardening & Fallbacks', () => {
       expect(result.decision.kind).toBe('clarify_slot'); // Falls back to deterministic momo.transfer handling
     });
 
-    it('skips model entirely when Tier 1/2 deterministic confidence is above threshold', async () => {
+    it('contacts Gemini on high-confidence turns and falls back to deterministic slots if the response is unusable', async () => {
       const spy = vi.fn();
-      const rawClient = geminiClient.getRawClient();
-      if (rawClient) {
-        vi.spyOn(rawClient.models, 'generateContent').mockImplementation(spy);
-      }
+      vi.spyOn(geminiClient, 'isAvailable').mockReturnValue(true);
+      vi.spyOn(geminiClient, 'getRawClient').mockReturnValue({
+        models: { generateContent: spy },
+      } as any);
+      const decode = vi.spyOn(numberDecoder, 'decode');
 
       // High confidence transfer utterance
       const input: BrainInput = {
@@ -289,8 +327,27 @@ describe('Checkpoint 2c: Model Wiring, Safety Hardening & Fallbacks', () => {
       const liveBrain = new Brain({ mode: 'live' });
       const result = await liveBrain.process(input);
       expect(result.decision.kind).toBe('confirm');
-      // Invariant: High deterministic confidence skips model to guarantee low latency!
-      expect(spy).not.toHaveBeenCalled();
+      expect(spy).toHaveBeenCalled();
+      expect(spy.mock.invocationCallOrder[0]).toBeLessThan(decode.mock.invocationCallOrder[0]);
+      expect(result.updatedDraft.slots.amount).toBe(50);
+      expect(result.updatedDraft.slots.recipient?.phone).toBe('0553838464');
+    });
+
+    it('allows live telephony turns to request model reasoning for high-confidence speech', async () => {
+      const liveBrain = new Brain({ mode: 'live' });
+      const modelCall = vi.spyOn(liveBrain as any, 'callModelWithFallback').mockResolvedValue(null);
+
+      const result = await liveBrain.process({
+        transcript: 'Send 50 cedis to 0553838464',
+        language: 'en',
+        languageConfidence: 0.95,
+        sessionLanguage: 'en',
+        draft: { slots: {} },
+        forceModel: true,
+      });
+
+      expect(result.decision.kind).toBe('confirm');
+      expect(modelCall).toHaveBeenCalledOnce();
     });
   });
 

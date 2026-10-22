@@ -13,9 +13,11 @@
  * 9. 100% Deterministic Offline Operation
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { brain, Brain } from '../src/ai_system/brain/brain';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { brain, Brain, isDeterministicFastPathTurn } from '../src/ai_system/brain/brain';
+import { brainTelemetry } from '../src/ai_system/brain/brainTelemetry';
 import { serviceRegistry } from '../src/ai_system/brain/serviceRegistry';
+import { mtnMomoService } from '../src/modules/mtnMomoService';
 import { languagePolicy } from '../src/ai_system/brain/languagePolicy';
 import { validateSpokenReply, replyComposer, convertAmountToSpokenWords } from '../src/ai_system/brain/replyComposer';
 import { DraftState, BrainInput } from '../src/ai_system/brain/types';
@@ -54,21 +56,46 @@ describe('Central Reasoning Brain - Architectural Invariants', () => {
       }
     });
 
-    it('gates unbuilt intent (momo.check_balance) to not_ready with *170# prompt', async () => {
-      const input: BrainInput = {
-        transcript: 'Please check my balance',
-        language: 'en',
-        languageConfidence: 0.95,
+    it('requires secure verification before checking a balance', async () => {
+      const service = serviceRegistry.get('momo.check_balance');
+      const result = await service!.handler!({
+        slots: {},
         sessionLanguage: 'en',
-        draft: { slots: {} },
-      };
+        callerNumber: '0553838464',
+        sessionId: 'sess_balance',
+      });
 
-      const result = await brain.process(input);
-      expect(result.decision.kind).toBe('not_ready');
-      if (result.decision.kind === 'not_ready') {
-        expect(result.decision.intent).toBe('momo.check_balance');
-      }
-      expect(result.reply.text.replace(/,/g, '')).toContain('dial star one seven zero hash');
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('PIN_REQUIRED_FOR_BALANCE_CHECK');
+      expect(result.result.requiresSecureVerification).toBe(true);
+    });
+
+    it('dispatches a real balance-check capability when the MoMo account API is configured and secure verification is present', async () => {
+      vi.spyOn(mtnMomoService, 'getAccountBalance').mockResolvedValueOnce({
+        availableBalance: 350.5,
+        currency: 'GHS',
+        formatted: '350.50 GHS',
+        mode: 'SANDBOX_API',
+        gatewayEvidence: { ok: true },
+        rawPayload: { availableBalance: '350.50', currency: 'GHS' },
+      });
+
+      const service = serviceRegistry.get('momo.check_balance');
+      expect(service?.status).toBe('ready');
+      expect(service?.handler).toBeTypeOf('function');
+
+      const result = await service!.handler!({
+        slots: {},
+        sessionLanguage: 'en',
+        callerNumber: '0553838464',
+        sessionId: 'sess_balance',
+        pin: '1234',
+        confirmedOnHandset: true,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.result.balance).toBe(350.5);
+      expect(result.result.currency).toBe('GHS');
     });
 
     it('gates roadmap feature (momo.buy_airtime) to not_ready without guessing', async () => {
@@ -86,6 +113,52 @@ describe('Central Reasoning Brain - Architectural Invariants', () => {
         expect(result.decision.intent).toBe('momo.buy_airtime');
       }
       expect(result.reply.text).toContain('That feature is not ready yet');
+    });
+
+    it('classifies English airtime despite the recipient phone network mismatch', async () => {
+      const result = await brain.process({
+        transcript: 'recharge 10 cedis airtime for my phone 0271122334',
+        language: 'en',
+        sessionLanguage: 'en',
+        draft: { slots: {} },
+      });
+
+      expect(result.decision).toMatchObject({ kind: 'not_ready', intent: 'momo.buy_airtime' });
+    });
+
+    it('classifies Twi airtime without inventing a recipient name for "me fon"', async () => {
+      const result = await brain.process({
+        transcript: 'tɔ kɔkɔɔ credit cedi edu ma me fon 0201234567',
+        language: 'twi-asante',
+        sessionLanguage: 'twi-asante',
+        draft: { slots: {} },
+      });
+
+      expect(result.decision).toMatchObject({ kind: 'not_ready', intent: 'momo.buy_airtime' });
+      expect(result.updatedDraft.slots.recipient?.name).toBeUndefined();
+    });
+
+    it('does not treat a data bundle size as a Ghana Cedi amount', async () => {
+      const result = await brain.process({
+        transcript: 'buy two gig internet data bundle for me',
+        language: 'en',
+        sessionLanguage: 'en',
+        draft: { slots: {} },
+      });
+
+      expect(result.decision).toMatchObject({ kind: 'not_ready', intent: 'momo.buy_data' });
+      expect(result.updatedDraft.slots.amount).toBeUndefined();
+    });
+
+    it('treats an explicit reversal as reversal instead of a directed transfer', async () => {
+      const result = await brain.process({
+        transcript: 'i made a mistake please reverse my wrong transfer to that number',
+        language: 'en',
+        sessionLanguage: 'en',
+        draft: { slots: {} },
+      });
+
+      expect(result.decision).toMatchObject({ kind: 'not_ready', intent: 'momo.reverse_transaction' });
     });
   });
 
@@ -399,4 +472,64 @@ describe('Central Reasoning Brain - Architectural Invariants', () => {
       expect(turn3.reply.text).toContain('authorization prompt');
     });
   });
+
+  // ── 11. TIER 1 DETERMINISTIC FAST-PATH & QUOTA BARRIER DEFENSE ──────────────
+  describe('11. Tier 1 Deterministic Fast-Path & Quota Barrier Defense', () => {
+    it('correctly classifies routine inputs as Tier 1 Fast-Path', () => {
+      const emptyDraft: DraftState = { slots: {} };
+      expect(isDeterministicFastPathTurn('1', emptyDraft)).toBe(true);
+      expect(isDeterministicFastPathTurn('confirm', emptyDraft)).toBe(true);
+      expect(isDeterministicFastPathTurn('0553838464', emptyDraft)).toBe(true);
+      expect(isDeterministicFastPathTurn('+233543546010', emptyDraft)).toBe(true);
+      expect(isDeterministicFastPathTurn('50 cedis', emptyDraft)).toBe(true);
+      expect(isDeterministicFastPathTurn('cedi aduonu', emptyDraft)).toBe(true);
+      expect(isDeterministicFastPathTurn('check balance', emptyDraft)).toBe(true);
+      expect(isDeterministicFastPathTurn('cash out', emptyDraft)).toBe(true);
+
+      // Complex multi-slot / compound sentences route to Tier 2 model path
+      expect(isDeterministicFastPathTurn('Send 50 cedis to 0553838464', emptyDraft)).toBe(false);
+      expect(isDeterministicFastPathTurn('I want to send money to my sister Ama on Telecel', emptyDraft)).toBe(false);
+    });
+
+    it('processes phone digit inputs via Tier 1 with 0 tokens and records telemetry', async () => {
+      brainTelemetry.reset();
+
+      const phoneTurn = await brain.process({
+        transcript: '0553838464',
+        language: 'en',
+        languageConfidence: 0.95,
+        sessionLanguage: 'en',
+        draft: { slots: { amount: 50 } },
+      });
+
+      expect(phoneTurn.telemetry).toBeDefined();
+      expect(phoneTurn.telemetry?.tier).toBe('TIER_1_DETERMINISTIC');
+      expect(phoneTurn.telemetry?.tokensUsed).toBe(0);
+      expect(phoneTurn.decision.kind).toBe('confirm');
+
+      const summary = brainTelemetry.getSummary();
+      expect(summary.tier1Turns).toBeGreaterThanOrEqual(1);
+      expect(summary.totalTokensUsed).toBe(0);
+      expect(summary.estimatedTokensSaved).toBeGreaterThan(0);
+    });
+
+    it('processes standalone amount via Tier 1 with 0 tokens and sub-100ms latency', async () => {
+      const amountTurn = await brain.process({
+        transcript: '25 cedis',
+        language: 'en',
+        languageConfidence: 0.95,
+        sessionLanguage: 'en',
+        draft: { slots: { recipient: { phone: '0244123456' } } },
+      });
+
+      expect(amountTurn.telemetry).toBeDefined();
+      expect(amountTurn.telemetry?.tier).toBe('TIER_1_DETERMINISTIC');
+      expect(amountTurn.telemetry?.tokensUsed).toBe(0);
+      expect(amountTurn.decision.kind).toBe('confirm');
+      if (amountTurn.decision.kind === 'confirm') {
+        expect(amountTurn.decision.slots.amount).toBe(25);
+      }
+    });
+  });
 });
+

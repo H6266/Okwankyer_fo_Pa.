@@ -1,6 +1,6 @@
 /**
  * Ɔkwankyerɛfo Pa - Service Registry (serviceRegistry.ts)
- * 
+ *
  * Separates what the caller might want (Taxonomy) from what is actually built and executable (Registry).
  * Enables modular service expansion without modifying the central brain reasoning loop.
  */
@@ -43,12 +43,45 @@ export class ServiceRegistry {
       },
     });
 
-    // 2. momo.check_balance (Unbuilt in voice IVR - directs caller to *170# for Zero-PIN truth integrity)
+    // 1b. momo.cash_out - status: 'ready' (Initiates Allow Cash-Out on subscriber wallet)
+    this.register({
+      intent: 'momo.cash_out',
+      status: 'ready',
+      requiredSlots: [],
+      handler: async (context: any) => {
+        const callerPhone = String(context?.callerNumber || "").trim();
+        if (!callerPhone) {
+          throw new Error("Missing caller phone number to enable Cash-Out.");
+        }
+        const { cashOutService } = await import('../../services/cashOutService');
+        const state = cashOutService.enableCashOut(callerPhone);
+        return {
+          success: true,
+          result: state,
+        };
+      },
+    });
+
+    // 2. Personal subscriber balance check (requires secure handset/PIN verification)
     this.register({
       intent: 'momo.check_balance',
-      status: 'not_ready',
+      status: 'ready',
       requiredSlots: [],
-      notReadyMessageKey: 'dial_170_check_balance',
+      handler: async (context: any) => {
+        if (!context?.confirmedOnHandset && !context?.pin) {
+          return {
+            success: false,
+            error: 'PIN_REQUIRED_FOR_BALANCE_CHECK',
+            result: { requiresSecureVerification: true },
+          };
+        }
+        const { mtnMomoService } = await import('../../modules/mtnMomoService');
+        const bal = await mtnMomoService.getAccountBalance();
+        return {
+          success: true,
+          result: { balance: bal.availableBalance, currency: bal.currency },
+        };
+      },
     });
 
     // 3. momo.buy_airtime (Not ready in v1)

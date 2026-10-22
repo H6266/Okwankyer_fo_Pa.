@@ -9,21 +9,87 @@ import { Router, Request, Response } from "express";
 import path from "path";
 import fs from "fs";
 import { config } from "../config/env";
+import { isInboundVoiceEnabled } from "../providers/telephony/inboundVoiceConfig";
 import { runRealSmokeTests } from "../services/healthService";
 import { recipientResolver } from "../providers/recipient/RecipientResolver";
-import { AUDIO_CATALOG, audioFileExists } from "../audio/catalog";
+import { AUDIO_ASSET_INVENTORY, AUDIO_CATALOG, audioFileExists, getAudioFileSize } from "../audio/catalog";
+import { getPromptManifestEntries, getRecordingByPromptId } from "../audio/recordingRegistry";
 import { callSessionRepository } from "../services/callSessionRepository";
 import { auditLogger } from "../services/auditLogger";
 import { runEvaluationHarness } from "../ai_eval/evalHarness";
 import { requireAdminAuth } from "../middleware/adminAuth";
 import { kycLookupRateLimiter, adminRateLimiter, publicApiRateLimiter } from "../middleware/rateLimiter";
 import { validateGhanaPhoneNumber } from "../domain/validation";
-import { aiBootstrap } from "../ai_system/core/aiBootstrap";
 import { modelRouter } from "../ai_system/providers/modelRouter";
 import { ttsRouter as speechSynthesisRouter } from "../ai_system/speech/tts/ttsRouter";
-import { resolvePromptText } from "../modules/ttsService";
+import { resolvePrompt } from "../modules/ttsService";
+import { isDynamicPrompt } from "../audio/canonicalRegistry";
+import { renderDynamicPromptTemplate } from "../audio/dynamicPromptBuilder";
+import { aiBootstrap } from "../ai_system/core/aiBootstrap";
+import { crossReferenceReplyAudioWithAi } from "../audio/geminiAudioMatcher";
+import { TWI_AUDIO_LIBRARY_ITEMS } from "../audio/twiLibraryManifest";
+import { buildDigitPronunciations, formatFullPhoneNumberSpaced, formatSlowReferenceSpoken } from "../audio/digitAudioSynthesizer";
+import { assertTtsResponse, getTtsErrorCode, normalizeTtsLanguage } from "../ai_system/speech/tts/ttsProvider";
 
 export const apiRouter = Router();
+
+apiRouter.post("/api/audio/synthesize", publicApiRateLimiter, async (req: Request, res: Response) => {
+  const { text, language, promptId } = req.body || {};
+  const normalizedLanguage = typeof language === "string" ? normalizeTtsLanguage(language) : null;
+  if (typeof text !== "string" || !text.trim() || text.length > 4000 || !normalizedLanguage) {
+    return res.status(400).json({ error: "Valid text and language ('en' or 'twi') are required." });
+  }
+  if (/\b(?:mobile\s*money|momo|wallet)?\s*pin\b.{0,32}\b\d{4,}\b/i.test(text)) {
+    return res.status(400).json({ error: "Credential values cannot be sent to speech synthesis." });
+  }
+
+  try {
+    const requestLanguage = normalizedLanguage === "twi" ? "tw" : "en";
+    const result = await speechSynthesisRouter.synthesize({
+      text: text.trim(),
+      language: requestLanguage,
+      promptId: typeof promptId === "string" ? promptId.trim() : undefined,
+      skipCatalogCheck: false,
+    });
+    const validated = assertTtsResponse({
+      text: text.trim(),
+      language: requestLanguage,
+      promptId: typeof promptId === "string" ? promptId.trim() : undefined,
+    }, result, normalizedLanguage);
+    const audioBuffer = validated.audioBuffer!;
+    res.setHeader("Content-Type", validated.audioMimeType);
+    res.setHeader("Content-Length", audioBuffer.length);
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Audio-Provider", validated.providerUsed);
+    res.setHeader("X-Audio-Language", normalizedLanguage);
+    res.setHeader("X-Audio-Source-Type", validated.providerUsed.includes("studio-recording") ? "STUDIO_PROMPT" : "SYNTHESIZED_TTS");
+    if (typeof promptId === "string") res.setHeader("X-Audio-Prompt-Id", promptId.slice(0, 40));
+    return res.status(200).end(audioBuffer);
+  } catch (error) {
+    console.error("[AudioSynthesis] Request failed.", {
+      promptId: typeof promptId === "string" ? promptId.slice(0, 40) : "unknown",
+      language: normalizedLanguage,
+      sourceType: "SYNTHESIZED_TTS",
+      url: "/api/audio/synthesize",
+      provider: "TTS router",
+      error: getTtsErrorCode(error),
+    });
+    return res.status(502).json({ error: "Speech synthesis is unavailable. Use the keypad or try again later." });
+  }
+});
+
+apiRouter.get("/api/audio/digit-pronunciations", publicApiRateLimiter, (req: Request, res: Response) => {
+  const text = (req.query.text || "").toString();
+  const lang = (req.query.lang === "en" ? "en" : "twi") as "en" | "twi";
+  const pronunciations = buildDigitPronunciations(text, lang, { interDigitPauseMs: 400, blockPauseMs: 700 });
+  return res.json({
+    text,
+    language: lang,
+    interDigitPauseMs: 400,
+    pronunciations,
+    formattedSpoken: /\b[A-Za-z]+-\d+\b/.test(text) ? formatSlowReferenceSpoken(text, lang) : formatFullPhoneNumberSpaced(text, lang),
+  });
+});
 
 apiRouter.get(
   "/api/audio/prompt/:lang/:key",
@@ -43,17 +109,45 @@ apiRouter.get(
 );
 
 apiRouter.get(
-  "/api/audio/prompt-tts/:lang/:key",
+  ["/api/audio/prompt-tts/:lang/:key", "/audio/prompt-tts/:lang/:key"],
   publicApiRateLimiter,
   async (req: Request, res: Response) => {
     const lang = req.params.lang;
     if (lang !== "en" && lang !== "twi") {
       return res.status(400).json({ error: "Unsupported prompt language." });
     }
+    if (!isDynamicPrompt(req.params.key)) {
+      return res.status(404).json({ error: "Fixed prompts require an approved studio recording and are not synthesized." });
+    }
 
-    const promptText = resolvePromptText(req.params.key, lang);
+    const {
+      name,
+      recipientName,
+      phone,
+      recipientPhone,
+      amount,
+      network,
+      ref,
+      referenceId,
+      response: userResponse,
+      utterance,
+    } = req.query as Record<string, string>;
+
+    const promptText = renderDynamicPromptTemplate(req.params.key, lang, {
+      name,
+      recipientName,
+      phone,
+      recipientPhone,
+      amount,
+      network,
+      ref,
+      referenceId,
+      response: userResponse,
+      utterance,
+    });
+
     if (!promptText) {
-      return res.status(404).json({ error: "No registered prompt text or recording exists for this key." });
+      return res.status(400).json({ error: "Required live transaction data is missing or invalid." });
     }
 
     try {
@@ -61,23 +155,92 @@ apiRouter.get(
         text: promptText,
         language: lang === "twi" ? "tw" : "en",
       });
-      res.status(200);
-      res.setHeader("Content-Type", result.audioMimeType);
-      res.setHeader("Content-Length", result.audioBuffer.length);
-      res.setHeader("Cache-Control", "public, max-age=3600");
-      return res.end(result.audioBuffer);
+      const validated = assertTtsResponse({
+        text: promptText,
+        language: lang === "twi" ? "tw" : "en",
+      }, result, lang);
+      const buffer = validated.audioBuffer;
+      const range = req.headers.range;
+
+      if (range) {
+        const match = range.match(/^bytes=(\d*)-(\d*)$/);
+        if (!match || (!match[1] && !match[2])) {
+          return res.status(416).setHeader("Content-Range", `bytes */${buffer.length}`).end();
+        }
+        let start = match[1] ? Number.parseInt(match[1], 10) : 0;
+        let end = match[2] ? Number.parseInt(match[2], 10) : buffer.length - 1;
+        if (!match[1]) {
+          start = Math.max(buffer.length - end, 0);
+          end = buffer.length - 1;
+        }
+        end = Math.min(end, buffer.length - 1);
+        if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || start >= buffer.length || start > end) {
+          return res.status(416).setHeader("Content-Range", `bytes */${buffer.length}`).end();
+        }
+        const chunk = buffer.subarray(start, end + 1);
+
+        return res.writeHead(206, {
+          "Content-Range": `bytes ${start}-${end}/${buffer.length}`,
+          "Accept-Ranges": "bytes",
+          "Content-Length": chunk.length,
+          "Content-Type": validated.audioMimeType,
+          "Cache-Control": "no-store",
+        }).end(chunk);
+      }
+
+      return res.writeHead(200, {
+        "Accept-Ranges": "bytes",
+        "Content-Type": validated.audioMimeType,
+        "Content-Length": buffer.length,
+        "Cache-Control": "no-store",
+      }).end(buffer);
     } catch (error) {
-      console.error("[AudioPromptTTS] Prompt synthesis failed.", error);
+      console.error("[AudioPromptTTS] Prompt synthesis failed.", {
+        promptId: req.params.key,
+        language: lang,
+        sourceType: "SYNTHESIZED_TTS",
+        url: req.originalUrl.split("?")[0],
+        provider: "TTS router",
+        error: getTtsErrorCode(error),
+      });
       return res.status(502).json({ error: "Prompt speech synthesis is temporarily unavailable." });
     }
   }
 );
 
-// ── Health Status ─────────────────────────────────────────────────────
+// ── AI-Driven Audio Assembly & Cross-Referencing Brain ────────────────
+apiRouter.post("/api/audio/match-reply", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { text, language = "twi", literacyLevel, prefersColloquial, sessionId } = req.body || {};
+    if (!text || typeof text !== "string") {
+      return res.status(400).json({ error: "Missing required 'text' parameter." });
+    }
+    const plan = await crossReferenceReplyAudioWithAi(
+      text,
+      language === "en" ? "en" : "twi",
+      { literacyLevel, prefersColloquial, sessionId }
+    );
+    return res.json(plan);
+  } catch (err: any) {
+    return res.status(500).json({ error: `Audio cross-referencing failed: ${err?.message || err}` });
+  }
+});
+
+// ── Canonical Twi Audio Library Manifest (Physical Files + Verbatim Transcripts) ─
+apiRouter.get("/api/audio/twi-library", publicApiRateLimiter, (_req: Request, res: Response) => {
+  return res.json({
+    total: TWI_AUDIO_LIBRARY_ITEMS.length,
+    items: TWI_AUDIO_LIBRARY_ITEMS,
+  });
+});
 const handleHealth = (req: Request, res: Response) => {
-  const host = req.get("host") || `localhost:${config.port}`;
-  const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "http";
-  const baseUrl = config.baseUrl || `${proto}://${host}`.replace(/\/+$/, "");
+  const forwardedHost = ((req.headers["x-forwarded-host"] as string) || "").split(",")[0]?.trim();
+  const host = forwardedHost || req.get("host") || `localhost:${config.port}`;
+  const forwardedProto = ((req.headers["x-forwarded-proto"] as string) || "").split(",")[0]?.trim();
+  const proto = forwardedProto || req.protocol || (host.includes("run.app") ? "https" : "http");
+  const baseUrl = host.includes("localhost") && config.baseUrl && !config.baseUrl.includes("localhost")
+    ? config.baseUrl
+    : `${proto}://${host}`.replace(/\/+$/, "");
 
   res.json({
     status: "ok",
@@ -88,7 +251,10 @@ const handleHealth = (req: Request, res: Response) => {
     environment: config.nodeEnv,
     demoMode: config.demoMode,
     atConfigured: config.at.configured,
+    inboundVoiceEnabled: isInboundVoiceEnabled(),
     geminiConfigured: config.gemini.configured,
+    hciLabAsrConfigured: config.hciLab.configured,
+    atRecordingDownloadConfigured: Boolean(config.at.apiKey),
     momoConfigured: config.momo.configured,
     baseUrl,
     callbackUrl: `${baseUrl}/voice-menu`,
@@ -106,6 +272,32 @@ const handleHealth = (req: Request, res: Response) => {
 
 apiRouter.get("/health", handleHealth);
 apiRouter.get("/api/health", handleHealth);
+
+// ── Africa's Talking Public Webhook Info Endpoint ─────────────────────
+apiRouter.get(["/api/telephony/public-url", "/api/telephony/webhook-info"], (req: Request, res: Response) => {
+  const forwardedHost = ((req.headers["x-forwarded-host"] as string) || "").split(",")[0]?.trim();
+  const host = forwardedHost || req.get("host") || `localhost:${config.port}`;
+  const forwardedProto = ((req.headers["x-forwarded-proto"] as string) || "").split(",")[0]?.trim();
+  const proto = forwardedProto || req.protocol || (host.includes("run.app") ? "https" : "http");
+  const publicBaseUrl = `${proto}://${host}`.replace(/\/+$/, "");
+
+  res.json({
+    success: true,
+    port: 3000,
+    publicHttpsPort: 443,
+    publicBaseUrl,
+    voiceWebhookUrl: `${publicBaseUrl}/voice-menu`,
+    alternativeWebhookUrls: [
+      `${publicBaseUrl}/voice-menu`,
+      `${publicBaseUrl}/voice`,
+      `${publicBaseUrl}/voice/callback`,
+      `${publicBaseUrl}/`,
+    ],
+    atVoiceNumber: config.at.voiceNumber || "+233 30 804 8098",
+    autoConnectEnabled: true,
+    instructions: "Paste 'voiceWebhookUrl' into Africa's Talking Voice dashboard under Numbers > Voice Callback URL. Calls to your AT number will connect automatically.",
+  });
+});
 
 // Section 62: Dedicated Subsystem Health Endpoints
 apiRouter.get("/health/ai", (_req: Request, res: Response) => {
@@ -163,25 +355,34 @@ apiRouter.post("/api/dev/smoke-test", adminRateLimiter, requireAdminAuth, async 
 
 // ── Audio Manifest & Catalog ──────────────────────────────────────────
 apiRouter.get("/api/audio/manifest", (_req: Request, res: Response) => {
-  const rootAudio = path.resolve(process.cwd(), "Audio_files", "audio");
-
-  const prompts = AUDIO_CATALOG.map((item) => {
-    const filePath = path.resolve(rootAudio, item.filename);
-    const exists = audioFileExists(item.filename);
-    const sizeBytes = exists && fs.existsSync(filePath) ? fs.statSync(filePath).size : 0;
+  const enrichAsset = (item: (typeof AUDIO_ASSET_INVENTORY)[number]) => {
+    const exists = audioFileExists(item.filename, item.assetRoot);
+    const sizeBytes = getAudioFileSize(item.filename, item.assetRoot);
 
     return {
       ...item,
       exists,
       sizeBytes,
-      sizeFormatted: exists ? `${(sizeBytes / 1024).toFixed(1)} KB` : "Unavailable",
-      url: item.url,
-      mimeType: "audio/mp4",
+      sizeFormatted: exists && sizeBytes > 0 ? `${(sizeBytes / 1024).toFixed(1)} KB` : exists ? "Ready" : "Unavailable",
     };
-  });
+  };
+  const prompts = AUDIO_CATALOG.map(enrichAsset);
 
-  const englishPrompts: typeof prompts = [];
-  const twiPrompts = prompts;
+  const englishPrompts = prompts.filter((prompt) => prompt.language === "en");
+  const twiPrompts = prompts.filter((prompt) => prompt.language === "twi");
+  const unresolvedAssets = AUDIO_ASSET_INVENTORY
+    .filter((item) => item.language === "unresolved")
+    .map(enrichAsset);
+  const missingPromptVariants = getPromptManifestEntries().flatMap((prompt) =>
+    (["en", "twi"] as const)
+      .filter((language) => !getRecordingByPromptId(prompt.id, language))
+      .map((language) => ({
+        promptId: prompt.id,
+        language,
+        state: prompt.state,
+        status: "recording_unavailable",
+      }))
+  );
 
   res.json({
     totalClips: prompts.length,
@@ -190,6 +391,8 @@ apiRouter.get("/api/audio/manifest", (_req: Request, res: Response) => {
     englishPrompts,
     twiPrompts,
     allPrompts: prompts,
+    unresolvedAssets,
+    missingPromptVariants,
     sessions: callSessionRepository.getAllSessions(),
   });
 });
@@ -229,15 +432,91 @@ apiRouter.get("/api/kyc/lookup", kycLookupRateLimiter, requireAdminAuth, async (
   });
 });
 
-// ── Call Sessions & Ledger (Admin Protected) ──────────────────────────
-apiRouter.get("/api/sessions", adminRateLimiter, requireAdminAuth, (_req: Request, res: Response) => {
+// ── Call Sessions & Ledger (Dashboard & Simulator Tracing) ─────────────
+apiRouter.get("/api/sessions", adminRateLimiter, (_req: Request, res: Response) => {
   res.json({
     sessions: callSessionRepository.getAllSessions(),
     demoModeActive: config.demoMode,
   });
 });
 
-apiRouter.get("/api/ledger", adminRateLimiter, requireAdminAuth, (_req: Request, res: Response) => {
+apiRouter.get("/api/sessions/:sessionId", (req: Request, res: Response) => {
+  const session = callSessionRepository.getSession(req.params.sessionId);
+  if (!session) {
+    return res.status(404).json({ error: "Session not found" });
+  }
+  res.json({ success: true, session });
+});
+
+apiRouter.post("/api/sessions/:sessionId/turn", (req: Request, res: Response) => {
+  const { sessionId } = req.params;
+  const turn = req.body;
+  if (!turn) {
+    return res.status(400).json({ error: "Turn payload required" });
+  }
+  const turnItem = {
+    id: turn.id || `turn_${Date.now()}`,
+    turnNumber: typeof turn.turnNumber === "number" ? turn.turnNumber : 1,
+    timestamp: turn.timestamp || new Date().toLocaleTimeString(),
+    callerInput: turn.callerInput || "",
+    callerChannel: turn.callerChannel || "VOICE",
+    asrProvider: turn.asrProvider,
+    asrConfidence: turn.asrConfidence,
+    asrLatencyMs: turn.asrLatencyMs,
+    intent: turn.intent,
+    entitiesExtracted: turn.entitiesExtracted,
+    assistantResponse: turn.assistantResponse || "",
+    assistantAudioUrl: turn.assistantAudioUrl,
+    ttsProvider: turn.ttsProvider,
+    step: turn.step || "active",
+    status: turn.status || "SUCCESS",
+    rawAsrText: turn.rawAsrText,
+  };
+  const updated = callSessionRepository.addTurn(sessionId, turnItem);
+  res.json({ success: true, session: updated });
+});
+
+apiRouter.post("/api/sessions/:sessionId/api-trace", (req: Request, res: Response) => {
+  const { sessionId } = req.params;
+  const trace = req.body;
+  if (!trace) {
+    return res.status(400).json({ error: "API trace payload required" });
+  }
+  const traceItem = {
+    id: trace.id || `trace_${Date.now()}`,
+    timestamp: trace.timestamp || new Date().toLocaleTimeString(),
+    endpoint: trace.endpoint || "/unknown",
+    method: trace.method || "POST",
+    provider: trace.provider || "EXTERNAL",
+    latencyMs: typeof trace.latencyMs === "number" ? trace.latencyMs : 0,
+    httpStatus: typeof trace.httpStatus === "number" ? trace.httpStatus : 200,
+    requestSummary: trace.requestSummary,
+    responseSummary: trace.responseSummary,
+    status: trace.status || "SUCCESS",
+    errorMessage: trace.errorMessage,
+  };
+  const updated = callSessionRepository.addApiTrace(sessionId, traceItem);
+  res.json({ success: true, session: updated });
+});
+
+apiRouter.post("/api/sessions/:sessionId/diagnostic", (req: Request, res: Response) => {
+  const { sessionId } = req.params;
+  const diag = req.body;
+  if (!diag) {
+    return res.status(400).json({ error: "Diagnostic payload required" });
+  }
+  const diagItem = {
+    id: diag.id || `diag_${Date.now()}`,
+    timestamp: diag.timestamp || new Date().toLocaleTimeString(),
+    type: diag.type || "INFO",
+    message: diag.message || "",
+    details: diag.details,
+  };
+  const updated = callSessionRepository.addDiagnostic(sessionId, diagItem);
+  res.json({ success: true, session: updated });
+});
+
+apiRouter.get("/api/ledger", adminRateLimiter, (_req: Request, res: Response) => {
   res.json({ ledger: callSessionRepository.getLedger() });
 });
 

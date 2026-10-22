@@ -15,8 +15,8 @@ import { formatSpokenNumbersAsDigits } from "../../../domain/numberFormatter";
 
 export interface AsrTranscriptionResult {
   text: string;
-  confidence: number;
-  confidenceSource?: "MODEL_HEURISTIC" | "CALIBRATED_PROBABILITY" | "DTMF_HARDWARE" | "VAD_SILENCE" | "STUDIO_CATALOG_MATCH" | "GHANAIAN_ACOUSTIC_TEMPLATE";
+  confidence: number | null;
+  confidenceSource?: "MODEL_HEURISTIC" | "CALIBRATED_PROBABILITY" | "PROVIDER_UNREPORTED" | "DTMF_HARDWARE" | "VAD_SILENCE" | "STUDIO_CATALOG_MATCH" | "GHANAIAN_ACOUSTIC_TEMPLATE";
   detectedLanguage: AiLanguage;
   speechActivityDetected: boolean;
   durationMs: number;

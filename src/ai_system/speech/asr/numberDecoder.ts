@@ -14,6 +14,7 @@ import {
   normalizeAkanToken,
 } from '../../linguistic/numberLexicon';
 import { convertNumberToTwiWords } from '../../linguistic/twiNumberWords';
+import { normalizeGhanaPhoneNumber } from '../../../domain/validation';
 
 export interface DecodedNumberResult {
   raw: string;
@@ -41,11 +42,32 @@ export class GhanaianNumberDecoder {
   public decode(input: string): DecodedNumberResult {
     const text = input.toLowerCase().trim();
 
-    // 1. Check for Pure Phone Number Pattern (e.g. "0553838464", "055-383-8464" with no letter words)
+    // PIN-like values are credentials, never financial amounts or contact numbers.
+    if (/\b(?:pin|passcode|password)\b/i.test(text)) {
+      return {
+        raw: input,
+        value: null,
+        numericValue: null,
+        ambiguous: false,
+        candidates: [],
+        isPhoneNumber: false,
+        isCurrencyAmount: false,
+        confidence: 0.0,
+      };
+    }
+
+    // 1. Check for Pure Phone Number Pattern (e.g. "0553838464", "233554848756", "055-383-8464" with no letter words)
     const phoneDigitMatch = text.replace(/[^0-9]/g, "");
     const letterTokensCount = text.replace(/[^a-zA-ZɛɔƐƆ]/g, "").length;
 
-    if (/^0[235][0-9]{8}$/.test(phoneDigitMatch) && letterTokensCount === 0) {
+    const isPurePhone =
+      letterTokensCount === 0 &&
+      (/^0[235][0-9]{8}$/.test(phoneDigitMatch) ||
+        /^233[235][0-9]{8}$/.test(phoneDigitMatch) ||
+        (/^[235][0-9]{8}$/.test(phoneDigitMatch) && phoneDigitMatch.length === 9));
+
+    if (isPurePhone) {
+      const normalizedPhone = normalizeGhanaPhoneNumber(phoneDigitMatch);
       return {
         raw: input,
         value: null,
@@ -53,17 +75,19 @@ export class GhanaianNumberDecoder {
         ambiguous: false,
         candidates: [],
         isPhoneNumber: true,
-        phoneNumberDigits: phoneDigitMatch,
+        phoneNumberDigits: normalizedPhone,
         isCurrencyAmount: false,
         confidence: 0.99,
       };
     }
 
-    // Extract any phone number present in mixed text
+    // Extract any phone number present in mixed text (supporting 0[235]..., 233[235]..., and 9-digit [235]...)
     let embeddedPhoneNumber: string | undefined;
-    const phoneRegexMatch = text.match(/\b(0[235]\d{8})\b/);
+    let matchedPhoneRaw: string | undefined;
+    const phoneRegexMatch = text.match(/\b(233[235]\d{8}|0[235]\d{8}|[235]\d{8})\b/);
     if (phoneRegexMatch) {
-      embeddedPhoneNumber = phoneRegexMatch[1];
+      matchedPhoneRaw = phoneRegexMatch[1];
+      embeddedPhoneNumber = normalizeGhanaPhoneNumber(matchedPhoneRaw);
     }
 
     // 2. Check for Spoken Ghanaian Phone Sequence ("zero five five..." or "hwee num num...")
@@ -119,7 +143,55 @@ export class GhanaianNumberDecoder {
 
     // 3. Check for Direct Digits (e.g. "50 cedis", "100 GHS")
     // Remove the embedded phone number so phone digits aren't treated as currency amounts
-    const textWithoutPhone = embeddedPhoneNumber ? text.replace(embeddedPhoneNumber, ' ') : text;
+    let textWithoutPhone = text;
+    if (matchedPhoneRaw) textWithoutPhone = textWithoutPhone.replace(matchedPhoneRaw, ' ');
+    if (embeddedPhoneNumber) textWithoutPhone = textWithoutPhone.replace(embeddedPhoneNumber, ' ');
+
+    const cedisAndPesewas = textWithoutPhone.match(
+      /(.+?)\s+(?:cedis?|ghs)\s+(?:(?:and|ne)\s+)?(.+?)\s+(?:pesewas?|pese|kaprɛ)\b/i
+    ) || textWithoutPhone.match(
+      /\bsidi\s+(.+?)\s+(?:and|ne)\s+(.+?)\s+(?:pesewas?|pese|kaprɛ)\b/i
+    );
+    if (cedisAndPesewas) {
+      const cedis = this.parseAmountComponent(cedisAndPesewas[1]);
+      const pesewas = this.parseAmountComponent(cedisAndPesewas[2]);
+      if (cedis !== null && pesewas !== null && cedis >= 0 && pesewas >= 0 && pesewas < 100) {
+        const amount = Math.round((cedis + pesewas / 100) * 100) / 100;
+        return {
+          raw: input,
+          value: amount,
+          numericValue: amount,
+          ambiguous: false,
+          candidates: [amount],
+          isPhoneNumber: Boolean(embeddedPhoneNumber),
+          phoneNumberDigits: embeddedPhoneNumber,
+          isCurrencyAmount: true,
+          currency: "GHS",
+          confidence: 0.95,
+        };
+      }
+    }
+
+    const pesewasOnly = textWithoutPhone.match(/(.+?)\s+(?:pesewas?|pese|kaprɛ)\b/i);
+    if (pesewasOnly) {
+      const pesewas = this.parseAmountComponent(pesewasOnly[1]);
+      if (pesewas !== null && pesewas > 0 && pesewas < 100) {
+        const amount = Math.round(pesewas) / 100;
+        return {
+          raw: input,
+          value: amount,
+          numericValue: amount,
+          ambiguous: false,
+          candidates: [amount],
+          isPhoneNumber: Boolean(embeddedPhoneNumber),
+          phoneNumberDigits: embeddedPhoneNumber,
+          isCurrencyAmount: true,
+          currency: "GHS",
+          confidence: 0.95,
+        };
+      }
+    }
+
     // Prefer explicit currency-tagged number (e.g. "40 cedis" over untagged meter number "123456")
     const currencyTaggedMatch = textWithoutPhone.match(/\b(\d+(?:\.\d+)?)\s*(?:cedis?|ghs|sidi|pesewas?)\b/i);
     const digitAmountMatch = currencyTaggedMatch || textWithoutPhone.match(/(\d+(?:\.\d+)?)\s*(?:cedis?|ghs|sidi|pesewas?)?/i);
@@ -297,6 +369,14 @@ export class GhanaianNumberDecoder {
       }
     }
     return sum;
+  }
+
+  private parseAmountComponent(phrase: string): number | null {
+    const digitMatch = phrase.match(/\b(\d+(?:\.\d+)?)\b/);
+    if (digitMatch) return Number(digitMatch[1]);
+
+    const parsed = this.parseSpokenNumber(phrase.split(/\s+/).filter(Boolean));
+    return parsed.ambiguous ? null : parsed.value;
   }
 
   private parseEnglishSpoken(tokens: string[]): number | null {

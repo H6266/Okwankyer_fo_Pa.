@@ -42,6 +42,12 @@ const NAV_ITEMS = [
     icon: Smartphone,
     badge: "NEW",
   },
+  {
+    path: "/dashboard/audio-flow",
+    label: "🎵 Audio Flow Studio",
+    icon: FileAudio,
+    badge: "ASSIGN",
+  },
   { path: "/dashboard/settings", label: "⚙ Settings", icon: Settings },
 ];
 

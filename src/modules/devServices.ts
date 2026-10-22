@@ -144,6 +144,7 @@ export function generateVoiceXmlStep(
     3: "enter_recipient",
     4: "recipient_verify",
     5: "enter_amount",
+    7: "pin_handoff",
   };
   const promptKey = promptKeyByStep[stepNumber];
   const audioPath = promptKey ? resolvePrompt(promptKey, language) : null;
@@ -267,7 +268,7 @@ export function generateVoiceXmlStep(
       return {
         stepNumber: 7,
         stepName: "7. Zero-PIN Security Boundary & Handset Handoff",
-        promptAudioUrl: "",
+        promptAudioUrl: audioUrl,
         inputWindowSec: 45, // Waiting for telco USSD prompt on screen
         dtmfGrammar: ["NONE (Microphone completely muted; PIN entered strictly on screen)"],
         zeroPinMuted: true,
@@ -277,6 +278,7 @@ export function generateVoiceXmlStep(
   <!-- Call audio never asks for PIN. Telephony microphones muted. -->
   <!-- Out-of-band telco USSD payment prompt pushed directly to mobile screen. -->
   <!-- Redirect to poll payment status without taking voice input -->
+  ${promptContent}
   <Redirect>${baseUrl}/safe-outcome?ref=OKP-PENDING</Redirect>
 </Response>`,
       };

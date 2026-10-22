@@ -33,7 +33,7 @@ describe("Continuous voice audio resampling", () => {
 
   it("finalizes short utterances after the configured speech and silence thresholds", () => {
     expect(DEFAULT_VAD_CONFIG.ASR_MIN_SPEECH_MS).toBe(300);
-    expect(DEFAULT_VAD_CONFIG.ASR_END_SILENCE_MS).toBe(750);
+    expect(DEFAULT_VAD_CONFIG.ASR_END_SILENCE_MS).toBe(1200);
     expect(DEFAULT_VAD_CONFIG.ASR_MAX_UTTERANCE_MS).toBe(30000);
 
     const vad = new AdaptiveStreamingVad();

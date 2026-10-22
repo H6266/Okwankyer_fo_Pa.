@@ -26,6 +26,9 @@ import { durableIdempotencyLedger } from "../../services/durableIdempotencyLedge
 import { truthEngine } from "../../ai_system/core/truthEngine";
 import { financialPolicy } from "../../ai_system/core/financialPolicy";
 import { momoEngine } from "./momoEngine";
+import { telecelEngine } from "../telecel";
+import { ChecklistStageManager } from "../../domain/checklistPipeline";
+import { transactionStateMachine } from "../../domain/stateMachine";
 
 export type SagaState =
   | "DRAFT"
@@ -63,6 +66,7 @@ export interface SagaProviderEvidence {
 
 export interface SagaTransaction {
   sagaId: string;
+  sessionId?: string;
   idempotencyKey: string;
   senderPhone: string;
   recipientPhone: string;
@@ -147,6 +151,7 @@ export class PaymentSagaOrchestrator {
   }
 
   public createDraft(params: {
+    sessionId?: string;
     senderPhone: string;
     recipientPhone: string;
     amount: number;
@@ -284,6 +289,7 @@ export class PaymentSagaOrchestrator {
 
     const saga: SagaTransaction = {
       sagaId,
+      sessionId: params.sessionId,
       idempotencyKey,
       senderPhone:
         params.senderPhone,
@@ -479,6 +485,13 @@ export class PaymentSagaOrchestrator {
       );
     }
 
+    if (saga.sessionId) {
+      const session = transactionStateMachine.getSession(saga.sessionId);
+      if (session) {
+        ChecklistStageManager.assertCanInitiate(session);
+      }
+    }
+
     saga.state =
       "CONFIRMED";
 
@@ -503,6 +516,13 @@ export class PaymentSagaOrchestrator {
       throw new Error(
         `Invalid saga transition from ${saga.state}.`
       );
+    }
+
+    if (saga.sessionId) {
+      const session = transactionStateMachine.getSession(saga.sessionId);
+      if (session) {
+        ChecklistStageManager.assertCanInitiate(session);
+      }
     }
 
     if (
@@ -1002,7 +1022,7 @@ export class PaymentSagaOrchestrator {
 
   public getLatestSagaForSession(sessionId: string): SagaTransaction | undefined {
     const all = durableTransactionStore.getAllSagas();
-    return all.slice().reverse().find((s) => s.idempotencyKey.startsWith(`${sessionId}:`) || (s as any).sessionId === sessionId);
+    return all.find((s) => s.sessionId === sessionId);
   }
 
   /**
@@ -1068,8 +1088,17 @@ export class PaymentSagaOrchestrator {
       };
     }
 
-    // 2. Create and transition saga through authoritative pre-provider gates
+    // 2. Enforce 9-Stage Checklist Gate: verify prerequisites before initiating saga
+    if (params.sessionId) {
+      const session = transactionStateMachine.getSession(params.sessionId);
+      if (session) {
+        ChecklistStageManager.assertCanInitiate(session);
+      }
+    }
+
+    // Create and transition saga through authoritative pre-provider gates
     const draft = existing || this.createDraft({
+      sessionId: params.sessionId,
       senderPhone,
       recipientPhone,
       amount,
@@ -1081,7 +1110,75 @@ export class PaymentSagaOrchestrator {
     this.requestConfirmation(draft.sagaId);
     const confirmedSaga = this.confirm(draft.sagaId);
 
-    // 3. Check sandbox credentials
+    // 3. Telecel Cash Execution Path
+    if (network === "Telecel") {
+      const mode = telecelEngine.isConfigured() ? "REAL_MTN_SANDBOX" : "MOCK_PROVIDER";
+      confirmedSaga.mode = mode as any;
+      try {
+        const telTx = await telecelEngine.requestToPay({
+          amount,
+          payerPhone: senderPhone,
+          payerName: params.recipientName || "Telecel Subscriber",
+          payerMessage: `Transfer of GH₵${amount} to ${params.recipientName || recipientPhone}`,
+          payeeNote: `Ɔkwankyerɛfo Pa Voice Telecel Transfer to ${recipientPhone}`,
+          externalId: confirmedSaga.sagaId,
+        });
+
+        this.markRequestToPaySent(confirmedSaga.sagaId, telTx.referenceId, {
+          provider: "Telecel",
+          httpStatus: 202,
+          providerStatus: telTx.status === "SUCCESSFUL" ? "SUCCESSFUL" : "PENDING",
+          referenceId: telTx.referenceId,
+          financialTransactionId: telTx.financialTransactionId,
+        });
+
+        if (telTx.status === "SUCCESSFUL") {
+          this.recordCollectionResult(confirmedSaga.sagaId, {
+            status: "SUCCESSFUL",
+            provider: "Telecel",
+            referenceId: telTx.referenceId,
+            financialTransactionId: telTx.financialTransactionId || `TEL-FTX-${Date.now()}`,
+            httpStatus: 200,
+          });
+
+          // Leg 2: Telecel Disbursement Payout
+          const disbTx = await telecelEngine.transfer({
+            amount,
+            payeePhone: recipientPhone,
+            payeeName: params.recipientName,
+            payerMessage: `Transfer from ${senderPhone}`,
+            payeeNote: `Payout to ${recipientPhone}`,
+            externalId: `payout_${confirmedSaga.sagaId}`,
+          });
+
+          this.initiateDisbursement(confirmedSaga.sagaId, disbTx.referenceId, {
+            provider: "Telecel",
+            providerStatus: disbTx.status === "SUCCESSFUL" ? "SUCCESSFUL" : "PENDING",
+            httpStatus: 200,
+            financialTransactionId: disbTx.financialTransactionId,
+          });
+
+          if (disbTx.status === "SUCCESSFUL" && disbTx.financialTransactionId) {
+            this.finalizeDisbursement(confirmedSaga.sagaId, true, undefined, disbTx.financialTransactionId);
+          }
+        }
+      } catch (err: any) {
+        this.recordCollectionResult(confirmedSaga.sagaId, {
+          status: "FAILED",
+          provider: "Telecel",
+          reason: err.message,
+        });
+      }
+
+      return {
+        saga: confirmedSaga,
+        status: confirmedSaga.state === "COMPLETED" ? "COMPLETED" : confirmedSaga.state === "COLLECTION_FAILED" ? "FAILED" : "PENDING",
+        mode: confirmedSaga.mode || "MOCK_PROVIDER",
+        reconciliationNotice: confirmedSaga.reconciliationNotice,
+      };
+    }
+
+    // 4. MTN MoMo Execution Path
     const hasRealCredentials = momoEngine.isConfigured("collection");
 
     if (hasRealCredentials) {

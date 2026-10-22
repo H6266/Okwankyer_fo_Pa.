@@ -60,7 +60,7 @@ This document provides a comprehensive inventory of every HTTP and WebSocket rou
 ## 2. Authentication Enforcement Mechanisms
 
 1. **Africa's Talking Webhooks (`verifyAtWebhook`)**:
-   - Compares the `x-at-signature` or query parameter against `AT_WEBHOOK_SECRET` using `crypto.timingSafeEqual`.
+   - Compares the `x-at-webhook-secret` header or `secret` query parameter against `AT_WEBHOOK_SECRET` using `crypto.timingSafeEqual`.
    - In production (`NODE_ENV=production`), missing or mismatched credentials immediately return `401 Unauthorized` with logged security alert.
    - In development, an explicit warning is logged if the dev bypass is active.
 

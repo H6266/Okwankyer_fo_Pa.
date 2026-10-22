@@ -10,6 +10,9 @@
  */
 
 import { geminiClient } from "../../services/geminiClient";
+import { reasoningEngine } from "../understanding/reasoningEngine";
+import { localLanguageBrain } from "./LocalLanguageBrain";
+import { groqReasoner } from "../../services/groq/groqReasoner";
 
 export type CognitiveCapability =
   | "LOCAL_NLU"
@@ -57,7 +60,7 @@ export class ModelRouter {
   private readonly FAILURE_THRESHOLD = 3;
   private readonly COOLDOWN_DURATION_MS = 60 * 1000; // 60s cooldown
 
-  constructor(registerDefaults: boolean = !Boolean(process.env.VITEST)) {
+  constructor(registerDefaults: boolean = true) {
     if (registerDefaults) {
       this.registerDefaultProviders();
     }
@@ -79,7 +82,7 @@ export class ModelRouter {
   }
 
   private registerDefaultProviders(): void {
-    // 1. Gemini Cloud Reasoning Provider (Tier 1 for complex semantic reasoning when available)
+    // 1. Gemini API is the first content path for semantic reasoning when available.
     this.register({
       id: "gemini_reasoning",
       name: "Gemini 3.8 Flash Cloud Reasoning",
@@ -106,7 +109,79 @@ export class ModelRouter {
       },
     });
 
-    // 2. Gemini Cloud TTS Provider
+    // 2. Groq AI Cloud Reasoning: fallback after Gemini (priority 15)
+    this.register({
+      id: "groq_reasoning",
+      name: "Groq AI LPU Cloud Reasoning",
+      isLocal: false,
+      capabilities: new Set(["GEMINI_REASONING"]),
+      priority: 15,
+      timeoutMs: 3000,
+      isAvailable: () => groqReasoner.isAvailable(),
+      execute: async (payload) => {
+        const languageHint = String(payload?.languageHint || "en").toLowerCase();
+        const targetLanguage = ["tw", "twi", "ak", "en-ak", "mixed-twi-en"].includes(languageHint)
+          ? "twi-asante"
+          : "en";
+        const res = await groqReasoner.reasonForBrain(
+          payload?.utterance || payload?.prompt || "",
+          payload?.existingSlots || {},
+          3000,
+          {
+            targetLanguage,
+            currentStep: payload?.currentStep,
+            transactionState: payload?.transactionState,
+            recipientVerified: payload?.recipientVerified,
+          }
+        );
+        if (!res) throw new Error("Groq reasoning yielded no result");
+        return res;
+      },
+    });
+
+    // 4. Deterministic local reasoning is the safety fallback when cloud LLMs fail.
+    this.register({
+      id: "deterministic_reasoning",
+      name: "Deterministic Ghanaian Reasoning",
+      isLocal: true,
+      capabilities: new Set(["GEMINI_REASONING"]),
+      priority: 30,
+      timeoutMs: 800,
+      isAvailable: () => true,
+      execute: async (payload) => {
+        const utterance = payload?.utterance || payload?.prompt || "";
+        const response = reasoningEngine.deterministicReasoning({
+          utterance,
+          languageHint: payload?.languageHint || "en",
+          currentScreen: payload?.currentScreen || "HOME",
+          currentStep: payload?.currentStep || "welcome",
+          existingSlots: payload?.existingSlots || {},
+        });
+        return response;
+      },
+    });
+
+    // 5. Built-in local brain remains the final in-house fallback.
+    this.register({
+      id: "local_language_brain",
+      name: "Local Inbuilt Language Brain",
+      isLocal: true,
+      capabilities: new Set(["GEMINI_REASONING"]),
+      priority: 35,
+      timeoutMs: 1000,
+      isAvailable: () => true,
+      execute: async (payload) => {
+        const text = payload?.utterance || payload?.prompt || "";
+        return localLanguageBrain.understand({
+          text,
+          language: payload?.languageHint || "en",
+          previousSlots: payload?.existingSlots || {},
+          currentStep: payload?.currentStep || "welcome",
+        });
+      },
+    });
+
+    // Gemini Cloud TTS Provider
     this.register({
       id: "gemini_tts",
       name: "Gemini Cloud Voice Synthesis",
@@ -232,7 +307,10 @@ export class ModelRouter {
     const report: ProviderHealth[] = [];
     const now = Date.now();
 
-    for (const [id, provider] of this.providers.entries()) {
+    const orderedProviders = Array.from(this.providers.entries()).sort(
+      ([, left], [, right]) => left.priority - right.priority
+    );
+    for (const [id, provider] of orderedProviders) {
       const cb = this.circuitBreakers.get(id);
       const failures = this.failureCounts.get(id) || 0;
       const successes = this.successCounts.get(id) || 0;

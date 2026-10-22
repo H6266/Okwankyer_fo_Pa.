@@ -8,13 +8,13 @@
  * 4c. Bind approval to content hash; edit after approval -> refused
  * 4d. Idempotency: replayed "aane", retried DTMF 1, redial -> exactly one payment
  * 4e. Live voice route: webhook calls brain.process; on error/timeout -> safe prompt & DTMF
- * 4f. Interim Twi path: 26 studio prompts mapped with placeholder reviewer; amounts stay on keypad
+ * 4f. Canonical audio inventory and reviewed template placeholders; amounts stay on keypad
  * 4g. Model config: production refuses to start without GEMINI_MODEL
  * 4h. Evaluation set: evalTranscripts.json validation
  * 4i. Not-ready taxonomy entries: buy data, reverse transaction, customer care, loan
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import fs from 'fs';
@@ -28,9 +28,10 @@ import { durableIdempotencyLedger } from '../src/services/durableIdempotencyLedg
 import { durableTransactionStore } from '../src/services/durableTransactionStore';
 import { summarizeShadowDisagreements } from '../scripts/summarize_shadow_disagreements';
 import { voiceRouter } from '../src/routes/voiceRoutes';
+import * as sttService from '../src/modules/sttService';
 import { TWI_INTENT_KEYWORDS } from '../src/ai_system/linguistic/twiLexicon';
 import { formatAmountAsSpokenWords, numberConfig } from '../src/ai_system/linguistic/twiNumberWords';
-import { AUDIO_CATALOG } from '../src/audio/catalog';
+import { AUDIO_ASSET_INVENTORY, AUDIO_CATALOG } from '../src/audio/catalog';
 
 describe('Phase 4: Readiness Hardening', () => {
 
@@ -330,15 +331,23 @@ describe('Phase 4: Readiness Hardening', () => {
     app.use(voiceRouter);
 
     it("Africa's Talking webhook invokes brain.process on speech callback", async () => {
+      const processBrain = vi.spyOn(brain, 'process');
       const res = await request(app)
-        .post('/speech-fallback?step=language-selection&sessionId=sess_voice_test_01')
+        .post('/speech-fallback?step=service-select&sessionId=sess_voice_test_01&lang=en')
+        .type('form')
         .send({
-          recordingUrl: 'https://storage.mock.gh/voice_input_01.wav',
+          speechText: 'I want to send 500 cedis to 0241234567',
         });
 
       expect(res.status).toBe(200);
       expect(res.text).toContain('<Response>');
-      expect(res.text).toContain('sessionId=sess_voice_test_01');
+      expect(processBrain).toHaveBeenCalledWith(expect.objectContaining({
+        transcript: 'I want to send 500 cedis to 0241234567',
+        sessionId: 'sess_voice_test_01',
+        forceModel: true,
+      }));
+      expect(res.text).toContain('/verify-recipient');
+      processBrain.mockRestore();
     });
 
     it('on brain error or timeout, plays safe prompt and offers DTMF keypad input', async () => {
@@ -354,12 +363,166 @@ describe('Phase 4: Readiness Hardening', () => {
       // Offers keypad input
       expect(res.text).toMatch(/GetDigits|enter-amount/);
     });
+
+    it("accepts Africa's Talking recordingUrl and forwards the selected language to STT", async () => {
+      const transcribe = vi.spyOn(sttService, 'speechToText').mockResolvedValue({
+        text: 'aduonum cedis',
+        confidence: 0.9,
+        confidenceSource: 'provider',
+        languageDetected: 'twi',
+        provider: 'test-asr',
+      });
+
+      try {
+        const res = await request(app)
+          .post('/speech-fallback?step=enter-amount&sessionId=sess_at_recording_url&lang=twi')
+          .type('form')
+          .send({ recordingUrl: 'https://recordings.example.invalid/call.wav' });
+
+        expect(res.status).toBe(200);
+        expect(transcribe).toHaveBeenCalledWith(
+          'https://recordings.example.invalid/call.wav',
+          undefined,
+          'enter-amount',
+          'twi'
+        );
+        expect(res.text).not.toContain('/Please_respond.mp3');
+      } finally {
+        transcribe.mockRestore();
+      }
+    });
+
+    it('does not route a lowercase query recordingUrl through empty-input recovery', async () => {
+      const transcribe = vi.spyOn(sttService, 'speechToText').mockResolvedValue({
+        text: 'aduonum cedis',
+        confidence: 0.9,
+        confidenceSource: 'provider',
+        languageDetected: 'twi',
+        provider: 'test-asr',
+      });
+
+      try {
+        const res = await request(app)
+          .get('/speech-fallback?step=enter-amount&sessionId=sess_at_query_recording&lang=twi&recordingUrl=https%3A%2F%2Frecordings.example.invalid%2Fcall.wav');
+
+        expect(res.status).toBe(200);
+        expect(transcribe).toHaveBeenCalledWith(
+          'https://recordings.example.invalid/call.wav',
+          undefined,
+          'enter-amount',
+          'twi'
+        );
+        expect(res.text).not.toContain('/Please_respond.mp3');
+      } finally {
+        transcribe.mockRestore();
+      }
+    });
+
+    it('opens recording directly after language timeout and routes an ASR transcript of 2 to Twi', async () => {
+      const sessionId = 'sess_at_spoken_language_choice';
+      await request(app)
+        .post('/voice-menu')
+        .type('form')
+        .send({ sessionId, callerNumber: '0241234567', lang: 'en', isActive: '1' });
+
+      const captureRes = await request(app)
+        .post(`/language-selection?sessionId=${sessionId}&lang=en`)
+        .type('form')
+        .send({ sessionId, lang: 'en' });
+      expect(captureRes.text).not.toContain('<GetDigits');
+      expect(captureRes.text).toContain('<Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="15" timeout="8"');
+      expect(captureRes.text).toContain(`/speech-fallback?step=language-selection&amp;sessionId=${sessionId}&amp;lang=en&amp;retry=0`);
+
+      const transcribe = vi.spyOn(sttService, 'speechToText').mockResolvedValue({
+        text: '2',
+        confidence: 0.95,
+        confidenceSource: 'provider',
+        languageDetected: 'en',
+        provider: 'test-asr',
+      });
+
+      try {
+        const speechRes = await request(app)
+          .post(`/speech-fallback?step=language-selection&sessionId=${sessionId}&lang=en`)
+          .type('form')
+          .send({ recordingUrl: 'https://recordings.example.invalid/language-choice.wav' });
+        expect(transcribe).toHaveBeenCalledWith(
+          'https://recordings.example.invalid/language-choice.wav',
+          undefined,
+          'language-selection',
+          'en'
+        );
+        expect(speechRes.text).toContain(`/language-selection?sessionId=${sessionId}&amp;dtmfDigits=2`);
+
+        const languageRes = await request(app)
+          .post(`/language-selection?sessionId=${sessionId}`)
+          .type('form')
+          .send({ sessionId, dtmfDigits: '2' });
+        expect(languageRes.text).toContain(`/service-select?sessionId=${sessionId}&amp;lang=twi`);
+      } finally {
+        transcribe.mockRestore();
+      }
+    });
+
+    it("plays verified Twi welcome audio and starts speech recording after a short keypad window", async () => {
+      const res = await request(app)
+        .post('/voice-menu')
+        .type('form')
+        .send({
+          sessionId: 'sess_at_twi_welcome_audio',
+          callerNumber: '0241234567',
+          lang: 'twi',
+          isActive: '1',
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('<Play url="http://');
+      expect(res.text).toContain('/audio/Twi/Opening_voice_welcome_to_okwankyerefopa.mp3?format=mp3');
+      expect(res.text).toContain('<GetDigits timeout="5"');
+      expect(res.text).toContain('<Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="15" timeout="8"');
+      expect(res.text).toContain('step=language-selection&amp;sessionId=sess_at_twi_welcome_audio&amp;lang=twi&amp;retry=0');
+    });
+
+    it('starts speech capture after the service prompt while preserving its keypad callback', async () => {
+      const res = await request(app)
+        .post('/service-select?sessionId=sess_at_dtmf_only&lang=twi')
+        .type('form')
+        .send({ sessionId: 'sess_at_dtmf_only', lang: 'twi' });
+
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('<GetDigits timeout="5"');
+      expect(res.text).toContain('callbackUrl="http://127.0.0.1:');
+      expect(res.text).toContain('/speech-fallback?step=service-select&amp;sessionId=sess_at_dtmf_only&amp;lang=twi');
+      expect(res.text.indexOf('</GetDigits>')).toBeLessThan(res.text.indexOf('<Record'));
+    });
+
+    it('never enables voice recording during provider PIN authorization', async () => {
+      const res = await request(app)
+        .post('/enter-pin?sessionId=sess_at_pin_handoff&lang=twi')
+        .type('form')
+        .send({ sessionId: 'sess_at_pin_handoff', lang: 'twi' });
+
+      expect(res.status).toBe(200);
+      expect(res.text).not.toContain('<Record');
+    });
+
+    it('replays the approved service menu recording without a duplicate TTS line', async () => {
+      const res = await request(app)
+        .post('/service-choice?sessionId=sess_at_invalid_choice&lang=en')
+        .type('form')
+        .send({ sessionId: 'sess_at_invalid_choice', lang: 'en', dtmfDigits: '4' });
+
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('/audio/English_Library/2.m4a?format=mp3');
+      expect(res.text).not.toContain('<Say');
+    });
   });
 
   // ── 4f. INTERIM TWI PATH ───────────────────────────────────────────────────
-  describe('4f. Interim Twi Path (26 Studio Prompts Mapped, Keypad for Amounts)', () => {
-    it('maps the 26 studio-recorded prompts to template keys with placeholder reviewer field', () => {
-      expect(AUDIO_CATALOG.length).toBe(24); // 12 English + 12 Twi studio catalog prompts (+ 2 alternates = 26 total assets)
+  describe('4f. Canonical Audio Inventory and Interim Twi Path', () => {
+    it('keeps the complete language-resolved audio catalog separate from reviewed templates', () => {
+      expect(AUDIO_ASSET_INVENTORY.length).toBeGreaterThanOrEqual(92);
+      expect(AUDIO_CATALOG.length).toBeGreaterThanOrEqual(92);
 
       const reviewedData = approvalWorkflow.loadReviewedData();
       expect(reviewedData.templates).toBeDefined();

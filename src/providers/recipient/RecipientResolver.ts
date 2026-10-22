@@ -7,9 +7,10 @@
  * - Never invents or fabricates subscriber names when unverified
  */
 
-import { validateGhanaPhoneNumber, GhanaianNetwork } from "../../domain/validation";
+import { validateGhanaPhoneNumber, GhanaianNetwork, redactPii } from "../../domain/validation";
 import { SANDBOX_RECIPIENT_FIXTURES } from "../../demo/recipientFixtures";
 import { voicePaymentService } from "../../integrations/momo/voicePaymentService";
+import { telecelEngine } from "../../integrations/telecel";
 import { config } from "../../config/env";
 
 export interface RecipientResolutionResult {
@@ -19,7 +20,7 @@ export interface RecipientResolutionResult {
   name: string | null;
   network: GhanaianNetwork;
   verified: boolean;
-  source: "SANDBOX_FIXTURE" | "MTN_MOMO_API" | "UNRESOLVED";
+  source: "SANDBOX_FIXTURE" | "MTN_MOMO_API" | "TELECEL_CASH_API" | "UNRESOLVED";
   warning?: string;
   error?: string;
 }
@@ -27,6 +28,46 @@ export interface RecipientResolutionResult {
 export interface RecipientResolver {
   readonly id: string;
   resolve(rawPhoneNumber: string): Promise<RecipientResolutionResult>;
+}
+
+export function sandboxRecipientFixturesAllowed(environment: {
+  nodeEnv: string;
+  demoMode: boolean;
+  momo: { targetEnv: string };
+}): boolean {
+  return environment.nodeEnv !== "production" && (
+    environment.nodeEnv === "test" ||
+    environment.demoMode ||
+    environment.momo.targetEnv === "sandbox"
+  );
+}
+
+export function sandboxDemoRecipientsAllowed(environment: {
+  nodeEnv: string;
+  demoMode: boolean;
+  momo: { targetEnv: string };
+}): boolean {
+  if (environment.nodeEnv === "production") {
+    return false;
+  }
+  return environment.nodeEnv === "development" || environment.demoMode || environment.momo.targetEnv === "sandbox";
+}
+
+const DEMO_GHANAIAN_RECIPIENT_NAMES = [
+  "Ama Mensah",
+  "Kofi Annan",
+  "Abena Mansa",
+  "Kwame Boateng",
+  "Akosua Asante",
+  "Yaw Osei",
+  "Adwoa Frimpong",
+  "Kojo Owusu",
+];
+
+function demoRecipientNameForPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  const digitSum = [...digits].reduce((sum, digit) => sum + Number(digit), 0);
+  return DEMO_GHANAIAN_RECIPIENT_NAMES[digitSum % DEMO_GHANAIAN_RECIPIENT_NAMES.length];
 }
 
 /**
@@ -63,7 +104,18 @@ export class SandboxRecipientResolver implements RecipientResolver {
       };
     }
 
-    // Number is valid format but NOT verified in the directory
+    if (config.demoMode && sandboxDemoRecipientsAllowed(config)) {
+      return {
+        valid: true,
+        phoneNumber: rawPhoneNumber,
+        normalizedPhone: val.normalized,
+        name: demoRecipientNameForPhone(val.normalized),
+        network: val.network,
+        verified: true,
+        source: "SANDBOX_FIXTURE",
+      };
+    }
+
     return {
       valid: true,
       phoneNumber: rawPhoneNumber,
@@ -72,7 +124,7 @@ export class SandboxRecipientResolver implements RecipientResolver {
       network: val.network,
       verified: false,
       source: "UNRESOLVED",
-      warning: "Recipient name could not be verified in the subscriber registry.",
+      warning: `The recipient number ${val.normalized} could not be verified in the directory.`,
     };
   }
 }
@@ -98,7 +150,27 @@ export class MtnRecipientResolver implements RecipientResolver {
       };
     }
 
-    // Non-MTN numbers cannot be verified via MTN MoMo directory
+    // Telecel Cash subscribers directory lookup
+    if (val.network === "Telecel") {
+      try {
+        const kyc = await telecelEngine.lookupKyc(val.normalized);
+        if (kyc.verified && kyc.name) {
+          return {
+            valid: true,
+            phoneNumber: rawPhoneNumber,
+            normalizedPhone: val.normalized,
+            name: kyc.name,
+            network: "Telecel",
+            verified: true,
+            source: kyc.mode === "SANDBOX_SIMULATOR" ? "SANDBOX_FIXTURE" : "TELECEL_CASH_API",
+          };
+        }
+      } catch (err: any) {
+        console.warn(`[RecipientResolver] Failed to resolve Telecel subscriber for ${redactPii(val.normalized)}:`, err.message);
+      }
+    }
+
+    // Other non-MTN numbers cannot be verified via MTN MoMo directory
     if (val.network !== "MTN") {
       return {
         valid: true,
@@ -115,22 +187,23 @@ export class MtnRecipientResolver implements RecipientResolver {
     try {
       const result = await voicePaymentService.verifyNumber(val.normalized);
       if (result.ok) {
-        const name = result.fields.name || [result.fields.given_name, result.fields.family_name].filter(Boolean).join(" ") || "Sand Box";
+        const name = result.fields.name || [result.fields.given_name, result.fields.family_name].filter(Boolean).join(" ") || null;
         return {
           valid: true,
           phoneNumber: rawPhoneNumber,
           normalizedPhone: val.normalized,
           name,
           network: val.network,
-          verified: true,
+          verified: Boolean(name),
           source: "MTN_MOMO_API",
+          ...(!name ? { warning: "The provider verified the number but did not return a recipient name." } : {}),
         };
       }
     } catch (err: any) {
-      console.warn(`[MtnRecipientResolver] Failed to resolve via MTN API for ${val.normalized}:`, err.message);
+      console.warn(`[MtnRecipientResolver] Failed to resolve via MTN API for ${redactPii(val.normalized)}:`, err.message);
     }
 
-    if (config.momo.targetEnv === "sandbox" || process.env.NODE_ENV === "test" || config.demoMode) {
+    if (sandboxRecipientFixturesAllowed(config)) {
       const fixture = SANDBOX_RECIPIENT_FIXTURES[val.normalized];
       if (fixture) {
         return {
@@ -163,10 +236,13 @@ export class MtnRecipientResolver implements RecipientResolver {
  * Factory returning active resolver based on environment credentials
  */
 export function getRecipientResolver(): RecipientResolver {
+  if (sandboxRecipientFixturesAllowed(config)) {
+    return new SandboxRecipientResolver();
+  }
   if (config.momo.configured || config.momo.disbursementConfigured || config.momo.collectionConfigured) {
     return new MtnRecipientResolver();
   }
-  return new SandboxRecipientResolver();
+  return new MtnRecipientResolver();
 }
 
 export const recipientResolver = getRecipientResolver();

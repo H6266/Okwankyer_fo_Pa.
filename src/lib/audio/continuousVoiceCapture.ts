@@ -171,7 +171,7 @@ export class ContinuousVoiceCapture {
     speechDurationMs: 0,
     noiseDurationMs: 0,
     currentVADState: "SILENCE",
-    currentASRProvider: "GhanaNLP_ASR_v3",
+    currentASRProvider: "HCI_LAB_ASR",
     chunksCreated: 0,
     chunksCompleted: 0,
     chunksFailed: 0,
@@ -378,6 +378,11 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
         const targetSampleRate = 16000;
 
         scriptNode.onaudioprocess = (e) => {
+          // Zero-out outputBuffer immediately to guarantee NO microphone feedback or robotic echo through speakers
+          for (let i = 0; i < e.outputBuffer.numberOfChannels; i++) {
+            e.outputBuffer.getChannelData(i).fill(0);
+          }
+
           if (this.isMuted) {
             this.scriptPcmPending = new Int16Array(0);
             return;
@@ -397,8 +402,11 @@ registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
           this.scriptPcmPending = combined.slice(offset);
         };
 
+        const silenceGain = ctx.createGain();
+        silenceGain.gain.setValueAtTime(0, ctx.currentTime);
         this.sourceNode.connect(scriptNode);
-        scriptNode.connect(ctx.destination);
+        scriptNode.connect(silenceGain);
+        silenceGain.connect(ctx.destination);
         this.scriptProcessor = scriptNode;
       }
 

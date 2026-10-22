@@ -9,6 +9,7 @@
 
 import { mtnMomoService, MoMoTransactionRecord } from "./mtnMomoService";
 import { durableTransactionStore, DurableTransactionStore } from "../services/durableTransactionStore";
+import type { MoMoMode } from "../integrations/momo/types";
 
 export interface TransactionRequest {
   source?: "VOICE" | "KEYPAD" | "WEB";
@@ -84,7 +85,7 @@ export interface TransactionResult {
   authorizationModel: string;
   momoDetails?: {
     referenceId: string;
-    mode: "LIVE_API" | "SANDBOX_API" | "MOCKED" | "UNCONFIGURED";
+    mode: MoMoMode | "MOCKED" | "UNCONFIGURED";
     status: string;
     financialTransactionId?: string;
   };

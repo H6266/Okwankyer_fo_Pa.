@@ -10,6 +10,8 @@ export interface PhoneValidationResult {
   normalized?: string;
   network?: GhanaianNetwork;
   last4Spaced?: string;
+  fullPhoneSpaced?: string;
+  fullPhoneTwi?: string;
   error?: string;
 }
 
@@ -24,6 +26,7 @@ export interface AmountValidationResult {
 
 const TELCO_PREFIXES: Record<string, GhanaianNetwork> = {
   "024": "MTN",
+  "025": "MTN",
   "054": "MTN",
   "055": "MTN",
   "059": "MTN",
@@ -135,30 +138,45 @@ export function validateGhanaPhoneNumber(raw: string): PhoneValidationResult {
     };
   }
 
-  if (normalized.length !== 10 && normalized.length !== 11) {
+  if (normalized.length !== 10) {
     return {
       valid: false,
-      error: `Phone number must be 10 or 11 digits (received ${normalized.length || 0}).`,
+      error: `Phone number must be exactly 10 digits (received ${normalized.length || 0}).`,
     };
   }
 
   const prefix = normalized.slice(0, 3);
   const network = TELCO_PREFIXES[prefix];
-
   if (!network) {
     return {
       valid: false,
-      error: `Invalid Ghanaian network prefix '${prefix}'. Must be MTN (024, 054, 055, 059, 053), Telecel (020, 050), or AT (027, 057, 026, 056).`,
+      error: `Invalid Ghanaian network prefix '${prefix}'. Must be MTN (024, 054, 055, 059, 053, 025), Telecel (020, 050, 028), or AT (027, 057, 026, 056).`,
     };
   }
 
   const last4Spaced = normalized.slice(-4).split("").join(" ");
+  const fullPhoneSpaced = normalized.split("").join(" ");
+  const twiDigits: Record<string, string> = {
+    "0": "hwee",
+    "1": "baako",
+    "2": "mmienu",
+    "3": "mmiɛnsa",
+    "4": "nnan",
+    "5": "nnum",
+    "6": "nsia",
+    "7": "nson",
+    "8": "nwɔtwe",
+    "9": "nkron",
+  };
+  const fullPhoneTwi = normalized.split("").map((d) => twiDigits[d] || d).join(" ");
 
   return {
     valid: true,
     normalized,
     network,
     last4Spaced,
+    fullPhoneSpaced,
+    fullPhoneTwi,
   };
 }
 
@@ -255,3 +273,13 @@ export function redactPii(text: string): string {
 
   return redacted;
 }
+
+/**
+ * Returns detected telco network (MTN, Telecel, AT) based on phone number prefix
+ */
+export function getNetworkFromPhone(phone: string): GhanaianNetwork {
+  const norm = normalizeGhanaPhoneNumber(phone);
+  const prefix = norm.slice(0, 3);
+  return TELCO_PREFIXES[prefix] || "MTN";
+}
+

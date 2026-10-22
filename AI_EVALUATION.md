@@ -1,12 +1,20 @@
 # AI evaluation status and methodology
 
-**Updated:** 2026-10-05
+**Updated:** 2026-10-18
 
 ## Current evidence
 
 There is no checked-in, reproducible held-out evaluation report supporting project-wide accuracy, F1, calibration, latency, ASR WER/CER, or security interception percentages. Targets in older documentation were not measurements and are removed from this status page. `eval/reports/` must contain generated, versioned artifacts before model or product performance is claimed.
 
-The application has deterministic unit and security tests, but the new tests in this branch could not be run because dependencies are absent (`vitest`, `tsc`, `eslint`, and `tsx` are unavailable in the checkout). No result is reported as passing from this environment.
+The standalone NLU trainer and evaluator now share the same Akan-aware unigram/bigram tokenizer and Naive Bayes intent scorer. The evaluator reports intent accuracy, per-intent precision/recall/F1, macro precision/recall/F1, and a confusion matrix. It does not yet report slot metrics, calibration, dataset checksums in the report, or a release scorecard. No current dataset passes the production NLU training gate, and no trained NLU artifact is integrated into live inference.
+
+Focused validation run on 2026-10-18 passed for the new local-ASR fallback, ASR-feedback consent/redaction, NLU scorer/evaluator, training eligibility, dataset-license validator, and offline AI-engine tests. The production build also succeeds. The local speech health check reports local ASR `NOT_READY` and local Piper TTS `READY`.
+
+The full TypeScript check passed on 2026-10-19. No project-wide accuracy result is published: the checked-in evaluation harnesses have not been shown to represent disjoint, human-reviewed Twi/English holdouts across the live brain, ASR, slots, and safety behavior.
+
+## Exploratory transcript check (2026-10-19)
+
+The 30-row `data/evalTranscripts.json` smoke corpus now scores deterministic intent and exact amount/phone/name slot agreement. Latest result: intent 100.0%, slot exact match 86.7%; scenario intent scores were English 100%, Twi 100%, and code-switched 100%, while slot exact-match scores were 100%, 80%, and 80%, respectively. The runner made zero live model calls, so no live-model score was measured; it mirrored offline fallback results. This small internal corpus is not documented as speaker-disjoint or human-reviewed, and its recipient-name labels are incomplete. Treat these numbers as debugging evidence only, not model accuracy or release evidence.
 
 ## Required evaluation protocol
 

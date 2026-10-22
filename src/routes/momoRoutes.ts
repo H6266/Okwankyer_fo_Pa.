@@ -14,6 +14,13 @@ import { momoProvider } from "../integrations/momo";
 import { voicePaymentService } from "../integrations/momo/voicePaymentService";
 import { evidenceStore } from "../integrations/momo/evidenceStore";
 import { paymentSaga } from "../integrations/momo/paymentSaga";
+import { serviceOrchestrator } from "../modules/serviceOrchestrator";
+import { momoCallbackService } from "../integrations/momo/momoCallbackService";
+import { transactionStateMachine } from "../domain/stateMachine";
+import { ChecklistStageManager } from "../domain/checklistPipeline";
+import { auditLogger } from "../services/auditLogger";
+import { config } from "../config/env";
+import { initialize as initAtClient } from "../../africastalking";
 
 export const momoRouter = Router();
 
@@ -175,8 +182,8 @@ momoRouter.post("/api/momo/send", adminRateLimiter, requireAdminAuth, async (req
     if (!recipient_phone || typeof recipient_phone !== "string") {
       return res.status(400).json({ error: "Missing required recipient_phone." });
     }
-    if (network !== "MTN") {
-      return res.status(400).json({ error: "This endpoint currently supports only an explicitly selected MTN network." });
+    if (network && network !== "MTN" && network !== "Telecel") {
+      return res.status(400).json({ error: "This endpoint currently supports MTN Mobile Money and Telecel Cash." });
     }
 
     const validatedRecipient = validateGhanaPhoneNumber(recipient_phone);
@@ -184,6 +191,41 @@ momoRouter.post("/api/momo/send", adminRateLimiter, requireAdminAuth, async (req
       return res.status(400).json({ error: validatedRecipient.error || "Invalid recipient phone number." });
     }
     const finalRecipientPhone = validatedRecipient.normalized;
+
+    // Handle Telecel Send Money
+    if (network === "Telecel") {
+      const validatedPayer = payer_phone ? validateGhanaPhoneNumber(payer_phone) : undefined;
+      const tx = await serviceOrchestrator.executeSendMoney({
+        source: "WEB",
+        network: "Telecel",
+        recipient_phone: finalRecipientPhone,
+        recipient_name: typeof recipient_name === "string" ? recipient_name : "Telecel Subscriber",
+        amount: parsedAmount,
+        payer_phone: validatedPayer?.normalized || "0201234567",
+        payer_name: "Telecel Caller",
+        mode,
+      });
+
+      return res.status(202).json({
+        success: tx.status !== "FAILED",
+        transaction: {
+          status: tx.status === "SUCCESS" ? "SUCCESSFUL" : tx.status,
+          reference: tx.reference,
+          amount: parsedAmount,
+          requestedAmount: parsedAmount,
+          requestedCurrency: "GHS",
+          currency: tx.currency,
+          executionCurrency: tx.executionCurrency,
+          currencyNotice: tx.currencyNotice,
+          payer_phone: payer_phone || "FLOAT (Telecel Business Float)",
+          recipient_name: recipient_name || "Telecel Subscriber",
+          recipient_phone: finalRecipientPhone,
+          momoDetails: tx.momoDetails,
+        },
+        gatewayEvidence: tx.gatewayEvidence,
+        evidenceId: tx.reference,
+      });
+    }
 
     // Handle Direct Float Disbursement
     if (mode === "DISBURSEMENT_TRANSFER") {
@@ -805,6 +847,16 @@ momoRouter.post("/api/momo/saga/execute", async (req: Request, res: Response) =>
     if (!sessionId || !recipientPhone || !amount) {
       return res.status(400).json({ error: "sessionId, recipientPhone, and amount are required." });
     }
+    const session = transactionStateMachine.getSession(sessionId);
+    if (session) {
+      const checklist = ChecklistStageManager.verifySession(session);
+      if (!checklist.isReadyForInitiation) {
+        return res.status(400).json({
+          error: `Checklist Gate blocked execution: Missing ${checklist.stages[checklist.currentStage].name} (Stage ${checklist.stages[checklist.currentStage].order}).`,
+          checklist,
+        });
+      }
+    }
     const result = await paymentSaga.executeConfirmedTransferSaga({
       sessionId,
       senderPhone: senderPhone || "0244123456",
@@ -860,3 +912,170 @@ momoRouter.post("/api/momo/saga/resolve-mock", (req: Request, res: Response) => 
   }
 });
 
+// ── MoMo Sandbox Async Callback Webhook (RequestToPay & Transfer) ───────
+// Receives live callbacks from MTN MoMo Sandbox or production gateway.
+// Automatically resolves the event to canonical studio recordings (OP01-OP94).
+momoRouter.all(["/api/momo/callback", "/momo/callback"], async (req: Request, res: Response) => {
+  try {
+    const referenceHeader = (req.headers["x-reference-id"] as string) || (req.query.referenceId as string) || undefined;
+    const result = await momoCallbackService.handleWebhook(req.body, referenceHeader);
+
+    if (!result.success || !result.referenceId || !result.feedItem) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing reference ID in webhook payload or X-Reference-Id header.",
+      });
+    }
+
+    const { referenceId, feedItem } = result;
+
+    // 1. Sync internal Transaction State Machine
+    const allSessions = transactionStateMachine.getAllSessions();
+    const matchingSession = allSessions.find(
+      (s) =>
+        s.momoReferenceId === referenceId ||
+        s.referenceId === referenceId ||
+        s.sessionId === referenceId ||
+        s.idempotencyKey?.includes(referenceId) ||
+        paymentSaga.getLatestSagaForSession(s.sessionId)?.disbursementReference === referenceId
+    );
+
+    if (matchingSession && matchingSession.state === "PIN_PENDING") {
+      const saga = paymentSaga.getLatestSagaForSession(matchingSession.sessionId);
+      const isFinalDisbursementCallback = Boolean(
+        saga?.disbursementReference &&
+        saga.disbursementReference === referenceId &&
+        saga.state === "DISBURSEMENT_INITIATED"
+      );
+      try {
+        if (
+          isFinalDisbursementCallback &&
+          feedItem.normalizedStatus === "SUCCESSFUL" &&
+          feedItem.financialTransactionId &&
+          saga
+        ) {
+          const completedSaga = paymentSaga.finalizeDisbursement(
+            saga.sagaId,
+            true,
+            undefined,
+            feedItem.financialTransactionId
+          );
+          if (completedSaga.state === "COMPLETED") {
+            transactionStateMachine.transition(matchingSession.sessionId, "COMPLETED");
+          }
+        } else if (
+          isFinalDisbursementCallback &&
+          ["FAILED", "DECLINED", "TIMEOUT"].includes(feedItem.normalizedStatus)
+        ) {
+          paymentSaga.finalizeDisbursement(
+            saga!.sagaId,
+            false,
+            feedItem.reason || "The provider could not confirm the recipient disbursement."
+          );
+        }
+      } catch (err: any) {
+        console.warn(`[MoMo Webhook] Final disbursement update notice: ${err.message}`);
+      }
+    }
+
+    // 2. Outbound Telephony Recovery:
+    // If user dropped call during PIN authorization, trigger automated outbound dial to announce result
+    if (matchingSession && matchingSession.callerPhone && config.at?.configured) {
+      try {
+        const at = initAtClient(config.at.username, config.at.apiKey);
+        await at.Voice.call({
+          callFrom: config.at.voiceNumber,
+          callTo: [matchingSession.callerPhone],
+        });
+        auditLogger.log(
+          "info",
+          "TELEPHONY",
+          `Outbound settlement call dispatched to ${matchingSession.callerPhone} for ref ${referenceId}`
+        );
+      } catch (callErr: any) {
+        console.warn(`[MoMo Webhook] Outbound settlement call trigger notice: ${callErr.message}`);
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Webhook processed and resolved to canonical studio audio.",
+      referenceId,
+      status: feedItem.rawStatus,
+      normalizedStatus: feedItem.normalizedStatus,
+      financialTransactionId: feedItem.financialTransactionId,
+      resolvedAudio: {
+        twi: {
+          promptIds: feedItem.audioMatchTwi.promptIds,
+          audioUrls: feedItem.audioMatchTwi.audioUrls,
+          description: feedItem.audioMatchTwi.statusDescription,
+          combinedText: feedItem.audioMatchTwi.combinedSpokenText,
+        },
+        en: {
+          promptIds: feedItem.audioMatchEn.promptIds,
+          audioUrls: feedItem.audioMatchEn.audioUrls,
+          description: feedItem.audioMatchEn.statusDescription,
+          combinedText: feedItem.audioMatchEn.combinedSpokenText,
+        },
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── MoMo Live Webhook Feed Query ────────────────────────────────────────
+// Returns recent incoming sandbox feeds with their matched canonical studio recordings
+momoRouter.get("/api/momo/feeds", (_req: Request, res: Response) => {
+  const feeds = momoCallbackService.getRecentFeedItems();
+  res.json({
+    success: true,
+    total: feeds.length,
+    feeds,
+  });
+});
+
+// ── Clear Feed History (Admin / Testing) ────────────────────────────────
+momoRouter.post("/api/momo/feeds/clear", (_req: Request, res: Response) => {
+  momoCallbackService.clearFeedHistory();
+  res.json({ success: true, message: "MoMo callback feed buffer cleared." });
+});
+
+// ── Simulate Sandbox Callback Feed (Developer Lab & Testing) ───────────
+// Allows developers and QA to fire mock MTN sandbox callback events to test audio playback
+momoRouter.post("/api/momo/sandbox/simulate-callback", async (req: Request, res: Response) => {
+  try {
+    const { referenceId, status, reason, financialTransactionId, amount, payerPhone } = req.body;
+
+    if (!referenceId) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required 'referenceId' to simulate callback.",
+      });
+    }
+
+    const payload = {
+      referenceId,
+      status: status || "SUCCESSFUL",
+      financialTransactionId: financialTransactionId || `FIN-${Date.now().toString().slice(-6)}`,
+      reason: reason || undefined,
+      amount: amount || 5.0,
+      currency: "GHS",
+      payer: {
+        partyIdType: "MSISDN",
+        partyId: payerPhone || "0244123456",
+      },
+    };
+
+    const result = await momoCallbackService.handleWebhook(payload, referenceId);
+
+    res.json({
+      success: true,
+      simulated: true,
+      message: `Simulated MoMo sandbox callback received and resolved to audio.`,
+      feedItem: result.feedItem,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});

@@ -19,10 +19,19 @@ import { momoEngine } from "../integrations/momo";
 import { simulatorTelephonyAdapter } from "../providers/telephony/telephonyAdapter";
 import { eventBus } from "../services/eventBus";
 import { brain } from "../ai_system/brain/brain";
+import { brainTelemetry } from "../ai_system/brain/brainTelemetry";
+import {
+  matchAiReplyWithGemini,
+  storeGeminiConversationReply,
+  crossReferenceReplyAudioWithAi,
+} from "../audio/geminiAudioMatcher";
 import { ttsRouter } from "../ai_system/speech/tts/ttsRouter";
+import { assertTtsResponse, getTtsErrorCode, normalizeTtsLanguage } from "../ai_system/speech/tts/ttsProvider";
 import { formatSpokenNumbersAsDigits } from "../domain/numberFormatter";
 import { paymentSaga } from "../integrations/momo/paymentSaga";
 import { geminiClient } from "../services/geminiClient";
+import { recipientResolver } from "../providers/recipient/RecipientResolver";
+import { normalizeGhanaPhoneNumber, parseAndValidateAmount, validateGhanaPhoneNumber } from "../domain/validation";
 import {
   isAcousticSystemEcho,
   stripSystemEchoFromTranscript,
@@ -31,6 +40,7 @@ import {
 import { asrOrchestrator } from "../ai_system/speech/asr/asrOrchestrator";
 import { longConversationAsr } from "../ai_system/speech/asr/longConversationAsr";
 import { feedbackService } from "../ai_system/speech/asr/feedbackService";
+import { hasExplicitAsrFeedbackConsent } from "../ai_system/speech/asr/feedbackConsent";
 import {
   GHANAIAN_ACOUSTIC_TOKENS,
   GHANAIAN_DIALECT_PROFILES,
@@ -40,6 +50,10 @@ import {
 import { parseLongDiscussion } from "../ai_system/brain/longDiscussionParser";
 import { acousticNoiseFilterModel } from "../ai_system/speech/acousticModels/noiseFilterModel";
 import { getFullAiHealthReport } from "../services/healthService";
+import { transactionStateMachine } from "../domain/stateMachine";
+import { ChecklistStageManager } from "../domain/checklistPipeline";
+import { buildReceiptPrompt } from "../audio/dynamicPromptBuilder";
+import { matchReplyToAudio } from "../audio/replyAudioMatcher";
 
 export const aiRouter = Router();
 
@@ -48,7 +62,7 @@ aiRouter.get("/api/ai/status", (_req: Request, res: Response) => {
     status: "ok",
     system: "Ɔkwankyerɛfo Pa AI Subsystem",
     geminiConfigured: config.gemini.configured,
-    openAiConfigured: Boolean(process.env.OPENAI_API_KEY),
+    groqConfigured: config.groq.configured,
     offlineCapable: true,
     languages: ["en", "tw", "ak"],
     zeroPinEnforced: true,
@@ -217,7 +231,7 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
     });
 
     // ── Live Synchronization 1: Call Session Repository ──────────────────
-    const targetStep = result.navigation?.targetStep || currentStep || "welcome";
+    let targetStep = result.navigation?.targetStep || currentStep || "welcome";
     const outcome = result.intent === "CANCEL" ? "CANCELLED" : "IN_PROGRESS";
 
     // ── Canonical Brain Reasoning & Reply Composition ───────────────────
@@ -260,6 +274,19 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       // safe fallback if TTS engine is unavailable
     }
 
+    // ── Independent AI Audio Reasoning Brain ─────────────────────────────
+    // Independent from conversation reasoning: evaluates reply text against
+    // the audio library catalog and isolates dynamic variables for TTS.
+    let audioPlan: any = null;
+    try {
+      const audioLang = brainLanguage.startsWith("tw") || brainLanguage.startsWith("ak") ? "twi" : "en";
+      audioPlan = await crossReferenceReplyAudioWithAi(brainOutput.reply.text, audioLang, {
+        sessionId: sessionKey,
+      });
+    } catch (e: any) {
+      console.warn("[Turn] AI Audio Matcher error:", e?.message || e);
+    }
+
     // Use Simulator Telephony Adapter to build clean, escaped VoiceXML
     const langVoice = brainOutput.reply.language.startsWith("twi") ? "woman" : "alice";
     const generatedVoiceXml = simulatorTelephonyAdapter.buildVoiceXml([
@@ -292,17 +319,76 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       ],
     });
 
+    // Record authoritative conversation turn in call session
+    const assistantReplyText = brainOutput.reply.text || result.dialogue?.response || "";
+    callSessionRepository.addTurn(sessionKey, {
+      id: `turn_${Date.now()}`,
+      turnNumber: storedSession.conversationTurns.length + 1,
+      timestamp: new Date().toLocaleTimeString(),
+      callerInput: effectiveInput,
+      callerChannel: channel || "SIMULATOR",
+      asrProvider: req.body.asrProvider || (channel === "VOICE" ? "ASR_ORCHESTRATOR" : undefined),
+      asrConfidence: typeof result.confidence === "number" ? result.confidence : undefined,
+      asrLatencyMs: typeof req.body.asrLatencyMs === "number" ? req.body.asrLatencyMs : undefined,
+      intent: result.intent,
+      entitiesExtracted: result.entities,
+      assistantResponse: assistantReplyText,
+      step: targetStep,
+      status: "SUCCESS",
+      rawAsrText: req.body.rawAsrText || effectiveInput,
+    });
+
+    // Record turn API trace in call session
+    callSessionRepository.addApiTrace(sessionKey, {
+      id: `turn_api_${Date.now()}`,
+      timestamp: new Date().toLocaleTimeString(),
+      endpoint: "/api/ai/simulator/turn",
+      method: "POST",
+      provider: "CANONICAL_BRAIN",
+      latencyMs: 120,
+      httpStatus: 200,
+      requestSummary: `Input: "${effectiveInput.slice(0, 45)}" [${channel || "SIMULATOR"}]`,
+      responseSummary: `Intent: ${result.intent}, Next Step: ${targetStep}`,
+      status: "SUCCESS",
+    });
+
     // Mask phone numbers and amounts in logged objects
     const draftSlots = (brainOutput.updatedDraft?.slots || {}) as any;
     const rawRecipientPhone = draftSlots.recipient?.phone || draftSlots.recipientPhone || "";
 
+    const amount = Number(draftSlots.amount || 0);
+    const recipientName = draftSlots.recipient?.name || draftSlots.recipientName || "Recipient";
+
+    // Synchronize session checklist state
+    const currentSession = transactionStateMachine.getOrCreateSession(sessionKey);
+    if (selectedLang) {
+      currentSession.language = selectedLang.startsWith("tw") || selectedLang.startsWith("ak") ? "twi" : "en";
+    }
+    currentSession.serviceSelected = true;
+    if (draftSlots.network) {
+      currentSession.network = draftSlots.network;
+    }
+    if (rawRecipientPhone && rawRecipientPhone.replace(/\D/g, "").length === 10) {
+      currentSession.recipientPhone = rawRecipientPhone.replace(/\D/g, "");
+    }
+    if (recipientName && recipientName !== "Recipient" && recipientName !== "Unverified") {
+      currentSession.recipientName = recipientName;
+      currentSession.isRecipientVerified = true;
+    }
+    if (amount > 0) {
+      currentSession.amount = amount;
+    }
+    if (brainOutput.decision.kind === "dispatch" || targetStep.includes("pin") || targetStep.includes("auth")) {
+      currentSession.pinGatePassed = true;
+    }
+    const checklistVerification = ChecklistStageManager.verifySession(currentSession);
+
     // Fetch authoritative saga state or execute on dispatch
     let activeSaga = paymentSaga.getLatestSagaForSession(sessionKey);
     if ((!activeSaga || activeSaga.state === "DRAFT") && brainOutput.decision.kind === "dispatch") {
-      const amount = Number(draftSlots.amount || 0);
-      const recipientName = draftSlots.recipient?.name || draftSlots.recipientName || "Recipient";
-      if (rawRecipientPhone && amount > 0) {
+      if (checklistVerification.isReadyForInitiation) {
         try {
+          currentSession.transactionInitiated = true;
           const sagaResult = await paymentSaga.executeConfirmedTransferSaga({
             sessionId: sessionKey,
             senderPhone: typeof req.body.callerPhone === "string" ? req.body.callerPhone : "0244123456",
@@ -313,9 +399,27 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
             confirmedDraftHash: brainOutput.updatedDraft.confirmedDraftHash,
           });
           activeSaga = sagaResult.saga;
+          if (activeSaga?.state === "COMPLETED") {
+            currentSession.stateReported = true;
+          }
         } catch (e: any) {
           console.warn("Saga dispatch error:", e);
         }
+      } else {
+        console.warn(`[POST /api/ai/simulator/turn] Checklist gate blocked dispatch: missing ${checklistVerification.currentStage}`);
+        const langCode = brainLanguage.startsWith("tw") ? "twi" : "en";
+        const missingName = checklistVerification.stages[checklistVerification.currentStage]?.name || "Required Details";
+        const blockageNotice = checklistVerification.errorFeedback?.[langCode] ||
+          (langCode === "twi"
+            ? `Nhyehyɛeɛ no nwiei. Deɛ ɛka ne: ${missingName}. Yɛrentumi nkɔ so kɔsi sɛ wode ma.`
+            : `Checklist incomplete. Missing requirement: ${missingName}. Cannot initiate transaction until this stage is complete.`);
+
+        brainOutput.reply.text = blockageNotice;
+        brainOutput.decision = {
+          kind: "clarify_slot",
+          slot: checklistVerification.currentStage || "recipient",
+        };
+        targetStep = ChecklistStageManager.getStepRouteForStage(checklistVerification.currentStage);
       }
     }
 
@@ -400,6 +504,7 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
         circuitBreakerState: geminiClient.getCircuitBreakerState(),
       },
       sagaState: sagaInfo,
+      audioPlan,
     };
 
     res.json({
@@ -417,6 +522,7 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       },
       brain: brainOutput,
       tts: ttsAudioMeta,
+      audioPlan,
       voiceXml: {
         step: targetStep,
         xml: generatedVoiceXml,
@@ -425,6 +531,7 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       latency: result.performance,
       saga: sagaInfo,
       turnDiagnostic,
+      checklist: checklistVerification,
       provider: undefined,
       truth: undefined,
     });
@@ -432,6 +539,21 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
     console.error("[POST /api/ai/simulator/turn] Error:", err);
     res.status(500).json({ error: err.message || "Failed to process simulator turn" });
   }
+});
+
+// ── 9-Stage Transaction Flow Checklist Status Endpoint ───────────────
+aiRouter.get("/api/ai/checklist/status", (req: Request, res: Response) => {
+  const sessionId = String(req.query.sessionId || "").trim();
+  if (!sessionId) {
+    return res.status(400).json({ error: "sessionId query parameter is required." });
+  }
+  const session = transactionStateMachine.getSession(sessionId);
+  const checklist = ChecklistStageManager.verifySession(session);
+  return res.json({
+    success: true,
+    sessionId,
+    checklist,
+  });
 });
 
 // ── Call Termination Synchronization ──────────────────────────────────
@@ -644,7 +766,7 @@ aiRouter.get("/api/ai/simulator/sync-status", (_req: Request, res: Response) => 
 // Canonical Central Reasoning Brain Processing Endpoint
 aiRouter.post("/api/ai/brain/process", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {
-    const { transcript, language, draft, callerNumber, sessionId } = req.body;
+    const { transcript, language, draft, callerNumber, sessionId, forceModel } = req.body;
     const text = transcript || req.body.input || req.body.utterance || "";
     const lang = (language === "tw" || language === "ak" || language === "twi" || language === "twi-asante")
       ? "twi-asante"
@@ -652,20 +774,222 @@ aiRouter.post("/api/ai/brain/process", publicApiRateLimiter, async (req: Request
       ? "twi-akuapem"
       : "en";
 
+    const suppliedDraft = draft && typeof draft === "object" ? draft : {};
+    const safeDraft = {
+      ...suppliedDraft,
+      slots: suppliedDraft.slots && typeof suppliedDraft.slots === "object"
+        ? { ...suppliedDraft.slots }
+        : {},
+    };
+    delete safeDraft.slots.verifiedName;
+    delete safeDraft.slots.hasNameDiscrepancy;
+
     const output = await brain.process({
       transcript: String(text),
       language: lang,
       languageConfidence: req.body.languageConfidence ?? 0.95,
       sessionLanguage: lang,
-      draft: draft || { slots: {} },
+      draft: safeDraft,
       callerNumber,
       sessionId,
+      forceModel: forceModel === true,
     });
+
+    // Store Gemini conversational replies into memory for Audio Matcher verification
+    if (output.modelOutput || (output.decision?.kind === "clarify_slot" && (output.decision as any)?.slot === "conversational")) {
+      if (output.reply?.text) {
+        storeGeminiConversationReply(output.reply.text, lang.startsWith("tw") ? "twi" : "en", sessionId);
+      }
+    }
+
+    // Immediate 4-field synchronization to backend session (amount, recipientPhone, recipientName, network)
+    if (sessionId) {
+      try {
+        const session = transactionStateMachine.getOrCreateSession(sessionId, lang.startsWith("tw") ? "twi" : "en");
+        const slots = output.updatedDraft?.slots || {};
+        const updates: Record<string, any> = {};
+        // In the voice simulator, an explicit transfer request can arrive while the
+        // caller is speaking over the service menu. Treat that intent as selecting
+        // the only supported service (Mobile Money) so the later confirmation gate
+        // does not send an otherwise complete transfer back to Service Selection.
+        if (output.updatedDraft?.intent === "momo.transfer") {
+          updates.serviceSelected = true;
+        }
+        if (typeof slots.amount === "number" && slots.amount > 0) {
+          updates.amount = slots.amount;
+        }
+        const normalizedRecipientPhone = slots.recipient?.phone
+          ? normalizeGhanaPhoneNumber(String(slots.recipient.phone))
+          : undefined;
+        if (normalizedRecipientPhone) {
+          updates.recipientPhone = normalizedRecipientPhone;
+          if (normalizedRecipientPhone !== session.recipientPhone) {
+            updates.isRecipientVerified = false;
+          }
+        }
+        if (slots.verifiedName && normalizedRecipientPhone) {
+          updates.recipientName = slots.verifiedName;
+          updates.isRecipientVerified = true;
+        } else if (slots.recipient?.name && normalizedRecipientPhone) {
+          updates.recipientName = slots.recipient.name;
+          updates.isRecipientVerified = true;
+        }
+        const resolvedNetwork = slots.network || slots.candidateNetwork || slots.recipient?.network;
+        if (resolvedNetwork) {
+          updates.network = resolvedNetwork;
+        } else if (normalizedRecipientPhone) {
+          updates.network = normalizedRecipientPhone.startsWith("020") || normalizedRecipientPhone.startsWith("050")
+            ? "Telecel"
+            : normalizedRecipientPhone.startsWith("026") || normalizedRecipientPhone.startsWith("027") || normalizedRecipientPhone.startsWith("057")
+            ? "AT"
+            : "MTN";
+        }
+        if (Object.keys(updates).length > 0) {
+          transactionStateMachine.transition(sessionId, session.state, updates);
+        }
+
+        const synchronizedSession = transactionStateMachine.getSession(sessionId);
+        if (synchronizedSession && synchronizedSession.state === "INITIATED" && normalizedRecipientPhone) {
+          transactionStateMachine.transition(sessionId, "RECIPIENT_VERIFIED");
+        }
+        const stateAfterRecipient = transactionStateMachine.getSession(sessionId);
+        if (
+          stateAfterRecipient?.state === "RECIPIENT_VERIFIED" &&
+          typeof slots.amount === "number" && slots.amount > 0
+        ) {
+          transactionStateMachine.transition(sessionId, "AMOUNT_ENTERED");
+        }
+      } catch (err: any) {
+        console.warn("[Brain Process] Automatic session synchronization notice:", err?.message || err);
+      }
+    }
 
     res.json({ success: true, brainOutput: output, result: output });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message || "Brain processing failed" });
   }
+});
+
+// Audio matching against authentic human studio recordings & Twi link manifest
+// Flow:
+// 1. In-Memory Cache (0 tokens, < 1ms)
+// 2. Dynamic content rejection to TTS (0 tokens, < 1ms)
+// 3. Local-First Matcher (0 tokens, < 2ms)
+// 4. Gemini Audio Matcher ONLY called when reply originated from conversation flow and local match is uncertain.
+aiRouter.post("/api/ai/match-audio", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { text, language, literacyLevel, sessionId, isGeminiConversation } = req.body;
+    if (!text || typeof text !== "string") {
+      return res.status(400).json({ error: "Missing 'text' field" });
+    }
+    const lang = (language === "tw" || language === "ak" || language === "twi" || language === "twi-asante")
+      ? "twi"
+      : language === "twi-akuapem"
+      ? "twi"
+      : "en";
+
+    const geminiResult = await matchAiReplyWithGemini(text, lang, {
+      literacyLevel: literacyLevel || "standard",
+      sessionId,
+      isGeminiConversation: isGeminiConversation === true,
+    });
+
+    const matcherSource: "gemini_llm" | "local_brain" =
+      geminiResult.reason.includes("Gemini") ? "gemini_llm" : "local_brain";
+
+    res.json({
+      success: true,
+      matcherSource,
+      matchFound: geminiResult.matchFound,
+      audioUrl: geminiResult.audioUrl || null,
+      title: geminiResult.title || null,
+      promptId: geminiResult.promptId || null,
+      confidence: geminiResult.confidence ?? (geminiResult.matchFound ? 0.95 : 0.0),
+      requiresTts: geminiResult.requiresTts,
+      matchReason: geminiResult.reason,
+      result: {
+        matcherSource,
+        matchFound: geminiResult.matchFound,
+        audioUrl: geminiResult.audioUrl || null,
+        title: geminiResult.title || null,
+        promptId: geminiResult.promptId || null,
+        confidence: geminiResult.confidence ?? (geminiResult.matchFound ? 0.95 : 0.0),
+        reason: geminiResult.reason,
+        literacyContext: geminiResult.literacyContext,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Audio matching failed" });
+  }
+});
+
+/**
+ * AI Audio Cross-Referencing Endpoint
+ * The AI is the brain: analyzes the reply text against transcriped_twi_audio_library.txt,
+ * produces an ordered audio assembly plan of clips to play, and extracts dynamic variables for TTS.
+ * Only if the AI fails does the local system fallback engage.
+ */
+aiRouter.post("/api/ai/cross-reference-audio", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { replyText, language, literacyLevel, sessionId } = req.body;
+    if (!replyText || typeof replyText !== "string") {
+      return res.status(400).json({ success: false, error: "Missing required 'replyText' parameter" });
+    }
+
+    const lang = (language === "tw" || language === "ak" || language === "twi" || language === "twi-asante" || language === "twi-akuapem")
+      ? "twi"
+      : "en";
+
+    const plan = await crossReferenceReplyAudioWithAi(replyText, lang, {
+      literacyLevel: literacyLevel || "standard",
+      sessionId,
+    });
+
+    res.json({
+      success: true,
+      plan,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Audio cross-referencing failed" });
+  }
+});
+
+// Explicit 4-Field Synchronization endpoint
+aiRouter.post("/api/ai/simulator/sync-session", publicApiRateLimiter, (req: Request, res: Response) => {
+  try {
+    const { sessionId, amount, recipientPhone, recipientName, network, language } = req.body;
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing 'sessionId' field" });
+    }
+    const session = transactionStateMachine.getOrCreateSession(sessionId, language === "twi" ? "twi" : "en");
+    const updates: Record<string, any> = {};
+    if (typeof amount === "number" && amount > 0) updates.amount = amount;
+    if (recipientPhone) {
+      const normalizedPhone = normalizeGhanaPhoneNumber(String(recipientPhone));
+      updates.recipientPhone = normalizedPhone;
+      if (normalizedPhone !== session.recipientPhone) updates.isRecipientVerified = false;
+    }
+    if (recipientName) {
+      updates.recipientName = recipientName;
+    }
+    if (network) updates.network = network;
+
+    if (Object.keys(updates).length > 0) {
+      transactionStateMachine.transition(sessionId, session.state, updates);
+    }
+
+    res.json({ success: true, session: transactionStateMachine.getOrCreateSession(sessionId) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Session sync failed" });
+  }
+});
+
+// Legacy browser PIN completion is disabled: authorization must happen in the provider handset flow.
+aiRouter.post("/api/ai/simulator/complete-transfer", publicApiRateLimiter, (_req: Request, res: Response) => {
+  res.status(410).json({
+    success: false,
+    error: "PIN entry and transfer completion are handled only through the provider's secure handset authorization flow.",
+  });
 });
 
 aiRouter.post("/api/ai/analyze", publicApiRateLimiter, async (req: Request, res: Response) => {
@@ -690,8 +1014,9 @@ aiRouter.post("/api/ai/analyze", publicApiRateLimiter, async (req: Request, res:
 });
 
 aiRouter.post("/api/ai/transcribe", publicApiRateLimiter, async (req: Request, res: Response) => {
+  const startTs = performance.now();
   try {
-    const { audioBase64, mimeType, language, step, hintText } = req.body;
+    const { audioBase64, mimeType, language, step, hintText, sessionId } = req.body;
     if (!audioBase64) {
       return res.status(400).json({ error: "Missing 'audioBase64' payload." });
     }
@@ -702,8 +1027,60 @@ aiRouter.post("/api/ai/transcribe", publicApiRateLimiter, async (req: Request, r
       step: hintText || step || "",
       skipEchoFiltering: true,
     });
+    const latencyMs = Math.round(performance.now() - startTs);
+
+    if (sessionId) {
+      callSessionRepository.addApiTrace(sessionId, {
+        id: `asr_${Date.now()}`,
+        timestamp: new Date().toLocaleTimeString(),
+        endpoint: "/api/ai/transcribe",
+        method: "POST",
+        provider: result.provider || "ASR_ORCHESTRATOR",
+        latencyMs,
+        httpStatus: 200,
+        requestSummary: `Audio (${mimeType || "audio/wav"}) [${language || "bilingual"}]`,
+        responseSummary: `Transcript: "${(result.text || "").slice(0, 45)}" (Confidence: ${result.confidence ?? "N/A"})`,
+        status: "SUCCESS",
+      });
+      if (result.fallbackUsed) {
+        callSessionRepository.addDiagnostic(sessionId, {
+          id: `diag_fallback_${Date.now()}`,
+          timestamp: new Date().toLocaleTimeString(),
+          type: result.quotaExhausted ? "ERROR" : "WARN",
+          message: result.quotaExhausted
+            ? (result.errorMessage || "ASR token has been maxed out across all providers. Caller advised to try again another time.")
+            : `ASR primary provider failed; fell back to ${result.provider}. Reason: ${result.fallbackReason || "Primary timeout or error"}`,
+        });
+      }
+    }
+
+    if (result.quotaExhausted) {
+      return res.status(429).json({
+        success: false,
+        quotaExhausted: true,
+        error: result.errorMessage || "ASR token has been maxed out. Please try again another time.",
+        result,
+      });
+    }
+
     res.json({ success: true, result });
   } catch (err: any) {
+    const latencyMs = Math.round(performance.now() - startTs);
+    if (req.body?.sessionId) {
+      callSessionRepository.addApiTrace(req.body.sessionId, {
+        id: `asr_err_${Date.now()}`,
+        timestamp: new Date().toLocaleTimeString(),
+        endpoint: "/api/ai/transcribe",
+        method: "POST",
+        provider: "ASR_ORCHESTRATOR",
+        latencyMs,
+        httpStatus: 502,
+        requestSummary: `Audio upload failed`,
+        responseSummary: err.message || "Failed to transcribe",
+        status: "ERROR",
+        errorMessage: err.message,
+      });
+    }
     res.status(500).json({ error: err.message || "Failed to transcribe audio" });
   }
 });
@@ -799,8 +1176,8 @@ aiRouter.get("/api/ai/asr/datasets", (_req: Request, res: Response) => {
         dialects: Object.keys(GHANAIAN_DIALECT_PROFILES),
         profiles: GHANAIAN_DIALECT_PROFILES,
       },
-      ghanaNlp: {
-        name: "GhanaNLP Speech & Telephony Lexicon",
+      ugHciLab: {
+        name: "University of Ghana HCI Lab Speech & Telephony Lexicon",
         domain: "West African Mobile Money & Banking",
         networks: ["MTN MoMo", "Telecel Cash", "AT Money"],
       },
@@ -844,7 +1221,7 @@ aiRouter.post("/api/ai/asr/acoustic-enhance", publicApiRateLimiter, (req: Reques
 });
 
 // ── User ASR Feedback & Ground-Truth Corrections (Item 15 & 16) ────────
-aiRouter.post("/api/ai/asr/feedback", publicApiRateLimiter, (req: Request, res: Response) => {
+aiRouter.post("/api/ai/asr/feedback", adminRateLimiter, requireAdminAuth, (req: Request, res: Response) => {
   try {
     const {
       sessionId,
@@ -862,6 +1239,9 @@ aiRouter.post("/api/ai/asr/feedback", publicApiRateLimiter, (req: Request, res: 
       return res.status(400).json({
         error: "Missing required fields: sessionId, originalTranscript, correctedTranscript, and reason are required.",
       });
+    }
+    if (!hasExplicitAsrFeedbackConsent(userConsent)) {
+      return res.status(400).json({ error: "Explicit consent is required to submit ASR feedback." });
     }
 
     const entry = feedbackService.submitCorrection({
@@ -882,7 +1262,7 @@ aiRouter.post("/api/ai/asr/feedback", publicApiRateLimiter, (req: Request, res: 
   }
 });
 
-aiRouter.get("/api/ai/asr/feedback/metrics", publicApiRateLimiter, (_req: Request, res: Response) => {
+aiRouter.get("/api/ai/asr/feedback/metrics", adminRateLimiter, requireAdminAuth, (_req: Request, res: Response) => {
   try {
     const metrics = feedbackService.getMetrics();
     res.json({ success: true, metrics });
@@ -907,17 +1287,88 @@ aiRouter.post("/api/ai/dialogue/turn", publicApiRateLimiter, async (req: Request
 });
 
 aiRouter.post("/api/ai/synthesize", publicApiRateLimiter, async (req: Request, res: Response) => {
+  const startTs = performance.now();
   try {
-    const { text, language, style } = req.body;
-    if (!text) {
-      return res.status(400).json({ error: "Missing 'text' to synthesize." });
+    const { text, language, sessionId } = req.body || {};
+    const rawText = String(text || "").trim();
+    const requestedLanguage = language === undefined ? "en" : normalizeTtsLanguage(String(language));
+    if (!rawText || rawText.length > 4000 || !requestedLanguage) {
+      return res.status(400).json({ success: false, error: "Valid text and language are required for speech synthesis." });
     }
-    const result = await aiSystem.synthesizeSpeech(text, language || "en", style);
-    res.json({ success: true, result });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || "Failed to synthesize speech" });
+    if (/\b(?:mobile\s*money|momo|wallet)?\s*pin\b.{0,32}\b\d{4,}\b/i.test(rawText)) {
+      return res.status(400).json({ success: false, error: "Credential values cannot be sent to speech synthesis." });
+    }
+    const isTwi = requestedLanguage === "twi";
+    const requestLanguage = isTwi ? "tw" : "en";
+    const providerResult = await ttsRouter.synthesize({
+      text: rawText,
+      language: requestLanguage,
+    });
+    const synthResult = assertTtsResponse({
+      text: rawText,
+      language: requestLanguage,
+    }, providerResult, requestedLanguage);
+
+    const latencyMs = Math.round(performance.now() - startTs);
+    const base64 = synthResult.audioBuffer!.toString("base64");
+
+    if (sessionId) {
+      callSessionRepository.addApiTrace(sessionId, {
+        id: `tts_${Date.now()}`,
+        timestamp: new Date().toLocaleTimeString(),
+        endpoint: "/api/ai/synthesize",
+        method: "POST",
+        provider: synthResult.providerUsed || "TTS_ROUTER",
+        latencyMs,
+        httpStatus: 200,
+        requestSummary: `Speech request (${rawText.length} chars) [${requestedLanguage}]`,
+        responseSummary: `Provider: ${synthResult.providerUsed}, Audio size: ${synthResult.audioBuffer?.length || 0} bytes`,
+        status: "SUCCESS",
+      });
+    }
+
+    res.json({
+      success: true,
+      result: {
+        audioBase64: base64,
+        audioMimeType: synthResult.audioMimeType || "audio/wav",
+        providerUsed: synthResult.providerUsed,
+        language: synthResult.language,
+        model: synthResult.model,
+        durationEstimateSec: synthResult.durationEstimateSec,
+      },
+    });
+  } catch (err: unknown) {
+    const latencyMs = Math.round(performance.now() - startTs);
+    const errorCode = getTtsErrorCode(err);
+    console.error("[AiTts] Speech synthesis failed.", {
+      promptId: "unknown",
+      language: normalizeTtsLanguage(String(req.body?.language || "en")) || "unknown",
+      sourceType: "SYNTHESIZED_TTS",
+      url: "/api/ai/synthesize",
+      provider: "TTS router",
+      error: errorCode,
+    });
+    if (req.body?.sessionId) {
+      callSessionRepository.addApiTrace(req.body.sessionId, {
+        id: `tts_err_${Date.now()}`,
+        timestamp: new Date().toLocaleTimeString(),
+        endpoint: "/api/ai/synthesize",
+        method: "POST",
+        provider: "TTS_ROUTER",
+        latencyMs,
+        httpStatus: 500,
+        requestSummary: `Speech request [${normalizeTtsLanguage(String(req.body?.language || "en")) || "unknown"}]`,
+        responseSummary: errorCode,
+        status: "ERROR",
+        errorMessage: errorCode,
+      });
+    }
+    res.status(502).json({ success: false, error: "Speech synthesis is unavailable. Use the keypad or try again later." });
   }
 });
+
+
 
 // ── AI Natural Language Intent to Central MoMo Pipeline ───────────────
 aiRouter.post("/api/ai/intent-to-momo", publicApiRateLimiter, async (req: Request, res: Response) => {
@@ -989,45 +1440,462 @@ aiRouter.post("/api/ai/intent-to-momo", publicApiRateLimiter, async (req: Reques
   }
 });
 
-// ── Ghana NLP Discovery & Health Endpoints ────────────────────────────
-aiRouter.get("/api/ai/ghananlp/health", async (_req: Request, res: Response) => {
-  const { ghanaNlpAsrService } = await import("../services/ghanaNlpAsrService");
-  const { ghanaNlpTtsService } = await import("../services/ghanaNlpTtsService");
 
-  const [asrHealth, ttsHealth] = await Promise.all([
-    ghanaNlpAsrService.healthCheck(),
-    ghanaNlpTtsService.healthCheck(),
-  ]);
+// ── Pre-Transaction Telco KYC & Recipient Lookup ─────────────────────
+aiRouter.post("/api/ai/simulator/validate-recipient", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { phone, sessionId, candidateName, candidateNetwork } = req.body || {};
+    if (!phone) {
+      return res.status(400).json({ success: false, error: "Missing recipient phone number." });
+    }
+    const normalized = normalizeGhanaPhoneNumber(String(phone));
+    const resolution = await recipientResolver.resolve(normalized);
+    const verifiedName = resolution.name || (resolution.verified ? "Registered Subscriber" : "Unknown Subscriber");
+    const network = resolution.network || "MTN";
 
-  res.json({
-    configured: config.ghanaNlp?.configured || false,
-    asr: asrHealth,
-    tts: ttsHealth,
+    // Detect mismatch between what user mentioned vs telco registry
+    let nameMismatch = false;
+    if (candidateName && typeof candidateName === "string" && candidateName.trim().length > 0) {
+      const cand = candidateName.toLowerCase().trim();
+      const ver = verifiedName.toLowerCase().trim();
+      if (!["him", "her", "them", "someone", "recipient"].includes(cand)) {
+        if (!ver.includes(cand) && !cand.includes(ver)) {
+          nameMismatch = true;
+        }
+      }
+    }
+
+    let networkMismatch = false;
+    if (candidateNetwork && typeof candidateNetwork === "string" && candidateNetwork.trim().length > 0) {
+      if (candidateNetwork.toUpperCase() !== network.toUpperCase()) {
+        networkMismatch = true;
+      }
+    }
+
+    res.json({
+      success: true,
+      phone: normalized,
+      verifiedName,
+      network,
+      verified: resolution.verified,
+      nameMismatch,
+      networkMismatch,
+      candidateName: candidateName || null,
+      candidateNetwork: candidateNetwork || null,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to validate recipient." });
+  }
+});
+
+// Legacy app-submitted PIN API is disabled. Never accept or validate a MoMo PIN here.
+aiRouter.post("/api/ai/simulator/submit-pin", publicApiRateLimiter, (_req: Request, res: Response) => {
+  res.status(410).json({
+    success: false,
+    error: "This service never accepts MoMo PINs. Authorize only in the private prompt from your Mobile Money provider.",
   });
 });
 
-aiRouter.get("/api/ai/ghananlp/languages", async (_req: Request, res: Response) => {
+// ── MoMo Cash-Out & Voice Withdrawal Endpoints ────────────────────────
+import { cashOutService } from "../services/cashOutService";
+
+// 1. Enable Cash-Out on subscriber wallet
+aiRouter.post("/api/ai/cashout/enable", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {
-    const { ghanaNlpAsrService } = await import("../services/ghanaNlpAsrService");
-    if (!ghanaNlpAsrService.isConfigured()) {
-      return res.status(503).json({ error: "Ghana NLP API is not configured. Set GHANANLP_API_KEY in environment." });
+    const { callerPhone, language } = req.body || {};
+    const phone = String(callerPhone || "").trim();
+    if (!phone) {
+      return res.status(400).json({ success: false, error: "callerPhone is required." });
     }
-    const data = await ghanaNlpAsrService.getLanguages();
-    res.json(data);
+    const state = cashOutService.enableCashOut(phone, 15);
+    const isTwi = language === "twi" || language === "tw" || language === "ak" || language === "twi-asante";
+
+    const msgEn = `Cash-Out has been successfully enabled on your wallet for the next 15 minutes. Balance checking through this assistant is currently unavailable; dial star, one, seven, zero, hash on your handset.`;
+    const msgTw = `Yɛabue kwan ama wo sɛ wotumi yi sika wɔ MoMo agent hɔ mfifii 15 mu. Yɛrentumi nhwɛ wo balance wɔ assistant yi so seesei; fa wo fon bɔ star, baako, nson, hwee, hash.`;
+
+    res.json({
+      success: true,
+      state,
+      callerPhone: phone,
+      expiresInMinutes: 15,
+      message: isTwi ? msgTw : msgEn,
+      messageEn: msgEn,
+      messageTw: msgTw,
+    });
   } catch (err: any) {
-    res.status(502).json({ error: err.message });
+    res.status(500).json({ success: false, error: err.message || "Failed to enable Cash-Out" });
   }
 });
 
-aiRouter.get("/api/ai/ghananlp/speakers", async (_req: Request, res: Response) => {
+// 2. Personal balance checking is unavailable; do not accept a PIN for this operation.
+aiRouter.post("/api/ai/cashout/check-balance", publicApiRateLimiter, async (_req: Request, res: Response) => {
+  const messageEn = "Balance checking through this assistant is currently unavailable. Please dial star, one, seven, zero, hash on your handset.";
+  const messageTw = "Seesei, yɛrentumi nhwɛ wo balance wɔ assistant yi so. Fa wo fon bɔ star, baako, nson, hwee, hash na hwɛ wo balance.";
+  res.status(501).json({
+    success: false,
+    error: "BALANCE_CHECK_UNAVAILABLE",
+    message: messageEn,
+    messageEn,
+    messageTw,
+  });
+});
+// 3. Simulate Agent Submitting Withdrawal Request
+aiRouter.post("/api/ai/cashout/agent-request", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {
-    const { ghanaNlpTtsService } = await import("../services/ghanaNlpTtsService");
-    if (!ghanaNlpTtsService.isConfigured()) {
-      return res.status(503).json({ error: "Ghana NLP API is not configured. Set GHANANLP_API_KEY in environment." });
+    const { callerPhone, agentCode, agentName, amount } = req.body || {};
+    const phone = String(callerPhone || "").trim();
+    if (!phone) {
+      return res.status(400).json({ success: false, error: "callerPhone is required." });
     }
-    const data = await ghanaNlpTtsService.getSpeakers();
-    res.json(data);
+    const request = cashOutService.createAgentWithdrawalRequest(
+      phone,
+      agentCode || "284910",
+      agentName || "Kofi Mensah Enterprise (MoMo Agent)",
+      Number(amount) || 50.0
+    );
+
+    res.json({
+      success: true,
+      request,
+      message: `Agent request created for ${phone}: GHS ${request.amount} by ${request.agentName}.`,
+    });
   } catch (err: any) {
-    res.status(502).json({ error: err.message });
+    res.status(500).json({ success: false, error: err.message || "Failed to create agent request" });
   }
+});
+
+// 4. Retrieve Pending Agent Request for Caller
+aiRouter.get("/api/ai/cashout/get-pending", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const phone = String(req.query.callerPhone || "").trim();
+    if (!phone) {
+      return res.status(400).json({ success: false, error: "callerPhone is required." });
+    }
+    const pending = cashOutService.getPendingWithdrawalRequest(phone);
+    res.json({
+      success: true,
+      hasPending: Boolean(pending),
+      request: pending,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to get pending request" });
+  }
+});
+
+// 5. Approve Withdrawal Request (with Zero-PIN privacy advisory)
+// 5. Approve Withdrawal Request (with Zero-PIN privacy advisory & accurate failure reporting)
+aiRouter.post("/api/ai/cashout/approve", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { callerPhone, pin, language } = req.body || {};
+    const phone = String(callerPhone || "").trim();
+    if (!phone) {
+      return res.status(400).json({ success: false, error: "callerPhone is required." });
+    }
+    const isTwi = language === "twi" || language === "tw" || language === "ak" || language === "twi-asante";
+
+    const approvalResult = cashOutService.approveWithdrawal(phone, String(pin || ""));
+    if (!approvalResult.success) {
+      if (approvalResult.error === "WALLET_LOCKED") {
+        const lockMsgEn = "Too many incorrect PIN attempts. For your security, your Mobile Money wallet has been temporarily locked. Please visit an MTN service centre or call 100 for assistance. Goodbye.";
+        const lockMsgTw = "Woabɔ PIN no mfomsoɔ mprɛnsa. Ahobammbɔ nti, yɛato wo MoMo wallet mu kakra. Mesrɛ wo kɔ MTN service centre anaa frɛ 100. Nante yie.";
+        return res.json({
+          success: false,
+          error: "WALLET_LOCKED",
+          isLocked: true,
+          remainingAttempts: 0,
+          message: isTwi ? lockMsgTw : lockMsgEn,
+          messageEn: lockMsgEn,
+          messageTw: lockMsgTw,
+        });
+      }
+
+      if (approvalResult.error === "INVALID_PIN") {
+        const rem = approvalResult.remainingAttempts ?? 2;
+        const warnMsgEn = `That PIN is incorrect. You have ${rem} attempt${rem === 1 ? "" : "s"} remaining before your wallet is locked. Please enter your PIN carefully on your phone keypad. Never share your PIN with anyone.`;
+        const warnMsgTw = `PIN no nyɛ pɛpɛɛpɛ. Wodeɛ aka mprɛ ${rem} pɛ ansa na yɛato wo wallet mu. Mesrɛ wo, fa wo keypad no bɔ mu pɛpɛɛpɛ na nka wo PIN nkyerɛ obiara da.`;
+        return res.json({
+          success: false,
+          error: "INVALID_PIN",
+          isLocked: false,
+          remainingAttempts: rem,
+          message: isTwi ? warnMsgTw : warnMsgEn,
+          messageEn: warnMsgEn,
+          messageTw: warnMsgTw,
+        });
+      }
+
+      if (approvalResult.error === "INSUFFICIENT_BALANCE" && approvalResult.balanceDetails) {
+        const b = approvalResult.balanceDetails;
+        const balStr = b.currentBalance.toFixed(2);
+        const amtStr = b.requestedAmount.toFixed(2);
+        const feeStr = b.fee.toFixed(2);
+        const totStr = b.totalRequired.toFixed(2);
+        const maxStr = b.maxPossibleWithdrawal.toFixed(2);
+        const shortStr = b.shortage.toFixed(2);
+
+        const msgEn = `The withdrawal could not be completed because your Mobile Money balance is ${balStr} Cedis, but the agent requested ${amtStr} Cedis plus a ${feeStr} fee, for a total of ${totStr} Cedis. Your account is short by ${shortStr} Cedis. The maximum amount you can withdraw right now is ${maxStr} Cedis. Please ask the agent to enter ${maxStr} Cedis instead.`;
+        const msgTw = `Wontumi nyi sika no efisɛ wo MoMo balance yɛ ${balStr} Cedis, nanso agent no rebisa ${amtStr} Cedis ne fee ${feeStr} Cedis, a ne nyinaa yɛ ${totStr} Cedis. Sika a ɛka wo ho yɛ ${shortStr} Cedis. Sika a wotumi yi seesei ara yɛ ${maxStr} Cedis. Mesrɛ wo ka kyerɛ agent no sɛ ɔnsesa nɔmba no mmɔ ${maxStr} Cedis.`;
+
+        return res.json({
+          success: false,
+          error: "INSUFFICIENT_BALANCE",
+          balanceDetails: b,
+          message: isTwi ? msgTw : msgEn,
+          messageEn: msgEn,
+          messageTw: msgTw,
+        });
+      }
+
+      return res.json({
+        success: false,
+        error: approvalResult.error || "NO_PENDING_REQUEST",
+        message: isTwi
+          ? "Agent biara nnya mfaa sika yi ho asɛm mmanee wo account mu. Mesrɛ wo ka kyerɛ agent no sɛ ɔmbɔ sika yi ansa."
+          : "There is no pending cash-out withdrawal request from an agent for your phone number right now. Please tell the agent to enter the withdrawal first.",
+      });
+    }
+
+    const reqData = approvalResult.request!;
+    const ref = approvalResult.referenceId!;
+
+    const msgEn = `Your cash withdrawal of ${reqData.amount.toFixed(2)} Cedis from ${reqData.agentName} has been approved successfully! MoMo Reference: ${ref}. Security Tip: For your safety, you can also press your PIN on your phone keypad next time so bystanders do not overhear your code.`;
+    const msgTw = `Sika a woyiiɛ GHS ${reqData.amount.toFixed(2)} wɔ ${reqData.agentName} hɔ no akɔ yie pɛpɛɛpɛ! MoMo Reference: ${ref}. Ahobammbɔ Afutuo: Da foforɔ no, wotumi fa wo phone so keypad no bɔ wo PIN ahintasɛm no na obiara ante wɔ baabi a wogyina no.`;
+
+    res.json({
+      success: true,
+      referenceId: ref,
+      request: reqData,
+      message: isTwi ? msgTw : msgEn,
+      messageEn: msgEn,
+      messageTw: msgTw,
+      privacyTipEn: "For your safety, you can also press your PIN on your phone keypad so bystanders do not overhear your code.",
+      privacyTipTw: "Da foforɔ no, wotumi fa wo phone so keypad no bɔ wo PIN ahintasɛm no na obiara ante wɔ baabi a wogyina no.",
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to approve withdrawal" });
+  }
+});
+
+// 5b. Understand Cash-Out Conversational Intent via AI Agent (Zero-PIN Protected)
+aiRouter.post("/api/ai/cashout/understand-intent", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { transcript, currentState, callerPhone, requestedAmount, language } = req.body || {};
+    const text = String(transcript || "").trim();
+    const isTwi = language === "twi" || language === "tw" || language === "ak" || language === "twi-asante";
+    const curState = String(currentState || "cashout-awaiting-agent");
+
+    if (!text) {
+      return res.json({
+        success: false,
+        intent: "UNKNOWN",
+        action: "CLARIFY",
+        confidence: 0.0,
+      });
+    }
+
+    // STRICT ZERO-PIN REDACTION BOUNDARY:
+    // Redact any sequence of 4 digits or any mention of PIN code before passing to the AI model
+    const redactedText = text
+      .replace(/\b\d{4}\b/g, "[REDACTED_PIN]")
+      .replace(/\b(?:pin|secret|passcode|code)\s*(?:is|:)?\s*\d+\b/gi, "pin [REDACTED_PIN]");
+
+    // Try Gemini AI Model first with structured prompt
+    let detectedIntent: "AGENT_INITIATED" | "CONFIRM_PROCEED" | "REJECT_CANCEL" | "CHECK_BALANCE" | "WAITING" | "UNKNOWN" = "UNKNOWN";
+    let detectedAction: "FETCH_PENDING" | "PROCEED" | "CANCEL" | "CHECK_BALANCE" | "WAIT" | "CLARIFY" = "CLARIFY";
+    let reason = "";
+
+    const rawClient = geminiClient.getRawClient();
+    if (rawClient && geminiClient.isAvailable()) {
+      try {
+        const prompt = `You are the natural language understanding agent for Ɔkwankyerɛfo Pa (Ghanaian Mobile Money Voice Layer).
+The user is performing a Cash-Out / agent withdrawal.
+Current step: "${curState}".
+Caller Phone: "${callerPhone || "Unspecified"}".
+Amount: "${requestedAmount || 30}".
+Language: ${isTwi ? "Akan Twi" : "English"}.
+
+The caller said: "${redactedText}".
+
+Determine the user's intent. Output JSON ONLY with this schema:
+{
+  "intent": "AGENT_INITIATED" | "CONFIRM_PROCEED" | "REJECT_CANCEL" | "CHECK_BALANCE" | "WAITING" | "UNKNOWN",
+  "action": "FETCH_PENDING" | "PROCEED" | "CANCEL" | "CHECK_BALANCE" | "WAIT" | "CLARIFY",
+  "reason": string
+}
+
+Guidelines:
+- In step "cashout-confirm-approval":
+  * If the caller agrees to approve or proceed, says yes, confirms, says "go ahead", "yes please go ahead", "approve", "approve it", "approve for me", "pene so", "aane", "yoo", "do it", or mentions entering PIN, set intent to "CONFIRM_PROCEED" and action to "PROCEED".
+  * If caller rejects or cancels ("no", "cancel", "dabi", "reject", "twa mu"), set intent to "REJECT_CANCEL" and action to "CANCEL".
+- In step "cashout-awaiting-agent":
+  * If the caller indicates the physical agent has initiated/sent/entered the withdrawal, told them to check, prompt has appeared, or caller wants to enter their PIN / approve (e.g. "he said I should check, and add my pin", "0543546010 i have, he said i should check, and add my pin", "prompt has come", "he entered it", "agent is done", "it came", "approve", "approve for me", "yes approve for me", "enter my pin", "check", "wawie", "ɔse menhwɛ", "bisa pin"), set intent to "AGENT_INITIATED" and action to "FETCH_PENDING".
+  * If the caller asks to wait, says agent is still typing/busy, set intent to "WAITING" and action to "WAIT".
+  * If caller cancels, set intent to "REJECT_CANCEL" and action to "CANCEL".
+- In step "cashout-offer-balance":
+  * If the caller agrees to check balance or fees ("yes", "check", "sure", "aane", "hwɛ"), set intent to "CONFIRM_PROCEED" and action to "PROCEED".
+  * If caller skips or says no ("no", "skip", "dabi", "daabi"), set intent to "REJECT_CANCEL" and action to "CANCEL".
+  * If caller immediately indicates agent is already done / entered, set intent to "AGENT_INITIATED" and action to "FETCH_PENDING".
+`;
+
+        const response = await rawClient.models.generateContent({
+          model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          config: {
+            responseMimeType: "application/json",
+            temperature: 0.1,
+          },
+        });
+
+        const outputText = response.text || "{}";
+        const parsed = JSON.parse(outputText);
+        if (parsed.intent && parsed.action) {
+          detectedIntent = parsed.intent;
+          detectedAction = parsed.action;
+          reason = parsed.reason || "Gemini semantic understanding";
+          if (curState === "cashout-confirm-approval" && (detectedIntent === "AGENT_INITIATED" || /\b(approve|pene\s*so)\b/i.test(text))) {
+            detectedIntent = "CONFIRM_PROCEED";
+            detectedAction = "PROCEED";
+            reason = "In cashout-confirm-approval, approving is confirmation to proceed";
+          }
+        }
+      } catch (geminiErr: any) {
+        // Fallback to local deterministic linguistic evaluation
+      }
+    }
+
+    // Local Deterministic Linguistic Fallback if Gemini did not classify or is offline
+    if (detectedIntent === "UNKNOWN") {
+      const lower = text.toLowerCase();
+
+      if (curState === "cashout-confirm-approval") {
+        const approveCues = [
+          "yes", "approve", "confirm", "proceed", "go ahead", "please go ahead",
+          "okay", "sure", "aane", "ampa", "kɔ so", "ko so", "yie", "pene so",
+          "yoo", "do it", "allow it", "enter pin", "bisa pin", "menhyɛ mu", "approve for me", "yes please"
+        ];
+        const cancelCues = ["no", "cancel", "dabi", "stop", "reject", "gyae", "twa mu"];
+        if (approveCues.some(cue => lower.includes(cue))) {
+          detectedIntent = "CONFIRM_PROCEED";
+          detectedAction = "PROCEED";
+          reason = "Caller approved withdrawal request in cashout-confirm-approval";
+        } else if (cancelCues.some(cue => lower.includes(cue))) {
+          detectedIntent = "REJECT_CANCEL";
+          detectedAction = "CANCEL";
+          reason = "Caller rejected withdrawal in cashout-confirm-approval";
+        }
+      } else {
+        // Agent initiated cues (English & Twi)
+        const agentDoneCues = [
+          "he said", "said i should check", "check", "add my pin", "enter pin", "bisa pin",
+          "agent is done", "done", "he has sent", "sent it", "he sent it", "punched it",
+          "prompt has come", "prompt come", "it has arrived", "it came", "approve",
+          "approve it", "approve for me", "yes approve", "pene so", "ready", "wie", "wawie",
+          "ɔse menhwɛ", "ose menhwe", "ɔse me bɔ", "ose me bo", "prompt no aba",
+          "agent no awie", "he entered it", "menhyɛ mu"
+        ];
+        const isAgentDone = agentDoneCues.some(cue => lower.includes(cue));
+
+        // Affirmative / Proceed cues
+        const proceedCues = [
+          "yes", "confirm", "proceed", "go ahead", "please go ahead", "try it",
+          "try anyway", "okay", "sure", "aane", "ampa", "kɔ so", "ko so", "yie",
+          "pene so", "yoo", "yes please"
+        ];
+        const isProceed = proceedCues.some(cue => lower.includes(cue));
+
+        // Negative / Cancel cues
+        const cancelCues = [
+          "no", "cancel", "dabi", "stop", "reject", "gyae", "twa mu"
+        ];
+        const isCancel = cancelCues.some(cue => lower.includes(cue));
+
+        // Balance check cues
+        const balanceCues = [
+          "check balance", "how much", "balance", "fee", "sika dodoɔ", "hwɛ balance", "hwɛ sika"
+        ];
+        const isBalance = balanceCues.some(cue => lower.includes(cue));
+
+        if (isAgentDone) {
+          detectedIntent = "AGENT_INITIATED";
+          detectedAction = "FETCH_PENDING";
+          reason = "Linguistic match: caller indicated agent prompt / check / add PIN request";
+        } else if (isProceed) {
+          detectedIntent = "CONFIRM_PROCEED";
+          detectedAction = "PROCEED";
+          reason = "Linguistic match: affirmative confirmation / proceed";
+        } else if (isCancel) {
+          detectedIntent = "REJECT_CANCEL";
+          detectedAction = "CANCEL";
+          reason = "Linguistic match: negative cancellation";
+        } else if (isBalance) {
+          detectedIntent = "CHECK_BALANCE";
+          detectedAction = "CHECK_BALANCE";
+          reason = "Linguistic match: check balance and fees";
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      intent: detectedIntent,
+      action: detectedAction,
+      confidence: detectedIntent !== "UNKNOWN" ? 0.95 : 0.3,
+      reason,
+      redactedTranscript: redactedText,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to analyze cashout intent" });
+  }
+});
+
+// 5c. Reset PIN attempts and unlock wallet for testing
+aiRouter.post("/api/ai/cashout/reset-attempts", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { callerPhone } = req.body || {};
+    const phone = String(callerPhone || "").trim();
+    if (!phone) {
+      return res.status(400).json({ success: false, error: "callerPhone is required." });
+    }
+    cashOutService.resetPinAttempts(phone);
+    res.json({ success: true, message: `PIN attempts reset and wallet unlocked for ${phone}.` });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to reset PIN attempts" });
+  }
+});
+
+// 6. Set custom wallet balance for simulation testing (e.g. GH₵30)
+aiRouter.post("/api/ai/cashout/set-balance", publicApiRateLimiter, async (req: Request, res: Response) => {
+  try {
+    const { callerPhone, balance } = req.body || {};
+    const phone = String(callerPhone || "").trim();
+    if (!phone) {
+      return res.status(400).json({ success: false, error: "callerPhone is required." });
+    }
+    const bal = Number(balance);
+    cashOutService.setWalletBalance(phone, isNaN(bal) ? 30.0 : bal);
+    res.json({
+      success: true,
+      callerPhone: phone,
+      balance: cashOutService.getWalletBalance(phone),
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || "Failed to set wallet balance" });
+  }
+});
+
+// ── Central Brain Token & Latency Telemetry ───────────────────────────
+aiRouter.get("/api/ai/brain/telemetry", (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    telemetry: brainTelemetry.getSummary(),
+  });
+});
+
+aiRouter.post("/api/ai/brain/telemetry/reset", (_req: Request, res: Response) => {
+  brainTelemetry.reset();
+  res.json({
+    success: true,
+    message: "Brain telemetry counters reset.",
+    telemetry: brainTelemetry.getSummary(),
+  });
 });

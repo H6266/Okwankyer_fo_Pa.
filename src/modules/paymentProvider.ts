@@ -127,23 +127,76 @@ export class MtnPaymentProvider implements PaymentProvider {
   }
 }
 
-// ── Telecel Cash Stub (Roadmap) ──────────────────────────────────────
+// ── Telecel Cash Implementation ──────────────────────────────────────
+import { telecelEngine, TelecelEngine } from "../integrations/telecel";
+
 export class TelecelPaymentProvider implements PaymentProvider {
   readonly id = "Telecel";
   readonly name = "Telecel Cash (Ghana)";
-  readonly isImplemented = false;
+  readonly isImplemented = true;
 
-  async lookupKyc(_phone: string): Promise<KycRecord> {
-    throw new Error("Telecel Cash adapter is on the roadmap and not yet implemented.");
+  constructor(private readonly telecelService: TelecelEngine = telecelEngine) {}
+
+  async lookupKyc(phone: string): Promise<KycRecord> {
+    const holder = await this.telecelService.lookupKyc(phone);
+    return {
+      phoneNumber: holder.phoneNumber,
+      name: holder.name,
+      network: "Telecel",
+      verified: holder.verified,
+      tier: holder.tier || "Tier 2",
+    };
   }
-  async requestToPay(_params: RequestToPayParams): Promise<{ referenceId: string; status: "PENDING" | "SUCCESSFUL" }> {
-    throw new Error("Telecel Cash adapter is on the roadmap and not yet implemented.");
+
+  async requestToPay(params: RequestToPayParams): Promise<{ referenceId: string; status: "PENDING" | "SUCCESSFUL" }> {
+    const tx = await this.telecelService.requestToPay({
+      amount: params.amount,
+      payerPhone: params.payerPhone,
+      payerMessage: params.payerMessage,
+      payeeNote: params.payeeNote,
+      externalId: params.referenceId,
+    });
+    return {
+      referenceId: tx.referenceId,
+      status: tx.status === "SUCCESSFUL" ? "SUCCESSFUL" : "PENDING",
+    };
   }
-  async transfer(_params: TransferParams): Promise<{ referenceId: string; status: "PENDING" | "SUCCESSFUL" }> {
-    throw new Error("Telecel Cash adapter is on the roadmap and not yet implemented.");
+
+  async transfer(params: TransferParams): Promise<{ referenceId: string; status: "PENDING" | "SUCCESSFUL" }> {
+    const tx = await this.telecelService.transfer({
+      amount: params.amount,
+      payeePhone: params.recipientPhone,
+      payerMessage: params.payerMessage,
+      payeeNote: params.payeeNote,
+      externalId: params.referenceId,
+    });
+    return {
+      referenceId: tx.referenceId,
+      status: tx.status === "SUCCESSFUL" ? "SUCCESSFUL" : "PENDING",
+    };
   }
-  async getStatus(_referenceId: string): Promise<TransactionStatusResult> {
-    throw new Error("Telecel Cash adapter is on the roadmap and not yet implemented.");
+
+  async getStatus(referenceId: string): Promise<TransactionStatusResult> {
+    const tx = await this.telecelService.getTransactionStatus(referenceId);
+    if (!tx) {
+      throw new Error(`Telecel Cash transaction ${referenceId} was not found.`);
+    }
+
+    return {
+      referenceId: tx.referenceId,
+      externalId: tx.externalId,
+      amount: tx.amount,
+      currency: tx.currency,
+      status: tx.status === "SUCCESSFUL"
+        ? "SUCCESSFUL"
+        : tx.status === "PENDING"
+          ? "PENDING"
+          : "FAILED",
+      financialTransactionId: tx.financialTransactionId,
+      payerPhone: tx.payerPhone,
+      recipientPhone: tx.msisdn,
+      timestamp: tx.updatedAt,
+    };
   }
 }
 

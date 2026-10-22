@@ -149,6 +149,8 @@ const INTENT_LEXICON: Record<IntentName, Array<{ word: string; weight: number }>
   ],
   REPEAT: [
     { word: "repeat", weight: 4.0 },
+    { word: "tie bio", weight: 4.0 },
+    { word: "tie biom", weight: 4.0 },
     { word: "ka bio", weight: 4.0 },
     { word: "again", weight: 3.0 },
     { word: "say it again", weight: 4.0 },
@@ -187,6 +189,13 @@ const INTENT_LEXICON: Record<IntentName, Array<{ word: string; weight: number }>
   UNKNOWN: [],
 };
 
+function matchesPhrase(tokens: string[], phrase: string): boolean {
+  const phraseTokens = phrase.toLowerCase().match(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu) || [];
+  return phraseTokens.length > 0 && tokens.some((_, start) =>
+    phraseTokens.every((token, offset) => tokens[start + offset] === token)
+  );
+}
+
 export class AiUnderstanding {
   /**
    * Primary entry point for deterministic language understanding (<15ms).
@@ -201,8 +210,10 @@ export class AiUnderstanding {
     const normalizedText = inputNormalizer.normalize(rawUtterance).toLowerCase().trim();
 
     // 1. Direct Confirmation & Denial Fast-Paths
-    const isConfirmation = this.checkConfirmation(normalizedText);
-    const isDenial = this.checkDenial(normalizedText);
+    const isConfirmation = this.checkConfirmation(normalizedText) &&
+      (normalizedText !== "1" || currentStep === "confirm" || currentStep === "auth");
+    const isDenial = this.checkDenial(normalizedText) &&
+      (!/^(?:0|2)$/.test(normalizedText) || currentStep === "confirm" || currentStep === "auth");
 
     // 2. Check for Negation & Corrections
     const correctionCheck = this.detectCorrection(normalizedText, activeSlots);
@@ -286,6 +297,23 @@ export class AiUnderstanding {
     const scores: BayesianIntentScore[] = [];
     const allIntents = Object.keys(INTENT_LEXICON) as IntentName[];
 
+    if (/^(?:please\s+)?(?:cancel|stop|abort|gyae|twa mu)\b/i.test(text)) {
+      return [{ intent: "CANCEL", prior: 0.99, likelihood: 1.0, posterior: 0.99 }];
+    }
+    if (/\b(?:bue me account(?: ma me)?|open my account|show my account)\b/i.test(text)) {
+      return [{ intent: "CHECK_ACCOUNT", prior: 0.99, likelihood: 1.0, posterior: 0.99 }];
+    }
+
+    if (/\b(?:sika a aka|check(?:\s+my)?\s+balance|balance\s+inquiry|how much (?:is|do) i have)\b/i.test(text)) {
+      return [{ intent: "CHECK_BALANCE", prior: 0.99, likelihood: 1.0, posterior: 0.99 }];
+    }
+    if (/\b(?:cash\s*out|withdraw|gye sika|yi sika)\b/i.test(text)) {
+      return [{ intent: "CASH_OUT", prior: 0.99, likelihood: 1.0, posterior: 0.99 }];
+    }
+    if (/\b(?:go back|previous|san akyi|kɔ akyi)\b/i.test(text)) {
+      return [{ intent: "GO_BACK", prior: 0.99, likelihood: 1.0, posterior: 0.99 }];
+    }
+
     // If explicit confirm or deny or correction, prioritize with near-certainty
     if (isConfirmation && !text.includes("send") && !text.includes("balance")) {
       return [{ intent: "CONFIRM", prior: 0.9, likelihood: 1.0, posterior: 0.98 }];
@@ -298,6 +326,18 @@ export class AiUnderstanding {
     }
 
     const stepPriors = STEP_PRIORS[currentStep] || { SEND_MONEY: 0.3, CHECK_BALANCE: 0.3, HELP: 0.2 };
+    const tokens = text.toLowerCase().match(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu) || [];
+    const hasExplicitBillCue = INTENT_LEXICON.PAY_BILL.some(({ word }) => matchesPhrase(tokens, word));
+    const hasIntentEvidence = Object.values(INTENT_LEXICON).some((keywords) =>
+      keywords.some(({ word }) => matchesPhrase(tokens, word))
+    );
+    const hasContextualSlotInput =
+      (currentStep === "amount" && /\b\d+(?:\.\d{1,2})?\b/.test(text)) ||
+      (currentStep === "recipient" && /\b0\d{9}\b/.test(text));
+
+    if (!hasIntentEvidence && !hasContextualSlotInput) {
+      return [{ intent: "UNKNOWN", prior: 0.5, likelihood: 0.5, posterior: 0.5 }];
+    }
 
     let totalPosterior = 0;
 
@@ -316,7 +356,8 @@ export class AiUnderstanding {
       const keywords = INTENT_LEXICON[intent] || [];
       let matchScore = 0;
       for (const kw of keywords) {
-        if (text.includes(kw.word)) {
+        if (intent === "SEND_MONEY" && kw.word === "pay" && hasExplicitBillCue) continue;
+        if (matchesPhrase(tokens, kw.word)) {
           matchScore += kw.weight;
         }
       }
@@ -411,6 +452,25 @@ export class AiUnderstanding {
       return inputNormalizer.extractNumber(chosenWord);
     }
 
+    // Arithmetic mental math support:
+    // e.g. "half of my 90", "half of 50", "a tenth of 100", "20 plus 30"
+    const halfMatch = text.match(/half\s+of\s+(?:my\s+)?(\d+)/i) || text.match(/(?:i have|got)\s+(\d+).*?half/i);
+    if (halfMatch) {
+      const base = parseFloat(halfMatch[1]);
+      if (!isNaN(base) && base > 0) return base / 2;
+    }
+    const tenthMatch = text.match(/(?:a\s+tenth|tenth)\s+of\s+(?:my\s+)?(\d+)/i);
+    if (tenthMatch) {
+      const base = parseFloat(tenthMatch[1]);
+      if (!isNaN(base) && base > 0) return base / 10;
+    }
+    const sumMatch = text.match(/(\d+)\s+(?:plus|\+)\s+(\d+)/i);
+    if (sumMatch) {
+      const a = parseFloat(sumMatch[1]);
+      const b = parseFloat(sumMatch[2]);
+      if (!isNaN(a) && !isNaN(b)) return a + b;
+    }
+
     // Normal extraction using inputNormalizer (supports Akan and digits)
     // Avoid matching phone numbers as amounts
     const textWithoutPhones = text.replace(/\b0\d{9}\b/g, "");
@@ -421,21 +481,29 @@ export class AiUnderstanding {
    * Context-aware Ghanaian name recognition
    */
   private extractRecipientName(text: string): string | null {
-    // Look for prepositional contexts: "to Kwame", "kɔma Ama", "ma Kofi", "send it to Yaw"
-    const prepMatch = text.match(/\b(?:to|kɔma|ma|give)\s+([a-zA-Zɛɔ]+)\b/i);
-    if (prepMatch) {
-      const candidate = prepMatch[1].toLowerCase();
-      if (!["send", "the", "him", "her", "them", "money", "sika"].includes(candidate)) {
-        return this.capitalizeName(candidate);
-      }
-    }
-
-    // Direct Ghanaian names in utterance
+    // 1. Direct Ghanaian names in utterance (highest confidence)
     const words = text.split(/\s+/);
     for (const w of words) {
       const clean = w.toLowerCase().replace(/[^a-zɛɔ]/g, "");
       if (GHANAIAN_NAMES.has(clean)) {
         return this.capitalizeName(clean);
+      }
+    }
+
+    // 2. Prevent matching pronouns or coreferences as names
+    if (/\b(?:to\s+(?:him|her|them)|saa nipa no)\b/i.test(text)) {
+      return null;
+    }
+
+    // 3. Look for prepositional contexts: "to ECG Man on 024...", "to Ama", "kɔma Ama", "ma Kofi", "send it to Yaw"
+    const prepMatchWithLabel = text.match(/\b(?:(?:send\s+(?:money\s+)?to|transfer\s+to|kɔma|ma|give\s+to|to)\s+(?:the\s+)?)([a-zA-Zɛɔ\s]+?)(?:\s+(?:on|wɔ|at|\b0\d{9}\b)|$)/i);
+    if (prepMatchWithLabel) {
+      const candidate = prepMatchWithLabel[1].trim();
+      const lower = candidate.toLowerCase();
+      const tokens = lower.split(/\s+/);
+      const invalidWords = new Set(["send", "the", "him", "her", "them", "money", "sika", "cedis", "ghs", "phone", "number", "using", "that", "amount"]);
+      if (!tokens.some((t) => invalidWords.has(t)) && candidate.length > 1) {
+        return candidate.split(/\s+/).map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(" ");
       }
     }
 

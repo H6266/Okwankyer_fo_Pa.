@@ -44,6 +44,13 @@ export const adminRateLimiter = rateLimit({
   message: { error: "Too many admin requests. Rate limit exceeded." },
 });
 
+export const simulatorRateLimiter = rateLimit({
+  ...commonRateLimitOptions,
+  windowMs: 60 * 1000,
+  max: 300, // 300 requests per minute for interactive simulation
+  message: { error: "Simulator rate limit reached. Please wait a moment." },
+});
+
 export const kycLookupRateLimiter = rateLimit({
   ...commonRateLimitOptions,
   windowMs: 60 * 1000, // 1 minute
