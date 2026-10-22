@@ -281,6 +281,7 @@ export async function startServer() {
   };
   process.once("SIGTERM", shutdown);
   process.once("SIGINT", shutdown);
+  addTelnyxStream(server);
 
   const listenWithRetry = (retriesLeft = 10): Promise<void> => {
     return new Promise((resolve, reject) => {
@@ -314,11 +315,6 @@ export async function startServer() {
         }
       };
 
-  addTelnyxStream(server);
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", (err: any) => {
-      if (err.code === "EADDRINUSE") {
-        console.warn(`⚠️ Port ${activePort} is already in use; server is already running.`);
       const onListening = () => {
         server.removeListener("error", onError);
         console.log(`Ɔkwankyerɛfo Pa running on http://${activeHost}:${activePort}`);
