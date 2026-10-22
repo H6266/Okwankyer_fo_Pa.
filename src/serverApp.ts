@@ -4,6 +4,7 @@
  */
 
 import express, { Request, Response } from "express";
+import { addTelnyxWebhook, addTelnyxStream } from "./telnyxVoice";
 import http from "http";
 import net from "node:net";
 import path from "path";
@@ -94,6 +95,7 @@ app.use((req: Request, res: Response, next) => {
 // Request body limits (50MB to support audio recordings, ASR audio streams, and base64 uploads)
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(express.json({ limit: "50mb" }));
+addTelnyxWebhook(app);
 
 // Graceful handler for payload too large errors
 app.use((err: any, _req: Request, res: Response, next: any) => {
@@ -312,6 +314,11 @@ export async function startServer() {
         }
       };
 
+  addTelnyxStream(server);
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", (err: any) => {
+      if (err.code === "EADDRINUSE") {
+        console.warn(`⚠️ Port ${activePort} is already in use; server is already running.`);
       const onListening = () => {
         server.removeListener("error", onError);
         console.log(`Ɔkwankyerɛfo Pa running on http://${activeHost}:${activePort}`);
