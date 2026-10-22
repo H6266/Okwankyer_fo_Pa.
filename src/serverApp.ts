@@ -4,6 +4,7 @@
  */
 
 import express, { Request, Response } from "express";
+import { addTelnyxWebhook, addTelnyxStream } from "./telnyxVoice";
 import http from "http";
 import path from "path";
 import fs from "fs";
@@ -67,6 +68,7 @@ app.use((req: Request, res: Response, next) => {
 // Request body limits (50MB to support audio recordings, ASR audio streams, and base64 uploads)
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(express.json({ limit: "50mb" }));
+addTelnyxWebhook(app);
 
 // Graceful handler for payload too large errors
 app.use((err: any, _req: Request, res: Response, next: any) => {
@@ -234,6 +236,7 @@ export async function startServer() {
   }
   const activeHost = hostArg || process.env.HOST || "0.0.0.0";
 
+  addTelnyxStream(server);
   await new Promise<void>((resolve, reject) => {
     server.once("error", (err: any) => {
       if (err.code === "EADDRINUSE") {
