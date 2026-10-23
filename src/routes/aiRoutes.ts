@@ -827,12 +827,9 @@ aiRouter.post("/api/ai/brain/process", publicApiRateLimiter, async (req: Request
             updates.isRecipientVerified = false;
           }
         }
-        if (slots.verifiedName && normalizedRecipientPhone) {
-          updates.recipientName = slots.verifiedName;
-          updates.isRecipientVerified = true;
-        } else if (slots.recipient?.name && normalizedRecipientPhone) {
+        if (slots.recipient?.name && normalizedRecipientPhone) {
           updates.recipientName = slots.recipient.name;
-          updates.isRecipientVerified = true;
+          updates.isRecipientVerified = false;
         }
         const resolvedNetwork = slots.network || slots.candidateNetwork || slots.recipient?.network;
         if (resolvedNetwork) {
