@@ -1819,7 +1819,7 @@ ivrRouter.all("/safe-outcome", async (req: Request, res: Response) => {
       session.confirmationReadbackFingerprint === currentFingerprint &&
       typeof session.confirmationReadbackAt === "number" &&
       Date.now() - session.confirmationReadbackAt <= FINANCIAL_LIMITS.CONFIRMATION_TTL_MS;
-    if (!session.confirmationReadbackFingerprint) {
+    if (!readbackMatches) {
       return xmlResponse(res, `    <Redirect>${baseUrl}/safe-confirmation?sessionId=${encodeURIComponent(sessionId)}&amp;lang=${lang}</Redirect>`);
     }
   }
