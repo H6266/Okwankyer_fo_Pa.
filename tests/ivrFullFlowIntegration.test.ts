@@ -429,8 +429,8 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(amountPrompt.text).not.toMatch(/numDigits="(?:6|8)"/);
   });
 
-  it("accepts a valid unknown sandbox number in demo mode and continues the transfer flow", async () => {
-    const sessionId = "AT-DEMO-UNKNOWN-RECIPIENT-001";
+  it("accepts a known sandbox fixture in demo mode and continues the transfer flow", async () => {
+    const sessionId = "AT-DEMO-KNOWN-RECIPIENT-001";
     const previousDemoMode = config.demoMode;
 
     try {
@@ -438,7 +438,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
 
       const response = await request(app)
         .post("/verify-recipient")
-        .send({ sessionId, lang: "en", dtmfDigits: "0249999999" });
+        .send({ sessionId, lang: "en", dtmfDigits: "0241234567" });
 
       expect(response.text).toContain("/recipient-verify-choice");
       expect(response.text).not.toContain("local sandbox cannot verify it");

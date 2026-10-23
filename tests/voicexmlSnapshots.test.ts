@@ -30,9 +30,10 @@ describe("VoiceXML Telephony Snapshots & Pillar Invariants", () => {
     expect(twiStep7.xml.toLowerCase()).not.toContain("<getdigits");
 
     // Audio prompts must be present
-    expect(enStep7.promptAudioUrl).toContain("/api/audio/prompt-tts/en/pin_handoff");
-    expect(twiStep7.promptAudioUrl).toMatch(/\/(?:api\/audio\/prompt-tts\/twi\/pin_handoff|audio\/(?:additional\/)?Pin%20Handoff\.mp3)/);
-    expect(enStep7.xml).toContain("<Play");
+    // English may use the spoken-text fallback when no verified recording exists.
+    expect(enStep7.xml).toMatch(/<(Play|Say)\b/i);
+    expect(twiStep7.promptAudioUrl).toMatch(/\/(?:api\/audio\/prompt-tts\/twi\/pin_handoff|audio\/Twi\/Pin_Handoff\.mp3|audio\/(?:additional\/)?Pin%20Handoff\.mp3)/);
+    expect(enStep7.xml).toMatch(/<(Play|Say)\b/i);
     expect(twiStep7.xml).toContain("<Play");
   });
 

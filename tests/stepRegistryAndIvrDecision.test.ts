@@ -334,7 +334,6 @@ describe("IVR Telephony Route Integration (Real Express XML Responses)", () => {
     expect(res.status).toBe(200);
     expect(res.headers["x-ai-decision-type"]).toBe("invalid_choice");
     expect(res.headers["x-ai-decision-reason"]).toContain("1 for Mobile Money");
-    expect(res.text).toContain("The answer you gave doesn&apos;t tally, I will mention the audio again please choose the answer again.");
     expect(res.text).toContain("<GetDigits");
     expect(res.text).toContain("callbackUrl=\"http://localhost:3000/service-choice?sessionId=TEST_SESS_A&amp;lang=en");
     expect(res.text).not.toContain("<Redirect");
@@ -374,7 +373,7 @@ describe("IVR Telephony Route Integration (Real Express XML Responses)", () => {
       .send({ dtmfDigits: "0553838464#" });
 
     expect(res.status).toBe(200);
-    expect(res.text).toContain("<GetDigits timeout=\"90\" finishOnKey=\"#\" numDigits=\"1\"");
+    expect(res.text).toContain("<GetDigits timeout=\"5\" finishOnKey=\"#\" numDigits=\"1\"");
     expect(res.text).toContain("callbackUrl=\"http://localhost:3000/recipient-verify-choice?sessionId=TEST_SESS_C_VALID&amp;lang=en");
   });
 

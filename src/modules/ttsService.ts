@@ -132,6 +132,10 @@ export const PROMPT_SCRIPTS: Record<string, { en: string; twi: string }> = {
     en: "Would you like another supported transfer? Press 1 for another, or 0 to finish.",
     twi: "Wopɛ transfer foforɔ a yɛboa a? Mia 1. Sɛ wowie a, mia 0.",
   },
+  pin_handoff: {
+    en: "Please check your phone and approve the payment request on your screen. Never share your PIN on this call.",
+    twi: "Hwɛ wo fon so na pene tua ka no so. Mma obiara nnye wo PIN wɔ fon yi so.",
+  },
   goodbye: {
     en: "Thank you for using Ɔkwankyerɛfo Pa. Goodbye.",
     twi: "Meda wo ase sɛ wode Ɔkwankyerɛfo Pa dii dwuma. Nante yie.",

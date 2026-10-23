@@ -1011,7 +1011,7 @@ ivrRouter.all("/service-choice", (req: Request, res: Response) => {
       `    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/service-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${contentXml}\n    </GetDigits>`,
       {
         type: "invalid_choice",
-        reason: "Keypad input does not match expected parameters (1, 2, 9, 0).",
+        reason: "Keypad input does not match expected parameters (1 for Mobile Money, 9 to repeat, 0 to exit).",
         replyText: mismatchText,
         action: "replay",
         nextStep: "service-select",
@@ -1136,7 +1136,7 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
 
   // Invalid key at provider selection (e.g. 4, 5, 6, 7)
   session.retryCount = (session.retryCount || 0) + 1;
-  const mismatchRes = KeypadBufferManager.appendDigit(sessionId, dtmf, "single_digit", ["1", "2", "3", "4", "8", "9", "0"]);
+  const mismatchRes = KeypadBufferManager.appendDigit(sessionId, dtmf, "single_digit", ["1", "2", "3", "4", "9", "0"]);
   if (!mismatchRes.isValidParameter && mismatchRes.mismatchFeedback) {
     const mismatchText = mismatchRes.mismatchFeedback[lang] || mismatchRes.mismatchFeedback.en;
     const replayPromptText = resolvePromptText("mtn_network_select", lang) || "For MTN Mobile Money, press 1. For Telecel Cash, press 2. Press 9 to repeat, or 0 to exit.";
@@ -1145,7 +1145,7 @@ ivrRouter.all("/provider-choice", (req: Request, res: Response) => {
       `    <Say voice="female">${escapeVoiceXml(mismatchText)}</Say>\n    <GetDigits timeout="10" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/provider-choice?sessionId=${sessionId}&amp;lang=${lang}">\n        ${canonicalPromptElement("mtn_network_select", lang, baseUrl, replayPromptText)}\n    </GetDigits>`,
       {
         type: "invalid_choice",
-        reason: "Keypad input does not match expected parameters (1, 2, 3, 8, 9, 0).",
+        reason: "Keypad input does not match expected parameters (1, 2, 3, 4, 9, 0).",
         replyText: mismatchText,
         action: "replay",
         nextStep: "provider-select",
