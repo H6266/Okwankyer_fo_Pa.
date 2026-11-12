@@ -29,6 +29,7 @@ import {
   CachedSessionRecord,
   IConversationRepository,
   IPreferenceRepository,
+  IUserMemoryRepository,
   IPronunciationRepository,
   ISemanticMemoryRepository,
   ISessionRepository,
@@ -38,6 +39,7 @@ import {
 import {
   InMemoryConversationRepository,
   InMemoryPreferenceRepository,
+  InMemoryUserMemoryRepository,
   InMemoryPronunciationRepository,
   InMemorySemanticMemoryRepository,
   InMemorySessionRepository,
@@ -47,6 +49,7 @@ import {
 import {
   DurableFileConversationRepository,
   DurableFilePreferenceRepository,
+  DurableFileUserMemoryRepository,
   DurableFilePronunciationRepository,
   DurableFileSemanticMemoryRepository,
   DurableFileSessionRepository,
@@ -100,6 +103,7 @@ export class UnifiedMemory {
   public sessionRepo: ISessionRepository;
   public conversationRepo: IConversationRepository;
   public preferenceRepo: IPreferenceRepository;
+  public userMemoryRepo: IUserMemoryRepository;
   public transactionRepo: ITransactionRepository;
   public pronunciationRepo: IPronunciationRepository;
   public semanticRepo: ISemanticMemoryRepository;
@@ -109,6 +113,7 @@ export class UnifiedMemory {
       this.sessionRepo = new DurableFileSessionRepository();
       this.conversationRepo = new DurableFileConversationRepository();
       this.preferenceRepo = new DurableFilePreferenceRepository();
+      this.userMemoryRepo = new DurableFileUserMemoryRepository();
       this.transactionRepo = new DurableFileTransactionRepository();
       this.taskRepo = new DurableFileTaskStateRepository();
       this.pronunciationRepo = new DurableFilePronunciationRepository();
@@ -117,6 +122,7 @@ export class UnifiedMemory {
       this.sessionRepo = new InMemorySessionRepository();
       this.conversationRepo = new InMemoryConversationRepository();
       this.preferenceRepo = new InMemoryPreferenceRepository();
+      this.userMemoryRepo = new InMemoryUserMemoryRepository();
       this.transactionRepo = new InMemoryTransactionRepository();
       this.taskRepo = new InMemoryTaskStateRepository();
       this.pronunciationRepo = new InMemoryPronunciationRepository();

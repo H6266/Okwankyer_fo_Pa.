@@ -27,17 +27,10 @@ import {
 } from "../audio/geminiAudioMatcher";
 import { ttsRouter } from "../ai_system/speech/tts/ttsRouter";
 import { assertTtsResponse, getTtsErrorCode, normalizeTtsLanguage } from "../ai_system/speech/tts/ttsProvider";
-import { formatSpokenNumbersAsDigits } from "../domain/numberFormatter";
 import { paymentSaga } from "../integrations/momo/paymentSaga";
 import { geminiClient } from "../services/geminiClient";
 import { recipientResolver } from "../providers/recipient/RecipientResolver";
-import { normalizeGhanaPhoneNumber, parseAndValidateAmount, validateGhanaPhoneNumber } from "../domain/validation";
-import {
-  isAcousticSystemEcho,
-  stripSystemEchoFromTranscript,
-  isBackgroundNoiseOrStatic,
-} from "../domain/echoFilter";
-import { asrOrchestrator } from "../ai_system/speech/asr/asrOrchestrator";
+import { normalizeGhanaPhoneNumber } from "../domain/validation";
 import { longConversationAsr } from "../ai_system/speech/asr/longConversationAsr";
 import { feedbackService } from "../ai_system/speech/asr/feedbackService";
 import { hasExplicitAsrFeedbackConsent } from "../ai_system/speech/asr/feedbackConsent";
@@ -52,8 +45,6 @@ import { acousticNoiseFilterModel } from "../ai_system/speech/acousticModels/noi
 import { getFullAiHealthReport } from "../services/healthService";
 import { transactionStateMachine } from "../domain/stateMachine";
 import { ChecklistStageManager } from "../domain/checklistPipeline";
-import { buildReceiptPrompt } from "../audio/dynamicPromptBuilder";
-import { matchReplyToAudio } from "../audio/replyAudioMatcher";
 
 export const aiRouter = Router();
 
@@ -169,7 +160,8 @@ aiRouter.post("/api/ai/process", publicApiRateLimiter, async (req: Request, res:
       conversationHistory,
       transactionState,
       availableActions,
-      userProfile,
+      userProfile: userProfile ? { ...userProfile, userId: undefined } : undefined,
+      disableUserMemory: true,
     });
 
     res.json({ success: true, result });
@@ -227,7 +219,8 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
       currentScreen: currentScreen || "HOME",
       currentStep: currentStep || "welcome",
       executionMode: executionMode || "SIMULATION",
-      userProfile,
+      userProfile: userProfile ? { ...userProfile, userId: undefined } : undefined,
+      disableUserMemory: true,
     });
 
     // ── Live Synchronization 1: Call Session Repository ──────────────────
@@ -245,12 +238,22 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
         ? "mixed-twi-en"
         : "en";
 
+    const suppliedDraft = req.body.draft && typeof req.body.draft === "object" ? req.body.draft : {};
+    const safeDraft = {
+      ...suppliedDraft,
+      slots: suppliedDraft.slots && typeof suppliedDraft.slots === "object"
+        ? { ...suppliedDraft.slots }
+        : {},
+    };
+    delete safeDraft.slots.verifiedName;
+    delete safeDraft.slots.hasNameDiscrepancy;
+
     const brainOutput = await brain.process({
       transcript: effectiveInput,
       language: brainLanguage,
       languageConfidence: 0.95,
       sessionLanguage: brainLanguage,
-      draft: req.body.draft || {},
+      draft: safeDraft,
       sessionId: sessionKey,
       callerNumber: typeof req.body.callerPhone === "string" ? req.body.callerPhone : undefined,
     });
@@ -357,7 +360,10 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
     const rawRecipientPhone = draftSlots.recipient?.phone || draftSlots.recipientPhone || "";
 
     const amount = Number(draftSlots.amount || 0);
-    const recipientName = draftSlots.recipient?.name || draftSlots.recipientName || "Recipient";
+    const verifiedRecipientName = typeof draftSlots.verifiedName === "string" && draftSlots.verifiedName.trim()
+      ? draftSlots.verifiedName.trim()
+      : undefined;
+    const recipientName = verifiedRecipientName || "Recipient";
 
     // Synchronize session checklist state
     const currentSession = transactionStateMachine.getOrCreateSession(sessionKey);
@@ -371,7 +377,7 @@ aiRouter.post("/api/ai/simulator/turn", async (req: Request, res: Response) => {
     if (rawRecipientPhone && rawRecipientPhone.replace(/\D/g, "").length === 10) {
       currentSession.recipientPhone = rawRecipientPhone.replace(/\D/g, "");
     }
-    if (recipientName && recipientName !== "Recipient" && recipientName !== "Unverified") {
+    if (verifiedRecipientName) {
       currentSession.recipientName = recipientName;
       currentSession.isRecipientVerified = true;
     }
@@ -821,15 +827,13 @@ aiRouter.post("/api/ai/brain/process", publicApiRateLimiter, async (req: Request
         const normalizedRecipientPhone = slots.recipient?.phone
           ? normalizeGhanaPhoneNumber(String(slots.recipient.phone))
           : undefined;
+        const verifiedRecipientName = typeof slots.verifiedName === "string" && slots.verifiedName.trim()
+          ? slots.verifiedName.trim()
+          : undefined;
         if (normalizedRecipientPhone) {
           updates.recipientPhone = normalizedRecipientPhone;
-          if (normalizedRecipientPhone !== session.recipientPhone) {
-            updates.isRecipientVerified = false;
-          }
-        }
-        if (slots.recipient?.name && normalizedRecipientPhone) {
-          updates.recipientName = slots.recipient.name;
-          updates.isRecipientVerified = false;
+          updates.isRecipientVerified = Boolean(verifiedRecipientName);
+          updates.recipientName = verifiedRecipientName || null;
         }
         const resolvedNetwork = slots.network || slots.candidateNetwork || slots.recipient?.network;
         if (resolvedNetwork) {
@@ -841,20 +845,20 @@ aiRouter.post("/api/ai/brain/process", publicApiRateLimiter, async (req: Request
             ? "AT"
             : "MTN";
         }
+        const recipientVerified = normalizedRecipientPhone
+          ? Boolean(verifiedRecipientName)
+          : session.isRecipientVerified;
+        let targetState = session.state;
+        if (recipientVerified && session.state === "INITIATED") {
+          targetState = typeof slots.amount === "number" && slots.amount > 0
+            ? "AMOUNT_ENTERED"
+            : "RECIPIENT_VERIFIED";
+        } else if (recipientVerified && session.state === "RECIPIENT_VERIFIED"
+          && typeof slots.amount === "number" && slots.amount > 0) {
+          targetState = "AMOUNT_ENTERED";
+        }
         if (Object.keys(updates).length > 0) {
-          transactionStateMachine.transition(sessionId, session.state, updates);
-        }
-
-        const synchronizedSession = transactionStateMachine.getSession(sessionId);
-        if (synchronizedSession && synchronizedSession.state === "INITIATED" && normalizedRecipientPhone) {
-          transactionStateMachine.transition(sessionId, "RECIPIENT_VERIFIED");
-        }
-        const stateAfterRecipient = transactionStateMachine.getSession(sessionId);
-        if (
-          stateAfterRecipient?.state === "RECIPIENT_VERIFIED" &&
-          typeof slots.amount === "number" && slots.amount > 0
-        ) {
-          transactionStateMachine.transition(sessionId, "AMOUNT_ENTERED");
+          transactionStateMachine.transition(sessionId, targetState, updates);
         }
       } catch (err: any) {
         console.warn("[Brain Process] Automatic session synchronization notice:", err?.message || err);
@@ -1441,7 +1445,7 @@ aiRouter.post("/api/ai/intent-to-momo", publicApiRateLimiter, async (req: Reques
 // ── Pre-Transaction Telco KYC & Recipient Lookup ─────────────────────
 aiRouter.post("/api/ai/simulator/validate-recipient", publicApiRateLimiter, async (req: Request, res: Response) => {
   try {
-    const { phone, sessionId, candidateName, candidateNetwork } = req.body || {};
+    const { phone, candidateName, candidateNetwork } = req.body || {};
     if (!phone) {
       return res.status(400).json({ success: false, error: "Missing recipient phone number." });
     }
@@ -1755,8 +1759,8 @@ Guidelines:
             reason = "In cashout-confirm-approval, approving is confirmation to proceed";
           }
         }
-      } catch (geminiErr: any) {
-        // Fallback to local deterministic linguistic evaluation
+      } catch (error: unknown) {
+        void error;
       }
     }
 

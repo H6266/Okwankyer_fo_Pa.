@@ -89,7 +89,7 @@ export class AudioPlaybackController {
 
   private audioContext: AudioContext | null = null;
   private masterGainNode: GainNode | null = null;
-  private volumeMultiplier: number = 2.0; // High volume boost with dynamics compression for accessibility
+    private volumeMultiplier: number = 1.0;
   private playbackVolume: number = 1.0;
   private compressorNode: DynamicsCompressorNode | null = null;
 
@@ -103,7 +103,7 @@ export class AudioPlaybackController {
    * Sets the master volume multiplier with clean limiter protection.
    */
   public setVolumeMultiplier(multiplier: number): void {
-    this.volumeMultiplier = Math.max(0.5, Math.min(3.0, multiplier));
+    this.volumeMultiplier = Math.max(0.5, Math.min(1.0, multiplier));
     if (this.masterGainNode && this.audioContext) {
       try {
         this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);

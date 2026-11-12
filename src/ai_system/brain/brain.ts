@@ -1928,10 +1928,12 @@ export class Brain {
     const isCashOut = /\b(withdraw|cash\s*out|cashout|allow\s*cash\s*out|take\s*out\s*money|pull\s*money|yi\s*sika|mepɛ\s*sɛ\s*meyi\s*sika|gye\s*sika)\b/i.test(lower);
     const hasReverseCue = /\b(?:reverse|reversal|sent\s+by\s+mistake|made\s+a\s+mistake|sesa\s+transaction|nɔmba\s+mfomsoɔ|san\s+fa\s+sika|mfomsoɔ|wrong\s+(?:number|transfer)|refund)\b/i.test(lower);
 
-    const isTransferDirected = !isCashOut && !hasReverseCue && ((/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && /\b(?:to|kɔma|give)\b/i.test(lower)) ||
+    const hasTransferVerb = /\b(?:send|sen|transfer|mane|soma)\b/i.test(lower);
+    const hasVagueDestination = /\b(?:to|kɔma)\s+(?:that|this|the)\s+(?:number|person|recipient)\b/i.test(lower);
+    const isTransferDirected = !isCashOut && !(hasReverseCue && hasVagueDestination) && ((hasTransferVerb && /\b(?:to|kɔma|give)\b/i.test(lower)) ||
       (/\b(?:send|sen|transfer|mane|soma)\b/i.test(lower) && (Boolean(draft.slots.recipient?.phone) || /\b0[235]\d{8}\b/.test(lower))));
 
-    const isReverse = !isCashOut && hasReverseCue;
+    const isReverse = !isCashOut && hasReverseCue && !isTransferDirected;
 
     const hasTransferAction = isTransferDirected;
 

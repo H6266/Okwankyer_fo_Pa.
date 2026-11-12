@@ -7,12 +7,14 @@ import {
   CachedSessionRecord,
   IConversationRepository,
   IPreferenceRepository,
+  IUserMemoryRepository,
   IPronunciationRepository,
   ISemanticMemoryRepository,
   ISessionRepository,
   ITaskStateRepository,
   ITransactionRepository,
   VectorRecord,
+  UserMemoryRecord,
 } from "./repositoryInterfaces";
 import { ConversationTurnRecord, TaskState, TransactionalMemoryRecord, UserProfileData } from "../core/aiTypes";
 
@@ -68,6 +70,25 @@ export class InMemoryPreferenceRepository implements IPreferenceRepository {
   public async save(userId: string, profile: UserProfileData): Promise<void> {
     const existing = this.store.get(userId) || {};
     this.store.set(userId, { ...existing, ...profile });
+  }
+}
+
+export class InMemoryUserMemoryRepository implements IUserMemoryRepository {
+  private store = new Map<string, UserMemoryRecord[]>();
+
+  public async list(userId: string): Promise<UserMemoryRecord[]> {
+    return (this.store.get(userId) || []).map((record) => ({ ...record } as UserMemoryRecord));
+  }
+
+  public async save(userId: string, records: UserMemoryRecord[]): Promise<void> {
+    if (records.some((record) => record.userId !== userId)) {
+      throw new Error("User memory repository rejected a cross-user record.");
+    }
+    this.store.set(userId, records.map((record) => ({ ...record } as UserMemoryRecord)));
+  }
+
+  public async clear(userId: string): Promise<void> {
+    this.store.delete(userId);
   }
 }
 

@@ -20,13 +20,14 @@ export interface RetrievedContext {
   preferredLanguage?: string;
   preferredSpokenName?: string;
   relevanceScore: number;
+  relevanceMethod: "LEXICAL_OVERLAP" | "NO_QUERY";
 }
 
 export class MemoryRetriever {
   /**
    * Retrieves strictly relevant memory for the caller's utterance.
    */
-  public retrieve(sessionId: string, userId?: string, utterance?: string): RetrievedContext {
+  public async retrieve(sessionId: string, userId?: string, utterance?: string): Promise<RetrievedContext> {
     const working = workingMemory.getOrCreate(sessionId);
     const session = sessionMemory.getOrCreate(sessionId);
     const suspendedTask = taskMemory.getActiveTask(sessionId);
@@ -36,7 +37,7 @@ export class MemoryRetriever {
     let preferredSpokenName: string | undefined;
 
     if (userId) {
-      preferredLanguage = preferenceMemory.getPreference(userId, "preferredLanguage");
+      preferredLanguage = await preferenceMemory.getPreference(userId, "preferredLanguage", sessionId);
       const pron = pronunciationMemory.getPronunciation(userId);
       preferredSpokenName = pron?.preferredSpokenName;
     }
@@ -50,6 +51,15 @@ export class MemoryRetriever {
       ...(tx?.network ? { network: tx.network } : {}),
     };
 
+    const contextTerms = [
+      ...Object.entries(activeSlots).flatMap(([key, value]) => [key, String(value ?? "")]),
+      suspendedTask?.intent || "",
+      suspendedTask?.slots.recipientName || "",
+    ].join(" ");
+    const queryTerms = new Set((utterance || "").toLowerCase().match(/[\p{L}\p{N}]+/gu) || []);
+    const contextTermSet = new Set(contextTerms.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []);
+    const overlapCount = [...queryTerms].filter((term) => contextTermSet.has(term)).length;
+
     return {
       activeSlots,
       suspendedTask: suspendedTask?.status === "SUSPENDED" ? {
@@ -59,7 +69,8 @@ export class MemoryRetriever {
       } : undefined,
       preferredLanguage: preferredLanguage || session.language,
       preferredSpokenName,
-      relevanceScore: 0.95,
+      relevanceScore: queryTerms.size ? overlapCount / queryTerms.size : 0,
+      relevanceMethod: queryTerms.size ? "LEXICAL_OVERLAP" : "NO_QUERY",
     };
   }
 }

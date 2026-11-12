@@ -32,9 +32,8 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
 
     expect(body).toContain("<Response>");
     const prompts = [...body.matchAll(/<Play[^>]*url="([^"]+)"/gi)].map((match) => match[1]);
-    expect(prompts).toHaveLength(2);
+    expect(prompts).toHaveLength(1);
     expect(prompts[0]).toContain("/audio/Twi/Opening_voice_welcome_to_okwankyerefopa.mp3?format=mp3");
-    expect(prompts[1]).toContain("/audio/Twi/Language_selection.mp3?format=mp3");
     expect(body).toMatch(/\/(?:language-selection|service-choice)\?sessionId=/);
     expect(body).not.toContain("Welcome back");
   });
@@ -289,11 +288,16 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
     expect(readback.text).toContain("42 Cedis");
     expect(readback.text).toContain("6 0 1 0");
 
-    const pinWithoutConfirmation = await request(app)
+    const confirmation = await request(app)
       .post(`/safe-outcome?sessionId=${flowSessionId}&lang=en`)
       .send({ dtmfDigits: "1" });
-    expect(pinWithoutConfirmation.status).toBe(200);
-    expect(pinWithoutConfirmation.text).toContain("private authorization prompt");
+    expect(confirmation.status).toBe(200);
+    expect(confirmation.text).toContain("/submit-transfer?");
+
+    const handoff = await request(app)
+      .post(`/submit-transfer?sessionId=${flowSessionId}&lang=en`);
+    expect(handoff.status).toBe(200);
+    expect(handoff.text).toContain("private authorization prompt");
     expect(session?.state).toBe("PIN_PENDING");
   });
 

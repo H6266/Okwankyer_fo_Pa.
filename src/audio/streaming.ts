@@ -300,9 +300,7 @@ export async function streamAudioFile(req: Request, res: Response, filePath: str
 
   const wantsMp3 =
     isTelephonyClient ||
-    formatQuery === "mp3" ||
-    req.path.toLowerCase().endsWith(".mp3") ||
-    filePath.toLowerCase().endsWith(".mp3");
+    formatQuery === "mp3";
 
   let activePath = filePath;
   if (wantsMp3) {

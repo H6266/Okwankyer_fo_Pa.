@@ -42,6 +42,7 @@ describe("Groq AI LPU configuration & reasoner", () => {
       },
       reply: {
         text_en: "Confirm transfer of 25 Cedis to Kwame Mensah on MTN.",
+        text_localized: "Faako na fa transfer GHS 25 kɔma Kwame Mensah wɔ MTN so.",
         target_language: "twi-asante",
         reply_kind: "confirm",
       },

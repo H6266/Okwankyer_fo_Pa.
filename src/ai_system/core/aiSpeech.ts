@@ -68,9 +68,11 @@ export class AiSpeech {
     }
 
     // 2. Speed Multiplier
-    let speedMultiplier = 1.0;
+    let speedMultiplier = typeof userProfile?.speechRate === "number"
+      ? Math.max(0.6, Math.min(1.3, userProfile.speechRate))
+      : 1.0;
     if (isElderly || prefersSlowerSpeech) {
-      speedMultiplier = 0.82;
+      speedMultiplier = Math.min(speedMultiplier, 0.82);
     }
 
     // 3. Pitch Adjustment (Lower pitch for authority and Zero-PIN security)

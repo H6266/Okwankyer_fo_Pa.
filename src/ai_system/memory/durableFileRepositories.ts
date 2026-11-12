@@ -10,12 +10,14 @@ import {
   CachedSessionRecord,
   IConversationRepository,
   IPreferenceRepository,
+  IUserMemoryRepository,
   IPronunciationRepository,
   ISemanticMemoryRepository,
   ISessionRepository,
   ITransactionRepository,
   ITaskStateRepository,
   VectorRecord,
+  UserMemoryRecord,
 } from "./repositoryInterfaces";
 import { ConversationTurnRecord, TaskState, TransactionalMemoryRecord, UserProfileData } from "../core/aiTypes";
 import { fieldEncryption } from "../security/fieldEncryption";
@@ -129,9 +131,10 @@ export class DurableFileConversationRepository implements IConversationRepositor
 }
 
 export class DurableFilePreferenceRepository implements IPreferenceRepository {
-  private baseDir = path.join(DATA_DIR, "preferences");
+  private baseDir: string;
 
-  constructor() {
+  constructor(baseDir: string = path.join(DATA_DIR, "preferences")) {
+    this.baseDir = baseDir;
     ensureDirectoryExists(this.baseDir);
   }
 
@@ -145,6 +148,34 @@ export class DurableFilePreferenceRepository implements IPreferenceRepository {
     const existing = (await this.get(userId)) || {};
     const file = path.join(this.baseDir, `${storageKey(userId)}.json`);
     atomicWrite(file, JSON.stringify({ ...existing, ...profile }));
+  }
+}
+
+export class DurableFileUserMemoryRepository implements IUserMemoryRepository {
+  private baseDir: string;
+
+  constructor(baseDir: string = path.join(DATA_DIR, "user-memory")) {
+    this.baseDir = baseDir;
+    ensureDirectoryExists(this.baseDir);
+  }
+
+  public async list(userId: string): Promise<UserMemoryRecord[]> {
+    const file = path.join(this.baseDir, `${storageKey(userId)}.json`);
+    if (!fs.existsSync(file)) return [];
+    return readJson<UserMemoryRecord[]>(file, []).filter((record) => record.userId === userId);
+  }
+
+  public async save(userId: string, records: UserMemoryRecord[]): Promise<void> {
+    if (records.some((record) => record.userId !== userId)) {
+      throw new Error("User memory repository rejected a cross-user record.");
+    }
+    const file = path.join(this.baseDir, `${storageKey(userId)}.json`);
+    atomicWrite(file, JSON.stringify(records));
+  }
+
+  public async clear(userId: string): Promise<void> {
+    const file = path.join(this.baseDir, `${storageKey(userId)}.json`);
+    if (fs.existsSync(file)) fs.unlinkSync(file);
   }
 }
 

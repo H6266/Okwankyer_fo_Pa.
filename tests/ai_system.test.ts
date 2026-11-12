@@ -19,6 +19,8 @@ import { inputNormalizer } from "../src/ai_system/perception/inputNormalizer";
 import { reasoningEngine } from "../src/ai_system/understanding/reasoningEngine";
 import { audioIngestor } from "../src/ai_system/perception/audioIngestor";
 import { unifiedMemory } from "../src/ai_system/memory/unifiedMemory";
+import { userGoalsMemory } from "../src/ai_system/memory/userGoalsMemory";
+import { cognitiveRouter } from "../src/ai_system/providers/CognitiveRouter";
 
 describe("Ɔkwankyerɛfo Pa - 10-System Cognitive Engine Master Test Suite", () => {
   beforeEach(() => {
@@ -447,6 +449,73 @@ describe("Ɔkwankyerɛfo Pa - 10-System Cognitive Engine Master Test Suite", () 
         historySpy.mockRestore();
         semanticSpy.mockRestore();
       }
+    });
+
+    it("stores explicit goals and supplies them to a later session's reasoning context", async () => {
+      const userId = `memory_journey_${Date.now()}`;
+      const routeSpy = vi.spyOn(cognitiveRouter, "routeUnderstanding");
+      try {
+        await aiEngine.process({
+          sessionId: `${userId}_session_one`,
+          channel: "TEXT",
+          input: "I want to start a small business, but I don't know where to get funding.",
+          userProfile: { userId, memoryConsent: { enabled: true, updatedAt: Date.now() } },
+          executionPolicy: "UNDERSTAND_ONLY",
+        });
+
+        expect((await userGoalsMemory.inspect(userId)).map((record) => record.type)).toContain("USER_GOAL");
+
+        await aiEngine.process({
+          sessionId: `${userId}_session_two`,
+          channel: "TEXT",
+          input: "What should I do next?",
+          userProfile: { userId },
+          executionPolicy: "UNDERSTAND_ONLY",
+        });
+
+        const secondRouteInput = routeSpy.mock.calls[1]?.[0] as any;
+        expect(secondRouteInput.userMemoryContext).toContain("Start a small business");
+        expect(secondRouteInput.userMemoryContext).toContain("Find business funding");
+      } finally {
+        routeSpy.mockRestore();
+      }
+    });
+
+    it("does not persist user memory when the caller identity is not trusted", async () => {
+      const userId = `untrusted_memory_${Date.now()}`;
+      await aiEngine.process({
+        sessionId: `${userId}_session`,
+        channel: "TEXT",
+        input: "I want to start a small business.",
+        userProfile: { userId, memoryConsent: { enabled: true, updatedAt: Date.now() } },
+        disableUserMemory: true,
+        executionPolicy: "UNDERSTAND_ONLY",
+      });
+
+      expect(await userGoalsMemory.inspect(userId)).toHaveLength(0);
+    });
+
+    it("does not store a turn when the user explicitly says not to remember it", async () => {
+      const userId = `no_memory_${Date.now()}`;
+      const sessionId = `${userId}_session`;
+      await aiEngine.process({
+        sessionId,
+        channel: "TEXT",
+        input: "Do not remember this.",
+        userProfile: { userId, memoryConsent: { enabled: true, updatedAt: Date.now() } },
+        executionPolicy: "UNDERSTAND_ONLY",
+      });
+
+      expect(await userGoalsMemory.inspect(userId)).toHaveLength(0);
+      expect(await unifiedMemory.getConversationHistory(sessionId)).toHaveLength(0);
+    });
+
+    it("applies an explicit speech-rate preference without overriding accessibility limits", () => {
+      expect(aiSpeech.plan("Hello", "en", { speechRate: 1.2 }).speedMultiplier).toBe(1.2);
+      expect(aiSpeech.plan("Hello", "en", {
+        speechRate: 1.2,
+        accessibilityNeeds: { prefersSlowerSpeech: true },
+      }).speedMultiplier).toBe(0.82);
     });
 
     it("seamlessly processes multi-turn conversation with mid-turn correction", async () => {

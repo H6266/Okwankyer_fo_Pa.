@@ -13,12 +13,14 @@ const CANONICAL_SYSTEM_PROMPTS: string[] = [
   "welcome to okwankyerɛfo pa",
   "welcome to okwankyerεfo pa",
   "welcome to okwankyerɛfo pa an easy financial transaction service",
+  "welcome to okwankyerɛfo pa for english press 1 for twi press 2",
   "welcome to okwankyerɛfo pa voice mobile money who would you like to send money to today",
   "who would you like to send money to today",
   "for english press 1 for twi press 2",
   "for english press 1",
   "for twi press 2",
   "for telecom or mobile money services press 1 for banking services press 2",
+  "for telecom mobile money services press 1 for banking services press 2",
   "for telecom mobile money services press 1",
   "for banking services press 2",
   "to hear this again press 9",
@@ -56,6 +58,7 @@ const CANONICAL_SYSTEM_PROMPTS: string[] = [
   "would you like to do anything else",
   "mobile money service menu press 1 for mobile money 2 for banking",
   "select provider press 1 for mtn 2 for telecel 3 for at",
+  "select your network for mtn press 1 for telecel press 2",
   "action menu press 1 to send money press 2 to check balance",
   "please enter the 10 digit mobile number of the recipient followed by the hash key",
   "please enter the amount in ghana cedis followed by the hash key",
@@ -70,6 +73,7 @@ const CANONICAL_SYSTEM_PROMPTS: string[] = [
   "kasa twi anaa borɔfo",
   "afei selecte wo network",
   "afei paw wo network",
+  "afei paw wo network sɛ mtn a mia 1",
   "sɛ mtn a mia 1",
   "sɛ mtn a mia baako",
   "sɛ telecel a mia 2",
@@ -206,12 +210,32 @@ export function isAcousticSystemEcho(
   if (normalizedTranscript.length < 1) return false;
 
   const normalizedPrompt = activeAssistantPrompt ? normalizeTextForComparison(activeAssistantPrompt) : "";
-  if (isStandaloneCallerIntent(normalizedTranscript)) return false;
+  if (
+    normalizedPrompt &&
+    normalizedTranscript.length >= 8 &&
+    normalizedPrompt.includes(normalizedTranscript)
+  ) {
+    return true;
+  }
+  if (CANONICAL_SYSTEM_PROMPTS.some((prompt) => normalizeTextForComparison(prompt) === normalizedTranscript)) {
+    return true;
+  }
+  if (
+    normalizedPrompt &&
+    /^(?:repeat|again|say again|to repeat|tie bio|san akyi)$/i.test(normalizedTranscript) &&
+    normalizedPrompt.includes(normalizedTranscript)
+  ) {
+    return true;
+  }
+  const isPromptRepeatDigit = normalizedTranscript === "9"
+    && isAssistantSpeaking
+    && /(?:press|mia)\s+(?:9|nkron)/i.test(normalizedPrompt);
+  if (isStandaloneCallerIntent(normalizedTranscript) && !isPromptRepeatDigit) return false;
 
   // 1. Extra sensitivity and strict suppression while the assistant is actively playing audio through the speakers
   if (isAssistantSpeaking) {
     // If active prompt contains the transcript chunk (e.g. prompt is speaking "press 9 to repeat" and mic hears "repeat" or "9")
-    if (normalizedPrompt && (normalizedPrompt.includes(normalizedTranscript) || normalizedTranscript.includes(normalizedPrompt))) {
+      if (normalizedPrompt && normalizedTranscript.length >= 8 && normalizedPrompt.includes(normalizedTranscript)) {
       return true;
     }
     // Any repeat/navigation command while assistant is actively speaking is 100% speaker leakage
@@ -300,18 +324,33 @@ export function stripSystemEchoFromTranscript(
   if (!transcript) return "";
   const cleaned = transcript.trim();
   const normalized = normalizeTextForComparison(cleaned);
+  const normalizedPrompt = activeAssistantPrompt ? normalizeTextForComparison(activeAssistantPrompt) : "";
 
   // If assistant is not speaking, only strip if normalized prompt strictly equals transcript verbatim
   if (!isAssistantSpeaking) {
-    const normalizedPrompt = activeAssistantPrompt ? normalizeTextForComparison(activeAssistantPrompt) : "";
-    if (normalizedPrompt && normalizedPrompt === normalized) {
+    if (
+      normalizedPrompt &&
+      (normalizedPrompt === normalized || normalizedPrompt.startsWith(`${normalized} `))
+    ) {
       return "";
+    }
+    if (normalizedPrompt && normalized.startsWith(`${normalizedPrompt} `)) {
+      const suffix = normalized.slice(normalizedPrompt.length).trim();
+      if (isStandaloneCallerIntent(suffix)) return suffix;
+    }
+    if (normalizedPrompt) {
+      const transcriptWords = normalized.split(" ");
+      for (let prefixLength = transcriptWords.length - 1; prefixLength >= 3; prefixLength--) {
+        const promptPrefix = transcriptWords.slice(0, prefixLength).join(" ");
+        if (!normalizedPrompt.includes(promptPrefix)) continue;
+        const suffix = transcriptWords.slice(prefixLength).join(" ");
+        if (isStandaloneCallerIntent(suffix)) return suffix;
+      }
     }
     return cleaned;
   }
 
   // If the active prompt strictly contains the entire transcript, it is 100% an echo with no appended words
-  const normalizedPrompt = activeAssistantPrompt ? normalizeTextForComparison(activeAssistantPrompt) : "";
   if (normalizedPrompt && normalizedPrompt.includes(normalized)) {
     return "";
   }

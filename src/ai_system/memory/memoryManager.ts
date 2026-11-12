@@ -15,6 +15,7 @@ export * from "./pronunciationMemory";
 export * from "./transactionMemory";
 export * from "./memoryRetriever";
 export * from "./memoryConsolidator";
+export * from "./userGoalsMemory";
 
 import { workingMemory } from "./workingMemory";
 import { sessionMemory } from "./sessionMemory";
@@ -28,6 +29,7 @@ import { transactionMemory } from "./transactionMemory";
 import { memoryRetriever } from "./memoryRetriever";
 import { memoryConsolidator } from "./memoryConsolidator";
 import { memoryPolicy } from "./memoryPolicy";
+import { userGoalsMemory } from "./userGoalsMemory";
 
 export class MemoryManager {
   public readonly working = workingMemory;
@@ -42,6 +44,7 @@ export class MemoryManager {
   public readonly retriever = memoryRetriever;
   public readonly consolidator = memoryConsolidator;
   public readonly policy = memoryPolicy;
+  public readonly userGoals = userGoalsMemory;
 }
 
 export const memoryManager = new MemoryManager();

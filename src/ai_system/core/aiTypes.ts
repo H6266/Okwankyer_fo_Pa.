@@ -196,6 +196,20 @@ export interface UserAccessibilityNeeds {
   repeatConfirmationRequired?: boolean;
 }
 
+export interface UserPreferenceMetadata {
+  source: "USER_EXPLICIT" | "USER_CONFIRMED" | "INFERRED" | "MODEL_INFERRED";
+  confidence: number;
+  createdAt: number;
+  lastConfirmedAt: number | null;
+  expiresAt: number | null;
+  status: "ACTIVE" | "EXPIRED" | "REVOKED";
+}
+
+export interface UserMemoryConsent {
+  enabled: boolean;
+  updatedAt: number;
+}
+
 export interface UserProfileData {
   userId?: string;
   phoneNumber?: string;
@@ -210,6 +224,11 @@ export interface UserProfileData {
     frequentAmount?: number;
   }>;
   accessibilityNeeds?: UserAccessibilityNeeds;
+  speechRate?: number;
+  wantsVoiceConfirmationReadback?: boolean;
+  prefersShortPrompts?: boolean;
+  memoryConsent?: UserMemoryConsent;
+  preferenceMetadata?: Record<string, UserPreferenceMetadata>;
   registeredDate?: string;
   trustedRecipients?: string[];
 }
@@ -416,6 +435,7 @@ export interface AiProcessInput {
   };
   availableActions?: string[];
   userProfile?: UserProfileData;
+  disableUserMemory?: boolean;
   executionMode?: "SIMULATION" | "MTN_SANDBOX";
   executionPolicy?: "NORMAL" | "UNDERSTAND_ONLY";
   metadata?: Record<string, any>;

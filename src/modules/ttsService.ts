@@ -294,6 +294,7 @@ function escapeXmlText(text: string): string {
 
 export function toTelephonyAudioUrl(audioUrl: string): string {
   const url = new URL(audioUrl, "http://localhost");
+  url.pathname = url.pathname.replace(/^\/audio\/Twi_library\//i, "/audio/Twi/");
   url.searchParams.set("format", "mp3");
   return `${url.pathname}${url.search}`;
 }

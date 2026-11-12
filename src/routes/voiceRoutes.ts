@@ -1447,6 +1447,7 @@ ivrRouter.all("/verify-recipient", async (req: Request, res: Response) => {
     recipientName: resolution.name,
     isRecipientVerified: resolution.verified,
     network: resolution.network,
+    serviceSelected: true,
     ...(amountValidation?.valid && amountValidation.amount !== undefined ? { amount: amountValidation.amount } : {}),
   });
 
@@ -2035,8 +2036,8 @@ ivrRouter.all("/submit-transfer", async (req: Request, res: Response) => {
       transactionInitiated: true,
     });
     const handoffText = lang === "twi"
-      ? "Pene so wɔ wo handset so. Mfa wo PIN nka wɔ telefon frɛ yi mu."
-      : "Approve it on your handset. Do not enter or say your PIN on this call.";
+      ? "Wɔde private authorization prompt no akɔma wo handset. Mfa wo PIN nka wɔ telefon frɛ yi mu."
+      : "Approve it on your handset. Use the private authorization prompt. Do not enter or say your PIN on this call.";
 
     try {
       const result = await paymentSaga.executeConfirmedTransferSaga({

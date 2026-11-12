@@ -30,7 +30,6 @@ import {
   PerformanceBreakdown,
   SafetyOutput,
   SpeechOutput,
-  StructuredReasoningResponse,
   TaskState,
   TransactionDraft,
 } from "./aiTypes";
@@ -38,7 +37,8 @@ import { AI_CONFIG } from "./aiConfig";
 import { inputNormalizer } from "../perception/inputNormalizer";
 import { languageDetector } from "../perception/languageDetector";
 import { unifiedMemory } from "../memory/unifiedMemory";
-import { reasoningEngine } from "../understanding/reasoningEngine";
+import { userGoalsMemory } from "../memory/userGoalsMemory";
+import { preferenceMemory } from "../memory/preferenceMemory";
 import { cognitiveRouter } from "../providers/CognitiveRouter";
 import { eventBus } from "../../services/eventBus";
 import { aiNavigation } from "./aiNavigation";
@@ -96,8 +96,8 @@ export class AiEngine {
           input.language
         );
         rawUtterance = speechRecognition.text;
-      } catch (err: any) {
-        console.warn("[AiEngine] Audio ingestion/transcription notice:", err.message);
+      } catch (error: unknown) {
+        console.warn("[AiEngine] Audio ingestion/transcription notice:", error instanceof Error ? error.message : String(error));
       }
     }
 
@@ -119,7 +119,7 @@ export class AiEngine {
       : asrLanguage || languageDetector.detect(normalizedInput);
 
     // Independent memory reads run together so durable storage latency is not additive.
-    const userIdFromInput = input.userProfile?.userId;
+    const userIdFromInput = input.disableUserMemory ? undefined : input.userProfile?.userId;
     const [loadedSession, history, pastTransactions, inputPreferences] = await Promise.all([
       unifiedMemory.getSession(input.sessionId),
       unifiedMemory.getConversationHistory(input.sessionId),
@@ -133,7 +133,7 @@ export class AiEngine {
     if (!session) {
       session = {
         sessionId: input.sessionId,
-        userId: input.userProfile?.userId,
+        userId: userIdFromInput,
         phoneNumber: input.userProfile?.phoneNumber,
         language: detectedLanguage,
         currentScreen: input.currentScreen || "HOME",
@@ -173,8 +173,8 @@ export class AiEngine {
     if (shouldRetrieveSemanticMemory(normalizedInput, history.length)) {
       try {
         semanticMemoryContext = await unifiedMemory.searchSemanticMemory(input.sessionId, normalizedInput, 3);
-      } catch (err: any) {
-        // Graceful fallback to empty
+      } catch (error: unknown) {
+        void error;
       }
     }
 
@@ -198,13 +198,101 @@ export class AiEngine {
     const frequentContacts = Array.from(contactMap.values()).sort((a, b) => b.count - a.count);
 
     // Hydrate user profile preferences
-    const userId = userIdFromInput || session.userId;
-    let userPreferences = inputPreferences;
+    const userId = input.disableUserMemory ? undefined : userIdFromInput || session.userId;
+    let userPreferences: Record<string, any> | null | undefined = inputPreferences as Record<string, any> | null | undefined;
     if (userId && userId !== userIdFromInput) {
       try {
         userPreferences = await unifiedMemory.getPreferences(userId);
       } catch (err: any) {
         // Graceful fallback
+      }
+    }
+
+    if (userId && !input.disableUserMemory && input.userProfile?.memoryConsent) {
+      try {
+        await userGoalsMemory.setEnabled(userId, input.userProfile.memoryConsent.enabled);
+      } catch (err: any) {
+        console.warn("[AiEngine] Memory consent read notice:", err?.message || err);
+      }
+    }
+
+    let memoryControlResponse: string | null = null;
+    let skipMemoryWrite = false;
+    const preferenceForget = normalizedInput.match(/\b(?:forget|delete) my (?:preferred )?(language|short|brief|speech rate|voice confirmation|confirmation readback) preference\b/i);
+    if (/\b(?:forget|delete) my (?:previous )?preference\b/i.test(normalizedInput) && !preferenceForget) {
+      memoryControlResponse = "Which preference should I forget: language, shorter responses, slower speech, or confirmation readback?";
+      skipMemoryWrite = true;
+    } else if (preferenceForget && userId) {
+      const preferenceKey = preferenceForget[1].toLowerCase().includes("language")
+        ? "preferredLanguage"
+        : preferenceForget[1].toLowerCase().includes("speech")
+        ? "speechRate"
+        : preferenceForget[1].toLowerCase().includes("confirmation")
+        ? "wantsVoiceConfirmationReadback"
+        : "prefersShortPrompts";
+      try {
+        const forgotten = await preferenceMemory.forgetPreference(userId, preferenceKey);
+        memoryControlResponse = forgotten ? "I removed that saved preference." : "I do not have that preference saved.";
+      } catch (err: any) {
+        memoryControlResponse = "I could not confirm that preference was removed. Please try again.";
+        console.warn("[AiEngine] Preference deletion notice:", err?.message || err);
+      }
+      skipMemoryWrite = true;
+    } else {
+      try {
+        memoryControlResponse = await userGoalsMemory.handleCommand(userId, piiMaskedInput, input.sessionId);
+        skipMemoryWrite = memoryControlResponse !== null;
+      } catch (err: any) {
+        memoryControlResponse = "I could not confirm that memory change was saved. Please try again.";
+        skipMemoryWrite = true;
+        console.warn("[AiEngine] Memory command notice:", err?.message || err);
+      }
+    }
+
+    if (userId) {
+      try {
+        const sessionLanguage = await preferenceMemory.getPreference<AiLanguage>(userId, "preferredLanguage", input.sessionId);
+        if (sessionLanguage) {
+          userPreferences = { ...(userPreferences || {}), preferredLanguage: sessionLanguage as AiLanguage };
+        }
+      } catch (err: any) {
+        console.warn("[AiEngine] Session preference read notice:", err?.message || err);
+      }
+    }
+    const responseUserProfile = { ...(input.userProfile || {}), ...(userPreferences || {}) };
+    const responseLanguage = responseUserProfile.preferredLanguage || detectedLanguage;
+
+    let userMemoryContext = "";
+    if (userId) {
+      try {
+        userMemoryContext = (await userGoalsMemory.retrieve(userId, normalizedInput, {
+          limit: 5,
+          tokenBudget: 120,
+        })).context;
+        const preferenceMetadata = userPreferences?.preferenceMetadata || {};
+        const activePreference = (key: string) => {
+          const metadata = preferenceMetadata[key];
+          return metadata?.status === "ACTIVE" && (metadata.expiresAt === null || metadata.expiresAt > Date.now());
+        };
+        const preferenceLines = [
+          activePreference("preferredLanguage") && userPreferences?.preferredLanguage
+            ? `Preferred language: ${userPreferences.preferredLanguage} (${preferenceMetadata.preferredLanguage.source}; confidence ${preferenceMetadata.preferredLanguage.confidence.toFixed(2)}).`
+            : "",
+          activePreference("prefersShortPrompts") && userPreferences?.prefersShortPrompts
+            ? `Communication preference: shorter responses (${preferenceMetadata.prefersShortPrompts.source}; confidence ${preferenceMetadata.prefersShortPrompts.confidence.toFixed(2)}).`
+            : "",
+          activePreference("speechRate") && userPreferences?.speechRate
+            ? `Speech rate preference: ${userPreferences.speechRate} (${preferenceMetadata.speechRate.source}; confidence ${preferenceMetadata.speechRate.confidence.toFixed(2)}).`
+            : "",
+        ].filter(Boolean);
+        if (preferenceLines.length) {
+          userMemoryContext = [
+            userMemoryContext || "USER MEMORY CONTEXT (user-stated evidence; use only when relevant):",
+            ...preferenceLines,
+          ].join("\n");
+        }
+      } catch (err: any) {
+        console.warn("[AiEngine] User memory retrieval notice:", err?.message || err);
       }
     }
 
@@ -247,6 +335,7 @@ export class AiEngine {
       existingSlots: ctx.workingSlots,
       recentTurns: ctx.recentTurns.map(t => ({ role: t.role, text: t.sanitizedInput })),
       semanticMemoryContext: ctx.semanticMemoryContext.map(t => ({ text: t.sanitizedInput })),
+      userMemoryContext,
       frequentContacts: ctx.frequentContacts,
       channel: ctx.channel,
       sessionId: ctx.sessionId,
@@ -269,7 +358,7 @@ export class AiEngine {
     Object.assign(ctx.workingSlots, reasoning.entities);
 
     // Handle mid-turn corrections
-    let isCorrection = Boolean(reasoning.correction?.isCorrection);
+    const isCorrection = Boolean(reasoning.correction?.isCorrection);
     if (isCorrection && reasoning.correction) {
       unifiedMemory.recordCorrection(
         ctx.sessionId,
@@ -469,8 +558,8 @@ export class AiEngine {
       ctx.sessionId,
       intent,
       ctx.workingSlots,
-      ctx.detectedLanguage,
-      input.userProfile,
+      responseLanguage,
+      responseUserProfile,
       isCorrection
     );
 
@@ -532,6 +621,16 @@ export class AiEngine {
       };
     }
 
+    if (memoryControlResponse && action.tool === "none" && !safety.pinDetectedInVoice &&
+        !safety.rateLimitExceeded && !requiresAudioRepeat) {
+      dialogue = {
+        type: "INFORM_AND_EXIT",
+        response: memoryControlResponse,
+        promptLanguage: ctx.detectedLanguage,
+        needsClarification: memoryControlResponse.startsWith("Which preference"),
+      };
+    }
+
     // Interrupted Task Resumption Check
     if (intent === "CHECK_BALANCE") {
       const interruptedTask = unifiedMemory.getInterruptedTask(ctx.sessionId) || unifiedMemory.getActiveTask(ctx.sessionId);
@@ -550,8 +649,8 @@ export class AiEngine {
 
     const speech: SpeechOutput = aiSpeech.plan(
       dialogue.response,
-      ctx.detectedLanguage,
-      input.userProfile,
+      responseLanguage,
+      responseUserProfile,
       safety.pinDetectedInVoice
     );
 
@@ -565,27 +664,46 @@ export class AiEngine {
     // 1. Update working memory slots synchronously
     unifiedMemory.updateWorkingSlots(ctx.sessionId, ctx.workingSlots);
 
-    // 2. Record turn in episodic and vector semantic store asynchronously in background
-    queueMicrotask(() => {
-      unifiedMemory.recordTurn(ctx.sessionId, {
-        role: "user",
-        rawInput: ctx.rawInput,
-        sanitizedInput: safety.piiMaskedInput,
-        detectedLanguage: ctx.detectedLanguage,
-        intent,
-        slots: ctx.workingSlots,
-        response: dialogue.response,
-        screen: navigation.targetScreen || ctx.currentScreen,
-        step: navigation.targetStep || ctx.currentStep,
-      }).catch((err) => {
-        console.warn("[AiEngine] Background turn indexing notice:", err.message);
+    if (userId && !skipMemoryWrite) {
+      try {
+        await userGoalsMemory.ingest(userId, safety.piiMaskedInput);
+        await preferenceMemory.extractExplicitPreference(userId, ctx.sessionId, safety.piiMaskedInput);
+      } catch (err: any) {
+        console.warn("[AiEngine] User memory write notice:", err?.message || err);
+      }
+    }
+
+    if (userId) {
+      try {
+        await userGoalsMemory.ingest(userId, safety.piiMaskedInput);
+      } catch (err: any) {
+        console.warn("[AiEngine] User memory write notice:", err?.message || err);
+      }
+    }
+
+    // 2. Record eligible turns in episodic and vector semantic stores asynchronously.
+    if (!skipMemoryWrite) {
+      queueMicrotask(() => {
+        unifiedMemory.recordTurn(ctx.sessionId, {
+          role: "user",
+          rawInput: ctx.rawInput,
+          sanitizedInput: safety.piiMaskedInput,
+          detectedLanguage: ctx.detectedLanguage,
+          intent,
+          slots: ctx.workingSlots,
+          response: dialogue.response,
+          screen: navigation.targetScreen || ctx.currentScreen,
+          step: navigation.targetStep || ctx.currentStep,
+        }).catch((err) => {
+          console.warn("[AiEngine] Background turn indexing notice:", err.message);
+        });
       });
-    });
+    }
 
     // 3. Persist session state durably
     await unifiedMemory.saveSession({
       sessionId: ctx.sessionId,
-      userId: input.userProfile?.userId,
+      userId,
       phoneNumber: input.userProfile?.phoneNumber,
       language: ctx.detectedLanguage,
       currentScreen: navigation.targetScreen || ctx.currentScreen,

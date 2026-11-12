@@ -5,6 +5,7 @@
 
 export type MemorySource =
   | "USER_EXPLICIT"    // Stated directly by the user (confidence 1.0)
+  | "USER_CONFIRMED"   // Ambiguous information confirmed by the user
   | "SYSTEM_DEFINED"   // Application rules / telco specifications
   | "INFERRED"         // Rule-inferred from behavior
   | "MODEL_INFERRED"   // Model extraction
@@ -55,10 +56,10 @@ export class MemoryPolicy {
    * Latest explicit user statement always supersedes previous preferences.
    */
   public resolveConflict<T>(existing: MemoryRecord<T>, incoming: MemoryRecord<T>): MemoryRecord<T> {
-    if (incoming.source === "USER_EXPLICIT") {
+    if (incoming.source === "USER_EXPLICIT" || incoming.source === "USER_CONFIRMED") {
       return incoming;
     }
-    if (existing.source === "USER_EXPLICIT") {
+    if (existing.source === "USER_EXPLICIT" || existing.source === "USER_CONFIRMED") {
       return existing;
     }
     return incoming.confidence >= existing.confidence ? incoming : existing;

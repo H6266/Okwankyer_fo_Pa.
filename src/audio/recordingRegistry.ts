@@ -241,7 +241,7 @@ for (const item of TWI_AUDIO_LIBRARY_ITEMS) {
     spokenText: item.transcript,
     relativePath: `Twi/${item.filename}`,
     legacyRelativePath: `Twi_library/${item.filename}`,
-    assetRoot: "supplied",
+    assetRoot: item.audioVerified === false ? "additional" : "supplied",
     url: item.audioUrl,
     mimeType,
     isAlternate: false,

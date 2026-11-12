@@ -829,7 +829,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       amount: 75,
       network: "MTN",
     }));
-    expect(handoffRes.text).toContain("Approve it on your handset.");
+    expect(handoffRes.headers["x-ai-reply-text"]).toContain("Approve it on your handset.");
     expect(handoffRes.text).not.toContain("Waiting_confirmation.mp3");
     expect(handoffRes.text).not.toContain("Congratulations");
     expect(handoffRes.text).not.toContain("<Record");
@@ -1308,7 +1308,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       network: "MTN",
     }));
     startSaga.mockRestore();
-    expect(pendingRes.text).toContain("Approve it on your handset.");
+    expect(pendingRes.headers["x-ai-reply-text"]).toContain("Approve it on your handset.");
     expect(pendingRes.text).not.toContain("Waiting_confirmation.mp3");
     expect(pendingRes.text).toContain("/check-status");
     expect(pendingRes.text).toContain('timeout="90"');

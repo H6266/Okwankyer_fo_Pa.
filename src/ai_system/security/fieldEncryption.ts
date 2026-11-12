@@ -14,10 +14,16 @@ const TAG_LENGTH = 16; // 128 bits auth tag
 function getEncryptionKey(): Buffer {
   const envKey = process.env.ENCRYPTION_KEY;
   if (!envKey || Buffer.byteLength(envKey, "utf8") < 32) {
-    console.warn("[security] ENCRYPTION_KEY is unset or short; deriving key via SHA-256.");
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("FATAL_SECURITY_CONFIGURATION: ENCRYPTION_KEY must contain at least 32 bytes in production.");
+    }
+    if (!envKey) {
+      console.warn("[security] ENCRYPTION_KEY is unset; using a process-only development key.");
+      return crypto.randomBytes(32);
+    }
+    console.warn("[security] ENCRYPTION_KEY is short; deriving a development key via SHA-256.");
   }
-  const material = envKey || "okwankyer-fo-pa-production-default-encryption-key-32-bytes";
-  return crypto.createHash("sha256").update(material).digest();
+  return crypto.createHash("sha256").update(envKey as string).digest();
 }
 
 export class FieldEncryptionService {

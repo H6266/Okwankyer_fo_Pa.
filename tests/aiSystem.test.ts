@@ -283,13 +283,13 @@ describe("Ɔkwankyerɛfo Pa - AI System Master Cognitive Test Suite", () => {
       expect(pronunciationMemory.getPronunciation("user_123")?.preferredSpokenName).toBe("N-ye-rah");
     });
 
-    it("resolves memory contradictions by prioritizing explicit user statements", () => {
-      preferenceMemory.setPreference("user_kofi", "preferredLanguage", "en", "INFERRED");
-      expect(preferenceMemory.getPreference("user_kofi", "preferredLanguage")).toBe("en");
+    it("resolves memory contradictions by prioritizing explicit user statements", async () => {
+      await preferenceMemory.setPreference("user_kofi", "preferredLanguage", "en", "INFERRED");
+      expect(await preferenceMemory.getPreference("user_kofi", "preferredLanguage")).toBe("en");
 
       // User explicitly overrides to Twi
-      preferenceMemory.setPreference("user_kofi", "preferredLanguage", "tw", "USER_EXPLICIT");
-      expect(preferenceMemory.getPreference("user_kofi", "preferredLanguage")).toBe("tw");
+      await preferenceMemory.setPreference("user_kofi", "preferredLanguage", "tw", "USER_EXPLICIT");
+      expect(await preferenceMemory.getPreference("user_kofi", "preferredLanguage")).toBe("tw");
     });
   });
 

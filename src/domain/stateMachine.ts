@@ -235,6 +235,10 @@ export class TransactionStateMachine {
       if (payload.failureReason !== undefined) session.failureReason = payload.failureReason;
       if (payload.language !== undefined) session.language = payload.language;
       if (payload.interactionMode !== undefined) session.interactionMode = payload.interactionMode;
+      if (payload.serviceSelected !== undefined) session.serviceSelected = payload.serviceSelected;
+      if (payload.pinGatePassed !== undefined) session.pinGatePassed = payload.pinGatePassed;
+      if (payload.transactionInitiated !== undefined) session.transactionInitiated = payload.transactionInitiated;
+      if (payload.stateReported !== undefined) session.stateReported = payload.stateReported;
     }
 
     session.state = targetState;

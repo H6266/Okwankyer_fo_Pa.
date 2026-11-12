@@ -7,8 +7,8 @@ import { workingMemory } from "./workingMemory";
 import { sessionMemory } from "./sessionMemory";
 import { taskMemory } from "./taskMemory";
 import { transactionMemory } from "./transactionMemory";
-import { preferenceMemory } from "./preferenceMemory";
 import { episodicMemory } from "./episodicMemory";
+import { preferenceMemory } from "./preferenceMemory";
 
 export interface ConsolidationReport {
   sessionId: string;
@@ -22,13 +22,7 @@ export class MemoryConsolidator {
   public consolidate(sessionId: string, userId?: string): ConsolidationReport {
     const session = sessionMemory.getOrCreate(sessionId);
 
-    let retainedPreferencesCount = 0;
-
-    // Consolidate explicit language preferences if updated in session
-    if (userId && session.language && session.language !== "unknown") {
-      preferenceMemory.setPreference(userId, "preferredLanguage", session.language, "USER_EXPLICIT");
-      retainedPreferencesCount++;
-    }
+    const retainedPreferencesCount = 0;
 
     const episodes = episodicMemory.getEpisodes(sessionId);
 
@@ -36,6 +30,7 @@ export class MemoryConsolidator {
     workingMemory.clear(sessionId);
     taskMemory.clear(sessionId);
     transactionMemory.finalize(sessionId);
+    preferenceMemory.clearSession(sessionId);
 
     return {
       sessionId,

@@ -25,20 +25,6 @@ import { asrRouter } from "../speech/asr/asrRouter";
 import { ttsRouter } from "../speech/tts/ttsRouter";
 import { unifiedSafetyEngine } from "../safety/unifiedSafetyEngine";
 import { reasoningEngine } from "../understanding/reasoningEngine";
-import { aiUnderstanding } from "../core/aiUnderstanding";
-import { z } from "zod";
-
-const RemoteUnderstandingSchema = z.object({
-  intent: z.enum([
-    "SEND_MONEY", "PAY_BILL", "BUY_AIRTIME", "BUY_DATA", "CASH_OUT",
-    "CHECK_BALANCE", "CHECK_ACCOUNT", "HELP", "GO_BACK", "GO_HOME",
-    "CANCEL", "REPEAT", "CHANGE_INFORMATION", "CONFIRM", "DENY", "UNKNOWN",
-  ]),
-  amount: z.number().finite().positive().optional(),
-  recipientPhone: z.string().regex(/^(?:0\d{9}|233\d{9})$/).optional(),
-  recipientName: z.string().trim().min(1).max(100).optional(),
-  network: z.enum(["MTN", "Telecel", "AT", "G-Money"]).optional(),
-}).strict();
 
 export interface CognitiveRouterMetrics {
   routingDecision:
@@ -70,6 +56,7 @@ export interface CognitiveRouteInput {
   workingSlots?: EntitySlotMap;
   recentTurns?: Array<{ role: string; text: string }>;
   semanticMemoryContext?: Array<{ text: string }>;
+  userMemoryContext?: string;
   frequentContacts?: Array<{ name: string; phone: string; network?: string }>;
   executionMode?: "SIMULATION" | "MTN_SANDBOX";
   asrConfidence?: number;
@@ -139,6 +126,7 @@ export class CognitiveRouter {
     const workingSlots = (input as any).workingSlots || (input as any).existingSlots || {};
     const recentTurns = (input as any).recentTurns || [];
     const semanticMemoryContext = (input as any).semanticMemoryContext || [];
+    const userMemoryContext = (input as any).userMemoryContext || "";
     const frequentContacts = (input as any).frequentContacts || [];
     const asrConfidence = (input as any).asrConfidence;
 
@@ -292,7 +280,9 @@ export class CognitiveRouter {
           currentStep,
           existingSlots: workingSlots,
           recentTurns,
-          semanticMemoryContext,
+          semanticMemoryContext: userMemoryContext
+            ? [...semanticMemoryContext, { text: userMemoryContext }]
+            : semanticMemoryContext,
           frequentContacts,
         });
 
