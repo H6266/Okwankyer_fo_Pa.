@@ -34,8 +34,10 @@ def create_splits(data: List[Dict[str, Any]], train_ratio=0.70, val_ratio=0.15, 
     random.Random(seed).shuffle(speakers)
 
     n_total = len(speakers)
-    n_train = int(n_total * train_ratio)
-    n_val = int(n_total * val_ratio)
+    n_train = max(1, int(n_total * train_ratio))
+    n_val = max(1, int(n_total * val_ratio))
+    if n_train + n_val >= n_total:
+        n_val = max(1, n_total - n_train - 1)
 
     train_spks = set(speakers[:n_train])
     val_spks = set(speakers[n_train:n_train + n_val])

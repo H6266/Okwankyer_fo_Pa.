@@ -72,4 +72,44 @@ describe("MoMo environment configuration", () => {
     expect(config.collection.apiKey).toBe("legacy-api-key");
     expect(config.disbursement.apiKey).toBe("legacy-api-key");
   });
+
+  it("has no transaction credentials and uses only the sandbox endpoint when staging credentials are absent", () => {
+    for (const key of [
+      "MOMO_COLLECTION_SUBSCRIPTION_KEY",
+      "MTN_COLLECTION_SUBSCRIPTION_KEY",
+      "MOMO_COLLECTION_API_USER_ID",
+      "MTN_COLLECTION_API_USER_ID",
+      "MTN_COLLECTION_X_REFERENCE_ID",
+      "MOMO_COLLECTION_API_KEY",
+      "MTN_COLLECTION_API_KEY",
+      "MOMO_DISBURSEMENT_SUBSCRIPTION_KEY",
+      "MTN_DISBURSEMENT_SUBSCRIPTION_KEY",
+      "MOMO_DISBURSEMENT_API_USER_ID",
+      "MTN_DISBURSEMENT_API_USER_ID",
+      "MOMO_DISBURSEMENT_API_KEY",
+      "MTN_DISBURSEMENT_API_KEY",
+      "MOMO_SUBSCRIPTION_KEY",
+      "MTN_SUBSCRIPTION_KEY",
+      "MOMO_API_USER_ID",
+      "MTN_API_USER_ID",
+      "MOMO_API_KEY",
+      "MTN_API_KEY",
+    ]) {
+      vi.stubEnv(key, "");
+    }
+    vi.stubEnv("MOMO_TARGET_ENV", "sandbox");
+    vi.stubEnv("MOMO_BASE_URL", "https://sandbox.momodeveloper.mtn.com");
+    vi.stubEnv("MOMO_ENV", "sandbox");
+
+    const config = loadConfigFromEnv();
+
+    expect(config.targetEnv).toBe("sandbox");
+    expect(config.baseUrl).toBe("https://sandbox.momodeveloper.mtn.com");
+    expect(config.collection.subscriptionKey).toBe("");
+    expect(config.collection.apiUserId).toBe("");
+    expect(config.collection.apiKey).toBe("");
+    expect(config.disbursement.subscriptionKey).toBe("");
+    expect(config.disbursement.apiUserId).toBe("");
+    expect(config.disbursement.apiKey).toBe("");
+  });
 });

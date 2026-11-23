@@ -27,6 +27,12 @@ describe("Hard Rules for AI Telephony Layer", { timeout: 20000 }, () => {
     expect(intentOnly.recipient_phone).toBeNull();
   });
 
+  it("uses the approved trained NLU fallback for local intent classification", async () => {
+    const result = await parseUserIntent("settle my electricity bill");
+    expect(result.intent).toBe("PAY_BILL");
+    expect(result.matchClass).toBe("FUZZY_PATTERN");
+  });
+
   it("keeps canonical speech and offline turns in understand-only mode from executing tools", async () => {
     const inputs = {
       channel: "VOICE" as const,

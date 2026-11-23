@@ -36,6 +36,8 @@ services:
         sync: false
       - key: SESSION_SECRET
         sync: false
+      - key: SESSION_TTL_MS
+        value: "1800000"
       - key: MOMO_TARGET_ENV
         value: "sandbox"
       - key: MOMO_BASE_URL

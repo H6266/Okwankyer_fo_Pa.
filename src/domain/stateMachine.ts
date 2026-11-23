@@ -185,6 +185,14 @@ export class TransactionStateMachine {
     return this.store.getSession(sessionId);
   }
 
+  public updateSessionLanguage(sessionId: string, language: "en" | "twi"): TransactionSession {
+    const session = this.getOrCreateSession(sessionId, language);
+    session.language = language;
+    session.updatedAt = Date.now();
+    this.store.saveSession(session);
+    return session;
+  }
+
   public getSessionByIdempotencyKey(key: string): TransactionSession | undefined {
     return this.store.getSessionByIdempotencyKey(key);
   }

@@ -20,8 +20,12 @@ export interface EphemeralSessionState {
 
 export class SessionMemory {
   private sessions = new Map<string, EphemeralSessionState>();
+  private readonly maxIdleMs = Number(process.env.SESSION_TTL_MS) > 0
+    ? Number(process.env.SESSION_TTL_MS)
+    : 30 * 60 * 1000;
 
   public getOrCreate(sessionId: string, initialLanguage: AiLanguage = "tw"): EphemeralSessionState {
+    this.pruneExpired();
     let session = this.sessions.get(sessionId);
     if (!session) {
       session = {
@@ -49,6 +53,14 @@ export class SessionMemory {
 
   public clear(sessionId: string): void {
     this.sessions.delete(sessionId);
+  }
+
+  public pruneExpired(now: number = Date.now()): void {
+    for (const [sessionId, session] of this.sessions.entries()) {
+      if (now - session.lastUpdated > this.maxIdleMs) {
+        this.sessions.delete(sessionId);
+      }
+    }
   }
 }
 

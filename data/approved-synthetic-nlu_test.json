@@ -1,0 +1,182 @@
+[
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "top up my phone with 200 cedis",
+    "intent": "BUY_AIRTIME"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "pay the GWCL water bill 10 cedis",
+    "intent": "PAY_BILL"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "tw",
+    "text": "sika a aka wɔ me momo account mu",
+    "intent": "CHECK_BALANCE"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "what can I say",
+    "intent": "HELP"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "tw",
+    "text": "soma sika kɔma 0501000089",
+    "intent": "SEND_MONEY"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "previous menu",
+    "intent": "GO_BACK"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "purchase an internet bundle",
+    "intent": "BUY_DATA"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "withdraw money from my account",
+    "intent": "CASH_OUT"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "abort transfer",
+    "intent": "CANCEL"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "goodbye",
+    "intent": "EXIT"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "stop this transaction",
+    "intent": "CANCEL"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "goodbye",
+    "intent": "EXIT"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "recharge credit for 25 cedis",
+    "intent": "BUY_AIRTIME"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "pay the GWCL water bill 10 cedis",
+    "intent": "PAY_BILL"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "withdraw money from my account",
+    "intent": "CASH_OUT"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "what can I say",
+    "intent": "HELP"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "0",
+    "intent": "EXIT"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "stop this transaction",
+    "intent": "CANCEL"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "tw",
+    "text": "soma sika kɔma 0501000027",
+    "intent": "SEND_MONEY"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "previous menu",
+    "intent": "GO_BACK"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "buy two gigabytes of data",
+    "intent": "BUY_DATA"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "top up my phone with 10 cedis",
+    "intent": "BUY_AIRTIME"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "purchase an internet bundle",
+    "intent": "BUY_DATA"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "back",
+    "intent": "GO_BACK"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "tw",
+    "text": "soma sika kɔma 0501000047",
+    "intent": "SEND_MONEY"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "allow me to cash out",
+    "intent": "CASH_OUT"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "tw",
+    "text": "mmoa",
+    "intent": "HELP"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "check my balance",
+    "intent": "CHECK_BALANCE"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "settle my electricity bill",
+    "intent": "PAY_BILL"
+  },
+  {
+    "speaker_id": "synthetic-5",
+    "language": "en",
+    "text": "how much money is in my wallet",
+    "intent": "CHECK_BALANCE"
+  }
+]

@@ -1,0 +1,58 @@
+services:
+  - type: web
+    name: okwankyer-fo-pa-staging
+    runtime: node
+    plan: free
+    buildCommand: npm install --legacy-peer-deps && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: BASE_URL
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: AT_WEBHOOK_SECRET
+        sync: false
+      - key: AT_USERNAME
+        sync: false
+      - key: AT_API_KEY
+        sync: false
+      - key: AT_VOICE_NUMBER
+        sync: false
+      - key: AT_INBOUND_VOICE_ENABLED
+        value: "true"
+      - key: BRAIN_MODE
+        value: offline_only
+      - key: PILOT_KILL_SWITCH
+        value: "true"
+      - key: PILOT_ALLOWLIST_ENABLED
+        value: "true"
+      - key: PILOT_ALLOWED_NUMBERS
+        value: ""
+      - key: PILOT_CONSENT_NOTICE_ENABLED
+        value: "true"
+      - key: ENABLE_SIMULATOR
+        value: "false"
+      - key: DEMO_MODE
+        value: "false"
+      - key: SESSION_TTL_MS
+        value: "1800000"
+      - key: GEMINI_MODEL
+        value: gemini-3.8-flash
+      - key: MOMO_TARGET_ENV
+        value: sandbox
+      - key: MOMO_ENV
+        value: sandbox
+      - key: MOMO_BASE_URL
+        value: https://sandbox.momodeveloper.mtn.com
+      - key: MOMO_CURRENCY
+        value: EUR

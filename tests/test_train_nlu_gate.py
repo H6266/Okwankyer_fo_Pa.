@@ -50,6 +50,18 @@ class TrainNluGateTests(unittest.TestCase):
         self.assertEqual(manifest["version"], "test")
         self.assertEqual(dataset["id"], "approved-nlu")
 
+    def test_checked_in_synthetic_corpus_passes_production_gate(self):
+        manifest_path = Path(__file__).resolve().parents[1] / "DATASET_MANIFEST.json"
+        training_path = Path(__file__).resolve().parents[1] / "data" / "approved-synthetic-nlu_train.json"
+        manifest, dataset = validate_dataset_eligibility(
+            str(manifest_path),
+            "okwankyerɛfo-approved-synthetic-nlu",
+            str(training_path),
+        )
+        self.assertTrue(dataset["approved_for_training"])
+        self.assertTrue(dataset["consent_verified"])
+        self.assertTrue(dataset["pii_reviewed"])
+
     def test_checked_in_manifest_does_not_authorize_current_nlu_training(self):
         manifest_path = Path(__file__).resolve().parents[1] / "DATASET_MANIFEST.json"
         with self.assertRaisesRegex(ValueError, "not approved for production training"):

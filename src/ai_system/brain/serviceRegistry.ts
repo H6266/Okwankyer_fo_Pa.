@@ -8,6 +8,7 @@
 import { IntentId, ServiceDefinition, SlotSpec } from './types';
 import { ALL_INTENTS } from './intentTaxonomy';
 import { paymentSaga } from '../../integrations/momo/paymentSaga';
+import crypto from 'node:crypto';
 
 export class ServiceRegistry {
   private services = new Map<IntentId, ServiceDefinition>();
@@ -28,8 +29,9 @@ export class ServiceRegistry {
         const recipientPhone = slots.recipient?.phone || slots.recipientPhone || '';
         const recipientName = slots.recipient?.name || slots.recipientName || 'Subscriber';
         const callerPhone = context?.callerNumber || '0244123456';
+        const sessionId = context?.sessionId || `direct_${crypto.randomUUID()}`;
         const sagaResult = await paymentSaga.executeConfirmedTransferSaga({
-          sessionId: context?.sessionId || 'session',
+          sessionId,
           senderPhone: callerPhone,
           recipientPhone,
           recipientName,

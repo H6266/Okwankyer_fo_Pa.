@@ -21,6 +21,7 @@ import { isSpokenPinPattern, speechToText } from "../modules/sttService";
 import { mtnMomoService } from "../modules/mtnMomoService";
 import { auditLogger } from "../services/auditLogger";
 import { callSessionRepository } from "../services/callSessionRepository";
+import type { StoredCallSession } from "../services/callSessionRepository";
 import { verifyAtWebhook } from "../providers/telephony/webhookGuard";
 import { paymentSaga } from "../integrations/momo/paymentSaga";
 import { FINANCIAL_LIMITS, financialPolicy } from "../ai_system/core/financialPolicy";
@@ -53,6 +54,9 @@ import {
   kycNetworkQueue,
 } from "../domain/checklistPipeline";
 import { matchAiReplyWithGemini } from "../audio/geminiAudioMatcher";
+import { voicePipelineMonitor } from "../services/voicePipelineMonitor";
+import { pilotMetrics } from "../services/pilotMetrics";
+import { dataRetentionService } from "../services/dataRetentionService";
 
 export const voiceRouter = Router();
 export const ivrRouter = Router();
@@ -370,6 +374,15 @@ ivrRouter.use((req: Request, res: Response, next: NextFunction) => {
   const sessionId = String(req.body?.sessionId || req.query?.sessionId || "");
   const lang = (req.body?.lang === "twi" || req.query?.lang === "twi" ? "twi" : "en") as "en" | "twi";
   const baseUrl = getBaseUrl(req);
+  res.locals.atTurnStartedAt = Date.now();
+
+  if (speechText) {
+    res.locals.atTurnInput = speechText;
+    res.locals.atTurnChannel = "VOICE";
+  } else if (dtmf) {
+    res.locals.atTurnInput = dtmf;
+    res.locals.atTurnChannel = "DTMF";
+  }
 
   // ── Conversation Takeover Detector ────────────────────────────────────
   // Detects when caller transitions from pressing digits to natural conversational speech/text
@@ -401,6 +414,9 @@ ivrRouter.use((req: Request, res: Response, next: NextFunction) => {
     && !req.query?.recordingUrl;
 
   if ((!hasDtmf || dtmf) && !emptySpeechCallback) return next();
+  if (emptySpeechCallback) {
+    voicePipelineMonitor.record("asr_empty");
+  }
   if (["/enter-pin", "/verify-pin", "/pin-handoff", "/confirm-speech"].includes(req.path)
     || ["enter-pin", "verify-pin", "pin-handoff", "confirm-speech"].includes(speechStep)) {
     return next();
@@ -458,8 +474,112 @@ ivrRouter.use((req: Request, res: Response, next: NextFunction) => {
   );
 });
 
+function recordAtTelephonyTurn(
+  res: Response,
+  content: string,
+  decision?: (Partial<IvrDecision> & Record<string, any>) | any
+): void {
+  const req = (res.req || (res as any).socket?._httpMessage?.req) as Request | undefined;
+  if (!req) return;
+
+  const sessionId = String(req.body?.sessionId || req.query?.sessionId || "");
+  if (!sessionId) return;
+
+  const callerInput = String(res.locals?.atTurnInput || "").trim();
+  if (!callerInput) return;
+
+  const channel = res.locals?.atTurnChannel === "VOICE" ? "VOICE" : "DTMF";
+  const lang = req.body?.lang === "twi" || req.query?.lang === "twi" ? "twi" : "en";
+  if (typeof res.locals?.atTurnStartedAt === "number") {
+    res.locals.atTurnLatencyMs = Date.now() - res.locals.atTurnStartedAt;
+  }
+  const step = String(
+    req.query?.step || req.body?.step || req.path.replace(/^\//, "") || "unknown"
+  );
+  let safeInput = callerInput;
+
+  if (channel === "DTMF") {
+    if (req.path.includes("pin") || safeInput.length === 4) {
+      safeInput = "****";
+    } else if (/^\d+$/.test(safeInput) && safeInput.length >= 9) {
+      safeInput = `${safeInput.slice(0, 3)}****${safeInput.slice(-3)}`;
+    }
+  } else {
+    safeInput = redactPii(safeInput);
+  }
+
+  const session = transactionStateMachine.getSession(sessionId);
+  const outcome: StoredCallSession["outcome"] =
+    session?.state === "COMPLETED"
+      ? "COMPLETED"
+      : session?.state === "CANCELLED"
+      ? "CANCELLED"
+      : session?.state === "FAILED"
+      ? "FAILED"
+      : session?.state === "TIMEOUT"
+      ? "TIMEOUT"
+      : "IN_PROGRESS";
+  const assistantResponse = decision?.replyText
+    || (/<(?:Redirect|Reject|Hangup)\b/i.test(content) ? "IVR state advanced" : "IVR prompt delivered");
+  const stored = callSessionRepository.upsertSession({
+    sessionId,
+    callerNumber: session?.callerPhone,
+    language: session?.language === "twi" ? "twi" : lang,
+    finalStep: step,
+    outcome,
+    amountGHS: typeof session?.amount === "number" ? session.amount : undefined,
+    recipientName: session?.recipientName || "",
+    recipientPhone: session?.recipientPhone || "",
+    referenceId: session?.referenceId,
+    voiceXmlTrace: [
+      {
+        step,
+        voiceXml: content,
+        timestamp: new Date().toLocaleTimeString(),
+      },
+    ],
+  });
+  callSessionRepository.addTurn(sessionId, {
+    id: `at-turn-${Date.now()}-${stored.conversationTurns.length + 1}`,
+    turnNumber: stored.conversationTurns.length + 1,
+    timestamp: new Date().toLocaleTimeString(),
+    callerInput: safeInput,
+    callerChannel: channel,
+    asrProvider: res.locals?.atTurnAsrProvider,
+    asrConfidence: typeof res.locals?.atTurnAsrConfidence === "number"
+      ? res.locals.atTurnAsrConfidence
+      : undefined,
+    asrLatencyMs: typeof res.locals?.atTurnAsrLatencyMs === "number"
+      ? res.locals.atTurnAsrLatencyMs
+      : undefined,
+    intent: decision?.type || undefined,
+    entitiesExtracted: {
+      step,
+      sessionState: session?.state,
+    },
+    assistantResponse,
+    step,
+    status: decision?.type === "clarify" ? "FALLBACK" : "SUCCESS",
+  });
+  callSessionRepository.addApiTrace(sessionId, {
+    id: `at-api-${Date.now()}-${stored.apiRequests.length + 1}`,
+    timestamp: new Date().toLocaleTimeString(),
+    endpoint: req.originalUrl || req.path,
+    method: req.method,
+    provider: "AFRICAS_TALKING_VOICEXML",
+    latencyMs: typeof res.locals?.atTurnLatencyMs === "number"
+      ? res.locals.atTurnLatencyMs
+      : 0,
+    httpStatus: 200,
+    requestSummary: `${channel}: ${safeInput}`,
+    responseSummary: assistantResponse,
+    status: outcome === "FAILED" || outcome === "TIMEOUT" ? "ERROR" : "SUCCESS",
+  });
+}
+
 function xmlResponse(res: Response, content: string, decision?: (Partial<IvrDecision> & Record<string, any>) | any): void {
   let xml = content;
+  recordAtTelephonyTurn(res, content, decision);
   if (decision) {
     if (decision.type) res.set("X-AI-Decision-Type", toSafeHeaderValue(decision.type));
     if (decision.outcome) res.set("X-Transaction-Outcome", toSafeHeaderValue(decision.outcome));
@@ -680,6 +800,8 @@ export const handleInboundCall = (req: Request, res: Response) => {
   const session = transactionStateMachine.getOrCreateSession(sessionId, initialLang, "VOICE");
   session.callerPhone = callerNumber;
   session.language = initialLang;
+  dataRetentionService.registerSession(sessionId);
+  pilotMetrics.recordCallStart(sessionId);
 
   const welcomePrompt = canonicalPromptElement(
     "welcome",
@@ -781,9 +903,7 @@ ivrRouter.all("/language-selection", (req: Request, res: Response) => {
     speechCallback.searchParams.set("retry", "0");
     return xmlResponse(
       res,
-      `    <GetDigits timeout="12" finishOnKey="#" numDigits="1" callbackUrl="${baseUrl}/language-selection?sessionId=${sessionId}&amp;lang=${lang}">
-        <Say voice="female">${promptText}</Say>
-    </GetDigits>
+      `    <Say voice="female">${promptText}</Say>
     <Record trimSilence="true" finishOnKey="#" playBeep="true" maxLength="15" timeout="8" callbackUrl="${escapeVoiceXml(speechCallback.toString())}"/>`
     );
   }
@@ -2471,6 +2591,9 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
       const customConf = req.body?.confidence ?? req.query?.confidence;
       confidence = typeof customConf === "number" ? customConf : (customConf ? parseFloat(customConf) : 0.95);
     }
+    res.locals.atTurnAsrProvider = "simulated-transcript";
+    res.locals.atTurnAsrConfidence = confidence;
+    res.locals.atTurnAsrLatencyMs = 0;
   } else if (recordingUrl) {
     const asrStartedAt = Date.now();
     try {
@@ -2480,12 +2603,26 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
       confidenceSource = stt.confidenceSource || "unavailable";
       pinDiscarded = step !== "enter-pin" && Boolean(stt.pinDiscarded);
       asrProvider = stt.provider || "unknown";
+      if (!transcript || transcript === "empty" || pinDiscarded) {
+        voicePipelineMonitor.record("asr_empty");
+      } else {
+        voicePipelineMonitor.record("asr_success");
+      }
     } catch (err: any) {
       auditLogger.log("warn", "NLU", `STT error: ${err.message}`, sessionId);
       asrProvider = "error-fallback";
+      voicePipelineMonitor.record("callback_failure");
     } finally {
       asrLatencyMs = Date.now() - asrStartedAt;
     }
+    res.locals.atTurnAsrProvider = asrProvider;
+    res.locals.atTurnAsrConfidence = confidence;
+    res.locals.atTurnAsrLatencyMs = asrLatencyMs;
+  }
+
+  if (transcript && !pinDiscarded) {
+    res.locals.atTurnInput = transcript;
+    res.locals.atTurnChannel = "VOICE";
   }
 
   // If PIN was spoken on a non-PIN step, discard instantly and return directly to DTMF re-prompt
@@ -2556,6 +2693,15 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
     }
   }
 
+  if (step === "language-selection") {
+    if (/^(?:1|one|english|brofo)$|english|brofo/i.test(clean)) {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/language-selection?sessionId=${sessionId}&amp;dtmfDigits=1</Redirect>`);
+    }
+    if (/^(?:2|two|twi|akan)$|twi|akan/i.test(clean)) {
+      return xmlResponse(res, `    <Redirect>${baseUrl}/language-selection?sessionId=${sessionId}&amp;dtmfDigits=2</Redirect>`);
+    }
+  }
+
   const isSpeechControl = /\b(cancel|stop|abort|quit|exit|gyae|hwee|go back|previous|back|san akyi|repeat|say again|tie bio)\b/i.test(clean);
   const isConfirmationStep = step === "safe-confirmation" || step === "recipient-verify-choice" || step === "confirm-speech";
   const isSpokenKey = /^(?:[0-9]|zero|one|two|three|four|five|six|seven|eight|nine|baako|bako|mmienu|mienu|mmiensa|mmiɛnsa|ɛnan|enan|enum|nsia|nson|nwɔtwe|nwotwe|nkron|kron)$/i.test(clean);
@@ -2605,6 +2751,7 @@ ivrRouter.all("/speech-fallback", async (req: Request, res: Response) => {
         },
         callerNumber: session.callerPhone,
         sessionId,
+        forceModel: true,
       });
 
       const updatedSlots = brainOutput.updatedDraft.slots as Record<string, any>;

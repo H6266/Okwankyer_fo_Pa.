@@ -168,21 +168,23 @@ export class TtsRouter implements TTSProvider {
       providerErrors.push(error instanceof Error ? error.message : "Gemini synthesis failed.");
     }
 
-    try {
-      const googleTTS = await import("google-tts-api");
-      const chunks = await googleTTS.getAllAudioBase64(text, { lang: "en", timeout: 8000 });
-      const audioBuffer = Buffer.concat(chunks.map((c) => Buffer.from(c.base64, "base64")));
-      return assertTtsResponse(request, {
-        audioBuffer,
-        audioBase64: audioBuffer.toString("base64"),
-        audioMimeType: "audio/mpeg",
-        mimeType: "audio/mpeg",
-        providerUsed: "google-tts-dynamic",
-        language: "en",
-        model: "google-tts-fallback",
-      }, "en");
-    } catch (error) {
-      providerErrors.push(error instanceof Error ? error.message : "Google TTS failed.");
+    if (!request.skipCatalogCheck && process.env.NODE_ENV !== "production") {
+      try {
+        const googleTTS = await import("google-tts-api");
+        const chunks = await googleTTS.getAllAudioBase64(text, { lang: "en", timeout: 8000 });
+        const audioBuffer = Buffer.concat(chunks.map((c) => Buffer.from(c.base64, "base64")));
+        return assertTtsResponse(request, {
+          audioBuffer,
+          audioBase64: audioBuffer.toString("base64"),
+          audioMimeType: "audio/mpeg",
+          mimeType: "audio/mpeg",
+          providerUsed: "google-tts-dynamic",
+          language: "en",
+          model: "google-tts-fallback",
+        }, "en");
+      } catch (error) {
+        providerErrors.push(error instanceof Error ? error.message : "Google TTS failed.");
+      }
     }
 
     throw new Error(`TTS_PROVIDER_UNAVAILABLE: English synthesis failed (${providerErrors.join("; ")}).`);

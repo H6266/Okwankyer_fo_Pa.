@@ -1,0 +1,182 @@
+[
+  {
+    "speaker_id": "synthetic-0",
+    "language": "tw",
+    "text": "gye sika 10 cedis",
+    "intent": "CASH_OUT"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "gyae",
+    "intent": "CANCEL"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "go back",
+    "intent": "GO_BACK"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "exit",
+    "intent": "EXIT"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "buy 5 cedis airtime",
+    "intent": "BUY_AIRTIME"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "pay my ECG bill of 10 cedis",
+    "intent": "PAY_BILL"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "pay my ECG bill of 75 cedis",
+    "intent": "PAY_BILL"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "cancel",
+    "intent": "CANCEL"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "exit",
+    "intent": "EXIT"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "cancel",
+    "intent": "CANCEL"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "hang up",
+    "intent": "EXIT"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "help me",
+    "intent": "HELP"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "how does this work",
+    "intent": "HELP"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "tw",
+    "text": "tua ECG ka 100 cedis",
+    "intent": "PAY_BILL"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "send 200 cedis to 0501000069",
+    "intent": "SEND_MONEY"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "tw",
+    "text": "sika a aka wɔ me momo account mu",
+    "intent": "CHECK_BALANCE"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "cash out 200 cedis",
+    "intent": "CASH_OUT"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "send 100 cedis to 0501000034",
+    "intent": "SEND_MONEY"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "go back",
+    "intent": "GO_BACK"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "tw",
+    "text": "tɔ airtime 50 cedis",
+    "intent": "BUY_AIRTIME"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "tw",
+    "text": "me pɛ data bundle 100 cedis",
+    "intent": "BUY_DATA"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "how much money is in my wallet",
+    "intent": "CHECK_BALANCE"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "buy 5 cedis airtime",
+    "intent": "BUY_AIRTIME"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "cash out 200 cedis",
+    "intent": "CASH_OUT"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "buy 20 cedis data bundle",
+    "intent": "BUY_DATA"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "buy 75 cedis data bundle",
+    "intent": "BUY_DATA"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "help me",
+    "intent": "HELP"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "san akyi",
+    "intent": "GO_BACK"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "check my balance",
+    "intent": "CHECK_BALANCE"
+  },
+  {
+    "speaker_id": "synthetic-0",
+    "language": "en",
+    "text": "send 20 cedis to 0501000184",
+    "intent": "SEND_MONEY"
+  }
+]

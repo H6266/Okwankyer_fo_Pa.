@@ -32,6 +32,7 @@ import { validateProductionModelConfig } from "./ai_system/brain/brain";
 import { approvalWorkflow } from "./ai_system/brain/approvalWorkflow";
 import { startPiperWorker } from "./ai_system/speech/tts/piperWorker";
 import { validateWebhookSecurityConfig } from "./providers/telephony/webhookGuard";
+import { pilotRouter } from "./routes/pilotRoutes";
 
 export const app = express();
 
@@ -178,6 +179,7 @@ app.use(momoRouter);
 app.use(telecelRouter);
 app.use(shippingRouter);
 app.use(aiRouter);
+app.use(pilotRouter);
 app.use(adminRouter);
 
 // Fallback for unmatched API routes to ensure clean JSON responses

@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { pilotControls } from "../src/services/pilotControls";
+import { pilotControls, PilotControlsService } from "../src/services/pilotControls";
 import { Brain } from "../src/ai_system/brain/brain";
 import { geminiClient } from "../src/services/geminiClient";
 
@@ -65,6 +65,34 @@ describe("Phase 6a: Pilot Runtime Controls (Kill Switch & Allowlist)", () => {
     expect(pilotControls.isNumberAllowed("0209999999")).toBe(false);
     expect(pilotControls.getEffectiveBrainMode("0209999999", "live")).toBe("offline_only");
     expect(pilotControls.getEffectiveBrainMode("0209999999", "shadow")).toBe("offline_only");
+  });
+
+  it("fails closed when the allowlist is enabled but empty or caller identity is missing", () => {
+    for (const number of pilotControls.getAllowedNumbers(false)) {
+      pilotControls.removeAllowedNumber(number);
+    }
+
+    expect(pilotControls.isNumberAllowed("0553838464")).toBe(false);
+    expect(pilotControls.getEffectiveBrainMode("0553838464", "live")).toBe("offline_only");
+    expect(pilotControls.getEffectiveBrainMode(undefined, "live")).toBe("offline_only");
+  });
+
+  it("uses an explicitly empty environment allowlist instead of persisted numbers", () => {
+    pilotControls.setAllowlistEnabled(false);
+    pilotControls.setConsentNoticeEnabled(false);
+    vi.stubEnv("PILOT_ALLOWED_NUMBERS", "");
+    vi.stubEnv("PILOT_ALLOWLIST_ENABLED", "true");
+    vi.stubEnv("PILOT_CONSENT_NOTICE_ENABLED", "true");
+    try {
+      const stagingControls = new PilotControlsService();
+      expect(stagingControls.isAllowlistEnabled()).toBe(true);
+      expect(stagingControls.getAllowedNumbers(false)).toEqual([]);
+      expect(stagingControls.getEffectiveBrainMode("0553838464", "live")).toBe("offline_only");
+      expect(stagingControls.isConsentNoticeEnabled()).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+      pilotControls.setConsentNoticeEnabled(true);
+    }
   });
 
   it("3. Dynamic modification of allowlist at runtime", () => {

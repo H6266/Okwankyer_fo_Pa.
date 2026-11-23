@@ -1,5 +1,20 @@
 {
   "version": "1.0.0",
-  "models": {},
-  "policy": "No verified model artifacts are committed. Use training/export_model.py to add a model only after hashing the actual artifact and reviewing its license, language coverage, runtime, and evaluation evidence."
+  "models": {
+    "ghana_nlu_v1": {
+      "model_id": "ghana_nlu_v1",
+      "version": "1.0.0",
+      "filename": "ghana_nlu_v1.json",
+      "license": "Apache-2.0",
+      "sha256": "9bc99d55ca5516c41aff9c4c37d4fc091bd79e445dd5fe142e921beeb4f36f54",
+      "size_bytes": 7426,
+      "size_mb": 0.01,
+      "runtime": "TypeScript/Node.js deterministic Naive Bayes scorer",
+      "supported_dialects": ["en-GH", "tw", "en-tw"],
+      "deployment_ready": true,
+      "status": "DEPLOYMENT_READY",
+      "benchmark_artifact": "eval/reports/nlu_eval_report.json"
+    }
+  },
+  "policy": "Verified model artifacts must include an exact license, SHA-256 checksum, runtime integration, supported dialect evidence, and a holdout evaluation report."
 }

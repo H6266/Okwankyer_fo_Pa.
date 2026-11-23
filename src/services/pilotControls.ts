@@ -41,18 +41,23 @@ export class PilotControlsService {
 
   private loadState(): PilotControlsState {
     const envKillSwitch = process.env.PILOT_KILL_SWITCH === 'true' || process.env.FORCE_OFFLINE_ONLY === 'true';
+    const hasEnvAllowlist = Object.prototype.hasOwnProperty.call(process.env, 'PILOT_ALLOWED_NUMBERS');
+    const hasEnvAllowlistEnabled = Object.prototype.hasOwnProperty.call(process.env, 'PILOT_ALLOWLIST_ENABLED');
+    const hasEnvConsentNotice = Object.prototype.hasOwnProperty.call(process.env, 'PILOT_CONSENT_NOTICE_ENABLED');
     const envAllowlist = process.env.PILOT_ALLOWED_NUMBERS
       ? process.env.PILOT_ALLOWED_NUMBERS.split(',').map((n) => this.normalizeNumber(n)).filter(Boolean)
       : [];
+    const envAllowlistEnabled = process.env.PILOT_ALLOWLIST_ENABLED === 'true';
+    const envConsentNoticeEnabled = process.env.PILOT_CONSENT_NOTICE_ENABLED !== 'false';
 
     const defaultState: PilotControlsState = {
       killSwitch: envKillSwitch,
       killSwitchReason: envKillSwitch ? 'Activated via environment variable' : undefined,
       killSwitchActivatedAt: envKillSwitch ? new Date().toISOString() : null,
-      allowlistEnabled: envAllowlist.length > 0 || process.env.PILOT_ALLOWLIST_ENABLED === 'true',
+      allowlistEnabled: envAllowlist.length > 0 || envAllowlistEnabled,
       allowedNumbers: envAllowlist,
       maxClarificationAttempts: parseInt(process.env.MAX_CLARIFICATION_ATTEMPTS || '3', 10) || 3,
-      consentNoticeEnabled: process.env.PILOT_CONSENT_NOTICE_ENABLED !== 'false',
+      consentNoticeEnabled: envConsentNoticeEnabled,
     };
 
     if (fs.existsSync(STORAGE_PATH)) {
@@ -64,7 +69,15 @@ export class PilotControlsService {
           ...parsed,
           // Environment kill switch override takes precedence if true
           killSwitch: envKillSwitch || Boolean(parsed.killSwitch),
-          allowedNumbers: Array.from(new Set([...defaultState.allowedNumbers, ...(parsed.allowedNumbers || [])])),
+          allowlistEnabled: hasEnvAllowlistEnabled
+            ? envAllowlistEnabled
+            : defaultState.allowlistEnabled || Boolean(parsed.allowlistEnabled),
+          allowedNumbers: hasEnvAllowlist
+            ? envAllowlist
+            : Array.from(new Set([...defaultState.allowedNumbers, ...(parsed.allowedNumbers || [])])),
+          consentNoticeEnabled: hasEnvConsentNotice
+            ? envConsentNoticeEnabled
+            : parsed.consentNoticeEnabled ?? defaultState.consentNoticeEnabled,
         };
       } catch (err) {
         console.warn('[PilotControls] Could not parse pilot_controls.json; using defaults:', err);
@@ -169,9 +182,8 @@ export class PilotControlsService {
 
   public isNumberAllowed(phone: string): boolean {
     if (!this.state.allowlistEnabled) return true;
-    if (this.state.allowedNumbers.length === 0) return true; // Empty allowlist allows all if not explicitly restricted
     const normalized = this.normalizeNumber(phone);
-    return this.state.allowedNumbers.includes(normalized);
+    return Boolean(normalized) && this.state.allowedNumbers.includes(normalized);
   }
 
   // ── Effective Mode Resolver ────────────────────────────────────────────────
@@ -187,11 +199,8 @@ export class PilotControlsService {
       return 'offline_only';
     }
 
-    if (callerPhone && this.state.allowlistEnabled && this.state.allowedNumbers.length > 0) {
-      const allowed = this.isNumberAllowed(callerPhone);
-      if (!allowed) {
-        return 'offline_only';
-      }
+    if (this.state.allowlistEnabled && (!callerPhone || !this.isNumberAllowed(callerPhone))) {
+      return 'offline_only';
     }
 
     return requestedMode || 'shadow';

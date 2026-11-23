@@ -83,6 +83,29 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     expect(transactionStateMachine.getSession(sessionId)?.interactionMode).toBe("GUIDED_IVR");
   });
 
+  it("records Africa's Talking DTMF callbacks as one turn in the call session ledger", async () => {
+    const sessionId = "AT-TURN-LEDGER-001";
+
+    await request(app)
+      .post("/language-selection")
+      .send({ sessionId, dtmfDigits: "1", lang: "en" });
+
+    const response = await request(app)
+      .post("/service-choice")
+      .send({ sessionId, dtmfDigits: "0553838464", lang: "en" });
+
+    expect(response.status).toBe(200);
+    const stored = callSessionRepository.getSession(sessionId);
+    expect(stored).toBeDefined();
+    const turn = stored?.conversationTurns.at(-1);
+    expect(turn?.callerChannel).toBe("DTMF");
+    expect(turn?.callerInput).toBe("055****464");
+    expect(turn?.step).toBe("service-choice");
+    expect(stored?.voiceXmlTrace.length).toBeGreaterThan(0);
+    expect(stored?.apiRequests.length).toBeGreaterThan(0);
+    expect(stored?.apiRequests.at(-1)?.provider).toBe("AFRICAS_TALKING_VOICEXML");
+  });
+
   it("keeps Twi audio when Africa's Talking omits lang on later callbacks", async () => {
     const sessionId = "AT-TWI-LANG-OMITTED-001";
     transactionStateMachine.getOrCreateSession(sessionId, "twi", "VOICE");
@@ -256,7 +279,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .post("/language-selection")
       .query({ sessionId, lang: "en" });
     expect(languagePrompt.text).toContain("For English, press 1. For Twi, press 2.");
-    expect(languagePrompt.text).toContain(`/language-selection?sessionId=${sessionId}`);
+    expect(languagePrompt.text).toContain(`/speech-fallback?step=language-selection&amp;sessionId=${sessionId}`);
     expect(languagePrompt.text).not.toContain("Welcome to Ɔkwankyerɛfo Pa");
   });
 
@@ -738,7 +761,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       .post("/language-selection")
       .query({ sessionId, lang: "en" });
     expect(languagePrompt.text).toContain("For English, press 1. For Twi, press 2.");
-    expect(languagePrompt.text).toContain(`/language-selection?sessionId=${sessionId}`);
+    expect(languagePrompt.text).toContain(`/speech-fallback?step=language-selection&amp;sessionId=${sessionId}`);
 
     // 2. Language Selection -> English (1)
     const langRes = await request(app)

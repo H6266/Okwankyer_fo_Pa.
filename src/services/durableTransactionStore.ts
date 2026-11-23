@@ -12,6 +12,9 @@ import { TransactionResult, SagaTransaction } from "../integrations/momo/types";
 import { fieldEncryption } from "../ai_system/security/fieldEncryption";
 
 export const SAGA_RETENTION_MS = 30 * 24 * 60 * 60 * 1000; // 30-day retention rule for saga records
+export const SESSION_RETENTION_MS = Number(process.env.SESSION_TTL_MS) > 0
+  ? Number(process.env.SESSION_TTL_MS)
+  : 30 * 60 * 1000;
 
 export interface VelocityAttempt {
   timestamp: number;
@@ -79,9 +82,13 @@ export class DurableTransactionStore {
           try {
             const raw = fs.readFileSync(path.join(this.sessionsDir, file), "utf-8");
             const session: TransactionSession = JSON.parse(raw);
-            this.sessions.set(session.sessionId, session);
-            if (session.idempotencyKey) {
-              this.idempotencyIndex.set(session.idempotencyKey, session.sessionId);
+            if (Date.now() - session.updatedAt <= SESSION_RETENTION_MS) {
+              this.sessions.set(session.sessionId, session);
+              if (session.idempotencyKey) {
+                this.idempotencyIndex.set(session.idempotencyKey, session.sessionId);
+              }
+            } else {
+              fs.unlinkSync(path.join(this.sessionsDir, file));
             }
           } catch {
             // Ignore corrupted single session file
@@ -155,6 +162,11 @@ export class DurableTransactionStore {
 
   // ── Session Operations ────────────────────────────────────────────────
   public getSession(sessionId: string): TransactionSession | undefined {
+    const session = this.sessions.get(sessionId);
+    if (session && Date.now() - session.updatedAt > SESSION_RETENTION_MS) {
+      this.deleteSession(sessionId);
+      return undefined;
+    }
     return this.sessions.get(sessionId);
   }
 

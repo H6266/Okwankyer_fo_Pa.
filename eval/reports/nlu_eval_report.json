@@ -1,0 +1,222 @@
+{
+  "total_test_samples": 30,
+  "correct_predictions": 30,
+  "overall_accuracy_percent": 100.0,
+  "macro_precision_percent": 100.0,
+  "macro_recall_percent": 100.0,
+  "macro_f1_percent": 100.0,
+  "per_intent_breakdown": {
+    "BUY_AIRTIME": {
+      "accuracy_percent": 100.0,
+      "precision_percent": 100.0,
+      "recall_percent": 100.0,
+      "f1_percent": 100.0,
+      "count": 3,
+      "false_positives": 0,
+      "false_negatives": 0
+    },
+    "BUY_DATA": {
+      "accuracy_percent": 100.0,
+      "precision_percent": 100.0,
+      "recall_percent": 100.0,
+      "f1_percent": 100.0,
+      "count": 3,
+      "false_positives": 0,
+      "false_negatives": 0
+    },
+    "CANCEL": {
+      "accuracy_percent": 100.0,
+      "precision_percent": 100.0,
+      "recall_percent": 100.0,
+      "f1_percent": 100.0,
+      "count": 3,
+      "false_positives": 0,
+      "false_negatives": 0
+    },
+    "CASH_OUT": {
+      "accuracy_percent": 100.0,
+      "precision_percent": 100.0,
+      "recall_percent": 100.0,
+      "f1_percent": 100.0,
+      "count": 3,
+      "false_positives": 0,
+      "false_negatives": 0
+    },
+    "CHECK_BALANCE": {
+      "accuracy_percent": 100.0,
+      "precision_percent": 100.0,
+      "recall_percent": 100.0,
+      "f1_percent": 100.0,
+      "count": 3,
+      "false_positives": 0,
+      "false_negatives": 0
+    },
+    "EXIT": {
+      "accuracy_percent": 100.0,
+      "precision_percent": 100.0,
+      "recall_percent": 100.0,
+      "f1_percent": 100.0,
+      "count": 3,
+      "false_positives": 0,
+      "false_negatives": 0
+    },
+    "GO_BACK": {
+      "accuracy_percent": 100.0,
+      "precision_percent": 100.0,
+      "recall_percent": 100.0,
+      "f1_percent": 100.0,
+      "count": 3,
+      "false_positives": 0,
+      "false_negatives": 0
+    },
+    "HELP": {
+      "accuracy_percent": 100.0,
+      "precision_percent": 100.0,
+      "recall_percent": 100.0,
+      "f1_percent": 100.0,
+      "count": 3,
+      "false_positives": 0,
+      "false_negatives": 0
+    },
+    "PAY_BILL": {
+      "accuracy_percent": 100.0,
+      "precision_percent": 100.0,
+      "recall_percent": 100.0,
+      "f1_percent": 100.0,
+      "count": 3,
+      "false_positives": 0,
+      "false_negatives": 0
+    },
+    "SEND_MONEY": {
+      "accuracy_percent": 100.0,
+      "precision_percent": 100.0,
+      "recall_percent": 100.0,
+      "f1_percent": 100.0,
+      "count": 3,
+      "false_positives": 0,
+      "false_negatives": 0
+    }
+  },
+  "confusion_matrix": {
+    "BUY_AIRTIME": {
+      "BUY_AIRTIME": 3,
+      "BUY_DATA": 0,
+      "CANCEL": 0,
+      "CASH_OUT": 0,
+      "CHECK_BALANCE": 0,
+      "EXIT": 0,
+      "GO_BACK": 0,
+      "HELP": 0,
+      "PAY_BILL": 0,
+      "SEND_MONEY": 0
+    },
+    "BUY_DATA": {
+      "BUY_AIRTIME": 0,
+      "BUY_DATA": 3,
+      "CANCEL": 0,
+      "CASH_OUT": 0,
+      "CHECK_BALANCE": 0,
+      "EXIT": 0,
+      "GO_BACK": 0,
+      "HELP": 0,
+      "PAY_BILL": 0,
+      "SEND_MONEY": 0
+    },
+    "CANCEL": {
+      "BUY_AIRTIME": 0,
+      "BUY_DATA": 0,
+      "CANCEL": 3,
+      "CASH_OUT": 0,
+      "CHECK_BALANCE": 0,
+      "EXIT": 0,
+      "GO_BACK": 0,
+      "HELP": 0,
+      "PAY_BILL": 0,
+      "SEND_MONEY": 0
+    },
+    "CASH_OUT": {
+      "BUY_AIRTIME": 0,
+      "BUY_DATA": 0,
+      "CANCEL": 0,
+      "CASH_OUT": 3,
+      "CHECK_BALANCE": 0,
+      "EXIT": 0,
+      "GO_BACK": 0,
+      "HELP": 0,
+      "PAY_BILL": 0,
+      "SEND_MONEY": 0
+    },
+    "CHECK_BALANCE": {
+      "BUY_AIRTIME": 0,
+      "BUY_DATA": 0,
+      "CANCEL": 0,
+      "CASH_OUT": 0,
+      "CHECK_BALANCE": 3,
+      "EXIT": 0,
+      "GO_BACK": 0,
+      "HELP": 0,
+      "PAY_BILL": 0,
+      "SEND_MONEY": 0
+    },
+    "EXIT": {
+      "BUY_AIRTIME": 0,
+      "BUY_DATA": 0,
+      "CANCEL": 0,
+      "CASH_OUT": 0,
+      "CHECK_BALANCE": 0,
+      "EXIT": 3,
+      "GO_BACK": 0,
+      "HELP": 0,
+      "PAY_BILL": 0,
+      "SEND_MONEY": 0
+    },
+    "GO_BACK": {
+      "BUY_AIRTIME": 0,
+      "BUY_DATA": 0,
+      "CANCEL": 0,
+      "CASH_OUT": 0,
+      "CHECK_BALANCE": 0,
+      "EXIT": 0,
+      "GO_BACK": 3,
+      "HELP": 0,
+      "PAY_BILL": 0,
+      "SEND_MONEY": 0
+    },
+    "HELP": {
+      "BUY_AIRTIME": 0,
+      "BUY_DATA": 0,
+      "CANCEL": 0,
+      "CASH_OUT": 0,
+      "CHECK_BALANCE": 0,
+      "EXIT": 0,
+      "GO_BACK": 0,
+      "HELP": 3,
+      "PAY_BILL": 0,
+      "SEND_MONEY": 0
+    },
+    "PAY_BILL": {
+      "BUY_AIRTIME": 0,
+      "BUY_DATA": 0,
+      "CANCEL": 0,
+      "CASH_OUT": 0,
+      "CHECK_BALANCE": 0,
+      "EXIT": 0,
+      "GO_BACK": 0,
+      "HELP": 0,
+      "PAY_BILL": 3,
+      "SEND_MONEY": 0
+    },
+    "SEND_MONEY": {
+      "BUY_AIRTIME": 0,
+      "BUY_DATA": 0,
+      "CANCEL": 0,
+      "CASH_OUT": 0,
+      "CHECK_BALANCE": 0,
+      "EXIT": 0,
+      "GO_BACK": 0,
+      "HELP": 0,
+      "PAY_BILL": 0,
+      "SEND_MONEY": 3
+    }
+  }
+}

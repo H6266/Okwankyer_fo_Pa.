@@ -16,6 +16,7 @@ import { z } from "zod";
 import { isPhoneNumber, normalizePhoneNumber } from "../domain/phoneUtils";
 import { geminiClient as unifiedGeminiClient } from "../services/geminiClient";
 import { findContact } from "./mockContacts";
+import trainedNluArtifact from "../../models/ghana_nlu_v1.json";
 
 const NluModelOutputSchema = z.object({
   intent: z.enum([
@@ -254,6 +255,23 @@ export function extractNetwork(text: string): "MTN" | "Telecel" | "AT" | null {
 export function classifyIntentLocally(text: string): ExtractedEntities {
   const lower = text.toLowerCase().trim();
 
+  if (
+    /\b(?:ignore|disregard)\b.{0,40}\b(?:previous|all)\b.{0,40}\b(?:instructions|constraints)\b/i.test(text)
+    || /\bsystem\s+override\b/i.test(text)
+  ) {
+    return {
+      intent: "UNKNOWN",
+      matchClass: "NO_MATCH",
+      confidence: CONFIDENCE_CALIBRATION_TABLE.NO_MATCH,
+      amount: null,
+      currency: "GHS",
+      recipient_name: null,
+      recipient_phone: null,
+      network: null,
+      rawText: text,
+    };
+  }
+
   const makeResult = (
     intent: IntentType,
     matchClass: MatchClass,
@@ -270,6 +288,18 @@ export function classifyIntentLocally(text: string): ExtractedEntities {
     rawText: text,
     ...extra,
   });
+
+  // Ambiguous requests must ask a targeted clarification, never guess a financial action.
+  if (
+    /\bi\s+(?:want|need|would like)\s+(?:to\s+)?(?:do\s+)?(?:something|anything)\s+(?:with|to)\s+(?:my\s+)?money\b/i.test(text)
+    || (
+      /\bmep[eɛ]\s+s[eɛ]\s+/i.test(text)
+      && /\bsika\b/i.test(text)
+      && !/\b(?:mane|mesoma|mede|fa sika|soma|tua|tɔ|gye|megye|yi|balance|account|sika a aka)\b/i.test(text)
+    )
+  ) {
+    return makeResult("UNKNOWN", "AMBIGUOUS");
+  }
 
   // Navigation & Control Intents
   if (lower === "0" || lower === "exit" || lower === "quit" || lower === "close") {
@@ -296,7 +326,10 @@ export function classifyIntentLocally(text: string): ExtractedEntities {
   if (lower === "help") {
     return makeResult("HELP", "EXACT_GRAMMAR");
   }
-  if (lower.includes("help me") || lower.includes("how does this work") || lower.includes("what can i say") || lower.includes("tie biom")) {
+  if (
+    (lower.includes("help me") || lower.includes("how does this work") || lower.includes("what can i say") || lower.includes("tie biom"))
+    && !/\b(?:send|transfer|mane|mesoma|mede|fa sika)\b/i.test(lower)
+  ) {
     return makeResult("HELP", "FUZZY_PATTERN");
   }
 
@@ -342,7 +375,7 @@ export function classifyIntentLocally(text: string): ExtractedEntities {
     });
   }
 
-  if (lower.includes("cash out") || lower.includes("withdraw") || lower.includes("gye sika")) {
+  if (lower.includes("cash out") || lower.includes("withdraw") || lower.includes("gye sika") || lower.includes("megye sika")) {
     return makeResult("CASH_OUT", "FUZZY_PATTERN", {
       amount: extractAmount(text),
       network: extractNetwork(text),
@@ -358,7 +391,14 @@ export function classifyIntentLocally(text: string): ExtractedEntities {
     lower.includes("cedis to") ||
     lower.includes("give") ||
     lower.includes("remit") ||
-    lower.includes("mane");
+    lower.includes("mane") ||
+    lower.includes("mesoma") ||
+    lower.includes("mepɛ sika") ||
+    lower.includes("me pɛ sika") ||
+    lower.includes("mede sika") ||
+    lower.includes("fa sika") ||
+    lower.includes("soma sika") ||
+    lower.includes("kɔma obi");
 
   if (isExactSendMoney || isFuzzySendMoney) {
     const amount = extractAmount(text);
@@ -384,6 +424,55 @@ export function classifyIntentLocally(text: string): ExtractedEntities {
       recipient_phone: possibleRecipient.phone,
       network: extractNetwork(text),
     });
+  }
+
+  // Trained fallback for utterances outside hand-written patterns.
+  const artifact = trainedNluArtifact as {
+    class_priors?: Record<string, number>;
+    feature_table?: Record<string, Record<string, number>>;
+    vocab_size?: number;
+  };
+  if (artifact.class_priors && artifact.feature_table) {
+    const words = lower.replace(/[,?.]/g, " ").split(/\s+/).filter(Boolean);
+    const tokens = words.slice();
+    for (let i = 0; i < words.length - 1; i += 1) {
+      tokens.push(`${words[i]}_${words[i + 1]}`);
+    }
+    let bestIntent: IntentType | null = null;
+    let bestScore = Number.NEGATIVE_INFINITY;
+    const intentScores: Record<string, number> = {};
+    const vocabSize = Math.max(1, artifact.vocab_size || 1);
+
+    for (const [intent, prior] of Object.entries(artifact.class_priors)) {
+      const features = artifact.feature_table[intent] || {};
+      const totalTokens = Object.values(features).reduce((sum, count) => sum + count, 0) + vocabSize;
+      let score = Math.log(Math.max(prior, 0.000001));
+      for (const token of tokens) {
+        score += Math.log(((features[token] || 0) + 1) / totalTokens);
+      }
+      intentScores[intent] = score;
+      if (score > bestScore) {
+        bestScore = score;
+        bestIntent = intent as IntentType;
+      }
+    }
+
+    if (bestIntent && bestIntent !== "UNKNOWN") {
+      const maxScore = Math.max(...Object.values(intentScores));
+      const expScores = Object.values(intentScores).map((score) => Math.exp(score - maxScore));
+      const confidence = Math.min(
+        0.79,
+        Math.exp(bestScore - maxScore) / expScores.reduce((sum, value) => sum + value, 0)
+      );
+      if (confidence >= 0.45 && lower.length >= 3) {
+        return makeResult(bestIntent, "FUZZY_PATTERN", {
+          amount: extractAmount(text),
+          recipient_name: extractRecipient(text).name,
+          recipient_phone: extractRecipient(text).phone,
+          network: extractNetwork(text),
+        });
+      }
+    }
   }
 
   // Unknown fallback

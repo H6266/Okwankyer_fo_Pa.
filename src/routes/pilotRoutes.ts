@@ -14,6 +14,7 @@ import { pilotControls } from "../services/pilotControls";
 import { pilotMetrics } from "../services/pilotMetrics";
 import { paymentReconciliation } from "../services/paymentReconciliation";
 import { dataRetentionService } from "../services/dataRetentionService";
+import { realCallPilot } from "../services/realCallPilot";
 import { requireAdminAuth } from "../middleware/adminAuth";
 import { adminRateLimiter } from "../middleware/rateLimiter";
 
@@ -120,6 +121,41 @@ pilotRouter.post("/api/pilot/metrics/reset", (_req: Request, res: Response) => {
     success: true,
     message: "Pilot operational metrics reset successfully.",
     data: pilotMetrics.getMetricsReport(),
+  });
+});
+
+pilotRouter.post("/api/pilot/call-evidence", (req: Request, res: Response) => {
+  if (req.body?.consentRecorded !== true) {
+    return res.status(400).json({
+      success: false,
+      error: "Explicit participant consent is required.",
+    });
+  }
+  if (!req.body?.callId || !req.body?.participantId || !req.body?.language) {
+    return res.status(400).json({
+      success: false,
+      error: "callId, participantId, and language are required.",
+    });
+  }
+
+  try {
+    const record = realCallPilot.record(req.body);
+    res.status(201).json({
+      success: true,
+      data: record,
+    });
+  } catch (error: any) {
+    res.status(400).json({
+      success: false,
+      error: error?.message || "Could not record call evidence.",
+    });
+  }
+});
+
+pilotRouter.get("/api/pilot/call-evidence/report", (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    data: realCallPilot.getReport(),
   });
 });
 

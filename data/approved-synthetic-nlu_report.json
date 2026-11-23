@@ -1,0 +1,66 @@
+{
+  "seed": 42,
+  "speaker_disjoint": true,
+  "splits": {
+    "train": {
+      "samples": 120,
+      "speakers": 4,
+      "intent_counts": {
+        "BUY_AIRTIME": 12,
+        "BUY_DATA": 12,
+        "CANCEL": 12,
+        "CASH_OUT": 12,
+        "CHECK_BALANCE": 12,
+        "EXIT": 12,
+        "GO_BACK": 12,
+        "HELP": 12,
+        "PAY_BILL": 12,
+        "SEND_MONEY": 12
+      },
+      "language_counts": {
+        "en": 97,
+        "tw": 23
+      }
+    },
+    "val": {
+      "samples": 30,
+      "speakers": 1,
+      "intent_counts": {
+        "BUY_AIRTIME": 3,
+        "BUY_DATA": 3,
+        "CANCEL": 3,
+        "CASH_OUT": 3,
+        "CHECK_BALANCE": 3,
+        "EXIT": 3,
+        "GO_BACK": 3,
+        "HELP": 3,
+        "PAY_BILL": 3,
+        "SEND_MONEY": 3
+      },
+      "language_counts": {
+        "en": 25,
+        "tw": 5
+      }
+    },
+    "test": {
+      "samples": 30,
+      "speakers": 1,
+      "intent_counts": {
+        "BUY_AIRTIME": 3,
+        "BUY_DATA": 3,
+        "CANCEL": 3,
+        "CASH_OUT": 3,
+        "CHECK_BALANCE": 3,
+        "EXIT": 3,
+        "GO_BACK": 3,
+        "HELP": 3,
+        "PAY_BILL": 3,
+        "SEND_MONEY": 3
+      },
+      "language_counts": {
+        "en": 25,
+        "tw": 5
+      }
+    }
+  }
+}
