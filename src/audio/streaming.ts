@@ -36,11 +36,6 @@ const activeTranscodePromises = new Map<string, Promise<string>>();
  */
 export async function getOrTranscodeMp3(sourceFilePath: string): Promise<string> {
   const ext = path.extname(sourceFilePath).toLowerCase();
-  if (ext === ".mp3") {
-    const source = fs.readFileSync(sourceFilePath);
-    if (isMp3Buffer(source)) return sourceFilePath;
-  }
-
   let stat: fs.Stats;
   try {
     stat = fs.statSync(sourceFilePath);
@@ -50,7 +45,7 @@ export async function getOrTranscodeMp3(sourceFilePath: string): Promise<string>
 
   const hash = crypto
     .createHash("sha256")
-    .update(`audio-transcode-v2-loudnorm-limiter:${sourceFilePath}:${stat.size}:${stat.mtimeMs}`)
+    .update(`audio-transcode-v3-loudnorm-limiter-boost:${sourceFilePath}:${stat.size}:${stat.mtimeMs}`)
     .digest("hex")
     .slice(0, 20);
 
@@ -76,7 +71,7 @@ export async function getOrTranscodeMp3(sourceFilePath: string): Promise<string>
       await execFileAsync(ffmpegPath || "ffmpeg", [
         "-y",
         "-i", sourceFilePath,
-        "-af", "loudnorm=I=-20:TP=-2:LRA=7:linear=true,alimiter=limit=0.95:level=disabled",
+        "-af", "loudnorm=I=-14:TP=-1:LRA=6:linear=true,acompressor=threshold=-18dB:ratio=6:attack=5:release=50,alimiter=limit=0.95:level=disabled",
         "-codec:a", "libmp3lame",
         "-b:a", "64k",
         "-ar", "16000",

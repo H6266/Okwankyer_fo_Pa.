@@ -2845,7 +2845,7 @@ export const PhoneSimulatorPage: React.FC = () => {
                   </span>
                 </div>
                 <div className="flex items-center gap-1">
-                  {[1.0, 1.5, 2.0].map((v) => (
+                  {[1.0, 1.5, 2.0, 2.5, 3.0].map((v) => (
                     <button
                       key={v}
                       type="button"

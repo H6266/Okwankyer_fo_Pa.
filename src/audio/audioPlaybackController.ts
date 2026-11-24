@@ -89,7 +89,7 @@ export class AudioPlaybackController {
 
   private audioContext: AudioContext | null = null;
   private masterGainNode: GainNode | null = null;
-    private volumeMultiplier: number = 1.0;
+    private volumeMultiplier: number = 2.0;
   private playbackVolume: number = 1.0;
   private compressorNode: DynamicsCompressorNode | null = null;
 
@@ -103,7 +103,7 @@ export class AudioPlaybackController {
    * Sets the master volume multiplier with clean limiter protection.
    */
   public setVolumeMultiplier(multiplier: number): void {
-    this.volumeMultiplier = Math.max(0.5, Math.min(1.0, multiplier));
+    this.volumeMultiplier = Math.max(0.5, Math.min(3.0, multiplier));
     if (this.masterGainNode && this.audioContext) {
       try {
         this.masterGainNode.gain.setValueAtTime(this.volumeMultiplier, this.audioContext.currentTime);
@@ -129,9 +129,9 @@ export class AudioPlaybackController {
       }
       if (this.audioContext && !this.masterGainNode) {
         this.compressorNode = this.audioContext.createDynamicsCompressor();
-        this.compressorNode.threshold.setValueAtTime(-18, this.audioContext.currentTime);
-        this.compressorNode.knee.setValueAtTime(6, this.audioContext.currentTime);
-        this.compressorNode.ratio.setValueAtTime(4, this.audioContext.currentTime);
+        this.compressorNode.threshold.setValueAtTime(-16, this.audioContext.currentTime);
+        this.compressorNode.knee.setValueAtTime(4, this.audioContext.currentTime);
+        this.compressorNode.ratio.setValueAtTime(6, this.audioContext.currentTime);
         this.compressorNode.attack.setValueAtTime(0.003, this.audioContext.currentTime);
         this.compressorNode.release.setValueAtTime(0.2, this.audioContext.currentTime);
 
@@ -379,8 +379,14 @@ export class AudioPlaybackController {
     if (typeof window === "undefined" || typeof Audio === "undefined") return null;
 
     try {
+      this.setupAudioGraph();
       this.audioElement = new Audio();
       this.audioElement.preload = "auto";
+      this.audioElement.volume = 1.0;
+      if (this.audioContext && this.masterGainNode && !this.mediaElementSource) {
+        this.mediaElementSource = this.audioContext.createMediaElementSource(this.audioElement);
+        this.mediaElementSource.connect(this.masterGainNode);
+      }
       return this.audioElement;
     } catch {
       return null;

@@ -244,7 +244,7 @@ export const AudioFlowPage: React.FC = () => {
             <input
               type="range"
               min="0.5"
-              max="2.5"
+              max="3.0"
               step="0.1"
               value={masterVolume}
               onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
