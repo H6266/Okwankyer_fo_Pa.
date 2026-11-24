@@ -626,7 +626,7 @@ export const ApiTesterPage: React.FC = () => {
                       <span className="text-[10px] font-mono text-slate-500 font-bold">MTN MoMo Ghana</span>
                     </div>
                     <div className="text-xs font-bold text-slate-900 mt-1">
-                      {testPhone === "0553838464" ? "Kwame Nyamebere" : testPhone === "0241234567" ? "Kwame Nyameba" : "Hannes Aboagye"}
+                      {testPhone === "0553838464" ? "Kwame Boateng" : testPhone === "0241234567" ? "Ama Mensah" : "Verified Sandbox Subscriber (MTN)"}
                     </div>
                     <div className="text-[11px] font-mono text-emerald-700 font-bold">
                       MSISDN: +233 {testPhone.replace(/^0/, "")}
@@ -648,7 +648,7 @@ export const ApiTesterPage: React.FC = () => {
                   {[
                     { phone: "0553838464", name: "Kwame Nyamebere", net: "MTN" },
                     { phone: "0241234567", name: "Kwame Nyameba", net: "MTN" },
-                    { phone: "0543546010", name: "Hannes Aboagye", net: "MTN" },
+                    { phone: "0543546010", name: "Verified Sandbox Subscriber (MTN)", net: "MTN" },
                   ].map((sub) => (
                     <button
                       key={sub.phone}

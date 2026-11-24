@@ -665,13 +665,13 @@ aiRouter.get("/api/ai/simulator/contacts", (_req: Request, res: Response) => {
     },
     {
       phone: "0543546010",
-      name: "Hannes Aboagye",
+      name: "Verified Sandbox Subscriber (MTN)",
       network: "MTN",
       tier: "Tier 3",
       verified: false,
       source: "SIMULATION",
-      suggestedPromptEn: "Transfer 100 GHS to Hannes Aboagye on 0543546010",
-      suggestedPromptTw: "Mane sika ɔha kɔma Hannes Aboagye wɔ 0543546010",
+      suggestedPromptEn: "Transfer 100 GHS to Verified Sandbox Subscriber on 0543546010",
+      suggestedPromptTw: "Mane sika ɔha kɔma Verified Sandbox Subscriber wɔ 0543546010",
     },
     {
       phone: "0244123456",

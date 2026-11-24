@@ -14,10 +14,10 @@ export interface DemoRecipientFixture {
 }
 
 export const SANDBOX_RECIPIENT_FIXTURES: Record<string, DemoRecipientFixture> = {
-  // Test fixture 0: Verified MTN subscriber (Hannes Aboagye)
+  // Test fixture 0: MTN sandbox subscriber placeholder
   "0543546010": {
     phoneNumber: "0543546010",
-    name: "Hannes Aboagye",
+    name: "Verified Sandbox Subscriber (MTN)",
     network: "MTN",
     isVerified: true,
   },

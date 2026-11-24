@@ -311,7 +311,7 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
     const response = await request(app)
       .post("/api/ai/synthesize")
       .send({
-        text: "You are about to send forty two Ghana cedis to Hannes Aboagye, whose phone number is zero five four three five four six zero one zero. Do you confirm?",
+        text: "You are about to send forty two Ghana cedis to Verified Sandbox Subscriber (MTN), whose phone number is zero five four three five four six zero one zero. Do you confirm?",
         language: "en",
         sessionId: `readback_audio_${Date.now()}`,
       });
@@ -343,7 +343,7 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
     transactionStateMachine.getOrCreateSession(pinSessionId, "en", "VOICE");
     transactionStateMachine.transition(pinSessionId, "RECIPIENT_VERIFIED", {
       recipientPhone: "0543546010",
-      recipientName: "Hannes Aboagye",
+      recipientName: "Verified Sandbox Subscriber (MTN)",
       isRecipientVerified: true,
       callerPhone: "+233244123456",
     });
@@ -379,7 +379,7 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
     transactionStateMachine.transition(sessionId, "RECIPIENT_VERIFIED", {
       callerPhone: "+233244123456",
       recipientPhone: "0543546010",
-      recipientName: "Hannes Aboagye",
+      recipientName: "Verified Sandbox Subscriber (MTN)",
       isRecipientVerified: true,
       network: "MTN",
     });

@@ -570,7 +570,7 @@ export function useCallSession() {
               : phone === "0241234567"
               ? "Kwame Nyameba"
               : phone === "0543546010"
-              ? "Hannes Aboagye"
+              ? "Verified Sandbox Subscriber (MTN)"
               : `Subscriber ending in ${phone.slice(-4)}`;
 
             addLog(`[OP18] Recipient found: ${name} (${phone})`);
@@ -754,7 +754,7 @@ export function useCallSession() {
               : phone === "0241234567"
               ? "Kwame Nyameba"
               : phone === "0543546010"
-              ? "Hannes Aboagye"
+              ? "Verified Sandbox Subscriber (MTN)"
               : `Subscriber ending in ${phone.slice(-4)}`;
 
             addLog(`[ASR Recipient Recognized]: ${phone} (${name}). Advancing to verification.`);

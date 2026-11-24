@@ -198,14 +198,14 @@
       activeConvState: null,
       enteredPinDigits: '',
       callerPhone: '0543546010',
-      callerName: 'Hannes Aboagye (My Real Phone)',
+      callerName: 'Verified Sandbox Subscriber (MTN)',
       lastReference: 'OKP-847291',
       lastMomoDetails: null
     },
     linkedPhone: {
       msisdn: '0543546010',
       formatted: '+233 54 354 6010',
-      name: 'Hannes Aboagye (My Real Phone)',
+      name: 'Verified Sandbox Subscriber (MTN)',
       amount: '5.00',
       isSynced: true,
     },
@@ -928,7 +928,7 @@
         // Fallback default subscribers
         this.subscribers = [
           { phoneNumber: "0241234567", name: "Kwame Nyameba", network: "MTN" },
-          { phoneNumber: "0543546010", name: "Hannes Aboagye", network: "MTN" },
+          { phoneNumber: "0543546010", name: "Verified Sandbox Subscriber (MTN)", network: "MTN" },
           { phoneNumber: "0244123456", name: "Kwame Mensah", network: "MTN" },
           { phoneNumber: "0249876543", name: "Kofi Annan", network: "MTN" },
           { phoneNumber: "0201234567", name: "Ama Serwaa", network: "Telecel" },
@@ -1040,11 +1040,11 @@
       const amountInput = document.getElementById('simLinkedAmountInput');
 
       const phone = phoneInput ? phoneInput.value.trim() : (this.linkedPhone ? this.linkedPhone.msisdn : '0543546010');
-      const name = nameInput ? nameInput.value.trim() : (this.linkedPhone ? this.linkedPhone.name : 'Hannes Aboagye');
+      const name = nameInput ? nameInput.value.trim() : (this.linkedPhone ? this.linkedPhone.name : 'Verified Sandbox Subscriber (MTN)');
       const amount = amountInput ? amountInput.value.trim() : (this.linkedPhone ? this.linkedPhone.amount : '5.00');
 
       if (!this.linkedPhone) {
-        this.linkedPhone = { msisdn: '0543546010', formatted: '+233 54 354 6010', name: 'Hannes Aboagye', amount: '5.00', isSynced: true };
+        this.linkedPhone = { msisdn: '0543546010', formatted: '+233 54 354 6010', name: 'Verified Sandbox Subscriber (MTN)', amount: '5.00', isSynced: true };
       }
 
       this.linkedPhone.msisdn = phone;
@@ -1358,7 +1358,7 @@
       const viewport = document.getElementById('stepControlsViewport');
       if (viewport) {
         const phone = this.linkedPhone ? this.linkedPhone.msisdn : '0543546010';
-        const name = this.linkedPhone ? this.linkedPhone.name : 'Hannes Aboagye (My Real Phone)';
+        const name = this.linkedPhone ? this.linkedPhone.name : 'Verified Sandbox Subscriber (MTN)';
         const amount = this.linkedPhone ? parseFloat(this.linkedPhone.amount || 5).toFixed(2) : '5.00';
         viewport.innerHTML = `
           <div style="padding: 14px 8px; text-align: center;">

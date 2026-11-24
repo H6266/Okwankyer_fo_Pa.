@@ -12,7 +12,7 @@ interface SubscriberRecord {
 const INITIAL_SUBSCRIBERS: SubscriberRecord[] = [
   { phone: "0553838464", name: "Kwame Nyamebere", network: "MTN", tier: "Tier 2", verified: true },
   { phone: "0241234567", name: "Kwame Nyameba", network: "MTN", tier: "Tier 1", verified: true },
-  { phone: "0543546010", name: "Hannes Aboagye", network: "MTN", tier: "Tier 3", verified: true },
+  { phone: "0543546010", name: "Verified Sandbox Subscriber (MTN)", network: "MTN", tier: "Tier 3", verified: true },
   { phone: "0244123456", name: "Kwame Mensah", network: "MTN", tier: "Tier 2", verified: true },
   { phone: "0201234567", name: "Ama Serwaa", network: "Telecel", tier: "Tier 2", verified: true },
   { phone: "0271234567", name: "Yaw Osei", network: "AT", tier: "Tier 1", verified: true },
