@@ -1,42 +1,52 @@
-# Security Architecture & Threat Model
-### Ɔkwankyerɛfo Pa ("The Good Guide")
+# Security status and operational limitations
 
-**Security Policy & Threat Specification**  
-**Version:** 2.4.0  
-**Status:** Active Production Baseline  
+## Current status
 
----
+This repository contains a voice application prototype and a simulated pilot flow. No real payment, participant call, or production financial action is authorized by the pilot. The staging Blueprint keeps inbound voice disabled, the kill switch active, the allowlist enabled and empty, and evidence collection disabled.
 
-## 1. Core Security Invariant: The Zero-PIN Voice Security Boundary
+**Do not enable telephone or participant traffic until the callback-authentication and evidence-storage gates below are resolved and approved.**
 
-Mobile Money users in Ghana are frequently targeted by eavesdroppers, shoulder-surfers, and fraud syndicates when transacting in crowded public environments (trotro stations, market stalls, community centers).
+## Africa's Talking callback authentication
 
-### Strict Boundary Rules:
-1. **Never Prompt for PIN via Voice**: Ɔkwankyerɛfo Pa NEVER asks a caller to speak or dial their secret Mobile Money PIN over the cellular call.
-2. **Never Record Audio during PIN Entry**: Speech recognition recording is strictly halted prior to payment initiation.
-3. **Out-of-Band Network Authorization**: PIN authorization is exclusively conducted via the carrier's encrypted SIM Application Toolkit (STK) or USSD screen push modal (`*170#` screen prompt) on the subscriber's physical handset.
-4. **Zero-Knowledge Architecture**: The Ɔkwankyerɛfo Pa server has zero access to user PINs, never stores PINs, and automatically scrubs any accidental PIN-like patterns from application logs.
+The application cannot currently establish that a native Africa's Talking callback came from Africa's Talking. This audit could not verify an official provider signature, authenticated transport identity, or provider IP range. Provider-shaped fields such as `callerNumber`, `isActive`, `recordingUrl`, and a syntactically valid `sessionId` are attacker-controlled input, not authentication.
 
----
+In production, the webhook guard fails closed unless either:
 
-## 2. Threat Modeling & Mitigations
+- the request supplies the configured shared secret in `X-AT-Webhook-Secret` or `Authorization`; or
+- a follow-up request presents an application-issued capability.
 
-| Threat | Description | Attack Vector | Technical Mitigation in Code |
-|---|---|---|---|
-| **T1: Spoofed Webhooks** | An attacker transmits forged HTTP POST requests to `/voice-menu` or `/safe-outcome` to initiate fraudulent transfers or manipulate call state. | Remote HTTP request mimicking Africa's Talking gateway. | • `verifyAtWebhook` middleware validates Africa's Talking `sessionId` format.<br>• Optional `AT_WEBHOOK_SECRET` header validation.<br>• Out-of-band payment handoff still requires caller to approve on physical handset. |
-| **T2: Audio Prompt Tampering** | An attacker uploads a malicious or deceptive audio clip to replace legitimate IVR prompts (e.g. replacing safe confirmation with deceptive instruction). | Unauthenticated audio upload endpoint (`/api/upload-audio`). | • `requireAdminAuth` middleware enforces Bearer token authentication via `ADMIN_TOKEN`.<br>• `PROTECTED_FILENAMES` allowlist strictly prevents overwriting production prompts.<br>• Upload size capped at 2MB.<br>• Custom uploads isolated to `/audio/custom_uploads/`. |
-| **T3: Webhook Replay & Double Billing** | Network retries or malicious replay of `/safe-outcome` causes multiple RequestToPay pushes. | Telephony gateway duplicate delivery. | • `TransactionStateMachine` enforces unique per-session idempotency keys (`idemp_${sessionId}_${referenceId}`).<br>• Replay attempts detect terminal or pending states and return cached responses without re-executing transfers. |
-| **T4: Acoustic Eavesdropping & Shoulder Surfing** | Bystanders overhear caller's sensitive account details or PIN in public. | Ambient audio interception. | • Voice layer only requires verbal or DTMF confirmation of the transaction.<br>• PIN entry is completely removed from the voice call.<br>• Phone numbers are masked in readbacks (e.g. "ending in 8 4 6 4"). |
-| **T5: Path Traversal Attack** | An attacker attempts to read or stream arbitrary server files via `/audio/../../etc/passwd`. | Manipulated URL path in audio streaming route. | • `resolveSafeAudioPath` uses `path.resolve` combined with strict root containment verification.<br>• Rejects backslashes (`\`) and relative escapes (`..`).<br>• Throws `PathTraversalError` and returns HTTP 403 Forbidden. |
-| **T6: PII Exposure in Logs** | Phone numbers, account balances, or user identities leak into application logs. | Unredacted log outputs. | • `auditLogger` applies `redactPii` to all log streams.<br>• Phone numbers masked to last 3 digits (`055****464`).<br>• Bearer tokens and authorization headers redacted. |
-| **T7: SIM-Swap Fraud** | A fraudster who has illegally swapped a victim's SIM initiates transfers via voice IVR. | Possession of victim's phone number. | • While Ɔkwankyerɛfo Pa resolves recipient KYC and pushes RequestToPay, **the final transfer is impossible without the user's secret PIN**, which is known only to the legitimate subscriber and stored on the telco core, not on the SIM. |
+The application has not verified that Africa's Talking can send the shared-secret header. Therefore, a configured `AT_WEBHOOK_SECRET` alone does not authenticate a native provider request. Do not put that secret in a callback URL. Keep `AT_INBOUND_VOICE_ENABLED=false` until provider support for an authentication mechanism or provider-origin network control is confirmed and the residual risk is approved. No provider IP allowlist is configured.
 
----
+After an authenticated request, generated follow-up VoiceXML callback/redirect URLs carry an HMAC-signed capability bound to a session ID and exact callback path. Capabilities expire after five minutes, are single-use within one process, and are invalid after a process restart. The shared signing secret is not included in the URL. The capability itself is a short-lived bearer value in the query string, so provider/platform access-log retention remains an external risk and has not been verified. This mechanism protects application-generated follow-ups; it does not authenticate the initial provider callback.
 
-## 3. Automated Security Verification in CI
+Header-authenticated initial callbacks reject a repeated session ID for 24 hours within one process. This in-memory check resets on restart and is not a provider signature or durable replay defense. Callback-shaped fallback session IDs are no longer generated. The root callback dispatch checks query as well as body fields, and the callback guard covers `/exit-grace-choice`. Do not run multiple app instances for these in-memory one-use capabilities; distributed replay storage is not implemented. Local development without a configured secret retains an unauthenticated callback path for tests only; never use that mode in staging or production.
 
-The test suite (`tests/safeConfirmationAndSecurity.test.ts`) automatically validates:
-- Path traversal rejection across POSIX and Windows escape variants.
-- Prevention of illegal state transitions.
-- Idempotency key stability across duplicate webhook payloads.
-- Automated regex scanning of application responses for credential and PIN patterns.
+The application trace stores the callback pathname, not the full URL. Call-session list/detail/turn/trace routes require administrator authentication and are rate-limited. Unauthorized administrator logs record only the route path, not query strings. Provider and hosting platform request logs may still record full URLs.
+
+## Evidence and personal data
+
+The call-evidence collector can store:
+
+- deterministic, unsalted SHA-256 prefixes of participant and call IDs (pseudonymous, not anonymous);
+- optional human and provider transcripts, intents, expected intents, synthetic entities, accessibility answers, and call outcomes.
+
+Basic phone/PIN-like text redaction is not a guarantee that arbitrary personal information is removed. Individual records remain sensitive. The collector writes JSON Lines to a local filesystem path and does not encrypt records itself.
+
+Evidence collection now requires both `PILOT_EVIDENCE_ENABLED=true` and an absolute `PILOT_EVIDENCE_STORAGE_PATH`; otherwise the submission endpoint returns HTTP 503. The staging Blueprint sets collection false and the path empty. An absolute path does not prove that a persistent disk is mounted. Render's free service filesystem is ephemeral; do not collect participant evidence there.
+
+No persistent storage provider, access policy, encryption configuration, retention schedule, backup/recovery procedure, or verified participant-data restore procedure has been approved or implemented. An administrator-authenticated deletion primitive now exists at `DELETE /api/pilot/call-evidence/participant/:participantId`, and rewrites the configured local JSONL file after removing matching anonymized records. This route is not participant-facing, does not establish a verified backup/recovery process, and must not be used against free-tier ephemeral storage. Do not enable collection until persistent storage, access controls, retention, and tested deletion/restore procedures are selected and approved. No external storage subscription is included or authorized.
+
+## Pilot language and financial boundaries
+
+- The controlled IVR is a simulation: no payment, purchase, PIN prompt, or USSD/payment handoff should occur.
+- Staging contains no live financial-provider credentials and uses `MOMO_TARGET_ENV=sandbox` and `MOMO_CURRENCY=GHS`.
+- Twi prompts and recordings are not linguistically approved. A fluent human reviewer must approve the exact material before any Twi participant call.
+- Automated tests do not establish provider authenticity, real-call accuracy, accessibility, or participant safety.
+
+## Reporting and response
+
+Report suspected vulnerabilities privately to the repository maintainers. Do not include production credentials, participant transcripts, phone numbers, or callback capability values in reports. Rotate any secret that may have appeared in URLs or logs; if the application has been deployed with the earlier query-string secret behavior, treat that shared secret as exposed.
+
+## Verification scope
+
+The audit reviewed application callback handling, URL generation and tracing, session APIs, evidence collection, staging defaults, and pilot documentation. It did not inspect Render service settings, provider account configuration, external platform logs, or the provider's inaccessible documentation. No staging deployment or live callback test was performed.

@@ -75,23 +75,32 @@ function redactSensitiveText(text: string): string {
 }
 
 export class RealCallPilotService {
-  private readonly filePath = path.resolve(process.cwd(), "data", "real_call_pilot.jsonl");
+  private readonly defaultFilePath = path.resolve(process.cwd(), "data", "real_call_pilot.jsonl");
   private records: RealCallEvidence[] = [];
 
   constructor() {
-    this.load();
+    if (this.isEnabled()) this.load();
+  }
+
+  public isEnabled(): boolean {
+    const storagePath = process.env.PILOT_EVIDENCE_STORAGE_PATH?.trim();
+    return process.env.PILOT_EVIDENCE_ENABLED === "true" &&
+      Boolean(storagePath && path.isAbsolute(storagePath));
+  }
+
+  private get filePath(): string {
+    const storagePath = process.env.PILOT_EVIDENCE_STORAGE_PATH?.trim();
+    return storagePath && path.isAbsolute(storagePath)
+      ? path.resolve(storagePath)
+      : this.defaultFilePath;
   }
 
   private load(): void {
-    try {
-      if (!fs.existsSync(this.filePath)) return;
-      const lines = fs.readFileSync(this.filePath, "utf8").split("\n").filter((line) => line.trim());
-      this.records = lines.map((line) => JSON.parse(line) as RealCallEvidence).filter((record) =>
-        record.consentRecorded === true
-      );
-    } catch {
-      this.records = [];
-    }
+    if (!fs.existsSync(this.filePath)) return;
+    const lines = fs.readFileSync(this.filePath, "utf8").split("\n").filter((line) => line.trim());
+    this.records = lines.map((line) => JSON.parse(line) as RealCallEvidence).filter((record) =>
+      record.consentRecorded === true
+    );
   }
 
   private persist(record: RealCallEvidence): void {
@@ -104,6 +113,9 @@ export class RealCallPilotService {
     callId: string;
     participantId: string;
   }): RealCallEvidence {
+    if (!this.isEnabled()) {
+      throw new Error("Call evidence collection is disabled until an approved persistent storage path is configured.");
+    }
     if (input.consentRecorded as unknown !== true) {
       throw new Error("Explicit participant consent is required.");
     }
@@ -128,13 +140,30 @@ export class RealCallPilotService {
         : undefined,
     };
 
-    this.records.push(record);
     this.persist(record);
+    this.records.push(record);
     return record;
   }
 
   public getRecords(): RealCallEvidence[] {
     return this.records.map((record) => ({ ...record }));
+  }
+
+  public deleteParticipant(participantId: string): number {
+    if (!this.isEnabled()) {
+      throw new Error("Call evidence collection is disabled until an approved persistent storage path is configured.");
+    }
+    const anonymizedParticipantId = anonymize(participantId);
+    const removed = this.records.filter((record) => record.participantId === anonymizedParticipantId).length;
+    this.records = this.records.filter((record) => record.participantId !== anonymizedParticipantId);
+
+    const dir = path.dirname(this.filePath);
+    fs.mkdirSync(dir, { recursive: true });
+    const remainingLines = this.records
+      .map((record) => JSON.stringify(record))
+      .join("\n");
+    fs.writeFileSync(this.filePath, remainingLines ? `${remainingLines}\n` : "", "utf8");
+    return removed;
   }
 
   public clearForTesting(): void {

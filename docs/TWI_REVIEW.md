@@ -5,6 +5,8 @@
 **Date:** 2026-10-03  
 **Auditor Note:** In accordance with project instructions, no Twi text has been unilaterally altered. Linguistic anomalies, Anglicisms, loanword adaptations, and dialectal variations are flagged below for native expert validation.
 
+**Approval status:** No fluent human reviewer approval is recorded. The wording and recordings listed here remain unapproved and must not be presented as linguistically validated or used in participant calls as approved material.
+
 ## 2026-10-12 Audio Synchronization POC
 
 - Corrected stale primary OP07, OP08, OP09, OP17, OP26, and OP33 manifest paths to the supplied filenames without removing alternate takes.

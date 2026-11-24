@@ -19,7 +19,7 @@ import { pilotControls } from '../src/services/pilotControls';
 import { dataRetentionService } from '../src/services/dataRetentionService';
 import { paymentReconciliation } from '../src/services/paymentReconciliation';
 import { isSpokenPinPresent } from '../src/ai_system/brain/brain';
-import { checkReplayGuard, safeCompare } from '../src/providers/telephony/webhookGuard';
+import { isInboundVoiceEnabled } from '../src/providers/telephony/inboundVoiceConfig';
 import { languagePolicyConfig } from '../src/ai_system/brain/languagePolicy';
 
 interface GateResult {
@@ -58,19 +58,13 @@ export async function verifyAllGates(): Promise<{ allPassed: boolean; results: G
   });
 
   // Gate 3: Webhook Security & Replay Protection Gate
-  const timingSafe = safeCompare('test-secret', 'test-secret');
-  const replayTest = checkReplayGuard({
-    body: { sessionId: 'gate-test-session', nonce: `gate-nonce-${Date.now()}` },
-    headers: {},
-  } as any);
-  const webhookGatePassed = timingSafe && replayTest.valid;
+  const inboundDisabled = !isInboundVoiceEnabled();
+  const webhookGatePassed = false;
   results.push({
     id: 'GATE-03',
     name: 'Webhook Security & Replay Gate',
     passed: webhookGatePassed,
-    details: webhookGatePassed
-      ? 'Constant-time verification and sliding-window replay guard operational'
-      : 'Webhook guard timing or replay validation failed',
+    details: `Blocked: native provider authentication is unverified; inbound voice ${inboundDisabled ? "is disabled" : "is enabled"}.`,
   });
 
   // Gate 4: Per-Number Allowlist Gate

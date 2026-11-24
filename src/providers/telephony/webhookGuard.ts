@@ -1,9 +1,7 @@
 /**
  * Ɔkwankyerɛfo Pa - Africa's Talking Telephony Webhook Verification Guard
  * 
- * Protects IVR callback endpoints from spoofing, replay, and malformed payloads.
- * Strictly enforces constant-time comparison via crypto.timingSafeEqual and
- * requires AT_WEBHOOK_SECRET in production.
+ * Verifies shared-secret ingress and short-lived, session-bound callback capabilities.
  */
 
 import crypto from "crypto";
@@ -11,19 +9,36 @@ import { Request, Response, NextFunction } from "express";
 import { auditLogger } from "../../services/auditLogger";
 
 export const DEFAULT_AT_WEBHOOK_SECRET = "okwankyer_telephony_webhook_secret_default_prod_key_32b";
+const CALLBACK_CAPABILITY_TTL_MS = 5 * 60 * 1000;
+const usedCallbackNonces = new Map<string, number>();
+const authenticatedEntrySessions = new Map<string, number>();
+const callbackProcessId = crypto.randomBytes(16).toString("hex");
+const ENTRY_SESSION_REPLAY_TTL_MS = 24 * 60 * 60 * 1000;
+const INITIAL_CALLBACK_PATHS = new Set([
+  "/",
+  "/voice-menu",
+  "/voice",
+  "/voice/callback",
+  "/voice/webhook",
+  "/voice-callback",
+  "/callback",
+  "/telephony/callback",
+  "/api/voice",
+  "/api/voice/callback",
+]);
 
 /**
  * Validates that webhook security configuration is sound at boot time.
- * In production, fails boot if AT_WEBHOOK_SECRET is missing.
+ * In production, fails boot if AT_WEBHOOK_SECRET is missing or weak.
  */
 export function validateWebhookSecurityConfig(): void {
   const isProd = process.env.NODE_ENV === "production";
   const secret = process.env.AT_WEBHOOK_SECRET;
 
   if (isProd) {
-    if (!secret || secret.trim().length < 16) {
+    if (!secret || secret.trim().length < 32 || secret === DEFAULT_AT_WEBHOOK_SECRET) {
       throw new Error(
-        "[FATAL SECURITY ERROR] In production, AT_WEBHOOK_SECRET must be configured with at least 16 characters. Server startup halted."
+        "[FATAL SECURITY ERROR] In production, AT_WEBHOOK_SECRET must be an independently generated secret of at least 32 characters. Server startup halted."
       );
     }
   }
@@ -41,32 +56,82 @@ export function safeCompare(a: string, b: string): boolean {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
-const seenNonces = new Map<string, number>();
-
-export function resetReplayCache(): void {
-  seenNonces.clear();
+interface CallbackCapability {
+  sessionId: string;
+  path: string;
+  expiresAt: number;
+  nonce: string;
+  processId: string;
 }
 
-export function checkReplayGuard(req: Request | any): { valid: boolean; reason?: string } {
-  const nonce = req.body?.nonce || req.query?.nonce || req.headers?.["x-at-nonce"];
-  const timestamp = req.body?.timestamp || req.query?.timestamp || req.headers?.["x-at-timestamp"];
+export function createCallbackCapability(sessionId: string, callbackPath: string): string {
+  const secret = process.env.AT_WEBHOOK_SECRET;
+  if (!secret || secret.trim().length < 32 || secret === DEFAULT_AT_WEBHOOK_SECRET) {
+    throw new Error("A strong AT_WEBHOOK_SECRET is required to issue callback capabilities.");
+  }
+  const payload: CallbackCapability = {
+    sessionId,
+    path: callbackPath,
+    expiresAt: Date.now() + CALLBACK_CAPABILITY_TTL_MS,
+    nonce: crypto.randomBytes(16).toString("base64url"),
+    processId: callbackProcessId,
+  };
+  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = crypto.createHmac("sha256", secret).update(encoded).digest("base64url");
+  return `${encoded}.${signature}`;
+}
+
+function verifyCallbackCapability(
+  token: string,
+  sessionId: string,
+  callbackPath: string,
+): { valid: boolean; reason?: string } {
+  const secret = process.env.AT_WEBHOOK_SECRET;
+  if (!secret || secret.trim().length < 32 || secret === DEFAULT_AT_WEBHOOK_SECRET) {
+    return { valid: false, reason: "CALLBACK_SIGNING_KEY_UNAVAILABLE" };
+  }
+  const [encoded, suppliedSignature, extra] = token.split(".");
+  if (!encoded || !suppliedSignature || extra !== undefined) {
+    return { valid: false, reason: "MALFORMED_CALLBACK_CAPABILITY" };
+  }
+  const expectedSignature = crypto.createHmac("sha256", secret).update(encoded).digest("base64url");
+  if (!safeCompare(suppliedSignature, expectedSignature)) {
+    return { valid: false, reason: "INVALID_CALLBACK_CAPABILITY" };
+  }
+
+  let payload: CallbackCapability;
+  try {
+    payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as CallbackCapability;
+  } catch {
+    return { valid: false, reason: "MALFORMED_CALLBACK_CAPABILITY" };
+  }
   const now = Date.now();
-
-  if (timestamp) {
-    const ts = typeof timestamp === "number" ? timestamp : parseInt(String(timestamp), 10);
-    if (!isNaN(ts) && (now - ts > 5 * 60 * 1000 || ts - now > 5 * 60 * 1000)) {
-      return { valid: false, reason: "STALE_TIMESTAMP_REPLAY" };
-    }
+  if (
+    payload.sessionId !== sessionId ||
+    payload.path !== callbackPath ||
+    payload.processId !== callbackProcessId ||
+    typeof payload.expiresAt !== "number" ||
+    payload.expiresAt <= now ||
+    payload.expiresAt > now + CALLBACK_CAPABILITY_TTL_MS ||
+    typeof payload.nonce !== "string" ||
+    !payload.nonce
+  ) {
+    return { valid: false, reason: "CALLBACK_CAPABILITY_SCOPE_OR_EXPIRY_INVALID" };
   }
 
-  if (nonce) {
-    if (seenNonces.has(nonce)) {
-      return { valid: false, reason: "DUPLICATE_NONCE_REPLAY" };
-    }
-    seenNonces.set(nonce, now);
+  for (const [nonce, expiry] of usedCallbackNonces) {
+    if (expiry <= now) usedCallbackNonces.delete(nonce);
   }
-
+  if (usedCallbackNonces.has(payload.nonce)) {
+    return { valid: false, reason: "CALLBACK_CAPABILITY_REPLAYED" };
+  }
+  usedCallbackNonces.set(payload.nonce, payload.expiresAt);
   return { valid: true };
+}
+
+export function resetCallbackCapabilities(): void {
+  usedCallbackNonces.clear();
+  authenticatedEntrySessions.clear();
 }
 
 const callerCounts = new Map<string, { count: number; resetAt: number }>();
@@ -90,7 +155,6 @@ export function checkCallerRateLimit(caller: string, limit: number = 30): { allo
 }
 
 export function verifyAtWebhook(req: Request, res: Response, next: NextFunction): void {
-  const isProd = process.env.NODE_ENV === "production";
   const expectedSecret = process.env.AT_WEBHOOK_SECRET;
 
   // Attach diagnostic response headers helper
@@ -100,71 +164,53 @@ export function verifyAtWebhook(req: Request, res: Response, next: NextFunction)
     res.status(status).send("<Response><Reject/></Response>");
   };
 
-  const sessionId = (req.body?.sessionId || req.query?.sessionId || "") as string;
-
-  // 1. Check required Africa's Talking session identifier
+  const sessionId = String(req.body?.sessionId || req.query?.sessionId || "");
   if (!sessionId) {
-    if (!isProd || req.body?.callerNumber || req.query?.callerNumber || req.body?.phoneNumber || req.body?.isActive !== undefined) {
-      const fallbackSession = `at-session-${Date.now()}`;
-      if (req.body && typeof req.body === "object") req.body.sessionId = fallbackSession;
-      if (req.query && typeof req.query === "object") (req.query as any).sessionId = fallbackSession;
-      return next();
-    }
     auditLogger.log("warn", "SECURITY", "Rejected telephony callback without sessionId", req.ip);
     rejectWithReason(400, "Missing sessionId in telephony callback");
     return;
   }
 
-  // 2. Validate format of sessionId (alphanumeric, dashes, colons, underscores)
   if (!/^[a-zA-Z0-9_\-.:]{3,128}$/.test(sessionId)) {
-    auditLogger.log("warn", "SECURITY", `Rejected malformed sessionId: "${sessionId.slice(0, 32)}"`, req.ip);
-    rejectWithReason(400, `Malformed sessionId format: "${sessionId.slice(0, 32)}"`);
+    auditLogger.log("warn", "SECURITY", "Rejected malformed telephony sessionId", req.ip);
+    rejectWithReason(400, "Malformed sessionId format");
     return;
   }
 
-  // 3. Webhook signature/secret verification
-  const rawProvided = (req.headers["x-at-webhook-secret"] || req.query?.secret || req.headers["authorization"] || "") as string;
+  const rawProvided = (req.headers["x-at-webhook-secret"] || req.headers["authorization"] || "") as string;
   const providedSecret = rawProvided.startsWith("Bearer ") ? rawProvided.slice(7).trim() : rawProvided.trim();
-
-  // If secret is configured and provided, strictly enforce constant-time matching
-  if (expectedSecret && providedSecret) {
-    if (!safeCompare(providedSecret, expectedSecret)) {
-      auditLogger.log("error", "SECURITY", `Telephony webhook signature verification failed for session ${sessionId}`, req.ip);
-      rejectWithReason(401, "Invalid AT_WEBHOOK_SECRET signature");
-      return;
-    }
-  } else if (expectedSecret && !providedSecret) {
-    // Africa's Talking native telephony voice gateways do not attach custom HTTP headers when dialing inbound numbers.
-    // Allow legitimate inbound call payloads to establish the session automatically.
-    const isLegitAtPayload = Boolean(
-      req.body?.callerNumber ||
-      req.query?.callerNumber ||
-      req.body?.phoneNumber ||
-      req.body?.isActive !== undefined ||
-      req.body?.direction ||
-      req.body?.callSessionState ||
-      req.body?.callTransferState ||
-      req.body?.recordingUrl ||
-      req.body?.RecordingUrl ||
-      req.body?.recordingURL ||
-      req.query?.recordingUrl ||
-      req.query?.RecordingUrl ||
-      req.query?.recordingURL
-    );
-    if (!isLegitAtPayload) {
-      auditLogger.log("warn", "SECURITY", `Telephony callback missing signature for session ${sessionId}`, req.ip);
-      rejectWithReason(401, "Missing AT_WEBHOOK_SECRET signature");
-      return;
-    }
-    auditLogger.log("info", "TELEPHONY", `Telephony callback accepted for session ${sessionId} (automatic pass-through)`);
-  } else {
-    // Open webhook mode (when AT_WEBHOOK_SECRET is not set)
-    auditLogger.log(
-      "info",
-      "TELEPHONY",
-      `Telephony callback accepted for session ${sessionId} (automatic public gateway)`
-    );
+  const capability = req.query?.callbackCapability;
+  if (typeof capability === "string") {
+    const result = verifyCallbackCapability(capability, sessionId, req.path);
+    if (result.valid) return next();
+    auditLogger.log("warn", "SECURITY", `Rejected telephony callback capability: ${result.reason}`, req.ip);
+    rejectWithReason(401, "Invalid or expired callback capability");
+    return;
   }
 
-  next();
+  if (
+    expectedSecret &&
+    providedSecret &&
+    safeCompare(providedSecret, expectedSecret) &&
+    INITIAL_CALLBACK_PATHS.has(req.path)
+  ) {
+    const now = Date.now();
+    for (const [knownSession, expiry] of authenticatedEntrySessions) {
+      if (expiry <= now) authenticatedEntrySessions.delete(knownSession);
+    }
+    if (authenticatedEntrySessions.has(sessionId)) {
+      auditLogger.log("warn", "SECURITY", "Rejected replayed initial telephony callback", req.ip);
+      rejectWithReason(401, "Initial callback already received for this session");
+      return;
+    }
+    authenticatedEntrySessions.set(sessionId, now + ENTRY_SESSION_REPLAY_TTL_MS);
+    return next();
+  }
+
+  if (process.env.NODE_ENV !== "production" && !expectedSecret) {
+    return next();
+  }
+
+  auditLogger.log("warn", "SECURITY", "Rejected unauthenticated telephony callback", req.ip);
+  rejectWithReason(401, expectedSecret ? "Missing or invalid callback authentication" : "Callback authentication is not configured");
 }

@@ -320,7 +320,7 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     }
   });
 
-  it("returns a playable menu for an enabled Africa's Talking Ringing callback", async () => {
+  it("rejects production callbacks when inbound voice is explicitly disabled", async () => {
     const previousNodeEnv = process.env.NODE_ENV;
     const previousSetting = process.env.AT_INBOUND_VOICE_ENABLED;
     process.env.NODE_ENV = "production";
@@ -339,10 +339,8 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
         });
 
       expect(response.status).toBe(200);
-      expect(response.text).toContain("<GetDigits");
-      expect(response.text).toContain("/language-selection?");
-      expect(response.text).not.toContain("<Response/>");
-      expect(response.text).not.toContain("<Reject/>");
+      expect(response.text).toContain("<Reject/>");
+      expect(response.text).not.toMatch(/<Say\b|<Play\b|<GetDigits\b|<Record\b/i);
     } finally {
       if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = previousNodeEnv;
@@ -351,10 +349,14 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
     }
   });
 
-  it("keeps production inbound voice enabled despite a stale false env override", () => {
+  it("allows an explicit false inbound-voice setting to disable production callback handling", () => {
     expect(isInboundVoiceEnabled({
       NODE_ENV: "production",
       AT_INBOUND_VOICE_ENABLED: "false",
+    })).toBe(false);
+    expect(isInboundVoiceEnabled({
+      NODE_ENV: "production",
+      AT_INBOUND_VOICE_ENABLED: "true",
     })).toBe(true);
     expect(isInboundVoiceEnabled({
       NODE_ENV: "test",
@@ -1114,32 +1116,37 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
 
   it("keeps Africa's Talking webhook authentication through callback and redirect steps", async () => {
     const originalSecret = process.env.AT_WEBHOOK_SECRET;
-    const secret = "test-telephony-webhook-secret";
+    const secret = "test-telephony-webhook-secret-with-sufficient-length";
     process.env.AT_WEBHOOK_SECRET = secret;
 
     try {
       const sessionId = "AT-TEST-SECRET-001";
       const callRes = await request(app)
         .post("/voice-menu")
-        .query({ secret })
+        .set("x-at-webhook-secret", secret)
         .send({ sessionId, callerNumber: "+233543546010", isActive: "1" });
       expect(callRes.status).toBe(200);
-      expect(callRes.text).toContain(`/language-selection?sessionId=${sessionId}&amp;lang=twi&amp;secret=${secret}`);
+      expect(callRes.text).not.toContain(`secret=${secret}`);
+      expect(callRes.text).toContain("callbackCapability=");
+      const languageCapability = callRes.text.match(/callbackCapability=([A-Za-z0-9._-]+)/)?.[1];
+      expect(languageCapability).toBeTruthy();
 
       const languageRes = await request(app)
         .post("/language-selection")
-        .query({ sessionId, secret })
+        .query({ sessionId, callbackCapability: languageCapability })
         .send({ dtmfDigits: "1" });
       expect(languageRes.status).toBe(200);
-      expect(languageRes.text).toContain(`/service-select?sessionId=${sessionId}&amp;lang=en&amp;secret=${secret}`);
+      expect(languageRes.text).not.toContain(`secret=${secret}`);
+      const serviceCapability = languageRes.text.match(/callbackCapability=([A-Za-z0-9._-]+)/)?.[1];
+      expect(serviceCapability).toBeTruthy();
 
       const serviceMenuRes = await request(app)
         .get("/service-select")
-        .query({ sessionId, lang: "en", secret });
+        .query({ sessionId, lang: "en", callbackCapability: serviceCapability });
       expect(serviceMenuRes.status).toBe(200);
       expect(serviceMenuRes.text).toContain("/audio/English_Library/2.m4a?format=mp3");
       expect(serviceMenuRes.text).toContain(`callbackUrl="http://`);
-      expect(serviceMenuRes.text).toContain(`secret=${secret}`);
+      expect(serviceMenuRes.text).toContain("callbackCapability=");
 
       const missingSecretRes = await request(app)
         .post("/language-selection")
@@ -1152,6 +1159,34 @@ describe("Task 8: End-to-End IVR Integration Flows", () => {
       } else {
         process.env.AT_WEBHOOK_SECRET = originalSecret;
       }
+    }
+  });
+
+  it("protects root query callbacks and the exit grace route in production", async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalInboundSetting = process.env.AT_INBOUND_VOICE_ENABLED;
+    const originalSecret = process.env.AT_WEBHOOK_SECRET;
+    process.env.NODE_ENV = "production";
+    process.env.AT_INBOUND_VOICE_ENABLED = "true";
+    process.env.AT_WEBHOOK_SECRET = "test-telephony-webhook-secret-with-sufficient-length";
+
+    try {
+      const rootCallback = await request(app)
+        .post("/?sessionId=AT-ROOT-QUERY-001")
+        .send({ callerNumber: "+233543546010" });
+      expect(rootCallback.status).toBe(401);
+
+      const exitCallback = await request(app)
+        .post("/exit-grace-choice")
+        .send({ sessionId: "AT-EXIT-GRACE-001", dtmfDigits: "0" });
+      expect(exitCallback.status).toBe(401);
+    } finally {
+      if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = originalNodeEnv;
+      if (originalInboundSetting === undefined) delete process.env.AT_INBOUND_VOICE_ENABLED;
+      else process.env.AT_INBOUND_VOICE_ENABLED = originalInboundSetting;
+      if (originalSecret === undefined) delete process.env.AT_WEBHOOK_SECRET;
+      else process.env.AT_WEBHOOK_SECRET = originalSecret;
     }
   });
 

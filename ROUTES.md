@@ -59,10 +59,10 @@ This document provides a comprehensive inventory of every HTTP and WebSocket rou
 
 ## 2. Authentication Enforcement Mechanisms
 
-1. **Africa's Talking Webhooks (`verifyAtWebhook`)**:
-   - Compares the `x-at-webhook-secret` header or `secret` query parameter against `AT_WEBHOOK_SECRET` using `crypto.timingSafeEqual`.
-   - In production (`NODE_ENV=production`), missing or mismatched credentials immediately return `401 Unauthorized` with logged security alert.
-   - In development, an explicit warning is logged if the dev bypass is active.
+1. **Africa's Talking callbacks (`verifyAtWebhook`)**:
+   - Production requires a matching `X-AT-Webhook-Secret`/`Authorization` header or an application-issued, short-lived, session/path-bound follow-up capability.
+   - The shared secret is never accepted from a query parameter. A native provider-shaped request and a valid session ID are not proof of provider origin.
+   - Local development without a configured secret retains a test-only bypass. The provider's native callback authentication mechanism has not been verified; keep inbound voice disabled until that gate is resolved.
 
 2. **Admin API Authentication (`requireAdminAuth`)**:
    - Enforces `Authorization: Bearer <ADMIN_TOKEN>`.

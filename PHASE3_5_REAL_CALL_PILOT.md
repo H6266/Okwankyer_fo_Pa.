@@ -1,6 +1,6 @@
 # Phase 3.5 Real-Call Pilot Evidence
 
-**Status:** Pilot collector and controlled-call safeguards are implemented. No consenting human participants or real carrier calls have been conducted in this environment.
+**Status:** The collector is implemented but disabled by default. No consenting human participants or real carrier calls have been conducted in this environment.
 
 ## Pilot state
 
@@ -17,11 +17,11 @@
 
 ## 1. Evidence collection
 
-The existing Africa's Talking voice routes now feed the existing pilot metrics collector and data-retention session registry.
+The admin-only evidence endpoint accepts observations only when `PILOT_EVIDENCE_ENABLED=true` and an absolute `PILOT_EVIDENCE_STORAGE_PATH` is configured. Both are disabled/empty in the staging Blueprint. An absolute path does not prove that the platform mounted persistent storage; an operator must verify that separately. The endpoint is not ready for participant evidence collection.
 
-An admin-only `/api/pilot/call-evidence` endpoint accepts anonymized, consent-gated call observations:
+An admin-only `/api/pilot/call-evidence` endpoint accepts consent-gated call observations:
 
-- anonymized participant and call IDs;
+- pseudonymized participant and call IDs (deterministic, unsalted SHA-256 prefixes; not anonymous);
 - preferred language;
 - test task;
 - optional human-verified and provider transcripts;
@@ -34,9 +34,19 @@ An admin-only `/api/pilot/call-evidence` endpoint accepts anonymized, consent-ga
 - failure origin;
 - optional accessibility feedback.
 
-The endpoint requires explicit `consentRecorded: true`. IDs are hashed. Phone-like and PIN-like text is redacted before persistence.
+The endpoint requires explicit `consentRecorded: true`. Phone-like and PIN-like text is redacted before persistence. Redaction cannot guarantee removal of arbitrary personal information.
 
-The `/api/pilot/call-evidence/report` endpoint produces aggregate evidence only.
+The `/api/pilot/call-evidence/report` endpoint is admin-authenticated. Individual records can include transcripts, intents, synthetic entities, accessibility answers, and call outcomes, so they remain sensitive even after redaction.
+
+## Storage, access, retention, and deletion
+
+- The collector writes JSON Lines to a local filesystem path. A free Render service has ephemeral storage; evidence and file-based pilot-control changes are not durable across service replacement or redeploy.
+- An approved persistent disk or database has not been selected or configured. No external storage subscription is authorized by this work.
+- Evidence endpoints require admin authentication and rate limiting. The collector does not encrypt records itself; platform storage controls and encryption must be assessed before use.
+- There is no evidence-specific retention/deletion workflow or participant-level withdrawal endpoint. The testing-only clear method is not an operational deletion process.
+- No backup or recovery procedure is configured. Do not rely on evidence surviving restart, redeploy, or service loss.
+
+Until storage, access review, retention, backup/recovery, and participant withdrawal/deletion procedures are approved and tested, keep evidence collection disabled and do not submit participant evidence. The call-evidence endpoint returns HTTP 503 unless it is explicitly enabled with a configured absolute storage path.
 
 ## 2. Pilot controls
 
@@ -48,19 +58,20 @@ The existing pilot controls support:
 - bounded clarification attempts;
 - the existing pilot metrics API.
 
-The pilot router is now mounted in the Express application. Real-call evidence can therefore be collected only through the existing authenticated admin API.
+The pilot router is mounted in the Express application. Call evidence is disabled by default and requires an explicitly enabled persistent-storage path; the current staging blueprint leaves it disabled.
 
 ## 3. Real carrier-call readiness
 
-The application is ready for a controlled call attempt only when:
+No controlled call should be attempted until all of these are true:
 
 1. The operator has explicit authorization.
-2. Africa's Talking credentials and webhook configuration are set.
-3. The inbound number callback is configured.
-4. Participant consent is obtained before any call.
-5. Caller numbers are allowlisted.
-6. Pilot metrics and ASR feedback storage have no PIN or PII exposure.
-7. The environment is restricted to sandbox/synthetic transactions.
+2. Africa's Talking callback authenticity is established using a provider-supported mechanism or an approved, verified compensating control.
+3. Inbound voice is explicitly enabled only after callback security verification.
+4. Twi prompts have been reviewed and approved by a fluent human before any Twi participant call.
+5. Participant consent is obtained before any call.
+6. Caller numbers are allowlisted.
+7. Approved persistent evidence storage, access controls, retention, withdrawal/deletion, and backup/recovery are configured and tested before any evidence is collected.
+8. The environment is restricted to sandbox/synthetic transactions.
 
 No real financial transaction is authorized by this document or collector.
 
@@ -68,7 +79,7 @@ No real financial transaction is authorized by this document or collector.
 
 Existing synthetic evidence:
 
-- 807/807 automated tests passed.
+- 819/819 automated tests passed in the current repository verification run.
 - 30 synthetic voice scenarios passed.
 - Low-confidence and empty-speech fallback tests passed.
 - DTMF fallback and spoken-PIN tests passed.
@@ -125,7 +136,7 @@ Every confirmed software defect must receive a focused regression test before re
 
 ## 10. Readiness assessment
 
-**Not ready for a larger accessibility pilot solely on the strength of automated tests.** The infrastructure is pilot-ready, but real human-call evidence is missing.
+**Not ready for telephone or participant traffic.** Callback authentication is unresolved, persistent evidence storage and deletion procedures are not configured, Twi has not been linguistically approved, and real human-call evidence is missing.
 
 Readiness requirements:
 
@@ -133,6 +144,9 @@ Readiness requirements:
 - English and fluent Twi coverage;
 - diverse speeds, accents, environments, and telephone quality;
 - sandbox-only call activities;
+- verified callback authenticity or approved compensating controls;
+- persistent evidence storage and tested data handling procedures;
+- fluent human Twi approval before Twi participant calls;
 - actual carrier callback recording/transcript data;
 - human-verified transcripts where permitted;
 - audited recovery and audio delivery outcomes;

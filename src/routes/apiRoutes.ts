@@ -433,7 +433,9 @@ apiRouter.get("/api/kyc/lookup", kycLookupRateLimiter, requireAdminAuth, async (
 });
 
 // ── Call Sessions & Ledger (Dashboard & Simulator Tracing) ─────────────
-apiRouter.get("/api/sessions", adminRateLimiter, (_req: Request, res: Response) => {
+apiRouter.use("/api/sessions", adminRateLimiter, requireAdminAuth);
+
+apiRouter.get("/api/sessions", (_req: Request, res: Response) => {
   res.json({
     sessions: callSessionRepository.getAllSessions(),
     demoModeActive: config.demoMode,

@@ -125,6 +125,12 @@ pilotRouter.post("/api/pilot/metrics/reset", (_req: Request, res: Response) => {
 });
 
 pilotRouter.post("/api/pilot/call-evidence", (req: Request, res: Response) => {
+  if (!realCallPilot.isEnabled()) {
+    return res.status(503).json({
+      success: false,
+      error: "Call evidence collection is disabled until an approved persistent storage path is configured.",
+    });
+  }
   if (req.body?.consentRecorded !== true) {
     return res.status(400).json({
       success: false,
@@ -144,10 +150,10 @@ pilotRouter.post("/api/pilot/call-evidence", (req: Request, res: Response) => {
       success: true,
       data: record,
     });
-  } catch (error: any) {
-    res.status(400).json({
+  } catch (error: unknown) {
+    res.status(500).json({
       success: false,
-      error: error?.message || "Could not record call evidence.",
+      error: error instanceof Error ? error.message : "Could not record call evidence.",
     });
   }
 });
@@ -158,7 +164,21 @@ pilotRouter.get("/api/pilot/call-evidence/report", (_req: Request, res: Response
     data: realCallPilot.getReport(),
   });
 });
-
+pilotRouter.delete("/api/pilot/call-evidence/participant/:participantId", (req: Request, res: Response) => {
+  const participantId = String(req.params.participantId || "").trim();
+  if (!participantId) {
+    return res.status(400).json({ success: false, error: "A participant ID is required." });
+  }
+  try {
+    const removed = realCallPilot.deleteParticipant(participantId);
+    res.json({ success: true, removedRecords: removed });
+  } catch (error: unknown) {
+    res.status(503).json({
+      success: false,
+      error: error instanceof Error ? error.message : "Could not delete participant evidence.",
+    });
+  }
+});
 // ── Payment Reconciliation ──────────────────────────────────────────────────
 
 pilotRouter.post("/api/pilot/reconciliation/run", async (req: Request, res: Response) => {

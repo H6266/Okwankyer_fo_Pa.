@@ -29,7 +29,7 @@ services:
       - key: AT_VOICE_NUMBER
         sync: false
       - key: AT_INBOUND_VOICE_ENABLED
-        value: "true"
+        value: "false"
       - key: BRAIN_MODE
         value: offline_only
       - key: PILOT_KILL_SWITCH
@@ -37,6 +37,10 @@ services:
       - key: PILOT_ALLOWLIST_ENABLED
         value: "true"
       - key: PILOT_ALLOWED_NUMBERS
+        value: ""
+      - key: PILOT_EVIDENCE_ENABLED
+        value: "false"
+      - key: PILOT_EVIDENCE_STORAGE_PATH
         value: ""
       - key: PILOT_CONSENT_NOTICE_ENABLED
         value: "true"
@@ -55,4 +59,4 @@ services:
       - key: MOMO_BASE_URL
         value: https://sandbox.momodeveloper.mtn.com
       - key: MOMO_CURRENCY
-        value: EUR
+        value: GHS

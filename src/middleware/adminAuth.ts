@@ -181,7 +181,7 @@ export function requireAdminAuth(
   auditLogger.log(
     "warn",
     "SECURITY",
-    `Unauthorized admin attempt from ${req.ip} on ${req.originalUrl}`
+    `Unauthorized admin attempt from ${req.ip} on ${req.path}`
   );
 
   res.status(401).json({

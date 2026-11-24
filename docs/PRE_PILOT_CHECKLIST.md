@@ -13,11 +13,12 @@ Every item below must be confirmed GREEN before routing live caller traffic thro
 | **GATE-02** | **Model Environment Variable** | GREEN | `GEMINI_MODEL` explicitly defined (e.g., `gemini-2.5-flash` or `gemini-3.8-flash`). Literal fallbacks forbidden. |
 | **GATE-03** | **Per-Number Allowlist** | GREEN | Allowlist active (`pilotControls.isAllowlistEnabled()`); only approved test numbers receive model calls. |
 | **GATE-04** | **Runtime Kill Switch** | GREEN | Kill switch tested and operational. Instantly forces `offline_only` mode without deployment. |
-| **GATE-05** | **Webhook Authenticity & Replays** | GREEN | `AT_WEBHOOK_SECRET` enforced; duplicate nonces rejected; caller rate limiting active. |
+| **GATE-05** | **Webhook Authenticity & Replays** | BLOCKED | Native Africa's Talking authentication is unverified. Keep inbound voice disabled until a provider-supported mechanism or approved compensating control is verified. |
 | **GATE-06** | **Zero-PIN & PII Protection** | GREEN | Spoken PINs intercepted before models or logs; all 10-digit numbers masked; consent notice active. |
 | **GATE-07** | **Payment Reconciliation** | GREEN | Automated scanner checks and resolves PENDING payments exceeding 5-minute timeout. |
-| **GATE-08** | **Dialect Safety Gate** | GREEN | Akuapem Twi strictly gated (`productionReady: false`) until native verification files are provided. |
+| **GATE-08** | **Dialect Safety Gate** | BLOCKED | Twi prompts remain linguistically unapproved until a fluent human reviewer approves the exact wording. |
 | **GATE-09** | **Full Automated Test Suite** | GREEN | 100% of test suites passing (`npm test`). |
+| **GATE-10** | **Evidence Persistence and Deletion** | BLOCKED | Evidence collection is disabled; persistent storage, retention, backup/recovery, and participant withdrawal/deletion procedures are not configured. |
 
 ---
 

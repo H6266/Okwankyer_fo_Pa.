@@ -47,4 +47,4 @@ Configure via environment variables or pass options dynamically:
 - `MOMO_API_KEY` - MoMo API Key
 - `MOMO_TARGET_ENV` - `sandbox` or `production`
 - `MOMO_BASE_URL` - `https://sandbox.momodeveloper.mtn.com` or `https://proxy.momoapi.mtn.com`
-- `MOMO_CURRENCY` - `GHS` for production or `EUR` for sandbox
+- `MOMO_CURRENCY` - `GHS` for the Ghana deployment; set explicitly when a provider sandbox requires another test currency.

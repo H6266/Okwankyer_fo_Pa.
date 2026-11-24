@@ -100,7 +100,7 @@ export function loadConfigFromEnv(): MoMoConfig {
       : MOMO_SANDBOX_BASE_URL
   );
 
-  const currency = process.env.MOMO_CURRENCY || (targetEnv === "production" ? "GHS" : "EUR");
+  const currency = process.env.MOMO_CURRENCY || "GHS";
 
   // In MTN MoMo Open API, Collections and Disbursements are separate product subscriptions.
   // A Disbursement key is invalid for Collections endpoints and vice versa.

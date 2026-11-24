@@ -2,6 +2,8 @@
 
 This checklist prepares a staging environment. It does not authorise deployment or real financial calls.
 
+**Twi approval gate:** All Twi wording and recordings remain unreviewed. A fluent human reviewer must approve the exact prompts before any participant call. Do not describe the Twi material as linguistically approved before that review is recorded.
+
 ## 1. Scope and authorization
 
 - [ ] Written authorization for the controlled pilot.
@@ -21,8 +23,8 @@ Set secrets only in the staging platform's secret manager:
 - `AT_USERNAME`
 - `AT_API_KEY`
 - `AT_VOICE_NUMBER`
-- `AT_INBOUND_VOICE_ENABLED=true`
-- `AT_WEBHOOK_SECRET`
+- `AT_INBOUND_VOICE_ENABLED=false` until provider authentication or a verified compensating control is approved.
+- `AT_WEBHOOK_SECRET` (at least 32 characters; signs follow-up capabilities but does not prove provider origin).
 - `ADMIN_TOKEN`
 - `SESSION_SECRET`
 - `GEMINI_API_KEY` only if ASR/NLU/brain provider access is authorised.
@@ -32,6 +34,8 @@ Set secrets only in the staging platform's secret manager:
 - `PILOT_ALLOWLIST_ENABLED=true`
 - `PILOT_ALLOWED_NUMBERS=<comma-separated test numbers>`
 - `PILOT_KILL_SWITCH=true` before initial configuration.
+- `PILOT_EVIDENCE_ENABLED=false`
+- `PILOT_EVIDENCE_STORAGE_PATH` empty until approved persistent storage is configured.
 - `MAX_CLARIFICATION_ATTEMPTS=3`
 - `PILOT_CONSENT_NOTICE_ENABLED=true`
 - `MOMO_TARGET_ENV=sandbox`
@@ -44,21 +48,19 @@ Set secrets only in the staging platform's secret manager:
 
 Do not paste secrets into source code, this checklist, chat, or call evidence.
 
-## 3. Africa's Talking configuration
+## 3. Africa's Talking authentication gate
 
-- [ ] Sandbox/approved voice number enabled.
-- [ ] Voice callback URL points to staging HTTPS `/voice-menu` or the configured inbound route.
-- [ ] Speech callback URL accepts `sessionId`, `step`, `lang`, and recording fields.
-- [ ] Recording callback URL is publicly accessible.
-- [ ] Callback timeout and retry behavior verified.
-- [ ] `AT_WEBHOOK_SECRET` verification tested without weakening webhook handling.
+- [ ] Obtain provider documentation/support confirmation of a request-authentication mechanism or provider-origin network controls.
+- [ ] Independently verify the mechanism and document residual risks; a valid session ID or callback-shaped body is not authentication.
+- [ ] Do not configure a callback or enable `AT_INBOUND_VOICE_ENABLED` until the security control is reviewed and approved.
+- [ ] Do not put `AT_WEBHOOK_SECRET` in a URL. Follow-up capabilities are session/path-bound and short-lived but query values may be retained by external logs.
 - [ ] The callback does not request or accept a PIN.
 
-No credentials or callback logs should contain raw caller transcripts or phone numbers.
+No credentials or callback logs should contain raw caller transcripts, phone numbers, or unredacted query capabilities.
 
-## 4. Callback verification
+## 4. Callback verification (after security gate)
 
-Verify:
+Only after the authentication gate above is satisfied, verify with an authorized provider-owned test call:
 
 - inbound call callback;
 - language selection;
@@ -70,7 +72,7 @@ Verify:
 - timeout callback;
 - no unexpected redirect loops.
 
-Call health and callback endpoints with test sessions only.
+Do not treat locally fabricated HTTP requests as proof of provider authenticity. Before the gate is satisfied, limit checks to health endpoints and local tests; keep inbound voice disabled.
 
 ## 5. Admin access
 
@@ -130,7 +132,18 @@ Before opening calls:
 - [ ] Spoken confirmation cannot initiate payment.
 - [ ] Provider success is reported only after provider confirmation.
 
-## 11. Rollback and emergency shutdown
+## 11. Evidence persistence and participant data
+
+- [ ] Evidence collection remains disabled by default.
+- [ ] Approve a persistent storage approach before enabling collection; do not use free-tier ephemeral storage for participant evidence.
+- [ ] Verify the configured storage path is actually mounted persistent storage; an absolute path alone is insufficient.
+- [ ] Document access controls and encryption; evidence can contain transcripts, intent/entity fields, accessibility feedback, and call outcomes.
+- [ ] Approve retention and tested backup/recovery procedures.
+- [ ] Exercise the administrator-authenticated participant withdrawal route `DELETE /api/pilot/call-evidence/participant/:participantId` on the approved persistent store; verify matching evidence is removed and the report is updated.
+- [ ] Obtain documented legal/operational approval for retention, deletion timing, backup contents, restore procedures, and deletion propagation to backups.
+- [ ] Obtain approval before adding any external database or storage subscription.
+
+## 12. Rollback and emergency shutdown
 
 1. Call the kill-switch endpoint with `active:true`.
 2. Disable the allowlist.
@@ -141,17 +154,19 @@ Before opening calls:
 7. Preserve anonymized incident records only.
 8. Restore the prior staging environment configuration only under authorised change control.
 
-## 12. Go/no-go decision
+## 13. Go/no-go decision
 
 Proceed only if:
 
-- [ ] callback is verified;
+- [ ] provider callback authentication or an approved compensating control is verified;
 - [ ] health and audio delivery pass;
 - [ ] pilot controls pass;
 - [ ] kill switch passes;
 - [ ] consent procedure passes;
 - [ ] test numbers are approved;
 - [ ] sandbox financial protections pass;
+- [ ] Twi wording is approved by a fluent human reviewer before Twi participant calls;
+- [ ] approved persistent evidence storage and participant-data controls are operational before evidence collection;
 - [ ] named operator and stop authority are available.
 
 If any item fails, do not start a real call.

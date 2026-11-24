@@ -1,6 +1,8 @@
 import express from "express";
+import os from "node:os";
+import path from "node:path";
 import request from "supertest";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pilotRouter } from "../src/routes/pilotRoutes";
 import { realCallPilot } from "../src/services/realCallPilot";
 
@@ -13,11 +15,17 @@ function createApp() {
 
 describe("Phase 3.5 real-call evidence gate", () => {
   beforeEach(() => {
+    vi.stubEnv("PILOT_EVIDENCE_ENABLED", "true");
+    vi.stubEnv(
+      "PILOT_EVIDENCE_STORAGE_PATH",
+      path.join(os.tmpdir(), `okwankyer-test-real-call-pilot-${process.pid}.jsonl`),
+    );
     realCallPilot.clearForTesting();
   });
 
   afterEach(() => {
     realCallPilot.clearForTesting();
+    vi.unstubAllEnvs();
   });
 
   it("requires explicit consent and anonymizes evidence", () => {
@@ -116,5 +124,55 @@ describe("Phase 3.5 real-call evidence gate", () => {
         consentRecorded: false,
       });
     expect(response.status).toBe(400);
+  });
+
+  it("supports administrator deletion for participant withdrawal", () => {
+    realCallPilot.record({
+      consentRecorded: true,
+      callId: "call-delete-1",
+      participantId: "participant-delete-1",
+      language: "en",
+      task: "transfer",
+      conversationCompleted: false,
+      spokenResponseDelivered: true,
+      unexpectedCallTermination: false,
+      emptyTranscription: false,
+      recognitionTimeout: false,
+      clarificationRequired: false,
+      recoveryUsed: "none",
+    });
+
+    expect(realCallPilot.deleteParticipant("participant-delete-1")).toBe(1);
+    expect(realCallPilot.getReport().attemptedCalls).toBe(0);
+  });
+
+  it("disables evidence collection unless explicitly enabled with an absolute storage path", async () => {
+    const app = createApp();
+    const body = {
+      callId: "call-1",
+      participantId: "participant-1",
+      language: "en",
+      consentRecorded: true,
+    };
+
+    vi.stubEnv("PILOT_EVIDENCE_ENABLED", "false");
+    const disabled = await request(app)
+      .post("/api/pilot/call-evidence")
+      .set("Authorization", "Bearer admin")
+      .send(body);
+    expect(disabled.status).toBe(503);
+
+    vi.stubEnv("PILOT_EVIDENCE_ENABLED", "true");
+    vi.stubEnv("PILOT_EVIDENCE_STORAGE_PATH", "relative/path.jsonl");
+    const relativePath = await request(app)
+      .post("/api/pilot/call-evidence")
+      .set("Authorization", "Bearer admin")
+      .send(body);
+    expect(relativePath.status).toBe(503);
+    expect(relativePath.body.error).toMatch(/persistent storage path/i);
+    vi.stubEnv(
+      "PILOT_EVIDENCE_STORAGE_PATH",
+      path.join(os.tmpdir(), `okwankyer-test-real-call-pilot-${process.pid}.jsonl`),
+    );
   });
 });

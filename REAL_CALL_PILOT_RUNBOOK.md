@@ -2,9 +2,9 @@
 
 ## Purpose
 
-This runbook prepares an authorised, sandbox-only first controlled pilot using the existing Africa's Talking integration. It does not recruit participants or start calls.
+This runbook is preparatory only. **Do not place participant calls or collect evidence yet.** The staging callback authentication, persistent evidence storage, withdrawal/deletion procedures, and Twi linguistic approval are unresolved.
 
-No pilot should begin until written consent, test numbers, an authorised administrator, and a stop authority are available.
+Do not treat the procedure below as authorization to deploy, configure a provider callback, recruit participants, or start calls. Written consent, test numbers, an authorized administrator, and a stop authority are necessary but not sufficient.
 
 ## Pilot objectives
 
@@ -16,20 +16,21 @@ No pilot should begin until written consent, test numbers, an authorised adminis
 
 ## Administrator responsibilities
 
-The administrator must:
+Before any future pilot, the administrator must:
 
-1. Verify staging configuration and callback URLs.
-2. Set the kill switch to `true` before configuration.
-3. Enable the allowlist and add only approved test numbers.
-4. Confirm that `MOMO_TARGET_ENV=sandbox` and no live disbursement credentials are usable.
-5. Obtain and document participant consent outside the application.
-6. Assign a random participant ID and random call ID.
-7. Record each observed task through the pilot evidence endpoint.
-8. Stop the pilot with the kill switch if calls, audio, credentials, or consent are uncertain.
+1. Obtain approval for a provider-supported callback authentication mechanism or verified compensating control.
+2. Verify staging configuration and callback URLs only after that security gate.
+3. Keep the kill switch engaged during setup.
+4. Confirm that `MOMO_TARGET_ENV=sandbox` and no live financial credentials are configured.
+5. Obtain approval for persistent evidence storage, access, retention, backup/recovery, and withdrawal/deletion.
+6. Obtain fluent human review and approval of the Twi wording before any Twi participant call.
+7. Obtain and document participant consent outside the application.
+8. Enable inbound voice, allowlist, and evidence collection only after all gates pass.
+9. Stop the pilot if calls, audio, credentials, storage, or consent are uncertain.
 
 ## Who to recruit
 
-Recruit at least 10 consenting adults, including:
+Only after all security, storage, language, and ethics gates pass, recruit at least 10 consenting adults, including:
 
 - Native/fluent Akan/Twi speakers.
 - Ghanaian English speakers.
@@ -52,11 +53,13 @@ Do not collect participants' real PINs, passwords, account numbers, or financial
 5. Record `consentRecorded: true` for the evidence record only after consent.
 6. Do not collect a consented recording unless the operator is authorised and provider recording is enabled.
 
-Participants may decline or stop. Their participation can be withdrawn and no further evidence should be submitted.
+Participants may decline or stop. A tested participant-level deletion process does not currently exist, so do not collect evidence until an approved withdrawal/deletion process is implemented and tested.
 
-## Start procedure
+## Start procedure (blocked pending approvals)
 
-Use admin authentication as implemented by `requireAdminAuth`.
+Use admin authentication as implemented by `requireAdminAuth`. The current staging defaults intentionally keep inbound voice disabled, the kill switch active, the allowlist enabled and empty, and evidence collection disabled.
+
+Until the security and storage gates are approved, limit checks to health and local tests. Do not configure a provider callback, add allowlisted caller numbers, disengage the kill switch, or enable evidence collection. Once approved, document and test the following separately:
 
 1. Verify staging health:
    - `GET /health`
@@ -79,9 +82,9 @@ Use admin authentication as implemented by `requireAdminAuth`.
 
 The status endpoint masks allowlisted numbers. The allowlist `unmasked=true` option exists, but administrators should avoid using or sharing it.
 
-## Calling a participant
+## Calling a participant (not authorized yet)
 
-Use an approved staging Africa's Talking test number and existing inbound callback. Do not send or receive real money.
+Do not use a provider number or call a participant until callback authenticity and the other gates are independently verified and approved. The current staging Blueprint disables inbound voice. Do not send or receive real money.
 
 Before each call:
 
@@ -106,9 +109,9 @@ Suggested call observations:
 - unexpected disconnection;
 - conversation completion.
 
-## Record call evidence
+## Record call evidence (disabled)
 
-Send a single evidence record after each task/call:
+The call-evidence endpoint returns HTTP 503 by default. Keep it disabled. Do not submit participant evidence until persistent storage, retention, backup/recovery, access control, and participant withdrawal/deletion procedures are approved and tested.
 
 `POST /api/pilot/call-evidence`
 
@@ -142,7 +145,7 @@ Optional fields:
 - `failureOrigin`: `carrier`, `asr`, `normalization`, `nlu`, `session`, `audio`, or `none`
 - `accessibility`: the five booleans in `PILOT_TEST_SCENARIOS.md`
 
-Do not submit PINs, passwords, real phone numbers, or real financial details. The collector hashes IDs and redacts phone-like and numeric text, but operators must also keep source notes clean.
+Do not submit PINs, passwords, real phone numbers, or real financial details. The collector uses deterministic unsalted hashes for IDs and basic text redaction; records remain sensitive and potentially identifiable. Do not rely on that redaction as anonymization.
 
 ## Retrieve reports
 
@@ -150,7 +153,7 @@ Do not submit PINs, passwords, real phone numbers, or real financial details. Th
 - Pilot evidence: `GET /api/pilot/call-evidence/report`
 - Status/allowlist: `GET /api/pilot/status`, `GET /api/pilot/allowlist`
 
-No report should be described as real-pilot evidence until at least one consented record and its call metadata are present.
+The report currently contains no real-call evidence. Do not enable collection or describe synthetic results as real-pilot evidence.
 
 ## Failure handling
 

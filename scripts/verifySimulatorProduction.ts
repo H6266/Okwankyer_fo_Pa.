@@ -3,7 +3,7 @@
  * 
  * Verifies:
  * 1. WebhookGuard is NOT bypassed for browser requests (direct /voice-menu rejects with 401 <Reject/>).
- * 2. Real Africa's Talking calls with AT_WEBHOOK_SECRET pass full verification (200 OK).
+ * 2. A request carrying the configured shared-secret header passes ingress verification (200 OK).
  * 3. Simulator routes (/api/simulator/*) are mounted behind existing dashboard adminAuth.
  * 4. With admin auth, simulator returns VoiceXML with public host callbackUrl and audioUrl (honoring x-forwarded-proto/host).
  * 5. First audio URL returned can be successfully requested (HTTP 200/206).
@@ -54,8 +54,8 @@ async function runAcceptanceChecks() {
     process.exit(1);
   }
 
-  // ── CHECK 2: Direct /voice-menu WITH valid Africa's Talking Secret ──
-  console.log("--- Check 2: Direct POST /voice-menu WITH valid Africa's Talking Secret ---");
+  // ── CHECK 2: Configured shared-secret ingress header ──
+  console.log("--- Check 2: Direct POST /voice-menu WITH configured shared-secret header ---");
   const check2 = await request(app)
     .post("/voice-menu")
     .set("Content-Type", "application/x-www-form-urlencoded")
@@ -65,7 +65,7 @@ async function runAcceptanceChecks() {
   console.log(`Status: ${check2.status}`);
   console.log(`Response Body:\n${check2.text}`);
   if (check2.status === 200 && check2.text.includes("<Response>") && check2.text.includes("<GetDigits")) {
-    console.log("✅ Check 2 PASSED: Real Africa's Talking webhook succeeds with full secret verification.\n");
+    console.log("✅ Check 2 PASSED: Configured shared-secret ingress header accepted; this does not verify provider origin.\n");
   } else {
     console.error("❌ Check 2 FAILED");
     process.exit(1);

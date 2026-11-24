@@ -22,7 +22,7 @@ import { mtnMomoService } from "../modules/mtnMomoService";
 import { auditLogger } from "../services/auditLogger";
 import { callSessionRepository } from "../services/callSessionRepository";
 import type { StoredCallSession } from "../services/callSessionRepository";
-import { verifyAtWebhook } from "../providers/telephony/webhookGuard";
+import { createCallbackCapability, verifyAtWebhook } from "../providers/telephony/webhookGuard";
 import { paymentSaga } from "../integrations/momo/paymentSaga";
 import { FINANCIAL_LIMITS, financialPolicy } from "../ai_system/core/financialPolicy";
 import { durableTransactionStore } from "../services/durableTransactionStore";
@@ -206,6 +206,7 @@ const TELEPHONY_ROUTES = new Set([
   "/submit-transfer",
   "/check-status",
   "/post-success-choice",
+  "/exit-grace-choice",
   "/pin-handoff",
   "/confirm-speech",
   "/enter-pin",
@@ -217,11 +218,17 @@ const TELEPHONY_ROUTES = new Set([
 voiceRouter.use((req: Request, res: Response, next) => {
   const isRootAtWebhook = req.path === "/" && req.method === "POST" && Boolean(
     req.body?.sessionId ||
+    req.query?.sessionId ||
     req.body?.callerNumber ||
+    req.query?.callerNumber ||
     req.body?.phoneNumber ||
+    req.query?.phoneNumber ||
     req.body?.isActive !== undefined ||
+    req.query?.isActive !== undefined ||
     req.body?.direction ||
-    req.body?.callSessionState
+    req.query?.direction ||
+    req.body?.callSessionState ||
+    req.query?.callSessionState
   );
 
   if (TELEPHONY_ROUTES.has(req.path) || isRootAtWebhook) {
@@ -564,7 +571,7 @@ function recordAtTelephonyTurn(
   callSessionRepository.addApiTrace(sessionId, {
     id: `at-api-${Date.now()}-${stored.apiRequests.length + 1}`,
     timestamp: new Date().toLocaleTimeString(),
-    endpoint: req.originalUrl || req.path,
+    endpoint: req.path,
     method: req.method,
     provider: "AFRICAS_TALKING_VOICEXML",
     latencyMs: typeof res.locals?.atTurnLatencyMs === "number"
@@ -677,22 +684,28 @@ function xmlResponse(res: Response, content: string, decision?: (Partial<IvrDeci
   } else if (req && process.env.AT_WEBHOOK_SECRET) {
     const baseUrl = getBaseUrl(req);
     if (baseUrl) {
-      const webhookSecret = process.env.AT_WEBHOOK_SECRET;
-      const addWebhookSecret = (rawUrl: string): string => {
+      const addCallbackCapability = (rawUrl: string): string => {
         const target = new URL(rawUrl.replace(/&amp;/g, "&"), baseUrl);
         if (target.origin !== new URL(baseUrl).origin) {
           return rawUrl;
         }
-        target.searchParams.set("secret", webhookSecret);
+        const sessionId = target.searchParams.get("sessionId") || responseSessionId;
+        if (typeof sessionId !== "string" || !/^[a-zA-Z0-9_\-.:]{3,128}$/.test(sessionId)) {
+          throw new Error("Cannot issue a telephony callback capability without a valid sessionId.");
+        }
+        target.searchParams.delete("secret");
+        target.searchParams.delete("callbackCapability");
+        target.searchParams.set("sessionId", sessionId);
+        target.searchParams.set("callbackCapability", createCallbackCapability(sessionId, target.pathname));
         return target.toString().replace(/&/g, "&amp;");
       };
 
       xml = xml
         .replace(/(callbackUrl=["'])([^"']+)(["'])/gi, (_match, prefix, url, suffix) =>
-          `${prefix}${addWebhookSecret(url)}${suffix}`
+          `${prefix}${addCallbackCapability(url)}${suffix}`
         )
         .replace(/(<Redirect[^>]*>)([^<]+)(<\/Redirect>)/gi, (_match, open, url, close) =>
-          `${open}${addWebhookSecret(url)}${close}`
+          `${open}${addCallbackCapability(url)}${close}`
         );
     }
   }

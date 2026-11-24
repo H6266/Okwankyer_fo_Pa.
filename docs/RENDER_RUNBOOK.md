@@ -3,6 +3,8 @@
 
 This runbook guides production deployment of the Ɔkwankyerɛfo Pa Voice Accessibility Layer on Render.
 
+> **Deployment blocked:** This document is historical preparation, not authorization to create or update a production service. Provider callback authentication is unresolved, staging is not deployed, and no real-call pilot has been validated. Do not configure production provider callbacks or live financial credentials.
+
 ---
 
 ## 1. Prerequisites
@@ -10,7 +12,7 @@ This runbook guides production deployment of the Ɔkwankyerɛfo Pa Voice Accessi
 1. An active [Render](https://render.com) account.
 2. An [Africa's Talking](https://africastalking.com) account with the active Voice Virtual Number `+233 30 804 8097`.
 3. A Google Cloud project with the [Gemini API](https://aistudio.google.com) enabled.
-4. MTN Mobile Money Developer Portal credentials (for live MoMo pilot).
+4. No production financial credentials; this pilot does not authorize real payments.
 
 ---
 
@@ -26,21 +28,23 @@ Configure the following variables in the Render Dashboard under **Service ➔ En
 | `AT_USERNAME` | Yes | `sandbox` (or live username) | Africa's Talking API account username. |
 | `AT_API_KEY` | Yes | `atsk_...` | Africa's Talking API key for voice gateway connectivity. |
 | `AT_VOICE_NUMBER` | Yes | `+233308048097` | Virtual telephony voice trunk number. |
-| `AT_WEBHOOK_SECRET` | Yes | Random URL-safe value (at least 16 characters) | Authenticity token for telephony webhooks; the initial phone-number callback URL must include the exact same value. |
+| `AT_WEBHOOK_SECRET` | Yes | Independently generated value (at least 32 characters) | Signs application follow-up capabilities; it does not authenticate a native provider request by itself. |
 | `GEMINI_API_KEY` | Yes | `AIzaSy...` | Google Gemini API key for spoken ASR & intent parsing. |
 | `ADMIN_TOKEN` | Yes | `sec_admin_...` | Secret Bearer token protecting administrative endpoints (`/api/upload-audio`). |
-| `MOMO_SUBSCRIPTION_KEY` | Optional | `32-char hex string` | MTN MoMo API subscription key. |
-| `MOMO_API_USER_ID` | Optional | `uuid` | MTN MoMo API User UUID. |
-| `MOMO_API_KEY` | Optional | `secret` | MTN MoMo API Secret Key. |
-| `MOMO_TARGET_ENV` | Optional | `sandbox` (or `production`) | Target environment for MTN MoMo. |
+| `MOMO_SUBSCRIPTION_KEY` | Not for this pilot | Unset | Do not configure production financial credentials. |
+| `MOMO_API_USER_ID` | Not for this pilot | Unset | Do not configure production financial credentials. |
+| `MOMO_API_KEY` | Not for this pilot | Unset | Do not configure production financial credentials. |
+| `MOMO_TARGET_ENV` | Optional | `sandbox` only | No production target is authorized for the pilot. |
 | `CORS_ORIGINS` | Optional | `*` | Allowed CORS origins for dashboard API access. |
 | `DEMO_MODE` | Optional | `false` | When false, suppresses synthetic test fixture data in production views. |
 
 ---
 
-## 3. Deployment Steps via `render.yaml`
+## 3. Production deployment steps — do not execute
 
-1. **Connect Repository**:
+The steps below are retained for historical context only. Do not apply `render.yaml` or trigger a production deployment as part of pilot preparation.
+
+1. **Connect Repository** (blocked):
    - In Render, click **New ➔ Blueprint**.
    - Select the repository: `https://github.com/H6266/Okwankyer_fo_Pa.git`.
 2. **Review Blueprint**:
@@ -54,28 +58,17 @@ Configure the following variables in the Render Dashboard under **Service ➔ En
 
 ---
 
-## 4. Configuring Africa's Talking Voice Callback
+## 4. Africa's Talking voice callback — blocked pending security review
 
-1. Log into your **Africa's Talking Dashboard**.
-2. Navigate to **Voice ➔ Phone Numbers**.
-3. In Render, set `AT_WEBHOOK_SECRET` to a private random value of at least 16 characters. Do not use the literal text `YOUR_WEBHOOK_SECRET`.
-4. Locate phone number **`+233 30 804 8097`**.
-5. Set the **Callback URL** to the stable Render endpoint:
-   ```
-   https://okwankyer-fo-pa.onrender.com/voice-menu
-   ```
-   Do not put the webhook secret in the Africa's Talking dashboard URL. The initial inbound Africa's Talking payload is validated as a telephony request, and the app appends the configured `AT_WEBHOOK_SECRET` to subsequent callback and redirect URLs.
-6. Click **Save**, then redeploy the Render service after changing its environment variables.
+Do not configure a production callback. The application cannot currently prove that a native callback came from Africa's Talking. A session ID or callback-shaped body is not authentication; `AT_WEBHOOK_SECRET` must not be put into a URL and does not by itself authenticate the initial provider request.
 
-**Secret rotation:** If the repository's example/default webhook secret has ever been used in a deployed callback or shared in a call log, replace `AT_WEBHOOK_SECRET` in Render with a new random value of at least 32 characters and redeploy. Never paste that secret into source control, the Africa's Talking URL field, or chat logs.
+No callback URL is provided here. Do not change any provider number or production deployment until the provider's authentication support or a provider-confirmed compensating control has been independently verified and formally approved.
 
-Use the stable Render URL for the Africa's Talking callback in production.
-GitHub Codespaces also starts the app on port 3000 and exposes a public
-forwarded URL for development, but that URL can change and the development
-server is not a production endpoint. Do not configure a production phone
-number to use the Codespaces URL.
+**Secret rotation:** If the earlier query-string secret behavior was used in any deployed environment, treat `AT_WEBHOOK_SECRET` as exposed and rotate it before further use. Never paste it into source control, a callback URL, or chat logs.
 
-An AT session marked **Aborted** can occur when the webhook is rejected. The production app returns HTTP 401 and `<Reject/>` if the URL's `secret` is missing or does not exactly match Render's `AT_WEBHOOK_SECRET`. If calls still fail after correcting this, inspect the AT session's request/response details and Render logs for the webhook status.
+Only revisit production callback configuration after the provider's authentication support or a provider-confirmed compensating control has been independently verified and formally approved. GitHub Codespaces is a development environment, not a production endpoint.
+
+An AT session marked **Aborted** can occur when a callback is rejected. A correctly shaped callback body or session ID is not authentication. Do not enable provider traffic until the provider's supported authentication mechanism or an approved compensating control is verified.
 
 ---
 
@@ -107,7 +100,7 @@ A healthy deployment returns:
   "warnCount": 0
 }
 ```
-If any check fails, inspect application logs in Render Dashboard to view correlation IDs and detailed probe diagnostics. An unsigned request to `/voice-menu` should return HTTP 401 in production; configure the callback URL in Africa's Talking with the URL-encoded `AT_WEBHOOK_SECRET` as shown above.
+If any check fails, inspect application logs in Render Dashboard using correlation IDs. Do not include callback query capabilities or credentials in tickets. Do not use a query-string secret to make an unsigned `/voice-menu` request pass.
 
 The Blueprint currently uses Render's free plan. Free web services can spin
 down when idle and take time to start again, which can delay an inbound

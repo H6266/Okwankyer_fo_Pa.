@@ -105,6 +105,7 @@ describe("MoMo environment configuration", () => {
 
     expect(config.targetEnv).toBe("sandbox");
     expect(config.baseUrl).toBe("https://sandbox.momodeveloper.mtn.com");
+    expect(config.currency).toBe("GHS");
     expect(config.collection.subscriptionKey).toBe("");
     expect(config.collection.apiUserId).toBe("");
     expect(config.collection.apiKey).toBe("");

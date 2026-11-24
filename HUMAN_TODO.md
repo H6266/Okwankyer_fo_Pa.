@@ -29,7 +29,8 @@ This document tracks all external, legal, telco, operational, and cryptographic 
 - **Why**: Africa's Talking Text-to-Speech (`<Say voice="female">`) uses an English acoustic model that cannot authentically pronounce Akan Twi phonemes (e.g. vowels Ɔ, Ɛ, and tonal pitches).
 - **Action Required**:
   1. Place a live test call through the assigned Africa's Talking virtual number (`+233308048098`).
-  2. Verify that Africa's Talking webhook signatures / secrets match the configured `AT_WEBHOOK_SECRET`.
+  2. Verify Africa's Talking-supported callback authentication or provider-origin network controls; the configured `AT_WEBHOOK_SECRET` alone does not prove provider origin.
+  3. Keep inbound voice disabled until a verified, approved callback security control is operational.
   3. Have a native Akan Twi speaker audit spoken prompts. For production deployments, all dynamic Twi numbers, recipient readbacks, and cedi amounts should use pre-recorded audio snippets (Akan number bank) played via `<Play>` rather than `<Say>` synthesized English TTS.
 
 ---
