@@ -46,6 +46,7 @@ import { ivrDecisionEngine, IvrDecision } from "../ai_system/brain/ivrDecisionEn
 import { geminiClient } from "../services/geminiClient";
 import { speechNormalizer } from "../ai_system/speech/speechNormalizer";
 import { matchReplyToAudio } from "../audio/replyAudioMatcher";
+import { getCanonicalStageRoute } from "../audio/canonicalVoiceSequence";
 import {
   ChecklistStageManager,
   ChecklistStageId,
@@ -607,6 +608,19 @@ function xmlResponse(res: Response, content: string, decision?: (Partial<IvrDeci
     }
   }
   const req = (res.req || (res as any).socket?._httpMessage?.req) as Request | undefined;
+  const canonicalChannelIsSimulator = Boolean(
+    req && (
+      req.baseUrl?.startsWith("/api/simulator") ||
+      req.originalUrl?.includes("/api/simulator")
+    )
+  );
+  const stageRoute = String(req?.path || "").replace(/^\//, "");
+  const canonicalStage = getCanonicalStageRoute(stageRoute);
+  if (canonicalStage) {
+    res.set("X-Canonical-Voice-Stage", canonicalStage.id);
+    res.set("X-Canonical-Voice-Order", String(canonicalStage.order));
+  }
+  res.set("X-Voice-Channel", canonicalChannelIsSimulator ? "SIMULATOR" : "AT_LINE");
   const responseSessionId = req?.body?.sessionId || req?.query?.sessionId;
   if (typeof responseSessionId === "string") {
     const session = transactionStateMachine.getSession(responseSessionId);
@@ -629,7 +643,7 @@ function xmlResponse(res: Response, content: string, decision?: (Partial<IvrDeci
   }
   res.set(
     "Access-Control-Expose-Headers",
-    "X-AI-Decision-Type, X-AI-Decision-Reason, X-AI-Reply-Text, X-AI-Reply-Key, X-Canonical-Prompt-Id, X-Conversation-State, X-Interaction-Mode, x-telephony-guard-reason, X-Recipient-Name, X-Recipient-Phone, X-Checklist-Stage, X-Checklist-Ready"
+    "X-AI-Decision-Type, X-AI-Decision-Reason, X-AI-Reply-Text, X-AI-Reply-Key, X-Canonical-Prompt-Id, X-Canonical-Voice-Stage, X-Canonical-Voice-Order, X-Voice-Channel, X-Conversation-State, X-Interaction-Mode, x-telephony-guard-reason, X-Recipient-Name, X-Recipient-Phone, X-Checklist-Stage, X-Checklist-Ready"
   );
   const isSimulator = Boolean(
     res.locals?.isSimulator ||

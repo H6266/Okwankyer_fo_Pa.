@@ -10,6 +10,8 @@ import {
 import { audioFileExists } from "../src/audio/catalog";
 import { getRecordingByPromptId } from "../src/audio/recordingRegistry";
 import { isDynamicPrompt } from "../src/audio/canonicalRegistry";
+import { CANONICAL_VOICE_SEQUENCE } from "../src/audio/canonicalVoiceSequence";
+import { CANONICAL_NORMAL_FLOW_STEPS } from "../src/audio/audioFlowStore";
 
 describe("Guided IVR Audio Preview", () => {
   it("follows the canonical happy path and stops at provider-pending status", () => {
@@ -28,6 +30,21 @@ describe("Guided IVR Audio Preview", () => {
 
     expect(getFlowStepById("step_20_waiting_confirmation")?.nextStepId).toBeUndefined();
     expect(TWI_SEQUENTIAL_FLOW_STEPS.some((step) => /OP(52|53|54|56)/.test(step.name))).toBe(false);
+  });
+
+  it("uses one ordered 14-stage journey for the AT line and simulator", () => {
+    expect(CANONICAL_VOICE_SEQUENCE).toHaveLength(14);
+    expect(CANONICAL_VOICE_SEQUENCE.map((stage) => stage.order)).toEqual(
+      Array.from({ length: 14 }, (_, index) => index + 1)
+    );
+    expect(new Set(CANONICAL_VOICE_SEQUENCE.map((stage) => stage.id)).size).toBe(14);
+    expect(new Set(CANONICAL_VOICE_SEQUENCE.map((stage) => stage.route)).size).toBe(14);
+    expect(CANONICAL_VOICE_SEQUENCE.find((stage) => stage.id === "handset-authorization")?.promptId).toBe("OP40");
+    expect(CANONICAL_VOICE_SEQUENCE.some((stage) => stage.route.includes("verify-pin") || stage.route.includes("enter-pin"))).toBe(false);
+    expect(CANONICAL_NORMAL_FLOW_STEPS).toHaveLength(14);
+    expect(CANONICAL_NORMAL_FLOW_STEPS.map((step) => step.sequenceOrder)).toEqual(
+      Array.from({ length: 14 }, (_, index) => index + 1)
+    );
   });
 
   it("chains sequential progression through getNextFlowStep", () => {

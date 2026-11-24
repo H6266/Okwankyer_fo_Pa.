@@ -31,6 +31,9 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
     const body = res.text;
 
     expect(body).toContain("<Response>");
+    expect(res.headers["x-canonical-voice-stage"]).toBe("welcome");
+    expect(res.headers["x-canonical-voice-order"]).toBe("1");
+    expect(res.headers["x-voice-channel"]).toBe("AT_LINE");
     const prompts = [...body.matchAll(/<Play[^>]*url="([^"]+)"/gi)].map((match) => match[1]);
     expect(prompts).toHaveLength(1);
     expect(prompts[0]).toContain("/audio/Twi/Opening_voice_welcome_to_okwankyerefopa.mp3?format=mp3");
@@ -45,6 +48,9 @@ describe("Telephony & Simulator 1:1 Parity Acceptance Tests", () => {
       .send({ dtmfDigits: "1" });
 
     expect(resEn.status).toBe(200);
+    expect(resEn.headers["x-canonical-voice-stage"]).toBe("language");
+    expect(resEn.headers["x-canonical-voice-order"]).toBe("2");
+    expect(resEn.headers["x-voice-channel"]).toBe("AT_LINE");
     expect(resEn.text).toContain("/service-select?sessionId=");
     expect(resEn.text).toContain("lang=en");
     // The language selection response advances without replaying the opening.

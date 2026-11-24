@@ -34,7 +34,7 @@ import { api } from "../../lib/api";
 import { getRecordingByUrl } from "../../audio/recordingRegistry";
 import { resolvePromptText } from "../../modules/ttsService";
 import { isDynamicPrompt, STATE_TO_CANONICAL_PROMPT_ID } from "../../audio/canonicalRegistry";
-import { MONEY_TRANSFER_FLOW_STEPS } from "../../audio/audioFlowStore";
+import { CANONICAL_NORMAL_FLOW_STEPS } from "../../audio/audioFlowStore";
 import { continuousAudioEngine } from "../../audio/continuousAudioEngine";
 import { normalizeSpokenDigits } from "../../ai_system/speech/acousticModels/ghanaAcousticDataset";
 import {
@@ -1282,13 +1282,10 @@ export const PhoneSimulatorPage: React.FC = () => {
     continuousAudioEngine.resetDiscussionBuffer();
     setInterimTranscript("");
 
-    // Play the opening greeting followed by the available localized welcome clip.
-    const followUpWelcomeAudio = initialLang === "twi"
-      ? "/audio/welcome_twi.mp3"
-      : "/audio/welcome_en.mp3";
+    // Play the canonical opening greeting once. Language choice is handled by
+    // the next route, not by a second duplicate welcome recording.
     try {
-      const welcomeSequence = [...new Set([initialWelcomeAudio, followUpWelcomeAudio])];
-      await audioPlaybackController.playSequence(welcomeSequence, initialWelcomeText);
+      await audioPlaybackController.play(initialWelcomeAudio, initialWelcomeText);
     } catch (err) {
       console.warn("[PhoneSimulator] Welcome audio sequence notice:", err);
     }
@@ -3026,8 +3023,8 @@ export const PhoneSimulatorPage: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
-                {MONEY_TRANSFER_FLOW_STEPS
-                  .filter((step) => step.flowType === "NORMAL" && step.category !== "recovery")
+                {CANONICAL_NORMAL_FLOW_STEPS
+                  .filter((step) => step.category !== "recovery")
                   .map((step) => {
                   const selectedAudio = language === "en" ? step.defaultAudioEn : step.defaultAudioTwi;
                   const audioFilename = selectedAudio.split("/").pop() || selectedAudio;

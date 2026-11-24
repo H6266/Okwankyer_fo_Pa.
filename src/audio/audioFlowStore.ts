@@ -9,6 +9,7 @@
  */
 
 import { audioPlaybackController } from "./audioPlaybackController";
+import { CANONICAL_VOICE_SEQUENCE } from "./canonicalVoiceSequence";
 
 export interface FlowStepAudioConfig {
   id: string; // e.g. "step_welcome", "step_recipient"
@@ -413,6 +414,49 @@ export const MONEY_TRANSFER_FLOW_STEPS: FlowStepAudioConfig[] = [
   },
 ];
 
+// The normal-flow studio list is derived from the same 14-stage contract used
+// by the AT line and the phone simulator.
+const NORMAL_STAGE_DEFAULTS: Record<string, {
+  category: FlowStepAudioConfig["category"];
+  defaultAudioEn: string;
+  defaultAudioTwi: string;
+  keypadAction?: string;
+}> = {
+  welcome: { category: "session", defaultAudioEn: "/audio/welcome_en.mp3", defaultAudioTwi: "/audio/Twi_library/Opening_voice_welcome_to_okwankyerefopa.mp3", keypadAction: "Press 1 (English) or 2 (Twi)" },
+  language: { category: "session", defaultAudioEn: "/audio/welcome_en.mp3", defaultAudioTwi: "/audio/Twi_library/Language_selection.mp3", keypadAction: "Press 1 (English) or 2 (Twi)" },
+  service: { category: "service", defaultAudioEn: "/api/audio/prompt-tts/en/service_selection", defaultAudioTwi: "/audio/Twi_library/Service_selection.mp3", keypadAction: "Press 1 (Mobile Money)" },
+  network: { category: "service", defaultAudioEn: "/api/audio/prompt-tts/en/network_selection", defaultAudioTwi: "/audio/Twi_library/Network_selection.mp3", keypadAction: "Press 1 (MTN), 2 (Telecel), or 3 (AT)" },
+  "send-money": { category: "service", defaultAudioEn: "/api/audio/prompt-tts/en/mtn_menu", defaultAudioTwi: "/audio/Twi_library/MTN menu.mp3", keypadAction: "Press 1 (Send Money)" },
+  "recipient-input": { category: "recipient", defaultAudioEn: "/api/audio/prompt-tts/en/enter_recipient", defaultAudioTwi: "/audio/Twi_library/Enter_recipient.mp3", keypadAction: "Enter 10 digits, then #" },
+  "recipient-readback": { category: "recipient", defaultAudioEn: "/api/audio/prompt-tts/en/OP20", defaultAudioTwi: "/api/audio/prompt-tts/twi/OP20", keypadAction: "Press 1 to confirm or 2 to change" },
+  "amount-input": { category: "amount", defaultAudioEn: "/api/audio/prompt-tts/en/enter_amount", defaultAudioTwi: "/audio/Twi_library/Enter amount.mp3", keypadAction: "Enter amount, then #" },
+  "amount-readback": { category: "amount", defaultAudioEn: "/api/audio/prompt-tts/en/OP29", defaultAudioTwi: "/api/audio/prompt-tts/twi/OP29", keypadAction: "Press 1 to confirm or 2 to change" },
+  "transaction-review": { category: "confirmation", defaultAudioEn: "/api/audio/prompt-tts/en/OP35", defaultAudioTwi: "/api/audio/prompt-tts/twi/OP35", keypadAction: "Review recipient, amount and network" },
+  "transaction-confirmation": { category: "confirmation", defaultAudioEn: "/api/audio/prompt-tts/en/confirm_continue", defaultAudioTwi: "/audio/Twi_library/Confirm_continue.mp3", keypadAction: "Press 1 to confirm, 2 to change, 0 to cancel" },
+  "handset-authorization": { category: "auth", defaultAudioEn: "/audio/welcome_en.mp3", defaultAudioTwi: "/audio/Twi_library/Pin_Handoff.mp3", keypadAction: "Authorize privately on the handset" },
+  "provider-status": { category: "outcome", defaultAudioEn: "/api/audio/prompt-tts/en/processing", defaultAudioTwi: "/audio/Twi_library/Waiting_confirmation.mp3", keypadAction: "Wait for provider status" },
+  "terminal-outcome": { category: "outcome", defaultAudioEn: "/api/audio/prompt-tts/en/OP52", defaultAudioTwi: "/audio/Twi_library/Success_sent.mp3", keypadAction: "Read pending, success or failure outcome" },
+};
+
+export const CANONICAL_NORMAL_FLOW_STEPS: FlowStepAudioConfig[] = CANONICAL_VOICE_SEQUENCE.map((stage) => {
+  const defaults = NORMAL_STAGE_DEFAULTS[stage.id];
+  return {
+    id: `normal_step_${stage.order}_${stage.id}`,
+    promptId: stage.promptId,
+    flowType: "NORMAL",
+    sequenceOrder: stage.order,
+    titleEn: `Step ${stage.order}: ${stage.titleEn}`,
+    titleTwi: `Gyinapɛn ${stage.order}: ${stage.titleTwi}`,
+    category: defaults.category,
+    defaultAudioEn: defaults.defaultAudioEn,
+    defaultAudioTwi: defaults.defaultAudioTwi,
+    transcriptEn: stage.titleEn,
+    transcriptTwi: stage.titleTwi,
+    keypadAction: defaults.keypadAction,
+    suggestedFilesTwi: [],
+  };
+});
+
 // ── Persistent Storage Key ────────────────────────────────────────────────────
 const STORAGE_KEY_OVERRIDES = "okwankyer_audio_flow_overrides_v2";
 const STORAGE_KEY_VOLUME = "okwankyer_master_volume_v2";
@@ -548,7 +592,7 @@ class AudioFlowStore {
    */
   public resolvePromptOverride(promptKeyOrId: string, language: "twi" | "en"): string | null {
     const norm = promptKeyOrId.toLowerCase().replace(/[-_]/g, "");
-    for (const step of MONEY_TRANSFER_FLOW_STEPS) {
+    for (const step of [...CANONICAL_NORMAL_FLOW_STEPS, ...MONEY_TRANSFER_FLOW_STEPS]) {
       const stepNorm = step.id.toLowerCase().replace(/[-_]/g, "");
       const promptNorm = step.promptId.toLowerCase().replace(/[-_]/g, "");
       if (stepNorm.includes(norm) || promptNorm === norm) {

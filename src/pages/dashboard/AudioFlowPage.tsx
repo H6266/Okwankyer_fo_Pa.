@@ -21,6 +21,7 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import {
+  CANONICAL_NORMAL_FLOW_STEPS,
   MONEY_TRANSFER_FLOW_STEPS,
   AUTHENTIC_TWI_RECORDINGS,
   AUTHENTIC_EN_RECORDINGS,
@@ -29,6 +30,7 @@ import {
   AvailableAudioFile,
 } from "../../audio/audioFlowStore";
 import { audioPlaybackController } from "../../audio/audioPlaybackController";
+import { CANONICAL_VOICE_SEQUENCE } from "../../audio/canonicalVoiceSequence";
 
 export const AudioFlowPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<"NORMAL" | "CONVERSATIONAL">("NORMAL");
@@ -149,7 +151,7 @@ export const AudioFlowPage: React.FC = () => {
   };
 
   // Filter steps by tab
-  const filteredSteps = MONEY_TRANSFER_FLOW_STEPS.filter((step) => {
+  const filteredSteps = (activeTab === "NORMAL" ? CANONICAL_NORMAL_FLOW_STEPS : MONEY_TRANSFER_FLOW_STEPS).filter((step) => {
     if (step.flowType !== activeTab) return false;
     if (!searchFilter.trim()) return true;
     const q = searchFilter.toLowerCase();
@@ -303,7 +305,7 @@ export const AudioFlowPage: React.FC = () => {
             <Radio className="w-4 h-4 text-emerald-600" />
             <span>Normal IVR Flow</span>
             <span className="px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px]">
-              {MONEY_TRANSFER_FLOW_STEPS.filter((s) => s.flowType === "NORMAL").length} Steps
+              {CANONICAL_NORMAL_FLOW_STEPS.length} Steps
             </span>
           </button>
 
@@ -362,6 +364,36 @@ export const AudioFlowPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {activeTab === "NORMAL" && (
+        <div className="rounded-2xl border border-[#0F382A]/10 bg-white p-4 sm:p-5 shadow-xs">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold text-[#0F382A]">Canonical 14-stage voice journey</p>
+                <p className="mt-0.5 text-xs text-slate-500">The same ordered audio contract is used by the AT line and the on-screen system simulator.</p>
+              </div>
+              <div className="flex items-center gap-2 text-[10px] font-bold">
+                <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-800">AT LINE</span>
+                <span className="text-slate-300">=</span>
+                <span className="rounded-full bg-slate-900 px-2.5 py-1 text-white">SIMULATOR</span>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+              {CANONICAL_VOICE_SEQUENCE.map((stage) => (
+                <div key={stage.id} className="relative rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                  <span className="block text-[10px] font-black text-emerald-700">{String(stage.order).padStart(2, "0")}</span>
+                  <span className="mt-1 block text-xs font-bold leading-snug text-slate-800">
+                    {selectedLanguage === "twi" ? stage.titleTwi : stage.titleEn}
+                  </span>
+                  <span className="mt-1 block font-mono text-[9px] text-slate-500">{stage.promptId}</span>
+                  {stage.dynamic && <span className="mt-1 block text-[9px] font-bold text-amber-700">LIVE DATA</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Flow Description Banner ─────────────────────────────────────── */}
       <div className={`p-4 rounded-xl border text-xs sm:text-sm flex items-start gap-3 ${
